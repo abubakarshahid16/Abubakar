@@ -1,0 +1,72 @@
+# ==============================================================================
+# Nabaa - saudi-aramco-rag-chatbot
+# Source: EXECUTION.md section 9 "Files that must be ignored" (verbatim block),
+# plus platform additions marked below.
+#
+# RULE (EXECUTION.md section 6): no client PDFs, extracted text, embeddings,
+# chats, model weights, secrets, or production metrics may ever enter Git.
+# ==============================================================================
+
+# --- section 9 verbatim ---
+.env
+.env.*
+!.env.example
+backend/data/
+backend/models/
+uploads/
+*.pdf
+*.sqlite*
+*.lance/
+*.onnx
+*.gguf
+ollama-models/
+node_modules/
+dist/
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+playwright-report/
+test-results/
+
+# --- additions (not in section 9; required for this environment) ---
+# Synthetic CI fixtures are the ONLY PDFs allowed in Git. Re-include explicitly.
+!tests/fixtures/synthetic/*.pdf
+
+# Windows / macOS noise
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Python build/coverage
+*.py[cod]
+*.egg-info/
+build/
+.coverage
+htmlcov/
+coverage.xml
+
+# Node / Vite
+.vite/
+vite.config.*.timestamp-*
+npm-debug.log*
+*.tsbuildinfo
+
+# Local runtime artifacts (defence in depth - these must never be committed)
+*.db
+*.db-wal
+*.db-shm
+*.duckdb
+backend/storage/
+logs/
+*.log
+benchmarks/local/
+
+# Secret-scanning tool output
+gitleaks-report.json
