@@ -20,12 +20,16 @@ from datetime import datetime, timezone
 import fitz  # PyMuPDF
 
 from .config import settings
+from .quality import normalise_text
 from .db import connect
 from .rates import Timer, rate
 
 # A page with less usable text than this is assumed to be scanned or
 # image-dominant. Detection only - OCR is deliberately not implemented.
 MIN_USABLE_CHARS = 100
+# A page this dense in mathematical symbols extracts as prose ABOUT maths with
+# the maths missing. Flagged rather than silently degraded.
+EQUATION_MARKERS = set("∫∑∏√±≤≥≠≈∞∂∇αβγδθλμπσφω")
 
 
 @dataclass
@@ -56,7 +60,10 @@ def extract_batch(pdf_path: str, first_page: int, last_page: int) -> list[tuple[
         for pno in range(first_page - 1, min(last_page, doc.page_count)):
             page = doc.load_page(pno)
             text = page.get_text("text") or ""
-            text = text.replace("\x00", "")
+            # Normalise here, once, so symbol-font control characters never
+            # reach chunking. Leaving them in made real content look like
+            # gibberish to the quality gate and silently excluded it.
+            text = normalise_text(text)
             usable = len(text.strip())
             needs_ocr = usable < MIN_USABLE_CHARS
             out.append((pno + 1, text, needs_ocr))

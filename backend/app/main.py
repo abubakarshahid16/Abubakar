@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import chunker as chunk_mod
+from . import ingest as ingest_mod
 from . import extract as extract_mod
 from . import upload as upload_mod
 from .config import settings
@@ -15,7 +16,11 @@ from .db import connect, init_db
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     init_db()
+    # Drain the upload queue. Without this a document sits at 'queued'
+    # forever while the API reports a job id that means nothing.
+    ingest_mod.start_worker()
     yield
+    ingest_mod.stop_worker()
 
 
 app = FastAPI(title="Nabaa", version="0.1.0", lifespan=lifespan)
@@ -36,7 +41,42 @@ def health() -> dict:
         "ok": True,
         "embed_model_present": (settings.embed_model_dir / "tokenizer.json").exists(),
         "answer_model": settings.answer_model,
+        "ingestion": ingest_mod.get_worker().status(),
     }
+
+
+@app.get("/api/documents/{document_id}/excluded")
+def document_excluded(document_id: str, limit: int = 50, offset: int = 0):
+    """Everything excluded from search, with the rule that excluded it.
+
+    Nothing is dropped silently: every excluded page and chunk is recorded
+    here with its reason and the text that was dropped.
+    """
+    conn = connect()
+    if conn.execute("SELECT 1 FROM documents WHERE id = ?", (document_id,)).fetchone() is None:
+        return JSONResponse(status_code=404,
+                            content={"code": "not_found", "message": "unknown document"})
+    summary = [
+        dict(r) for r in conn.execute(
+            """SELECT scope, rule, COUNT(*) AS count,
+                      SUM(text_length) AS characters_dropped
+               FROM exclusions WHERE document_id = ?
+               GROUP BY scope, rule ORDER BY count DESC""",
+            (document_id,),
+        )
+    ]
+    rows = conn.execute(
+        """SELECT scope, page_start, page_end, chunk_id, rule, reason,
+                  text_length, text_sample
+           FROM exclusions WHERE document_id = ?
+           ORDER BY page_start, id LIMIT ? OFFSET ?""",
+        (document_id, limit, offset),
+    ).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM exclusions WHERE document_id = ?", (document_id,)
+    ).fetchone()[0]
+    return {"total": total, "summary": summary, "limit": limit, "offset": offset,
+            "excluded": [dict(r) for r in rows]}
 
 
 @app.post("/api/documents")

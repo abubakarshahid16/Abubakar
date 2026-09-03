@@ -71,6 +71,32 @@ CREATE TABLE IF NOT EXISTS chunks (
     quality_flags  TEXT
 );
 
+CREATE TABLE IF NOT EXISTS chunk_vectors (
+    chunk_id     TEXT PRIMARY KEY,
+    document_id  TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    dim          INTEGER NOT NULL,
+    vector       BLOB NOT NULL,
+    model        TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_vectors_document ON chunk_vectors(document_id);
+
+CREATE TABLE IF NOT EXISTS exclusions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id   TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    scope         TEXT NOT NULL,          -- 'page' | 'chunk'
+    page_start    INTEGER,
+    page_end      INTEGER,
+    chunk_id      TEXT,
+    rule          TEXT NOT NULL,          -- which rule excluded it
+    reason        TEXT,                   -- the detail behind the rule
+    text_sample   TEXT NOT NULL,          -- what was dropped
+    text_length   INTEGER NOT NULL,
+    created_at    TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_exclusions_document ON exclusions(document_id, scope);
 CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_pages_ocr ON pages(document_id, needs_ocr);
 CREATE INDEX IF NOT EXISTS idx_jobs_document ON jobs(document_id);

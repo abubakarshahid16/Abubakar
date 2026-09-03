@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime, timezone
 from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
@@ -24,6 +25,7 @@ from .config import settings
 from .db import connect
 from .rates import Timer, rate
 from . import states
+from .quality import assess
 
 # ---------------------------------------------------------------- tokenizer
 
@@ -732,6 +734,12 @@ def _merge_runts(chunks: list[Block]) -> list[Block]:
 # --------------------------------------------------------------- persistence
 
 
+def _now_iso() -> str:
+    return (
+        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
+
+
 def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -778,7 +786,7 @@ def chunk_document(doc_id: str) -> dict:
     # A chunk is retrievable only if its kind is searchable AND its text reads
     # like language. The quality gate is the safety net for failure modes no
     # structural detector anticipated.
-    quality = {id(c): content_quality(c.text) for c in chunks}
+    quality = {id(c): assess(c.text, c.kind) for c in chunks}
     kind_counts: Counter[str] = Counter(c.kind for c in chunks)
     quality_rejected = [
         c for c in chunks
@@ -811,7 +819,40 @@ def chunk_document(doc_id: str) -> dict:
             )
         )
 
+    # ------------------------------------------------------------------
+    # Exclusion ledger. Nothing is ever dropped silently: every page and
+    # every chunk that search cannot see is recorded with the rule that
+    # excluded it and the text that was dropped, queryable via
+    # GET /api/documents/{id}/excluded.
+    # ------------------------------------------------------------------
+    now = _now_iso()
+    exclusion_rows = []
+    for pno, ptext in pages:
+        kind = page_kinds.get(pno, "prose")
+        if kind not in RETRIEVABLE_KINDS:
+            exclusion_rows.append(
+                (doc_id, "page", pno, pno, None, f"page_classified_{kind}",
+                 f"page classified as {kind}", ptext[:2000], len(ptext), now)
+            )
+    for ordinal, c in enumerate(chunks):
+        q = quality[id(c)]
+        if c.kind in RETRIEVABLE_KINDS and not q["ok"]:
+            exclusion_rows.append(
+                (doc_id, "chunk", c.page_start, c.page_end,
+                 chunk_id(doc["sha256"], c.page_start, ordinal, content_hash(c.text)),
+                 "content_quality_gate", ",".join(q["reasons"]),
+                 c.text[:2000], len(c.text), now)
+            )
+
     with conn:
+        conn.execute("DELETE FROM exclusions WHERE document_id = ?", (doc_id,))
+        conn.executemany(
+            """INSERT INTO exclusions
+               (document_id, scope, page_start, page_end, chunk_id, rule,
+                reason, text_sample, text_length, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            exclusion_rows,
+        )
         conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
         conn.executemany(
             """INSERT OR REPLACE INTO chunks
@@ -842,6 +883,8 @@ def chunk_document(doc_id: str) -> dict:
         "chunks_non_retrievable": len(chunks) - len(retrievable),
         "chunks_by_kind": dict(kind_counts),
         "chunks_rejected_by_quality_gate": len(quality_rejected),
+        "pages_excluded": sum(1 for r in exclusion_rows if r[1] == "page"),
+        "exclusions_recorded": len(exclusion_rows),
         "chunks_this_run": len(chunks),
         "chunks_per_page": round(len(chunks) / len(pages), 2) if pages else None,
         "tables_kept_whole": sum(1 for c in chunks if c.kind == "table"),

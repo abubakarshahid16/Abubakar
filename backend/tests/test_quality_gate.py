@@ -106,3 +106,79 @@ def test_illegal_transitions_are_rejected():
         states.check_transition(states.CHUNKING, states.READY)
     with pytest.raises(states.IllegalTransition):
         states.check_transition(states.QUEUED, "made_up_state")
+
+
+# ------------------------------------------- table-aware gate (P0-4 regression)
+
+from app.quality import assess, looks_like_table, normalise_text  # noqa: E402
+
+REAL_TABLE = """TABLE 2.2
+h  0.05
+xn
+yn
+2.00
+4.0000
+2.05
+4.0900
+2.10
+4.1842
+2.15
+4.2826"""
+
+ROW_WISE_TABLE = "0.00 30.0000 30.0000 30.0000 30.0000 30.0000 30.0000 30.0000 2.00"
+
+UNLABELLED_TABLE = "\n".join(
+    ["1790", "3.929", "1800", "5.308", "1810", "7.240", "1820", "9.638", "1830", "12.866"]
+)
+
+SYMBOL_NOISE = (
+    "eabeb2terfcb 1t a 2 1t ea1s 1s(1s b) eabeb2t erfcb1t a 2 1t ea1s s1s 2 B t "
+    "ea2/4t a erfc a 21t ea1s s erfc a 21t ea1s a 21t3 ea2/4t ea 1s 1s 1 1t"
+)
+
+
+def test_a_labelled_table_with_header_and_numeric_rows_stays_retrievable():
+    """Engineering specifications are mostly tables. Excluding them means the
+    chatbot cannot answer a large share of real questions."""
+    assert assess(REAL_TABLE, "table")["ok"]
+    assert looks_like_table(REAL_TABLE)["is_table"]
+
+
+def test_a_table_with_no_caption_is_still_a_table():
+    """A chunk starting mid-table has no label - its first line is data."""
+    assert assess(UNLABELLED_TABLE, "table")["ok"]
+
+
+def test_a_table_extracted_row_wise_onto_one_line_is_still_a_table():
+    """Every line-based metric is zero here; the token ratio carries it."""
+    assert assess(ROW_WISE_TABLE, "table")["ok"]
+
+
+def test_tables_are_not_judged_by_prose_signals():
+    """The old gate scored prose averages, so it rejected 47 of 48 real tables."""
+    assert assess(REAL_TABLE, "table")["ok"]
+    # the same text judged as prose has no readable clause, yet must survive
+    assert assess(REAL_TABLE, "prose")["ok"]
+
+
+def test_symbol_font_noise_is_still_rejected():
+    assert not assess(SYMBOL_NOISE, "prose")["ok"]
+
+
+def test_real_content_survives_even_when_surrounded_by_numerals():
+    """Page 332 of book2 vanished: mostly exercise numbers, but it contains a
+    real clause and must be retrievable."""
+    page = (
+        "15. 16. In Problems 17-20 the given vectors are solutions of a system "
+        "X AX. Determine whether the vectors form a fundamental set on the "
+        "interval. 17. 18. 19. 20."
+    )
+    assert assess(page, "prose")["ok"]
+
+
+def test_control_characters_are_normalised_before_judging():
+    """Symbol-font control bytes made real content look like gibberish."""
+    dirty = "d(t \x02 t0)\x08 the given vectors are solutions of a system"
+    assert "\x02" not in normalise_text(dirty)
+    assert "\n" in normalise_text("a\nb")      # layout survives
+    assert assess(dirty, "prose")["ok"]
