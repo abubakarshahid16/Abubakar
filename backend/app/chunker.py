@@ -798,6 +798,16 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
     if not force and existing and doc["chunk_signature"] == signature:
         # Nothing about the input changed, so rebuilding would produce the
         # same rows. /extract resumes rather than redoing work; this matches.
+        #
+        # The state must still advance. Returning early without moving the
+        # document on left it at 'chunking' forever, and the ingestion state
+        # loop revisited it until its guard tripped.
+        if doc["status"] == states.CHUNKING:
+            with conn:
+                conn.execute(
+                    "UPDATE documents SET status = ? WHERE id = ?",
+                    (states.INDEXING_KEYWORD, doc_id),
+                )
         return {
             "document_id": doc_id,
             "filename": doc["filename"],

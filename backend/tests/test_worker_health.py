@@ -208,3 +208,53 @@ def test_delete_removes_the_document_and_everything_derived_from_it():
 def test_delete_404s_on_unknown_id():
     client = TestClient(app)
     assert client.delete("/api/documents/doc_zzzzzzzzzzzz?confirm=true").status_code == 404
+
+
+def test_chunk_short_circuit_still_advances_the_state():
+    """The P1-7 short-circuit returned early without moving the document on,
+    so the state loop revisited 'chunking' until its guard tripped and the
+    document was marked failed."""
+    from app.chunker import chunk_document
+
+    client = TestClient(app)
+    doc_id = upload(client)
+    w = IngestionWorker()
+    w.process(doc_id)                     # first pass: extract + chunk + embed
+
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "UPDATE documents SET status = ?, indexed_at = NULL WHERE id = ?",
+            (states.CHUNKING, doc_id),
+        )
+
+    # chunking is a no-op because nothing changed - but the state must move
+    result = chunk_document(doc_id)
+    assert result["skipped"] is True
+    status = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (doc_id,)
+    ).fetchone()["status"]
+    assert status == states.INDEXING_KEYWORD, f"stuck at {status!r} after a skipped chunk"
+
+
+def test_a_document_reset_to_queued_after_completion_reaches_ready_again():
+    """Re-running a finished document must converge, not exhaust the guard."""
+    client = TestClient(app)
+    doc_id = upload(client)
+    w = IngestionWorker()
+    w.process(doc_id)
+
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "UPDATE documents SET status = ?, indexed_at = NULL WHERE id = ?",
+            (states.QUEUED, doc_id),
+        )
+
+    result = w.process(doc_id)
+    assert "error" not in result, result.get("error")
+    row = conn.execute(
+        "SELECT status, indexed_at FROM documents WHERE id = ?", (doc_id,)
+    ).fetchone()
+    assert row["status"] == states.READY
+    assert row["indexed_at"] is not None
