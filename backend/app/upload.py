@@ -149,6 +149,7 @@ def to_api(row: sqlite3.Row) -> dict:
         "embedded_count": row["embedded_count"],
         "status": row["status"],
         "needs_ocr_pages": row["needs_ocr_pages"],
+        "equation_pages": row["equation_pages"],
         "error": (
             {"code": row["error_code"], "message": row["error_message"]}
             if row["error_code"]
