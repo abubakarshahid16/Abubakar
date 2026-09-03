@@ -36,6 +36,8 @@ export interface DocumentRecord {
   embedded_count: number;
   status: DocStatus;
   needs_ocr_pages: number;   // detected only; OCR is not implemented
+  /** pages whose mathematics did not survive extraction; see the page image */
+  equation_pages: number;
   error: ApiError | null;
   uploaded_at: string;       // ISO 8601
   indexed_at: string | null;
@@ -85,6 +87,52 @@ export interface ChunkRecord {
   /** why the quality gate rejected it, when it did */
   quality_flags: string | null;
   text: string;
+}
+
+export interface PageRecord {
+  page_no: number;
+  char_count: number;
+  needs_ocr: boolean;
+  /** the maths on this page did not survive extraction - show the page image */
+  equation_heavy: boolean;
+  batch_no: number;
+  preview: string;
+}
+
+export interface PagesResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  pages: PageRecord[];
+}
+
+/** GET /api/documents/{id}/excluded - nothing is dropped without a record. */
+export interface ExclusionRecord {
+  scope: "page" | "chunk";
+  page_start: number | null;
+  page_end: number | null;
+  chunk_id: string | null;
+  rule: string;
+  reason: string | null;
+  text_length: number;
+  text_sample: string;
+}
+
+export interface ExclusionsResponse {
+  total: number;
+  summary: { scope: string; rule: string; count: number; characters_dropped: number }[];
+  limit: number;
+  offset: number;
+  excluded: ExclusionRecord[];
+}
+
+export interface WorkerStatus {
+  alive: boolean;
+  current_document: string | null;
+  seconds_since_heartbeat: number;
+  /** a dead worker must be visible on screen, not hidden behind "queued" */
+  stalled: boolean;
+  last_error: string | null;
 }
 
 export interface ChunkPage {

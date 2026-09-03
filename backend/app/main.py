@@ -1,13 +1,23 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from . import chunker as chunk_mod
-from . import ingest as ingest_mod
 from . import extract as extract_mod
+from . import ingest as ingest_mod
+from . import pageimage as pageimage_mod
 from . import upload as upload_mod
+from .api_utils import (
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    reject_unknown_params,
+    require_document,
+    retrievable_clause,
+    validate_retrievable,
+)
 from .config import settings
 from .db import connect, init_db
 
@@ -34,6 +44,21 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Minimal hardening. The server banner is noise an attacker does not need."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    if "server" in response.headers:
+        del response.headers["server"]
+    return response
+
+
+# ------------------------------------------------------------------ health
+
+
 @app.get("/api/health")
 def health() -> dict:
     """Readiness without loading any model."""
@@ -45,38 +70,7 @@ def health() -> dict:
     }
 
 
-@app.get("/api/documents/{document_id}/excluded")
-def document_excluded(document_id: str, limit: int = 50, offset: int = 0):
-    """Everything excluded from search, with the rule that excluded it.
-
-    Nothing is dropped silently: every excluded page and chunk is recorded
-    here with its reason and the text that was dropped.
-    """
-    conn = connect()
-    if conn.execute("SELECT 1 FROM documents WHERE id = ?", (document_id,)).fetchone() is None:
-        return JSONResponse(status_code=404,
-                            content={"code": "not_found", "message": "unknown document"})
-    summary = [
-        dict(r) for r in conn.execute(
-            """SELECT scope, rule, COUNT(*) AS count,
-                      SUM(text_length) AS characters_dropped
-               FROM exclusions WHERE document_id = ?
-               GROUP BY scope, rule ORDER BY count DESC""",
-            (document_id,),
-        )
-    ]
-    rows = conn.execute(
-        """SELECT scope, page_start, page_end, chunk_id, rule, reason,
-                  text_length, text_sample
-           FROM exclusions WHERE document_id = ?
-           ORDER BY page_start, id LIMIT ? OFFSET ?""",
-        (document_id, limit, offset),
-    ).fetchall()
-    total = conn.execute(
-        "SELECT COUNT(*) FROM exclusions WHERE document_id = ?", (document_id,)
-    ).fetchone()[0]
-    return {"total": total, "summary": summary, "limit": limit, "offset": offset,
-            "excluded": [dict(r) for r in rows]}
+# --------------------------------------------------------------- documents
 
 
 @app.post("/api/documents")
@@ -97,57 +91,176 @@ async def upload_document(file: UploadFile = File(...)):
 
 
 @app.get("/api/documents")
-def list_documents():
+def list_documents(request: Request):
+    reject_unknown_params(request, set())
     rows = connect().execute(
         "SELECT * FROM documents ORDER BY uploaded_at DESC"
     ).fetchall()
     return [upload_mod.to_api(r) for r in rows]
 
 
+@app.delete("/api/documents/{document_id}")
+def delete_document(document_id: str, request: Request, confirm: bool = Query(False)):
+    """Remove a document and everything derived from it.
+
+    Requires confirm=true - a destructive endpoint should not fire on a
+    mistyped URL. Removes chunks, pages, vectors, exclusions, jobs, cached
+    page images and the stored PDF.
+    """
+    reject_unknown_params(request, {"confirm"})
+    doc = require_document(document_id)
+    if not confirm:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "code": "internal",
+                "message": "pass confirm=true to delete; this cannot be undone",
+                "detail": f"{doc['filename']} ({doc['chunk_count']} retrievable chunks)",
+            },
+        )
+
+    conn = connect()
+    removed = {}
+    with conn:
+        for table in ("chunk_vectors", "exclusions", "chunks", "pages", "jobs"):
+            cur = conn.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
+            removed[table] = cur.rowcount
+        cur = conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+        removed["documents"] = cur.rowcount
+
+    files_removed = 0
+    stored = Path(doc["stored_path"])
+    if stored.exists():
+        stored.unlink()
+        files_removed += 1
+    cache = settings.data_dir / "page_images"
+    if cache.exists():
+        for img in cache.glob(f"{doc['sha256'][:16]}_*.png"):
+            img.unlink()
+            files_removed += 1
+
+    return {
+        "deleted": document_id,
+        "filename": doc["filename"],
+        "rows_removed": removed,
+        "files_removed": files_removed,
+    }
+
+
+@app.get("/api/documents/{document_id}")
+def get_document(document_id: str, request: Request):
+    reject_unknown_params(request, set())
+    require_document(document_id)
+    row = connect().execute(
+        "SELECT * FROM documents WHERE id = ?", (document_id,)
+    ).fetchone()
+    return upload_mod.to_api(row)
+
+
+# ------------------------------------------------------------- processing
+
+
 @app.post("/api/documents/{document_id}/extract")
 def extract(document_id: str):
     """Extract pages in batches. Resumes from the last completed batch."""
-    try:
-        return extract_mod.extract_document(document_id)
-    except ValueError as e:
-        return JSONResponse(status_code=404, content={"code": "not_found", "message": str(e)})
-
-
-@app.post("/api/extract-all")
-def extract_all():
-    """Extract every queued or partially extracted document."""
-    rows = connect().execute(
-        "SELECT id FROM documents WHERE status IN ('queued','extracting') ORDER BY size_bytes"
-    ).fetchall()
-    return [extract_mod.extract_document(r["id"]) for r in rows]
-
-
-@app.get("/api/documents/{document_id}/pages")
-def document_pages(document_id: str, limit: int = 20, offset: int = 0):
-    """Page-level extraction results, so extraction can be inspected."""
-    rows = connect().execute(
-        """SELECT page_no, char_count, needs_ocr, batch_no, substr(text,1,300) AS preview
-           FROM pages WHERE document_id = ? ORDER BY page_no LIMIT ? OFFSET ?""",
-        (document_id, limit, offset),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    require_document(document_id)
+    return extract_mod.extract_document(document_id)
 
 
 @app.post("/api/documents/{document_id}/chunk")
-def chunk(document_id: str):
-    """Chunk an extracted document. Idempotent - re-running replaces rows."""
+def chunk(document_id: str, force: bool = Query(False)):
+    """Chunk an extracted document.
+
+    Short-circuits when the document already has chunks and its content has
+    not changed, matching how /extract resumes rather than redoing work.
+    Pass force=true to rebuild.
+    """
+    require_document(document_id)
+    return chunk_mod.chunk_document(document_id, force=force)
+
+
+@app.post("/api/documents/{document_id}/embed")
+def embed(document_id: str):
+    """Embed any retrievable chunks that do not yet have a vector."""
+    require_document(document_id)
+    worker = ingest_mod.get_worker()
+    embedded = worker.embed_pending(document_id)
+    worker._finish_if_embedded(document_id)
+    row = connect().execute(
+        "SELECT chunk_count, embedded_count, status, indexed_at FROM documents WHERE id = ?",
+        (document_id,),
+    ).fetchone()
+    return {
+        "document_id": document_id,
+        "embedded_this_run": embedded,
+        "embedded_count": row["embedded_count"],
+        "chunk_count": row["chunk_count"],
+        "status": row["status"],
+        "indexed_at": row["indexed_at"],
+    }
+
+
+# ------------------------------------------------------------------ pages
+
+
+@app.get("/api/documents/{document_id}/pages")
+def document_pages(
+    request: Request,
+    document_id: str,
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+):
+    reject_unknown_params(request, {"limit", "offset"})
+    require_document(document_id)
+    rows = connect().execute(
+        """SELECT page_no, char_count, needs_ocr, equation_heavy, batch_no,
+                  substr(text, 1, 300) AS preview
+           FROM pages WHERE document_id = ? ORDER BY page_no LIMIT ? OFFSET ?""",
+        (document_id, limit, offset),
+    ).fetchall()
+    total = connect().execute(
+        "SELECT COUNT(*) FROM pages WHERE document_id = ?", (document_id,)
+    ).fetchone()[0]
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "pages": [
+            dict(r) | {
+                "needs_ocr": bool(r["needs_ocr"]),
+                "equation_heavy": bool(r["equation_heavy"]),
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.get("/api/documents/{document_id}/pages/{page_no}/image")
+def page_image(document_id: str, page_no: int, request: Request, dpi: int = Query(150, ge=50, le=300)):
+    """Render one page to PNG on demand, cached by content hash.
+
+    The durable answer to degraded equations and flattened tables: whatever
+    the extracted text lost, the reader can see the real page.
+    """
+    reject_unknown_params(request, {"dpi"})
+    doc = require_document(document_id)
     try:
-        return chunk_mod.chunk_document(document_id)
-    except ValueError as e:
+        path = pageimage_mod.render_page(doc, page_no, dpi=dpi)
+    except pageimage_mod.PageOutOfRange as e:
         return JSONResponse(status_code=404, content={"code": "not_found", "message": str(e)})
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+
+
+# ----------------------------------------------------------------- chunks
 
 
 @app.get("/api/documents/{document_id}/chunks")
 def document_chunks(
+    request: Request,
     document_id: str,
-    limit: int = 20,
-    offset: int = 0,
-    retrievable: str = "true",
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    retrievable: str = Query("true"),
 ):
     """Chunks for a document.
 
@@ -155,26 +268,68 @@ def document_chunks(
                   "false"           only the excluded ones, for inspection
                   "all"             everything
     """
-    clause = {"true": " AND retrievable = 1", "false": " AND retrievable = 0", "all": ""}
-    if retrievable not in clause:
-        return JSONResponse(
-            status_code=400,
-            content={"code": "internal", "message": "retrievable must be true, false or all"},
-        )
-    rows = connect().execute(
+    reject_unknown_params(request, {"limit", "offset", "retrievable"})
+    require_document(document_id)
+    validate_retrievable(retrievable)
+    clause = retrievable_clause(retrievable)
+    conn = connect()
+    rows = conn.execute(
         f"""SELECT id, ordinal, page_start, page_end, section, kind, token_count,
                    content_hash, retrievable, quality_flags, text
-            FROM chunks WHERE document_id = ?{clause[retrievable]}
+            FROM chunks WHERE document_id = ?{clause}
             ORDER BY ordinal LIMIT ? OFFSET ?""",
         (document_id, limit, offset),
     ).fetchall()
-    total = connect().execute(
-        f"SELECT COUNT(*) FROM chunks WHERE document_id = ?{clause[retrievable]}",
-        (document_id,),
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM chunks WHERE document_id = ?{clause}", (document_id,)
     ).fetchone()[0]
     return {
         "total_matching": total,
         "limit": limit,
         "offset": offset,
         "chunks": [dict(r) | {"retrievable": bool(r["retrievable"])} for r in rows],
+    }
+
+
+@app.get("/api/documents/{document_id}/excluded")
+def document_excluded(
+    request: Request,
+    document_id: str,
+    limit: int = Query(50, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+):
+    """Everything excluded from search, with the rule that excluded it.
+
+    Nothing is dropped silently: every excluded page and chunk is recorded
+    here with its reason and the text that was dropped.
+    """
+    reject_unknown_params(request, {"limit", "offset"})
+    require_document(document_id)
+    conn = connect()
+    summary = [
+        dict(r)
+        for r in conn.execute(
+            """SELECT scope, rule, COUNT(*) AS count,
+                      SUM(text_length) AS characters_dropped
+               FROM exclusions WHERE document_id = ?
+               GROUP BY scope, rule ORDER BY count DESC""",
+            (document_id,),
+        )
+    ]
+    rows = conn.execute(
+        """SELECT scope, page_start, page_end, chunk_id, rule, reason,
+                  text_length, text_sample
+           FROM exclusions WHERE document_id = ?
+           ORDER BY page_start, id LIMIT ? OFFSET ?""",
+        (document_id, limit, offset),
+    ).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM exclusions WHERE document_id = ?", (document_id,)
+    ).fetchone()[0]
+    return {
+        "total": total,
+        "summary": summary,
+        "limit": limit,
+        "offset": offset,
+        "excluded": [dict(r) for r in rows],
     }

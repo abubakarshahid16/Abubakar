@@ -24,8 +24,11 @@ from .db import connect
 from .extract import extract_document
 from .embedder import Embedder, EmbedderConfig
 
-# A job with no heartbeat for this long is stalled, not running.
+# A worker with no heartbeat for this long has died or hung.
 STALL_AFTER_SECONDS = 120
+# Work is waiting but nothing has completed for this long: the queue is stuck
+# even though the worker is alive and looping.
+NO_PROGRESS_SECONDS = 180
 
 _worker: IngestionWorker | None = None
 _worker_lock = threading.Lock()
@@ -44,6 +47,10 @@ class IngestionWorker:
         self._thread: threading.Thread | None = None
         self.current_document: str | None = None
         self.last_beat: float = time.time()
+        # Last time a document actually reached a terminal state. Heartbeat
+        # freshness only proves the loop is spinning, not that work is moving.
+        self.last_progress: float = time.time()
+        self.documents_completed: int = 0
         self.last_error: str | None = None
 
     # ------------------------------------------------------------- lifecycle
@@ -64,15 +71,61 @@ class IngestionWorker:
     def alive(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
 
+    def backlog(self) -> tuple[int, float | None]:
+        """How much non-terminal work is waiting, and how old the oldest is."""
+        row = connect().execute(
+            """SELECT COUNT(*) AS n, MIN(uploaded_at) AS oldest FROM documents
+               WHERE status NOT IN (?, ?)
+                  OR (status = ? AND (embedded_count < chunk_count
+                                      OR indexed_at IS NULL))""",
+            (states.READY, states.FAILED, states.PARTIALLY_SEARCHABLE),
+        ).fetchone()
+        pending = row["n"] or 0
+        if not pending or not row["oldest"]:
+            return pending, None
+        try:
+            oldest = datetime.fromisoformat(row["oldest"].replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - oldest).total_seconds()
+        except ValueError:
+            return pending, None
+        return pending, round(age, 1)
+
     def status(self) -> dict:
-        age = time.time() - self.last_beat
+        """Health that reflects whether work is MOVING, not just whether the
+        loop is spinning.
+
+        An alive worker ignoring a full queue previously reported
+        `stalled: false`. Heartbeat freshness proves only that the thread is
+        running; it says nothing about progress. Stalled now means: there is
+        work waiting AND nothing has completed for a while.
+        """
+        now = time.time()
+        beat_age = now - self.last_beat
+        progress_age = now - self.last_progress
+        pending, oldest_age = self.backlog()
+
+        dead = not self.alive
+        hung = beat_age > STALL_AFTER_SECONDS
+        ignoring_work = pending > 0 and progress_age > NO_PROGRESS_SECONDS
+
+        reasons = []
+        if dead:
+            reasons.append("worker_not_running")
+        if hung:
+            reasons.append(f"no_heartbeat_for_{beat_age:.0f}s")
+        if ignoring_work:
+            reasons.append(f"{pending}_pending_but_no_progress_for_{progress_age:.0f}s")
+
         return {
             "alive": self.alive,
             "current_document": self.current_document,
-            "seconds_since_heartbeat": round(age, 1),
-            # A dead worker with queued work is stalled - the API must say so
-            # rather than showing "queued" forever.
-            "stalled": (not self.alive) or age > STALL_AFTER_SECONDS,
+            "seconds_since_heartbeat": round(beat_age, 1),
+            "seconds_since_progress": round(progress_age, 1),
+            "documents_completed": self.documents_completed,
+            "pending_count": pending,
+            "oldest_pending_age_seconds": oldest_age,
+            "stalled": dead or hung or ignoring_work,
+            "stalled_reasons": reasons,
             "last_error": self.last_error,
         }
 
@@ -116,7 +169,11 @@ class IngestionWorker:
                     self._stop.wait(self.poll_seconds)
                     continue
                 self.current_document = doc_id
+                before = self._is_finished(doc_id)
                 self.process(doc_id)
+                if not before and self._is_finished(doc_id):
+                    self.last_progress = time.time()
+                    self.documents_completed += 1
             except Exception:
                 self.last_error = traceback.format_exc(limit=3)
                 self._stop.wait(self.poll_seconds)
@@ -126,45 +183,87 @@ class IngestionWorker:
     # --------------------------------------------------------------- stages
 
     def process(self, doc_id: str) -> dict:
-        """Drive one document to a state where it can answer questions."""
+        """Drive one document forward from wherever it currently is.
+
+        Written as a loop over the CURRENT status rather than a fall-through
+        chain, so every non-terminal state is resumable. A document abandoned
+        mid-pipeline - at chunking, at indexing, part-way through embedding -
+        is picked up and finished, not stranded. An earlier version only
+        recovered *unrecognised* statuses, which meant a recognised one that
+        was interrupted fell straight through and never resumed.
+        """
         conn = connect()
-        doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
-        if doc is None:
-            return {"document_id": doc_id, "error": "unknown document"}
+        result: dict = {"document_id": doc_id, "stages": []}
+        guard = 0
 
-        result: dict = {"document_id": doc_id}
         try:
-            # A status this build does not know is treated as "start over
-            # from extraction" - resumable, so nothing is recomputed.
-            if doc["status"] not in states.ALL_STATES:
-                with conn:
-                    conn.execute("UPDATE documents SET status = ? WHERE id = ?",
-                                 (states.EXTRACTING, doc_id))
-                doc = conn.execute("SELECT * FROM documents WHERE id = ?",
-                                   (doc_id,)).fetchone()
+            while True:
+                guard += 1
+                if guard > len(states.ALL_STATES) + 2:
+                    raise RuntimeError(f"state machine did not settle for {doc_id}")
 
-            if doc["status"] in (states.QUEUED, states.EXTRACTING):
-                self._set_state(doc_id, states.EXTRACTING)
-                result["extract"] = extract_document(doc_id)
+                row = conn.execute(
+                    "SELECT * FROM documents WHERE id = ?", (doc_id,)
+                ).fetchone()
+                if row is None:
+                    return {"document_id": doc_id, "error": "unknown document"}
+                status = row["status"]
 
-            row = conn.execute(
-                "SELECT status FROM documents WHERE id = ?", (doc_id,)
-            ).fetchone()
-            if row["status"] == states.CHUNKING:
-                result["chunk"] = chunk_document(doc_id)
+                # A status this build does not know (written by an earlier
+                # build) restarts from extraction. Extraction is resumable, so
+                # nothing already done is recomputed.
+                if status not in states.ALL_STATES:
+                    with conn:
+                        conn.execute(
+                            "UPDATE documents SET status = ? WHERE id = ?",
+                            (states.EXTRACTING, doc_id),
+                        )
+                    result["stages"].append(f"unknown_status:{status}->extracting")
+                    continue
 
-            row = conn.execute(
-                "SELECT status FROM documents WHERE id = ?", (doc_id,)
-            ).fetchone()
-            if row["status"] == states.INDEXING_KEYWORD:
-                # Keyword indexing lands in the next step. Until it exists the
-                # document still reaches a defined, answerable state rather
-                # than sitting in limbo.
-                self._set_state(doc_id, states.PARTIALLY_SEARCHABLE)
-                result["keyword_index"] = "pending_implementation"
+                if status == states.FAILED:
+                    return result
 
-            self.embed_pending(doc_id)
-            self._finish_if_embedded(doc_id)
+                if status == states.QUEUED:
+                    self._set_state(doc_id, states.EXTRACTING)
+                    continue
+
+                if status == states.EXTRACTING:
+                    result["extract"] = extract_document(doc_id)
+                    result["stages"].append("extract")
+                    continue
+
+                if status == states.CHUNKING:
+                    result["chunk"] = chunk_document(doc_id)
+                    result["stages"].append("chunk")
+                    continue
+
+                if status == states.INDEXING_KEYWORD:
+                    # Keyword indexing lands in the next step. Until it exists
+                    # the document still reaches a defined answerable state.
+                    self._set_state(doc_id, states.PARTIALLY_SEARCHABLE)
+                    result["stages"].append("keyword_index:pending_implementation")
+                    continue
+
+                if status == states.PARTIALLY_SEARCHABLE:
+                    if row["embedded_count"] < row["chunk_count"]:
+                        result["embedded"] = self.embed_pending(doc_id)
+                        result["stages"].append("embed")
+                        if self._stop.is_set():
+                            return result
+                    self._finish_if_embedded(doc_id)
+                    after = conn.execute(
+                        "SELECT status FROM documents WHERE id = ?", (doc_id,)
+                    ).fetchone()["status"]
+                    if after == states.PARTIALLY_SEARCHABLE:
+                        # nothing further can be done in this pass
+                        return result
+                    continue
+
+                if status == states.READY:
+                    result["stages"].append("ready")
+                    return result
+
         except Exception as exc:  # noqa: BLE001 - the record must capture anything
             self.last_error = traceback.format_exc(limit=3)
             with conn:
@@ -179,7 +278,7 @@ class IngestionWorker:
                     (str(exc)[:400], _now(), doc_id),
                 )
             result["error"] = str(exc)
-        return result
+            return result
 
     def embed_pending(self, doc_id: str, batch: int = 64) -> int:
         """Embed retrievable chunks that have no vector yet.
@@ -225,6 +324,16 @@ class IngestionWorker:
             done += len(window)
             self.last_beat = time.time()
         return done
+
+    def _is_finished(self, doc_id: str) -> bool:
+        row = connect().execute(
+            "SELECT status, indexed_at FROM documents WHERE id = ?", (doc_id,)
+        ).fetchone()
+        if row is None:
+            return True
+        return row["status"] == states.FAILED or (
+            row["status"] == states.READY and row["indexed_at"] is not None
+        )
 
     def _set_state(self, doc_id: str, nxt: str) -> None:
         conn = connect()
