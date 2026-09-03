@@ -44,6 +44,17 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at            TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS pages (
+    document_id   TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    page_no       INTEGER NOT NULL,
+    text          TEXT NOT NULL,
+    char_count    INTEGER NOT NULL,
+    needs_ocr     INTEGER NOT NULL DEFAULT 0,
+    batch_no      INTEGER NOT NULL,
+    PRIMARY KEY (document_id, page_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pages_ocr ON pages(document_id, needs_ocr);
 CREATE INDEX IF NOT EXISTS idx_jobs_document ON jobs(document_id);
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 """

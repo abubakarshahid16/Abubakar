@@ -4,6 +4,7 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from . import extract as extract_mod
 from . import upload as upload_mod
 from .config import settings
 from .db import connect, init_db
@@ -60,3 +61,32 @@ def list_documents():
         "SELECT * FROM documents ORDER BY uploaded_at DESC"
     ).fetchall()
     return [upload_mod.to_api(r) for r in rows]
+
+
+@app.post("/api/documents/{document_id}/extract")
+def extract(document_id: str):
+    """Extract pages in batches. Resumes from the last completed batch."""
+    try:
+        return extract_mod.extract_document(document_id)
+    except ValueError as e:
+        return JSONResponse(status_code=404, content={"code": "not_found", "message": str(e)})
+
+
+@app.post("/api/extract-all")
+def extract_all():
+    """Extract every queued or partially extracted document."""
+    rows = connect().execute(
+        "SELECT id FROM documents WHERE status IN ('queued','extracting') ORDER BY size_bytes"
+    ).fetchall()
+    return [extract_mod.extract_document(r["id"]) for r in rows]
+
+
+@app.get("/api/documents/{document_id}/pages")
+def document_pages(document_id: str, limit: int = 20, offset: int = 0):
+    """Page-level extraction results, so extraction can be inspected."""
+    rows = connect().execute(
+        """SELECT page_no, char_count, needs_ocr, batch_no, substr(text,1,300) AS preview
+           FROM pages WHERE document_id = ? ORDER BY page_no LIMIT ? OFFSET ?""",
+        (document_id, limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]
