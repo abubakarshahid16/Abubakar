@@ -1,0 +1,18 @@
+{
+  "tier": "insufficient",
+  "reason": "no_matches",
+  "considered": [
+    {
+      "chunk_id": "doc_01:p203:c4:5e9b2a76",
+      "document_id": "doc_01",
+      "filename": "pump-maintenance-spec.pdf",
+      "page_start": 203,
+      "page_end": 204,
+      "section": "9.2 Seal Flush Plans",
+      "text": "Seal flush plan 11 applies to all single mechanical seals in clean service.",
+      "score": 0.2140,
+      "highlight": null
+    }
+  ],
+  "latency_ms": 1420
+}

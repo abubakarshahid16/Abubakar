@@ -1,0 +1,15 @@
+{
+  "tier": "passage",
+  "passage": {
+    "chunk_id": "doc_01:p147:c2:8f3a1c9e",
+    "document_id": "doc_01",
+    "filename": "pump-maintenance-spec.pdf",
+    "page_start": 147,
+    "page_end": 147,
+    "section": "7.4.2 Vibration Limits",
+    "text": "Vibration limits per API 610 shall not exceed 3.0 mm/s RMS measured at the bearing housing. Readings shall be taken at operating speed with the pump at rated flow.",
+    "score": 0.9312,
+    "highlight": [34, 76]
+  },
+  "latency_ms": 1180
+}

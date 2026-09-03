@@ -1,0 +1,1 @@
+{"code":"not_pdf","message":"That file is not a PDF","detail":"magic bytes were 'PK\u0003\u0004' (looks like a zip or docx)"}

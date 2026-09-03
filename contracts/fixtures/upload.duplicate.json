@@ -1,0 +1,18 @@
+{
+  "document": {
+    "id": "doc_01",
+    "filename": "pump-maintenance-spec.pdf",
+    "sha256": "9f2c4a1e7b3d8f60a5c2e9b14d7f3a6082c5e1b9d4f7a2c8e5b1d9f3a7c204e6",
+    "size_bytes": 4821004,
+    "page_count": 312,
+    "pages_done": 312,
+    "chunk_count": 947,
+    "status": "ready",
+    "needs_ocr_pages": 0,
+    "error": null,
+    "uploaded_at": "2026-09-04T00:10:00Z",
+    "indexed_at": "2026-09-04T00:24:11Z"
+  },
+  "job_id": "",
+  "duplicate_of": "doc_01"
+}

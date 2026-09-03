@@ -1,0 +1,76 @@
+[
+  {
+    "id": "doc_01",
+    "filename": "pump-maintenance-spec.pdf",
+    "sha256": "9f2c4a1e7b3d8f60a5c2e9b14d7f3a6082c5e1b9d4f7a2c8e5b1d9f3a7c204e6",
+    "size_bytes": 4821004,
+    "page_count": 312,
+    "pages_done": 312,
+    "chunk_count": 947,
+    "status": "ready",
+    "needs_ocr_pages": 0,
+    "error": null,
+    "uploaded_at": "2026-09-04T00:10:00Z",
+    "indexed_at": "2026-09-04T00:24:11Z"
+  },
+  {
+    "id": "doc_02",
+    "filename": "vessel-inspection-manual.pdf",
+    "sha256": "3d8a1f95c27e4b60d1a8f3c95e2b7d40a6c9f1e38b5d2a7c04f9e6b1d3a85c27",
+    "size_bytes": 118400223,
+    "page_count": 1004,
+    "pages_done": 288,
+    "chunk_count": 812,
+    "status": "partially_searchable",
+    "needs_ocr_pages": 14,
+    "error": null,
+    "uploaded_at": "2026-09-04T01:02:00Z",
+    "indexed_at": null
+  },
+  {
+    "id": "doc_03",
+    "filename": "scanned-piping-drawings.pdf",
+    "sha256": "7b1e4c8a2f95d360b8e1c4a97f2d5b30e9a6c2f84d1b7e5a03c9f6b2d8a41e75",
+    "size_bytes": 24118900,
+    "page_count": 96,
+    "pages_done": 96,
+    "chunk_count": 3,
+    "status": "ready",
+    "needs_ocr_pages": 93,
+    "error": null,
+    "uploaded_at": "2026-09-04T01:20:00Z",
+    "indexed_at": "2026-09-04T01:22:40Z"
+  },
+  {
+    "id": "doc_04",
+    "filename": "corroded-scan.pdf",
+    "sha256": "1a9f3c7e5b284d60c3f8a1e97b4d2c50f6a8e3b19d5c7f2a48e0b6c9d1f3a852",
+    "size_bytes": 903112,
+    "page_count": null,
+    "pages_done": 0,
+    "chunk_count": 0,
+    "status": "failed",
+    "needs_ocr_pages": 0,
+    "error": {
+      "code": "extract_failed",
+      "message": "Could not read page tree",
+      "detail": "PyMuPDF: cannot find object in xref"
+    },
+    "uploaded_at": "2026-09-04T01:31:00Z",
+    "indexed_at": null
+  },
+  {
+    "id": "doc_05",
+    "filename": "queued-standard.pdf",
+    "sha256": "5c2e8b1d4f7a93602e1b8c5a4d9f7e30b2c6a1f85d3e7b9c04a1f6e2b8d5c397",
+    "size_bytes": 2210044,
+    "page_count": null,
+    "pages_done": 0,
+    "chunk_count": 0,
+    "status": "queued",
+    "needs_ocr_pages": 0,
+    "error": null,
+    "uploaded_at": "2026-09-04T01:33:00Z",
+    "indexed_at": null
+  }
+]
