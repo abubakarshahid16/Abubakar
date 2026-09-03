@@ -23,6 +23,7 @@ from tokenizers import Tokenizer
 from .config import settings
 from .db import connect
 from .rates import Timer, rate
+from . import states
 
 # ---------------------------------------------------------------- tokenizer
 
@@ -128,6 +129,11 @@ _MATH_PUNCT = re.compile(r"[()\[\]{}=+*/\<>|^_~]")
 _TOC_LINE = re.compile(r"^\s*\S.*\s\d{1,4}\s*$")
 # An index line: "identity theft, 257, 261-263"
 _INDEX_LINE = re.compile(r"^\s*\S[^,]{2,60},\s*\d{1,4}(\s*[-,]\s*\d{1,4})*\s*$")
+# A page number alone on its line - the right-hand column of a two-column TOC.
+_BARE_NUMBER = re.compile(r"^\d{1,4}$")
+_MIN_TOC_NUMBER_LINES = 10
+# Overlap may never exceed this multiple of the configured budget.
+_MAX_OVERLAP_FACTOR = 1.5
 
 _FRONTMATTER_MARKERS = (
     "isbn", "all rights reserved", "library of congress", "cataloging-in-publication",
@@ -176,6 +182,25 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
             return "index"
         return "toc"
 
+    # Two-column contents: the title and its page number extract as SEPARATE
+    # lines, so the single-line pattern above never fires. Such a page is a
+    # third or more bare page numbers stacked in their own column.
+    #
+    # Restricted to the front and back of the document on purpose. A body page
+    # in a maths textbook also stacks bare numbers - equation numbers, answer
+    # lists - and wrongly excluding real body text from search is far worse
+    # than indexing a contents page.
+    front = page_no <= max(20, total_pages * 0.06)
+    back = page_no > total_pages * 0.85
+    if front or back:
+        bare_numbers = sum(1 for line in lines if _BARE_NUMBER.match(line))
+        if (
+            len(lines) >= 20
+            and bare_numbers >= _MIN_TOC_NUMBER_LINES
+            and bare_numbers >= len(lines) * 0.25
+        ):
+            return "index" if back else "toc"
+
     index_lines = sum(1 for line in lines if _INDEX_LINE.match(line))
     if len(lines) >= 6 and index_lines >= len(lines) * 0.35:
         return "index"
@@ -190,6 +215,75 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
 
 # Only these kinds are searchable. The rest are kept for inspection.
 RETRIEVABLE_KINDS = frozenset({"prose", "table"})
+
+# ------------------------------------------------------- content quality gate
+
+_CONTROL_CHARS = re.compile("[" + "".join(chr(c) for c in list(range(0, 9)) + [11, 12] + list(range(14, 32)) + [127]) + "]")
+_WORD_EDGE_PUNCT = ".,;:!?()[]{}\"'‘’“”"
+# A real word starts with a letter and is letters/digits/hyphens throughout.
+# Edge punctuation is stripped first so "Study:" and "Therac-25" both count.
+_WORDISH = re.compile(r"^[A-Za-z][A-Za-z0-9-]*$")
+
+
+def _is_wordish(token: str) -> bool:
+    return bool(_WORDISH.match(token.strip(_WORD_EDGE_PUNCT)))
+
+
+def content_quality(text: str) -> dict:
+    """Signals describing whether a chunk reads like natural language.
+
+    This is the generic safety net. Individual detectors catch failure modes
+    we predicted; this one catches the ones we did not. A symbol-font table
+    that extracts as "eabeb2terfcb 1t a 2 1t ea1s 1s(1s b)" passes every
+    structural check and is still worthless to retrieve.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return {"ok": False, "reasons": ["empty"]}
+
+    words = stripped.split()
+    n = len(words)
+
+    control = len(_CONTROL_CHARS.findall(stripped))
+    letters = sum(1 for ch in stripped if ch.isalpha())
+    spaces = sum(1 for ch in stripped if ch.isspace())
+    symbols = len(stripped) - letters - spaces - sum(1 for ch in stripped if ch.isdigit())
+
+    alpha_ratio = letters / len(stripped)
+    symbol_ratio = symbols / len(stripped)
+    avg_word_len = sum(len(w) for w in words) / max(n, 1)
+    wordish = sum(1 for w in words if _is_wordish(w))
+    wordish_ratio = wordish / max(n, 1)
+    longest_run = max((len(w) for w in words), default=0)
+
+    reasons = []
+    if control > settings.quality_max_control_chars:
+        reasons.append(f"control_chars={control}")
+    if alpha_ratio < settings.quality_min_alpha_ratio:
+        reasons.append(f"alpha_ratio={alpha_ratio:.2f}")
+    if symbol_ratio > settings.quality_max_symbol_ratio:
+        reasons.append(f"symbol_ratio={symbol_ratio:.2f}")
+    if wordish_ratio < settings.quality_min_wordish_ratio:
+        reasons.append(f"wordish_ratio={wordish_ratio:.2f}")
+    if avg_word_len < settings.quality_min_avg_word_len:
+        reasons.append(f"avg_word_len={avg_word_len:.2f}")
+    if longest_run > settings.quality_max_unbroken_run:
+        reasons.append(f"longest_run={longest_run}")
+
+    return {
+        "ok": not reasons,
+        "reasons": reasons,
+        "alpha_ratio": round(alpha_ratio, 3),
+        "symbol_ratio": round(symbol_ratio, 3),
+        "wordish_ratio": round(wordish_ratio, 3),
+        "avg_word_len": round(avg_word_len, 2),
+        "longest_run": longest_run,
+        "control_chars": control,
+    }
+
+
+def reads_like_language(text: str) -> bool:
+    return content_quality(text)["ok"]
 
 
 def looks_like_heading(line: str) -> str | None:
@@ -508,11 +602,18 @@ def build_chunks(blocks: list[Block]) -> list[Block]:
                 )
                 continue
             if cur_tokens + st > target and cur:
-                # carry the trailing sentences forward as overlap
+                # Carry the trailing sentences forward as overlap, but never
+                # more than the overlap budget allows. Text without sentence
+                # terminators (a symbol-font table extracts as one enormous
+                # "sentence") would otherwise carry the ENTIRE previous chunk
+                # forward, making it a strict substring of the next one -
+                # duplication, not overlap.
                 tail: list[tuple[str, int, int, int]] = []
                 acc = 0
                 for item in reversed(cur):
                     if acc >= overlap:
+                        break
+                    if acc + item[1] > overlap * _MAX_OVERLAP_FACTOR:
                         break
                     tail.insert(0, item)
                     acc += item[1]
@@ -674,12 +775,24 @@ def chunk_document(doc_id: str) -> dict:
         f"(max {max(c.tokens for c in over) if over else 0}) - e5-small would truncate them"
     )
 
-    retrievable = [c for c in chunks if c.kind in RETRIEVABLE_KINDS]
+    # A chunk is retrievable only if its kind is searchable AND its text reads
+    # like language. The quality gate is the safety net for failure modes no
+    # structural detector anticipated.
+    quality = {id(c): content_quality(c.text) for c in chunks}
     kind_counts: Counter[str] = Counter(c.kind for c in chunks)
+    quality_rejected = [
+        c for c in chunks
+        if c.kind in RETRIEVABLE_KINDS and not quality[id(c)]["ok"]
+    ]
+    retrievable = [
+        c for c in chunks
+        if c.kind in RETRIEVABLE_KINDS and quality[id(c)]["ok"]
+    ]
 
     rows = []
     for ordinal, c in enumerate(chunks):
         chash = content_hash(c.text)
+        q = quality[id(c)]
         rows.append(
             (
                 chunk_id(doc["sha256"], c.page_start, ordinal, chash),
@@ -693,7 +806,8 @@ def chunk_document(doc_id: str) -> dict:
                 c.text,
                 c.tokens,
                 chash,
-                int(c.kind in RETRIEVABLE_KINDS),
+                int(c.kind in RETRIEVABLE_KINDS and q["ok"]),
+                ",".join(q["reasons"]) or None,
             )
         )
 
@@ -702,13 +816,18 @@ def chunk_document(doc_id: str) -> dict:
         conn.executemany(
             """INSERT OR REPLACE INTO chunks
                (id, document_id, filename, ordinal, page_start, page_end,
-                section, kind, text, token_count, content_hash, retrievable)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                section, kind, text, token_count, content_hash, retrievable,
+                quality_flags)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
+        # chunk_count is the RETRIEVABLE count - what search can actually see.
+        # chunk_count_total is every row, including the ones kept only for
+        # inspection. The two differ and both are reported.
         conn.execute(
-            "UPDATE documents SET chunk_count = ?, status = 'embedding' WHERE id = ?",
-            (len(retrievable), doc_id),
+            "UPDATE documents SET chunk_count = ?, chunk_count_total = ?,"
+            " status = ? WHERE id = ?",
+            (len(retrievable), len(chunks), states.INDEXING_KEYWORD, doc_id),
         )
 
     elapsed = timer.seconds()
@@ -720,7 +839,9 @@ def chunk_document(doc_id: str) -> dict:
         "pages": len(pages),
         "chunks": len(chunks),
         "chunks_retrievable": len(retrievable),
+        "chunks_non_retrievable": len(chunks) - len(retrievable),
         "chunks_by_kind": dict(kind_counts),
+        "chunks_rejected_by_quality_gate": len(quality_rejected),
         "chunks_this_run": len(chunks),
         "chunks_per_page": round(len(chunks) / len(pages), 2) if pages else None,
         "tables_kept_whole": sum(1 for c in chunks if c.kind == "table"),

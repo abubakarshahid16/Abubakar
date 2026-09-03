@@ -145,6 +145,8 @@ def to_api(row: sqlite3.Row) -> dict:
         "page_count": row["page_count"],
         "pages_done": row["pages_done"],
         "chunk_count": row["chunk_count"],
+        "chunk_count_total": row["chunk_count_total"],
+        "embedded_count": row["embedded_count"],
         "status": row["status"],
         "needs_ocr_pages": row["needs_ocr_pages"],
         "error": (
