@@ -4,6 +4,7 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from . import chunker as chunk_mod
 from . import extract as extract_mod
 from . import upload as upload_mod
 from .config import settings
@@ -87,6 +88,26 @@ def document_pages(document_id: str, limit: int = 20, offset: int = 0):
     rows = connect().execute(
         """SELECT page_no, char_count, needs_ocr, batch_no, substr(text,1,300) AS preview
            FROM pages WHERE document_id = ? ORDER BY page_no LIMIT ? OFFSET ?""",
+        (document_id, limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/documents/{document_id}/chunk")
+def chunk(document_id: str):
+    """Chunk an extracted document. Idempotent - re-running replaces rows."""
+    try:
+        return chunk_mod.chunk_document(document_id)
+    except ValueError as e:
+        return JSONResponse(status_code=404, content={"code": "not_found", "message": str(e)})
+
+
+@app.get("/api/documents/{document_id}/chunks")
+def document_chunks(document_id: str, limit: int = 10, offset: int = 0):
+    rows = connect().execute(
+        """SELECT id, ordinal, page_start, page_end, section, kind, token_count,
+                  content_hash, text
+           FROM chunks WHERE document_id = ? ORDER BY ordinal LIMIT ? OFFSET ?""",
         (document_id, limit, offset),
     ).fetchall()
     return [dict(r) for r in rows]

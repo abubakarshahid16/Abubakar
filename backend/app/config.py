@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     extract_processes: int = 2
     embed_batch_size: int = 32
 
+    # Chunking. e5-small has a hard 512-token limit; stay below it so the
+    # model never silently truncates a chunk.
+    chunk_target_tokens: int = 300
+    chunk_overlap_tokens: int = 60
+    chunk_max_tokens: int = 480
+    running_line_threshold: float = 0.03   # fraction of pages; a running head repeats per chapter, not book-wide
+    running_line_scan_lines: int = 3      # only the top/bottom N lines of a page
+
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.upload_dir, self.lance_dir.parent):
             d.mkdir(parents=True, exist_ok=True)
