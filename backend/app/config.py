@@ -41,7 +41,17 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = 60
     chunk_max_tokens: int = 480
     running_line_threshold: float = 0.03   # fraction of pages; a running head repeats per chapter, not book-wide
-    running_line_scan_lines: int = 3      # only the top/bottom N lines of a page
+    running_line_scan_lines: int = 3
+
+    # Content-quality gate. A chunk failing these does not read like natural
+    # language and is stored but not retrievable. Tuned against known-good
+    # book1 prose and known-bad book2 symbol-font tables.
+    quality_min_alpha_ratio: float = 0.55
+    quality_max_symbol_ratio: float = 0.20
+    quality_min_wordish_ratio: float = 0.45
+    quality_min_avg_word_len: float = 2.5
+    quality_max_unbroken_run: int = 45
+    quality_max_control_chars: int = 3      # only the top/bottom N lines of a page
 
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.upload_dir, self.lance_dir.parent):

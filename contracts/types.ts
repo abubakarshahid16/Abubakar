@@ -3,15 +3,20 @@
 
 // ---------- documents ----------
 
+/** Ingestion order: the keyword index is built BEFORE embedding, so a document
+ *  answers questions from `partially_searchable` onward. Embedding then
+ *  upgrades it from keyword-only to hybrid in the background. */
 export type DocStatus =
   | "queued"
   | "extracting"
   | "chunking"
-  | "embedding"
-  | "indexing"
-  | "partially_searchable"
-  | "ready"
+  | "indexing_keyword"
+  | "partially_searchable"   // keyword search works, vectors still arriving
+  | "ready"                  // keyword + vector both complete
   | "failed";
+
+/** A document can answer questions in these states - never block on embedding. */
+export const ANSWERABLE: DocStatus[] = ["partially_searchable", "ready"];
 
 /** A doc is only browsable-as-complete when status === "ready". */
 export const isReady = (d: DocumentRecord) => d.status === "ready";
@@ -23,7 +28,12 @@ export interface DocumentRecord {
   size_bytes: number;
   page_count: number | null; // null until the manifest is read
   pages_done: number;
+  /** chunks search can actually see (retrievable only) */
   chunk_count: number;
+  /** every chunk row, including ones kept only for inspection */
+  chunk_count_total: number;
+  /** how many retrievable chunks have vectors so far */
+  embedded_count: number;
   status: DocStatus;
   needs_ocr_pages: number;   // detected only; OCR is not implemented
   error: ApiError | null;
@@ -57,6 +67,32 @@ export interface JobRecord {
 }
 
 // ---------- retrieval ----------
+
+export type ChunkKind = "prose" | "table" | "toc" | "frontmatter" | "index" | "references";
+
+export interface ChunkRecord {
+  id: string;
+  ordinal: number;
+  page_start: number;
+  page_end: number;
+  section: string | null;
+  kind: ChunkKind;
+  token_count: number;
+  content_hash: string;
+  /** false for front matter, contents, index, and text that fails the
+   *  content-quality gate. Stored for inspection, excluded from search. */
+  retrievable: boolean;
+  /** why the quality gate rejected it, when it did */
+  quality_flags: string | null;
+  text: string;
+}
+
+export interface ChunkPage {
+  total_matching: number;
+  limit: number;
+  offset: number;
+  chunks: ChunkRecord[];
+}
 
 export interface Passage {
   chunk_id: string;

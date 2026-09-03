@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS documents (
     page_count        INTEGER,
     pages_done        INTEGER NOT NULL DEFAULT 0,
     chunk_count       INTEGER NOT NULL DEFAULT 0,
+    chunk_count_total INTEGER NOT NULL DEFAULT 0,
     status            TEXT NOT NULL DEFAULT 'queued',
     needs_ocr_pages   INTEGER NOT NULL DEFAULT 0,
     error_code        TEXT,
@@ -66,7 +67,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     text           TEXT NOT NULL,
     token_count    INTEGER NOT NULL,
     content_hash   TEXT NOT NULL,
-    retrievable    INTEGER NOT NULL DEFAULT 1
+    retrievable    INTEGER NOT NULL DEFAULT 1,
+    quality_flags  TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id, ordinal);
@@ -95,6 +97,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     have = {r["name"] for r in conn.execute("PRAGMA table_info(chunks)")}
     if have and "retrievable" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN retrievable INTEGER NOT NULL DEFAULT 1")
+    if have and "quality_flags" not in have:
+        conn.execute("ALTER TABLE chunks ADD COLUMN quality_flags TEXT")
+    docs = {r["name"] for r in conn.execute("PRAGMA table_info(documents)")}
+    if docs and "chunk_count_total" not in docs:
+        conn.execute(
+            "ALTER TABLE documents ADD COLUMN chunk_count_total INTEGER NOT NULL DEFAULT 0")
+    if docs and "embedded_count" not in docs:
+        conn.execute(
+            "ALTER TABLE documents ADD COLUMN embedded_count INTEGER NOT NULL DEFAULT 0")
     # created after the migration so it cannot reference a missing column
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_chunks_retrievable ON chunks(retrievable)"
