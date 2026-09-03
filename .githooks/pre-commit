@@ -16,6 +16,22 @@ RED=$'\033[0;31m'; GRN=$'\033[0;32m'; YLW=$'\033[0;33m'; NC=$'\033[0m'
 fail=0
 
 # ---------------------------------------------------------------------------
+# 0. Never commit directly to main
+# ---------------------------------------------------------------------------
+# GitHub free tier cannot enforce branch protection (ADR-0004), so this hook is
+# the only thing between a tired engineer and an unrevertable block landing
+# straight on main. Two blocks have already landed that way, both after a
+# post-merge "git switch main && git pull" followed by starting new work.
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+if [ "$branch" = "main" ]; then
+  echo "${RED}BLOCKED: direct commit to main${NC}"
+  echo "  Branch discipline is what lets a bad block be rolled back cleanly."
+  echo "  Move the staged work onto a branch - it comes with you:"
+  echo "      git switch -c <type>/<issue>-<slug>"
+  fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 1. Forbidden file types
 # ---------------------------------------------------------------------------
 staged=$(git diff --cached --name-only --diff-filter=ACMR)
