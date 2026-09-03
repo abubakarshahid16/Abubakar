@@ -21,6 +21,7 @@ import fitz  # PyMuPDF
 
 from .config import settings
 from .db import connect
+from .rates import Timer, rate
 
 # A page with less usable text than this is assumed to be scanned or
 # image-dominant. Detection only - OCR is deliberately not implemented.
@@ -128,8 +129,9 @@ def extract_document(doc_id: str, progress=None) -> dict:
                 " error_message='stored file is missing', updated_at=? WHERE id = ?",
                 (_now(), job["id"]))
         return {"document_id": doc_id, "filename": doc["filename"], "pages_total": None,
-                "pages_extracted": 0, "needs_ocr": 0, "seconds": 0.0,
-                "pages_per_sec": None, "resumed_from_batch": 0, "error": "stored file is missing"}
+                "pages_extracted": 0, "pages_extracted_this_run": 0, "needs_ocr": 0,
+                "seconds": 0.0, "pages_per_sec": None, "resumed_from_batch": 0,
+                "error": "stored file is missing"}
 
     total = doc["page_count"] or page_count(pdf_path)
     if doc["page_count"] is None:
@@ -139,7 +141,8 @@ def extract_document(doc_id: str, progress=None) -> dict:
 
     start_batch = 0 if job["last_completed_batch"] is None else job["last_completed_batch"] + 1
     todo = _batches(total, settings.page_batch_size, start_batch)
-    started = time.perf_counter()
+    timer = Timer()
+    pages_this_run = 0
 
     if todo:
         # Two processes, never threads. Commit strictly in order so the
@@ -154,13 +157,14 @@ def extract_document(doc_id: str, progress=None) -> dict:
                 nxt = min(inflight)
                 rows = inflight.pop(nxt).result()
                 _commit_batch(doc_id, job["id"], nxt, rows)
+                pages_this_run += len(rows)
                 if progress:
                     cur = conn.execute(
                         "SELECT pages_done FROM documents WHERE id = ?", (doc_id,)
                     ).fetchone()["pages_done"]
                     progress(cur, total)
 
-    elapsed = time.perf_counter() - started
+    elapsed = timer.seconds()
     final = conn.execute(
         "SELECT COUNT(*) AS c, COALESCE(SUM(needs_ocr),0) AS o FROM pages WHERE document_id = ?",
         (doc_id,),
@@ -182,7 +186,8 @@ def extract_document(doc_id: str, progress=None) -> dict:
         "pages_total": total,
         "pages_extracted": final["c"],
         "needs_ocr": final["o"],
-        "seconds": round(elapsed, 2),
-        "pages_per_sec": round(final["c"] / elapsed, 2) if elapsed > 0 else None,
+        "pages_extracted_this_run": pages_this_run,
+        "seconds": elapsed,
+        "pages_per_sec": rate(pages_this_run, elapsed),
         "resumed_from_batch": start_batch,
     }
