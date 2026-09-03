@@ -1,0 +1,13 @@
+{
+  "id": "job_02",
+  "document_id": "doc_02",
+  "stage": "embed",
+  "state": "paused",
+  "pages_total": 1004,
+  "pages_done": 288,
+  "last_completed_batch": 9,
+  "retries": 1,
+  "error": null,
+  "started_at": "2026-09-04T01:02:04Z",
+  "updated_at": "2026-09-04T01:18:52Z"
+}

@@ -1,0 +1,31 @@
+{
+  "tier": "generated",
+  "text": "Pump P-101A must be inspected every 2000 operating hours [1], and its vibration must stay at or below 3.0 mm/s RMS at the bearing housing per API 610 [2].",
+  "cited": [1, 2],
+  "sources": [
+    {
+      "chunk_id": "doc_01:p092:c1:2b7f4d81",
+      "document_id": "doc_01",
+      "filename": "pump-maintenance-spec.pdf",
+      "page_start": 92,
+      "page_end": 92,
+      "section": "5.1 Inspection Intervals",
+      "text": "The centrifugal pump P-101A shall be inspected at intervals not exceeding 2000 operating hours.",
+      "score": 0.9014,
+      "highlight": null
+    },
+    {
+      "chunk_id": "doc_01:p147:c2:8f3a1c9e",
+      "document_id": "doc_01",
+      "filename": "pump-maintenance-spec.pdf",
+      "page_start": 147,
+      "page_end": 147,
+      "section": "7.4.2 Vibration Limits",
+      "text": "Vibration limits per API 610 shall not exceed 3.0 mm/s RMS measured at the bearing housing.",
+      "score": 0.8776,
+      "highlight": null
+    }
+  ],
+  "model": "qwen3.5:4b",
+  "latency_ms": 24310
+}

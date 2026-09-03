@@ -1,0 +1,5 @@
+{"type":"sources","sources":[{"chunk_id":"doc_01:p092:c1:2b7f4d81","document_id":"doc_01","filename":"pump-maintenance-spec.pdf","page_start":92,"page_end":92,"section":"5.1 Inspection Intervals","text":"The centrifugal pump P-101A shall be inspected at intervals not exceeding 2000 operating hours.","score":0.9014,"highlight":null}]}
+{"type":"token","text":"Pump P-101A"}
+{"type":"token","text":" must be inspected"}
+{"type":"token","text":" every 2000 operating hours [1]."}
+{"type":"done","cited":[1],"model":"qwen3.5:4b","latency_ms":21044}

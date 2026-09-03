@@ -1,0 +1,12 @@
+{
+  "documents": 5, "pages": 1412, "chunks": 1762,
+  "jobs_running": 1, "jobs_failed": 1,
+  "embed_chunks_per_sec": 18.4,
+  "retrieval_p50_ms": 840,
+  "retrieval_p95_ms": 1610,
+  "cpu_percent": 91.7,
+  "ram_used_mb": 11208, "ram_total_mb": 15974,
+  "disk_free_gb": 43.1,
+  "ollama_ready": true, "embedder_ready": true,
+  "ingestion_paused": false
+}
