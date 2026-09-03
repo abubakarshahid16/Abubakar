@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+/* No remote fonts. System stack only. */
+:root {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: dark;
+}
+html, body, #root { height: 100%; }
+body { margin: 0; background: #0b0f14; color: #e6edf3; }
