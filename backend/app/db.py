@@ -54,6 +54,21 @@ CREATE TABLE IF NOT EXISTS pages (
     PRIMARY KEY (document_id, page_no)
 );
 
+CREATE TABLE IF NOT EXISTS chunks (
+    id             TEXT PRIMARY KEY,
+    document_id    TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    filename       TEXT NOT NULL,
+    ordinal        INTEGER NOT NULL,
+    page_start     INTEGER NOT NULL,
+    page_end       INTEGER NOT NULL,
+    section        TEXT,
+    kind           TEXT NOT NULL DEFAULT 'prose',
+    text           TEXT NOT NULL,
+    token_count    INTEGER NOT NULL,
+    content_hash   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_pages_ocr ON pages(document_id, needs_ocr);
 CREATE INDEX IF NOT EXISTS idx_jobs_document ON jobs(document_id);
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
