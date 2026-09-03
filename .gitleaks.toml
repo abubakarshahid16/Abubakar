@@ -1,0 +1,31 @@
+# gitleaks configuration for saudi-aramco-rag-chatbot
+#
+# This is a COMPENSATING CONTROL. GitHub Advanced Security secret scanning is
+# unavailable on this account tier (HTTP 422). See ADR-0004.
+#
+# Unlike GHAS, this runs BOTH locally as a pre-commit hook (blocking a secret
+# before it ever reaches GitHub) and in CI on every pull request.
+
+title = "nabaa-rag secret scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths and values that are safe by construction"
+
+paths = [
+  '''\.gitleaks\.toml$''',
+  '''\.env\.example$''',
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)uv\.lock$''',
+  '''(^|/)tests/fixtures/synthetic/''',
+]
+
+regexes = [
+  # Documented placeholders only. Never add a real value here.
+  '''EXAMPLE_[A-Z0-9_]+''',
+  '''<[a-z-]+>''',
+  '''your-[a-z-]+-here''',
+  '''CHANGE_ME''',
+]

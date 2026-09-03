@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security or data-handling concern
+    url: https://github.com/abubakarshahid16/saudi-aramco-rag-chatbot/blob/main/docs/adr
+    about: Do not open a public issue containing client document names or content. Read the ADRs first.

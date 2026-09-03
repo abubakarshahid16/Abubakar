@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Pre-commit guard for saudi-aramco-rag-chatbot
+#
+# COMPENSATING CONTROL. GitHub Advanced Security secret scanning is unavailable
+# on this account tier, and branch protection cannot be enforced. See ADR-0004.
+#
+# This hook blocks a secret or a client document BEFORE it enters git history,
+# which is strictly better than detecting it after the push.
+#
+# Install with:  bash scripts/install-git-hooks.sh
+# Bypass (audit trail required):  git commit --no-verify
+
+set -uo pipefail
+
+RED=$'\033[0;31m'; GRN=$'\033[0;32m'; YLW=$'\033[0;33m'; NC=$'\033[0m'
+fail=0
+
+# ---------------------------------------------------------------------------
+# 1. Forbidden file types
+# ---------------------------------------------------------------------------
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+forbidden=$(printf '%s\n' "$staged" \
+  | grep -E '\.(pdf|onnx|gguf|safetensors|bin|sqlite|sqlite3|db|db-wal|db-shm|lance)$' \
+  | grep -v '^tests/fixtures/synthetic/' || true)
+
+if [ -n "$forbidden" ]; then
+  echo "${RED}BLOCKED: forbidden file type staged${NC}"
+  printf '%s\n' "$forbidden" | sed 's/^/    /'
+  echo ""
+  echo "  Client PDFs, extracted text, embeddings, model weights and databases"
+  echo "  must never enter this repository (EXECUTION.md section 6)."
+  echo "  Synthetic fixtures belong in tests/fixtures/synthetic/."
+  fail=1
+fi
+
+# ---------------------------------------------------------------------------
+# 2. .env files
+# ---------------------------------------------------------------------------
+envfiles=$(printf '%s\n' "$staged" | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$' || true)
+if [ -n "$envfiles" ]; then
+  echo "${RED}BLOCKED: .env file staged${NC}"
+  printf '%s\n' "$envfiles" | sed 's/^/    /'
+  fail=1
+fi
+
+# ---------------------------------------------------------------------------
+# 3. gitleaks on staged content
+# ---------------------------------------------------------------------------
+GITLEAKS="${GITLEAKS_PATH:-$LOCALAPPDATA/gitleaks/gitleaks.exe}"
+if [ ! -x "$GITLEAKS" ]; then
+  GITLEAKS=$(command -v gitleaks 2>/dev/null || true)
+fi
+
+if [ -z "$GITLEAKS" ] || [ ! -x "$GITLEAKS" ]; then
+  echo "${YLW}WARNING: gitleaks not found - staged content was NOT scanned.${NC}"
+  echo "  Run: bash scripts/install-git-hooks.sh"
+  echo "  This is a real gap, not a nuisance. CI will still catch it, after the push."
+else
+  if ! "$GITLEAKS" git --staged --redact --no-banner --config .gitleaks.toml; then
+    echo "${RED}BLOCKED: gitleaks found a secret in staged content${NC}"
+    echo "  Remove the secret. Do not use --no-verify to get past this."
+    fail=1
+  fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "${RED}Commit rejected.${NC}"
+  exit 1
+fi
+
+echo "${GRN}pre-commit checks passed${NC}"
+exit 0

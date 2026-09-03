@@ -1,0 +1,18 @@
+# Code owners for saudi-aramco-rag-chatbot
+#
+# NOTE: on GitHub free tier, CODEOWNERS does NOT trigger required review
+# (that needs branch protection, which is unavailable). It is retained as a
+# declaration of ownership and to auto-request review where GitHub allows it.
+# See ADR-0004 for the full list of unenforceable controls.
+
+# Default owner for everything
+*                       @abubakarshahid16
+
+# The governance surface owns itself - changes here change the rules
+/.github/               @abubakarshahid16
+/.gitignore             @abubakarshahid16
+/.gitleaks.toml         @abubakarshahid16
+
+# Architecture decisions and contracts are the highest-consequence docs
+/docs/adr/              @abubakarshahid16
+/contracts/             @abubakarshahid16
