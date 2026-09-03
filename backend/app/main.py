@@ -103,11 +103,20 @@ def chunk(document_id: str):
 
 
 @app.get("/api/documents/{document_id}/chunks")
-def document_chunks(document_id: str, limit: int = 10, offset: int = 0):
+def document_chunks(
+    document_id: str, limit: int = 10, offset: int = 0, retrievable_only: bool = True
+):
+    """Chunks for a document.
+
+    Defaults to retrievable chunks only. Front matter, contents, index and
+    references are stored but excluded from search; pass
+    retrievable_only=false to inspect them.
+    """
+    where = "document_id = ?" + (" AND retrievable = 1" if retrievable_only else "")
     rows = connect().execute(
-        """SELECT id, ordinal, page_start, page_end, section, kind, token_count,
-                  content_hash, text
-           FROM chunks WHERE document_id = ? ORDER BY ordinal LIMIT ? OFFSET ?""",
+        f"""SELECT id, ordinal, page_start, page_end, section, kind, token_count,
+                   content_hash, retrievable, text
+            FROM chunks WHERE {where} ORDER BY ordinal LIMIT ? OFFSET ?""",
         (document_id, limit, offset),
     ).fetchall()
     return [dict(r) for r in rows]

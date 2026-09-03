@@ -15,6 +15,11 @@
 - **OCR is not implemented.** Scanned pages are detected and flagged, not read. A scanned document will not be searchable.
 - **No ANN index** — brute-force vector search. Correct and fast at prototype scale; requires an index before full-corpus use.
 - **Perfect table and diagram extraction is not claimed** for every PDF type.
+- **Table column pairing is not preserved.** A table chunk keeps its caption, headers and every value in reading order, one cell per line, but the row/column pairing is positional rather than explicit. A reader can see the table; a search engine cannot reliably answer "what is the value at row X, column Y".
+  - **Plan, deferred deliberately:** when the real Saudi Aramco documents arrive, run PyMuPDF `page.find_tables()` on *only* the pages already flagged `kind=table`, to recover real rows and cells. Building this before we know what the client's tables look like would be guesswork.
+- **Mathematical notation degrades.** PyMuPDF text extraction loses `=` and `+` operators and flattens sub/superscripts, so equation-heavy pages retrieve poorly. Not fixable in text mode.
+- **Front matter, contents, index and references pages are excluded from search.** They are classified and stored, with `retrievable=0`, so they can be inspected, but they never compete with body text. A contents line such as "5.3.1 Identity Theft 257" would otherwise outrank the page where the answer actually is.
+- **Section headings are null when uncertain.** A heading is only accepted from an unambiguous numbered pattern. Roughly 12% of retrievable chunks carry no section. That is deliberate: a wrong heading in a citation is worse than a missing one.
 - **No authentication, RBAC, SSO, high availability, disaster recovery, or enterprise key management.**
 - **No domain fine-tuning**, and no production accuracy claim.
 - **Full corpus not ingested.** ~45 GB free disk does not accommodate ~1.2 M pages.

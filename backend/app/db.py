@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     kind           TEXT NOT NULL DEFAULT 'prose',
     text           TEXT NOT NULL,
     token_count    INTEGER NOT NULL,
-    content_hash   TEXT NOT NULL
+    content_hash   TEXT NOT NULL,
+    retrievable    INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id, ordinal);
@@ -89,11 +90,24 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Additive column migrations for databases created by an earlier build."""
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(chunks)")}
+    if have and "retrievable" not in have:
+        conn.execute("ALTER TABLE chunks ADD COLUMN retrievable INTEGER NOT NULL DEFAULT 1")
+    # created after the migration so it cannot reference a missing column
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chunks_retrievable ON chunks(retrievable)"
+    )
+    conn.commit()
+
+
 def init_db(path: Path | None = None) -> None:
     if path is not None:
         settings.db_path = path
     conn = connect()
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
 
 

@@ -117,28 +117,132 @@ _MIN_TABLE_TOKENS = 40
 _MIN_CHUNK_TOKENS = 25
 # More heading-like lines than this on one page means it is a contents page.
 _CONTENTS_PAGE_HEADINGS = 4
+# Section numbers are small; anything larger is an address or a measurement.
+_MAX_SECTION_NUMBER = 99
+_ANY_DIGIT = re.compile(r"\d")
+_MATH_PUNCT = re.compile(r"[()\[\]{}=+*/\<>|^_~]")
+
+# ------------------------------------------------------ page classification
+
+# A contents line: "5.3.1 Identity Theft 257"
+_TOC_LINE = re.compile(r"^\s*\S.*\s\d{1,4}\s*$")
+# An index line: "identity theft, 257, 261-263"
+_INDEX_LINE = re.compile(r"^\s*\S[^,]{2,60},\s*\d{1,4}(\s*[-,]\s*\d{1,4})*\s*$")
+
+_FRONTMATTER_MARKERS = (
+    "isbn", "all rights reserved", "library of congress", "cataloging-in-publication",
+    "printed in the united states", "copyright ©", "no part of this publication",
+    "pearson education", "cengage", "wiley", "mcgraw-hill",
+    "photo credit", "cover credit", "fotolia", "shutterstock", "getty images",
+    "acquisitions editor", "managing editor", "production editor",
+    "editor in chief", "editorial director", "portfolio manager",
+    "marketing manager", "marketing assistant", "cover design", "cover art",
+    "composition", "rights and permissions", "manufacturing buyer",
+    "vice president", "typeset in", "www.pearson", "permissions department",
+)
+
+_BACKMATTER_MARKERS = ("bibliography", "references", "works cited")
+
+
+def classify_page(text: str, page_no: int, total_pages: int) -> str:
+    """Classify a page as prose / toc / frontmatter / index / references.
+
+    Contents and index pages are dense keyword lists with no content. Indexed
+    as prose they outscore the body: a contents chunk containing
+    "5.3.1 Identity Theft 257" beats page 257 where the answer actually is.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return "prose"
+
+    early = page_no <= max(12, total_pages * 0.05)
+
+    # A half-title, dedication or epigraph: a nearly empty page at the front.
+    # The line count matters as well as the word count - a short contents page
+    # is also brief, but it is many short lines rather than one or two.
+    if early and len(text.split()) < 40 and len(lines) < 6:
+        return "frontmatter"
+
+    low = text.lower()
+    marker_hits = sum(1 for m in _FRONTMATTER_MARKERS if m in low)
+    # Front matter markers are decisive wherever they appear.
+    if marker_hits >= 2 or (marker_hits >= 1 and page_no <= max(12, total_pages * 0.05)):
+        return "frontmatter"
+
+    toc_lines = sum(1 for line in lines if _TOC_LINE.match(line))
+    if len(lines) >= 6 and toc_lines >= len(lines) * 0.4 and toc_lines >= 5:
+        # An index has the same shape but sits at the back of the book.
+        if page_no > total_pages * 0.85:
+            return "index"
+        return "toc"
+
+    index_lines = sum(1 for line in lines if _INDEX_LINE.match(line))
+    if len(lines) >= 6 and index_lines >= len(lines) * 0.35:
+        return "index"
+
+    if page_no > total_pages * 0.85:
+        head = " ".join(lines[:3]).lower()
+        if any(m in head for m in _BACKMATTER_MARKERS):
+            return "references"
+
+    return "prose"
+
+
+# Only these kinds are searchable. The rest are kept for inspection.
+RETRIEVABLE_KINDS = frozenset({"prose", "table"})
 
 
 def looks_like_heading(line: str) -> str | None:
+    """Return a section heading, or None.
+
+    Deliberately strict. A wrong heading is worse than no heading: a citation
+    reading "page 24, section: 330 Hudson Street, NY, NY 10013" - the
+    publisher's address, lifted off the copyright page - looks broken to a
+    reader and is inherited by every chunk that follows.
+
+    Only an unambiguous numbered section pattern qualifies. An ALL-CAPS line
+    is NOT enough; it matches addresses, credits and running heads. When in
+    doubt the section stays null.
+    """
     line = line.strip()
     if not line or len(line) > 90:
         return None
     m = _HEADING.match(line)
-    if m:
-        # a table-of-contents line ends in a page number - not a real heading
-        if _TRAILING_PAGE_NO.search(line):
-            return None
-        number, title = m.group(1), m.group(2).strip()
-        # A bare integer with a one-word title is almost always a figure
-        # annotation ("3 L/min") or a stray label, not a section heading.
-        # A dotted number ("5.1 Introduction") is unambiguous.
-        if "." not in number and len(title.split()) < 3:
-            return None
-        return f"{number} {title}"
-    m = _ALLCAPS_HEADING.match(line)
-    if m and not m.group(1).strip().isdigit():
-        return m.group(1).strip()
-    return None
+    if not m:
+        return None
+    # a table-of-contents line ends in a page number - not a real heading
+    if _TRAILING_PAGE_NO.search(line):
+        return None
+
+    number, title = m.group(1), m.group(2).strip()
+
+    # A section number is small and non-zero. "330 Hudson Street" is a street
+    # address; "0 K(s, t) f(t) dt" is an integral, not section zero.
+    parts = number.split(".")
+    if any(int(p) > _MAX_SECTION_NUMBER for p in parts):
+        return None
+    if int(parts[0]) < 1:
+        return None
+
+    # Maths and code punctuation never appears in a section title.
+    if _MATH_PUNCT.search(title):
+        return None
+    # A real title is mostly letters and spaces.
+    letters = sum(1 for ch in title if ch.isalpha() or ch.isspace())
+    if letters < len(title) * 0.85:
+        return None
+
+    # A title carrying digits is an address, a measurement or a code line
+    # ("330 Hudson Street, NY, NY 10013"), not a section title.
+    if _ANY_DIGIT.search(title):
+        return None
+
+    # A bare integer with a short title is a figure annotation ("3 L/min").
+    # A dotted number ("5.1 Introduction") is unambiguous on its own.
+    if "." not in number and len(title.split()) < 3:
+        return None
+
+    return f"{number} {title}"
 
 
 def numericness(line: str) -> float:
@@ -209,17 +313,29 @@ def _table_run_length(lines: list[str], i: int) -> int:
 
 
 def segment_document(
-    pages: list[tuple[int, str]], running: set[str]
+    pages: list[tuple[int, str]],
+    running: set[str],
+    page_kinds: dict[int, str] | None = None,
 ) -> tuple[list[Block], int]:
     """Flatten pages into blocks, carrying heading state across page boundaries."""
     blocks: list[Block] = []
     section: str | None = None
     removed_total = 0
 
+    kinds = page_kinds or {}
     for page_no, raw in pages:
+        page_kind = kinds.get(page_no, "prose")
         cleaned, removed = strip_running_lines(raw, running)
         removed_total += removed
         lines = cleaned.splitlines()
+
+        if page_kind != "prose":
+            # Front matter, contents and index are kept whole for inspection
+            # but never treated as prose, and never set heading state.
+            body = cleaned.strip()
+            if body:
+                blocks.append(Block(page_kind, body, page_no, page_no, None))
+            continue
 
         # A contents page is a wall of heading-like lines. Letting it set the
         # section state makes every later chunk inherit a heading from the
@@ -349,6 +465,16 @@ def build_chunks(blocks: list[Block]) -> list[Block]:
             # too small to be a useful standalone chunk - treat it as prose
             b.kind = "prose"
 
+        if b.kind not in ("prose", "table"):
+            # toc / frontmatter / index / references: keep as its own chunk so
+            # it can be inspected, but never blend it into retrievable prose.
+            flush()
+            if b.tokens <= ceiling:
+                chunks.append(Block(b.kind, b.text, b.page_start, b.page_end, None, b.tokens))
+            else:
+                chunks.extend(split_oversized(b.text, b.page_start, b.page_end, None, b.kind))
+            continue
+
         if b.kind == "table":
             flush()
             if b.tokens <= ceiling:
@@ -466,7 +592,11 @@ def _merge_runts(chunks: list[Block]) -> list[Block]:
                 prev.page_end = max(prev.page_end, c.page_end)
                 prev.page_start = min(prev.page_start, c.page_start)
                 continue
-        if c.tokens < 5 and not re.search(r"[A-Za-z]{3}", c.text):
+        if (
+            c.kind in RETRIEVABLE_KINDS
+            and c.tokens < 5
+            and not re.search(r"[A-Za-z]{3}", c.text)
+        ):
             continue  # punctuation or a stray number - no retrievable content
         out.append(c)
 
@@ -531,8 +661,10 @@ def chunk_document(doc_id: str) -> dict:
     if not pages:
         raise ValueError(f"{doc_id} has no extracted pages - run extraction first")
 
+    total_pages = doc["page_count"] or len(pages)
+    page_kinds = {pno: classify_page(text, pno, total_pages) for pno, text in pages}
     running = detect_running_lines(pages)
-    blocks, removed = segment_document(pages, running)
+    blocks, removed = segment_document(pages, running, page_kinds)
     chunks = build_chunks(blocks)
 
     ceiling = settings.chunk_max_tokens
@@ -541,6 +673,9 @@ def chunk_document(doc_id: str) -> dict:
         f"{len(over)} chunk(s) exceed the {ceiling}-token ceiling "
         f"(max {max(c.tokens for c in over) if over else 0}) - e5-small would truncate them"
     )
+
+    retrievable = [c for c in chunks if c.kind in RETRIEVABLE_KINDS]
+    kind_counts: Counter[str] = Counter(c.kind for c in chunks)
 
     rows = []
     for ordinal, c in enumerate(chunks):
@@ -558,6 +693,7 @@ def chunk_document(doc_id: str) -> dict:
                 c.text,
                 c.tokens,
                 chash,
+                int(c.kind in RETRIEVABLE_KINDS),
             )
         )
 
@@ -566,23 +702,25 @@ def chunk_document(doc_id: str) -> dict:
         conn.executemany(
             """INSERT OR REPLACE INTO chunks
                (id, document_id, filename, ordinal, page_start, page_end,
-                section, kind, text, token_count, content_hash)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                section, kind, text, token_count, content_hash, retrievable)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.execute(
             "UPDATE documents SET chunk_count = ?, status = 'embedding' WHERE id = ?",
-            (len(rows), doc_id),
+            (len(retrievable), doc_id),
         )
 
     elapsed = timer.seconds()
-    toks = sorted(c.tokens for c in chunks)
+    toks = sorted(c.tokens for c in retrievable)
     spanning = sum(1 for c in chunks if c.page_end > c.page_start)
     return {
         "document_id": doc_id,
         "filename": doc["filename"],
         "pages": len(pages),
         "chunks": len(chunks),
+        "chunks_retrievable": len(retrievable),
+        "chunks_by_kind": dict(kind_counts),
         "chunks_this_run": len(chunks),
         "chunks_per_page": round(len(chunks) / len(pages), 2) if pages else None,
         "tables_kept_whole": sum(1 for c in chunks if c.kind == "table"),
