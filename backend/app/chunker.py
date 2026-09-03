@@ -752,7 +752,26 @@ def chunk_id(doc_sha: str, page_start: int, ordinal: int, chash: str) -> str:
     return f"{doc_sha[:12]}:p{page_start:05d}:c{ordinal:05d}:{chash[:8]}"
 
 
-def chunk_document(doc_id: str) -> dict:
+#: Bump when chunking behaviour changes, so a re-run rebuilds rather than
+#: short-circuiting on stale output.
+CHUNKER_VERSION = "4"
+
+
+def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]]) -> str:
+    """Identifies the input to chunking: the document, its extracted text, and
+    the chunker version. Unchanged signature means the output would be
+    identical, so the work can be skipped."""
+    h = hashlib.sha256()
+    h.update(doc_sha.encode())
+    h.update(CHUNKER_VERSION.encode())
+    h.update(str(len(pages)).encode())
+    for pno, text in pages:
+        h.update(str(pno).encode())
+        h.update(hashlib.sha256(text.encode("utf-8")).digest())
+    return h.hexdigest()
+
+
+def chunk_document(doc_id: str, force: bool = False) -> dict:
     """Chunk one extracted document. Idempotent - re-running replaces rows."""
     timer = Timer()
     conn = connect()
@@ -772,6 +791,26 @@ def chunk_document(doc_id: str) -> dict:
 
     total_pages = doc["page_count"] or len(pages)
     page_kinds = {pno: classify_page(text, pno, total_pages) for pno, text in pages}
+    signature = _chunk_signature(doc["sha256"], pages)
+    existing = conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (doc_id,)
+    ).fetchone()[0]
+    if not force and existing and doc["chunk_signature"] == signature:
+        # Nothing about the input changed, so rebuilding would produce the
+        # same rows. /extract resumes rather than redoing work; this matches.
+        return {
+            "document_id": doc_id,
+            "filename": doc["filename"],
+            "pages": len(pages),
+            "chunks": existing,
+            "chunks_retrievable": doc["chunk_count"],
+            "chunks_this_run": 0,
+            "skipped": True,
+            "reason": "unchanged since last chunking",
+            "seconds": timer.seconds(),
+            "chunks_per_sec": None,
+        }
+
     running = detect_running_lines(pages)
     blocks, removed = segment_document(pages, running, page_kinds)
     chunks = build_chunks(blocks)
@@ -867,8 +906,8 @@ def chunk_document(doc_id: str) -> dict:
         # inspection. The two differ and both are reported.
         conn.execute(
             "UPDATE documents SET chunk_count = ?, chunk_count_total = ?,"
-            " status = ? WHERE id = ?",
-            (len(retrievable), len(chunks), states.INDEXING_KEYWORD, doc_id),
+            " chunk_signature = ?, status = ? WHERE id = ?",
+            (len(retrievable), len(chunks), signature, states.INDEXING_KEYWORD, doc_id),
         )
 
     elapsed = timer.seconds()
@@ -886,6 +925,7 @@ def chunk_document(doc_id: str) -> dict:
         "pages_excluded": sum(1 for r in exclusion_rows if r[1] == "page"),
         "exclusions_recorded": len(exclusion_rows),
         "chunks_this_run": len(chunks),
+        "skipped": False,
         "chunks_per_page": round(len(chunks) / len(pages), 2) if pages else None,
         "tables_kept_whole": sum(1 for c in chunks if c.kind == "table"),
         "chunks_spanning_pages": spanning,

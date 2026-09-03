@@ -22,8 +22,10 @@ CREATE TABLE IF NOT EXISTS documents (
     pages_done        INTEGER NOT NULL DEFAULT 0,
     chunk_count       INTEGER NOT NULL DEFAULT 0,
     chunk_count_total INTEGER NOT NULL DEFAULT 0,
+    chunk_signature   TEXT,
     status            TEXT NOT NULL DEFAULT 'queued',
     needs_ocr_pages   INTEGER NOT NULL DEFAULT 0,
+    equation_pages    INTEGER NOT NULL DEFAULT 0,
     error_code        TEXT,
     error_message     TEXT,
     uploaded_at       TEXT NOT NULL,
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS pages (
     text          TEXT NOT NULL,
     char_count    INTEGER NOT NULL,
     needs_ocr     INTEGER NOT NULL DEFAULT 0,
+    equation_heavy INTEGER NOT NULL DEFAULT 0,
     batch_no      INTEGER NOT NULL,
     PRIMARY KEY (document_id, page_no)
 );
@@ -125,10 +128,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE chunks ADD COLUMN retrievable INTEGER NOT NULL DEFAULT 1")
     if have and "quality_flags" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN quality_flags TEXT")
+    pg = {r["name"] for r in conn.execute("PRAGMA table_info(pages)")}
+    if pg and "equation_heavy" not in pg:
+        conn.execute("ALTER TABLE pages ADD COLUMN equation_heavy INTEGER NOT NULL DEFAULT 0")
     docs = {r["name"] for r in conn.execute("PRAGMA table_info(documents)")}
     if docs and "chunk_count_total" not in docs:
         conn.execute(
             "ALTER TABLE documents ADD COLUMN chunk_count_total INTEGER NOT NULL DEFAULT 0")
+    if docs and "chunk_signature" not in docs:
+        conn.execute("ALTER TABLE documents ADD COLUMN chunk_signature TEXT")
+    if docs and "equation_pages" not in docs:
+        conn.execute(
+            "ALTER TABLE documents ADD COLUMN equation_pages INTEGER NOT NULL DEFAULT 0")
     if docs and "embedded_count" not in docs:
         conn.execute(
             "ALTER TABLE documents ADD COLUMN embedded_count INTEGER NOT NULL DEFAULT 0")

@@ -43,7 +43,10 @@ MIN_SHORT_CLAUSE_WORDS = 3
 
 # Table structure thresholds.
 _TABLE_LABEL = re.compile(r"(?im)^\s*(TABLE|Table|FIGURE|Figure|EXHIBIT|Exhibit)\s*\d")
-_NUMERIC_CELL = re.compile(r"^[-+(]?\d[\d.,%/:–-]*\)?$")
+# A data cell, not a list enumerator. "4.0000" and "-2.5" are cells;
+# "7." and "13." are numbered list markers and must not count as data,
+# or a line of exercise numbers reads as a table.
+_NUMERIC_CELL = re.compile(r"^[-+(]?\d[\d.,%/:–-]*\)?$(?<![.,])")
 
 
 def normalise_text(text: str) -> str:

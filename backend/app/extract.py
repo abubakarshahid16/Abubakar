@@ -29,7 +29,29 @@ from .rates import Timer, rate
 MIN_USABLE_CHARS = 100
 # A page this dense in mathematical symbols extracts as prose ABOUT maths with
 # the maths missing. Flagged rather than silently degraded.
-EQUATION_MARKERS = set("∫∑∏√±≤≥≠≈∞∂∇αβγδθλμπσφω")
+EQUATION_MARKERS = set("∫∑∏√±≤≥≠≈∞∂∇αβγδεθλμπρσφψωΓΔΘΛΞΠΣΦΨΩ")
+# Proportion of tokens that look like broken maths before a page is flagged.
+EQUATION_PAGE_RATIO = 0.25
+
+
+def equation_density(text: str) -> float:
+    """How much of this page reads as mathematical notation rather than words.
+
+    PyMuPDF drops '=' and '+' from equations and flattens sub/superscripts, so
+    an equation-dense page becomes prose ABOUT maths with the maths missing.
+    Flagged the way needs_ocr is, so it is visible rather than quietly useless.
+    """
+    tokens = text.split()
+    if not tokens:
+        return 0.0
+    hits = 0
+    for t in tokens:
+        if any(ch in EQUATION_MARKERS for ch in t):
+            hits += 1
+        elif len(t) <= 6 and any(ch.isdigit() for ch in t) and any(ch.isalpha() for ch in t):
+            # "x2", "hm3", "ea1s" - a letter/digit blend left by a broken formula
+            hits += 1
+    return hits / len(tokens)
 
 
 @dataclass
@@ -66,7 +88,8 @@ def extract_batch(pdf_path: str, first_page: int, last_page: int) -> list[tuple[
             text = normalise_text(text)
             usable = len(text.strip())
             needs_ocr = usable < MIN_USABLE_CHARS
-            out.append((pno + 1, text, needs_ocr))
+            eq_heavy = equation_density(text) >= EQUATION_PAGE_RATIO
+            out.append((pno + 1, text, needs_ocr, eq_heavy))
     return out
 
 
@@ -90,12 +113,15 @@ def _commit_batch(doc_id: str, job_id: str, batch_no: int, rows: list[tuple[int,
     with conn:
         conn.executemany(
             """INSERT OR REPLACE INTO pages
-               (document_id, page_no, text, char_count, needs_ocr, batch_no)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            [(doc_id, p, t, len(t.strip()), int(o), batch_no) for p, t, o in rows],
+               (document_id, page_no, text, char_count, needs_ocr, equation_heavy,
+                batch_no)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [(doc_id, p, t, len(t.strip()), int(o), int(e), batch_no)
+             for p, t, o, e in rows],
         )
         done = conn.execute(
-            "SELECT COUNT(*) AS c, COALESCE(SUM(needs_ocr),0) AS o FROM pages WHERE document_id = ?",
+            "SELECT COUNT(*) AS c, COALESCE(SUM(needs_ocr),0) AS o,"
+            " COALESCE(SUM(equation_heavy),0) AS e FROM pages WHERE document_id = ?",
             (doc_id,),
         ).fetchone()
         conn.execute(
@@ -173,15 +199,17 @@ def extract_document(doc_id: str, progress=None) -> dict:
 
     elapsed = timer.seconds()
     final = conn.execute(
-        "SELECT COUNT(*) AS c, COALESCE(SUM(needs_ocr),0) AS o FROM pages WHERE document_id = ?",
+        "SELECT COUNT(*) AS c, COALESCE(SUM(needs_ocr),0) AS o,"
+        " COALESCE(SUM(equation_heavy),0) AS e FROM pages WHERE document_id = ?",
         (doc_id,),
     ).fetchone()
     with conn:
         # Extraction complete; chunking is step 3, so the document is not
         # "ready" - it has no searchable chunks yet.
         conn.execute(
-            "UPDATE documents SET pages_done = ?, needs_ocr_pages = ?, status = 'chunking' WHERE id = ?",
-            (final["c"], final["o"], doc_id),
+            "UPDATE documents SET pages_done = ?, needs_ocr_pages = ?,"
+            " equation_pages = ?, status = 'chunking' WHERE id = ?",
+            (final["c"], final["o"], final["e"], doc_id),
         )
         conn.execute(
             "UPDATE jobs SET stage = 'chunk', state = 'done', pages_done = ?, updated_at = ? WHERE id = ?",
@@ -193,6 +221,7 @@ def extract_document(doc_id: str, progress=None) -> dict:
         "pages_total": total,
         "pages_extracted": final["c"],
         "needs_ocr": final["o"],
+        "equation_heavy_pages": final["e"],
         "pages_extracted_this_run": pages_this_run,
         "seconds": elapsed,
         "pages_per_sec": rate(pages_this_run, elapsed),
