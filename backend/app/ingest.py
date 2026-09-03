@@ -94,10 +94,13 @@ class IngestionWorker:
         ).fetchone()
         if row:
             return row["id"]
-        # documents that are answerable but still have vectors outstanding
+        # Answerable documents that are not finished: vectors still
+        # outstanding, or never stamped terminal at all (a document with zero
+        # retrievable chunks has nothing to embed but is still finished).
         row = connect().execute(
             """SELECT id FROM documents
-               WHERE status = ? AND embedded_count < chunk_count
+               WHERE status = ?
+                 AND (embedded_count < chunk_count OR indexed_at IS NULL)
                ORDER BY uploaded_at LIMIT 1""",
             (states.PARTIALLY_SEARCHABLE,),
         ).fetchone()
