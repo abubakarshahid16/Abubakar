@@ -37,8 +37,13 @@ PDF ──▶ stream + SHA-256 ──▶ page batches ──▶ PyMuPDF text ─
                               resumable checkpoint
                               (completed batches are searchable immediately)
 
-question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ context budget ──▶ local Qwen ──▶ answer + page citations
-                                                                                    └──▶ or: insufficient evidence
+question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-encoder rerank
+                                                              │
+        TIER 1 (default, no LLM) ◀────────────────────────────┤   top passage, quoted verbatim
+        ~1-2 s                                                │   + document, page, section, highlighted span
+                                                              │
+        TIER 2 (explicit "Explain" / auto-routed) ◀───────────┘   2 chunks x 250 tok ──▶ local Qwen
+                                                                  └──▶ cited answer, or insufficient evidence
 ```
 
 ## Stack
@@ -53,11 +58,14 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ context
 | Vector search | LanceDB embedded, brute-force cosine |
 | Keyword search | SQLite FTS5 |
 | Fusion | Reciprocal Rank Fusion |
-| Answer model | Local Qwen via Ollama, low temperature, bounded output |
+| Reranking | Small local CPU cross-encoder — **mandatory**, not optional |
+| Answer model | Local Qwen via Ollama (`qwen3.5:4b` default, configurable), `think=false`, `num_thread=12`, `num_batch=2048`, `num_ctx`~1536, 60-100 output tokens |
 | Metadata / jobs / history | SQLite (WAL) |
 
 ## Non-negotiable behaviours
 
+- **Tier 1 returns quoted source text and is never rendered as generated prose.**
+- The UI always shows **which tier answered**.
 - Every factual claim carries a **page-level citation**.
 - Missing or weak evidence produces a **refusal**, never a confident guess.
 - Retrieved PDF text is **untrusted data**, never instructions to the model.
@@ -71,7 +79,6 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ context
 Deliberately excluded from the prototype to protect the deadline:
 
 - **OCR** — scanned pages are detected and flagged, not OCR'd
-- **Neural reranker** — RRF only
 - **ANN index** — brute-force vector search is faster *and* exact at prototype scale
 - **Retrieval profiles** — one profile (Balanced)
 - **System view** — four views: Documents, Chat, Ingestion, Dashboard (History folded into Chat)
