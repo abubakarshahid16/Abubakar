@@ -139,3 +139,90 @@ def test_chunk_id_is_deterministic_and_content_addressed():
     assert a == b == "abc123def456:p00042:c00007:deadbeef"
     # different content at the same position gives a different id
     assert chunk_id("abc123def456ffff", 42, 7, "0000000000000000") != a
+
+
+# --------------------------------------------- front matter classification
+
+from app.chunker import RETRIEVABLE_KINDS, classify_page  # noqa: E402
+
+
+def test_contents_page_is_classified_toc_not_prose():
+    """A contents chunk containing '5.3.1 Identity Theft 257' would otherwise
+    outscore page 257, where the real answer is."""
+    toc = "\n".join([
+        "Contents",
+        "5.1 Introduction 245",
+        "5.2 What is Hacking? 247",
+        "5.3 Some Specific Applications of Hacking 255",
+        "5.3.1 Identity Theft 257",
+        "5.3.2 Case Study: The Target Breach 261",
+        "5.4 Whose Laws Rule the Web 270",
+        "5.5 Exercises 281",
+    ])
+    assert classify_page(toc, page_no=9, total_pages=546) == "toc"
+    assert "toc" not in RETRIEVABLE_KINDS
+
+
+def test_copyright_page_is_classified_frontmatter():
+    page = (
+        "330 Hudson Street, NY, NY 10013\n"
+        "Copyright © 2018 by Pearson Education, Inc. All rights reserved.\n"
+        "Library of Congress Cataloging-in-Publication Data\n"
+        "ISBN 13: 978-0-13-461527-1\n"
+        "Editor in Chief: Julian Partridge\n"
+    )
+    assert classify_page(page, page_no=4, total_pages=546) == "frontmatter"
+    assert "frontmatter" not in RETRIEVABLE_KINDS
+
+
+def test_index_page_at_the_back_is_classified_index():
+    page = "\n".join([
+        "identity theft, 257, 261",
+        "encryption, 88, 92, 100",
+        "hacking, 245, 247, 255",
+        "privacy, 63, 67, 71",
+        "surveillance, 74, 80",
+        "wiretapping, 82, 85",
+        "zoning, 300",
+    ])
+    assert classify_page(page, page_no=600, total_pages=613) == "index"
+
+
+def test_ordinary_body_page_stays_prose():
+    page = (
+        "Vibration limits per API 610 shall not exceed 3.0 mm/s RMS measured at "
+        "the bearing housing. Readings shall be taken at operating speed with the "
+        "pump at rated flow. Any exceedance shall be reported to the area engineer."
+    )
+    assert classify_page(page, page_no=147, total_pages=546) == "prose"
+    assert "prose" in RETRIEVABLE_KINDS
+
+
+def test_publisher_address_is_never_a_section_heading():
+    """The exact defect: every chunk from page 4 on read
+    section='330 Hudson Street, NY, NY 10013'."""
+    assert looks_like_heading("330 Hudson Street, NY, NY 10013") is None
+
+
+def test_equation_is_never_a_section_heading():
+    assert looks_like_heading("0 K(s, t) f(t) dt") is None
+    assert looks_like_heading("2 h, xn 1") is None
+
+
+def test_allcaps_line_is_not_enough_to_be_a_heading():
+    """ALL-CAPS matched addresses, credits and running heads. Null is better."""
+    assert looks_like_heading("WAVE EQUATION") is None
+    assert looks_like_heading("REVIEW MATERIAL") is None
+    # a genuine numbered heading still works
+    assert looks_like_heading("7.4 Vibration Limits") == "7.4 Vibration Limits"
+
+
+def test_frontmatter_blocks_never_set_section_state():
+    pages = [
+        (4, "Copyright © 2018 Pearson. All rights reserved. ISBN 13: 978-0-13-461527-1"),
+        (5, "Ordinary body prose that follows the copyright page."),
+    ]
+    kinds = {4: classify_page(pages[0][1], 4, 546), 5: "prose"}
+    blocks, _ = segment_document(pages, running=set(), page_kinds=kinds)
+    body = [b for b in blocks if b.page_start == 5]
+    assert body and body[0].section is None
