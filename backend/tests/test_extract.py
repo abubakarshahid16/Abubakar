@@ -80,3 +80,23 @@ def test_blank_pages_are_flagged_needs_ocr_but_not_ocred(tmp_path):
     assert doc["needs_ocr_pages"] == 2
     # extraction finished, but the document is NOT ready - it has no chunks yet
     assert doc["status"] == "chunking"
+
+
+def test_noop_resume_reports_null_rate_not_a_finite_number(tmp_path):
+    """Re-extracting a finished document processes 0 pages this run.
+
+    The old code divided pages_total by a near-zero elapsed time and produced
+    1021658887.25 pages/sec.
+    """
+    p = tmp_path / "done.pdf"
+    make_pdf(p, 40)
+    doc_id = upload(p)
+
+    first = extract_document(doc_id)
+    assert first["pages_extracted_this_run"] == 40
+
+    second = extract_document(doc_id)          # nothing left to do
+    assert second["pages_extracted_this_run"] == 0
+    assert second["pages_extracted"] == 40     # total is still reported
+    assert second["pages_per_sec"] is None     # but the rate is not fabricated
+    assert isinstance(second["seconds"], float)
