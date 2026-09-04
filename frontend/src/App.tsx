@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Shell, useConnection, type ViewId } from "./components/Shell";
 import { DisconnectedState, NotBuiltYet } from "./components/states";
+import { ChatView } from "./views/ChatView";
 import { DocumentsView } from "./views/DocumentsView";
 
 export default function App() {
@@ -19,7 +20,9 @@ export default function App() {
       {view === "documents" && (
         <DocumentsView connection={connection} onRetryConnection={recheck} />
       )}
-      {view === "chat" && <NotBuiltYet name="Chat" />}
+      {view === "chat" && (
+        <ChatView connection={connection} onRetryConnection={recheck} />
+      )}
       {view === "ingestion" && <NotBuiltYet name="Ingestion" />}
       {view === "dashboard" && <NotBuiltYet name="Dashboard" />}
     </Shell>

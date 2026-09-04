@@ -9,7 +9,12 @@
  */
 import type {
   ApiError,
+  AskRequest,
+  AskResult,
   ChunkPage,
+  Conversation,
+  ConversationDetail,
+  ConversationList,
   DocumentRecord,
   ExclusionsResponse,
   PagesResponse,
@@ -99,4 +104,27 @@ export const api = {
     request<unknown>(`/documents/${encodeURIComponent(id)}/embed`, { method: "POST" }),
   remove: (id: string) =>
     request<unknown>(`/documents/${encodeURIComponent(id)}?confirm=true`, { method: "DELETE" }),
+
+  // ---------- conversations ----------
+  conversations: (limit = 20) => request<ConversationList>(`/conversations?limit=${limit}`),
+  conversation: (id: string) =>
+    request<ConversationDetail>(`/conversations/${encodeURIComponent(id)}`),
+  newConversation: (documentId?: string | null) =>
+    request<Conversation>("/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ document_id: documentId ?? null }),
+    }),
+  deleteConversation: (id: string) =>
+    request<unknown>(`/conversations/${encodeURIComponent(id)}?confirm=true`, {
+      method: "DELETE",
+    }),
+  /** Tier 2 is not streamed and takes ~50s on this hardware, so callers must
+   *  show elapsed time rather than an indefinite spinner. */
+  ask: (id: string, body: Partial<AskRequest>) =>
+    request<AskResult>(`/conversations/${encodeURIComponent(id)}/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "", tier: "extract", ...body }),
+    }),
 };

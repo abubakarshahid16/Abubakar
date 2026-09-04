@@ -3,18 +3,22 @@
 /* Dark industrial command-centre theme.
    No remote fonts, no remote assets, zero outbound requests. */
 @theme {
+  --color-ink-950: #04070a;
   --color-ink-900: #070b10;
   --color-ink-850: #0b1118;
   --color-ink-800: #0f1720;
   --color-ink-700: #17212c;
   --color-ink-600: #1e2b39;
   --color-ink-500: #2b3b4d;
+  --color-slateish-500: #5d6f82;
   --color-slateish-400: #7d90a4;
   --color-slateish-300: #a7b6c6;
   --color-slateish-200: #d3dde7;
+  --color-slateish-100: #eaf1f7;
 
   --color-signal-500: #2f9e8f;
   --color-signal-400: #46bdad;
+  --color-signal-300: #6fd6c7;
   --color-warn-500: #c98a12;
   --color-danger-500: #c4453b;
   --color-info-500: #3d7fbf;
