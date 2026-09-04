@@ -167,63 +167,135 @@ export interface Passage {
 
 // ---------- answers (two-tier) ----------
 
-/** Tier 1 = quoted source, no LLM. Tier 2 = generated prose. Never conflate. */
-export type AnswerTier = "passage" | "generated";
+/** Tier 1 = quoted source, no LLM. Tier 2 = generated prose. Never conflate.
+ *  This is the request-side tier. The RESPONSE says `answer_type`, which is
+ *  not the same set: an "extract" request can legitimately come back as
+ *  insufficient_evidence, and the UI must render what came back rather than
+ *  what it asked for. */
+export type AnswerTier = "extract" | "generated";
 
-export interface PassageAnswer {
-  tier: "passage";
-  passage: Passage;
-  latency_ms: number;
+/** What the server actually produced.
+ *  - extract               a verbatim quotation from a document
+ *  - generated             prose written by the local model, every claim cited
+ *  - insufficient_evidence nothing credible was retrieved; there is no answer
+ *  - model_unavailable     Tier 2 was asked for and the model could not be reached
+ *  The UI must present a quotation and generated prose differently. */
+export type AnswerType =
+  | "extract"
+  | "generated"
+  | "insufficient_evidence"
+  | "model_unavailable";
+
+export interface AnswerPassage {
+  chunk_id: string;
+  document_id: string;
+  filename: string;
+  page_start: number;
+  page_end: number;
+  section: string | null;    // the clause, when the document numbers its clauses
+  text: string;              // exact source text, never paraphrased
+  /** char offsets into `text` for the answering span, when one can be located */
+  highlight: [number, number] | null;
+  score: number;
+  identifier_hits: string[];
 }
 
-export interface GeneratedAnswer {
-  tier: "generated";
-  text: string;
-  /** 1-based indices into `sources`; validated server-side before returning */
+export interface AnswerResult {
+  question: string;
+  answer_type: AnswerType;
+  /** null whenever answer_type is insufficient_evidence or model_unavailable */
+  answer: string | null;
+  /** why there is no answer */
+  reason: string | null;
+  /** extract only: the quoted passage. `answer` is this passage's text verbatim. */
+  passage: AnswerPassage | null;
+  /** extract only: the runners-up */
+  supporting: AnswerPassage[];
+  /** generated / refusals: the sources supplied to the model, or considered */
+  passages: AnswerPassage[];
+  /** 1-based indices into `passages`, validated server-side */
   cited: number[];
-  sources: Passage[];
-  model: string;
-  latency_ms: number;
+  /** citations the model invented; stripped from `answer` before it was returned */
+  rejected_citations: number[];
+  retrieval_mode: string;
+  reranked: boolean;
+  candidates_considered: number;
+  model: string | null;
+  prompt_tokens: number | null;
+  output_tokens: number | null;
+  seconds: number;
+  timings: Record<string, number>;
 }
-
-export interface InsufficientEvidence {
-  tier: "insufficient";
-  reason: "no_matches" | "low_confidence" | "conflicting_sources";
-  /** what was retrieved, so the user can judge for themselves */
-  considered: Passage[];
-  latency_ms: number;
-}
-
-export type AnswerResult = PassageAnswer | GeneratedAnswer | InsufficientEvidence;
-
-// ---------- streaming (Tier 2) ----------
-// Sources arrive first and render immediately; text streams after.
-
-export type AnswerEvent =
-  | { type: "sources"; sources: Passage[] }
-  | { type: "token"; text: string }
-  | { type: "done"; cited: number[]; model: string; latency_ms: number }
-  | { type: "insufficient"; reason: InsufficientEvidence["reason"] }
-  | { type: "error"; error: ApiError };
 
 // ---------- chat ----------
+// Tier 2 takes ~50s on this hardware and is not streamed. The Explain button
+// must warn before it is pressed rather than leaving the reader watching a
+// spinner with no idea how long it will run.
 
 export interface Conversation {
   id: string;
   title: string;
+  document_id: string | null;  // set when the conversation is scoped to one doc
+  message_count: number;
   created_at: string;
   updated_at: string;
-  message_count: number;
+}
+
+export interface ConversationSummary extends Conversation {
+  first_question: string | null;
+}
+
+export interface ConversationList {
+  total: number;
+  limit: number;
+  offset: number;
+  conversations: ConversationSummary[];
 }
 
 export interface Message {
   id: string;
   conversation_id: string;
+  ordinal: number;
   role: "user" | "assistant";
-  text: string;
-  /** present on assistant messages only */
-  answer: AnswerResult | null;
+  /** the question as typed, or the answer. null on a refusal. */
+  text: string | null;
+  /** user rows: what retrieval actually ran, after follow-up resolution */
+  resolved_question: string | null;
+  /** user rows: terms carried in from earlier questions. Show these - the
+   *  reader must never have their question silently rewritten. */
+  carried_terms: string[];
+  /** assistant rows */
+  answer_type: AnswerType | null;
+  reason: string | null;
+  /** assistant rows: the extract answer this Tier 2 answer explains */
+  explains_id: string | null;
+  /** assistant rows: passages and citations, so reopening restores the panel */
+  payload: Partial<AnswerResult> | null;
   created_at: string;
+}
+
+export interface ConversationDetail {
+  conversation: Conversation;
+  messages: Message[];
+}
+
+export interface AskRequest {
+  question: string;
+  tier: AnswerTier;
+  document_id?: string | null;
+  limit?: number;
+  /** upgrade this assistant message to Tier 2 instead of asking anew. The
+   *  reader pressing Explain is not asking a new question. */
+  explain_of?: string | null;
+}
+
+export interface AskResult extends AnswerResult {
+  conversation: Conversation;
+  user_message: Message;
+  assistant_message: Message;
+  /** what retrieval ran; differs from `question` when a follow-up resolved */
+  resolved_question: string;
+  carried_terms: string[];
 }
 
 // ---------- dashboard ----------
@@ -279,13 +351,6 @@ export interface ApiError {
 }
 
 // ---------- request/response envelopes ----------
-
-export interface AskRequest {
-  question: string;
-  conversation_id: string | null;
-  /** "passage" is the default; "generated" is the explicit Explain action */
-  tier: AnswerTier;
-}
 
 /** UI fetch state, used by every view. */
 export type Loadable<T> =
