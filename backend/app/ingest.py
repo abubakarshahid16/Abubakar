@@ -259,8 +259,16 @@ class IngestionWorker:
                     # Keyword search needs no vectors, so it is built FIRST and
                     # the document becomes answerable here - seconds after
                     # upload rather than after the whole corpus is embedded.
-                    result["keyword_index"] = keyword.index_document(doc_id)
-                    self._set_state(doc_id, states.PARTIALLY_SEARCHABLE)
+                    # The index write and the state advance happen in ONE
+                    # transaction: a stage that finishes its work without
+                    # advancing the state strands the document, which is how a
+                    # fully searchable 1,200-page index sat at
+                    # `indexing_keyword` with embedding never starting.
+                    result["keyword_index"] = keyword.index_document(
+                        doc_id,
+                        advance_to=states.PARTIALLY_SEARCHABLE,
+                        expect_status=states.INDEXING_KEYWORD,
+                    )
                     result["stages"].append("keyword_index")
                     continue
 
@@ -438,9 +446,10 @@ class IngestionWorker:
             with conn:
                 conn.execute(
                     "UPDATE documents SET status = ?, indexed_at = ?,"
-                    " error_code = ?, error_message = ? WHERE id = ?",
+                    " error_code = ?, error_message = ? WHERE id = ? AND status = ?",
                     (states.NO_SEARCHABLE_CONTENT, _now(),
-                     errors.NO_SEARCHABLE_CONTENT, reason, doc_id),
+                     errors.NO_SEARCHABLE_CONTENT, reason, doc_id,
+                     states.PARTIALLY_SEARCHABLE),
                 )
                 conn.execute(
                     "UPDATE jobs SET state = 'done', updated_at = ? WHERE document_id = ?",
@@ -450,9 +459,17 @@ class IngestionWorker:
 
         if row["embedded_count"] >= row["chunk_count"]:
             with conn:
+                # Recount and advance in ONE transaction, guarded by the status
+                # we expect, so the terminal stamp can never be applied on the
+                # strength of a count that changed underneath it.
                 conn.execute(
-                    "UPDATE documents SET status = ?, indexed_at = ? WHERE id = ?",
-                    (states.READY, _now(), doc_id),
+                    """UPDATE documents SET
+                         embedded_count = (SELECT COUNT(*) FROM chunk_vectors v
+                                           JOIN chunks c ON c.id = v.chunk_id
+                                           WHERE v.document_id = ?),
+                         status = ?, indexed_at = ?
+                       WHERE id = ? AND status = ?""",
+                    (doc_id, states.READY, _now(), doc_id, states.PARTIALLY_SEARCHABLE),
                 )
                 conn.execute(
                     "UPDATE jobs SET state = 'done', updated_at = ? WHERE document_id = ?",

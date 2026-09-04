@@ -44,12 +44,22 @@ def ensure_schema(conn: sqlite3.Connection | None = None) -> None:
     conn.commit()
 
 
-def index_document(document_id: str) -> dict:
+def index_document(
+    document_id: str,
+    advance_to: str | None = None,
+    expect_status: str | None = None,
+) -> dict:
     """(Re)build the keyword index for one document.
 
     Only retrievable chunks are indexed, so search can never return a chunk
     the quality gate or classifier excluded - the exclusion is enforced at
     index time rather than relying on every query remembering to filter.
+
+    `advance_to` moves the document's status IN THE SAME TRANSACTION as the
+    index write. Doing the work and advancing the state used to be two
+    separate steps, which left a document with a fully built, searchable
+    index still sitting at `indexing_keyword` - so embedding never started
+    and the document was stranded. Either both happen or neither does.
     """
     timer = Timer()
     conn = connect()
@@ -68,6 +78,18 @@ def index_document(document_id: str) -> dict:
                VALUES (?, ?, ?, ?, ?)""",
             [(r["text"], r["section"] or "", r["filename"], r["id"], document_id) for r in rows],
         )
+        if advance_to is not None:
+            # compare-and-set, so a concurrent change cannot be overwritten
+            if expect_status is None:
+                conn.execute(
+                    "UPDATE documents SET status = ? WHERE id = ?",
+                    (advance_to, document_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE documents SET status = ? WHERE id = ? AND status = ?",
+                    (advance_to, document_id, expect_status),
+                )
 
     elapsed = timer.seconds()
     return {
