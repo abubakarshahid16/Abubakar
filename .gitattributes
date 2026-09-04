@@ -1,0 +1,47 @@
+# Line endings, normalised once and enforced.
+#
+# WHY THIS FILE EXISTS. An edit reported search.py as 1,293 changed lines for a
+# 37-line change, because Python's write_text uses os.linesep and rewrote every
+# line ending on the way past. Across two machines that becomes phantom diffs
+# and merge conflicts in files nobody touched, and a review that cannot see the
+# real change is a review that does not happen.
+
+# Everything git detects as text is stored LF in the repository and checked out
+# however the platform prefers. This is the default that makes the rest safe.
+* text=auto eol=lf
+
+# Shell scripts and hooks are LF even on Windows - CRLF makes them unrunnable
+# with "bad interpreter: /bin/bash^M".
+*.sh        text eol=lf
+.githooks/* text eol=lf
+
+# Source and config: LF, explicitly, so no heuristic has to decide.
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.ini   text eol=lf
+
+# Binary. Never diffed, never line-ending-converted. Model weights and PDFs are
+# gitignored as well, but a belt-and-braces marker costs nothing and a
+# corrupted .onnx from CRLF conversion would be very hard to diagnose.
+*.onnx        binary
+*.gguf        binary
+*.safetensors binary
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.pdf         binary
+*.sqlite      binary
+*.sqlite3     binary
+*.db          binary
+*.woff        binary
+*.woff2       binary
