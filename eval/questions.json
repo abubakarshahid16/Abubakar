@@ -1,0 +1,152 @@
+[
+  {
+    "id": 1,
+    "q": "what does NDFT stand for",
+    "document": "NORSOKM501Rev5.pdf",
+    "expected_pages": [7],
+    "expected_clause": "3.2",
+    "expected_answer": "nominal dry film thickness",
+    "answerable": true,
+    "type": "definition_abbreviation"
+  },
+  {
+    "id": 2,
+    "q": "what is the maximum relative humidity allowed for blast cleaning and coating",
+    "document": "NORSOKM501Rev5.pdf",
+    "expected_pages": [7],
+    "expected_clause": "4.4",
+    "expected_answer": "85 % relative humidity; steel at least 3 C above dew point; above 0 C",
+    "answerable": true,
+    "type": "exact_numeric"
+  },
+  {
+    "id": 3,
+    "q": "what is the MDFT and number of coats for coating system no. 9",
+    "document": "NORSOKM501Rev5.pdf",
+    "expected_pages": [21, 22],
+    "expected_clause": "A.9",
+    "expected_answer": "2 coats x 150 um, 300 um total",
+    "answerable": true,
+    "type": "table_lookup"
+  },
+  {
+    "id": 4,
+    "q": "what is the soluble impurity limit in clause 6.3",
+    "document": "NORSOKM501Rev5.pdf",
+    "expected_pages": [10],
+    "expected_clause": "6.3",
+    "expected_answer": "ISO 8502-9; NaCl 20 mg/m2",
+    "answerable": true,
+    "type": "clause_lookup"
+  },
+  {
+    "id": 5,
+    "q": "which standard gives the holiday detection voltage",
+    "document": "NORSOKM501Rev5.pdf",
+    "expected_pages": [16],
+    "expected_clause": "11",
+    "expected_answer": "NACE RP0188",
+    "answerable": true,
+    "type": "standard_reference"
+  },
+  {
+    "id": 6,
+    "q": "how is the stripe coat applied",
+    "document": "NORSOKM501Rev5.pdf",
+    "expected_pages": [10, 11, 12],
+    "expected_clause": "7.3",
+    "expected_answer": "by brush to welds, corners and edges",
+    "answerable": true,
+    "type": "procedural"
+  },
+  {
+    "id": 7,
+    "q": "how often must temperature, relative humidity and dew point be checked, and what is the relative humidity limit",
+    "document": "NORSOKM501Rev5.pdf",
+    "expected_pages": [7, 16],
+    "expected_clause": "4.4 + 11",
+    "expected_answer": "before start of each shift and at least twice per shift; relative humidity limit 85 %",
+    "answerable": true,
+    "type": "cross_page_compound"
+  },
+  {
+    "id": 8,
+    "q": "how many coats and what MDFT for coating system no. 1",
+    "document": "NORSOKM501Rev5.pdf",
+    "expected_pages": [17],
+    "expected_clause": "A.1",
+    "expected_answer": "minimum 3 coats, 280 um, with general notes 1-4",
+    "answerable": true,
+    "type": "table_plus_numeric"
+  },
+  {
+    "id": 9,
+    "q": "what is the maximum operating temperature for zinc metal coating",
+    "document": "NORSOKM501Rev5.pdf",
+    "expected_pages": [11],
+    "expected_clause": "8.2",
+    "expected_answer": "120 C",
+    "answerable": true,
+    "type": "exact_numeric_previously_failed"
+  },
+  {
+    "id": 10,
+    "q": "what percentage of crashes are caused by human error",
+    "document": "book1-professionalpractices.pdf",
+    "expected_pages": [27, 28],
+    "expected_clause": null,
+    "expected_answer": "roughly 95 %",
+    "answerable": true,
+    "type": "multi_document_routing"
+  },
+  {
+    "id": 11,
+    "q": "what bolt torque is specified for a 6 inch flange",
+    "document": null,
+    "expected_pages": [],
+    "expected_clause": null,
+    "expected_answer": null,
+    "answerable": false,
+    "type": "unanswerable_absent_value"
+  },
+  {
+    "id": 12,
+    "q": "which coating system applies to Inconel 625",
+    "document": null,
+    "expected_pages": [],
+    "expected_clause": null,
+    "expected_answer": null,
+    "answerable": false,
+    "type": "unanswerable_absent_material"
+  },
+  {
+    "id": 13,
+    "q": "what is the price per square metre for coating system 1",
+    "document": null,
+    "expected_pages": [],
+    "expected_clause": null,
+    "expected_answer": null,
+    "answerable": false,
+    "type": "unanswerable_commercial"
+  },
+  {
+    "id": 14,
+    "q": "what is the warranty period",
+    "document": null,
+    "expected_pages": [],
+    "expected_clause": null,
+    "expected_answer": null,
+    "answerable": false,
+    "type": "unanswerable_commercial"
+  },
+  {
+    "id": 15,
+    "q": "what is the delivery lead time",
+    "document": null,
+    "expected_pages": [],
+    "expected_clause": null,
+    "expected_answer": null,
+    "answerable": false,
+    "type": "unanswerable_commercial"
+  }
+]
