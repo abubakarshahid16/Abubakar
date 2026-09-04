@@ -311,15 +311,77 @@ describe("citations", () => {
     expect(within(panel).getByText(/Page 17 as printed/i)).toBeInTheDocument();
   });
 
-  it("marks the answering span inside the quoted passage", async () => {
-    mockApi();
+  /** A passage whose answering span is a real fraction of it, and the ask
+   *  response shaped so it actually reaches the screen: ChatView renders
+   *  r.data.assistant_message, not the top-level answer/passage, so those are
+   *  the fields a fixture has to override. */
+  function answering(passage: AnswerPassage) {
+    const base = extractMessage();
+    return askResult({
+      answer: passage.text,
+      passage,
+      supporting: [],
+      assistant_message: {
+        ...base,
+        text: passage.text,
+        payload: { ...base.payload, passage, supporting: [] },
+      },
+    });
+  }
+
+  const PARTIAL: AnswerPassage = {
+    ...A1,
+    text:
+      "Cleanliness shall be ISO 8501-1 Sa 2 1/2. " +
+      "The nominal dry film thickness is 280 um. " +
+      "Adhesion shall be tested on each batch.",
+    highlight: [42, 83],
+  };
+
+  async function ask() {
     await openChat();
     await userEvent.type(screen.getByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+  }
+
+  it("marks the answering span inside the quoted passage", async () => {
+    // A1's own highlight spans its ENTIRE text, which is deliberately not
+    // marked - emphasising everything leaves the eye nowhere to land, the same
+    // reason the page-image path refuses a box covering most of a page. So the
+    // property is asserted with a partial span, and on the mark itself rather
+    // than only on the words being present.
+    mockApi({ ask: answering(PARTIAL) });
+    await ask();
     await userEvent.click(await screen.findByRole("button", { name: "Show source 1" }));
 
     const panel = await screen.findByRole("complementary", { name: "Evidence" });
-    expect(within(panel).getByText(A1.text.slice(0, 70))).toBeInTheDocument();
+    const mark = within(panel).getByText("The nominal dry film thickness is 280 um.");
+    expect(mark.tagName).toBe("MARK");
+    expect(panel.textContent).toContain(PARTIAL.text);
+  });
+
+  it("marks the answering sentence inside the answer itself, not only the panel", async () => {
+    // The reader looks at the quotation first. The mark lived only in the side
+    // panel, so on a passage of standards prose the answering fragment arrived
+    // in the same weight as everything around it.
+    mockApi({ ask: answering(PARTIAL) });
+    await ask();
+
+    const quote = await screen.findByText("The nominal dry film thickness is 280 um.");
+    expect(quote.tagName).toBe("MARK");
+    // partial, not the whole passage
+    expect((quote.textContent ?? "").length).toBeLessThan(PARTIAL.text.length);
+    // and the passage is still quoted in full around it
+    expect(document.querySelector("blockquote")?.textContent).toBe(PARTIAL.text);
+  });
+
+  it("leaves the quotation plain when no span could be located", async () => {
+    // Nothing emphasised, rather than something emphasised wrongly - the rule
+    // the page-image path already follows when it cannot locate an answer.
+    mockApi({ ask: answering({ ...PARTIAL, highlight: null }) });
+    await ask();
+    await screen.findByText(PARTIAL.text);
+    expect(document.querySelector("blockquote mark")).toBeNull();
   });
 
   it("reports a citation the model invented rather than hiding it", async () => {

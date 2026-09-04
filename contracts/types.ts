@@ -381,10 +381,21 @@ export interface SystemMetrics {
    *  against - psutil returns exactly 0.0 there, and showing that would put
    *  "CPU 0%" on screen as a fact. */
   cpu_percent_since_last_call: number | null;
+  /** The span the CPU figure actually covers. NOT the refresh interval - every
+   *  caller of /api/metrics resets the window, so two open tabs halve it. null
+   *  ONLY on the very first reading, which has no prior call to measure
+   *  against; present but with a null percentage when the window was too short
+   *  to average. The screen states this rather than the refresh interval,
+   *  which it used to claim and which was often wrong. */
+  cpu_window_seconds: number | null;
   cpu_logical_cores: number | null;
   cpu_physical_cores: number | null;
   ram_total_bytes: number;
   ram_used_bytes: number;
+  /** Stated rather than left to be derived. The tile showed "15 GB / 16 GB"
+   *  while the low-memory alert said "0.6 GB free": the same measurement,
+   *  rounded, with the reader asked to subtract. */
+  ram_free_bytes: number;
   ram_percent: number;
   process_rss_bytes: number;
   disk_total_bytes: number;

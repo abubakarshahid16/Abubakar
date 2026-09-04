@@ -57,17 +57,23 @@ describe("shell navigation", () => {
     for (const label of ["Documents", "Chat", "Ingestion", "Dashboard"]) {
       expect(screen.getByRole("button", { name: new RegExp(label) })).toBeInTheDocument();
     }
-    // Documents, Chat and Dashboard are built; only Ingestion is unbuilt
-    expect(screen.getAllByText(/not built/i)).toHaveLength(1);
+    // All four are built now. Ingestion was the last placeholder; the badge
+    // machinery stays for the next unbuilt route, but nothing wears it.
+    expect(screen.queryByText(/not built/i)).toBeNull();
   });
 
-  it("navigates to an unbuilt view and says it is not built rather than faking it", async () => {
+  it("renders the ingestion screen rather than a placeholder", async () => {
     mockFetch(() => json(healthOnline));
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: /Ingestion/ }));
-    expect(await screen.findByText(/Not built yet/i)).toBeInTheDocument();
+    // The screen it replaced said "Not built yet. This screen is a placeholder
+    // so the navigation is honest about what exists." Honest, and no longer
+    // necessary.
+    expect(await screen.findByText(/Throughput|Reading the queue/)).toBeInTheDocument();
+    expect(screen.queryByText(/Not built yet/i)).toBeNull();
+    expect(screen.queryByText(/placeholder/i)).toBeNull();
   });
 
   it("marks the current view for assistive technology", async () => {

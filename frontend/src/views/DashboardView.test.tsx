@@ -74,10 +74,12 @@ function makeMetrics(over: Partial<Metrics> = {}): Metrics {
     retrieval: { unit: "ms", samples: 24, p50: 1363, p95: 1429, worst: 2787 },
     system: {
       cpu_percent_since_last_call: 31.5,
+      cpu_window_seconds: 15,
       cpu_logical_cores: 12,
       cpu_physical_cores: 10,
       ram_total_bytes: 16_000_000_000,
       ram_used_bytes: 9_600_000_000,
+      ram_free_bytes: 6_400_000_000,
       ram_percent: 60,
       process_rss_bytes: 512_000_000,
       disk_total_bytes: 500_000_000_000,
@@ -346,9 +348,18 @@ describe("the required fields", () => {
     const section = screen.getByText("Machine").closest("section")!;
     expect(within(section).getByText("32%")).toBeInTheDocument();
     expect(within(section).getByText(/10 physical \/ 12 logical/)).toBeInTheDocument();
-    expect(within(section).getByText(/8\.9 GB/)).toBeInTheDocument();   // ram used
+    // Free, not used: "15 GB / 16 GB" implied 1 GB free while the low-memory
+    // alert correctly said 0.6, because 15.4 rounds to 15. The reader's
+    // question is "is there room", so the answer is stated.
+    // getByText reads only an element's DIRECT text nodes, and the total sits
+    // in a nested span, so no single element carries the whole phrase. Assert
+    // the tile's text instead of a fragment two tiles now share.
+    const memory = within(section).getByText("Memory").closest("div")!;
+    expect(memory.textContent).toMatch(/6\.0 GB\s*free of\s*15 GB/);
     expect(within(section).getByText(/resident/)).toBeInTheDocument();
-    expect(within(section).getByText(/free/)).toBeInTheDocument();
+    // Both Memory and Disk state free space now, so this is no longer a
+    // single element.
+    expect(within(section).getAllByText(/free/).length).toBeGreaterThan(0);
   });
 
   it("distinguishes a reachable answer model from a loaded one", async () => {
@@ -412,7 +423,11 @@ describe("the first CPU reading", () => {
   it("says it is not measured rather than showing a false 0%", async () => {
     mockApi(
       makeMetrics({
-        system: { ...makeMetrics().system, cpu_percent_since_last_call: null },
+        system: {
+          ...makeMetrics().system,
+          cpu_percent_since_last_call: null,
+          cpu_window_seconds: null,
+        },
       }),
     );
     await openDashboard();

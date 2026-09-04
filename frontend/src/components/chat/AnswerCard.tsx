@@ -9,7 +9,7 @@
  * because only one of them is the specification.
  */
 import type { AnswerPassage, AnswerType, Message } from "../../types/api";
-import { Citation, PassageLocation } from "./EvidencePanel";
+import { Citation, Highlighted, PassageLocation } from "./EvidencePanel";
 
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
@@ -290,7 +290,17 @@ ollama serve
               : "document-quote whitespace-pre-wrap text-[15px]",
           ].join(" ")}
         >
-          {view.answer}
+          {/* Marked only when the quotation IS the passage and the passage is
+              prose. `answer` is documented as the passage text verbatim, but a
+              mismatch would slice the wrong offsets into the wrong string, and
+              a table's column pairing is positional so a span inside it means
+              nothing. Both cases fall back to the plain text rather than
+              risking a confidently wrong emphasis. */}
+          {p && p.kind !== "table" && view.answer === p.text ? (
+            <Highlighted passage={p} />
+          ) : (
+            view.answer
+          )}
         </blockquote>
 
         {p && (

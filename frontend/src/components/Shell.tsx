@@ -20,7 +20,7 @@ interface NavItem {
 export const NAV: NavItem[] = [
   { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
   { id: "chat", label: "Chat", hint: "Ask questions with citations", built: true },
-  { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: false },
+  { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
   { id: "dashboard", label: "Dashboard", hint: "System metrics", built: true },
 ];
 

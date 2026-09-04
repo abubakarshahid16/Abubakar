@@ -12,13 +12,27 @@ import { api } from "../../api/client";
 import type { AnswerPassage } from "../../types/api";
 import { Spinner } from "../states";
 
-function Highlighted({ passage }: { passage: AnswerPassage }) {
+/** Exported because the answer card needs it too.
+ *
+ *  It lived here alone, so the answering span was marked in the side panel and
+ *  NOT in the answer the reader actually looks at first. On a passage of
+ *  standards prose the answering fragment can be nine words at the end of
+ *  ninety, in the same weight and colour as everything around it - the product
+ *  promises the document's own words back, and that only helps if the reader
+ *  can find the words.
+ */
+export function Highlighted({ passage }: { passage: AnswerPassage }) {
   const h = passage.highlight;
   if (!h) return <>{passage.text}</>;
   const [start, end] = h;
   // Guard rather than trust: a bad offset should degrade to plain text, not
   // slice the passage into nonsense.
   if (start < 0 || end > passage.text.length || start >= end) return <>{passage.text}</>;
+  // And a span covering the whole passage is not emphasis. Marking everything
+  // marks nothing, and it tells the reader their eye can stop nowhere. The
+  // page-image path refuses a box covering more than 60% of the page for
+  // exactly this reason; this is the same rule in text.
+  if (end - start >= 0.9 * passage.text.length) return <>{passage.text}</>;
   return (
     <>
       {passage.text.slice(0, start)}

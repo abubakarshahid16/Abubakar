@@ -468,12 +468,25 @@ class SystemMetrics(BaseModel):
     cpu_percent_since_last_call: float | None = Field(
         None,
         description="null on the very first reading, which has no prior call "
-        "to measure against; a true interval average from the next refresh on",
+        "to measure against, and null whenever the window since the previous "
+        "call was too short to be an average of anything",
+    )
+    cpu_window_seconds: float | None = Field(
+        None,
+        description="the span the percentage actually covers. NOT the refresh "
+        "interval: every caller of this endpoint resets the window, so two "
+        "open tabs halve it. null whenever the percentage is null.",
     )
     cpu_logical_cores: int | None
     cpu_physical_cores: int | None
     ram_total_bytes: int
     ram_used_bytes: int
+    ram_free_bytes: int = Field(
+        0,
+        description="stated rather than derived. used/total made the reader "
+        "subtract, and rounding broke it: 15.4 of 16 renders as 15/16, which "
+        "implies 1 GB free while the low-memory alert correctly said 0.6.",
+    )
     ram_percent: float
     process_rss_bytes: int
     disk_total_bytes: int
