@@ -341,3 +341,46 @@ describe("B5 page image viewer", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
+
+// ------------------------------------------------- excluded pages (FIX 1b)
+
+describe("excluded pages are impossible to miss", () => {
+  it("warns about excluded pages rather than showing a quiet count", async () => {
+    mockApi([
+      makeDoc({
+        pages_excluded: 3,
+        pages_excluded_characters: 9585,
+        pages_excluded_with_clause_headings: 0,
+      }),
+    ]);
+    render(<App />);
+    expect(await screen.findByText(/3 pages excluded from search/i)).toBeInTheDocument();
+    expect(screen.getByText(/9,585 characters are not searchable/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /See which pages, and why/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("escalates to an ALERT when a dropped page carried clause headings", async () => {
+    mockApi([
+      makeDoc({
+        pages_excluded: 1,
+        pages_excluded_characters: 3195,
+        pages_excluded_with_clause_headings: 1,
+      }),
+    ]);
+    render(<App />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/contains? numbered clause headings/i);
+    expect(alert).toHaveTextContent(/Real content has almost certainly been dropped/i);
+    // and it is not softened into the ordinary warning wording
+    expect(screen.queryByText(/excluded on purpose/i)).toBeNull();
+  });
+
+  it("says nothing when no page was excluded", async () => {
+    mockApi([makeDoc({ pages_excluded: 0, pages_excluded_with_clause_headings: 0 })]);
+    render(<App />);
+    await screen.findByText("book1-professionalpractices.pdf");
+    expect(screen.queryByText(/excluded from search/i)).toBeNull();
+  });
+});

@@ -124,10 +124,34 @@ async def upload_document(file: UploadFile = File(...)):
          responses=schemas.ERRORS_422)
 def list_documents(request: Request):
     reject_unknown_params(request, set())
-    rows = connect().execute(
+    conn = connect()
+    rows = conn.execute(
         "SELECT * FROM documents ORDER BY uploaded_at DESC"
     ).fetchall()
-    return [upload_mod.to_api(r) for r in rows]
+    # Excluded PAGES carried on the list, so the card can warn without a
+    # second request. The Documents screen said "3 excluded" for chunks and
+    # said nothing at all about a dropped page that held an entire clause.
+    dropped = {
+        r["document_id"]: dict(r)
+        for r in conn.execute(
+            """SELECT document_id,
+                      COUNT(*) AS pages_excluded,
+                      COALESCE(SUM(text_length), 0) AS characters_dropped,
+                      COALESCE(SUM(clause_headings), 0) AS pages_with_clause_headings
+               FROM exclusions WHERE scope = 'page' GROUP BY document_id"""
+        )
+    }
+    out = []
+    for row in rows:
+        doc = upload_mod.to_api(row)
+        info = dropped.get(row["id"], {})
+        doc["pages_excluded"] = info.get("pages_excluded", 0)
+        doc["pages_excluded_characters"] = info.get("characters_dropped", 0)
+        doc["pages_excluded_with_clause_headings"] = info.get(
+            "pages_with_clause_headings", 0
+        )
+        out.append(doc)
+    return out
 
 
 @app.delete("/api/documents/{document_id}", response_model=schemas.DeleteResult,
@@ -530,17 +554,18 @@ def document_excluded(
         dict(r)
         for r in conn.execute(
             """SELECT scope, rule, COUNT(*) AS count,
-                      SUM(text_length) AS characters_dropped
+                      SUM(text_length) AS characters_dropped,
+                      COALESCE(SUM(clause_headings), 0) AS clause_heading_pages
                FROM exclusions WHERE document_id = ?
-               GROUP BY scope, rule ORDER BY count DESC""",
+               GROUP BY scope, rule ORDER BY clause_heading_pages DESC, count DESC""",
             (document_id,),
         )
     ]
     rows = conn.execute(
         """SELECT scope, page_start, page_end, chunk_id, rule, reason,
-                  text_length, text_sample
+                  text_length, text_sample, clause_headings
            FROM exclusions WHERE document_id = ?
-           ORDER BY page_start, id LIMIT ? OFFSET ?""",
+           ORDER BY clause_headings DESC, page_start, id LIMIT ? OFFSET ?""",
         (document_id, limit, offset),
     ).fetchall()
     total = conn.execute(

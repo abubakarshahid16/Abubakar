@@ -61,6 +61,16 @@ class Document(BaseModel):
     needs_ocr_pages: int = Field(description="detected only; OCR is not implemented")
     equation_pages: int = Field(description="maths did not survive extraction")
     error: DocumentError | None = None
+    pages_excluded: int = Field(
+        0, description="pages search cannot see at all - not a quiet count"
+    )
+    pages_excluded_characters: int = 0
+    pages_excluded_with_clause_headings: int = Field(
+        0,
+        description="excluded pages that carried numbered clause headings AND "
+        "real prose. Should always be zero; if it is not, real content was "
+        "almost certainly dropped",
+    )
     uploaded_at: str
     indexed_at: str | None = None
 
@@ -139,6 +149,7 @@ class ExclusionSummary(BaseModel):
     rule: str
     count: int
     characters_dropped: int
+    clause_heading_pages: int = 0
 
 
 class Exclusion(BaseModel):
@@ -150,6 +161,9 @@ class Exclusion(BaseModel):
     reason: str | None
     text_length: int
     text_sample: str
+    clause_headings: int = Field(
+        0, description="non-zero means this exclusion probably dropped real content"
+    )
 
 
 class ExclusionsResponse(BaseModel):
@@ -306,7 +320,17 @@ class AnswerResult(BaseModel):
     answer: str | None
     reason: str | None = Field(None, description="why there is no answer")
     passage: AnswerPassage | None = None
+    answer_passages: list[AnswerPassage] = Field(
+        [],
+        description="one or two passages that together answer the question; a "
+        "second appears only when the first cannot cover the question alone",
+    )
     supporting: list[AnswerPassage] = []
+    lexical: dict | None = Field(
+        None,
+        description="which distinctive terms the question carried, which the "
+        "passage covered, and which appear nowhere in the corpus",
+    )
     passages: list[AnswerPassage] = []
     cited: list[int] = []
     rejected_citations: list[int] = Field(

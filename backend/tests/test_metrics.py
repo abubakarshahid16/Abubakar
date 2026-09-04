@@ -252,15 +252,29 @@ def test_undetected_ocr_is_stated_rather_than_implied():
     assert "NOT implemented" in warning["message"]
 
 
-def test_a_healthy_corpus_raises_no_warnings():
+#: Warnings about the MACHINE rather than the corpus. Real, and correct to
+#: raise, but not something a clean corpus can clear.
+MACHINE_WARNINGS = {"low_memory_for_answer_model"}
+
+
+def test_a_healthy_corpus_raises_no_corpus_warnings():
     """The warnings list must mean something. If it is never empty, it is
-    decoration rather than a signal."""
+    decoration rather than a signal.
+
+    Scoped to CORPUS warnings. This machine genuinely runs at 92% memory, so
+    the low-memory warning fires and is correct to - asserting an empty list
+    would have forced that true signal to be suppressed to make a test pass.
+    """
     client = TestClient(app)
     upload(client)
     conn = db.connect()
     with conn:
         conn.execute("UPDATE documents SET needs_ocr_pages = 0, equation_pages = 0")
-    assert client.get("/api/metrics").json()["warnings"] == []
+    warnings = [
+        w for w in client.get("/api/metrics").json()["warnings"]
+        if w["code"] not in MACHINE_WARNINGS
+    ]
+    assert warnings == []
 
 
 # ---------------------------------------------------------------- endpoint
@@ -296,3 +310,43 @@ def test_the_first_cpu_reading_is_null_rather_than_a_false_zero():
     second = metrics.system()["cpu_percent_since_last_call"]
     assert second is not None
     assert 0 <= second <= 100 * (metrics.psutil.cpu_count(logical=True) or 1)
+
+
+def test_low_free_memory_warns_before_explain_is_pressed(monkeypatch):
+    """14.7 GB of 16 GB was in use before the answer model was even loaded.
+    Pressing Explain in front of a client would swap hard or fail, and that is
+    a fact worth surfacing before the button rather than after the stall."""
+    class Fake:
+        total = 16_000_000_000
+        available = 900_000_000
+        percent = 94.0
+
+    monkeypatch.setattr(metrics.psutil, "virtual_memory", lambda: Fake())
+    monkeypatch.setattr(
+        metrics, "models",
+        lambda: {"answer_model_loaded": False, "answer_model": settings.answer_model},
+    )
+    warning = next(
+        (w for w in metrics.warnings() if w["code"] == "low_memory_for_answer_model"),
+        None,
+    )
+    assert warning is not None
+    assert "may swap hard or fail" in warning["message"]
+    assert "Quoted answers are unaffected" in warning["message"]
+
+
+def test_no_memory_warning_when_the_model_is_already_resident(monkeypatch):
+    """Once it is loaded, free RAM is no longer a prediction about Explain."""
+    class Fake:
+        total = 16_000_000_000
+        available = 900_000_000
+        percent = 94.0
+
+    monkeypatch.setattr(metrics.psutil, "virtual_memory", lambda: Fake())
+    monkeypatch.setattr(
+        metrics, "models",
+        lambda: {"answer_model_loaded": True, "answer_model": settings.answer_model},
+    )
+    assert not any(
+        w["code"] == "low_memory_for_answer_model" for w in metrics.warnings()
+    )

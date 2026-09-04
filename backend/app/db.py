@@ -101,6 +101,13 @@ CREATE TABLE IF NOT EXISTS exclusions (
     reason        TEXT,                   -- the detail behind the rule
     text_sample   TEXT NOT NULL,          -- what was dropped
     text_length   INTEGER NOT NULL,
+    -- Non-zero means the dropped text carried numbered clause headings AND
+    -- real prose. That combination is body text, so an exclusion carrying it
+    -- almost certainly threw away real content - which is exactly what
+    -- happened to NORSOK page 11 and its entire Clause 8. Surfaced in the UI
+    -- as an ALERT rather than a count, and it doubles as a regression
+    -- detector: the classifier gate should keep this at zero.
+    clause_headings INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL
 );
 
@@ -182,6 +189,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE chunks ADD COLUMN quality_flags TEXT")
     if have and "parent_id" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN parent_id TEXT")
+    exc = {r["name"] for r in conn.execute("PRAGMA table_info(exclusions)")}
+    if exc and "clause_headings" not in exc:
+        conn.execute(
+            "ALTER TABLE exclusions ADD COLUMN clause_headings INTEGER NOT NULL DEFAULT 0")
     pg = {r["name"] for r in conn.execute("PRAGMA table_info(pages)")}
     if pg and "equation_heavy" not in pg:
         conn.execute("ALTER TABLE pages ADD COLUMN equation_heavy INTEGER NOT NULL DEFAULT 0")

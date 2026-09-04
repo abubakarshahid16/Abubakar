@@ -105,6 +105,12 @@ export function ExcludedViewer({
                         <span className="block text-xs text-slateish-400">
                           {RULE_EXPLANATION[s.rule] ?? `Excluded ${s.scope}s.`}
                         </span>
+                        {(s.clause_heading_pages ?? 0) > 0 && (
+                          <span className="mt-1 block text-xs font-medium text-danger-500">
+                            {nf.format(s.clause_heading_pages ?? 0)} of these carried
+                            numbered clause headings — probably real content
+                          </span>
+                        )}
                       </span>
                       <span className="ml-3 shrink-0 text-right">
                         <span className="block font-mono text-sm text-warn-500">
@@ -165,8 +171,20 @@ export function ExcludedViewer({
               {rows.map((e, i) => (
                 <li
                   key={`${e.chunk_id ?? e.page_start}-${i}`}
-                  className="rounded border border-ink-700 bg-ink-850 p-3"
+                  className={[
+                    "rounded border p-3",
+                    (e.clause_headings ?? 0) > 0
+                      ? "border-danger-500/50 bg-danger-500/10"
+                      : "border-ink-700 bg-ink-850",
+                  ].join(" ")}
                 >
+                  {(e.clause_headings ?? 0) > 0 && (
+                    <p role="alert" className="mb-2 text-xs font-medium text-danger-500">
+                      This page carried numbered clause headings and real prose.
+                      That is body text, and dropping it almost certainly lost
+                      real content.
+                    </p>
+                  )}
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="rounded bg-warn-500/15 px-2 py-0.5 text-warn-500">
                       {e.scope}

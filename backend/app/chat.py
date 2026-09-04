@@ -74,7 +74,18 @@ _WORD = re.compile(r"[\w.\-/]{2,}")
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    """Millisecond precision on purpose.
+
+    At second precision, creating two conversations and asking in the first
+    left both with the same updated_at, so "most recently used first" fell
+    through to created_at DESC and listed them backwards. A timestamp used for
+    ordering has to be finer-grained than the thing it orders.
+    """
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 class ConversationNotFound(Exception):
@@ -359,7 +370,7 @@ _PAYLOAD_KEYS = (
     "passage", "supporting", "passages", "cited", "rejected_citations",
     "retrieval_mode", "reranked", "candidates_considered", "model",
     "prompt_tokens", "output_tokens", "seconds", "timings",
-    "input_kind", "examples",
+    "input_kind", "examples", "answer_passages", "lexical",
 )
 
 
