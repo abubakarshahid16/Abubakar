@@ -96,6 +96,19 @@ def strip_running_lines(text: str, running: set[str]) -> tuple[str, int]:
     for i, line in enumerate(lines):
         at_edge = i < n or i > last - n
         if at_edge and line.strip() and normalise_line(line) in running:
+            # A bare number normalises to "#", which is a page number in a
+            # book and a CLAUSE NUMBER in a specification - and in a spec the
+            # number sits on its own line with the title beneath it. Both
+            # forms recur across pages, so both get flagged as running lines,
+            # and stripping the clause numbers removes every heading in the
+            # document. Protected only when this line and the next actually
+            # form a heading, which is narrow enough to leave real page
+            # numbers being stripped as before.
+            if _CLAUSE_NUMBER_ONLY.match(line) and _split_line_heading(
+                [ln.strip() for ln in lines], i
+            )[0]:
+                keep.append(line)
+                continue
             removed += 1
             continue
         keep.append(line)
@@ -766,6 +779,10 @@ def segment_document(
     blocks: list[Block] = []
     section: str | None = None
     removed_total = 0
+    #: The highest top-level clause number accepted so far. Clause numbering
+    #: only increases through a document, so anything at or below this is a
+    #: figure in a table rather than a heading.
+    last_bare_integer = 0
 
     # Decided across the whole document, not line by line - see
     # plausible_heading_numbers.
@@ -816,10 +833,28 @@ def segment_document(
                 # in such a document had section: null.
                 head, consumed = _split_line_heading(lines, i)
 
-            if head is not None and _heading_number(head) not in allowed_numbers:
-                # numbering the document's hierarchy never reaches: an
-                # enumerated exercise or requirement list, not a heading
-                head, consumed = None, 1
+            if head is not None:
+                number = _heading_number(head)
+                if number not in allowed_numbers:
+                    # numbering the document's hierarchy never reaches: an
+                    # enumerated exercise or requirement list, not a heading
+                    head, consumed = None, 1
+                elif "." not in number and number.isdigit():
+                    # A BARE integer has to be monotonic AT THIS POSITION, not
+                    # merely a number the document uses somewhere.
+                    #
+                    # Checking the allowed SET alone was per-number, so once
+                    # clause 3 legitimately existed every later stray "3"
+                    # passed too. NORSOK's A.1 table reads "Minimum number of
+                    # coats:" / "3" / "MDFT of complete coating system: 60
+                    # 280", and that 3 - the coat count - was read as clause
+                    # 3. It mislabelled the chunk AND split the parent group,
+                    # so small-to-big could not rejoin the table with its own
+                    # figures and the answer stopped one line short of them.
+                    if int(number) <= last_bare_integer:
+                        head, consumed = None, 1
+                    else:
+                        last_bare_integer = int(number)
 
             if head:
                 flush_prose()

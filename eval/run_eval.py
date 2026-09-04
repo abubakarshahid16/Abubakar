@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import statistics
 import sys
 from datetime import datetime, timezone
@@ -61,6 +62,120 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 REQUIRED_FIELDS = ("id", "question", "answerable")
 
 
+#: Field names the set may use for the same thing. The question set is the
+#: authority, not this harness: it was written independently and adapting to
+#: it is the harness's job. Editing the set to fit the reader would defeat the
+#: purpose of having someone else write it.
+ALIASES = {
+    "question": ("question", "q", "text"),
+    "expected_document": ("expected_document", "document", "doc"),
+    "expected_pages": ("expected_pages", "pages"),
+    "expected_clause": ("expected_clause", "clause"),
+    "expected_answer": ("expected_answer", "answer", "expected"),
+    "expected_answer_contains": ("expected_answer_contains", "contains"),
+}
+
+#: A figure with its unit, or an engineering identifier. Used to derive
+#: mechanically checkable tokens from a prose expected answer - see
+#: required_tokens.
+_GRADING_STOPWORDS = {
+    "with", "and", "the", "from", "that", "this", "each", "least", "than",
+    "above", "below", "before", "after", "into", "over", "under", "total",
+    "roughly", "about", "approximately", "minimum", "maximum",
+}
+
+_NUMBER = re.compile(r"\b\d+(?:[.,]\d+)?\b")
+_IDENTIFIER_TOKEN = re.compile(r"\b(?:[A-Z]{2,}[\s\-]?\d[\w\-.]*|[A-Z][a-z]?[A-Z][A-Za-z0-9]*)\b")
+
+
+def _get(q: dict, canonical: str):
+    for name in ALIASES.get(canonical, (canonical,)):
+        if name in q and q[name] not in (None, "", []):
+            return q[name]
+    return None
+
+
+def required_tokens(expected_answer: str) -> list[str]:
+    """Mechanically checkable tokens from a prose expected answer.
+
+    The set states its expected answers as prose - "85 % relative humidity;
+    steel at least 3 C above dew point" - which cannot be graded by string
+    equality. Rather than have this harness judge prose, and so grade its own
+    author's work, it checks only what is unambiguous: the figures and the
+    identifiers. Everything else is printed for a human to judge.
+
+    Reported as "answer tokens present", NOT as answer correctness. Those are
+    different claims and conflating them would overstate the result.
+    """
+    tokens: list[str] = []
+    for m in _NUMBER.finditer(expected_answer):
+        tokens.append(m.group(0))
+    for m in _IDENTIFIER_TOKEN.finditer(expected_answer):
+        tokens.append(m.group(0))
+    if not tokens:
+        # Some expected answers carry no figure at all - "nominal dry film
+        # thickness", "by brush to welds, corners and edges". Falling back to
+        # their content words keeps those questions scored rather than
+        # silently unscored, which would quietly shrink the denominator.
+        tokens = [
+            w for w in re.findall(r"[A-Za-z]{4,}", expected_answer)
+            if w.lower() not in _GRADING_STOPWORDS
+        ]
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tokens:
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    return out
+
+
+def normalise(raw: dict | list) -> dict:
+    """Accept either a bare array or an object with a 'questions' array, and
+    either field-naming convention, without touching the file."""
+    if isinstance(raw, list):
+        data: dict = {"questions": raw}
+    else:
+        data = dict(raw)
+    questions = data.get("questions")
+    if not isinstance(questions, list) or not questions:
+        raise SystemExit("the question set has no questions")
+
+    normalised = []
+    for i, q in enumerate(questions):
+        text = _get(q, "question")
+        if text is None:
+            raise SystemExit(f"question {i} has no question text")
+        if "answerable" not in q:
+            raise SystemExit(f"question {q.get('id', i)} does not say if it is answerable")
+        expected_answer = _get(q, "expected_answer")
+        contains = _get(q, "expected_answer_contains")
+        clause = _get(q, "expected_clause")
+        normalised.append({
+            **q,
+            "id": str(q.get("id", i + 1)),
+            "question": text,
+            "answerable": bool(q["answerable"]),
+            "expected_document": _get(q, "expected_document"),
+            "expected_pages": _get(q, "expected_pages"),
+            # A compound expectation - "4.4 + 11" - means BOTH clauses must be
+            # cited, which is exactly what two-passage answers exist for.
+            "expected_clauses": (
+                [c.strip() for c in str(clause).split("+") if c.strip()]
+                if clause else None
+            ),
+            "expected_answer": expected_answer,
+            "expected_answer_contains": (
+                list(contains) if contains
+                else required_tokens(expected_answer) if expected_answer
+                else None
+            ),
+        })
+    data["questions"] = normalised
+    return data
+
+
 def load_questions(path: Path) -> dict:
     if not path.exists():
         raise SystemExit(
@@ -71,17 +186,7 @@ def load_questions(path: Path) -> dict:
             "path (see the shape in this file's docstring, or\n"
             "eval/questions.schema.json) and run again."
         )
-    data = json.loads(path.read_text(encoding="utf-8"))
-    questions = data.get("questions")
-    if not isinstance(questions, list) or not questions:
-        raise SystemExit(f"{path} has no 'questions' array.")
-    for i, q in enumerate(questions):
-        missing = [f for f in REQUIRED_FIELDS if f not in q]
-        if missing:
-            raise SystemExit(
-                f"question {i} ({q.get('id', 'no id')}) is missing: {', '.join(missing)}"
-            )
-    return data
+    return normalise(json.loads(path.read_text(encoding="utf-8")))
 
 
 def _clause_matches(expected: str, actual: str | None) -> bool:
@@ -144,10 +249,18 @@ def score_one(q: dict, result: dict) -> dict:
                 and row["cited_document"] == q["expected_document"]
             )
 
-    if q.get("expected_clause") is not None:
-        row["citation_correct"] = bool(
-            answered and _clause_matches(q["expected_clause"], row["cited_clause"])
+    if q.get("expected_clauses"):
+        # Every expected clause must be cited somewhere in the answer. A
+        # compound expectation is only satisfied by covering both.
+        cited_clauses = [
+            p["section"] for p in (result.get("answer_passages") or []) if p["section"]
+        ]
+        row["citation_correct"] = bool(answered) and all(
+            any(_clause_matches(expected, cited) for cited in cited_clauses)
+            for expected in q["expected_clauses"]
         )
+        row["expected_clauses"] = q["expected_clauses"]
+        row["all_cited_clauses"] = cited_clauses
 
     wanted = q.get("expected_answer_contains")
     if wanted:
@@ -160,6 +273,11 @@ def score_one(q: dict, result: dict) -> dict:
         row["missing_from_answer"] = [
             w for w in wanted if str(w).lower() not in haystack
         ]
+        row["required_tokens"] = list(wanted)
+        row["expected_answer"] = q.get("expected_answer")
+        row["returned_text"] = " ".join(
+            p["text"] for p in (result.get("answer_passages") or [])
+        )[:600]
 
     return row
 
@@ -220,7 +338,7 @@ def report(summary: dict, rows: list[dict], before: dict | None) -> None:
     labels = [
         ("retrieval (correct page)", "retrieval"),
         ("citation (correct clause)", "citation"),
-        ("answer correctness", "answer_correctness"),
+        ("answer tokens present", "answer_correctness"),
         ("refusal accuracy", "refusal"),
         ("false refusals", "false_refusals"),
     ]
