@@ -7,6 +7,8 @@
  * is the same class of lie as a status field that reports work it is not doing.
  */
 import type { ReactNode } from "react";
+
+import { START_BACKEND_COMMAND } from "../../../contracts/runtime";
 import type { ApiError } from "../types/api";
 
 export function Spinner({ label = "Loading" }: { label?: string }) {
@@ -77,8 +79,7 @@ export function DisconnectedState({ onRetry }: { onRetry?: () => void }) {
         values received and may be out of date.
       </p>
       <pre className="mt-3 overflow-x-auto rounded bg-ink-900 p-3 font-mono text-xs text-slateish-300">
-{`cd D:\\project\\Rag_chatbot\\backend
-D:\\project\\Rag_chatbot\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000`}
+{START_BACKEND_COMMAND}
       </pre>
       {onRetry && (
         <button
