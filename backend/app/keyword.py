@@ -34,8 +34,29 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 );
 """
 
-#: Matches an engineering identifier: API 610, 5.3.2, ASTM-A216, P-101A.
-IDENTIFIER = re.compile(r"\b(?:[A-Z]{2,}[- ]?\d+[A-Za-z0-9.-]*|\d+(?:\.\d+){1,3})\b")
+#: An engineering identifier, in the shapes that actually occur in petroleum
+#: standards. Written as explicit alternatives rather than one clever pattern,
+#: because each shape is a real convention and a missed one is a lookup that
+#: silently fails:
+#:
+#:   API 610        standard body + number
+#:   ISO 13709      standard body + number
+#:   ASTM A216      standard body + lettered grade
+#:   NORSOK L-001   standard body + lettered series
+#:   AISI 4140      material standard + number
+#:   CA6NM          material grade
+#:   P-101A         equipment tag
+#:   5.3.2 / 7.1    clause number
+IDENTIFIER = re.compile(
+    r"""\b(?:
+          [A-Z]{2,}[-\s][A-Z]-?\d+[A-Za-z0-9.\-]*   # ASTM A216, NORSOK L-001
+        | [A-Z]{2,}[-\s]?\d+[A-Za-z0-9.\-]*         # API 610, ISO 13709, AISI 4140
+        | [A-Z]{1,3}-\d+[A-Za-z0-9\-]*              # P-101A, L-001
+        | [A-Z]{2}\d[A-Z0-9]{2,}                    # CA6NM
+        | \d+(?:\.\d+){1,3}                         # 5.3.2, 7.1
+    )\b""",
+    re.VERBOSE,
+)
 
 
 def ensure_schema(conn: sqlite3.Connection | None = None) -> None:

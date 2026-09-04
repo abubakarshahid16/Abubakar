@@ -231,6 +231,39 @@ class KeywordSearchResult(BaseModel):
     hits: list[KeywordHit]
 
 
+class Passage(BaseModel):
+    chunk_id: str
+    document_id: str
+    filename: str
+    section: str | None
+    page_start: int
+    page_end: int
+    text: str
+    score: float
+    rrf: float
+    boost: float = Field(description="added for exact identifier matches")
+    rerank_score: float | None
+    bm25: float | None
+    cosine: float | None
+    keyword_rank: int | None
+    dense_rank: int | None
+    identifier_hits: list[str]
+
+
+class SearchResult(BaseModel):
+    query: str
+    mode: Literal["hybrid", "keyword_only"] = Field(
+        description="keyword_only until embeddings exist; upgrades automatically"
+    )
+    reranked: bool
+    keyword_candidates: int
+    dense_candidates: int
+    total: int
+    seconds: float
+    timings: dict[str, float]
+    hits: list[Passage]
+
+
 class KeywordIndexResult(BaseModel):
     document_id: str
     indexed: int

@@ -9,6 +9,7 @@ from . import chunker as chunk_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import keyword as keyword_mod
+from . import search as search_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
 from .api_utils import (
@@ -229,42 +230,38 @@ def index_keyword(document_id: str):
     return keyword_mod.index_document(document_id)
 
 
-@app.get("/api/search", response_model=schemas.KeywordSearchResult,
-         responses=schemas.ERRORS_422)
+@app.get("/api/search", response_model=schemas.SearchResult,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
 def search(
     request: Request,
     q: str = Query(..., min_length=1, max_length=500),
     limit: int = Query(10, ge=1, le=MAX_LIMIT),
     document_id: str | None = Query(None),
+    rerank: bool = Query(True),
+    mode: str = Query("hybrid"),
 ):
-    """Keyword search over retrievable chunks.
+    """Hybrid retrieval: FTS5 + dense vectors fused with RRF, then reranked.
 
-    Works the moment a document is chunked and indexed - no vectors required -
-    which is what lets a large upload answer questions within seconds.
+    Works keyword-only before any embedding exists and upgrades to hybrid
+    automatically as vectors arrive - `mode` in the response says which was
+    actually used, rather than the caller having to guess.
     """
-    reject_unknown_params(request, {"q", "limit", "document_id"})
+    reject_unknown_params(request, {"q", "limit", "document_id", "rerank", "mode"})
     if document_id:
         require_document(document_id)
-
-    timer = Timer()
-    hits = keyword_mod.search(q, limit=limit, document_id=document_id)
-    conn = connect()
-    enriched = []
-    for h in hits:
-        row = conn.execute(
-            "SELECT page_start, page_end, text FROM chunks WHERE id = ?", (h["chunk_id"],)
-        ).fetchone()
-        if row is None:
-            continue
-        enriched.append({**h, "page_start": row["page_start"],
-                         "page_end": row["page_end"], "text": row["text"]})
-    return {
-        "query": q,
-        "match_expression": keyword_mod.build_match_query(q),
-        "total": len(enriched),
-        "seconds": timer.seconds(),
-        "hits": enriched,
-    }
+    if mode not in ("hybrid", "keyword"):
+        return JSONResponse(
+            status_code=422,
+            content=errors.safe_error(
+                errors.INVALID_PARAMETER, "mode must be hybrid or keyword"),
+        )
+    return search_mod.search(
+        q,
+        limit=limit,
+        document_id=document_id,
+        rerank=rerank,
+        dense=(mode == "hybrid"),
+    )
 
 
 # ------------------------------------------------------------------ pages

@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     chunk_target_tokens: int = 300
     chunk_overlap_tokens: int = 60
     chunk_max_tokens: int = 480
+
+    # Retrieval. Defaults chosen from measurement on this CPU, not by guess:
+    # reranking 30 candidates at 320 tokens costs ~1025ms, 20 at 256 costs
+    # ~500ms, which is what keeps the Tier 1 answer inside its 1-2s budget.
+    search_candidates: int = 30       # retrieved from each side before fusion
+    rerank_candidates: int = 20       # how many of those the cross-encoder sees
+    rerank_max_tokens: int = 256
+    rerank_batch: int = 32
     running_line_threshold: float = 0.03   # fraction of pages; a running head repeats per chapter, not book-wide
     running_line_scan_lines: int = 3
 
