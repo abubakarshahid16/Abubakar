@@ -11,6 +11,7 @@ from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import keyword as keyword_mod
 from . import metrics as metrics_mod
+from . import acronyms as acronyms_mod
 from . import answer as answer_mod
 from . import search as search_mod
 from . import pageimage as pageimage_mod
@@ -38,6 +39,13 @@ async def lifespan(app: FastAPI):
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()
+    # Harvest acronym expansions once at startup rather than lazily on the
+    # first question. It scans the whole corpus and takes ~2.5s, which is
+    # fine here and is not fine added to a 1.3s answer.
+    try:
+        acronyms_mod.harvest()
+    except Exception:  # noqa: BLE001 - a missing expansion map is not fatal
+        pass
     yield
     ingest_mod.stop_worker()
 

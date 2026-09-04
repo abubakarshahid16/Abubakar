@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import re
 
+from . import acronyms
 from . import keyword
 
 #: Words that carry no subject. A question is not ABOUT "what" or "required".
@@ -52,6 +53,17 @@ MIN_COVERAGE = 0.34
 
 #: A term in more than this fraction of indexed chunks distinguishes nothing.
 COMMON_TERM_FRACTION = 0.25
+
+#: Below this many indexed chunks, "common in the corpus" is not a meaningful
+#: idea and the requirement is skipped entirely.
+#:
+#: On a two-chunk corpus the cutoff computes to 1, so a term appearing twice -
+#: which is every term in a two-chunk corpus - counts as common and nothing
+#: can distinguish anything. That is arithmetically right and practically
+#: useless: it refused "what is ndft" against a document whose abbreviations
+#: clause defines NDFT. Same shape as the second-passage margin: a fraction of
+#: the corpus does not transfer to a corpus too small to take fractions of.
+MIN_CORPUS_FOR_COMMONNESS = 20
 
 #: Shorter than this and a word is not a subject term.
 MIN_TERM_LENGTH = 3
@@ -81,11 +93,17 @@ def is_compound_question(question: str) -> bool:
     return bool(_COMPOUND.search(question))
 
 
-def distinctive_terms(question: str) -> list[str]:
+def distinctive_terms(question: str, document_id: str | None = None) -> list[str]:
     """The terms that say what the question is ABOUT, in order, deduplicated.
 
     Identifiers are included as written, because "B16.5" is the entire subject
     of the question that carries it.
+
+    A multi-word expansion the corpus defines counts as ONE term and its
+    constituent words are removed. Without that, "nominal dry film thickness"
+    became four separate terms, the phrase was never looked up so its acronym
+    was never found, and the four words then inflated the denominator badly
+    enough to fail the coverage test on a passage that answered the question.
     """
     terms: list[str] = []
     seen: set[str] = set()
@@ -98,7 +116,17 @@ def distinctive_terms(question: str) -> list[str]:
 
     for ident in keyword.IDENTIFIER.findall(question):
         add(ident)
-    for word in _TERM.findall(question):
+
+    remaining = question
+    for phrase in acronyms.known_expansions(document_id):
+        if phrase in remaining.lower():
+            add(phrase)
+            # case-insensitive removal, so the phrase's own words are not
+            # counted a second time as individual terms
+            pattern = re.compile(re.escape(phrase), re.IGNORECASE)
+            remaining = pattern.sub(" ", remaining)
+
+    for word in _TERM.findall(remaining):
         word = word.rstrip(".")
         if len(word) < MIN_TERM_LENGTH or word.lower() in STOPWORDS:
             continue
@@ -128,7 +156,7 @@ def assess(question: str, passage_text: str, document_id: str | None = None) -> 
     Returns the evidence as well as the verdict, so a refusal can name the
     term that was missing rather than only saying it was not confident.
     """
-    terms = distinctive_terms(question)
+    terms = distinctive_terms(question, document_id)
     empty = {
         "ok": True,
         "reason": None,
@@ -145,6 +173,7 @@ def assess(question: str, passage_text: str, document_id: str | None = None) -> 
     if not indexed:
         return empty
     common_cutoff = max(1, int(indexed * COMMON_TERM_FRACTION))
+    judge_commonness = indexed >= MIN_CORPUS_FOR_COMMONNESS
 
     body = passage_text.lower()
     covered: list[str] = []
@@ -153,29 +182,48 @@ def assess(question: str, passage_text: str, document_id: str | None = None) -> 
     covered_distinguishing = False
 
     for term in terms:
-        occurrences = keyword.term_occurrences(term, document_id)
+        # Every way this corpus writes the same thing. A document that spells
+        # out "nominal dry film thickness" and never writes NDFT used to
+        # refuse a question about the NDFT: the term genuinely was not there,
+        # and the reader was still asking a fair question. Bidirectional, so
+        # asking for the full term also matches chunks that only write the
+        # acronym. See app/acronyms.py - the map is built FROM the documents.
+        forms = [term, *acronyms.equivalents(term, document_id)]
+
+        occurrences = 0
+        unparseable = True
+        for form in forms:
+            count = keyword.term_occurrences(form, document_id)
+            if count >= 0:
+                unparseable = False
+                occurrences = max(occurrences, count)
+        if unparseable:
+            # FTS could not parse any form; it tells us nothing either way
+            continue
         if occurrences == 0:
             absent.append(term)
             continue
-        if occurrences < 0:
-            # FTS could not parse the term; it tells us nothing either way
-            continue
+
         present.append(term)
-        if term.lower() in body:
+        if any(form.lower() in body for form in forms):
             covered.append(term)
-            if occurrences <= common_cutoff:
+            if not judge_commonness or occurrences <= common_cutoff:
                 covered_distinguishing = True
 
     named_absent = [t for t in absent if looks_like_a_named_subject(t, question)]
     if named_absent:
         joined = ", ".join(named_absent)
+        verb = "does" if len(named_absent) == 1 else "do"
+        reason = f"{joined} {verb} not appear anywhere in the indexed documents"
+        # A dead end is not a useful refusal. If the missing term is written
+        # like an abbreviation, the corpus may spell it out under a name the
+        # reader has not tried - and the expansion map only knows the forms
+        # the documents actually define.
+        if any(acronyms.looks_like_acronym(t) for t in named_absent):
+            reason += ". If it is an abbreviation, try the full term"
         return {
             "ok": False,
-            "reason": (
-                f"{joined} does not appear anywhere in the indexed documents"
-                if len(named_absent) == 1
-                else f"{joined} do not appear anywhere in the indexed documents"
-            ),
+            "reason": reason,
             "terms": terms,
             "covered": covered,
             "absent_from_corpus": absent,
@@ -246,10 +294,14 @@ def distinguishing_uncovered_terms(
     indexed = keyword.indexed_count(document_id)
     if not indexed:
         return []
-    cutoff = max(1, int(indexed * COMMON_TERM_FRACTION))
+    cutoff = (
+        max(1, int(indexed * COMMON_TERM_FRACTION))
+        if indexed >= MIN_CORPUS_FOR_COMMONNESS
+        else indexed          # too small to judge commonness; nothing is common
+    )
     body = passage_text.lower()
     out: list[str] = []
-    for term in distinctive_terms(question):
+    for term in distinctive_terms(question, document_id):
         if term.lower() in body:
             continue
         occurrences = keyword.term_occurrences(term, document_id)
