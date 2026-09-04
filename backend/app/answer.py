@@ -22,8 +22,10 @@ import re
 import httpx
 
 from . import intent as intent_mod
+from . import keyword
 from . import lexical
 from . import passages as passages_mod
+from . import scores as scores_mod
 from . import telemetry
 from . import search as search_mod
 from .config import settings
@@ -60,7 +62,22 @@ INSUFFICIENT = "INSUFFICIENT EVIDENCE"
 #: A 3.5-point gap. -3.0 sits in it, admitting all 10 and rejecting both.
 MIN_RERANK_SCORE = -3.0
 
-#: How far below the PRIMARY passage a second passage may score.
+#: How far below the primary a second passage may sit, as a fraction of the
+#: query's own field spread.
+#:
+#: Fact 3's user-worded phrasing returned FOUR pages - the correct 21-22 plus
+#: two unrelated - on a field whose spread was 4.46, the third-narrowest of 30
+#: measured queries. On a flat field an absolute gap admits almost anything.
+#:
+#: Capping the count at two was rejected: fact 7 legitimately spans pages 7 and
+#: 16, and cutting by a constant would break a right answer to tidy a noisy
+#: one. The count follows the separation instead, so a decisive field yields
+#: one passage and a genuinely split question yields two.
+SUPPORTING_SEPARATION = 0.35
+
+#: The SMALL-FIELD fallback, used when there are too few scored candidates for
+#: a fraction of the spread to mean anything. Not superseded - measured for
+#: exactly this case.
 #:
 #: Relative rather than absolute, because absolute does not transfer across
 #: corpus sizes: on the real corpus the clause 11 / clause 4.4 pair scored
@@ -182,16 +199,57 @@ def _second_passage(
     if not missing:
         return None
 
-    primary_score = first.get("rerank_score")
+    wants_designator = bool(keyword.find_designators(question))
+
     for hit in hits[1:]:
         if hit["section"] and hit["section"] == first["section"]:
             continue
-        score = hit.get("rerank_score")
-        if primary_score is not None and score is not None:
-            if primary_score - score > SECOND_PASSAGE_MAX_GAP:
+
+        # How far below the primary this sits, as a fraction of the query's own
+        # field spread - computed in search() against the WHOLE candidate set,
+        # never recomputed here. The previous absolute gap of 6.0 raw points
+        # was the same class of error as every other constant on a moving
+        # scale: it admitted a correct pair scoring -1.19/-1.50 and rejected
+        # the same correct pair at -2.04/-5.78 on a smaller corpus, and it let
+        # two unrelated pages ride along on a flat field.
+        apart = hit.get("separation")
+        if apart is not None:
+            if apart > SUPPORTING_SEPARATION:
                 continue
-        elif not _is_semantically_credible(hit):
+        else:
+            # Field too small to normalise, so fall back to the ABSOLUTE gap -
+            # which is what this rule used before, and was measured for exactly
+            # this case: the correct clause 11 / clause 4.4 pair scores
+            # -1.19/-1.50 on the real corpus and -2.04/-5.78 on a four-chunk
+            # one. Falling back to the credibility floor instead was STRICTER
+            # than the rule it replaced and dropped that correct second
+            # passage, which is a narrowing rather than a fix.
+            primary = first.get("rerank_score")
+            score = hit.get("rerank_score")
+            if primary is None or score is None:
+                if not _is_semantically_credible(hit):
+                    continue
+            elif primary - score > SECOND_PASSAGE_MAX_GAP:
+                continue
+
+        # A DESIGNATED question's co-answer must own the designator.
+        #
+        # Separation alone could not tell fact 3's spurious second passage
+        # (0.295) from fact 7's correct one (0.197) - a 0.10 margin on three
+        # observations, which is too thin to hang a constant on and would be
+        # the same practice this whole change exists to remove.
+        #
+        # The categorical difference is what separates them. Fact 3 asks about
+        # coating system 9, and its second candidate is clause 4.5 mentioning
+        # system 9 in passing - a cross-reference. Fact 7 names no designator
+        # at all, and its second candidate is a genuinely different clause
+        # supplying the humidity limit the first one lacks. So: when the
+        # question carries a designator, a supporting passage whose heading
+        # does not declare that designator is a cross-reference, not a
+        # co-answer. Same authority principle as apply_heading_precedence.
+        if wants_designator and not hit.get("heading_declares"):
             continue
+
         if not lexical.assess(question, hit["text"], document_id)["ok"]:
             continue
         if any(term in hit["text"].lower() for term in missing):
