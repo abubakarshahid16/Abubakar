@@ -22,6 +22,7 @@ import re
 import httpx
 
 from . import intent as intent_mod
+from . import lexical
 from . import passages as passages_mod
 from . import telemetry
 from . import search as search_mod
@@ -42,10 +43,33 @@ Rules:
 
 INSUFFICIENT = "INSUFFICIENT EVIDENCE"
 
-#: Below this rerank score the top passage is not a credible answer. Measured
-#: against the cross-encoder's output range on this corpus: a genuine match
-#: scores well above zero, an unrelated passage well below.
-MIN_RERANK_SCORE = 0.0
+#: Below this rerank score a LEXICALLY PLAUSIBLE passage is still not a
+#: credible answer.
+#:
+#: Recalibrated when the lexical gate took over the job of rejecting
+#: unanswerable questions. At 0.0 this was one knob doing two jobs: it had to
+#: reject everything, so it also refused the correct clause 11 passage for
+#: "what is the check frequency and the relative humidity limit", which scores
+#: -1.19. Now that a question naming something absent from the corpus is
+#: refused lexically, this threshold only has to separate a lexically
+#: plausible passage that IS the answer from one that merely shares vocabulary.
+#:
+#: Measured on this corpus, over the top lexically plausible candidate:
+#:   answerable questions   n=10   -1.19 .. 7.36
+#:   plausible but wrong    n=2   -10.32 .. -4.73
+#: A 3.5-point gap. -3.0 sits in it, admitting all 10 and rejecting both.
+MIN_RERANK_SCORE = -3.0
+
+#: How far below the PRIMARY passage a second passage may score.
+#:
+#: Relative rather than absolute, because absolute does not transfer across
+#: corpus sizes: on the real corpus the clause 11 / clause 4.4 pair scored
+#: -1.19 and -1.50, and on a four-chunk test corpus the same pair scored -2.04
+#: and -5.78. An absolute bar that admits the first rejects the second while
+#: both are equally correct. The second passage has already had to be lexically
+#: plausible, come from a different clause, and supply a distinguishing term
+#: the first one misses; this only stops something far weaker being appended.
+SECOND_PASSAGE_MAX_GAP = 6.0
 #: Used when reranking is unavailable and only RRF is present.
 MIN_RRF_SCORE = 0.012
 
@@ -123,10 +147,55 @@ def _passage_payload(hit: dict, question: str, budget: int | None = None) -> dic
     }
 
 
-def _is_credible(hit: dict) -> bool:
+def _is_semantically_credible(hit: dict) -> bool:
+    """The semantic half of the gate, applied only to lexically plausible
+    candidates. On its own this was one knob for two independent failures -
+    see app/lexical.py."""
     if hit.get("rerank_score") is not None:
         return hit["rerank_score"] >= MIN_RERANK_SCORE
     return hit.get("rrf", 0.0) >= MIN_RRF_SCORE
+
+
+def _second_passage(
+    question: str, hits: list[dict], first: dict, document_id: str | None
+) -> dict | None:
+    """A second passage, when one passage cannot answer the whole question.
+
+    A question asking for a check frequency AND a humidity limit is answered
+    by one passage only if that passage covers both. When it does not, the
+    next candidate is admitted on three conditions: it comes from a DIFFERENT
+    clause, it is lexically plausible in its own right, and it covers a
+    distinctive term the first passage misses. Without the third condition
+    this would just append the runner-up to every answer.
+    """
+    # Only a DISTINGUISHING uncovered term justifies a second passage. Without
+    # that, "what is the NDFT for coating system no. 1" picked up a
+    # water-absorption passage from clause 10.1 because it happened to contain
+    # a common word the first passage lacked - the runner-up appended to the
+    # answer for no reason.
+    missing = {
+        t.lower() for t in lexical.distinguishing_uncovered_terms(
+            question, first["text"], document_id
+        )
+    }
+    if not missing:
+        return None
+
+    primary_score = first.get("rerank_score")
+    for hit in hits[1:]:
+        if hit["section"] and hit["section"] == first["section"]:
+            continue
+        score = hit.get("rerank_score")
+        if primary_score is not None and score is not None:
+            if primary_score - score > SECOND_PASSAGE_MAX_GAP:
+                continue
+        elif not _is_semantically_credible(hit):
+            continue
+        if not lexical.assess(question, hit["text"], document_id)["ok"]:
+            continue
+        if any(term in hit["text"].lower() for term in missing):
+            return hit
+    return None
 
 
 # ------------------------------------------------------------------ tier 2
@@ -226,27 +295,59 @@ def answer(
         "candidates_considered": results["total"],
     }
 
-    if not hits or not _is_credible(hits[0]):
+    # Two independent gates, lexical first because it is cheaper and more
+    # decisive. A named subject absent from the corpus needs no semantic
+    # judgement at all, and a passage sharing no distinctive term with the
+    # question is not an answer however well it scores.
+    lexical_verdict = (
+        lexical.assess(question, hits[0]["text"], document_id)
+        if hits
+        else {"ok": False, "reason": None, "coverage": None,
+              "terms": [], "covered": [], "absent_from_corpus": []}
+    )
+    base["lexical"] = {
+        k: lexical_verdict[k]
+        for k in ("coverage", "terms", "covered", "absent_from_corpus")
+    }
+
+    if not hits or not lexical_verdict["ok"] or not _is_semantically_credible(hits[0]):
+        if not hits:
+            reason = "no indexed passage matched this question"
+        elif not lexical_verdict["ok"]:
+            reason = lexical_verdict["reason"]
+        else:
+            reason = "the closest passages were not a credible match"
         return {
             **base,
             "answer_type": "insufficient_evidence",
             "answer": None,
-            "reason": (
-                "no indexed passage matched this question"
-                if not hits
-                else "the closest passages were not a credible match"
-            ),
+            "reason": reason,
             "passages": [_passage_payload(h, question) for h in hits[:limit]],
             "seconds": timer.seconds(),
         }
 
     if tier == "extract":
+        primary = _passage_payload(hits[0], question)
+        answers = [primary]
+        second = _second_passage(question, hits, hits[0], document_id)
+        if second is not None:
+            answers.append(_passage_payload(second, question))
+        used = {p["chunk_id"] for p in answers}
         return {
             **base,
             "answer_type": "extract",
+            # The primary passage stays the answer text for any caller reading
+            # only `answer`; a second passage is additive, never a replacement.
             "answer": hits[0]["text"],
-            "passage": _passage_payload(hits[0], question),
-            "supporting": [_passage_payload(h, question) for h in hits[1:limit]],
+            "passage": primary,
+            # One or two passages that together answer the question. A second
+            # appears only when the first cannot cover the question alone.
+            "answer_passages": answers,
+            "supporting": [
+                _passage_payload(h, question)
+                for h in hits[1:limit]
+                if h["chunk_id"] not in used
+            ],
             "seconds": timer.seconds(),
         }
 

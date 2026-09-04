@@ -21,6 +21,11 @@ class Settings(BaseSettings):
 
     ollama_url: str = "http://127.0.0.1:11434"
     answer_model: str = "qwen3.5:4b"
+    #: Resident size of the answer model. Used to warn BEFORE someone presses
+    #: Explain: with 14.7 GB of 16 GB already in use, Tier 2 will swap hard or
+    #: fail, and that is a fact worth surfacing before the button is clicked
+    #: rather than after a two-minute stall in front of a client.
+    answer_model_ram_bytes: int = 3_400_000_000
 
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12

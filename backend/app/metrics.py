@@ -80,8 +80,10 @@ def exclusions() -> list[dict]:
         dict(r)
         for r in connect().execute(
             """SELECT scope, rule, COUNT(*) AS count,
-                      COALESCE(SUM(text_length), 0) AS characters_dropped
-               FROM exclusions GROUP BY scope, rule ORDER BY count DESC"""
+                      COALESCE(SUM(text_length), 0) AS characters_dropped,
+                      COALESCE(SUM(clause_headings), 0) AS clause_heading_pages
+               FROM exclusions GROUP BY scope, rule
+               ORDER BY clause_heading_pages DESC, count DESC"""
         )
     ]
 
@@ -231,6 +233,25 @@ def warnings() -> list[dict]:
             "code": r["error_code"] or "failed",
             "document_id": r["id"],
             "message": f"{r['filename']}: {r['error_message'] or 'processing failed'}",
+        })
+
+    # Free RAM against what the answer model needs. Measured before the model
+    # is loaded, because that is when it is actionable.
+    memory = psutil.virtual_memory()
+    needed = settings.answer_model_ram_bytes
+    models_info = models()
+    if memory.available < needed and not models_info["answer_model_loaded"]:
+        out.append({
+            "severity": "warning",
+            "code": "low_memory_for_answer_model",
+            "document_id": None,
+            "message": (
+                f"{memory.available / 1e9:.1f} GB of RAM free and "
+                f"{settings.answer_model} needs about {needed / 1e9:.1f} GB. "
+                f"Tier 2 (Explain) may swap hard or fail. Quoted answers are "
+                f"unaffected. Close other applications, or pre-warm the model "
+                f"before it is needed."
+            ),
         })
 
     ocr = conn.execute(

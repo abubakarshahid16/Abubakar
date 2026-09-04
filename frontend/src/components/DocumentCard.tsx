@@ -148,6 +148,63 @@ export function DocumentCard({
         </div>
       )}
 
+      {/* Excluded PAGES. A page search cannot see at all is a different and
+          worse thing than an excluded chunk, and it was being reported as a
+          quiet number beside the chunk count - "3 excluded" - which neither
+          the operator nor the client looked at. On NORSOK that quiet number
+          was an entire clause. */}
+      {(doc.pages_excluded ?? 0) > 0 && (
+        <div
+          role={(doc.pages_excluded_with_clause_headings ?? 0) > 0 ? "alert" : "status"}
+          className={[
+            "border-t px-4 py-3 text-sm",
+            (doc.pages_excluded_with_clause_headings ?? 0) > 0
+              ? "border-danger-500/40 bg-danger-500/10"
+              : "border-warn-500/30 bg-warn-500/10",
+          ].join(" ")}
+        >
+          {(doc.pages_excluded_with_clause_headings ?? 0) > 0 ? (
+            <>
+              <p className="font-medium text-danger-500">
+                {nf.format(doc.pages_excluded_with_clause_headings ?? 0)} excluded page
+                {(doc.pages_excluded_with_clause_headings ?? 0) === 1 ? "" : "s"} contain
+                numbered clause headings
+              </p>
+              <p className="mt-1 text-slateish-300">
+                A page with numbered clauses and real prose is body text. Real
+                content has almost certainly been dropped and will not be
+                found by any question. Check this before relying on answers
+                from this document.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-medium text-warn-500">
+                {nf.format(doc.pages_excluded ?? 0)} page
+                {(doc.pages_excluded ?? 0) === 1 ? "" : "s"} excluded from search
+              </p>
+              <p className="mt-1 text-slateish-300">
+                {nf.format(doc.pages_excluded_characters ?? 0)} characters are not
+                searchable. Front matter and contents pages are excluded on
+                purpose; anything else is worth checking.
+              </p>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => actions.onExcluded(doc)}
+            className={[
+              "mt-2 rounded border px-3 py-1 text-xs",
+              (doc.pages_excluded_with_clause_headings ?? 0) > 0
+                ? "border-danger-500/60 text-danger-500 hover:bg-danger-500/15"
+                : "border-warn-500/60 text-warn-500 hover:bg-warn-500/15",
+            ].join(" ")}
+          >
+            See which pages, and why
+          </button>
+        </div>
+      )}
+
       {hasLowRetrievableRatio(doc) && ratio !== null && (
         <div
           role="alert"

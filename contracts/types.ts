@@ -40,6 +40,15 @@ export interface DocumentRecord {
   /** pages whose mathematics did not survive extraction; see the page image */
   equation_pages: number;
   error: ApiError | null;
+  /** Pages search cannot see AT ALL - not a quiet count. The Documents screen
+   *  said "3 excluded" for chunks and said nothing about a dropped page that
+   *  held an entire clause. */
+  pages_excluded?: number;
+  pages_excluded_characters?: number;
+  /** Excluded pages carrying numbered clause headings AND real prose. Should
+   *  always be zero; if it is not, real content was almost certainly dropped.
+   *  Render as an ALERT, never a count. */
+  pages_excluded_with_clause_headings?: number;
   uploaded_at: string;       // ISO 8601
   indexed_at: string | null;
 }
@@ -110,6 +119,11 @@ export interface PagesResponse {
 /** GET /api/documents/{id}/excluded - nothing is dropped without a record. */
 export interface ExclusionRecord {
   scope: "page" | "chunk";
+  /** Non-zero means the dropped text carried numbered clause headings AND
+   *  real prose - body text, not furniture. An exclusion carrying this almost
+   *  certainly threw real content away, which is what happened to NORSOK
+   *  page 11 and its entire Clause 8. Render as an ALERT, never a count. */
+  clause_headings?: number;
   page_start: number | null;
   page_end: number | null;
   chunk_id: string | null;
@@ -125,6 +139,8 @@ export interface ExclusionSummary {
   rule: string;
   count: number;
   characters_dropped: number;
+  /** excluded pages under this rule that carried clause headings */
+  clause_heading_pages?: number;
 }
 
 export interface ExclusionsResponse {

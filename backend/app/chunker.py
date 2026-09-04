@@ -166,8 +166,21 @@ _FRONTMATTER_MARKERS = (
     "acquisitions editor", "managing editor", "production editor",
     "editor in chief", "editorial director", "portfolio manager",
     "marketing manager", "marketing assistant", "cover design", "cover art",
-    "composition", "rights and permissions", "manufacturing buyer",
+    "rights and permissions", "manufacturing buyer",
     "vice president", "typeset in", "www.pearson", "permissions department",
+)
+
+#: Markers that are ordinary words in engineering prose and only mean front
+#: matter in their publishing sense. "composition" cost NORSOK its entire
+#: Clause 8: the page says metal shall be "marked with composition", which
+#: tripped a single-marker match and classified 3,197 characters of thermally
+#: sprayed coating requirements as front matter. Requiring the publishing
+#: context keeps the credit page and keeps the specification.
+_AMBIGUOUS_FRONTMATTER_MARKERS = (
+    # "composition and" was here and matched "marked with composition and
+    # batch number" - the same mistake as the original marker, one layer down.
+    # Only a form that cannot occur in engineering prose belongs in this list.
+    "composition:", "composition services", "composition by",
 )
 
 _BACKMATTER_MARKERS = ("bibliography", "references", "works cited")
@@ -194,6 +207,28 @@ def _is_page_number_column(lines: list[str], total_pages: int) -> bool:
         return False
     ascending = sum(1 for a, b in zip(in_range, in_range[1:]) if b >= a)
     return ascending >= (len(in_range) - 1) * 0.75
+
+
+def count_clause_headings(text: str) -> int:
+    """How many validated numbered clause headings this page carries.
+
+    Uses the same detector the chunker uses, single-line and split-line forms
+    both, so "a page with clause headings" means exactly what it means
+    everywhere else rather than being a second, drifting definition.
+    """
+    lines = [line.rstrip() for line in text.splitlines()]
+    stripped = [line.strip() for line in lines]
+    found = 0
+    i = 0
+    while i < len(lines):
+        head = looks_like_heading(lines[i])
+        consumed = 1
+        if head is None:
+            head, consumed = _split_line_heading(stripped, i)
+        if head:
+            found += 1
+        i += consumed
+    return found
 
 
 def classify_page(text: str, page_no: int, total_pages: int) -> str:
@@ -227,6 +262,24 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
 
     low = text.lower()
     marker_hits = sum(1 for m in _FRONTMATTER_MARKERS if m in low)
+    marker_hits += sum(1 for m in _AMBIGUOUS_FRONTMATTER_MARKERS if m in low)
+
+    # A PAGE CONTAINING NUMBERED CLAUSE HEADINGS AND REAL PROSE IS BODY TEXT.
+    # This is the guard that matters most in the whole classifier. NORSOK page
+    # 11 carries clauses 8.1 through 8.4 and 9.1, 9.2 - the entire section on
+    # thermally sprayed metallic coatings - and was dropped as front matter.
+    # The consequence was not a missing answer: asked for the maximum operating
+    # temperature of a zinc metal coating (clause 8.2, 120 C) the system
+    # answered "<= 80 C" from a different clause on another page, labelled
+    # QUOTED VERBATIM with a page and a clause. A specification error with
+    # money attached and no signal it happened.
+    #
+    # Both halves are required. A contents page has headings without
+    # sentences; a copyright page has sentences without numbered clauses. Only
+    # body text has both.
+    if count_clause_headings(text) >= 1 and longest_clause(text) >= MIN_CLAUSE_WORDS:
+        marker_hits = 0
+
     # Front matter markers are decisive wherever they appear.
     if marker_hits >= 2 or (marker_hits >= 1 and page_no <= max(12, total_pages * 0.05)):
         return "frontmatter"
@@ -383,9 +436,16 @@ def looks_like_heading(line: str) -> str | None:
     return _validate_heading(number, title)
 
 
-def _validate_heading(number: str, title: str) -> str | None:
+def _validate_heading(
+    number: str, title: str, allow_bare_integer: bool = False
+) -> str | None:
     """Shared checks for both the single-line and split-line heading forms."""
-    title = title.strip().rstrip(".")
+    # Kept before the trailing period is stripped: for a bare integer, whether
+    # the title ENDS like a sentence is the discriminator between a clause
+    # title and a general-note item, and stripping it first destroys the only
+    # evidence available.
+    raw_title = title.strip()
+    title = raw_title.rstrip(".")
     if not title or len(title) > 90:
         return None
 
@@ -431,8 +491,41 @@ def _validate_heading(number: str, title: str) -> str | None:
     # every real heading in the four documents examined uses one. Bare
     # integers are therefore only accepted with an explicit CHAPTER/SECTION
     # prefix, handled by the caller.
-    if "." not in number:
+    if "." not in number and not allow_bare_integer:
         return None
+
+    if "." not in number:
+        # A top-level clause on its own line, with its title on the next:
+        #
+        #     11
+        #     Inspection and testing
+        #
+        # This is how NORSOK numbers its top-level clauses, and refusing it
+        # meant clause 11 was never detected at all - so Table 3 and the whole
+        # of Inspection and testing were filed under "10.3 Qualification of
+        # procedures", making every citation into that region a wrong clause
+        # even when the passage was right.
+        #
+        # Much stricter than a dotted number, because the same shape is a
+        # general-note item ("1" then "Light colour non-skid aggregates shall
+        # be used."). A note is a sentence and ends like one; a clause title
+        # does not. Whether the number is REAL is then decided across the whole
+        # document - see plausible_heading_numbers.
+        words = title.split()
+        if not 1 <= len(words) <= 8:
+            return None
+        if raw_title.endswith((".", ";", ":", ",")):
+            return None
+        if not title[:1].isupper():
+            return None
+        if len(words) == 1:
+            # NORSOK's clause 1 is titled "Scope", and clauses titled with a
+            # single word - Scope, References, Definitions, General - are the
+            # norm at the top of a specification. A lone word is weaker
+            # evidence than a phrase, so it has to be a real word rather than
+            # a code or a fragment.
+            if not words[0].isalpha() or len(words[0]) < 4:
+                return None
 
     return f"{number} {title}"
 
@@ -527,7 +620,7 @@ def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
             return None, 1
         if len(title.split()) > 12:
             return None, 1
-        head = _validate_heading(m.group(1), title)
+        head = _validate_heading(m.group(1), title, allow_bare_integer=True)
         return (head, j - i + 1) if head else (None, 1)
     return None, 1
 
@@ -537,7 +630,52 @@ def _heading_number(heading: str) -> str:
     return heading.split(" ", 1)[0]
 
 
-def plausible_heading_numbers(numbers: Iterable[str]) -> set[str]:
+def _bare_integer_clauses(numbers: list[str]) -> set[str]:
+    """Which bare integers, in document order, behave like clause numbering.
+
+    Clause numbering increases monotonically through a document. A general-note
+    list restarts at 1 under every clause, so a bare integer that is not
+    greater than the last accepted one is a restart, not a clause. Jumps are
+    capped too: 1, 2, 3, 40 is not a hierarchy.
+
+    Where the walk begins matters. Requiring it to start at 1, 2 or 3 works on
+    a whole specification but fails on an extract that happens to open at
+    clause 8 - so a bare integer is also accepted as a starting point when the
+    document carries DOTTED headings under it. If 8.1 and 8.2 are headings,
+    then 8 is a clause, wherever the document begins.
+    """
+    corroborated = {
+        number.split(".")[0]
+        for number in numbers
+        if "." in number and number.split(".")[0].isdigit()
+    }
+
+    accepted: set[str] = set()
+    last = 0
+    for number in numbers:
+        if "." in number or not number.isdigit():
+            continue
+        value = int(number)
+        if last == 0:
+            # the first one has to look like the start of a numbering scheme,
+            # or be corroborated by its own subclauses
+            if value > 3 and number not in corroborated:
+                continue
+        elif not last < value <= last + 3:
+            # a jump is allowed when subclauses vouch for it
+            if not (value > last and number in corroborated):
+                continue
+        accepted.add(number)
+        last = value
+    return accepted
+
+
+def plausible_heading_numbers(numbers: list[str]) -> set[str]:
+    # NOTE: ORDER MATTERS. Bare integers are judged by a monotonic walk in
+    # DOCUMENT ORDER, so passing a set silently changes the answer - a test
+    # that did exactly that passed for a while on the luck of set iteration
+    # order. Typed as a list rather than an Iterable to make that a mistake
+    # the reader can see.
     """Keep only numbering that fits the hierarchy the document actually has.
 
     Page 523 of the professional-practices textbook is a list of exercises -
@@ -556,14 +694,23 @@ def plausible_heading_numbers(numbers: Iterable[str]) -> set[str]:
     rejection is one bad section label, and the cost of over-rejecting is a
     whole document losing its clauses.
     """
+    ordered = list(numbers)
     by_parent: dict[str, set[int]] = {}
-    for number in numbers:
+    for number in ordered:
         parent, _, last = number.rpartition(".")
         if last.isdigit():
             by_parent.setdefault(parent, set()).add(int(last))
 
     allowed: set[str] = set()
     for parent, seen in by_parent.items():
+        if parent == "":
+            # Bare integers get a stricter test than contiguity. A general-note
+            # list also runs 1, 2, 3 - and RESTARTS under the next clause,
+            # which is what gives it away. Real top-level clause numbering only
+            # ever increases through a document, so the accepted set is the
+            # increasing walk taken in document order, and every restart is
+            # rejected. See _bare_integer_clauses.
+            continue
         def name(n: int, parent: str = parent) -> str:
             return f"{parent}.{n}" if parent else str(n)
 
@@ -574,6 +721,8 @@ def plausible_heading_numbers(numbers: Iterable[str]) -> set[str]:
         while limit + 1 in seen:
             limit += 1
         allowed |= {name(n) for n in seen if n <= limit}
+
+    allowed |= _bare_integer_clauses(ordered)
     return allowed
 
 
@@ -1156,6 +1305,23 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
         )
     }
 
+    def dropped_real_content(text: str, rule: str) -> int:
+        """Does this dropped page look like body text rather than furniture?
+
+        Uses the SAME predicate as the classifier gate in classify_page, so
+        the two cannot drift: clause headings plus real prose is body text. A
+        contents or index page is exempt, because it legitimately consists of
+        heading-like lines and would otherwise fire on every book.
+
+        This should always be zero. If it is not, a page like NORSOK 11 - the
+        whole of Clause 8, dropped as front matter - has happened again.
+        """
+        if rule.endswith(("_toc", "_index")):
+            return 0
+        if count_clause_headings(text) >= 1 and longest_clause(text) >= MIN_CLAUSE_WORDS:
+            return 1
+        return 0
+
     for pno, ptext in pages:
         kind = page_kinds.get(pno, "prose")
         # text_length uses the SAME definition as pages.char_count, so the two
@@ -1163,9 +1329,11 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
         length = len(ptext.strip())
 
         if kind not in RETRIEVABLE_KINDS:
+            rule = f"page_classified_{kind}"
             exclusion_rows.append(
-                (doc_id, "page", pno, pno, None, f"page_classified_{kind}",
-                 f"page classified as {kind}", ptext[:2000], length, now)
+                (doc_id, "page", pno, pno, None, rule,
+                 f"page classified as {kind}", ptext[:2000], length, now,
+                 dropped_real_content(ptext, rule))
             )
             continue
 
@@ -1186,7 +1354,8 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
             )
             rule = "page_yielded_no_chunk"
         exclusion_rows.append(
-            (doc_id, "page", pno, pno, None, rule, reason, ptext[:2000], length, now)
+            (doc_id, "page", pno, pno, None, rule, reason, ptext[:2000], length,
+             now, dropped_real_content(ptext, rule))
         )
     for ordinal, c in enumerate(chunks):
         q = quality[id(c)]
@@ -1195,7 +1364,7 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
                 (doc_id, "chunk", c.page_start, c.page_end,
                  chunk_id(doc["sha256"], c.page_start, ordinal, content_hash(c.text)),
                  "content_quality_gate", ",".join(q["reasons"]),
-                 c.text[:2000], len(c.text.strip()), now)
+                 c.text[:2000], len(c.text.strip()), now, 0)
             )
 
     with conn:
@@ -1203,8 +1372,8 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
         conn.executemany(
             """INSERT INTO exclusions
                (document_id, scope, page_start, page_end, chunk_id, rule,
-                reason, text_sample, text_length, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                reason, text_sample, text_length, created_at, clause_headings)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             exclusion_rows,
         )
         # The keyword index is keyed on chunk ids, so a rebuild invalidates

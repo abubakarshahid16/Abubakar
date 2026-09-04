@@ -258,3 +258,28 @@ def search(
         }
         for r in rows
     ]
+
+
+def term_occurrences(term: str, document_id: str | None = None) -> int:
+    """How many indexed chunks contain this term at all.
+
+    Zero is decisive. A question about Inconel against a corpus where Inconel
+    appears nowhere needs no semantic judgement to refuse - and the semantic
+    score will happily return a confident-looking passage about something else
+    if it is the only thing asked. Lexical presence is the cheaper and more
+    reliable first gate.
+    """
+    conn = connect()
+    ensure_schema(conn)
+    params: list[object] = [_escape(term)]
+    where = "chunks_fts MATCH ?"
+    if document_id:
+        where += " AND document_id = ?"
+        params.append(document_id)
+    try:
+        return conn.execute(
+            f"SELECT COUNT(*) FROM chunks_fts WHERE {where}", params
+        ).fetchone()[0]
+    except sqlite3.OperationalError:
+        # a term FTS cannot parse tells us nothing either way
+        return -1

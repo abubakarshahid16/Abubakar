@@ -12,7 +12,7 @@ from app.main import app
 
 SYSTEM_ONE = [
     "A.1 Coating system no. 1",
-    "Coating system no. 1 shall have a nominal dry film thickness of 280 um",
+    "Coating system no. 1 shall have a NDFT nominal dry film thickness of 280 um",
     "applied as three coats over blast cleaned carbon steel in atmospheric",
     "service, and the zinc rich primer shall be in accordance with ISO 12944-5",
     "before any topcoat is applied to the prepared surface of the component.",
@@ -20,7 +20,7 @@ SYSTEM_ONE = [
 
 SYSTEM_FOUR = [
     "A.4 Coating system no. 4",
-    "Coating system no. 4 shall have a nominal dry film thickness of 450 um",
+    "Coating system no. 4 shall have a NDFT nominal dry film thickness of 450 um",
     "applied as two coats over blast cleaned carbon steel for insulated",
     "surfaces operating hot, and the curing time between coats shall follow",
     "the manufacturer written procedure for the product actually supplied.",
