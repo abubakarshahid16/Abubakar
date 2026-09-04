@@ -78,7 +78,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 
 Deliberately excluded from the prototype to protect the deadline:
 
-- **OCR** — scanned pages are detected and flagged, not OCR'd
+- ~~**OCR**~~ — **no longer cut.** Scanned pages are recognised offline (RapidOCR / PP-OCRv6, in a subprocess), and recognised text is labelled as such rather than presented as a quotation. Coverage across the corpus rose 94.0% → 96.3%. See `docs/adr/ADR-0005` and `ADR-0006`.
 - **ANN index** — brute-force vector search is faster *and* exact at prototype scale
 - **Retrieval profiles** — one profile (Balanced)
 - **System view** — four views: Documents, Chat, Ingestion, Dashboard (History folded into Chat)
