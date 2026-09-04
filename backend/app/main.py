@@ -378,12 +378,9 @@ def ask(conversation_id: str, body: schemas.AskRequest):
     _require_conversation(conversation_id)
     if body.document_id:
         require_document(body.document_id)
-    if body.explain_of is None and not body.question.strip():
-        return JSONResponse(
-            status_code=400,
-            content=errors.safe_error(
-                errors.INVALID_PARAMETER, "question is required unless explain_of is given"),
-        )
+    # An empty question is not a client error - it is somebody pressing enter.
+    # It classifies as "empty" and gets the guidance reply, like any other
+    # input that was never a document question.
     try:
         return chat_mod.ask(
             conversation_id,

@@ -434,8 +434,11 @@ def test_the_ask_endpoint_validates_its_body():
     assert client.post(f"/api/conversations/{cid}/ask", json={"question": "x", "bogus": 1}).status_code == 422
     assert client.post(f"/api/conversations/{cid}/ask", json={"question": "x", "tier": "telepathy"}).status_code == 422
     assert client.post(f"/api/conversations/{cid}/ask", json={"question": "x", "limit": 99}).status_code == 422
-    # a question is required unless this is an explain
-    assert client.post(f"/api/conversations/{cid}/ask", json={"question": "   "}).status_code == 400
+    # An empty question is not a client error - it is somebody pressing enter.
+    # It classifies as "empty" and gets the guidance reply. See test_intent.
+    blank = client.post(f"/api/conversations/{cid}/ask", json={"question": "   "})
+    assert blank.status_code == 200
+    assert blank.json()["answer_type"] == "guidance"
 
 
 def test_an_unknown_conversation_is_a_404_everywhere():

@@ -264,7 +264,14 @@ class SearchResult(BaseModel):
     hits: list[Passage]
 
 
-AnswerType = Literal["extract", "generated", "insufficient_evidence", "model_unavailable"]
+AnswerType = Literal[
+    "extract",
+    "generated",
+    "insufficient_evidence",
+    "model_unavailable",
+    # the input was never a document question - a greeting, thanks, chitchat
+    "guidance",
+]
 
 
 class AnswerPassage(BaseModel):
@@ -297,6 +304,12 @@ class AnswerResult(BaseModel):
     rejected_citations: list[int] = Field(
         [], description="citations the model invented; removed from the answer"
     )
+    input_kind: str | None = Field(
+        None, description="why this was answered as guidance rather than searched"
+    )
+    examples: list[str] = Field(
+        [], description="real questions drawn from the loaded documents"
+    )
     retrieval_mode: str
     reranked: bool
     candidates_considered: int
@@ -324,6 +337,8 @@ class Message(BaseModel):
     )
     answer_type: AnswerType | None = None
     reason: str | None = None
+    input_kind: str | None = None
+    examples: list[str] = []
     explains_id: str | None = Field(
         None, description="assistant rows: the extract answer this Tier 2 answer explains"
     )

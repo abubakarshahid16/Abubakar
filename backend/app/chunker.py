@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime, timezone
+from collections.abc import Iterable
 from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
@@ -531,6 +532,82 @@ def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
     return None, 1
 
 
+def _heading_number(heading: str) -> str:
+    """The numbering off the front of a validated heading string."""
+    return heading.split(" ", 1)[0]
+
+
+def plausible_heading_numbers(numbers: Iterable[str]) -> set[str]:
+    """Keep only numbering that fits the hierarchy the document actually has.
+
+    Page 523 of the professional-practices textbook is a list of exercises -
+    9.35, 9.36, 9.37, 9.40 - each opening a numbered paragraph. Every one of
+    them matches the heading pattern perfectly, and the pattern that finally
+    read NORSOK's clauses started inventing headings out of them. A citation
+    reading "section: 9.33 In Section 9.3.12" is worse than no section at all.
+
+    The discriminator is the document's own numbering. A real hierarchy is
+    reachable by counting: if 9.1 through 9.5 are headings, 9.6 might be, but
+    9.33 is not - there is no 9.6 to 9.32 for it to follow. An enumerated list
+    gives itself away by starting somewhere the hierarchy never reaches.
+
+    Deliberately conservative. When a group does not start at 1 the run cannot
+    be established at all, so everything in it is kept: the cost of a missed
+    rejection is one bad section label, and the cost of over-rejecting is a
+    whole document losing its clauses.
+    """
+    by_parent: dict[str, set[int]] = {}
+    for number in numbers:
+        parent, _, last = number.rpartition(".")
+        if last.isdigit():
+            by_parent.setdefault(parent, set()).add(int(last))
+
+    allowed: set[str] = set()
+    for parent, seen in by_parent.items():
+        def name(n: int, parent: str = parent) -> str:
+            return f"{parent}.{n}" if parent else str(n)
+
+        if min(seen) > 1:
+            allowed |= {name(n) for n in seen}
+            continue
+        limit = min(seen)
+        while limit + 1 in seen:
+            limit += 1
+        allowed |= {name(n) for n in seen if n <= limit}
+    return allowed
+
+
+def _candidate_headings(
+    pages: list[tuple[int, str]],
+    running: set[str],
+    page_kinds: dict[int, str] | None,
+) -> list[str]:
+    """Every heading the detector would accept, before plausibility filtering.
+
+    A pre-pass, because whether 9.33 is a heading cannot be decided from the
+    line itself - it depends on what else the document numbers.
+    """
+    kinds = page_kinds or {}
+    found: list[str] = []
+    for page_no, raw in pages:
+        if kinds.get(page_no, "prose") != "prose":
+            continue
+        cleaned, _ = strip_running_lines(raw, running)
+        lines = cleaned.splitlines()
+        if sum(1 for line in lines if looks_like_heading(line)) > _CONTENTS_PAGE_HEADINGS:
+            continue  # a contents page never sets heading state
+        i = 0
+        while i < len(lines):
+            head = looks_like_heading(lines[i])
+            consumed = 1
+            if head is None:
+                head, consumed = _split_line_heading(lines, i)
+            if head:
+                found.append(head)
+            i += consumed
+    return found
+
+
 def segment_document(
     pages: list[tuple[int, str]],
     running: set[str],
@@ -540,6 +617,12 @@ def segment_document(
     blocks: list[Block] = []
     section: str | None = None
     removed_total = 0
+
+    # Decided across the whole document, not line by line - see
+    # plausible_heading_numbers.
+    allowed_numbers = plausible_heading_numbers(
+        _heading_number(h) for h in _candidate_headings(pages, running, page_kinds)
+    )
 
     kinds = page_kinds or {}
     for page_no, raw in pages:
@@ -583,6 +666,11 @@ def segment_document(
                 # specifications lay headings out, and it is why every chunk
                 # in such a document had section: null.
                 head, consumed = _split_line_heading(lines, i)
+
+            if head is not None and _heading_number(head) not in allowed_numbers:
+                # numbering the document's hierarchy never reaches: an
+                # enumerated exercise or requirement list, not a heading
+                head, consumed = None, 1
 
             if head:
                 flush_prose()

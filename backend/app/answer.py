@@ -21,6 +21,7 @@ import re
 
 import httpx
 
+from . import intent as intent_mod
 from . import search as search_mod
 from .config import settings
 from .rates import Timer
@@ -171,6 +172,28 @@ def answer(
 ) -> dict:
     """Answer a question. `tier` is "extract" (default) or "generated"."""
     timer = Timer()
+
+    # Classified BEFORE retrieval. A greeting is not a failed question, and
+    # answering "hi" with a refusal plus three unrelated passages misrepresents
+    # both. Nothing is searched, so there is nothing to show as considered.
+    kind = intent_mod.classify(question)
+    if kind != intent_mod.DOCUMENT_QUESTION:
+        examples = intent_mod.example_questions()
+        return {
+            "question": question,
+            "retrieval_mode": "not_searched",
+            "reranked": False,
+            "timings": {},
+            "candidates_considered": 0,
+            "answer_type": "guidance",
+            "answer": intent_mod.guidance(kind, examples),
+            "reason": None,
+            "input_kind": kind,
+            "examples": examples,
+            "passages": [],
+            "seconds": timer.seconds(),
+        }
+
     results = search_mod.search(
         question, limit=max(limit, 3), document_id=document_id
     )

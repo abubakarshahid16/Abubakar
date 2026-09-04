@@ -184,7 +184,10 @@ export type AnswerType =
   | "extract"
   | "generated"
   | "insufficient_evidence"
-  | "model_unavailable";
+  | "model_unavailable"
+  /** the input was never a document question - a greeting, thanks, chitchat.
+   *  Nothing was searched, so there is nothing to show as considered. */
+  | "guidance";
 
 export interface AnswerPassage {
   chunk_id: string;
@@ -217,6 +220,10 @@ export interface AnswerResult {
   cited: number[];
   /** citations the model invented; stripped from `answer` before it was returned */
   rejected_citations: number[];
+  /** guidance only: which kind of non-question this was */
+  input_kind: string | null;
+  /** guidance only: real questions drawn from the loaded documents */
+  examples: string[];
   retrieval_mode: string;
   reranked: boolean;
   candidates_considered: number;
