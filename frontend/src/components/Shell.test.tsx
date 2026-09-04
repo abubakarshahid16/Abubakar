@@ -57,8 +57,8 @@ describe("shell navigation", () => {
     for (const label of ["Documents", "Chat", "Ingestion", "Dashboard"]) {
       expect(screen.getByRole("button", { name: new RegExp(label) })).toBeInTheDocument();
     }
-    // three of the four must be visibly marked as not built
-    expect(screen.getAllByText(/not built/i)).toHaveLength(3);
+    // Documents and Chat are built; the remaining two must be visibly marked
+    expect(screen.getAllByText(/not built/i)).toHaveLength(2);
   });
 
   it("navigates to an unbuilt view and says it is not built rather than faking it", async () => {
@@ -66,7 +66,7 @@ describe("shell navigation", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Chat/ }));
+    await user.click(screen.getByRole("button", { name: /Ingestion/ }));
     expect(await screen.findByText(/Not built yet/i)).toBeInTheDocument();
   });
 

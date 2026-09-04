@@ -1,8 +1,8 @@
 /**
  * Application shell: sidebar, four views, and the connection banner.
  *
- * Only Documents is built. The other three are listed but visibly marked, so
- * the navigation never implies capability that does not exist.
+ * Documents and Chat are built. The other two are listed but visibly marked,
+ * so the navigation never implies capability that does not exist.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -19,7 +19,7 @@ interface NavItem {
 
 export const NAV: NavItem[] = [
   { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
-  { id: "chat", label: "Chat", hint: "Ask questions with citations", built: false },
+  { id: "chat", label: "Chat", hint: "Ask questions with citations", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: false },
   { id: "dashboard", label: "Dashboard", hint: "System metrics", built: false },
 ];
