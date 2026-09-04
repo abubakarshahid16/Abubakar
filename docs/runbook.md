@@ -70,3 +70,50 @@ An answer drawn from a recognised page must never carry the verbatim label.
 If you see *"Quoted verbatim from the document"* above text that came from a
 scanned page, that is a defect — report it. The correct label is *"Read by OCR
 from a scanned page"* with the page image expanded.
+
+---
+
+## Clean-clone verification — last passed 2026-09-05
+
+**A passing clone test is only useful if the next person can see when it last
+passed.** Update this section, with the date and the branch, whenever it is
+re-run. If the date is old, the setup guide is a guess again.
+
+| | |
+|---|---|
+| **Date** | 2026-09-05 |
+| **Branch** | `perf/vector-cache-and-measurement-provenance` @ `935b336` |
+| **Machine** | Windows 11 26200, i7-1255U, 15.6 GB RAM, Python 3.12.10, Node 24.18.0, npm 11.16.0 |
+| **Method** | `git clone` from the remote into an empty directory, then the README "Getting started" steps followed as written |
+
+Six steps, all clean:
+
+| Step | Result |
+|---|---|
+| `pip install -r backend/requirements.txt` | Clean. Every dependency from a wheel — no compiler or build tools needed |
+| `fetch_models.py` then `--verify-only` | 179 MB staged, presence and SHA-256 verified |
+| `npm ci` | 0 vulnerabilities, from the committed lockfile |
+| `npx tsc -b` | Clean |
+| `npm run test` | **119 passed** |
+| `python -m pytest -q` | **496 passed**, 210 s |
+
+Then, in the clone:
+
+- `run.py` on 127.0.0.1:8000 and `npm run dev` on 127.0.0.1:5173, both the
+  documented ports; the Vite `/api` proxy returned 200.
+- NORSOK M-501 uploaded → **answerable 3.9 s after upload**, `ready` at 19 s.
+  24 pages, 80 chunks, 3 pages needing OCR of which 1 was recognised.
+- *"what does NDFT stand for"* → `extract`, cited **page 7, clause 3.2
+  Abbreviations**, `text_source=extracted`, 1.91 s.
+- **Tier 1 without Ollama, verified rather than assumed:** with the backend
+  pointed at a dead port, Tier 1 still answered with its citation and Tier 2
+  returned `model_unavailable` with `ConnectError`.
+
+### What the run found
+
+| Finding | Status |
+|---|---|
+| A default `git clone` lands on `main`, which is behind and whose README has no "Getting started" | **Open — closes when the branch merges** |
+| README named Ollama as a prerequisite without an install source or `ollama pull` command | Fixed |
+| README claimed ~2 GB disk; measured 768 MB, and the 3.4 GB Ollama model was unmentioned | Fixed |
+| `py -3.12` does not exist on this machine | Not a defect — the README warns about it and its fallback worked |

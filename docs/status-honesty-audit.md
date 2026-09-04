@@ -3,7 +3,7 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Eight separate times a status field has claimed
+**Why this document exists.** Nine separate times a status field has claimed
 something the system was not doing:
 
 | # | The claim | The reality |
@@ -13,6 +13,7 @@ something the system was not doing:
 | 3 | `stalled: false` with six documents waiting | Computed from heartbeat freshness, which only proves the loop is spinning |
 | 4 | `failed` on a fully embedded document | The chunk short-circuit did not advance the state, so a guard tripped |
 | 5 | `ready` with nothing searchable | A document whose every chunk was excluded still reported ready |
+| 9 | README: "Disk — ~2 GB" | 768 MB inside the clone, measured. Nobody had ever measured it; the figure was written from intuition and read as a specification |
 | 8 | OCR raised coverage by **+12.5%** on NORSOK | It raised it by **+4.2%**. The "before" figure dropped every recognised CHUNK, which also drops pages that chunk merely spans — three pages were charged to OCR that OCR never read |
 | 7 | A passing ordering test over a document that had `failed` | The test asserted the statuses it OBSERVED at every OCR invocation and never asserted where the document FINISHED. `partially_searchable -> chunking` was an illegal transition; the raise was swallowed by the broad handler in `process()`; every scanned document on a fresh machine landed at `failed`, green suite and all |
 | 6 | "Quoted verbatim from the document" over OCR text | `AnswerCard.tsx:277` rendered the label unconditionally. 92 recognised chunks were retrievable, so a passage OCR had guessed off a page image could be cited as the document's own words, beside "quoted directly, no AI rewriting" |
@@ -20,6 +21,24 @@ something the system was not doing:
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
 it is derived from, so the next instance is easy to spot.
+
+**Entry 9 is the smallest here and the most ordinary, which is the point.**
+The setup guide stated a disk requirement of "~2 GB". The measured figure is
+**768 MB** in the clone — `.venv` 527 MB, weights 159 MB, `node_modules`
+80 MB — plus ~3.4 GB for the Ollama model, which sits outside the repository
+and was not mentioned at all. So the number was wrong in two directions at
+once: 2.6× too high for what it covered, and silent about the largest thing a
+reader actually has to find room for.
+
+It is the same family as entry 8 — an unverified number stated with the
+confidence of a measured one — and it survived for a simple reason: **nothing
+depended on it.** No test reads a disk figure. No code path branches on it. A
+reader with a modern disk would never notice being asked for 2 GB instead of
+0.77, and a reader who *was* short of space would have been misled about the
+one number that mattered. Wrong claims that nothing checks are the ones that
+last longest, and a setup guide is made almost entirely of them.
+
+Caught by measuring the finished clone rather than by anyone doubting it.
 
 **Entry 8 is the first one that no check could have caught, and that is the
 point of it.** Every other entry here is a check pointed at the wrong thing, or

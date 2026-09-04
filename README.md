@@ -112,10 +112,52 @@ reaches the network again except your own Ollama on localhost.
 |---|---|---|
 | **Python** | **3.12 exactly** | Every pin in `backend/requirements.txt` was resolved against 3.12. `onnxruntime==1.24.1` and `numpy==2.3.4` ship per-minor-version wheels, so another 3.x installs different binaries or none. `run.py` refuses to start on the wrong minor and tells you so. |
 | **Node** | 24.x (built on 24.18.0) | `npm ci` installs from the committed lockfile. |
-| **Ollama** | running, with `qwen3.5:4b` pulled | ~3.4 GB download. Needed only for Tier 2 ("Explain") answers — Tier 1 quotations work without it. |
+| **Ollama** | running, with `qwen3.5:4b` pulled | **The one prerequisite `fetch_models.py` cannot get for you** — see below. Needed only for Tier 2 ("Explain") answers; Tier 1 quotations work without it, verified by pointing the backend at a dead port. |
 | **RAM** | ~16 GB | See *If you have less* below. |
-| **Disk** | ~2 GB | 179 MB of model weights, plus node_modules and the venv. |
+| **Disk** | **768 MB in the clone, plus ~3.4 GB elsewhere** | Measured, not estimated — see below. |
 | **Internet** | for setup only | See above. |
+
+#### Ollama, in full
+
+`scripts/fetch_models.py` stages the embedder, the reranker and the OCR
+weights. It does **not** install Ollama or pull the answer model, and nothing
+else in this repository does either — this is the one prerequisite you have to
+satisfy by hand.
+
+1. Install Ollama from **<https://ollama.com/download>** (Windows, macOS and
+   Linux installers; on Linux, `curl -fsSL https://ollama.com/install.sh | sh`).
+2. Start it and pull the model:
+
+```bash
+ollama serve                 # a service on Windows/macOS; usually already running
+ollama pull qwen3.5:4b       # ~3.4 GB
+ollama list                  # confirm qwen3.5:4b is there
+```
+
+The model name must match `answer_model` in `backend/app/config.py`, which
+defaults to `qwen3.5:4b`. If Ollama is not running, Tier 1 quotations still
+work and the "Explain" button reports `model_unavailable` rather than failing
+silently.
+
+#### What 768 MB covers, and what it does not
+
+Measured on a completed clean clone, so a reader can size a disk honestly:
+
+| | Size |
+|---|---|
+| `.venv` | 527 MB |
+| `backend/models` (staged weights) | 159 MB |
+| `frontend/node_modules` | 80 MB |
+| `.git` | 1 MB |
+| **Total inside the clone** | **768 MB** |
+
+**The Ollama model is NOT in that figure.** It lives outside the repository —
+`~/.ollama/models` — and `qwen3.5:4b` is a further **~3.4 GB**. Budget
+**roughly 4.2 GB** in total for a working machine.
+
+> An earlier version of this README said "~2 GB", which nobody had measured.
+> It was wrong by 2.6× in the safe direction, which is why it survived: nothing
+> depended on it. See `docs/status-honesty-audit.md`.
 
 > **The `py` launcher may not exist.** On the machine this was verified on,
 > `py -3.12` was not installed and only the full interpreter path worked. If
