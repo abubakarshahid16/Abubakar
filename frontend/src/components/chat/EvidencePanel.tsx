@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../../api/client";
+import { ProvenanceMark } from "./Provenance";
 import type { AnswerPassage } from "../../types/api";
 import { Spinner } from "../states";
 
@@ -74,6 +75,14 @@ export function Citation({ passage }: { passage: AnswerPassage }) {
       )}
       {", "}
       <span className="text-slateish-400">{pages}</span>
+      {/* A citation is a claim about where words came from, so it must say
+          when they were recognised rather than extracted. See rule 8. */}
+      {passage.text_source === "recognised" && (
+        <>
+          {" "}
+          <ProvenanceMark passage={passage} />
+        </>
+      )}
     </cite>
   );
 }
@@ -104,6 +113,9 @@ export function PassageLocation({ passage }: { passage: AnswerPassage }) {
               the citation. */}
           <span className="text-slateish-500 italic">no clause numbering</span>
         </>
+      )}
+      {passage.text_source === "recognised" && (
+        <ProvenanceMark passage={passage} />
       )}
     </span>
   );

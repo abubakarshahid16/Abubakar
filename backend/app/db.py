@@ -121,7 +121,12 @@ CREATE TABLE IF NOT EXISTS chunks (
     text_source    TEXT NOT NULL DEFAULT 'extracted',
     -- Minimum confidence over the chunk's recognised pages: the weakest
     -- evidence governs. NULL unless text_source = 'recognised'.
-    ocr_min_conf   REAL
+    ocr_min_conf   REAL,
+    -- Characters in this chunk the document's script cannot contain. PROOF of
+    -- a substitution rather than an opinion about one: two chunks can both sit
+    -- at 0.95 confidence and one of them contains a CJK ideograph.
+    ocr_alphabet_violations INTEGER NOT NULL DEFAULT 0,
+    ocr_alphabet_sample     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chunk_vectors (
@@ -262,6 +267,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE chunks ADD COLUMN text_source TEXT NOT NULL DEFAULT 'extracted'")
     if have and "ocr_min_conf" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN ocr_min_conf REAL")
+    if have and "ocr_alphabet_violations" not in have:
+        conn.execute("ALTER TABLE chunks ADD COLUMN ocr_alphabet_violations"
+                     " INTEGER NOT NULL DEFAULT 0")
+    if have and "ocr_alphabet_sample" not in have:
+        conn.execute("ALTER TABLE chunks ADD COLUMN ocr_alphabet_sample TEXT")
     if docs and "recognised_pages" not in docs:
         # A count, not a boolean, matching needs_ocr_pages and equation_pages.
         # A 546-page document with 12 recognised pages must never read as

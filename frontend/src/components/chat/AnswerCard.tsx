@@ -12,6 +12,7 @@ import { useEffect } from "react";
 
 import type { AnswerPassage, AnswerType, Message } from "../../types/api";
 import { Citation, Highlighted, PassageLocation } from "./EvidencePanel";
+import { ProvenanceMark, isRecognised, provenanceDetail } from "./Provenance";
 
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
@@ -293,7 +294,7 @@ ollama serve
   // ------------------------------------------------------ tier 1: quotation
   if (view.answer_type === "extract") {
     const p = view.passage;
-    const recognised = p?.text_source === "recognised";
+    const recognised = isRecognised(p);
     return (
       <div className="rounded-lg border border-ink-600 bg-ink-850 p-4">
         {/* THE LABEL IS THE CLAIM. "Quoted verbatim" is literally true only
@@ -304,17 +305,16 @@ ollama serve
             feature must not produce. Branch on provenance, never on anything
             else. See ADR-0006. */}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          {recognised ? (
-            <Label tone="ocr">Read by OCR from a scanned page</Label>
+          {recognised && p ? (
+            <ProvenanceMark passage={p} variant="full" />
           ) : (
             <Label tone="quote">Quoted verbatim from the document</Label>
           )}
           {view.seconds != null && (
             <span className="font-mono text-[11px] text-slateish-500">
               {formatDuration(view.seconds)}
-              {recognised
-                ? " · not the document's own text — check it against the page below"
-                : " · quoted directly, no AI rewriting"}
+              {" · "}
+              {p ? provenanceDetail(p) : "quoted directly, no AI rewriting"}
             </span>
           )}
         </div>

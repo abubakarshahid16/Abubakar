@@ -215,24 +215,45 @@ def test_a_chunk_spanning_a_recognised_page_claims_recognised():
     """Any recognised page makes the WHOLE chunk recognised.
 
     A reader cannot tell which sentence came from where, so the label makes
-    the weaker claim. Over-claiming is the failure this system exists to
-    prevent. Exercises the real function, not a copy of its rule.
+    the weaker claim. Exercises the real function, not a copy of its rule.
     """
-    assert chunk_provenance(4, 5, {5}, {5: 0.81}) == ("recognised", 0.81)
+    assert chunk_provenance(4, 5, {5}, {5: 0.81}) == ("recognised", 0.81, 0, None)
 
 
 def test_a_chunk_on_extracted_pages_only_claims_extracted():
-    assert chunk_provenance(4, 5, {9}, {}) == ("extracted", None)
+    assert chunk_provenance(4, 5, {9}, {}) == ("extracted", None, 0, None)
 
 
 def test_the_weakest_confidence_in_the_chunk_governs():
     assert chunk_provenance(1, 3, {1, 2, 3},
-                            {1: 0.99, 2: 0.62, 3: 0.88}) == ("recognised", 0.62)
+                            {1: 0.99, 2: 0.62, 3: 0.88}) == ("recognised", 0.62, 0, None)
 
 
 def test_a_recognised_page_with_no_confidence_still_claims_recognised():
     """Missing confidence must never downgrade the claim to 'extracted'."""
-    assert chunk_provenance(1, 1, {1}, {}) == ("recognised", None)
+    assert chunk_provenance(1, 1, {1}, {}) == ("recognised", None, 0, None)
+
+
+def test_alphabet_violations_sum_across_the_pages_a_chunk_spans():
+    """Confidence is the model's opinion of itself; a violation is PROOF.
+
+    Two pages can both sit at 0.95 and one of them contains a CJK ideograph.
+    The count and the offending characters travel with the chunk so the reader
+    is told WHICH characters cannot be right.
+    """
+    source, conf, n, sample = chunk_provenance(
+        1, 2, {1, 2}, {1: 0.95, 2: 0.95},
+        {1: (2, "凤日"), 2: (1, "≦")},
+    )
+    assert (source, conf, n) == ("recognised", 0.95, 3)
+    assert sample is not None and set(sample) == {"凤", "日", "≦"}
+
+
+def test_a_clean_recognised_chunk_reports_no_violations():
+    """Under a Latin-only recogniser this is the only outcome there should be,
+    which is what makes a non-zero count a signal about the MODEL."""
+    assert chunk_provenance(1, 1, {1}, {1: 0.9}, {1: (0, "")}) == (
+        "recognised", 0.9, 0, None)
 
 
 # ------------------------------------------------------- exclusion ledger

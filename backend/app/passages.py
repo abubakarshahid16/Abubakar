@@ -33,7 +33,8 @@ def _rows_for(document_id: str) -> list[dict]:
         dict(r)
         for r in connect().execute(
             """SELECT id, ordinal, page_start, page_end, section, parent_id,
-                      kind, text, text_source, ocr_min_conf
+                      kind, text, text_source, ocr_min_conf,
+                      ocr_alphabet_violations, ocr_alphabet_sample
                FROM chunks
                WHERE document_id = ? AND retrievable = 1
                ORDER BY ordinal""",
@@ -127,6 +128,11 @@ def expand_passage(
         "ocr_min_conf": min(
             (rows[i]["ocr_min_conf"] for i in range(lo, hi + 1)
              if rows[i]["ocr_min_conf"] is not None), default=None),
+        "ocr_alphabet_violations": sum(
+            (rows[i]["ocr_alphabet_violations"] or 0) for i in range(lo, hi + 1)),
+        "ocr_alphabet_sample": "".join(sorted({
+            c for i in range(lo, hi + 1)
+            for c in (rows[i]["ocr_alphabet_sample"] or "")})) or None,
         # where the chunk that actually matched sits inside the joined text
         "match_span": [offset, offset + len(hit["text"])],
     }

@@ -165,6 +165,10 @@ def _passage_payload(hit: dict, question: str, budget: int | None = None) -> dic
         # Falls back to the matched chunk when the passage was not expanded.
         "text_source": expanded.get("text_source", hit.get("text_source", "extracted")),
         "ocr_min_conf": expanded.get("ocr_min_conf", hit.get("ocr_min_conf")),
+        "ocr_alphabet_violations": expanded.get(
+            "ocr_alphabet_violations", hit.get("ocr_alphabet_violations", 0)),
+        "ocr_alphabet_sample": expanded.get(
+            "ocr_alphabet_sample", hit.get("ocr_alphabet_sample")),
     }
 
 

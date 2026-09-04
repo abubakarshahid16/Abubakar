@@ -286,6 +286,8 @@ class Passage(BaseModel):
         "the weakest evidence governs. null for extracted text. A number here is "
         "data, not a quality gate: nothing is hidden on the strength of it.",
     )
+    ocr_alphabet_violations: int = 0
+    ocr_alphabet_sample: str | None = None
 
 
 class SearchResult(BaseModel):
@@ -345,6 +347,14 @@ class AnswerPassage(BaseModel):
         "OCR label with the page image expanded instead.",
     )
     ocr_min_conf: float | None = None
+    ocr_alphabet_violations: int = Field(
+        0,
+        description="characters in this passage the document's script cannot "
+        "contain. PROOF of a substitution, not an opinion about one - two "
+        "passages can both sit at 0.95 confidence and one of them contains a "
+        "CJK ideograph. Escalates the OCR label; never hides the passage.",
+    )
+    ocr_alphabet_sample: str | None = None
 
 
 class AnswerResult(BaseModel):

@@ -45,6 +45,8 @@ const A1: AnswerPassage = {
   chunks_joined: 1,
   text_source: "extracted",
   ocr_min_conf: null,
+  ocr_alphabet_violations: 0,
+  ocr_alphabet_sample: null,
   kind: "prose",
   score: 6.538,
   identifier_hits: ["system 1"],

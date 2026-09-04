@@ -1232,8 +1232,9 @@ def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]]) -> str:
     return h.hexdigest()
 
 
-def chunk_provenance(page_start: int, page_end: int,
-                     recognised: set[int], conf: dict) -> tuple[str, float | None]:
+def chunk_provenance(page_start: int, page_end: int, recognised: set[int],
+                     conf: dict, viol: dict | None = None
+                     ) -> tuple[str, float | None, int, str | None]:
     """('extracted'|'recognised', min confidence) for one chunk's page span.
 
     A chunk spanning one recognised page and one extracted page is
@@ -1249,9 +1250,12 @@ def chunk_provenance(page_start: int, page_end: int,
     """
     spanned = [p for p in range(page_start, page_end + 1) if p in recognised]
     if not spanned:
-        return ("extracted", None)
+        return ("extracted", None, 0, None)
     scores = [conf[p] for p in spanned if conf.get(p) is not None]
-    return ("recognised", min(scores) if scores else None)
+    viol = viol or {}
+    n = sum(viol.get(p, (0, ""))[0] for p in spanned)
+    sample = "".join(sorted({c for p in spanned for c in viol.get(p, (0, ""))[1]}))[:20]
+    return ("recognised", min(scores) if scores else None, n, sample or None)
 
 
 def chunk_document(doc_id: str, force: bool = False) -> dict:
@@ -1273,7 +1277,9 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
                   COALESCE(NULLIF(o.text, ''), p.text) AS text,
                   CASE WHEN o.page_no IS NULL OR o.text = '' THEN 0 ELSE 1 END
                       AS recognised,
-                  o.min_conf AS min_conf
+                  o.min_conf AS min_conf,
+                  o.alphabet_violations AS viol,
+                  o.alphabet_sample AS viol_sample
            FROM pages p
            LEFT JOIN page_ocr o
              ON o.document_id = p.document_id AND o.page_no = p.page_no
@@ -1283,6 +1289,8 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
     pages = [(r["page_no"], r["text"]) for r in page_rows]
     recognised_pages = {r["page_no"] for r in page_rows if r["recognised"]}
     page_conf = {r["page_no"]: r["min_conf"] for r in page_rows if r["recognised"]}
+    page_viol = {r["page_no"]: (r["viol"] or 0, r["viol_sample"] or "")
+                 for r in page_rows if r["recognised"]}
     if not pages:
         raise ValueError(f"{doc_id} has no extracted pages - run extraction first")
 
@@ -1377,8 +1385,8 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
                 chash,
                 int(c.kind in RETRIEVABLE_KINDS and q["ok"]),
                 ",".join(q["reasons"]) or None,
-                *chunk_provenance(c.page_start, c.page_end,
-                                  recognised_pages, page_conf),
+                *chunk_provenance(c.page_start, c.page_end, recognised_pages,
+                                  page_conf, page_viol),
             )
         )
 
@@ -1538,8 +1546,9 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
             """INSERT OR REPLACE INTO chunks
                (id, document_id, filename, ordinal, page_start, page_end,
                 section, parent_id, kind, text, token_count, content_hash,
-                retrievable, quality_flags, text_source, ocr_min_conf)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                retrievable, quality_flags, text_source, ocr_min_conf,
+                ocr_alphabet_violations, ocr_alphabet_sample)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         # chunk_count is the RETRIEVABLE count - what search can actually see.

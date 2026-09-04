@@ -261,6 +261,20 @@ export interface AnswerPassage {
    *  nothing is hidden on the strength of it, and no threshold is set until
    *  there is labelled ground truth to set one from. */
   ocr_min_conf: number | null;
+  /** Characters in this passage the document's script cannot contain.
+   *
+   *  PROOF of a substitution, not an opinion about one. Confidence is the
+   *  model's opinion of itself: two passages can both sit at 0.95 and one of
+   *  them contains 凤. A CJK ideograph in an English specification is
+   *  evidence, and the dangerous member of the class is `≦`, which reads as
+   *  `≤` to a skimming engineer.
+   *
+   *  ESCALATES the OCR label rather than replacing it - the reader's action is
+   *  unchanged (check the page) but the reason is specific and much stronger.
+   *  Never hides the passage. */
+  ocr_alphabet_violations: number;
+  /** The distinct offending characters, for showing the reader what they are. */
+  ocr_alphabet_sample: string | null;
 }
 
 export interface AnswerResult {
