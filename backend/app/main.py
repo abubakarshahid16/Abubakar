@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import chunker as chunk_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
+from . import keyword as keyword_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
 from .api_utils import (
@@ -22,12 +23,14 @@ from . import errors
 from . import schemas
 from .config import settings
 from .db import connect, init_db
+from .rates import Timer
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     init_db()
+    keyword_mod.ensure_schema()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()
@@ -135,6 +138,7 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     conn = connect()
     removed = {}
     with conn:
+        conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
         for table in ("chunk_vectors", "exclusions", "chunks", "pages", "jobs"):
             cur = conn.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
             removed[table] = cur.rowcount
@@ -214,6 +218,52 @@ def embed(document_id: str):
         "chunk_count": row["chunk_count"],
         "status": row["status"],
         "indexed_at": row["indexed_at"],
+    }
+
+
+@app.post("/api/documents/{document_id}/index-keyword",
+          response_model=schemas.KeywordIndexResult, responses=schemas.ERRORS_404)
+def index_keyword(document_id: str):
+    """Build the keyword index for one document. Needs no vectors."""
+    require_document(document_id)
+    return keyword_mod.index_document(document_id)
+
+
+@app.get("/api/search", response_model=schemas.KeywordSearchResult,
+         responses=schemas.ERRORS_422)
+def search(
+    request: Request,
+    q: str = Query(..., min_length=1, max_length=500),
+    limit: int = Query(10, ge=1, le=MAX_LIMIT),
+    document_id: str | None = Query(None),
+):
+    """Keyword search over retrievable chunks.
+
+    Works the moment a document is chunked and indexed - no vectors required -
+    which is what lets a large upload answer questions within seconds.
+    """
+    reject_unknown_params(request, {"q", "limit", "document_id"})
+    if document_id:
+        require_document(document_id)
+
+    timer = Timer()
+    hits = keyword_mod.search(q, limit=limit, document_id=document_id)
+    conn = connect()
+    enriched = []
+    for h in hits:
+        row = conn.execute(
+            "SELECT page_start, page_end, text FROM chunks WHERE id = ?", (h["chunk_id"],)
+        ).fetchone()
+        if row is None:
+            continue
+        enriched.append({**h, "page_start": row["page_start"],
+                         "page_end": row["page_end"], "text": row["text"]})
+    return {
+        "query": q,
+        "match_expression": keyword_mod.build_match_query(q),
+        "total": len(enriched),
+        "seconds": timer.seconds(),
+        "hits": enriched,
     }
 
 

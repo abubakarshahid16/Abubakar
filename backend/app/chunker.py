@@ -25,7 +25,8 @@ from .config import settings
 from .db import connect
 from .rates import Timer, rate
 from . import states
-from .quality import assess, looks_like_table
+from . import keyword
+from .quality import MIN_CLAUSE_WORDS, assess, longest_clause, looks_like_table
 
 # ---------------------------------------------------------------- tokenizer
 
@@ -191,7 +192,17 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
     # A half-title, dedication or epigraph: a nearly empty page at the front.
     # The line count matters as well as the word count - a short contents page
     # is also brief, but it is many short lines rather than one or two.
-    if early and len(text.split()) < 40 and len(lines) < 6:
+    #
+    # A page carrying a genuine clause is CONTENT however short it is. Without
+    # that guard a 39-word page of real specification prose was discarded as
+    # front matter, which would silently drop a short specification or a first
+    # page that happens to contain a real requirement.
+    if (
+        early
+        and len(text.split()) < 40
+        and len(lines) < 6
+        and longest_clause(text) < MIN_CLAUSE_WORDS
+    ):
         return "frontmatter"
 
     low = text.lower()
@@ -807,6 +818,7 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
     """Chunk one extracted document. Idempotent - re-running replaces rows."""
     timer = Timer()
     conn = connect()
+    keyword.ensure_schema(conn)
     doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
     if doc is None:
         raise ValueError(f"unknown document {doc_id}")
@@ -977,6 +989,9 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             exclusion_rows,
         )
+        # The keyword index is keyed on chunk ids, so a rebuild invalidates
+        # it. Dropped here and rebuilt by the indexing stage.
+        conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (doc_id,))
         conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
         # Vectors are keyed on chunk id. Re-chunking changes those ids, so any
         # vector whose chunk no longer exists is an orphan - and embedded_count
