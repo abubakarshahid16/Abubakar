@@ -25,7 +25,7 @@ from .config import settings
 from .db import connect
 from .rates import Timer, rate
 from . import states
-from .quality import assess
+from .quality import assess, looks_like_table
 
 # ---------------------------------------------------------------- tokenizer
 
@@ -152,6 +152,29 @@ _FRONTMATTER_MARKERS = (
 _BACKMATTER_MARKERS = ("bibliography", "references", "works cited")
 
 
+def _is_page_number_column(lines: list[str], total_pages: int) -> bool:
+    """Do the bare numbers on this page behave like a column of page numbers?
+
+    A contents or index column is bounded by the length of the document and
+    runs largely in ascending order. A rubric's marks (60, 20, 40, 45) and an
+    engineering table's codes and values are neither, which is what keeps a
+    real table from being mistaken for an index and dropped.
+    """
+    numbers = [int(line) for line in lines if _BARE_NUMBER.match(line)]
+    if len(numbers) < _MIN_TOC_NUMBER_LINES:
+        return False
+
+    ceiling = max(total_pages, 1) * 1.2
+    in_range = [n for n in numbers if 1 <= n <= ceiling]
+    if len(in_range) < len(numbers) * 0.9:
+        return False
+
+    if len(in_range) < 2:
+        return False
+    ascending = sum(1 for a, b in zip(in_range, in_range[1:]) if b >= a)
+    return ascending >= (len(in_range) - 1) * 0.75
+
+
 def classify_page(text: str, page_no: int, total_pages: int) -> str:
     """Classify a page as prose / toc / frontmatter / index / references.
 
@@ -177,6 +200,10 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
     if marker_hits >= 2 or (marker_hits >= 1 and page_no <= max(12, total_pages * 0.05)):
         return "frontmatter"
 
+    # An explicitly captioned table is never contents or index, wherever it sits.
+    if _TABLE_CAPTION.search(text):
+        return "prose"
+
     toc_lines = sum(1 for line in lines if _TOC_LINE.match(line))
     if len(lines) >= 6 and toc_lines >= len(lines) * 0.4 and toc_lines >= 5:
         # An index has the same shape but sits at the back of the book.
@@ -200,6 +227,11 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
             len(lines) >= 20
             and bare_numbers >= _MIN_TOC_NUMBER_LINES
             and bare_numbers >= len(lines) * 0.25
+            # ...and the numbers must actually behave like PAGE numbers. A
+            # marks rubric has the same shape - criteria against a numeric
+            # column - but its numbers are scores, not a page sequence. So do
+            # the codes and values in an engineering table.
+            and _is_page_number_column(lines, total_pages)
         ):
             return "index" if back else "toc"
 
@@ -876,13 +908,56 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
     # ------------------------------------------------------------------
     now = _now_iso()
     exclusion_rows = []
+
+    # Which pages actually contributed a chunk. Any page that did not must be
+    # accounted for below - "nothing is dropped silently" is the promise
+    # /excluded exists to keep, and a page that quietly yields nothing is
+    # exactly the case that promise is about.
+    pages_with_chunks: set[int] = set()
+    for c in chunks:
+        for pno in range(c.page_start, c.page_end + 1):
+            pages_with_chunks.add(pno)
+
+    ocr_pages = {
+        r["page_no"]
+        for r in conn.execute(
+            "SELECT page_no FROM pages WHERE document_id = ? AND needs_ocr = 1",
+            (doc_id,),
+        )
+    }
+
     for pno, ptext in pages:
         kind = page_kinds.get(pno, "prose")
+        # text_length uses the SAME definition as pages.char_count, so the two
+        # endpoints cannot disagree by a trailing newline.
+        length = len(ptext.strip())
+
         if kind not in RETRIEVABLE_KINDS:
             exclusion_rows.append(
                 (doc_id, "page", pno, pno, None, f"page_classified_{kind}",
-                 f"page classified as {kind}", ptext[:2000], len(ptext), now)
+                 f"page classified as {kind}", ptext[:2000], length, now)
             )
+            continue
+
+        if pno in pages_with_chunks:
+            continue
+
+        # The page survived classification but produced no chunk at all.
+        if pno in ocr_pages:
+            reason = "scanned page with no extractable text; OCR is not implemented"
+            rule = "needs_ocr_not_implemented"
+        elif length == 0:
+            reason = "page contained no text after normalisation"
+            rule = "page_empty"
+        else:
+            reason = (
+                f"page held {length} characters but produced no chunk - too "
+                "short or too fragmented to form one"
+            )
+            rule = "page_yielded_no_chunk"
+        exclusion_rows.append(
+            (doc_id, "page", pno, pno, None, rule, reason, ptext[:2000], length, now)
+        )
     for ordinal, c in enumerate(chunks):
         q = quality[id(c)]
         if c.kind in RETRIEVABLE_KINDS and not q["ok"]:
@@ -890,7 +965,7 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
                 (doc_id, "chunk", c.page_start, c.page_end,
                  chunk_id(doc["sha256"], c.page_start, ordinal, content_hash(c.text)),
                  "content_quality_gate", ",".join(q["reasons"]),
-                 c.text[:2000], len(c.text), now)
+                 c.text[:2000], len(c.text.strip()), now)
             )
 
     with conn:
@@ -903,6 +978,16 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
             exclusion_rows,
         )
         conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
+        # Vectors are keyed on chunk id. Re-chunking changes those ids, so any
+        # vector whose chunk no longer exists is an orphan - and embedded_count
+        # counts vector ROWS, so leaving them made progress read above 100%
+        # (1448 embedded against 1356 chunks). Same failure as every other
+        # count derived from something adjacent to the thing it claims.
+        conn.execute(
+            """DELETE FROM chunk_vectors WHERE document_id = ?
+               AND chunk_id NOT IN (SELECT id FROM chunks WHERE document_id = ?)""",
+            (doc_id, doc_id),
+        )
         conn.executemany(
             """INSERT OR REPLACE INTO chunks
                (id, document_id, filename, ordinal, page_start, page_end,

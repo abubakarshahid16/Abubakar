@@ -57,6 +57,9 @@ def reject_unknown_params(request: Request, allowed: set[str]) -> None:
 
 
 def validate_retrievable(value: str) -> str:
+    """Case-insensitive: rejecting `TRUE` while accepting `true` is a trap for
+    a caller, not a safety property."""
+    value = (value or "").strip().lower()
     if value not in RETRIEVABLE_VALUES:
         raise HTTPException(
             status_code=422,

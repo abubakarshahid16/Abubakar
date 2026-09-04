@@ -49,7 +49,10 @@ class IngestionWorker:
         # Last time a document actually reached a terminal state. Heartbeat
         # freshness only proves the loop is spinning, not that work is moving.
         self.last_progress: float = time.time()
-        self.documents_completed: int = 0
+        # Distinct documents that have reached a terminal state since this
+        # worker started. Counting transitions instead inflated the number
+        # every time a stage was re-run on an already-finished document.
+        self._completed: set[str] = set()
         # Response-safe only: code, short message, document id, timestamp.
         # The full traceback goes to the local log, never to the API.
         self.last_error: dict | None = None
@@ -72,14 +75,19 @@ class IngestionWorker:
     def alive(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
 
+    @property
+    def documents_completed(self) -> int:
+        """Distinct documents finished, not stage invocations."""
+        return len(self._completed)
+
     def backlog(self) -> tuple[int, float | None]:
         """How much non-terminal work is waiting, and how old the oldest is."""
         row = connect().execute(
-            """SELECT COUNT(*) AS n, MIN(uploaded_at) AS oldest FROM documents
-               WHERE status NOT IN (?, ?)
-                  OR (status = ? AND (embedded_count < chunk_count
-                                      OR indexed_at IS NULL))""",
-            (states.READY, states.FAILED, states.PARTIALLY_SEARCHABLE),
+            f"""SELECT COUNT(*) AS n, MIN(uploaded_at) AS oldest FROM documents
+                WHERE status NOT IN ({",".join("?" * len(states.TERMINAL_STATES))})
+                   OR (status = ? AND (embedded_count < chunk_count
+                                       OR indexed_at IS NULL))""",
+            (*sorted(states.TERMINAL_STATES), states.PARTIALLY_SEARCHABLE),
         ).fetchone()
         pending = row["n"] or 0
         if not pending or not row["oldest"]:
@@ -122,7 +130,7 @@ class IngestionWorker:
             "current_document": self.current_document,
             "seconds_since_heartbeat": round(beat_age, 1),
             "seconds_since_progress": round(progress_age, 1),
-            "documents_completed": self.documents_completed,
+            "documents_completed": len(self._completed),
             "pending_count": pending,
             "oldest_pending_age_seconds": oldest_age,
             "stalled": dead or hung or ignoring_work,
@@ -139,12 +147,18 @@ class IngestionWorker:
         by an earlier build can hold a retired status like 'embedding', and a
         document must never be stranded because the state machine changed.
         """
-        known_done = (states.READY, states.FAILED, states.PARTIALLY_SEARCHABLE)
+        # Derived from states.py, never hand-maintained. A previous version
+        # listed (ready, failed, partially_searchable) literally, so when
+        # no_searchable_content was added later it was NOT excluded: the
+        # worker re-selected such a document forever, held it as
+        # current_document, and kept pending_count at 1 - which disabled the
+        # stall detector built to catch exactly that.
+        settled = tuple(states.TERMINAL_STATES | {states.PARTIALLY_SEARCHABLE})
         row = connect().execute(
             f"""SELECT id FROM documents
-                WHERE status NOT IN ({",".join("?" * len(known_done))})
+                WHERE status NOT IN ({",".join("?" * len(settled))})
                 ORDER BY uploaded_at LIMIT 1""",
-            known_done,
+            settled,
         ).fetchone()
         if row:
             return row["id"]
@@ -174,7 +188,7 @@ class IngestionWorker:
                 self.process(doc_id)
                 if not before and self._is_finished(doc_id):
                     self.last_progress = time.time()
-                    self.documents_completed += 1
+                    self._completed.add(doc_id)
             except Exception as exc:  # noqa: BLE001
                 self.last_error = errors.record_failure(exc, stage="worker_loop")
                 self._stop.wait(self.poll_seconds)
@@ -248,7 +262,9 @@ class IngestionWorker:
                     continue
 
                 if status == states.PARTIALLY_SEARCHABLE:
-                    if row["embedded_count"] < row["chunk_count"]:
+                    # never trust the stored count as the gate on its own repair
+                    embedded = self._recount_embedded(doc_id)
+                    if embedded < row["chunk_count"]:
                         result["embedded"] = self.embed_pending(doc_id)
                         result["stages"].append("embed")
                         if self._stop.is_set():
@@ -322,7 +338,9 @@ class IngestionWorker:
                 )
                 conn.execute(
                     """UPDATE documents SET embedded_count =
-                       (SELECT COUNT(*) FROM chunk_vectors WHERE document_id = ?)
+                       (SELECT COUNT(*) FROM chunk_vectors v
+                        JOIN chunks c ON c.id = v.chunk_id
+                        WHERE v.document_id = ?)
                        WHERE id = ?""",
                     (doc_id, doc_id),
                 )
@@ -377,9 +395,31 @@ class IngestionWorker:
         with conn:
             conn.execute("UPDATE documents SET status = ? WHERE id = ?", (nxt, doc_id))
 
+    def _recount_embedded(self, doc_id: str) -> int:
+        """Recompute embedded_count from the vectors that actually exist.
+
+        The stored value can be stale-high after a re-chunk (vectors orphaned
+        by new chunk ids), and because it is itself the gate on whether
+        embedding re-runs, a stale-high value permanently blocks its own
+        correction. Derive it from the join before trusting it.
+        """
+        conn = connect()
+        actual = conn.execute(
+            """SELECT COUNT(*) FROM chunk_vectors v
+               JOIN chunks c ON c.id = v.chunk_id
+               WHERE v.document_id = ?""",
+            (doc_id,),
+        ).fetchone()[0]
+        with conn:
+            conn.execute(
+                "UPDATE documents SET embedded_count = ? WHERE id = ?", (actual, doc_id)
+            )
+        return actual
+
     def _finish_if_embedded(self, doc_id: str) -> None:
         """A document is ready only when every retrievable chunk has a vector."""
         conn = connect()
+        self._recount_embedded(doc_id)
         row = conn.execute(
             "SELECT status, chunk_count, embedded_count FROM documents WHERE id = ?",
             (doc_id,),
