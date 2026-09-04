@@ -70,3 +70,8 @@ benchmarks/local/
 
 # Secret-scanning tool output
 gitleaks-report.json
+
+# Generated codebase snapshots. Valuable to read, but "as of the current
+# commit" goes stale silently - the same defect class as a field that
+# certifies state it never read. Regenerate rather than track.
+Claude outputs/
