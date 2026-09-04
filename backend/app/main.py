@@ -35,7 +35,15 @@ async def lifespan(app: FastAPI):
     ingest_mod.stop_worker()
 
 
-app = FastAPI(title="Nabaa", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="Nabaa",
+    version="0.1.0",
+    lifespan=lifespan,
+    # A trailing slash previously resolved to the same route via a redirect,
+    # so /api/documents/ answered 200. Two spellings of one resource is a
+    # contract ambiguity a generated client can trip over.
+    redirect_slashes=False,
+)
 
 # Vite dev server only. No wildcard - this API serves document content.
 app.add_middleware(
@@ -287,7 +295,7 @@ def document_chunks(
     """
     reject_unknown_params(request, {"limit", "offset", "retrievable"})
     require_document(document_id)
-    validate_retrievable(retrievable)
+    retrievable = validate_retrievable(retrievable)
     clause = retrievable_clause(retrievable)
     conn = connect()
     rows = conn.execute(

@@ -156,11 +156,30 @@ def test_chunk_short_circuits_on_a_second_call(client):
 # --------------------------------------------------------------- security
 
 
-def test_security_headers_are_present_and_server_banner_is_gone(client):
+def test_security_headers_are_present(client):
     r = client.get("/api/health")
     assert r.headers["X-Content-Type-Options"] == "nosniff"
     assert r.headers["X-Frame-Options"] == "DENY"
-    assert "server" not in {k.lower() for k in r.headers}
+
+
+def test_the_launcher_suppresses_the_uvicorn_server_banner():
+    """uvicorn writes `Server: uvicorn` at the HTTP protocol layer, AFTER the
+    ASGI app returns, so response middleware cannot remove it - and TestClient
+    never goes through that layer, which is how this was reported fixed while
+    still being sent over the wire.
+
+    The only place it can be suppressed is the server config, so that is what
+    is asserted here.
+    """
+    import inspect
+
+    import run
+
+    source = inspect.getsource(run.main)
+    assert "server_header=False" in source, (
+        "run.py must start uvicorn with server_header=False"
+    )
+    assert "settings.host" in source, "the launcher must bind the configured loopback host"
 
 
 # ------------------------------------------------------------ page images
