@@ -406,6 +406,109 @@ class AskResult(AnswerResult):
     carried_terms: list[str] = []
 
 
+class CorpusMetrics(BaseModel):
+    documents: int
+    by_status: dict[str, int]
+    pages_declared: int = Field(description="from the PDF manifest")
+    pages_extracted: int = Field(description="actually extracted; differs while processing")
+    chunks_total: int
+    chunks_retrievable: int = Field(description="what search can see")
+    chunks_excluded: int
+    chunks_indexed_keyword: int
+    chunks_embedded: int
+
+
+class StageThroughput(BaseModel):
+    unit: str
+    samples: int
+    median: float
+    best: float
+    items_total: int
+    seconds_total: float
+
+
+class RetrievalLatency(BaseModel):
+    unit: str
+    samples: int
+    p50: float | None
+    p95: float | None
+    worst: float
+
+
+class SystemMetrics(BaseModel):
+    cpu_percent_since_last_call: float | None = Field(
+        None,
+        description="null on the very first reading, which has no prior call "
+        "to measure against; a true interval average from the next refresh on",
+    )
+    cpu_logical_cores: int | None
+    cpu_physical_cores: int | None
+    ram_total_bytes: int
+    ram_used_bytes: int
+    ram_percent: float
+    process_rss_bytes: int
+    disk_total_bytes: int
+    disk_used_bytes: int
+    disk_free_bytes: int
+    disk_percent: float | None
+    data_dir_bytes: int
+
+
+class ModelStatus(BaseModel):
+    embed_model: str
+    embed_model_present: bool
+    reranker_model: str
+    reranker_present: bool
+    answer_model: str
+    answer_model_reachable: bool = Field(description="is Ollama running")
+    answer_model_installed: bool = False
+    answer_model_loaded: bool = Field(False, description="resident, so no cold load")
+    ollama_error: str | None = None
+
+
+class DocumentFailure(BaseModel):
+    id: str
+    filename: str
+    error_code: str | None
+    error_message: str | None
+    uploaded_at: str
+
+
+class JobMetrics(BaseModel):
+    by_state: dict[str, int]
+    running: int
+    failed_documents: int
+    failures: list[DocumentFailure]
+
+
+class MetricWarning(BaseModel):
+    severity: Literal["info", "warning", "error"]
+    code: str
+    document_id: str | None
+    message: str
+
+
+class Metrics(BaseModel):
+    """Every field is measured. A value that has not been measured is null,
+    and the screen says so - never a zero standing in for unknown."""
+
+    at: str
+    refresh_seconds: int
+    corpus: CorpusMetrics
+    exclusions: list[ExclusionSummary]
+    jobs: JobMetrics
+    throughput: dict[str, StageThroughput | None] = Field(
+        description="null for a stage that has never run measurably"
+    )
+    retrieval: RetrievalLatency | None = Field(
+        None, description="null until a question has actually been asked"
+    )
+    system: SystemMetrics
+    models: ModelStatus
+    worker: WorkerStatus
+    warnings: list[MetricWarning]
+
+
 class KeywordIndexResult(BaseModel):
     document_id: str
     indexed: int

@@ -104,6 +104,21 @@ CREATE TABLE IF NOT EXISTS exclusions (
     created_at    TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS stage_runs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage        TEXT NOT NULL,
+    document_id  TEXT,
+    items        INTEGER NOT NULL,
+    seconds      REAL NOT NULL,
+    -- NULL when the interval was too short to measure. A rate divided by an
+    -- almost-zero elapsed time is how the dashboard once reported
+    -- 1021658887.25 pages/sec.
+    rate         REAL,
+    at           TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_stage_runs_stage ON stage_runs(stage, id DESC);
+
 CREATE TABLE IF NOT EXISTS conversations (
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL,

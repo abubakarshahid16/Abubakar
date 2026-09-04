@@ -17,6 +17,7 @@ import type {
   ConversationList,
   DocumentRecord,
   ExclusionsResponse,
+  Metrics,
   PagesResponse,
   WorkerStatus,
 } from "../types/api";
@@ -73,6 +74,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<Result<T>> 
 
 export const api = {
   health: () => request<Health>("/health"),
+  metrics: () => request<Metrics>("/metrics"),
   documents: () => request<DocumentRecord[]>("/documents"),
   document: (id: string) => request<DocumentRecord>(`/documents/${encodeURIComponent(id)}`),
   chunks: (id: string, opts: { limit?: number; offset?: number; retrievable?: string } = {}) => {

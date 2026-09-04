@@ -119,9 +119,17 @@ export interface ExclusionRecord {
   text_sample: string;
 }
 
+/** One rule's tally. Shared by the exclusion viewer and the dashboard. */
+export interface ExclusionSummary {
+  scope: string;
+  rule: string;
+  count: number;
+  characters_dropped: number;
+}
+
 export interface ExclusionsResponse {
   total: number;
-  summary: { scope: string; rule: string; count: number; characters_dropped: number }[];
+  summary: ExclusionSummary[];
   limit: number;
   offset: number;
   excluded: ExclusionRecord[];
@@ -306,24 +314,111 @@ export interface AskResult extends AnswerResult {
 }
 
 // ---------- dashboard ----------
+// Every field here is measured. A value that has not been measured is null,
+// and the screen is required to say so - never a zero standing in for
+// unknown, never a last-known figure presented as current.
 
-export interface DashboardStats {
+export interface CorpusMetrics {
   documents: number;
-  pages: number;
-  chunks: number;
-  jobs_running: number;
-  jobs_failed: number;
-  /** null until measured - never show a placeholder number */
-  embed_chunks_per_sec: number | null;
-  retrieval_p50_ms: number | null;
-  retrieval_p95_ms: number | null;
-  cpu_percent: number;
-  ram_used_mb: number;
-  ram_total_mb: number;
-  disk_free_gb: number;
-  ollama_ready: boolean;
-  embedder_ready: boolean;
-  ingestion_paused: boolean;
+  by_status: Partial<Record<DocStatus, number>>;
+  /** from the PDF manifest */
+  pages_declared: number;
+  /** actually extracted; differs from declared while processing */
+  pages_extracted: number;
+  chunks_total: number;
+  /** what search can actually see */
+  chunks_retrievable: number;
+  chunks_excluded: number;
+  chunks_indexed_keyword: number;
+  chunks_embedded: number;
+}
+
+export interface StageThroughput {
+  unit: string;
+  samples: number;
+  median: number;
+  best: number;
+  items_total: number;
+  seconds_total: number;
+}
+
+export interface RetrievalLatency {
+  unit: string;
+  samples: number;
+  p50: number | null;
+  p95: number | null;
+  worst: number;
+}
+
+export interface SystemMetrics {
+  /** Since the previous call; on a 15s refresh that is a 15s average.
+   *  null on the very first reading, which has no prior call to measure
+   *  against - psutil returns exactly 0.0 there, and showing that would put
+   *  "CPU 0%" on screen as a fact. */
+  cpu_percent_since_last_call: number | null;
+  cpu_logical_cores: number | null;
+  cpu_physical_cores: number | null;
+  ram_total_bytes: number;
+  ram_used_bytes: number;
+  ram_percent: number;
+  process_rss_bytes: number;
+  disk_total_bytes: number;
+  disk_used_bytes: number;
+  disk_free_bytes: number;
+  disk_percent: number | null;
+  data_dir_bytes: number;
+}
+
+export interface ModelStatus {
+  embed_model: string;
+  embed_model_present: boolean;
+  reranker_model: string;
+  reranker_present: boolean;
+  answer_model: string;
+  /** is Ollama running at all - "configured" and "running" are different */
+  answer_model_reachable: boolean;
+  answer_model_installed?: boolean;
+  /** resident, so Tier 2 skips the cold load */
+  answer_model_loaded: boolean;
+  ollama_error: string | null;
+}
+
+export interface DocumentFailure {
+  id: string;
+  filename: string;
+  error_code: string | null;
+  error_message: string | null;
+  uploaded_at: string;
+}
+
+export interface JobMetrics {
+  by_state: Record<string, number>;
+  running: number;
+  failed_documents: number;
+  failures: DocumentFailure[];
+}
+
+export interface MetricWarning {
+  severity: "info" | "warning" | "error";
+  code: string;
+  document_id: string | null;
+  message: string;
+}
+
+export interface Metrics {
+  at: string;
+  refresh_seconds: number;
+  corpus: CorpusMetrics;
+  exclusions: ExclusionSummary[];
+  jobs: JobMetrics;
+  /** null for a stage that has never run measurably */
+  throughput: Record<string, StageThroughput | null>;
+  /** null until a question has actually been asked */
+  retrieval: RetrievalLatency | null;
+  system: SystemMetrics;
+  models: ModelStatus;
+  worker: WorkerStatus;
+  warnings: MetricWarning[];
 }
 
 // ---------- errors ----------
