@@ -47,9 +47,29 @@ STOPWORDS = {
     "no", "nos", "number", "numbered",
 }
 
-#: A passage must cover at least this fraction of the question's distinctive
-#: terms that exist in the corpus at all. Calibrated, not guessed.
-MIN_COVERAGE = 0.34
+#: Coverage is REPORTED but no longer GATED on, because measurement said it
+#: contributes nothing and costs real answers.
+#:
+#: Swept over the independently written 15-question set:
+#:
+#:   fraction   answerable answered   unanswerable refused   false refusals
+#:   0.00               10/10                  5/5                0
+#:   0.15               10/10                  5/5                0
+#:   0.20               10/10                  5/5                0
+#:   0.25                9/10                  5/5                1   (Q5)
+#:   0.34                8/10                  5/5                2   (Q4, Q5)
+#:
+#: Nothing was gained anywhere on the way up and two correct answers were
+#: lost. A FRACTION also penalises exactly the wrong questions: a precisely
+#: worded one carries more distinctive terms, so needing a fixed proportion of
+#: them gets harder the more specific the question is. "which standard gives
+#: the holiday detection voltage" names five things and the right passage
+#: mentions one of them - the standard.
+#:
+#: What actually separates answerable from unanswerable is the pair of rules
+#: that remain: a named subject absent from the corpus, and requiring at least
+#: one covered term that DISTINGUISHES something.
+MIN_COVERAGE = 0.0
 
 #: A term in more than this fraction of indexed chunks distinguishes nothing.
 COMMON_TERM_FRACTION = 0.25
@@ -241,21 +261,18 @@ def assess(question: str, passage_text: str, document_id: str | None = None) -> 
         }
 
     coverage = len(covered) / len(present)
-    ok = coverage >= MIN_COVERAGE and covered_distinguishing
+    # Coverage is reported, not gated on - see MIN_COVERAGE for the sweep that
+    # showed the fraction cost two correct answers and bought nothing.
+    ok = covered_distinguishing
 
     reason = None
     if not ok:
         if not covered:
             reason = "the closest passage shares no distinctive term with the question"
-        elif not covered_distinguishing:
+        else:
             reason = (
                 "the closest passage matches only terms common to the whole "
                 "document, not the specific subject of the question"
-            )
-        else:
-            reason = (
-                f"the closest passage covers only {len(covered)} of {len(present)} "
-                f"distinctive terms in the question"
             )
 
     return {
