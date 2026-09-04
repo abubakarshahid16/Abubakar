@@ -20,6 +20,10 @@ CHUNKING = "chunking"
 INDEXING_KEYWORD = "indexing_keyword"
 PARTIALLY_SEARCHABLE = "partially_searchable"   # keyword search works, vectors pending
 READY = "ready"                                  # keyword + vector both complete
+#: Processing completed successfully but produced nothing searchable - a fully
+#: scanned PDF, or a document whose every chunk was excluded. Calling that
+#: "ready" tells an operator the document is usable when it answers nothing.
+NO_SEARCHABLE_CONTENT = "no_searchable_content"
 FAILED = "failed"
 
 ALL_STATES = (
@@ -29,11 +33,12 @@ ALL_STATES = (
     INDEXING_KEYWORD,
     PARTIALLY_SEARCHABLE,
     READY,
+    NO_SEARCHABLE_CONTENT,
     FAILED,
 )
 
 #: States from which no further work happens.
-TERMINAL_STATES = frozenset({READY, FAILED})
+TERMINAL_STATES = frozenset({READY, NO_SEARCHABLE_CONTENT, FAILED})
 
 #: States in which the document can already answer questions.
 ANSWERABLE_STATES = frozenset({PARTIALLY_SEARCHABLE, READY})
@@ -44,11 +49,14 @@ LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
     QUEUED: frozenset({EXTRACTING, FAILED}),
     EXTRACTING: frozenset({EXTRACTING, CHUNKING, FAILED}),
     CHUNKING: frozenset({INDEXING_KEYWORD, FAILED}),
-    INDEXING_KEYWORD: frozenset({PARTIALLY_SEARCHABLE, FAILED}),
+    INDEXING_KEYWORD: frozenset({PARTIALLY_SEARCHABLE, NO_SEARCHABLE_CONTENT, FAILED}),
     # embedding runs in the background from here; the document stays
     # answerable throughout and only then becomes ready
-    PARTIALLY_SEARCHABLE: frozenset({PARTIALLY_SEARCHABLE, READY, FAILED}),
+    PARTIALLY_SEARCHABLE: frozenset(
+        {PARTIALLY_SEARCHABLE, READY, NO_SEARCHABLE_CONTENT, FAILED}
+    ),
     READY: frozenset({CHUNKING, FAILED}),   # re-ingest on a new revision
+    NO_SEARCHABLE_CONTENT: frozenset({CHUNKING, EXTRACTING, FAILED}),
     FAILED: frozenset({QUEUED, EXTRACTING, CHUNKING, FAILED}),
 }
 
@@ -80,6 +88,8 @@ def label(state: str, embedded: int, total: int) -> str:
     """Honest human label. A partially processed document is never 'ready'."""
     if state == READY:
         return "ready"
+    if state == NO_SEARCHABLE_CONTENT:
+        return "no searchable content"
     if state == PARTIALLY_SEARCHABLE:
         return f"partially searchable - {embedded}/{total} embedded"
     return state.replace("_", " ")

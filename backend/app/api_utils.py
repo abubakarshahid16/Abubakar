@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
+from . import errors
 from .db import connect
 
 #: Hard ceiling on any page size. Without one, `limit=999999` returns
@@ -35,7 +36,9 @@ def require_document(document_id: str) -> dict:
     if row is None:
         raise HTTPException(
             status_code=404,
-            detail={"code": "not_found", "message": f"no document with id {document_id!r}"},
+            detail=errors.safe_error(
+                errors.NOT_FOUND, "no document with that id", document_id=document_id
+            ),
         )
     return dict(row)
 
@@ -46,11 +49,10 @@ def reject_unknown_params(request: Request, allowed: set[str]) -> None:
     if unknown:
         raise HTTPException(
             status_code=422,
-            detail={
-                "code": "unknown_parameter",
-                "message": f"unknown query parameter(s): {', '.join(unknown)}",
-                "allowed": sorted(allowed),
-            },
+            detail=errors.safe_error(
+                errors.UNKNOWN_PARAMETER,
+                f"unknown query parameter(s): {', '.join(unknown)}",
+            ) | {"allowed": sorted(allowed)},
         )
 
 
@@ -58,10 +60,9 @@ def validate_retrievable(value: str) -> str:
     if value not in RETRIEVABLE_VALUES:
         raise HTTPException(
             status_code=422,
-            detail={
-                "code": "invalid_parameter",
-                "message": "retrievable must be one of: true, false, all",
-            },
+            detail=errors.safe_error(
+                errors.INVALID_PARAMETER, "retrievable must be one of: true, false, all"
+            ),
         )
     return value
 
