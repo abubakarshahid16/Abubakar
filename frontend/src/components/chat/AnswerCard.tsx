@@ -8,6 +8,8 @@
  * engineer must be able to tell at a glance which one they are reading,
  * because only one of them is the specification.
  */
+import { useEffect } from "react";
+
 import type { AnswerPassage, AnswerType, Message } from "../../types/api";
 import { Citation, Highlighted, PassageLocation } from "./EvidencePanel";
 
@@ -148,7 +150,13 @@ function CitedProse({
   return <>{parts}</>;
 }
 
-function Label({ tone, children }: { tone: "quote" | "generated"; children: React.ReactNode }) {
+function Label({
+  tone,
+  children,
+}: {
+  tone: "quote" | "generated" | "ocr";
+  children: React.ReactNode;
+}) {
   return (
     <p
       className={[
@@ -179,6 +187,20 @@ export function AnswerCard({
   explainsEarlier?: boolean;
 }) {
   const sources = sourcesOf(view);
+
+  // For a RECOGNISED passage the page image is not a verification the reader
+  // may want - it is the only evidence the answer is real, so it is shown
+  // rather than offered. A label that says "check it against the page" while
+  // the page sits behind a click is a label that expects to be ignored.
+  // Extracted text keeps the collapsed default. See ADR-0006 s1C.
+  const autoExpand =
+    view.answer_type === "extract" && view.passage?.text_source === "recognised";
+  useEffect(() => {
+    if (autoExpand && activeSource === null) onSelectSource(0);
+    // onSelectSource identity changes per render in the parent; depending on
+    // it would re-fire the effect forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoExpand, activeSource]);
 
   // ----------------------------------------------------------- guidance
   // Not a document question, so this is not a refusal and carries no
@@ -271,13 +293,28 @@ ollama serve
   // ------------------------------------------------------ tier 1: quotation
   if (view.answer_type === "extract") {
     const p = view.passage;
+    const recognised = p?.text_source === "recognised";
     return (
       <div className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+        {/* THE LABEL IS THE CLAIM. "Quoted verbatim" is literally true only
+            when the characters came out of the PDF's own text layer. OCR read
+            them off a page image - a guess about pixels, measured producing
+            `Pyblish` for "Publish" and `≦` where a specification says `≤` -
+            and putting that under a verbatim label is the single outcome this
+            feature must not produce. Branch on provenance, never on anything
+            else. See ADR-0006. */}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Label tone="quote">Quoted verbatim from the document</Label>
+          {recognised ? (
+            <Label tone="ocr">Read by OCR from a scanned page</Label>
+          ) : (
+            <Label tone="quote">Quoted verbatim from the document</Label>
+          )}
           {view.seconds != null && (
             <span className="font-mono text-[11px] text-slateish-500">
-              {formatDuration(view.seconds)} · quoted directly, no AI rewriting
+              {formatDuration(view.seconds)}
+              {recognised
+                ? " · not the document's own text — check it against the page below"
+                : " · quoted directly, no AI rewriting"}
             </span>
           )}
         </div>

@@ -61,6 +61,13 @@ const A4: AnswerPassage = {
   identifier_hits: ["system 4"],
 };
 
+/** A1, but read off a page image instead of out of the text layer. */
+const OCR_PASSAGE: AnswerPassage = {
+  ...A1,
+  text_source: "recognised",
+  ocr_min_conf: 0.87,
+};
+
 const conversation: Conversation = {
   id: "conv_abc",
   title: "what is the NDFT for coating system no. 1",
@@ -215,6 +222,72 @@ describe("a quotation is never mistaken for generated prose", () => {
     expect(await screen.findByText(/Quoted verbatim from the document/i)).toBeInTheDocument();
     expect(screen.getByText(/quoted directly, no AI rewriting/i)).toBeInTheDocument();
     expect(screen.getByText(A1.text)).toBeInTheDocument();
+  });
+
+  // The defect this test exists for: 92 recognised chunks were retrievable
+  // while AnswerCard rendered "Quoted verbatim from the document"
+  // unconditionally. Provenance was stored, carried through retrieval, and
+  // made REQUIRED in the contract - and the screen ignored it. The assertion
+  // that matters is the ABSENCE of the verbatim label; asserting only that the
+  // OCR label appears would have passed while both were on screen.
+  it("never calls OCR text a verbatim quotation", async () => {
+    mockApi({
+      ask: askResult({
+        passage: OCR_PASSAGE,
+        supporting: [],
+        assistant_message: extractMessage({
+          payload: { passage: OCR_PASSAGE, supporting: [], passages: [],
+                     cited: [], rejected_citations: [], seconds: 1.255 },
+        }),
+      }),
+    });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(
+      await screen.findByText(/Read by OCR from a scanned page/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/not the document's own text — check it against the page below/i),
+    ).toBeInTheDocument();
+
+    // THE ASSERTION THAT WOULD HAVE CAUGHT IT.
+    expect(screen.queryByText(/Quoted verbatim from the document/i)).toBeNull();
+    expect(screen.queryByText(/quoted directly, no AI rewriting/i)).toBeNull();
+  });
+
+  it("shows the page image without being asked, for a recognised passage", async () => {
+    // A label that says "check it against the page" while the page sits behind
+    // a click is a label that expects to be ignored.
+    mockApi({
+      ask: askResult({
+        passage: OCR_PASSAGE,
+        supporting: [],
+        assistant_message: extractMessage({
+          payload: { passage: OCR_PASSAGE, supporting: [], passages: [],
+                     cited: [], rejected_citations: [], seconds: 1.255 },
+        }),
+      }),
+    });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    await screen.findByText(/Read by OCR from a scanned page/i);
+    expect(await screen.findByRole("img", { name: /page 17/i })).toBeInTheDocument();
+  });
+
+  it("still labels EXTRACTED text as a verbatim quotation", async () => {
+    // The other half: the weaker label must not leak onto text that earned the
+    // stronger one.
+    mockApi();
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(await screen.findByText(/Quoted verbatim from the document/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Read by OCR from a scanned page/i)).toBeNull();
   });
 
   it("labels a Tier 2 answer as the model's words, not the document's", async () => {

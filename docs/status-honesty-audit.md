@@ -3,7 +3,7 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Five separate times a status field has claimed
+**Why this document exists.** Six separate times a status field has claimed
 something the system was not doing:
 
 | # | The claim | The reality |
@@ -13,10 +13,27 @@ something the system was not doing:
 | 3 | `stalled: false` with six documents waiting | Computed from heartbeat freshness, which only proves the loop is spinning |
 | 4 | `failed` on a fully embedded document | The chunk short-circuit did not advance the state, so a guard tripped |
 | 5 | `ready` with nothing searchable | A document whose every chunk was excluded still reported ready |
+| 6 | "Quoted verbatim from the document" over OCR text | `AnswerCard.tsx:277` rendered the label unconditionally. 92 recognised chunks were retrievable, so a passage OCR had guessed off a page image could be cited as the document's own words, beside "quoted directly, no AI rewriting" |
 
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
 it is derived from, so the next instance is easy to spot.
+
+**Entry 6 is the sharpest instance, and it happened inside the feature built
+to prevent it.** Provenance was stored (`page_ocr`), carried to `chunks`,
+threaded through retrieval and passage expansion, and made a REQUIRED field in
+`contracts/types.ts` so no caller could omit it — and the one screen where it
+decides whether a sentence may be called the document's own words never read
+it. Every layer was correct and the claim was still false.
+
+The lesson is a rule, now standing rule 8: **a provenance field that no
+assertion reads is decoration.** Storing it, typing it and requiring it are
+not the safeguard; the safeguard is a test that fails when the label is wrong.
+The test that now guards this asserts the ABSENCE of the verbatim label on
+recognised text, not merely the presence of the OCR one — a presence-only
+assertion passes happily while both labels sit on screen together. It was
+proven by deliberate failure: forcing the old unconditional branch back makes
+it fail.
 
 ---
 
@@ -235,3 +252,7 @@ asserts no client error ever reports `internal`.
    against is not a measurement.
 7. **A documented hazard is not a guard.** If a trap is worth writing down, the
    check belongs in the path of the tool that can fall into it.
+8. **A provenance field that no assertion reads is decoration.** Storing,
+   typing and requiring it are not the safeguard. Where provenance decides
+   what a claim may say, a test must assert the ABSENCE of the stronger claim
+   — presence-only assertions pass while both claims are on screen.
