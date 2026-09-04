@@ -23,6 +23,7 @@ import httpx
 
 from . import intent as intent_mod
 from . import passages as passages_mod
+from . import telemetry
 from . import search as search_mod
 from .config import settings
 from .rates import Timer
@@ -213,6 +214,9 @@ def answer(
         question, limit=max(limit, 3), document_id=document_id
     )
     hits = results["hits"]
+    # Recorded from real questions actually asked, so the dashboard's latency
+    # is what the reader experienced rather than a synthetic benchmark.
+    telemetry.record(telemetry.RETRIEVAL, 1, results["seconds"], document_id)
 
     base = {
         "question": question,

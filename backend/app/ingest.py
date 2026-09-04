@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 from . import errors, states
 from .chunker import chunk_document
+from . import telemetry
 from .db import connect
 from . import keyword
 from .extract import extract_document
@@ -247,11 +248,23 @@ class IngestionWorker:
 
                 if status == states.EXTRACTING:
                     result["extract"] = extract_document(doc_id)
+                    telemetry.record(
+                        telemetry.EXTRACT,
+                        result["extract"].get("pages_extracted_this_run", 0),
+                        result["extract"].get("seconds", 0.0),
+                        doc_id,
+                    )
                     result["stages"].append("extract")
                     continue
 
                 if status == states.CHUNKING:
                     result["chunk"] = chunk_document(doc_id)
+                    telemetry.record(
+                        telemetry.CHUNK,
+                        result["chunk"].get("chunks_this_run", 0),
+                        result["chunk"].get("seconds", 0.0),
+                        doc_id,
+                    )
                     result["stages"].append("chunk")
                     continue
 
@@ -268,6 +281,12 @@ class IngestionWorker:
                         doc_id,
                         advance_to=states.PARTIALLY_SEARCHABLE,
                         expect_status=states.INDEXING_KEYWORD,
+                    )
+                    telemetry.record(
+                        telemetry.KEYWORD_INDEX,
+                        result["keyword_index"].get("indexed", 0),
+                        result["keyword_index"].get("seconds", 0.0),
+                        doc_id,
                     )
                     result["stages"].append("keyword_index")
                     continue
@@ -331,6 +350,10 @@ class IngestionWorker:
 
         embedder = Embedder.instance(EmbedderConfig())
         done = 0
+        # Timed per batch, not per call: a call that embeds 1400 chunks over
+        # several minutes while the laptop throttles is one useless average,
+        # where per-batch samples give a median that survives a throttle.
+        batch_timer = time.time()
         for start in range(0, len(rows), batch):
             if self._stop.is_set():
                 break
@@ -356,7 +379,12 @@ class IngestionWorker:
                     (doc_id, doc_id),
                 )
             done += len(window)
-            self.last_beat = time.time()
+            now = time.time()
+            telemetry.record(
+                telemetry.EMBED, len(window), now - batch_timer, doc_id
+            )
+            batch_timer = now
+            self.last_beat = now
         return done
 
     def _is_finished(self, doc_id: str) -> bool:

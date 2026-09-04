@@ -1,8 +1,8 @@
 /**
  * Application shell: sidebar, four views, and the connection banner.
  *
- * Documents and Chat are built. The other two are listed but visibly marked,
- * so the navigation never implies capability that does not exist.
+ * Documents, Chat and Dashboard are built. Ingestion is listed but visibly
+ * marked, so the navigation never implies capability that does not exist.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -21,7 +21,7 @@ export const NAV: NavItem[] = [
   { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
   { id: "chat", label: "Chat", hint: "Ask questions with citations", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: false },
-  { id: "dashboard", label: "Dashboard", hint: "System metrics", built: false },
+  { id: "dashboard", label: "Dashboard", hint: "System metrics", built: true },
 ];
 
 export type Connection =

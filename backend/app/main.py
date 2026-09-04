@@ -10,6 +10,7 @@ from . import chunker as chunk_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import keyword as keyword_mod
+from . import metrics as metrics_mod
 from . import answer as answer_mod
 from . import search as search_mod
 from . import pageimage as pageimage_mod
@@ -84,6 +85,18 @@ def health():
         "answer_model": settings.answer_model,
         "ingestion": ingest_mod.get_worker().status(),
     }
+
+
+@app.get("/api/metrics", response_model=schemas.Metrics, responses=schemas.ERRORS_422)
+def metrics(request: Request):
+    """Everything the dashboard shows.
+
+    A value that has not been measured is null rather than zero, and the
+    screen is required to say so. Throughput comes from stage runs actually
+    recorded; retrieval latency comes from questions actually asked.
+    """
+    reject_unknown_params(request, set())
+    return metrics_mod.snapshot(ingest_mod.get_worker().status())
 
 
 # --------------------------------------------------------------- documents
