@@ -218,6 +218,33 @@ the last things to degrade.
 
 ## Repository conventions
 
-Branch: `<type>/<issue-number>-<stable-id>-<slug>` · squash merge only · one issue → one branch → one PR.
+### Branches
+
+    <type>/<issue-number>-<stable-id>-<slug>
+
+`type` is one of `feat`, `fix`, `chore`, `docs`, `perf`, `style`, `test`.
+Real examples from this repository:
+
+    feat/14-ing-001-stream-pdf-upload
+    feat/16-ing-002-page-batch-extraction
+    feat/20-emb-001-structure-aware-chunking
+    chore/6-gov-001-repo-guardrails
+    docs/7-arc-001-rag-adr
+
+One issue → one branch → one PR. **The issue number is not optional**: it is
+what lets someone reading `git log` in a year find out why a change was made.
+
+> **This convention lapsed and nobody noticed.** It held for 17 issues and 58
+> PRs, then stopped the moment work went off-plan onto a branch with no issue
+> number — after which 1 of 11 commits referenced an issue. Nothing in the
+> repository said it should, which is why it is written here and enforced by
+> `.github/pull_request_template.md`.
+
+### Commits
+
+Merge commits, not squash. The commit messages carry the reasoning and the
+measured numbers — *"the isolated figure was measuring the wrong thing"*,
+*"one bug wearing three faces"*. Squashing tidies a graph nobody reads at the
+cost of the project's memory.
 
 **Never commit** PDFs, extracted text, embeddings, chat history, model weights, secrets, or client metrics.
