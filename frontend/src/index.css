@@ -1,9 +1,80 @@
 @import "tailwindcss";
 
-/* No remote fonts. System stack only. */
-:root {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color-scheme: dark;
+/* Dark industrial command-centre theme.
+   No remote fonts, no remote assets, zero outbound requests. */
+@theme {
+  --color-ink-900: #070b10;
+  --color-ink-850: #0b1118;
+  --color-ink-800: #0f1720;
+  --color-ink-700: #17212c;
+  --color-ink-600: #1e2b39;
+  --color-ink-500: #2b3b4d;
+  --color-slateish-400: #7d90a4;
+  --color-slateish-300: #a7b6c6;
+  --color-slateish-200: #d3dde7;
+
+  --color-signal-500: #2f9e8f;
+  --color-signal-400: #46bdad;
+  --color-warn-500: #c98a12;
+  --color-danger-500: #c4453b;
+  --color-info-500: #3d7fbf;
 }
-html, body, #root { height: 100%; }
-body { margin: 0; background: #0b0f14; color: #e6edf3; }
+
+:root {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+  --focus: #6fb3e0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #070b10;
+  color: #d3dde7;
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+pre,
+.mono {
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas,
+    "Liberation Mono", monospace;
+}
+
+/* Focus must always be visible - keyboard navigation is a requirement, not a
+   nicety, and the default ring disappears against this palette. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #0b1118;
+}
+::-webkit-scrollbar-thumb {
+  background: #263544;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #33475a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
