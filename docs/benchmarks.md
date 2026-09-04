@@ -489,15 +489,29 @@ by hand. It was worth it.
 |---|---|---|
 | NORSOK M-501 | 2 of 24 (8.3%) | `page_classified_toc` 1, `ocr_found_no_text` 1 (pages 2 and 3) |
 | book1 | 17 of 546 (3.1%) | toc 8, frontmatter 4, `ocr_found_no_text` 4, yielded-no-chunk 1 |
-| book2 | 38 of 613 (6.2%) | **(no exclusion recorded) 17**, index 9, frontmatter 7, toc 5 |
-| book4 | 39 of 1,400 (2.8%) | toc 32, **(no exclusion recorded) 4**, frontmatter 2, references 1 |
+| book2 | 38 of 613 (6.2%) | `content_quality_gate` on every chunk 17, index 9, frontmatter 7, toc 5 |
+| book4 | 39 of 1,400 (2.8%) | toc 32, `content_quality_gate` on every chunk 4, frontmatter 2, references 1 |
 
 Most of what remains is *deliberately* excluded — contents, index, front matter
 and references never compete with body text.
 
-**21 pages are uncovered with NO exclusion recorded**, 17 of them in book2.
-Those were dropped by something that did not write down why, which is the one
-category here that is a defect rather than a policy. Filed to the backlog.
+**Every uncovered page has a written reason. The count of silently-dropped
+pages is ZERO**, across all 2,583.
+
+An earlier version of this table reported *"21 pages uncovered with no
+exclusion recorded"* and that was about to be filed as a defect against the
+pipeline. It was a defect in **this script**: `missing_reasons` queried only
+`scope='page'`, and a page can also be uncovered because every CHUNK on it was
+excluded. All 21 carry a chunk-scope `content_quality_gate` row with a quality
+flag giving the reason — `no_clause(longest=2<6)` and similar. The invariant
+held; the query asked a narrower question than the one being answered, which is
+the same shape as the coverage-definition error above.
+
+What those 21 pages do show is a real question worth investigating: book2 pages
+2 and 4 carry **1,266 and 1,217 extracted characters** and are excluded because
+no clause on them reaches the minimum length. That is the quality gate working
+as designed on prose that may or may not be worth keeping. Filed to the backlog
+as a question, not as a defect.
 
 ---
 

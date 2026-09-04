@@ -3,7 +3,7 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Seven separate times a status field has claimed
+**Why this document exists.** Eight separate times a status field has claimed
 something the system was not doing:
 
 | # | The claim | The reality |
@@ -13,12 +13,59 @@ something the system was not doing:
 | 3 | `stalled: false` with six documents waiting | Computed from heartbeat freshness, which only proves the loop is spinning |
 | 4 | `failed` on a fully embedded document | The chunk short-circuit did not advance the state, so a guard tripped |
 | 5 | `ready` with nothing searchable | A document whose every chunk was excluded still reported ready |
+| 8 | OCR raised coverage by **+12.5%** on NORSOK | It raised it by **+4.2%**. The "before" figure dropped every recognised CHUNK, which also drops pages that chunk merely spans — three pages were charged to OCR that OCR never read |
 | 7 | A passing ordering test over a document that had `failed` | The test asserted the statuses it OBSERVED at every OCR invocation and never asserted where the document FINISHED. `partially_searchable -> chunking` was an illegal transition; the raise was swallowed by the broad handler in `process()`; every scanned document on a fresh machine landed at `failed`, green suite and all |
 | 6 | "Quoted verbatim from the document" over OCR text | `AnswerCard.tsx:277` rendered the label unconditionally. 92 recognised chunks were retrievable, so a passage OCR had guessed off a page image could be cited as the document's own words, beside "quoted directly, no AI rewriting" |
 
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
 it is derived from, so the next instance is easy to spot.
+
+**Entry 8 is the first one that no check could have caught, and that is the
+point of it.** Every other entry here is a check pointed at the wrong thing, or
+a claim that stopped being true. Entry 8 is neither: it is **a number that
+looks like the thing you need and is a different quantity wearing the same
+units.**
+
+Coverage "before OCR" was computed by removing every recognised chunk from the
+index and re-counting covered pages. That sounds right, and it is arithmetically
+flawless. It is also not coverage-before-OCR, because a chunk spans a page
+RANGE. One NORSOK chunk covers pages 21–24:
+
+| Page | Truth | What the wrong number assumed |
+|---|---|---|
+| 21 | already covered by another chunk | lost without OCR |
+| 22 | **413 extracted characters of its own** | lost without OCR |
+| 23 | genuinely blank — 0 extracted, 0 OCR boxes | lost without OCR |
+| 24 | 0 extracted, 14 OCR characters | lost without OCR — **the only true one** |
+
+Three of the four pages were charged to OCR that OCR did not read. The reported
+gain was **+12.5%**; the real one is **+4.2%**. It would have overstated the
+feature's value threefold **in the feature's own headline number** — the single
+figure anyone would quote about this work.
+
+**No automated check would have found it.** The number was internally
+consistent: the same query, the same rows, the same arithmetic, reproducible to
+the digit. A test asserting "coverage after ≥ coverage before" passes. A test
+asserting the gain is positive passes. There is nothing wrong to detect unless
+you already know what the number is supposed to count.
+
+**What caught it was hand-checking the smallest document.** NORSOK is 24 pages
+with 3 recognised — small enough to list every page and ask, of each one,
+whether OCR really reached it. That is the whole reason it was chosen as the
+first proof, and it paid for itself immediately. The lesson is standing rule 7:
+a number is not a measurement until you can say what it counts, and the cheapest
+way to find out is to check one case by hand.
+
+**The same measurement produced a second instance of the same shape, hours
+apart.** The "what is still missing" breakdown reported *21 pages uncovered
+with no exclusion recorded* — which, if true, would have broken the standing
+promise that nothing is dropped silently, and was minutes from being filed as
+a defect against the pipeline. It was a defect in the query: it looked only at
+`scope='page'` exclusions, and a page can also be uncovered because every
+CHUNK on it was excluded. All 21 carried a chunk-scope `content_quality_gate`
+row saying exactly why. Correct arithmetic over the wrong population, twice, in
+one script. The count of silently-dropped pages is **zero**.
 
 **Entry 7 is a DIFFERENT SHAPE from every other entry here, and that is why it
 is worth its own paragraph.** Every earlier failed check could not see its
@@ -63,7 +110,7 @@ threaded through retrieval and passage expansion, and made a REQUIRED field in
 decides whether a sentence may be called the document's own words never read
 it. Every layer was correct and the claim was still false.
 
-The lesson is a rule, now standing rule 9: **a provenance field that no
+The lesson is a rule, now standing rule 10: **a provenance field that no
 assertion reads is decoration.** Storing it, typing it and requiring it are
 not the safeguard; the safeguard is a test that fails when the label is wrong.
 The test that now guards this asserts the ABSENCE of the verbatim label on
@@ -287,12 +334,16 @@ asserts no client error ever reports `internal`.
    Corpus counts and machine state come from the database and the OS at run
    time, never from a static declaration. A result that cannot say what it ran
    against is not a measurement.
-7. **Observing a step is not observing an outcome.** A test that asserts
+7. **A number is not a measurement until you can say what it counts.** Before
+   quoting a figure, name the unit and the population, and check one case by
+   hand. An internally consistent wrong number passes every automated check
+   there is.
+8. **Observing a step is not observing an outcome.** A test that asserts
    intermediate state must also assert terminal state. Watching the right
    thing happen says nothing about whether it worked.
-8. **A documented hazard is not a guard.** If a trap is worth writing down, the
+9. **A documented hazard is not a guard.** If a trap is worth writing down, the
    check belongs in the path of the tool that can fall into it.
-9. **A provenance field that no assertion reads is decoration.** Storing,
+10. **A provenance field that no assertion reads is decoration.** Storing,
    typing and requiring it are not the safeguard. Where provenance decides
    what a claim may say, a test must assert the ABSENCE of the stronger claim
    — presence-only assertions pass while both claims are on screen.

@@ -72,20 +72,36 @@ def missing_reasons(conn, doc_id: str, missing: set[int]) -> dict[str, int]:
     if not missing:
         return {}
     rules: dict[str, int] = {}
+    explained = set()
+    # BOTH SCOPES. A page can be uncovered for two different reasons: the page
+    # itself was excluded, or every chunk on it was. Querying only scope='page'
+    # reported 21 pages as "dropped with no reason recorded" and very nearly
+    # had a non-existent defect filed against the pipeline. Every one of them
+    # turned out to carry a chunk-scope `content_quality_gate` row with a
+    # quality flag saying exactly why. The invariant held; the query did not.
     rows = conn.execute(
         """SELECT page_start, page_end, rule FROM exclusions
            WHERE document_id = ? AND scope = 'page'""", (doc_id,)).fetchall()
-    explained = set()
     for r in rows:
         for p in range(r["page_start"], r["page_end"] + 1):
             if p in missing and p not in explained:
                 rules[r["rule"]] = rules.get(r["rule"], 0) + 1
                 explained.add(p)
+    for r in conn.execute(
+            """SELECT c.page_start, c.page_end, e.rule
+               FROM exclusions e JOIN chunks c ON c.id = e.chunk_id
+               WHERE e.document_id = ? AND e.scope = 'chunk'""", (doc_id,)):
+        for p in range(r["page_start"], r["page_end"] + 1):
+            if p in missing and p not in explained:
+                rules[f"{r['rule']} (every chunk on the page)"] = (
+                    rules.get(f"{r['rule']} (every chunk on the page)", 0) + 1)
+                explained.add(p)
     unexplained = len(missing - explained)
     if unexplained:
-        # A page that is missing with NO rule is the interesting case: it was
-        # dropped by something that did not record why.
-        rules["(no exclusion recorded)"] = unexplained
+        # THIS is the interesting case, and it should be empty: a page dropped
+        # by something that did not record why violates the standing promise
+        # that nothing is dropped silently.
+        rules["(NO EXCLUSION RECORDED - investigate)"] = unexplained
     return rules
 
 
