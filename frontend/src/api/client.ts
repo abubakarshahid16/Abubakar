@@ -36,6 +36,24 @@ export type Result<T> =
 
 const BASE = "/api";
 
+/** Statuses that mean nothing served the request at all. */
+const GATEWAY_STATUSES = new Set([502, 503, 504]);
+
+/** What to tell a reader, in words they can act on. */
+function humanMessage(status: number): string {
+  if (status === 401 || status === 403) {
+    return "This action was refused. Check whether the backend was started with different settings.";
+  }
+  if (status === 404) return "That is not something the backend knows about.";
+  if (status === 413) return "That file is larger than the backend accepts.";
+  if (status === 422) return "The backend rejected the request as malformed.";
+  if (status === 429) return "Too many requests at once. Wait a moment and try again.";
+  if (status >= 500) {
+    return "The backend hit an unexpected error handling this. The details are in its log.";
+  }
+  return "The backend could not complete this request.";
+}
+
 function disconnected(detail: string): Result<never> {
   return {
     ok: false,
@@ -57,7 +75,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<Result<T>> 
   }
 
   if (!response.ok) {
-    let error: ApiError = { code: "internal", message: `HTTP ${response.status}` };
+    // A gateway status means nothing served the request - the backend is not
+    // reachable, which is the same condition as a network failure and must
+    // read as one. Reported as an API error it produced an amber "backend is
+    // not running" banner and a red "HTTP 502" card on screen together.
+    if (GATEWAY_STATUSES.has(response.status)) {
+      return disconnected("Nothing answered on the API port.");
+    }
+
+    let error: ApiError = {
+      code: "internal",
+      // Never a bare status code on a client-facing screen. A reader cannot
+      // act on "HTTP 500" and should not have to.
+      message: humanMessage(response.status),
+    };
     try {
       const body = await response.json();
       // FastAPI wraps HTTPException detail; both shapes are handled
@@ -96,8 +127,28 @@ export const api = {
     if (opts.offset != null) q.set("offset", String(opts.offset));
     return request<ExclusionsResponse>(`/documents/${encodeURIComponent(id)}/excluded?${q}`);
   },
+  /** The plain rendered page. */
   pageImageUrl: (id: string, page: number) =>
     `${BASE}/documents/${encodeURIComponent(id)}/pages/${page}/image`,
+  /** The rendered page with the answering sentence BOXED on the image.
+   *
+   *  The box is drawn server-side, in PDF coordinate space where the
+   *  rectangles were measured. Overlaying in CSS would mean reproducing the
+   *  page-to-image transform here as well, and any drift between the two
+   *  draws the box slightly off - on a dense specification table, slightly
+   *  off is the wrong row.
+   *
+   *  When the sentence cannot be located the page comes back with no box and
+   *  `X-Answer-Located: 0`. */
+  pageImageWithAnswerUrl: (
+    id: string,
+    page: number,
+    chunkId: string,
+    question: string,
+  ) => {
+    const q = new URLSearchParams({ chunk_id: chunkId, q: question });
+    return `${BASE}/documents/${encodeURIComponent(id)}/pages/${page}/image?${q}`;
+  },
   extract: (id: string) =>
     request<unknown>(`/documents/${encodeURIComponent(id)}/extract`, { method: "POST" }),
   chunk: (id: string) =>

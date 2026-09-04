@@ -65,16 +65,23 @@ export function EvidencePanel({
   selected,
   onSelect,
   onClose,
+  question,
 }: {
   passages: AnswerPassage[];
   selected: number;
   onSelect: (i: number) => void;
   onClose: () => void;
+  /** The question, so the answering sentence can be boxed on the page. */
+  question?: string;
 }) {
   const [imageLoading, setImageLoading] = useState(true);
   const passage = passages[selected];
 
-  useEffect(() => setImageLoading(true), [selected]);
+  useEffect(() => setImageLoading(true), [selected, question]);
+
+  // The box is only requested when there IS an answering span to box, so an
+  // unboxed page never leaves the reader wondering whether the answer is on it.
+  const boxed = Boolean(question && passage?.highlight);
 
   if (!passage) return null;
 
@@ -133,17 +140,42 @@ export function EvidencePanel({
 
         <h3 className="mt-5 text-xs uppercase tracking-wide text-slateish-400">
           Page {passage.page_start} as printed
+          {boxed && (
+            <span className="ml-2 rounded bg-signal-500/20 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-signal-300">
+              answer outlined
+            </span>
+          )}
         </h3>
         <p className="mt-1 text-xs text-slateish-500">
-          Extraction flattens tables and drops equation operators. This is the
-          real page.
+          {boxed
+            ? "The answering sentence is outlined on the real page. Extraction flattens tables and drops equation operators; this is the page as printed."
+            : "Extraction flattens tables and drops equation operators. This is the real page."}
         </p>
+        {question && !passage.highlight && (
+          <p className="mt-1 text-xs text-slateish-500 italic">
+            The exact location of the answer on this page could not be
+            confirmed, so nothing is outlined.
+          </p>
+        )}
         <div className="mt-2 overflow-auto rounded border border-ink-700 bg-ink-950 p-2">
           {imageLoading && <Spinner label={`Rendering page ${passage.page_start}`} />}
           <img
-            key={`${passage.document_id}-${passage.page_start}`}
-            src={api.pageImageUrl(passage.document_id, passage.page_start)}
-            alt={`Page ${passage.page_start} of ${passage.filename}`}
+            key={`${passage.document_id}-${passage.page_start}-${boxed ? "boxed" : "plain"}`}
+            src={
+              boxed
+                ? api.pageImageWithAnswerUrl(
+                    passage.document_id,
+                    passage.page_start,
+                    passage.chunk_id,
+                    question!,
+                  )
+                : api.pageImageUrl(passage.document_id, passage.page_start)
+            }
+            alt={
+              boxed
+                ? `Page ${passage.page_start} of ${passage.filename}, with the answer outlined`
+                : `Page ${passage.page_start} of ${passage.filename}`
+            }
             onLoad={() => setImageLoading(false)}
             onError={() => setImageLoading(false)}
             className="block w-full rounded bg-white"

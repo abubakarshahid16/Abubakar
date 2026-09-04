@@ -9,6 +9,10 @@
 - A single LLM answer over a full RAG context measured **195 seconds**. This is why the system defaults to a **no-LLM Tier 1 path** that returns the quoted source passage in 1–2 seconds.
 - LLM synthesis (Tier 2) remains materially slower than Tier 1 and is an explicit, opt-in action.
 - Ingestion is paused during demonstrations; running it concurrently invalidates latency figures.
+- **Tier 1 median is ~2.1 s, not the 1-2 s originally targeted, and that is a deliberate trade.** The cross-encoder's rerank window was 256 tokens against a 480-token chunk ceiling, so any long passage was scored on its first half. NORSOK's clause 11 holds Table 3 flattened to 486 tokens with the answer at token 350: the reranker never saw it and returned -10.95, which was correct about what it had been shown and wrong about the passage.
+  - Widening the window to cover the whole chunk cost **+650 ms median (1.45 s -> ~2.1 s)** and bought **retrieval 9/10 -> 10/10, citation 8/9 -> 9/9, answer tokens 9/10 -> 10/10** on the independent 15-question set.
+  - **Do not re-tune `rerank_max_tokens` downward without re-running `eval/run_eval.py`.** The setting must remain >= `chunk_max_tokens`; a test asserts that relationship rather than the literal number, because the alternative to a slower answer here is a wrong safety-relevant figure delivered confidently.
+  - `rerank_candidates` was reduced 20 -> 16 to recover part of the cost. 10 candidates also scored perfectly and was faster, but 12 degraded, and a non-monotonic curve means the shortlist composition is shifting rather than the depth being unnecessary - so the safer point was taken.
 
 ## Scope not implemented
 

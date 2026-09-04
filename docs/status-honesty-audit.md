@@ -20,6 +20,54 @@ it is derived from, so the next instance is easy to spot.
 
 ---
 
+## The verification that verified nothing
+
+A second pattern, distinct from the one above and more dangerous, because the
+first is a field that lies while the second is a **check that cannot see the
+thing it judges**. Five instances, all in this build:
+
+| # | The check | Why it could not see | How it was caught |
+|---|---|---|---|
+| 1 | `Server:` header removal, asserted with TestClient | uvicorn writes that header at the HTTP protocol layer, **after** the ASGI app. TestClient never traverses it, so the assertion passed against a server that still sent it. | Reading the real response over the wire |
+| 2 | Footer stripper, asserted against a synthetic page | Every line of the fixture was templated per page, so the fixture's own body text **was itself a repeating footer**. The stripper removed it correctly and the test demanded it fail to. | The test failing for the opposite reason to the one expected |
+| 3 | `tsc --noEmit -p tsconfig.json` | `tsconfig.json` is a solution file with `"files": []` and project references, so it type-checked **zero files**. Every "typecheck clean" report was vacuous. | Noticing exit 0 on a file with an unterminated string literal |
+| 4 | "Stale numbers are dropped on refresh", with fake timers | The timers were installed **after** the component had created its interval with real ones. Advancing them fired nothing; the test passed while asserting nothing. | Reading the test back after writing it |
+| 5 | The cross-encoder's own rerank window | `rerank_max_tokens` was 256 against a `chunk_max_tokens` of 480, so a 486-token passage was scored on its first 256 tokens. The answer sat at token 350. It returned **−10.95** — correct about what it was shown, wrong about the passage. | Measuring a hypothesis that turned out to be false, and looking further |
+
+Number 5 is the one to remember: **the evaluation recorded a retrieval failure
+that was really a truncation failure.** The system was not bad at retrieval. Its
+judge had read half the evidence.
+
+A sixth, of the same family but caused by tooling rather than by design: a shell
+heredoc silently turned `\b` into the literal byte it names, 0x08, **three
+separate times**. Each produced a regex that could never match, inside a rule
+that looked fully implemented and had never fired once. A 0x08 is invisible in
+an editor, in `sed` output and in a diff, and is syntactically valid inside a
+string literal. `backend/tests/test_source_hygiene.py` now fails the build on
+any stray control character.
+
+It earned its place within the hour. Writing the paragraph above, the heredoc
+ate the `` **in the sentence describing `` being eaten** - a sixth
+instance, in the document about the pattern. The guard failed the build
+immediately, naming the file, the line and the byte. That is the whole
+argument for it: the previous three were found by accident, days apart, after
+shipping.
+
+### The rule this produces
+
+**Before trusting a check, confirm it fails when it should.** Plant the defect
+it exists to catch and watch it go red. Two of the five above passed for weeks;
+none of the five failed loudly; two were found only by accident.
+
+Corollary: **guard the guard.** Every check whose scope can silently shrink to
+nothing needs a companion test asserting it still sees something — that the
+scanner finds files, that the fixture list is non-empty, that the query matched
+rows. `test_source_hygiene.py` does both: one test plants a backspace byte and
+requires it to be caught, another asserts the scan covers more than forty files
+so an empty sweep cannot pass as a clean one.
+
+---
+
 ## Document status
 
 Single source of truth: `documents.status`. Legal transitions are declared in

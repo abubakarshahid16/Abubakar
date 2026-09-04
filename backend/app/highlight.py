@@ -119,6 +119,40 @@ def locate(
     return [], None
 
 
+def for_chunk(document_id: str, chunk_id: str, question: str) -> dict:
+    """Locate the answering span for a chunk, given the question.
+
+    Derived rather than stored, because the span depends on the question: the
+    same passage highlights differently for two different questions. The
+    passage is expanded exactly as the answer path expands it, and the span is
+    found by the same function, so what is boxed is what was quoted.
+    """
+    from . import answer as answer_mod
+    from . import passages as passages_mod
+    from .db import connect
+
+    row = connect().execute(
+        """SELECT c.text, c.page_start, d.stored_path
+           FROM chunks c JOIN documents d ON d.id = c.document_id
+           WHERE c.id = ? AND c.document_id = ?""",
+        (chunk_id, document_id),
+    ).fetchone()
+    if row is None:
+        return {"rects": [], "located": False, "note": "unknown chunk"}
+
+    expanded = passages_mod.expand_passage(chunk_id, document_id)
+    text = expanded.get("text") or row["text"]
+    span = answer_mod.find_answer_span(question, text)
+
+    document = {"stored_path": row["stored_path"]}
+    return rectangles_for_answer(
+        document,
+        expanded.get("page_start", row["page_start"]),
+        text,
+        list(span) if span else None,
+    )
+
+
 def rectangles_for_answer(
     document: dict, page_no: int, passage_text: str, highlight: list[int] | None
 ) -> dict:
@@ -128,12 +162,30 @@ def rectangles_for_answer(
     identified as answering the question. When there is no span the whole
     passage is attempted, because the passage itself is the answer.
     """
-    span = passage_text
-    if highlight and len(highlight) == 2:
-        start, end = highlight
-        if 0 <= start < end <= len(passage_text):
-            span = passage_text[start:end]
+    # A box means "here is the answer". With no identified answering span there
+    # is no answer to point at, and boxing the whole passage instead produced
+    # eleven rectangles covering most of the text - not a wrong box, but it
+    # reads as "the answer is all of this", which is its own kind of untrue.
+    if not (highlight and len(highlight) == 2):
+        return {
+            "page": page_no,
+            "rects": [],
+            "matched_fragment": None,
+            "located": False,
+            "note": "no single answering sentence could be identified, so no box is drawn",
+        }
 
+    start, end = highlight
+    if not 0 <= start < end <= len(passage_text):
+        return {
+            "page": page_no,
+            "rects": [],
+            "matched_fragment": None,
+            "located": False,
+            "note": "the answering span does not fit the passage, so no box is drawn",
+        }
+
+    span = passage_text[start:end]
     rects, matched = locate(document["stored_path"], page_no, span)
     return {
         "page": page_no,

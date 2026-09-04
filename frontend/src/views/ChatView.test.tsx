@@ -300,9 +300,12 @@ describe("citations", () => {
 
     const panel = await screen.findByRole("complementary", { name: "Evidence" });
     expect(within(panel).getByText(/Quoted passage/i)).toBeInTheDocument();
-    expect(
-      within(panel).getByRole("img", { name: /Page 17 of NORSOKM501Rev5.pdf/ }),
-    ).toHaveAttribute("src", "/api/documents/doc_norsok/pages/17/image");
+    // The passage carries a highlight and the question is known, so the panel
+    // asks for the page with the answer BOXED rather than the plain render.
+    const img = within(panel).getByRole("img", { name: /Page 17 of NORSOKM501Rev5\.pdf/ });
+    expect(img.getAttribute("src") ?? "").toContain(
+      "/api/documents/doc_norsok/pages/17/image?",
+    );
     expect(within(panel).getByText(/Page 17 as printed/i)).toBeInTheDocument();
   });
 
@@ -723,5 +726,87 @@ describe("refusal wording", () => {
     const text = (await screen.findByText(/No indexed passage/i)).textContent ?? "";
     expect(text).toContain("this question. Nothing");
     expect(text).not.toContain("question.. Nothing");
+  });
+});
+
+// ------------------------------------------------------ the answer, boxed
+
+describe("the answer outlined on the rendered page", () => {
+  const withQuestion = () =>
+    mockApi({
+      conversation: {
+        conversation,
+        messages: [
+          userMessage({ text: "what is the NDFT", resolved_question: "what is the NDFT" }),
+          extractMessage(),
+        ],
+      },
+      conversations: {
+        total: 1,
+        limit: 20,
+        offset: 0,
+        conversations: [{ ...conversation, first_question: "q" }],
+      },
+    });
+
+  it("requests the boxed render, passing the chunk and the question", async () => {
+    withQuestion();
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Show source 1" }));
+
+    const img = await screen.findByRole("img", { name: /with the answer outlined/i });
+    const src = img.getAttribute("src") ?? "";
+    expect(src).toContain("/pages/17/image?");
+    expect(src).toContain(`chunk_id=${encodeURIComponent(A1.chunk_id)}`);
+    expect(src).toContain("q=what+is+the+NDFT");
+  });
+
+  it("tells the reader the answer is outlined", async () => {
+    withQuestion();
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Show source 1" }));
+
+    expect(await screen.findByText("answer outlined")).toBeInTheDocument();
+    expect(
+      screen.getByText(/The answering sentence is outlined on the real page/i),
+    ).toBeInTheDocument();
+  });
+
+  it("says the location could not be confirmed rather than boxing nothing silently", async () => {
+    mockApi({
+      conversation: {
+        conversation,
+        messages: [
+          userMessage({ text: "what is the NDFT", resolved_question: "what is the NDFT" }),
+          extractMessage({
+            payload: {
+              // no highlight: no answering sentence was identified
+              passage: { ...A1, highlight: null },
+              supporting: [],
+              seconds: 1.2,
+            },
+          }),
+        ],
+      },
+      conversations: {
+        total: 1,
+        limit: 20,
+        offset: 0,
+        conversations: [{ ...conversation, first_question: "q" }],
+      },
+    });
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Show source 1" }));
+
+    expect(
+      await screen.findByText(/location of the answer on this page could not be confirmed/i),
+    ).toBeInTheDocument();
+    // and the plain page is shown, never a box somewhere plausible
+    const img = screen.getByRole("img", { name: /^Page 17 of NORSOKM501Rev5\.pdf$/ });
+    expect(img.getAttribute("src") ?? "").not.toContain("chunk_id");
+    expect(screen.queryByText("answer outlined")).toBeNull();
   });
 });
