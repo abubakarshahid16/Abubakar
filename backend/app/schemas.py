@@ -264,6 +264,49 @@ class SearchResult(BaseModel):
     hits: list[Passage]
 
 
+AnswerType = Literal["extract", "generated", "insufficient_evidence", "model_unavailable"]
+
+
+class AnswerPassage(BaseModel):
+    chunk_id: str
+    document_id: str
+    filename: str
+    page_start: int
+    page_end: int
+    section: str | None
+    text: str
+    highlight: list[int] | None = Field(
+        None, description="character offsets of the answering span within text"
+    )
+    score: float
+    identifier_hits: list[str] = []
+
+
+class AnswerResult(BaseModel):
+    question: str
+    answer_type: AnswerType = Field(
+        description="extract is a verbatim quotation; generated is model prose. "
+        "The UI must never present one as the other."
+    )
+    answer: str | None
+    reason: str | None = Field(None, description="why there is no answer")
+    passage: AnswerPassage | None = None
+    supporting: list[AnswerPassage] = []
+    passages: list[AnswerPassage] = []
+    cited: list[int] = []
+    rejected_citations: list[int] = Field(
+        [], description="citations the model invented; removed from the answer"
+    )
+    retrieval_mode: str
+    reranked: bool
+    candidates_considered: int
+    model: str | None = None
+    prompt_tokens: int | None = None
+    output_tokens: int | None = None
+    seconds: float
+    timings: dict[str, float]
+
+
 class KeywordIndexResult(BaseModel):
     document_id: str
     indexed: int
