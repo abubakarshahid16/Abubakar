@@ -3,7 +3,7 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Six separate times a status field has claimed
+**Why this document exists.** Seven separate times a status field has claimed
 something the system was not doing:
 
 | # | The claim | The reality |
@@ -13,11 +13,48 @@ something the system was not doing:
 | 3 | `stalled: false` with six documents waiting | Computed from heartbeat freshness, which only proves the loop is spinning |
 | 4 | `failed` on a fully embedded document | The chunk short-circuit did not advance the state, so a guard tripped |
 | 5 | `ready` with nothing searchable | A document whose every chunk was excluded still reported ready |
+| 7 | A passing ordering test over a document that had `failed` | The test asserted the statuses it OBSERVED at every OCR invocation and never asserted where the document FINISHED. `partially_searchable -> chunking` was an illegal transition; the raise was swallowed by the broad handler in `process()`; every scanned document on a fresh machine landed at `failed`, green suite and all |
 | 6 | "Quoted verbatim from the document" over OCR text | `AnswerCard.tsx:277` rendered the label unconditionally. 92 recognised chunks were retrievable, so a passage OCR had guessed off a page image could be cited as the document's own words, beside "quoted directly, no AI rewriting" |
 
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
 it is derived from, so the next instance is easy to spot.
+
+**Entry 7 is a DIFFERENT SHAPE from every other entry here, and that is why it
+is worth its own paragraph.** Every earlier failed check could not see its
+subject: a footer fixture that was itself a footer, a typecheck that ran over
+zero files, a reranker judging a chunk on a fragment of itself, a TestClient
+that never traverses the layer where the `Server:` header is written. The fix
+in all of those was to point the check at the real thing.
+
+Entry 7 saw its subject perfectly clearly and **asserted the wrong property
+about it.** The test watched every OCR invocation, confirmed each one happened
+while the document was answerable, and was completely correct about that. It
+simply never asked whether the document survived. `process()` catches broadly
+and records failure on the row, so the exception left no mark the test was
+looking at — a green suite over a corpus where every scanned document had
+failed.
+
+The rule this implies is standing rule 7: **a test that asserts intermediate
+state must also assert terminal state.** Steps are cheap to observe and are
+what a test naturally reaches for; outcomes are what the user gets. Nothing in
+this repository's working tree could have caught it either, because the
+document that exercises the path was already ingested here. It took a clone
+into an empty directory.
+
+**Two smaller instances from the same clean-clone pass**, both the same family
+— a claim that was true when written and quietly stopped being true:
+
+- **`huggingface_hub` was an undeclared dependency.** `scripts/fetch_models.py`
+  imports it directly; pip was getting it for free as a transitive of
+  `tokenizers`. Nothing was broken, and nothing would be until a resolver
+  chose differently — at which point model staging fails on a fresh clone,
+  during setup, on a machine about to be air-gapped. **A dependency you did not
+  declare is one you did not choose.**
+- **README "Getting started" read "Not yet available — see `docs/` once
+  `DEV-001` lands".** DEV-001 landed long ago. A placeholder that outlives its
+  plan stops reading as a placeholder and starts reading as a fact, and a
+  fresh clone had no instructions at all.
 
 **Entry 6 is the sharpest instance, and it happened inside the feature built
 to prevent it.** Provenance was stored (`page_ocr`), carried to `chunks`,
@@ -26,7 +63,7 @@ threaded through retrieval and passage expansion, and made a REQUIRED field in
 decides whether a sentence may be called the document's own words never read
 it. Every layer was correct and the claim was still false.
 
-The lesson is a rule, now standing rule 8: **a provenance field that no
+The lesson is a rule, now standing rule 9: **a provenance field that no
 assertion reads is decoration.** Storing it, typing it and requiring it are
 not the safeguard; the safeguard is a test that fails when the label is wrong.
 The test that now guards this asserts the ABSENCE of the verbatim label on
@@ -250,9 +287,12 @@ asserts no client error ever reports `internal`.
    Corpus counts and machine state come from the database and the OS at run
    time, never from a static declaration. A result that cannot say what it ran
    against is not a measurement.
-7. **A documented hazard is not a guard.** If a trap is worth writing down, the
+7. **Observing a step is not observing an outcome.** A test that asserts
+   intermediate state must also assert terminal state. Watching the right
+   thing happen says nothing about whether it worked.
+8. **A documented hazard is not a guard.** If a trap is worth writing down, the
    check belongs in the path of the tool that can fall into it.
-8. **A provenance field that no assertion reads is decoration.** Storing,
+9. **A provenance field that no assertion reads is decoration.** Storing,
    typing and requiring it are not the safeguard. Where provenance decides
    what a claim may say, a test must assert the ABSENCE of the stronger claim
    — presence-only assertions pass while both claims are on screen.
