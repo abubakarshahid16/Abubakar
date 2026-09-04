@@ -236,3 +236,59 @@ def test_the_answer_endpoint_validates_its_parameters():
     assert client.get("/api/answer?q=x&bogus=1").status_code == 422
     assert client.get("/api/answer?q=x&limit=99").status_code == 422
     assert client.get("/api/answer?q=x&document_id=doc_zzzzzzzzzzzz").status_code == 404
+
+
+# ------------------------------------------------------ question punctuation
+
+
+def test_trailing_punctuation_is_stripped_before_anything_scores():
+    from app.search import normalise_question
+
+    assert normalise_question("what is ndft ??") == "what is ndft"
+    assert normalise_question("what is ndft?") == "what is ndft"
+    assert normalise_question("  what   is  NDFT  ") == "what is NDFT"
+    assert normalise_question("") == ""
+
+
+def test_case_is_left_alone():
+    """The cross-encoder is uncased - measured at 1.437 vs 1.426 for the same
+    question either way - and identifiers like CA6NM read better as written."""
+    from app.search import normalise_question
+
+    assert normalise_question("what is CA6NM") == "what is CA6NM"
+
+
+def test_a_trailing_period_does_not_eat_a_clause_number():
+    from app.search import normalise_question
+
+    assert normalise_question("what does clause 5.3.2 say") == "what does clause 5.3.2 say"
+    assert normalise_question("what does clause 5.3.2. say.") == "what does clause 5.3.2. say"
+
+
+def test_the_response_shows_the_question_as_typed_not_as_normalised():
+    client = TestClient(app)
+    upload(client)
+    result = answer.answer("what is the vibration limit ??")
+    assert result["question"] == "what is the vibration limit ??"
+
+
+def test_how_a_question_is_punctuated_does_not_change_whether_it_is_answered():
+    """A question mark cost 1.26 rerank points on the NORSOK corpus, and two
+    of them pushed a question the document answers below the credibility
+    threshold. The reader typed the same question either way."""
+    client = TestClient(app)
+    upload(client)
+    plain = answer.answer("what is the vibration limit for pump P-101A")
+    punctuated = answer.answer("what is the vibration limit for pump P-101A ??")
+    assert plain["answer_type"] == punctuated["answer_type"] == "extract"
+    assert plain["passage"]["chunk_id"] == punctuated["passage"]["chunk_id"]
+
+
+def test_punctuation_stripping_does_not_rescue_an_unanswerable_question():
+    """The control. Fixing the input must not have loosened the gate."""
+    client = TestClient(app)
+    upload(client)
+    result = answer.answer(
+        "what is the maximum allowable chloride content in NORSOK M-630 duplex piping??"
+    )
+    assert result["answer_type"] == "insufficient_evidence"

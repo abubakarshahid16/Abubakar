@@ -319,6 +319,26 @@ def _hydrate(chunk_ids: list[str]) -> dict[str, sqlite3.Row]:
 # ------------------------------------------------------------------ search
 
 
+#: Trailing punctuation an engineer types without thinking. It carries no
+#: meaning and the cross-encoder is measurably hostile to it: on the NORSOK
+#: corpus the identical question scored +1.44 as "what is ndft", +0.18 as
+#: "what is ndft?" and -0.14 as "what is ndft ??" - and the last of those fell
+#: below the credibility threshold and refused a question the document
+#: answers, in 3.2 Abbreviations, with "NDFT nominal dry film thickness".
+#:
+#: The fix belongs here, at the input, and NOT in the threshold. Loosening the
+#: gate to admit a -0.14 would admit every genuinely unrelated passage too.
+_TRAILING_PUNCTUATION = re.compile(r"[\s?!.,;:]+$")
+
+
+def normalise_question(question: str) -> str:
+    """The question as the scorers should see it: no trailing punctuation
+    noise, no repeated whitespace. Case is deliberately left alone - the
+    cross-encoder is uncased (measured: 1.437 vs 1.426 for the same question
+    in either case), and identifiers like CA6NM read better as written."""
+    return _TRAILING_PUNCTUATION.sub("", " ".join(question.split()))
+
+
 def search(
     question: str,
     limit: int = 10,
@@ -336,6 +356,11 @@ def search(
     timer = Timer()
     timings: dict[str, float] = {}
     candidates = candidates or settings.search_candidates
+
+    # Everything that scores sees the normalised question. The original is
+    # kept for the response, so the reader is always shown what they typed.
+    asked = question
+    question = normalise_question(question)
 
     t = Timer()
     keyword_hits = keyword.search(question, limit=candidates, document_id=document_id)
@@ -411,7 +436,7 @@ def search(
             pool.sort(key=lambda c: -c.score)
 
     return {
-        "query": question,
+        "query": asked,
         "mode": "hybrid" if dense_hits else "keyword_only",
         "reranked": reranked,
         "keyword_candidates": len(keyword_hits),
