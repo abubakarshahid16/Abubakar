@@ -23,6 +23,7 @@ export interface AnswerView {
   rejected_citations: number[];
   model: string | null;
   seconds: number | null;
+  examples: string[];
 }
 
 export function viewFromMessage(m: Message): AnswerView {
@@ -38,13 +39,25 @@ export function viewFromMessage(m: Message): AnswerView {
     rejected_citations: p.rejected_citations ?? [],
     model: p.model ?? null,
     seconds: p.seconds ?? null,
+    examples: p.examples ?? [],
   };
 }
 
 /** The sources this answer is grounded in, in citation order. */
 export function sourcesOf(v: AnswerView): AnswerPassage[] {
+  // Guidance was never a document query, so it has nothing to cite. Showing
+  // "what was considered" for a greeting would invent a search that never ran.
+  if (v.answer_type === "guidance") return [];
   if (v.answer_type === "extract" && v.passage) return [v.passage, ...v.supporting];
   return v.passages;
+}
+
+/** Two sentences joined without punctuation read as one broken sentence:
+ *  "…were not a credible match Nothing was made up to fill the gap." */
+function asSentence(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
 function Chip({
@@ -138,6 +151,42 @@ export function AnswerCard({
 }) {
   const sources = sourcesOf(view);
 
+  // ----------------------------------------------------------- guidance
+  // Not a document question, so this is not a refusal and carries no
+  // evidence. Styled as a plain note rather than an answer card, so it does
+  // not read as something the documents said.
+  if (view.answer_type === "guidance") {
+    // The backend appends its examples to the reply text for callers that
+    // only read `answer`. Here they are rendered as a list, so the text is
+    // split back apart on the heading rather than shown twice.
+    const [lead, ...rest] = (view.answer ?? "").split("Try one of these:");
+    return (
+      <div className="rounded-lg border border-ink-700 bg-ink-850/60 p-4">
+        <p className="text-sm text-slateish-300">{lead.trim()}</p>
+        {view.examples.length > 0 && (
+          <>
+            <p className="mt-3 text-xs uppercase tracking-wide text-slateish-500">
+              Questions your documents can answer
+            </p>
+            <ul className="mt-1.5 space-y-1">
+              {view.examples.map((q) => (
+                <li key={q} className="text-sm text-slateish-400">
+                  <span aria-hidden className="mr-2 text-slateish-500">
+                    &bull;
+                  </span>
+                  {q}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {view.examples.length === 0 && rest.length > 0 && (
+          <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-400">{rest.join("")}</p>
+        )}
+      </div>
+    );
+  }
+
   // ---------------------------------------------------------- no answer
   if (view.answer_type === "insufficient_evidence") {
     return (
@@ -146,8 +195,8 @@ export function AnswerCard({
           The documents do not answer this
         </p>
         <p className="mt-1 text-sm text-slateish-400">
-          {view.reason ?? "Nothing credible was retrieved."} Nothing was made up
-          to fill the gap.
+          {asSentence(view.reason ?? "Nothing credible was retrieved")} Nothing
+          was made up to fill the gap.
         </p>
         {sources.length > 0 && (
           <div className="mt-3">
@@ -180,8 +229,8 @@ export function AnswerCard({
           The local answer model is not running
         </p>
         <p className="mt-1 text-sm text-slateish-300">
-          {view.reason ?? "Ollama could not be reached."} The quoted answer above
-          is unaffected — only the explanation needs the model.
+          {asSentence(view.reason ?? "Ollama could not be reached")} The quoted
+          answer above is unaffected — only the explanation needs the model.
         </p>
         <pre className="mt-2 overflow-x-auto rounded bg-ink-900 p-2 font-mono text-xs text-slateish-300">
 ollama serve

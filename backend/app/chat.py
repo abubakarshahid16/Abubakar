@@ -27,6 +27,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import answer as answer_mod
+from . import intent as intent_mod
 from . import keyword
 from .db import connect
 
@@ -125,6 +126,11 @@ def resolve_followup(
     `prior_questions` are earlier USER questions, oldest first. Assistant
     answers are not accepted here and must never be passed in.
     """
+    # A greeting is short enough to look like a follow-up. Carrying "system 1"
+    # into "hi" would search the corpus for a word the reader never asked
+    # about, which is the bug this ordering exists to prevent.
+    if not intent_mod.is_document_question(question):
+        return question, []
     if not prior_questions or not is_followup(question):
         return question, []
 
@@ -334,6 +340,7 @@ _PAYLOAD_KEYS = (
     "passage", "supporting", "passages", "cited", "rejected_citations",
     "retrieval_mode", "reranked", "candidates_considered", "model",
     "prompt_tokens", "output_tokens", "seconds", "timings",
+    "input_kind", "examples",
 )
 
 

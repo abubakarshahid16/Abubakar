@@ -71,6 +71,8 @@ class Candidate:
     boost: float = 0.0
     penalty: float = 0.0
     rerank_score: float | None = None
+    #: this passage defines the term a definitional question asked about
+    defines_term: bool = False
 
     @property
     def searchable_text(self) -> str:
@@ -105,6 +107,7 @@ class Candidate:
             "keyword_rank": self.keyword_rank,
             "dense_rank": self.dense_rank,
             "identifier_hits": self.identifier_hits,
+            "defines_term": self.defines_term,
         }
 
 
@@ -319,6 +322,69 @@ def _hydrate(chunk_ids: list[str]) -> dict[str, sqlite3.Row]:
 # ------------------------------------------------------------------ search
 
 
+#: A question asking what a term MEANS, not what value it takes. The captured
+#: group is the term itself.
+_DEFINITIONAL = (
+    re.compile(r"^\s*what\s+(?:is|are|was|were)\s+(?:an?\s+|the\s+)?(.+?)\s*$", re.I),
+    re.compile(r"^\s*what\s+do(?:es)?\s+(.+?)\s+(?:mean|stand\s+for)\b", re.I),
+    re.compile(r"^\s*define\s+(?:the\s+)?(.+?)\s*$", re.I),
+    re.compile(r"^\s*(?:the\s+)?meaning\s+of\s+(.+?)\s*$", re.I),
+    re.compile(r"^\s*(?:what\s+is\s+)?(?:the\s+)?definition\s+of\s+(.+?)\s*$", re.I),
+)
+
+#: A section that exists to define terms. These are labelled as such by the
+#: document itself, which is why this is a rule over metadata rather than a
+#: weight tuned into the reranker.
+_GLOSSARY_SECTION = re.compile(
+    r"abbreviation|definition|terms|terminology|nomenclature|glossary|acronym", re.I
+)
+
+#: A definitional question names a term, not a clause. "what is ndft" asks for
+#: a definition; "what is the NDFT for coating system no. 1" asks for a value,
+#: and must keep answering from A.1.
+_MAX_DEFINITIONAL_TERM_WORDS = 3
+
+
+def definitional_term(question: str) -> str | None:
+    """The term a definitional question is asking about, or None.
+
+    "What does X mean" is the first question anyone asks a specification, and
+    answering it out of a coating-system table gives the reader a number where
+    they asked for a meaning.
+    """
+    for pattern in _DEFINITIONAL:
+        m = pattern.match(question)
+        if not m:
+            continue
+        term = m.group(1).strip(" ?.!,")
+        if not term or len(term.split()) > _MAX_DEFINITIONAL_TERM_WORDS:
+            return None
+        return term
+    return None
+
+
+def promote_definitions(question: str, candidates: list[Candidate]) -> bool:
+    """Mark passages that DEFINE the asked-about term.
+
+    Three conditions, all of them metadata already present: the question is
+    definitional, the passage sits in a section the document itself labels as
+    abbreviations or definitions, and the passage actually contains the term.
+    A passage that merely uses the term does not qualify.
+    """
+    term = definitional_term(question)
+    if not term:
+        return False
+    contains = re.compile(r"\b" + re.escape(term) + r"\b", re.I)
+    found = False
+    for c in candidates:
+        if not c.section or not _GLOSSARY_SECTION.search(c.section):
+            continue
+        if contains.search(c.text):
+            c.defines_term = True
+            found = True
+    return found
+
+
 #: Trailing punctuation an engineer types without thinking. It carries no
 #: meaning and the cross-encoder is measurably hostile to it: on the NORSOK
 #: corpus the identical question scored +1.44 as "what is ndft", +0.18 as
@@ -434,6 +500,13 @@ def search(
             pool = shortlist
             _apply_conflict_penalty(pool, reranked=True)
             pool.sort(key=lambda c: -c.score)
+
+    # A definition outranks a usage, when one was asked for. Applied last and
+    # as an ordering rule rather than a score, so it cannot leak into the
+    # credibility threshold: a passage promoted here still had to be retrieved
+    # and scored on its own merits first.
+    if promote_definitions(question, pool):
+        pool.sort(key=lambda c: (not c.defines_term, -c.score))
 
     return {
         "query": asked,

@@ -600,3 +600,128 @@ describe("conversations", () => {
     await waitFor(() => expect(input.value).toBe("a question worth not losing"));
   });
 });
+
+// ------------------------------------------------------------------ guidance
+
+describe("inputs that are not document questions", () => {
+  const guidanceMessage = (over = {}) =>
+    extractMessage({
+      id: "msg_g1",
+      text: "Hello. I answer questions about your documents, quoting the source with its page and clause.",
+      answer_type: "guidance",
+      reason: null,
+      payload: {
+        passages: [],
+        cited: [],
+        rejected_citations: [],
+        input_kind: "greeting",
+        examples: [
+          "What does NORSOKM501Rev5.pdf say about Coating system no. 1?",
+          "What does book1-professionalpractices.pdf say about Self-Driving Vehicles?",
+        ],
+        seconds: 0.002,
+      },
+      ...over,
+    });
+
+  it("greets rather than refusing, and shows no search results", async () => {
+    mockApi({
+      ask: askResult({
+        answer_type: "guidance",
+        answer: "Hello. I answer questions about your documents, quoting the source with its page and clause.",
+        reason: null,
+        passage: null,
+        supporting: [],
+        passages: [],
+        assistant_message: guidanceMessage(),
+      }),
+    });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "hi");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(await screen.findByText(/I answer questions about your documents/i)).toBeInTheDocument();
+    // never a refusal, and never evidence for a search that did not happen
+    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/What was considered/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Show source/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Explain in plain/i })).toBeNull();
+  });
+
+  it("offers real example questions drawn from the loaded documents", async () => {
+    mockApi({
+      ask: askResult({
+        answer_type: "guidance",
+        answer: "Hello.",
+        passage: null,
+        supporting: [],
+        passages: [],
+        assistant_message: guidanceMessage(),
+      }),
+    });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "hi");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(await screen.findByText(/Questions your documents can answer/i)).toBeInTheDocument();
+    expect(
+      screen.getByText("What does NORSOKM501Rev5.pdf say about Coating system no. 1?"),
+    ).toBeInTheDocument();
+  });
+});
+
+// ------------------------------------------------------------- prose defects
+
+describe("refusal wording", () => {
+  it("does not run two sentences together without a full stop", async () => {
+    mockApi({
+      ask: askResult({
+        answer_type: "insufficient_evidence",
+        answer: null,
+        reason: "the closest passages were not a credible match",
+        passage: null,
+        supporting: [],
+        passages: [],
+        assistant_message: extractMessage({
+          text: null,
+          answer_type: "insufficient_evidence",
+          reason: "the closest passages were not a credible match",
+          payload: { passages: [], seconds: 1.4 },
+        }),
+      }),
+    });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    const text = (await screen.findByText(/not a credible match/i)).textContent ?? "";
+    expect(text).toContain("credible match. Nothing was made up");
+    expect(text).not.toContain("credible match Nothing");
+  });
+
+  it("leaves a reason that already ends in a full stop alone", async () => {
+    mockApi({
+      ask: askResult({
+        answer_type: "insufficient_evidence",
+        answer: null,
+        reason: "No indexed passage matched this question.",
+        passage: null,
+        supporting: [],
+        passages: [],
+        assistant_message: extractMessage({
+          text: null,
+          answer_type: "insufficient_evidence",
+          reason: "No indexed passage matched this question.",
+          payload: { passages: [], seconds: 1 },
+        }),
+      }),
+    });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    const text = (await screen.findByText(/No indexed passage/i)).textContent ?? "";
+    expect(text).toContain("this question. Nothing");
+    expect(text).not.toContain("question.. Nothing");
+  });
+});
