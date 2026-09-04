@@ -223,6 +223,15 @@ export interface AnswerPassage {
   text: string;              // exact source text, never paraphrased
   /** char offsets into `text` for the answering span, when one can be located */
   highlight: [number, number] | null;
+  /** offsets of the chunk that actually MATCHED, inside the expanded passage.
+   *  Retrieval works on the small chunk; the reader is shown the parent block. */
+  match_span: [number, number] | null;
+  /** how many chunks were joined to form this passage */
+  chunks_joined: number;
+  /** A table cannot be reflowed as prose: its column pairing is positional,
+   *  so wrapping it destroys the only structure it has. Render one in a
+   *  monospace grid that scrolls sideways rather than wrapping it. */
+  kind: ChunkKind;
   score: number;
   identifier_hits: string[];
 }

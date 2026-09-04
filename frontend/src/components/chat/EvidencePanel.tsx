@@ -30,6 +30,41 @@ function Highlighted({ passage }: { passage: AnswerPassage }) {
   );
 }
 
+/** The citation, set as a citation rather than as a row of metadata.
+ *
+ *  An engineer cites a specification as "NORSOK M-501, clause A.1, page 17".
+ *  Rendering that as three chips of equal weight makes the reader assemble it
+ *  themselves; rendering it as a line makes it quotable straight into an
+ *  email, which is what they actually do with it.
+ */
+export function Citation({ passage }: { passage: AnswerPassage }) {
+  const pages =
+    passage.page_start === passage.page_end
+      ? `page ${passage.page_start}`
+      : `pages ${passage.page_start}–${passage.page_end}`;
+  return (
+    <cite className="text-[13px] not-italic leading-relaxed text-slateish-300">
+      <span className="font-medium">{passage.filename}</span>
+      {passage.section ? (
+        <>
+          {", clause "}
+          <span className="font-mono text-[12px] text-slateish-200">
+            {passage.section.split(" ")[0]}
+          </span>
+          <span className="text-slateish-400"> {passage.section.split(" ").slice(1).join(" ")}</span>
+        </>
+      ) : (
+        /* Stated, not hidden. This document does not number its headings, and
+           implying otherwise would misrepresent the citation. */
+        <span className="text-slateish-500 italic"> (no clause numbering)</span>
+      )}
+      {", "}
+      <span className="text-slateish-400">{pages}</span>
+    </cite>
+  );
+}
+
+
 export function PassageLocation({ passage }: { passage: AnswerPassage }) {
   const pages =
     passage.page_start === passage.page_end
@@ -129,12 +164,19 @@ export function EvidencePanel({
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <PassageLocation passage={passage} />
+        <Citation passage={passage} />
 
         <h3 className="mt-4 text-xs uppercase tracking-wide text-slateish-400">
           Quoted passage
         </h3>
-        <blockquote className="mt-1.5 whitespace-pre-wrap rounded border-l-2 border-signal-500/50 bg-ink-900 px-3 py-2 font-serif text-sm leading-relaxed text-slateish-200">
+        <blockquote
+          className={[
+            "mt-1.5 rounded border-l-2 border-signal-500/50 bg-ink-900 px-3 py-2.5 text-slateish-200",
+            passage.kind === "table"
+              ? "document-table"
+              : "document-quote whitespace-pre-wrap text-sm",
+          ].join(" ")}
+        >
           <Highlighted passage={passage} />
         </blockquote>
 

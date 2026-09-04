@@ -142,6 +142,7 @@ def _passage_payload(hit: dict, question: str, budget: int | None = None) -> dic
         # where the chunk that actually matched sits inside the expanded text
         "match_span": expanded.get("match_span"),
         "chunks_joined": expanded.get("chunks_joined", 1),
+        "kind": expanded.get("kind", "prose"),
         "score": hit["score"],
         "identifier_hits": hit.get("identifier_hits", []),
     }

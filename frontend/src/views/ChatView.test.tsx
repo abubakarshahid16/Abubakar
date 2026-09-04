@@ -41,6 +41,9 @@ const A1: AnswerPassage = {
   section: "A.1 Coating system no. 1 (shall be pre-qualified)",
   text: "Coating system no. 1 shall have a nominal dry film thickness of 280 um.",
   highlight: [0, 70],
+  match_span: [0, 70],
+  chunks_joined: 1,
+  kind: "prose",
   score: 6.538,
   identifier_hits: ["system 1"],
 };
@@ -263,15 +266,14 @@ describe("citations", () => {
     await userEvent.type(screen.getByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    // the filename appears on the citation line and again in the supporting
-    // list, so scope to the citation line beside the quotation
+    // The citation is now set as a citation rather than a row of chips, so
+    // assert on the whole line: it has to be quotable straight into an email.
     const chip = await screen.findByRole("button", { name: "Show source 1" });
-    const citation = within(chip.parentElement!);
-    expect(citation.getByText("NORSOKM501Rev5.pdf")).toBeInTheDocument();
-    expect(citation.getByText("page 17")).toBeInTheDocument();
-    expect(
-      citation.getByText("A.1 Coating system no. 1 (shall be pre-qualified)"),
-    ).toBeInTheDocument();
+    const cite = chip.parentElement!.querySelector("cite")!;
+    expect(cite.textContent).toContain("NORSOKM501Rev5.pdf");
+    expect(cite.textContent).toContain("clause A.1");
+    expect(cite.textContent).toContain("Coating system no. 1");
+    expect(cite.textContent).toContain("page 17");
   });
 
   it("says so plainly when a document has no clause numbering", async () => {
@@ -559,9 +561,11 @@ describe("conversations", () => {
     await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
     expect(await screen.findByText(A1.text)).toBeInTheDocument();
     // a reopened conversation still carries its citation, not bare text
+    const cites = document.querySelectorAll("cite");
+    expect(cites.length).toBeGreaterThan(0);
     expect(
-      screen.getByText("A.1 Coating system no. 1 (shall be pre-qualified)"),
-    ).toBeInTheDocument();
+      Array.from(cites).some((c) => (c.textContent ?? "").includes("clause A.1")),
+    ).toBe(true);
   });
 
   it("keeps the question when the request fails, rather than losing it", async () => {

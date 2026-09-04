@@ -32,7 +32,8 @@ def _rows_for(document_id: str) -> list[dict]:
     return [
         dict(r)
         for r in connect().execute(
-            """SELECT id, ordinal, page_start, page_end, section, parent_id, text
+            """SELECT id, ordinal, page_start, page_end, section, parent_id,
+                      kind, text
                FROM chunks
                WHERE document_id = ? AND retrievable = 1
                ORDER BY ordinal""",
@@ -109,6 +110,10 @@ def expand_passage(
         "page_start": min(rows[i]["page_start"] for i in range(lo, hi + 1)),
         "page_end": max(rows[i]["page_end"] for i in range(lo, hi + 1)),
         "section": section,
+        # A quoted TABLE cannot be reflowed as prose: column pairing is
+        # positional, so wrapping it destroys the only structure it has. The
+        # UI needs to know which it is holding.
+        "kind": hit["kind"],
         "chunks_joined": hi - lo + 1,
         # where the chunk that actually matched sits inside the joined text
         "match_span": [offset, offset + len(hit["text"])],
