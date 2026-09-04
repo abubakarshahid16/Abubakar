@@ -436,3 +436,93 @@ def test_a_long_chunk_is_scored_on_content_past_the_old_window():
         "a phrase past the old 256-token window did not beat filler, so the "
         "reranker is still not seeing the tail of a long chunk"
     )
+
+
+# ============================== the zinc temperature answer, both phrasings
+
+
+ZINC_TEMPERATURE = [
+    "8",
+    "Thermally sprayed metallic coatings",
+    "8.2",
+    "Coating materials",
+    "The materials for metal spraying shall be in accordance with the following:",
+    "Aluminium: Type Al 99.5 of DIN 8566-2 or equivalent.",
+    "Zinc or alloys of zinc.",
+    "Metal coating shall be sealed or overcoated as specified in Annex A.",
+    "Maximum operating temperature when zinc or alloys of zinc metal coating",
+    "is used is 120 C.",
+]
+
+#: A different clause that also talks about operating temperature, and gave the
+#: wrong answer while clause 8 was unavailable.
+OTHER_TEMPERATURE_CLAUSE = [
+    "A.8",
+    "Coating system no. 8 (shall be pre-qualified)",
+    "Application Surface preparation Coating system NDFT um",
+    "Structural carbon steel with operating temperature <= 80 C, internal dry",
+    "areas. Cleanliness ISO 8501-1 Sa 2 1/2. Roughness ISO 8503 Grade Medium.",
+    "General notes: 1. Chalking rating shall be considered for exposed surfaces.",
+]
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        # as the document words it
+        "What is the maximum operating temperature when zinc or alloys of zinc metal coating is used?",
+        # as a user words it
+        "what is the maximum operating temperature for zinc metal coating",
+        # loosely, lowercase, no question mark
+        "max operating temp for zinc coating",
+    ],
+)
+def test_the_zinc_temperature_answer_is_the_same_clause_whatever_the_phrasing(question):
+    """One fact, three phrasings, one answer.
+
+    Reported from the running server as page 21 clause A.8 quoting "operating
+    temperature <= 80 C" - a specification error with money attached. The cause
+    was not ranking: clause 8 sat on a page classified as front matter, so the
+    correct passage was not retrievable at all and A.8 was the best remaining
+    candidate. With clause 8 present every stage ranks it first.
+
+    Three phrasings because the eval set held ONE per fact, which is why this
+    reached a user before it reached the suite.
+    """
+    client = TestClient(app)
+    upload(client, [ZINC_TEMPERATURE, OTHER_TEMPERATURE_CLAUSE])
+
+    result = answer_mod.answer(question)
+    assert result["answer_type"] == "extract", question
+    passage = result["answer_passages"][0]
+    assert passage["section"].startswith("8.2"), (
+        f"{question!r} answered from {passage['section']!r}, not clause 8.2"
+    )
+    assert "120 C" in passage["text"]
+    assert "<= 80 C" not in passage["text"]
+
+
+def test_hiding_clause_8_is_what_produced_the_wrong_answer():
+    """The counter-test, so the diagnosis is held rather than asserted.
+
+    With clause 8 unavailable the system answers from a different clause. That
+    is the pre-fix state reproduced, and it is why the front-matter gate in
+    classify_page is a correctness fix rather than a coverage improvement.
+    """
+    client = TestClient(app)
+    upload(client, [ZINC_TEMPERATURE, OTHER_TEMPERATURE_CLAUSE])
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "UPDATE chunks SET retrievable = 0 WHERE section LIKE '8.2%' OR section LIKE '8 %'"
+        )
+        conn.execute(
+            "DELETE FROM chunks_fts WHERE chunk_id IN "
+            "(SELECT id FROM chunks WHERE retrievable = 0)"
+        )
+
+    result = answer_mod.answer(
+        "What is the maximum operating temperature when zinc or alloys of zinc metal coating is used?"
+    )
+    if result["answer_type"] == "extract":
+        assert not result["answer_passages"][0]["section"].startswith("8.2")

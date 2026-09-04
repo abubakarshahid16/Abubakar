@@ -31,10 +31,14 @@
   --focus: #6fb3e0;
 }
 
+/* min-height, not height. A fixed 100% with taller content inside let the
+   whole application - sidebar included - be scrolled off the top, leaving a
+   viewport of empty background that reads as a crash. A minimum lets the
+   shell grow with its content instead of overflowing a box its own height. */
 html,
 body,
 #root {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {

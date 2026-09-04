@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { Connection } from "../components/Shell";
 import { DisconnectedState, ErrorState, Spinner } from "../components/states";
+import { humaniseReason } from "../components/WorkerPanel";
 import type { ApiError, Metrics, MetricWarning, StageThroughput } from "../types/api";
 
 const STAGE_LABELS: Record<string, string> = {
@@ -93,6 +94,54 @@ function Section({
       {hint && <p className="mt-0.5 text-xs text-slateish-500">{hint}</p>}
       <div className="mt-2">{children}</div>
     </section>
+  );
+}
+
+/**
+ * The four answers, above the measurements.
+ *
+ * The screen below is complete and was unreadable: twenty tiles of equal
+ * weight, in words - chunks, retrievable, reranker, e5-small - that only
+ * somebody who built it knows. A reader arrives with four questions, so those
+ * are answered first, in their words, and the detail stays underneath for when
+ * a number needs checking.
+ */
+function Headline({
+  label,
+  value,
+  unit,
+  note,
+  tone = "normal",
+}: {
+  label: string;
+  value: string | null;
+  unit?: string;
+  note: string;
+  tone?: "normal" | "warn" | "danger" | "good";
+}) {
+  const toneClass =
+    tone === "warn"
+      ? "text-warn-500"
+      : tone === "danger"
+        ? "text-danger-500"
+        : tone === "good"
+          ? "text-signal-400"
+          : "text-slateish-100";
+  return (
+    <div className="rounded-lg border border-ink-700 bg-ink-850 px-4 py-3.5">
+      <p className="text-[11px] uppercase tracking-wide text-slateish-500">{label}</p>
+      {value == null ? (
+        <p className="mt-1.5 text-base italic leading-tight text-slateish-500">
+          nothing measured yet
+        </p>
+      ) : (
+        <p className={`mt-1.5 font-mono text-3xl leading-none ${toneClass}`}>
+          {value}
+          {unit && <span className="ml-1 text-base text-slateish-500">{unit}</span>}
+        </p>
+      )}
+      <p className="mt-2 text-xs leading-relaxed text-slateish-400">{note}</p>
+    </div>
   );
 }
 
@@ -228,6 +277,74 @@ export function DashboardView({
         </p>
       </div>
 
+      {/* ---------------------------------------------- the four answers */}
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <Headline
+          label="Searchable"
+          value={
+            corpus.chunks_total > 0
+              ? `${Math.round((100 * corpus.chunks_retrievable) / corpus.chunks_total)}`
+              : null
+          }
+          unit="%"
+          tone={
+            corpus.chunks_total === 0
+              ? "normal"
+              : corpus.chunks_retrievable / corpus.chunks_total >= 0.9
+                ? "good"
+                : "warn"
+          }
+          note={
+            corpus.chunks_total === 0
+              ? "No documents loaded yet."
+              : `${nf.format(corpus.chunks_retrievable)} of ${nf.format(
+                  corpus.chunks_total,
+                )} passages can be found by a question. The rest are contents pages, front matter and scans — each listed below with the reason it was left out.`
+          }
+        />
+        <Headline
+          label="Typical answer"
+          value={retrieval?.p50 != null ? (retrieval.p50 / 1000).toFixed(1) : null}
+          unit="s"
+          tone={
+            retrieval?.p50 == null ? "normal" : retrieval.p50 < 3000 ? "good" : "warn"
+          }
+          note={
+            retrieval?.p50 == null
+              ? "No question has been asked on this machine yet, so there is nothing to average."
+              : `Half of answers arrive faster than this. The slowest one in twenty takes ${(
+                  (retrieval.p95 ?? retrieval.p50) / 1000
+                ).toFixed(1)}s. Taken from ${nf.format(
+                  retrieval.samples,
+                )} questions actually asked here, not a benchmark.`
+          }
+        />
+        <Headline
+          label="Documents"
+          value={String(corpus.documents)}
+          tone={corpus.documents > 0 ? "normal" : "warn"}
+          note={
+            corpus.documents === 0
+              ? "Upload a PDF on the Documents screen to begin."
+              : `${nf.format(corpus.pages_extracted)} pages read. ${
+                  Object.entries(corpus.by_status)
+                    .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
+                    .join(", ") || "no status recorded"
+                }.`
+          }
+        />
+        <Headline
+          label="Needs attention"
+          value={String(metrics.warnings.length)}
+          tone={metrics.warnings.length === 0 ? "good" : "warn"}
+          note={
+            metrics.warnings.length === 0
+              ? "Nothing is wrong that the system can detect."
+              : "Listed immediately below, each with what it means and what to do about it."
+          }
+        />
+      </div>
+
       {metrics.warnings.length > 0 && (
         <ul className="mt-4 space-y-1.5">
           {metrics.warnings.map((w) => (
@@ -238,7 +355,7 @@ export function DashboardView({
 
       <Section
         title="Corpus"
-        hint="Retrievable is what search can actually see. Excluded chunks are kept for inspection."
+        hint="A passage is a block of text a question can match. Searchable is what a question can actually reach; the rest are kept so you can inspect them."
       >
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           <Stat label="Documents" value={corpus.documents} />
@@ -252,9 +369,9 @@ export function DashboardView({
             }
             tone={corpus.pages_extracted < corpus.pages_declared ? "warn" : "normal"}
           />
-          <Stat label="Chunks (all rows)" value={corpus.chunks_total} />
+          <Stat label="Passages stored" value={corpus.chunks_total} />
           <Stat
-            label="Retrievable"
+            label="Searchable"
             value={corpus.chunks_retrievable}
             tone={corpus.chunks_retrievable > 0 ? "good" : "danger"}
           />
@@ -264,9 +381,9 @@ export function DashboardView({
             hint="stored, not searchable — see Documents › Excluded"
             tone={corpus.chunks_excluded > 0 ? "warn" : "normal"}
           />
-          <Stat label="In keyword index" value={corpus.chunks_indexed_keyword} />
+          <Stat label="Keyword search ready" value={corpus.chunks_indexed_keyword} />
           <Stat
-            label="Embedded"
+            label="Meaning search ready"
             value={corpus.chunks_embedded}
             hint={
               corpus.chunks_retrievable > 0
@@ -320,7 +437,7 @@ export function DashboardView({
 
       <Section
         title="Retrieval latency"
-        hint="From questions actually asked on this machine, not a synthetic benchmark."
+        hint="From questions actually asked on this machine, not a synthetic benchmark. The quoted answer needs no model; the Explain button does."
       >
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Stat
@@ -382,8 +499,22 @@ export function DashboardView({
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Stat
             label="State"
-            value={worker.stalled ? "STALLED" : worker.alive ? "running" : "stopped"}
-            tone={worker.stalled ? "danger" : worker.alive ? "good" : "warn"}
+            value={
+              worker.stalled && worker.current_document == null
+                ? "not moving"
+                : worker.current_document != null
+                  ? "working"
+                  : worker.alive
+                    ? "idle"
+                    : "stopped"
+            }
+            tone={
+              worker.stalled && worker.current_document == null
+                ? "danger"
+                : worker.alive
+                  ? "good"
+                  : "warn"
+            }
           />
           <Stat
             label="Last heartbeat"
@@ -392,7 +523,7 @@ export function DashboardView({
           <Stat label="Documents completed" value={worker.documents_completed} />
           <Stat
             label="Current document"
-            value={worker.current_document ?? "idle"}
+            value={worker.current_document ?? "nothing in progress"}
           />
         </div>
         {worker.stalled_reasons.length > 0 && (
@@ -403,7 +534,7 @@ export function DashboardView({
                 role="alert"
                 className="rounded border border-danger-500/50 bg-danger-500/10 px-3 py-1.5 text-sm text-slateish-300"
               >
-                {reason}
+                {humaniseReason(reason)}
               </li>
             ))}
           </ul>
@@ -445,7 +576,7 @@ export function DashboardView({
         </div>
       </Section>
 
-      <Section title="Machine" hint="This laptop is the production machine.">
+      <Section title="Machine" hint="Everything runs here. No document or question leaves this computer.">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
             <p className="text-[11px] uppercase tracking-wide text-slateish-500">CPU</p>
@@ -467,19 +598,23 @@ export function DashboardView({
             <p className="mt-1 text-[11px] text-slateish-500">
               {system.cpu_physical_cores ?? "?"} physical /{" "}
               {system.cpu_logical_cores ?? "?"} logical ·{" "}
-              {system.cpu_percent_since_last_call == null
-                ? "the first reading has no prior call to measure against"
-                : `average over the last ${metrics.refresh_seconds}s`}
+              {system.cpu_percent_since_last_call != null
+                ? `average over the last ${system.cpu_window_seconds ?? metrics.refresh_seconds}s`
+                : system.cpu_window_seconds == null
+                  ? "no prior call to measure against"
+                  : `the last window was only ${system.cpu_window_seconds}s — too short to average`}
             </p>
           </div>
 
           <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
             <p className="text-[11px] uppercase tracking-wide text-slateish-500">Memory</p>
+            {/* Free, not used. The reader's question is "is there room for the
+                answer model", and used/total made them subtract - which broke
+                on rounding: 15.4 of 16 rendered as "15 / 16", implying 1 GB
+                free while the alert correctly said 0.6 GB. */}
             <p className="mt-1 font-mono text-lg leading-tight text-slateish-100">
-              {bytes(system.ram_used_bytes)}{" "}
-              <span className="text-sm text-slateish-500">
-                / {bytes(system.ram_total_bytes)}
-              </span>
+              {bytes(system.ram_free_bytes)}{" "}
+              <span className="text-sm text-slateish-500">free of {bytes(system.ram_total_bytes)}</span>
             </p>
             <Bar percent={system.ram_percent} tone={loadTone(system.ram_percent)} />
             <p className="mt-1 text-[11px] text-slateish-500">
@@ -506,8 +641,8 @@ export function DashboardView({
 
       {metrics.exclusions.length > 0 && (
         <Section
-          title="What search cannot see"
-          hint="Nothing is dropped silently. Every exclusion is recorded with the rule that caused it."
+          title="Why search cannot see it"
+          hint="One row per RULE, not per passage — a single page rule can cover several passages, so these counts are smaller than the Excluded total above. Nothing is dropped silently; every exclusion is recorded with the rule that caused it."
         >
           <div className="overflow-x-auto rounded-lg border border-ink-700">
             <table className="w-full text-left text-sm">

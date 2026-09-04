@@ -100,7 +100,10 @@ export function DocumentsView({
         </p>
       </header>
 
-      <WorkerPanel connection={connection} />
+      <WorkerPanel
+        connection={connection}
+        documents={load.state === "ready" ? load.documents : []}
+      />
 
       <Uploader onUploaded={refresh} />
 

@@ -78,7 +78,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 
 Deliberately excluded from the prototype to protect the deadline:
 
-- **OCR** — scanned pages are detected and flagged, not OCR'd
+- ~~**OCR**~~ — **no longer cut.** Scanned pages are recognised offline (RapidOCR / PP-OCRv6, in a subprocess), and recognised text is labelled as such rather than presented as a quotation. Coverage across the corpus rose 94.0% → 96.3%. See `docs/adr/ADR-0005` and `ADR-0006`.
 - **ANN index** — brute-force vector search is faster *and* exact at prototype scale
 - **Retrieval profiles** — one profile (Balanced)
 - **System view** — four views: Documents, Chat, Ingestion, Dashboard (History folded into Chat)
@@ -89,10 +89,204 @@ Full rationale and known limitations: `docs/adr/`.
 
 ## Getting started
 
-Not yet available — see `docs/` once `DEV-001` lands.
+Every step below was executed from a clean `git clone` into an empty directory,
+on a machine with none of this project's state. Where a step failed, the fix is
+in the repository and the step here is the corrected one. A setup guide that has
+not been run from a clean clone is a guess.
+
+### Offline at run time. Online ONCE at setup time.
+
+Say this plainly, because the product is described as fully offline and that is
+true of the *query* path: no document, question or answer ever leaves the
+machine, and there is no outbound request when you ask a question.
+
+**Setup is different.** `backend/models/` and `*.onnx` are gitignored, so the
+model weights are not in the clone. They are downloaded exactly once, by
+`scripts/fetch_models.py`. **Run that step before the machine is air-gapped.**
+`npm ci` and `pip install` also need the network. After setup completes, nothing
+reaches the network again except your own Ollama on localhost.
+
+### Prerequisites — none of these come from the clone
+
+| Requirement | Version | Why it is pinned |
+|---|---|---|
+| **Python** | **3.12 exactly** | Every pin in `backend/requirements.txt` was resolved against 3.12. `onnxruntime==1.24.1` and `numpy==2.3.4` ship per-minor-version wheels, so another 3.x installs different binaries or none. `run.py` refuses to start on the wrong minor and tells you so. |
+| **Node** | 24.x (built on 24.18.0) | `npm ci` installs from the committed lockfile. |
+| **Ollama** | running, with `qwen3.5:4b` pulled | **The one prerequisite `fetch_models.py` cannot get for you** — see below. Needed only for Tier 2 ("Explain") answers; Tier 1 quotations work without it, verified by pointing the backend at a dead port. |
+| **RAM** | ~16 GB | See *If you have less* below. |
+| **Disk** | **768 MB in the clone, plus ~3.4 GB elsewhere** | Measured, not estimated — see below. |
+| **Internet** | for setup only | See above. |
+
+#### Ollama, in full
+
+`scripts/fetch_models.py` stages the embedder, the reranker and the OCR
+weights. It does **not** install Ollama or pull the answer model, and nothing
+else in this repository does either — this is the one prerequisite you have to
+satisfy by hand.
+
+1. Install Ollama from **<https://ollama.com/download>** (Windows, macOS and
+   Linux installers; on Linux, `curl -fsSL https://ollama.com/install.sh | sh`).
+2. Start it and pull the model:
+
+```bash
+ollama serve                 # a service on Windows/macOS; usually already running
+ollama pull qwen3.5:4b       # ~3.4 GB
+ollama list                  # confirm qwen3.5:4b is there
+```
+
+The model name must match `answer_model` in `backend/app/config.py`, which
+defaults to `qwen3.5:4b`. If Ollama is not running, Tier 1 quotations still
+work and the "Explain" button reports `model_unavailable` rather than failing
+silently.
+
+#### What 768 MB covers, and what it does not
+
+Measured on a completed clean clone, so a reader can size a disk honestly:
+
+| | Size |
+|---|---|
+| `.venv` | 527 MB |
+| `backend/models` (staged weights) | 159 MB |
+| `frontend/node_modules` | 80 MB |
+| `.git` | 1 MB |
+| **Total inside the clone** | **768 MB** |
+
+**The Ollama model is NOT in that figure.** It lives outside the repository —
+`~/.ollama/models` — and `qwen3.5:4b` is a further **~3.4 GB**. Budget
+**roughly 4.2 GB** in total for a working machine.
+
+> An earlier version of this README said "~2 GB", which nobody had measured.
+> It was wrong by 2.6× in the safe direction, which is why it survived: nothing
+> depended on it. See `docs/status-honesty-audit.md`.
+
+> **The `py` launcher may not exist.** On the machine this was verified on,
+> `py -3.12` was not installed and only the full interpreter path worked. If
+> `py` is not found, invoke your 3.12 interpreter directly — the venv it
+> creates is what matters, not how you launched it.
+
+### Steps
+
+```bash
+git clone <repo-url> nabaa
+cd nabaa
+```
+
+**1. Python environment.** Create it with 3.12 specifically:
+
+```bash
+py -3.12 -m venv .venv            # Windows, if the launcher exists
+python3.12 -m venv .venv          # macOS / Linux
+# fallback if neither resolves: use the full path to a 3.12 interpreter
+
+.venv/Scripts/activate            # Windows (PowerShell: .venv\Scripts\Activate.ps1)
+source .venv/bin/activate         # macOS / Linux
+
+pip install -r backend/requirements.txt
+```
+
+The virtual environment lives at the **repository root**, not inside
+`backend/`.
+
+**2. Stage the models. This is the step that needs the network.**
+
+```bash
+python scripts/fetch_models.py
+python scripts/fetch_models.py --verify-only
+```
+
+Downloads ~179 MB: the e5-small embedder, the cross-encoder reranker, and the
+OCR detector/recogniser/classifier. `--verify-only` checks presence **and**
+SHA-256, and exits non-zero if anything is missing or does not match — a file
+of the right name and the wrong content is worse than a missing one, because it
+runs.
+
+**3. Frontend.**
+
+```bash
+cd frontend
+npm ci
+npx tsc -b        # typecheck
+npm run test      # 115 tests
+cd ..
+```
+
+**4. Backend tests.** Run from `backend/`, which is where `pytest.ini` lives:
+
+```bash
+cd backend
+python -m pytest -q      # 496 tests, ~4 minutes
+```
+
+Slow tests that build a real ONNX session are marked `slow` and deselected by
+default. Run them with `python -m pytest -m slow`.
+
+If the models are not staged, the suite **stops immediately** with the command
+that fixes it, rather than producing ninety failures with one cause.
+
+**5. Run it.** Two terminals:
+
+```bash
+# terminal 1 - API on 127.0.0.1:8000 (loopback only, by design)
+cd backend && python run.py
+
+# terminal 2 - UI on 127.0.0.1:5173
+cd frontend && npm run dev
+```
+
+Open the UI, upload a PDF, and ask a question. Measured on a 24-page
+specification from a clean clone: **answerable 3.9 seconds after upload**,
+because the keyword index is built before embedding. Larger documents keep
+answering while embedding and OCR continue in the background.
+
+### If you have less than 16 GB
+
+The answer model holds ~3.4 GB and the API process peaks at ~3.2 GB with both
+ONNX arenas enabled. Below roughly 16 GB you will see, in this order: Tier 2
+answers slow sharply or fail as Ollama swaps; OCR should be run only while the
+answer model is unloaded (see `docs/runbook.md`); and ingesting a large document
+alongside answering becomes unreliable. Tier 1 quotations and keyword search are
+the last things to degrade.
+
+### Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| `This project requires Python 3.12` | Wrong interpreter in the venv. Delete `.venv` and recreate it with 3.12. |
+| Suite stops with "models are not staged" | Run `python scripts/fetch_models.py`. |
+| `WRONG CONTENT (SHA-256 does not match)` | A corrupted or changed download. Re-fetch with `--force`. |
+| 404 at `http://127.0.0.1:8000/` | Expected. The API has no root route; everything is under `/api/*`, plus `/docs`. Open the UI on 5173 instead. |
+| Vite starts on 5174 or 5175 | Another dev server is already running on 5173. |
+| "Explain" reports the model unavailable | Ollama is not running, or `qwen3.5:4b` is not pulled. Tier 1 is unaffected. |
 
 ## Repository conventions
 
-Branch: `<type>/<issue-number>-<stable-id>-<slug>` · squash merge only · one issue → one branch → one PR.
+### Branches
+
+    <type>/<issue-number>-<stable-id>-<slug>
+
+`type` is one of `feat`, `fix`, `chore`, `docs`, `perf`, `style`, `test`.
+Real examples from this repository:
+
+    feat/14-ing-001-stream-pdf-upload
+    feat/16-ing-002-page-batch-extraction
+    feat/20-emb-001-structure-aware-chunking
+    chore/6-gov-001-repo-guardrails
+    docs/7-arc-001-rag-adr
+
+One issue → one branch → one PR. **The issue number is not optional**: it is
+what lets someone reading `git log` in a year find out why a change was made.
+
+> **This convention lapsed and nobody noticed.** It held for 17 issues and 58
+> PRs, then stopped the moment work went off-plan onto a branch with no issue
+> number — after which 1 of 11 commits referenced an issue. Nothing in the
+> repository said it should, which is why it is written here and enforced by
+> `.github/pull_request_template.md`.
+
+### Commits
+
+Merge commits, not squash. The commit messages carry the reasoning and the
+measured numbers — *"the isolated figure was measuring the wrong thing"*,
+*"one bug wearing three faces"*. Squashing tidies a graph nobody reads at the
+cost of the project's memory.
 
 **Never commit** PDFs, extracted text, embeddings, chat history, model weights, secrets, or client metrics.

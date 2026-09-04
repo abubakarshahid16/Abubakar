@@ -222,6 +222,37 @@ def _is_page_number_column(lines: list[str], total_pages: int) -> bool:
     return ascending >= (len(in_range) - 1) * 0.75
 
 
+_REFERENCE_HEADING = re.compile(
+    r"(?i)\b(?:references|bibliography|works\s+cited|further\s+reading|"
+    r"selected\s+readings)\b"
+)
+
+
+def _only_reference_headings(text: str) -> bool:
+    """Is every numbered heading on this page a references heading?
+
+    Used to keep the dropped-real-content alert sharp. A page whose only
+    numbered heading is "9.15 References" is a bibliography, not body text
+    that went missing - but a page classified as references while carrying a
+    heading like "9.15 Mass balance" is a misclassification worth an alert.
+    """
+    lines = [line.rstrip() for line in text.splitlines()]
+    stripped = [line.strip() for line in lines]
+    found: list[str] = []
+    i = 0
+    while i < len(lines):
+        head = looks_like_heading(lines[i])
+        consumed = 1
+        if head is None:
+            head, consumed = _split_line_heading(stripped, i)
+        if head:
+            found.append(head)
+        i += consumed
+    if not found:
+        return False
+    return all(_REFERENCE_HEADING.search(h) for h in found)
+
+
 def count_clause_headings(text: str) -> int:
     """How many validated numbered clause headings this page carries.
 
@@ -1201,6 +1232,32 @@ def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]]) -> str:
     return h.hexdigest()
 
 
+def chunk_provenance(page_start: int, page_end: int, recognised: set[int],
+                     conf: dict, viol: dict | None = None
+                     ) -> tuple[str, float | None, int, str | None]:
+    """('extracted'|'recognised', min confidence) for one chunk's page span.
+
+    A chunk spanning one recognised page and one extracted page is
+    RECOGNISED. The reader cannot tell which sentence came from where, so the
+    label makes the weaker claim - under-claiming costs a little confidence,
+    over-claiming is the failure this system exists to prevent. The minimum
+    confidence governs, because the weakest evidence in the chunk is what the
+    reader is exposed to. See ADR-0006.
+
+    Module level so a test can exercise THIS function rather than a copy of
+    its logic - a test that reimplements the rule cannot fail when the rule
+    changes.
+    """
+    spanned = [p for p in range(page_start, page_end + 1) if p in recognised]
+    if not spanned:
+        return ("extracted", None, 0, None)
+    scores = [conf[p] for p in spanned if conf.get(p) is not None]
+    viol = viol or {}
+    n = sum(viol.get(p, (0, ""))[0] for p in spanned)
+    sample = "".join(sorted({c for p in spanned for c in viol.get(p, (0, ""))[1]}))[:20]
+    return ("recognised", min(scores) if scores else None, n, sample or None)
+
+
 def chunk_document(doc_id: str, force: bool = False) -> dict:
     """Chunk one extracted document. Idempotent - re-running replaces rows."""
     timer = Timer()
@@ -1210,13 +1267,30 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
     if doc is None:
         raise ValueError(f"unknown document {doc_id}")
 
-    pages = [
-        (r["page_no"], r["text"])
-        for r in conn.execute(
-            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
-            (doc_id,),
-        )
-    ]
+    # Recognised text overrides the empty extraction that triggered it. The
+    # resolution is explicit rather than a column read, because page_ocr is a
+    # separate table precisely so extraction cannot destroy it - see ADR-0006.
+    # Anything reading pages.text directly will silently ignore recognised
+    # text, which is why this is the one place pages are loaded.
+    page_rows = conn.execute(
+        """SELECT p.page_no,
+                  COALESCE(NULLIF(o.text, ''), p.text) AS text,
+                  CASE WHEN o.page_no IS NULL OR o.text = '' THEN 0 ELSE 1 END
+                      AS recognised,
+                  o.min_conf AS min_conf,
+                  o.alphabet_violations AS viol,
+                  o.alphabet_sample AS viol_sample
+           FROM pages p
+           LEFT JOIN page_ocr o
+             ON o.document_id = p.document_id AND o.page_no = p.page_no
+           WHERE p.document_id = ? ORDER BY p.page_no""",
+        (doc_id,),
+    ).fetchall()
+    pages = [(r["page_no"], r["text"]) for r in page_rows]
+    recognised_pages = {r["page_no"] for r in page_rows if r["recognised"]}
+    page_conf = {r["page_no"]: r["min_conf"] for r in page_rows if r["recognised"]}
+    page_viol = {r["page_no"]: (r["viol"] or 0, r["viol_sample"] or "")
+                 for r in page_rows if r["recognised"]}
     if not pages:
         raise ValueError(f"{doc_id} has no extracted pages - run extraction first")
 
@@ -1311,6 +1385,8 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
                 chash,
                 int(c.kind in RETRIEVABLE_KINDS and q["ok"]),
                 ",".join(q["reasons"]) or None,
+                *chunk_provenance(c.page_start, c.page_end, recognised_pages,
+                                  page_conf, page_viol),
             )
         )
 
@@ -1339,6 +1415,17 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
             (doc_id,),
         )
     }
+    # What recognition actually did to each flagged page, so the exclusion
+    # ledger can tell "not run yet" from "ran and the page is blank" from
+    # "ran and failed". Conflating those is the defect the old single rule had.
+    ocr_results = {
+        r["page_no"]: {"box_count": r["box_count"], "char_count": r["char_count"],
+                       "error": None}
+        for r in conn.execute(
+            "SELECT page_no, box_count, char_count FROM page_ocr WHERE document_id = ?",
+            (doc_id,),
+        )
+    }
 
     def dropped_real_content(text: str, rule: str) -> int:
         """Does this dropped page look like body text rather than furniture?
@@ -1352,6 +1439,14 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
         whole of Clause 8, dropped as front matter - has happened again.
         """
         if rule.endswith(("_toc", "_index")):
+            return 0
+        # A references page legitimately carries its own numbered heading -
+        # "9.15 References" - followed by bibliography entries long enough to
+        # read as prose. The alert fired on exactly that in book4, which is a
+        # false positive: the page is correctly excluded and nothing was lost.
+        # Left alone it would fire on every chapter of every textbook, and an
+        # alert that fires on the normal case stops being read.
+        if rule.endswith("_references") and _only_reference_headings(text):
             return 0
         if count_clause_headings(text) >= 1 and longest_clause(text) >= MIN_CLAUSE_WORDS:
             return 1
@@ -1377,8 +1472,30 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
 
         # The page survived classification but produced no chunk at all.
         if pno in ocr_pages:
-            reason = "scanned page with no extractable text; OCR is not implemented"
-            rule = "needs_ocr_not_implemented"
+            # Four rules, each describing the PAGE rather than the system. The
+            # old single rule asserted "OCR is not implemented", which is a
+            # property of the build and goes false the day it ships.
+            rec = ocr_results.get(pno)
+            if rec is None:
+                rule = "ocr_not_run"
+                reason = ("scanned page with no extractable text; recognition "
+                          "has not run")
+            elif rec["error"]:
+                rule = "ocr_failed"
+                reason = f"recognition failed on this page: {rec['error']}"
+            elif rec["box_count"] == 0:
+                # Measured: 5 of 12 flagged pages return zero boxes at both 150
+                # and 300 dpi. Those pages are BLANK, not unreadable, and
+                # calling them unreadable puts a false accusation in the ledger.
+                rule = "ocr_found_no_text"
+                reason = ("scanned page; recognition ran and found no text - "
+                          "the page appears to be blank")
+            else:
+                rule = "ocr_yielded_no_chunk"
+                reason = (
+                    f"recognition read {rec['char_count']} characters from this "
+                    "scanned page but they produced no chunk"
+                )
         elif length == 0:
             reason = "page contained no text after normalisation"
             rule = "page_empty"
@@ -1429,8 +1546,9 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
             """INSERT OR REPLACE INTO chunks
                (id, document_id, filename, ordinal, page_start, page_end,
                 section, parent_id, kind, text, token_count, content_hash,
-                retrievable, quality_flags)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                retrievable, quality_flags, text_source, ocr_min_conf,
+                ocr_alphabet_violations, ocr_alphabet_sample)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         # chunk_count is the RETRIEVABLE count - what search can actually see.

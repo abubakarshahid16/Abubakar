@@ -197,7 +197,12 @@ def test_system_metrics_are_present_and_plausible():
     assert s["process_rss_bytes"] > 0
     assert s["disk_total_bytes"] > 0
     assert s["disk_free_bytes"] <= s["disk_total_bytes"]
-    assert 0 <= s["cpu_percent_since_last_call"] <= 100 * (s["cpu_logical_cores"] or 1)
+    # May legitimately be null: the first reading has no baseline, and a
+    # window too short to average reports nothing rather than a spike. The
+    # property under test is that a value, WHEN PRESENT, is plausible.
+    cpu = s["cpu_percent_since_last_call"]
+    assert cpu is None or 0 <= cpu <= 100 * (s["cpu_logical_cores"] or 1)
+    assert s["ram_free_bytes"] + s["ram_used_bytes"] == s["ram_total_bytes"]
 
 
 # ---------------------------------------------------------------- warnings
@@ -301,15 +306,50 @@ def test_the_metrics_endpoint_works_on_an_empty_corpus():
     assert data["exclusions"] == []
 
 
-def test_the_first_cpu_reading_is_null_rather_than_a_false_zero():
+def test_the_first_cpu_reading_is_null_rather_than_a_false_zero(monkeypatch):
     """psutil.cpu_percent(interval=None) reports usage since the PREVIOUS call,
     so the first call has no baseline and returns exactly 0.0. Putting that on
     the screen would state "CPU 0%" as a fact on first render."""
+    monkeypatch.setattr(metrics, "CPU_MIN_WINDOW_SECONDS", 0.0)
     metrics._cpu_measured_once = False
+    metrics._cpu_last_call = None
     assert metrics.system()["cpu_percent_since_last_call"] is None
-    second = metrics.system()["cpu_percent_since_last_call"]
-    assert second is not None
-    assert 0 <= second <= 100 * (metrics.psutil.cpu_count(logical=True) or 1)
+    second = metrics.system()
+    assert second["cpu_percent_since_last_call"] is not None
+    assert 0 <= second["cpu_percent_since_last_call"] <= 100 * (
+        metrics.psutil.cpu_count(logical=True) or 1
+    )
+    # and the span it covers is stated, so the screen cannot claim the refresh
+    # interval when the real window was shorter
+    assert second["cpu_window_seconds"] is not None
+
+
+def test_a_window_too_short_to_average_reports_no_cpu_figure():
+    """Every caller of /api/metrics resets psutil's window. With two tabs open
+    it is halved; with several it becomes a spike, and the dashboard read
+    95 -> 50 -> 0 -> 23 under a caption claiming a 15-second average. A window
+    that cannot be an average reports nothing, exactly as an untimed stage rate
+    does."""
+    metrics._cpu_measured_once = False
+    metrics._cpu_last_call = None
+    metrics.system()                      # first: no baseline
+    metrics.system()                      # second: baseline, but microseconds old
+    third = metrics.system()
+    assert third["cpu_percent_since_last_call"] is None
+    # The window IS reported, so the screen can distinguish "no baseline yet"
+    # from "the baseline was 0.3 seconds ago" instead of showing one message
+    # for two different situations.
+    assert third["cpu_window_seconds"] is not None
+
+
+def test_free_memory_is_stated_rather_than_left_to_be_derived():
+    """used/total asked the reader to subtract, and rounding broke it: 15.4 of
+    16 renders as "15 / 16", implying 1 GB free while the low-memory alert
+    correctly said 0.6 GB. The same measurement contradicting itself on one
+    screen costs more than a missing one."""
+    s = metrics.system()
+    assert s["ram_free_bytes"] > 0
+    assert s["ram_free_bytes"] + s["ram_used_bytes"] == s["ram_total_bytes"]
 
 
 def test_low_free_memory_warns_before_explain_is_pressed(monkeypatch):

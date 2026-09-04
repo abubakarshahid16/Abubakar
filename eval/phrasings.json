@@ -1,0 +1,106 @@
+{
+  "purpose": "Two additional phrasings per answerable fact, same expected page and expected content. One worded close to the document's own wording, one worded loosely as a user actually types. The original questions.json is left untouched so its 15 stay a pristine regression set.",
+  "why": "The eval held ONE phrasing per fact, which is how a confidently wrong answer about zinc coating temperature reached a user before it reached the suite. A fact whose three phrasings disagree on the cited page is a ranking defect, and knowing which facts those are decides what is safe to ask in front of a client.",
+  "phrasings": [
+    {
+      "of": "1",
+      "fact": "NDFT stands for nominal dry film thickness",
+      "document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [7],
+      "expected_clause": "3.2",
+      "expected_answer": "nominal dry film thickness",
+      "close": "In clause 3.2 Abbreviations, what does the abbreviation NDFT mean?",
+      "loose": "ndft means what"
+    },
+    {
+      "of": "2",
+      "fact": "relative humidity limit 85 % for blast cleaning and coating",
+      "document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [7],
+      "expected_clause": "4.4",
+      "expected_answer": "85 % relative humidity; steel at least 3 C above dew point",
+      "close": "No final blast cleaning or coating application shall be done if the relative humidity is more than what?",
+      "loose": "how humid is too humid to paint"
+    },
+    {
+      "of": "3",
+      "fact": "coating system no. 9 is 2 coats to 300 um total",
+      "document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [21, 22],
+      "expected_clause": "A.9",
+      "expected_answer": "2 coats x 150 um, 300 um total",
+      "close": "For coating system no. 9, what is the NDFT and the number of coats?",
+      "loose": "coating system 9 how many coats and how thick"
+    },
+    {
+      "of": "4",
+      "fact": "soluble impurity limit is NaCl 20 mg/m2 per ISO 8502-9",
+      "document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [10],
+      "expected_clause": "6.3",
+      "expected_answer": "ISO 8502-9; NaCl 20 mg/m2",
+      "close": "What is the maximum level of soluble impurities on the blast cleaned surface?",
+      "loose": "how much salt is allowed on the surface before painting"
+    },
+    {
+      "of": "5",
+      "fact": "holiday detection voltage is given by NACE RP0188",
+      "document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [16],
+      "expected_clause": "11",
+      "expected_answer": "NACE RP0188",
+      "close": "For holiday detection, which standard gives the test voltage?",
+      "loose": "what standard do i use for holiday detection"
+    },
+    {
+      "of": "6",
+      "fact": "the stripe coat is applied by brush to welds, corners and edges",
+      "document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [10, 11, 12],
+      "expected_clause": "7.3",
+      "expected_answer": "by brush to welds, corners and edges",
+      "close": "How shall the stripe coat be applied to welds, corners and edges?",
+      "loose": "do i brush or spray the stripe coat"
+    },
+    {
+      "of": "7",
+      "fact": "check frequency before each shift and twice per shift, RH limit 85 %",
+      "document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [7, 16],
+      "expected_clause": "4.4 + 11",
+      "expected_answer": "before start of each shift and at least twice per shift; relative humidity limit 85 %",
+      "close": "What is the check frequency for ambient and steel temperature, relative humidity and dew point, and what is the relative humidity limit?",
+      "loose": "how often do i check humidity and what's the max"
+    },
+    {
+      "of": "8",
+      "fact": "coating system no. 1 is minimum 3 coats to 280 um MDFT",
+      "document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [17],
+      "expected_clause": "A.1",
+      "expected_answer": "minimum 3 coats, 280 um",
+      "close": "For coating system no. 1, what is the minimum number of coats and the MDFT of the complete coating system?",
+      "loose": "system 1 coats and thickness"
+    },
+    {
+      "of": "9",
+      "fact": "maximum operating temperature for zinc metal coating is 120 C",
+      "document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [11],
+      "expected_clause": "8.2",
+      "expected_answer": "120",
+      "close": "What is the maximum operating temperature when zinc or alloys of zinc metal coating is used?",
+      "loose": "max operating temp for zinc coating"
+    },
+    {
+      "of": "10",
+      "fact": "roughly 95 % of crashes are caused by human error",
+      "document": "book1-professionalpractices.pdf",
+      "expected_pages": [27, 28],
+      "expected_clause": null,
+      "expected_answer": "95",
+      "close": "What percentage of automobile crashes is caused by human error?",
+      "loose": "how many accidents are human error"
+    }
+  ]
+}

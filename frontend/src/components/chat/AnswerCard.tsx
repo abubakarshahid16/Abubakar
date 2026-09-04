@@ -8,8 +8,11 @@
  * engineer must be able to tell at a glance which one they are reading,
  * because only one of them is the specification.
  */
+import { useEffect } from "react";
+
 import type { AnswerPassage, AnswerType, Message } from "../../types/api";
-import { Citation, PassageLocation } from "./EvidencePanel";
+import { Citation, Highlighted, PassageLocation } from "./EvidencePanel";
+import { ProvenanceMark, isRecognised, provenanceDetail } from "./Provenance";
 
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
@@ -60,6 +63,40 @@ function asSentence(text: string): string {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
+/**
+ * Milliseconds are a developer's unit. "2755 ms" is a measurement; "2.8s" is
+ * how long the reader waited.
+ */
+function formatDuration(seconds: number): string {
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  return `${Math.round(seconds)}s`;
+}
+
+function chipClass(active: boolean): string {
+  return [
+    "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 align-baseline font-mono text-[11px] leading-none",
+    active
+      ? "bg-signal-500/30 text-signal-300 ring-1 ring-signal-500/60"
+      : "bg-ink-700 text-slateish-300 hover:bg-ink-600",
+  ].join(" ");
+}
+
+/**
+ * The chip as a plain mark, for when it sits INSIDE a row that is already a
+ * button. It used to be a real button in both places, which put a <button>
+ * inside a <button>: invalid HTML that React reported on every answer, and
+ * that leaves the inner control unreachable by keyboard and ambiguous to a
+ * screen reader. The row owns the action; here the number is only a label for
+ * it, so it is announced as part of the row rather than as a second target.
+ */
+function ChipMark({ n, active }: { n: number; active: boolean }) {
+  return (
+    <span aria-hidden="true" className={chipClass(active)}>
+      {n}
+    </span>
+  );
+}
+
 function Chip({
   n,
   onClick,
@@ -74,12 +111,7 @@ function Chip({
       type="button"
       onClick={onClick}
       aria-label={`Show source ${n}`}
-      className={[
-        "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 align-baseline font-mono text-[11px] leading-none",
-        active
-          ? "bg-signal-500/30 text-signal-300 ring-1 ring-signal-500/60"
-          : "bg-ink-700 text-slateish-300 hover:bg-ink-600",
-      ].join(" ")}
+      className={chipClass(active)}
     >
       {n}
     </button>
@@ -119,7 +151,13 @@ function CitedProse({
   return <>{parts}</>;
 }
 
-function Label({ tone, children }: { tone: "quote" | "generated"; children: React.ReactNode }) {
+function Label({
+  tone,
+  children,
+}: {
+  tone: "quote" | "generated" | "ocr";
+  children: React.ReactNode;
+}) {
   return (
     <p
       className={[
@@ -150,6 +188,20 @@ export function AnswerCard({
   explainsEarlier?: boolean;
 }) {
   const sources = sourcesOf(view);
+
+  // For a RECOGNISED passage the page image is not a verification the reader
+  // may want - it is the only evidence the answer is real, so it is shown
+  // rather than offered. A label that says "check it against the page" while
+  // the page sits behind a click is a label that expects to be ignored.
+  // Extracted text keeps the collapsed default. See ADR-0006 s1C.
+  const autoExpand =
+    view.answer_type === "extract" && view.passage?.text_source === "recognised";
+  useEffect(() => {
+    if (autoExpand && activeSource === null) onSelectSource(0);
+    // onSelectSource identity changes per render in the parent; depending on
+    // it would re-fire the effect forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoExpand, activeSource]);
 
   // ----------------------------------------------------------- guidance
   // Not a document question, so this is not a refusal and carries no
@@ -242,13 +294,27 @@ ollama serve
   // ------------------------------------------------------ tier 1: quotation
   if (view.answer_type === "extract") {
     const p = view.passage;
+    const recognised = isRecognised(p);
     return (
       <div className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+        {/* THE LABEL IS THE CLAIM. "Quoted verbatim" is literally true only
+            when the characters came out of the PDF's own text layer. OCR read
+            them off a page image - a guess about pixels, measured producing
+            `Pyblish` for "Publish" and `≦` where a specification says `≤` -
+            and putting that under a verbatim label is the single outcome this
+            feature must not produce. Branch on provenance, never on anything
+            else. See ADR-0006. */}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Label tone="quote">Quoted verbatim from the document</Label>
+          {recognised && p ? (
+            <ProvenanceMark passage={p} variant="full" />
+          ) : (
+            <Label tone="quote">Quoted verbatim from the document</Label>
+          )}
           {view.seconds != null && (
             <span className="font-mono text-[11px] text-slateish-500">
-              {Math.round(view.seconds * 1000)} ms · no model involved
+              {formatDuration(view.seconds)}
+              {" · "}
+              {p ? provenanceDetail(p) : "quoted directly, no AI rewriting"}
             </span>
           )}
         </div>
@@ -261,7 +327,17 @@ ollama serve
               : "document-quote whitespace-pre-wrap text-[15px]",
           ].join(" ")}
         >
-          {view.answer}
+          {/* Marked only when the quotation IS the passage and the passage is
+              prose. `answer` is documented as the passage text verbatim, but a
+              mismatch would slice the wrong offsets into the wrong string, and
+              a table's column pairing is positional so a span inside it means
+              nothing. Both cases fall back to the plain text rather than
+              risking a confidently wrong emphasis. */}
+          {p && p.kind !== "table" && view.answer === p.text ? (
+            <Highlighted passage={p} />
+          ) : (
+            view.answer
+          )}
         </blockquote>
 
         {p && (
@@ -285,7 +361,7 @@ ollama serve
                     onClick={() => onSelectSource(i + 1)}
                     className="flex w-full items-center gap-2 rounded border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
                   >
-                    <Chip n={i + 2} active={activeSource === i + 1} onClick={() => onSelectSource(i + 1)} />
+                    <ChipMark n={i + 2} active={activeSource === i + 1} />
                     <PassageLocation passage={s} />
                   </button>
                 </li>
@@ -324,7 +400,7 @@ ollama serve
         </Label>
         {view.seconds != null && (
           <span className="font-mono text-[11px] text-slateish-500">
-            {Math.round(view.seconds * 1000)} ms
+            {formatDuration(view.seconds)}
           </span>
         )}
       </div>
@@ -353,7 +429,7 @@ ollama serve
                 onClick={() => onSelectSource(i)}
                 className="flex w-full items-center gap-2 rounded border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
               >
-                <Chip n={i + 1} active={activeSource === i} onClick={() => onSelectSource(i)} />
+                <ChipMark n={i + 1} active={activeSource === i} />
                 <PassageLocation passage={s} />
               </button>
             </li>

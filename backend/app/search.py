@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import keyword
+from . import scores
+from . import vectorcache
 from .db import connect
 from .config import settings
 from .embedder import EMBEDDING_DIM, Embedder, EmbedderConfig
@@ -60,6 +62,13 @@ class Candidate:
     page_start: int
     page_end: int
     text: str
+    #: 'extracted' | 'recognised'. Carried on the chunk row rather than joined
+    #: back to pages, so retrieval and the UI see provenance without a join.
+    #: This is what stops recognised text reaching a "quoted verbatim" label.
+    text_source: str = "extracted"
+    ocr_min_conf: float | None = None
+    ocr_alphabet_violations: int = 0
+    ocr_alphabet_sample: str | None = None
     keyword_rank: int | None = None
     dense_rank: int | None = None
     bm25: float | None = None
@@ -73,6 +82,13 @@ class Candidate:
     rerank_score: float | None = None
     #: this passage defines the term a definitional question asked about
     defines_term: bool = False
+    #: this passage's HEADING declares the designator the question asked for,
+    #: rather than merely mentioning it in the body. See
+    #: apply_heading_precedence - authority, not a score.
+    heading_declares: bool = False
+    #: Distance below the winner as a fraction of the whole field's spread.
+    #: None when the field is too small for the fraction to mean anything.
+    separation: float | None = None
 
     @property
     def searchable_text(self) -> str:
@@ -107,7 +123,13 @@ class Candidate:
             "keyword_rank": self.keyword_rank,
             "dense_rank": self.dense_rank,
             "identifier_hits": self.identifier_hits,
+            "text_source": self.text_source,
+            "ocr_min_conf": self.ocr_min_conf,
+            "ocr_alphabet_violations": self.ocr_alphabet_violations,
+            "ocr_alphabet_sample": self.ocr_alphabet_sample,
             "defines_term": self.defines_term,
+            "heading_declares": self.heading_declares,
+            "separation": self.separation,
         }
 
 
@@ -117,26 +139,24 @@ class Candidate:
 def _load_vectors(document_id: str | None = None) -> tuple[list[str], np.ndarray]:
     """All stored vectors for retrievable chunks, as one matrix.
 
-    Joined against `chunks` so a vector orphaned by a re-chunk can never be
-    retrieved, and filtered on `retrievable` so an excluded chunk cannot come
-    back through the dense path even if it slipped past the index.
-    """
-    conn = connect()
-    sql = """SELECT v.chunk_id, v.vector FROM chunk_vectors v
-             JOIN chunks c ON c.id = v.chunk_id
-             WHERE c.retrievable = 1"""
-    params: list[object] = []
-    if document_id:
-        sql += " AND v.document_id = ?"
-        params.append(document_id)
-    rows = conn.execute(sql, params).fetchall()
-    if not rows:
-        return [], np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
+    Served from a memory-mapped cache, rebuilt only when the corpus changes.
+    Re-reading every blob from SQLite per query was the only component of
+    retrieval measured to grow with the corpus (x2.11 across a doubling, while
+    the matmul grew x1.05).
 
-    ids = [r["chunk_id"] for r in rows]
-    matrix = np.frombuffer(b"".join(r["vector"] for r in rows), dtype=np.float32)
-    matrix = matrix.reshape(len(ids), EMBEDDING_DIM)
-    return ids, matrix
+    The underlying read is joined against `chunks` so a vector orphaned by a
+    re-chunk can never be retrieved, and filtered on `retrievable` so an
+    excluded chunk cannot come back through the dense path even if it slipped
+    past the index.
+
+    Reranking is an enhancement, never a dependency, and the same rule applies
+    here: if the cache cannot be built or mapped for any reason, the direct
+    read still answers the query.
+    """
+    try:
+        return vectorcache.load(document_id)
+    except Exception:  # noqa: BLE001 - never let a cache fault break retrieval
+        return vectorcache._read_from_db(document_id)
 
 
 def dense_search(question: str, limit: int = 30, document_id: str | None = None) -> list[dict]:
@@ -233,6 +253,15 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
         # "Coating system no. 1 may be used on other deck areas", so matching
         # body text alone cannot tell A.1 from A.4 - and getting that wrong
         # quotes system 4's film thickness as system 1's.
+        #
+        # Recorded as a FLAG, not added to a score. It used to be
+        # `IDENTIFIER_BOOST * top_rrf * 2` = 0.0313, computed on the RRF scale
+        # and applied to the rerank scale, where it could never move an
+        # outcome: clause 4.5's cross-reference to "coating system no. 1"
+        # beat annex A.1's own table by 0.15 and the boost was a fifth of
+        # that. A rule that fires and cannot change the result is counted as
+        # protection and provides none. It is applied as precedence in
+        # apply_heading_precedence instead.
         heading = c.section or ""
         for want in wanted_designators:
             word, _, value = want.partition(" ")
@@ -245,7 +274,7 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
                 continue
             if value.upper() in declared:
                 c.identifier_hits = sorted(set(c.identifier_hits) | {want})
-                c.boost = max(c.boost, IDENTIFIER_BOOST * top_rrf * 2)
+                c.heading_declares = True
             else:
                 c.conflicts = sorted(f"{word} {v}" for v in declared)
 
@@ -312,7 +341,8 @@ def _hydrate(chunk_ids: list[str]) -> dict[str, sqlite3.Row]:
     marks = ",".join("?" * len(chunk_ids))
     rows = conn.execute(
         f"""SELECT id, document_id, filename, section, page_start, page_end,
-                   text, retrievable
+                   text, retrievable, text_source, ocr_min_conf,
+                   ocr_alphabet_violations, ocr_alphabet_sample
             FROM chunks WHERE id IN ({marks})""",
         chunk_ids,
     ).fetchall()
@@ -405,6 +435,83 @@ def normalise_question(question: str) -> str:
     return _TRAILING_PUNCTUATION.sub("", " ".join(question.split()))
 
 
+#: Two candidates are INDISTINGUISHABLE when the gap between them is under
+#: this fraction of the field's own spread.
+#:
+#: Measured over 35 queries with known ground truth. Only 4 of 30 present
+#: queries had a top-to-second gap under 1.0 raw point, and in the one that
+#: mattered - "system 1 coats and thickness" - the gap was 0.150 against a
+#: field spread of 6.11, i.e. 0.025 of the spread. A 0.15 margin on a scale
+#: spanning 20 points is noise, not a preference.
+#:
+#: Expressed as a fraction so it survives a document whose scores sit
+#: somewhere else entirely, which the raw-point version would not.
+INDISTINGUISHABLE = 0.15
+
+#: Below this many scored candidates, "a fraction of the field's spread" is
+#: not a meaningful quantity - with three candidates the median is the second
+#: one, so every second-place separation computes to exactly 1.0. The relative
+#: rules stand down rather than producing a confident number from nothing.
+_MIN_FIELD_FOR_SEPARATION = 5
+
+
+def apply_heading_precedence(candidates: list[Candidate]) -> str | None:
+    """Within the noise band, a heading that DECLARES the identifier wins.
+
+    Not a boost. The previous mechanism added 0.0313 to a scale spanning about
+    20 points, so the rule fired on every query and could never change an
+    outcome - clause 4.5's cross-reference to "coating system no. 1" beat annex
+    A.1's own table by 0.15 and the boost was a fifth of that.
+
+    Precedence is the right mechanism because the claim is categorical: a
+    clause whose heading declares the subject IS about that subject, and a
+    clause that mentions it in passing is a cross-reference. That is not a
+    matter of degree, so it should not be expressed as one.
+
+    Applied only where the scores cannot tell the two apart. Where the field
+    genuinely prefers one - measured at 26 of 30 queries with a gap above 1.0
+    point - the scores are left alone, because a categorical rule overriding a
+    decisive score would be the same mistake in the other direction.
+    """
+    if len(candidates) < 2:
+        return None
+    field = [c.rerank_score for c in candidates if c.rerank_score is not None]
+    if len(field) < 2:
+        return None
+
+    top = candidates[0]
+    if top.heading_declares:
+        return None  # already right
+
+    for other in candidates[1:]:
+        if not other.heading_declares or other.rerank_score is None:
+            continue
+        if top.rerank_score is None:
+            continue
+        apart = scores.separation(top.rerank_score, other.rerank_score, field)
+        if apart.value > INDISTINGUISHABLE:
+            break  # the field has a real preference; leave it
+        candidates.remove(other)
+        candidates.insert(0, other)
+        return (
+            f"{other.section} declares the identifier in its heading; "
+            f"{top.section} only mentions it, and the two were "
+            f"{apart.value:.3f} of the field apart"
+        )
+    return None
+
+
+#: A second passage is shown only while it remains close to the first, as a
+#: fraction of the field's spread.
+#:
+#: Fact 3's user-worded phrasing returned FOUR pages - the correct 21-22 plus
+#: two unrelated - because the count was fixed regardless of how many
+#: candidates were actually credible. Capping at two was rejected: fact 7
+#: legitimately spans pages 7 and 16, and cutting by a constant would break a
+#: right answer to tidy a noisy one. The count follows the separation instead.
+SUPPORTING_WITHIN = 0.35
+
+
 def search(
     question: str,
     limit: int = 10,
@@ -456,6 +563,10 @@ def search(
                 page_start=row["page_start"],
                 page_end=row["page_end"],
                 text=row["text"],
+                text_source=row["text_source"],
+                ocr_min_conf=row["ocr_min_conf"],
+                ocr_alphabet_violations=row["ocr_alphabet_violations"] or 0,
+                ocr_alphabet_sample=row["ocr_alphabet_sample"],
                 keyword_rank=meta.get("keyword_rank"),
                 dense_rank=meta.get("dense_rank"),
                 bm25=meta.get("bm25"),
@@ -467,7 +578,15 @@ def search(
     apply_identifier_boost(question, pool)
     _apply_conflict_penalty(pool)
     pool = deduplicate(pool)
-    pool.sort(key=lambda c: -c.score)
+    # heading_declares is a TIEBREAK here, not a score.
+    #
+    # It has to be in this sort as well as in apply_heading_precedence, because
+    # precedence only runs on the reranked path and this is the ordering used
+    # when the reranker is unavailable. Converting the old additive boost to
+    # precedence removed heading authority from the RRF-only path entirely,
+    # leaving annex A.1 tied with annex A.4 at 0.035 - which would quote system
+    # 4's film thickness as system 1's, the exact defect the rule exists for.
+    pool.sort(key=lambda c: (-c.score, not c.heading_declares))
 
     reranked = False
     if rerank and pool:
@@ -508,6 +627,26 @@ def search(
     if promote_definitions(question, pool):
         pool.sort(key=lambda c: (not c.defines_term, -c.score))
 
+    # And within the noise band, an authoritative heading beats a passing
+    # mention. Ordering again, never a score.
+    precedence_note = apply_heading_precedence(pool) if reranked else None
+
+    # Separation from the winner, computed against the WHOLE candidate field
+    # and carried on each hit.
+    #
+    # It has to be computed HERE because this is the only place the full field
+    # exists. Recomputing it downstream from the returned slice made it
+    # degenerate: with three hits the median IS the second one, so the second
+    # passage's separation came out as exactly 1.000 every time and a correct
+    # two-page answer was cut to one. A normaliser whose denominator depends on
+    # how many rows the caller asked for is not a normaliser.
+    field = [c.rerank_score for c in pool if c.rerank_score is not None]
+    if len(field) >= _MIN_FIELD_FOR_SEPARATION:
+        top_score = field[0]
+        for c in pool:
+            if c.rerank_score is not None:
+                c.separation = scores.separation(top_score, c.rerank_score, field).value
+
     return {
         "query": asked,
         "mode": "hybrid" if dense_hits else "keyword_only",
@@ -517,5 +656,7 @@ def search(
         "total": len(pool),
         "seconds": timer.seconds(),
         "timings": timings,
+        # Stated so a reordering is auditable rather than mysterious.
+        "heading_precedence": precedence_note,
         "hits": [c.to_dict() for c in pool[:limit]],
     }

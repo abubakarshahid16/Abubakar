@@ -19,6 +19,47 @@ class Settings(BaseSettings):
 
     embed_model_dir: Path = BACKEND_DIR / "models" / "e5-small"
 
+    # ------------------------------------------------------------------ OCR
+    #: Weights are VENDORED and addressed by explicit path. RapidOCR resolves
+    #: an unset model_path by downloading from modelscope.cn on first
+    #: construction, which fails on an air-gapped machine at the first
+    #: recognition rather than at install. Staged by scripts/fetch_models.py.
+    ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
+    ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"
+    #: The recogniser is the open decision. PP-OCRv6 ships no English model, so
+    #: this multilingual one can emit CJK into an English document - measured:
+    #: 凤, 日, ≦ for "Save". `en_PP-OCRv5_rec_mobile.onnx` cannot, by
+    #: construction, at 2.16 s/page against 0.90. Switch when the client
+    #: confirms whether the corpus contains Arabic. See ADR-0005.
+    ocr_rec_model: str = "PP-OCRv6_rec_tiny.onnx"
+    ocr_cls_model: str = "ch_ppocr_mobile_v2.0_cls_mobile.onnx"
+
+    #: 150, measured, not assumed. 300 dpi produced WORSE text on these
+    #: documents for 39% more time and 186 MB more RSS - it splits words and
+    #: drops letters from proper names. See ADR-0005.
+    ocr_dpi: int = 150
+    #: Kept ON. Turning it off saved 1% and changed the output on 2 of 12
+    #: pages; a 1% saving is not worth a behaviour change.
+    ocr_use_cls: bool = True
+    #: Bounded explicitly. Never -1: that takes all 12 logical cores and
+    #: allocates a per-thread arena each, which is how the reranker came to
+    #: reserve 829 MB for a 22 MB model.
+    ocr_threads: int = 2
+    ocr_rec_batch: int = 4
+    ocr_max_side_len: int = 2000
+    #: Memory-bound, not CPU-bound, and ONE - corrected by measuring the real
+    #: stage rather than one worker in isolation. Isolated workers peaked at
+    #: 524-549 MB, which suggested two would fit in the 1.15 GiB free at demo
+    #: time. Running the actual stage measured the WHOLE operation, parent plus
+    #: children at their simultaneous peak: 1,399 MB for two workers against
+    #: 598 MB for one. Two do not fit. NOT scaled to cores - that is how the
+    #: reranker came to reserve 829 MB for a 22 MB model.
+    ocr_processes: int = 1
+    ocr_batch_size: int = 8
+    #: Characters outside this script in recognised text are a recognition
+    #: failure, not a curiosity. Counted and flagged, never deleted.
+    ocr_expected_script: str = "latin"
+
     ollama_url: str = "http://127.0.0.1:11434"
     answer_model: str = "qwen3.5:4b"
     #: Resident size of the answer model. Used to warn BEFORE someone presses
@@ -86,6 +127,32 @@ class Settings(BaseSettings):
     #: +213 ms against 256, which keeps Tier 1 inside its 1-2 second target.
     rerank_max_tokens: int = 480
     rerank_batch: int = 32
+
+    #: ONNX Runtime's CPU arena allocator reserves large per-thread blocks
+    #: and never returns them. Measured on this machine (16 GB, 12 threads):
+    #:
+    #:                       process RSS   tier-1 query   embed
+    #:   both arenas on          3,247 MB       ~1,926 ms   6.9 c/s
+    #:   rerank off, embed on    2,438 MB       ~2,493 ms   6.8 c/s
+    #:   both off                  503 MB       ~2,500 ms   5.7 c/s
+    #:
+    #: Rerank scores are BIT-IDENTICAL either way (np.array_equal, max diff
+    #: 0.0) - arena configuration changes allocation, not arithmetic. So there
+    #: is no accuracy trade here, but there IS a latency one: roughly 2.7 GB
+    #: against roughly 575 ms.
+    #:
+    #: DEFAULT IS ON, deliberately. Two hypotheses for turning it off were
+    #: tested and both failed:
+    #:   * that it would recover the latency lost to memory pressure - it does
+    #:     not, it costs latency
+    #:   * that freeing memory would speed up Explain, which needs ~2.5 GB for
+    #:     qwen3.5:4b - measured warm, Explain is 7.4-7.9 s with the arena on
+    #:     against 8.3-10.5 s with it off. A 63 s Explain measured earlier was
+    #:     Ollama's cold model load, not the arena.
+    #: Left configurable because 503 MB against 3,247 MB is a real option on a
+    #: machine that demos at 92% RAM - but it buys stability, not speed.
+    onnx_cpu_arena_rerank: bool = True
+    onnx_cpu_arena_embed: bool = True
     # Small-to-big. Retrieval runs on the small chunk; the reader is shown
     # the surrounding parent block, expanded to neighbours up to this many
     # characters. The generated budget is smaller because three sources have

@@ -200,7 +200,20 @@ def test_the_heading_decides_which_designator_a_passage_is_about():
 
     assert a4.conflicts == ["system 4"], f"conflict not detected: {a4.conflicts}"
     assert not a1.conflicts
-    assert a1.score > a4.score, (
+    # Asserted as ORDERING, not as a score comparison.
+    #
+    # Heading authority used to be an additive boost, and this test measured
+    # the boost. The boost was 0.0313 computed on the RRF scale and applied to
+    # the rerank scale, where it could never change an outcome - so the
+    # mechanism became precedence and the score comparison stopped being the
+    # property worth asserting. What matters is that A.1 outranks A.4.
+    ordered = sorted(pool, key=lambda c: (-c.score, not c.heading_declares))
+    assert ordered[0] is a1, (
+        f"the passage headed 'system no. 4' outranked the one headed "
+        f"'system no. 1' - system 4's figures would be quoted as system 1's"
+    )
+    assert a1.heading_declares and not a4.heading_declares
+    assert a1.score >= a4.score, (
         "the passage headed 'system no. 4' outranked the one headed 'system no. 1' "
         "- system 4's figures would be quoted as system 1's"
     )

@@ -36,7 +36,13 @@ export interface DocumentRecord {
   /** how many retrievable chunks have vectors so far */
   embedded_count: number;
   status: DocStatus;
-  needs_ocr_pages: number;   // detected only; OCR is not implemented
+  /** Pages with no usable extractable text - candidates for recognition.
+   *  NOT the same as recognised_pages: some of these are simply blank. */
+  needs_ocr_pages: number;
+  /** Pages OCR actually read text from. A COUNT, never a badge: a 546-page
+   *  document with 12 recognised pages must not be presented as "OCR'd".
+   *  State the fraction - "12 of 546 pages read by OCR". */
+  recognised_pages: number;
   /** pages whose mathematics did not survive extraction; see the page image */
   equation_pages: number;
   error: ApiError | null;
@@ -234,6 +240,41 @@ export interface AnswerPassage {
   kind: ChunkKind;
   score: number;
   identifier_hits: string[];
+  /** Where these characters came from.
+   *
+   *  `"extracted"` - out of the PDF's own text layer. This CAN carry the
+   *  "Quoted verbatim from the document" label, because it is literally true.
+   *
+   *  `"recognised"` - OCR read them off a page image. A guess about pixels,
+   *  and it must NEVER carry the verbatim label: measured errors include
+   *  `Pyblish` for "Publish" and `≦` where the document says `≤`. Render
+   *  "Read by OCR from a scanned page" instead, with the page image EXPANDED
+   *  rather than collapsed - a label that says "check it against the page"
+   *  while the page is hidden is a label that expects to be ignored.
+   *
+   *  A chunk spanning one recognised page and one extracted page is
+   *  `"recognised"`: a reader cannot tell which sentence came from where, so
+   *  the label makes the weaker claim. */
+  text_source: "extracted" | "recognised";
+  /** Lowest OCR confidence across the chunk's recognised pages - the weakest
+   *  evidence governs. null for extracted text. This is DATA, not a gate:
+   *  nothing is hidden on the strength of it, and no threshold is set until
+   *  there is labelled ground truth to set one from. */
+  ocr_min_conf: number | null;
+  /** Characters in this passage the document's script cannot contain.
+   *
+   *  PROOF of a substitution, not an opinion about one. Confidence is the
+   *  model's opinion of itself: two passages can both sit at 0.95 and one of
+   *  them contains 凤. A CJK ideograph in an English specification is
+   *  evidence, and the dangerous member of the class is `≦`, which reads as
+   *  `≤` to a skimming engineer.
+   *
+   *  ESCALATES the OCR label rather than replacing it - the reader's action is
+   *  unchanged (check the page) but the reason is specific and much stronger.
+   *  Never hides the passage. */
+  ocr_alphabet_violations: number;
+  /** The distinct offending characters, for showing the reader what they are. */
+  ocr_alphabet_sample: string | null;
 }
 
 export interface AnswerResult {
@@ -381,10 +422,21 @@ export interface SystemMetrics {
    *  against - psutil returns exactly 0.0 there, and showing that would put
    *  "CPU 0%" on screen as a fact. */
   cpu_percent_since_last_call: number | null;
+  /** The span the CPU figure actually covers. NOT the refresh interval - every
+   *  caller of /api/metrics resets the window, so two open tabs halve it. null
+   *  ONLY on the very first reading, which has no prior call to measure
+   *  against; present but with a null percentage when the window was too short
+   *  to average. The screen states this rather than the refresh interval,
+   *  which it used to claim and which was often wrong. */
+  cpu_window_seconds: number | null;
   cpu_logical_cores: number | null;
   cpu_physical_cores: number | null;
   ram_total_bytes: number;
   ram_used_bytes: number;
+  /** Stated rather than left to be derived. The tile showed "15 GB / 16 GB"
+   *  while the low-memory alert said "0.6 GB free": the same measurement,
+   *  rounded, with the reader asked to subtract. */
+  ram_free_bytes: number;
   ram_percent: number;
   process_rss_bytes: number;
   disk_total_bytes: number;

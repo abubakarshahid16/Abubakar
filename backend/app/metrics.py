@@ -11,6 +11,7 @@ a dashboard is read as a fact.
 from __future__ import annotations
 
 import shutil
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -33,6 +34,14 @@ _process = psutil.Process()
 #: reports None instead, and the screen says it is not measured yet; from the
 #: next refresh on it is a true interval average.
 _cpu_measured_once = False
+
+#: When the previous call was. The window is NOT the refresh interval: every
+#: caller of /api/metrics resets it, so two open tabs halve it and the reading
+#: stops being an average of anything. Below this many seconds the sample is
+#: reported as unmeasured rather than as noise - the same rule the stage rates
+#: already follow with their 50 ms floor.
+_cpu_last_call: float | None = None
+CPU_MIN_WINDOW_SECONDS = 2.0
 
 
 def _now() -> str:
@@ -114,18 +123,30 @@ def system() -> dict:
     """CPU, memory and disk. Measured, including this process's own footprint.
 
     cpu_percent is called without an interval so it never blocks the request;
-    it reports usage since the previous call, which on a 15-second refresh is
-    a 15-second average. The field name says so.
+    it reports usage since the PREVIOUS CALL. That is not the refresh interval:
+    every caller resets the window, so the measured span is reported alongside
+    the value and a span too short to average is reported as no value at all.
     """
-    global _cpu_measured_once
+    global _cpu_measured_once, _cpu_last_call
     memory = psutil.virtual_memory()
     disk = shutil.disk_usage(settings.data_dir)
+    now = time.monotonic()
+    window = None if _cpu_last_call is None else round(now - _cpu_last_call, 1)
+    _cpu_last_call = now
     cpu = psutil.cpu_percent(interval=None)
     if not _cpu_measured_once:
         _cpu_measured_once = True
         cpu = None
+    elif window is not None and window < CPU_MIN_WINDOW_SECONDS:
+        # A 0.3-second window is not an average, it is a spike. Saying nothing
+        # is more accurate than saying 0% while the worker is running. The
+        # window is still reported, so the screen can say WHY there is no
+        # figure rather than giving one reason for two different situations.
+        cpu = None
     return {
         "cpu_percent_since_last_call": cpu,
+        "cpu_window_seconds": window,
+        "ram_free_bytes": memory.available,
         "cpu_logical_cores": psutil.cpu_count(logical=True),
         "cpu_physical_cores": psutil.cpu_count(logical=False),
         "ram_total_bytes": memory.total,

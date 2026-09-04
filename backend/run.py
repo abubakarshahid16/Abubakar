@@ -16,9 +16,38 @@ cannot be applied from inside the ASGI application:
 
 from __future__ import annotations
 
-import uvicorn
+import sys
 
-from app.config import settings
+#: The version every pin in requirements.txt was resolved against.
+#: onnxruntime 1.24.1 and numpy 2.3.4 ship per-minor-version wheels, so a
+#: different 3.x resolves to different binaries - or to none at all, and the
+#: failure then surfaces from inside a wheel as an opaque import error rather
+#: than as "you are on the wrong Python". Checked here, before anything heavy
+#: is imported, so the message is the first thing the operator sees.
+REQUIRED_PYTHON = (3, 12)
+
+
+def check_python() -> None:
+    if sys.version_info[:2] != REQUIRED_PYTHON:
+        want = ".".join(str(n) for n in REQUIRED_PYTHON)
+        have = ".".join(str(n) for n in sys.version_info[:3])
+        raise SystemExit(
+            f"\nThis project requires Python {want}. You are running {have}.\n"
+            f"  interpreter: {sys.executable}\n\n"
+            f"Every pin in backend/requirements.txt was resolved against "
+            f"{want}; onnxruntime and numpy ship per-minor-version wheels, so "
+            f"another version installs different binaries or none at all.\n\n"
+            f"Create the virtual environment with {want} explicitly:\n"
+            f"    py -{want} -m venv .venv          (Windows)\n"
+            f"    python{want} -m venv .venv        (macOS / Linux)\n"
+        )
+
+
+check_python()
+
+import uvicorn  # noqa: E402 - after the version check, deliberately
+
+from app.config import settings  # noqa: E402
 
 
 def main() -> None:

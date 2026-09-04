@@ -82,6 +82,7 @@ class Embedder:
         opts.intra_op_num_threads = self.config.intra_op_threads
         opts.inter_op_num_threads = 1
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        opts.enable_cpu_mem_arena = settings.onnx_cpu_arena_embed
         self.session = ort.InferenceSession(
             str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
         )

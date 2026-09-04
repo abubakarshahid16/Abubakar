@@ -37,6 +37,7 @@ function makeDoc(over: Partial<DocumentRecord> = {}): DocumentRecord {
     embedded_count: 1096,
     status: "ready",
     needs_ocr_pages: 12,
+    recognised_pages: 0,
     equation_pages: 0,
     error: null,
     uploaded_at: "2026-09-04T00:00:00Z",
@@ -204,11 +205,37 @@ describe("B2 documents list", () => {
     expect(screen.queryByText(/of this document is searchable/i)).not.toBeInTheDocument();
   });
 
-  it("shows needs_ocr and equation-heavy counts", async () => {
-    mockApi([makeDoc({ needs_ocr_pages: 12, equation_pages: 11 })]);
+  it("warns only about scanned pages recognition has NOT yet read", async () => {
+    mockApi([makeDoc({ needs_ocr_pages: 12, recognised_pages: 0, equation_pages: 11 })]);
     render(<App />);
-    expect(await screen.findByText("12 need OCR")).toBeInTheDocument();
+    expect(await screen.findByText("12 awaiting OCR")).toBeInTheDocument();
     expect(screen.getByText("11 equation-heavy")).toBeInTheDocument();
+  });
+
+  it("states the OCR fraction as a fact once pages have been read", async () => {
+    // A document being partly OCR'd is a capability working, not a problem, so
+    // this belongs with the per-document facts and NOT in an amber pill. The
+    // fraction matters: a bare "12" invites reading a 546-page document as an
+    // OCR'd one.
+    mockApi([
+      makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 12 }),
+    ]);
+    render(<App />);
+    expect(
+      await screen.findByText(/12 of 546 pages\s+read by OCR/),
+    ).toBeInTheDocument();
+    // Nothing is outstanding, so the warning must be GONE - asserting the
+    // absence, because a stale amber badge is a false alarm.
+    expect(screen.queryByText(/awaiting OCR/)).toBeNull();
+  });
+
+  it("shows both when recognition is only part-way through", async () => {
+    mockApi([
+      makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 5 }),
+    ]);
+    render(<App />);
+    expect(await screen.findByText("7 awaiting OCR")).toBeInTheDocument();
+    expect(screen.getByText(/5 of 546 pages\s+read by OCR/)).toBeInTheDocument();
   });
 
   it("requires a second click to delete", async () => {
@@ -245,9 +272,13 @@ describe("worker panel", () => {
     });
     render(<App />);
 
-    expect(await screen.findByText("STALLED")).toBeInTheDocument();
-    expect(screen.getByText(/6_pending_but_no_progress_for_240s/)).toBeInTheDocument();
-    expect(screen.getByText(/not making progress/i)).toBeInTheDocument();
+    // The reason code is now a sentence, and the alarm names the situation
+    // rather than shouting an internal flag.
+    expect(await screen.findByText("not moving")).toBeInTheDocument();
+    expect(
+      screen.getByText(/6 documents are waiting, and nothing has moved/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/6_pending_but_no_progress_for_240s/)).toBeNull();
   });
 
   it("shows the backlog even when not stalled", async () => {
@@ -282,7 +313,9 @@ describe("B3 chunk inspector", () => {
     await waitFor(() =>
       expect(within(dialog).getByText(/no_clause\(longest=1<6\)/)).toBeInTheDocument(),
     );
-    expect(within(dialog).getByText(/null rather than a guess/i)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/left blank rather than guessed/i),
+    ).toBeInTheDocument();
   });
 });
 

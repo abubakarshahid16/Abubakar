@@ -218,8 +218,13 @@ def test_needs_ocr_pages_are_recorded_not_just_flagged():
         )
     )
     assert len(rows) == 3, f"expected 3 recorded pages, got {len(rows)}"
-    assert all(r["rule"] == "needs_ocr_not_implemented" for r in rows)
-    assert all("OCR is not implemented" in r["reason"] for r in rows)
+    # The rule names a property of the PAGE - recognition has not run on it -
+    # rather than a property of the build. The old `needs_ocr_not_implemented`
+    # asserted "OCR is not implemented", which went false the day it shipped
+    # while the stored rows kept saying it. See ADR-0006.
+    assert all(r["rule"] == "ocr_not_run" for r in rows)
+    assert all("recognition has not run" in r["reason"] for r in rows)
+    assert not any("not implemented" in r["reason"] for r in rows)
 
 
 # ------------------------------------------------------------------- BUG 6

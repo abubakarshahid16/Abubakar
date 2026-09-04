@@ -52,8 +52,16 @@ LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
     INDEXING_KEYWORD: frozenset({PARTIALLY_SEARCHABLE, NO_SEARCHABLE_CONTENT, FAILED}),
     # embedding runs in the background from here; the document stays
     # answerable throughout and only then becomes ready
+    # CHUNKING is legal from here for the same reason it is legal from READY:
+    # the page text changed and has to be re-chunked. OCR writes recognised
+    # text for a scanned page of an already-answerable document, which is a
+    # revision of that page's content - so recognition rounds go back through
+    # chunking and the keyword index, and the document becomes progressively
+    # searchable. Omitting it made every scanned document reach `failed` with
+    # "cannot go from 'partially_searchable' to 'chunking'", which only a run
+    # from a clean clone surfaced.
     PARTIALLY_SEARCHABLE: frozenset(
-        {PARTIALLY_SEARCHABLE, READY, NO_SEARCHABLE_CONTENT, FAILED}
+        {PARTIALLY_SEARCHABLE, CHUNKING, READY, NO_SEARCHABLE_CONTENT, FAILED}
     ),
     READY: frozenset({CHUNKING, FAILED}),   # re-ingest on a new revision
     NO_SEARCHABLE_CONTENT: frozenset({CHUNKING, EXTRACTING, FAILED}),

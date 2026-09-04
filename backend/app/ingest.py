@@ -22,6 +22,7 @@ from .chunker import chunk_document
 from . import telemetry
 from .db import connect
 from . import keyword
+from . import ocr
 from .extract import extract_document
 from .embedder import Embedder, EmbedderConfig
 
@@ -292,6 +293,48 @@ class IngestionWorker:
                     continue
 
                 if status == states.PARTIALLY_SEARCHABLE:
+                    # OCR runs HERE - after the keyword index, never before it.
+                    # A text document must stay answerable in ~13 seconds, so
+                    # recognition can never sit in front of the first answer.
+                    #
+                    # One ROUND per pass, then back through chunking and the
+                    # keyword index, so a scanned document becomes
+                    # progressively searchable: page 40 answerable while page
+                    # 900 is still being read. The round doubles each time
+                    # because re-chunking is whole-document - re-indexing after
+                    # every batch would cost more than the recognition does.
+                    pending = ocr.pending_pages(doc_id)
+                    if pending:
+                        already = conn.execute(
+                            "SELECT COUNT(*) c FROM page_ocr WHERE document_id = ?",
+                            (doc_id,),
+                        ).fetchone()["c"]
+                        result["ocr"] = ocr.recognise_document(
+                            doc_id, max_pages=ocr.round_size(already))
+                        telemetry.record(
+                            telemetry.OCR,
+                            result["ocr"].get("pages_recognised", 0),
+                            result["ocr"].get("seconds", 0.0),
+                            doc_id,
+                        )
+                        result["stages"].append("ocr")
+                        if self._stop.is_set():
+                            return result
+                        # Recognised text changes the chunk signature, so
+                        # chunking rebuilds on its own rather than being told
+                        # to. Going back through CHUNKING is what makes the new
+                        # pages searchable.
+                        if result["ocr"].get("pages_with_text"):
+                            self._set_state(doc_id, states.CHUNKING)
+                            continue
+                        if result["ocr"].get("pages_remaining"):
+                            # This round found only blank pages. They are
+                            # consumed either way, so the next round makes
+                            # progress - but falling through here would embed
+                            # and mark the document ready with scanned pages
+                            # still unread.
+                            continue
+
                     # never trust the stored count as the gate on its own repair
                     embedded = self._recount_embedded(doc_id)
                     if embedded < row["chunk_count"]:
@@ -401,14 +444,27 @@ class IngestionWorker:
         """Why this document produced nothing searchable - stated, not implied."""
         conn = connect()
         doc = conn.execute(
-            "SELECT page_count, needs_ocr_pages, chunk_count_total FROM documents"
-            " WHERE id = ?", (doc_id,)
+            "SELECT page_count, needs_ocr_pages, recognised_pages,"
+            " chunk_count_total FROM documents WHERE id = ?", (doc_id,)
         ).fetchone()
         pages = doc["page_count"] or 0
         if pages and doc["needs_ocr_pages"] >= pages:
+            # "OCR is not implemented" was true when this string was written
+            # and is now false. The reason must distinguish recognition having
+            # not run from recognition having run and found nothing - those are
+            # different facts and an operator needs to know which one they
+            # have. See ADR-0006.
+            unread = conn.execute(
+                "SELECT COUNT(*) c FROM page_ocr WHERE document_id = ?", (doc_id,)
+            ).fetchone()["c"]
+            if unread == 0:
+                return (
+                    f"all {pages} pages are scanned images with no extractable "
+                    "text; recognition has not run on them yet"
+                )
             return (
-                f"all {pages} pages are scanned images with no extractable text; "
-                "OCR is not implemented"
+                f"all {pages} pages are scanned images; recognition ran on "
+                f"{unread} of them and found no usable text"
             )
         if doc["chunk_count_total"]:
             top = conn.execute(

@@ -50,6 +50,7 @@ export function DocumentCard({
   actions: DocumentActions;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [showStages, setShowStages] = useState(false);
   const status = presentStatus(doc);
   const ratio = retrievableRatio(doc);
   const excluded = excludedCount(doc);
@@ -65,12 +66,18 @@ export function DocumentCard({
             <span className={`rounded px-2 py-0.5 text-[11px] ${TONE[status.tone]}`}>
               {status.label}
             </span>
-            {doc.needs_ocr_pages > 0 && (
+{/* Amber ONLY while pages are still unread. A document being partly
+                OCR'd is a capability working, not a problem - once recognition
+                has covered the scanned pages this badge disappears and the
+                fact moves to the facts line below, where it belongs. The old
+                tooltip said "OCR is not implemented", which stopped being true
+                the day it shipped. */}
+            {doc.needs_ocr_pages > doc.recognised_pages && (
               <span
                 className="rounded bg-warn-500/15 px-2 py-0.5 text-[11px] text-warn-500"
-                title="Scanned pages with no extractable text. OCR is not implemented."
+                title="Scanned pages with no extractable text that recognition has not yet read."
               >
-                {doc.needs_ocr_pages} need OCR
+                {doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR
               </span>
             )}
             {doc.equation_pages > 0 && (
@@ -104,6 +111,17 @@ export function DocumentCard({
           <p className="mt-2 text-xs text-slateish-400">
             {nf.format(doc.chunk_count)} searchable of {nf.format(doc.chunk_count_total)} chunks
             {excluded > 0 && <> · {nf.format(excluded)} excluded</>}
+            {/* A FACT, not a badge. "12 of 546 pages read by OCR" tells the
+                reader what happened; an amber pill would tell them something
+                is wrong, and nothing is. Stated as a fraction because a bare
+                count invites reading a 546-page document as an OCR'd one. */}
+            {doc.recognised_pages > 0 && doc.page_count != null && (
+              <>
+                {" "}
+                · {nf.format(doc.recognised_pages)} of {nf.format(doc.page_count)} pages
+                read by OCR
+              </>
+            )}
             {doc.indexed_at && <> · finished {doc.indexed_at.replace("T", " ").replace("Z", "")}</>}
           </p>
         </div>
@@ -112,9 +130,23 @@ export function DocumentCard({
           <Action label="Inspect chunks" onClick={() => actions.onInspect(doc)} primary />
           <Action label="Excluded" onClick={() => actions.onExcluded(doc)} />
           <Action label="Pages" onClick={() => actions.onPages(doc)} />
-          <Action label="Extract" onClick={() => actions.onExtract(doc)} disabled={busy} />
-          <Action label="Chunk" onClick={() => actions.onChunk(doc)} disabled={busy} />
-          <Action label="Embed" onClick={() => actions.onEmbed(doc)} disabled={busy} />
+          {/* Re-running a stage is a maintenance operation, not a reading one.
+              On a 1,400-page document each of these is minutes of compute, and
+              they sat one keystroke apart from the reading controls where a
+              stray Enter reached them. They stay available and stay honest -
+              just not in the path of someone looking at their document. */}
+          <Action
+            label={showStages ? "Hide stages" : "Stages"}
+            onClick={() => setShowStages((v) => !v)}
+            expanded={showStages}
+          />
+          {showStages && (
+            <>
+              <Action label="Extract" onClick={() => actions.onExtract(doc)} disabled={busy} />
+              <Action label="Chunk" onClick={() => actions.onChunk(doc)} disabled={busy} />
+              <Action label="Embed" onClick={() => actions.onEmbed(doc)} disabled={busy} />
+            </>
+          )}
           {confirmingDelete ? (
             <>
               <Action
@@ -237,18 +269,21 @@ function Action({
   disabled,
   primary,
   danger,
+  expanded,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
   primary?: boolean;
   danger?: boolean;
+  expanded?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-expanded={expanded}
       className={[
         "rounded border px-2.5 py-1 text-xs transition-colors disabled:opacity-40",
         primary

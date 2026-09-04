@@ -28,6 +28,7 @@ from .rates import rate
 KEEP_PER_STAGE = 2000
 
 EXTRACT = "extract"
+OCR = "ocr"
 CHUNK = "chunk"
 KEYWORD_INDEX = "keyword_index"
 EMBED = "embed"

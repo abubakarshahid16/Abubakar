@@ -43,6 +43,10 @@ const A1: AnswerPassage = {
   highlight: [0, 70],
   match_span: [0, 70],
   chunks_joined: 1,
+  text_source: "extracted",
+  ocr_min_conf: null,
+  ocr_alphabet_violations: 0,
+  ocr_alphabet_sample: null,
   kind: "prose",
   score: 6.538,
   identifier_hits: ["system 1"],
@@ -57,6 +61,13 @@ const A4: AnswerPassage = {
   highlight: null,
   score: 5.1,
   identifier_hits: ["system 4"],
+};
+
+/** A1, but read off a page image instead of out of the text layer. */
+const OCR_PASSAGE: AnswerPassage = {
+  ...A1,
+  text_source: "recognised",
+  ocr_min_conf: 0.87,
 };
 
 const conversation: Conversation = {
@@ -211,8 +222,74 @@ describe("a quotation is never mistaken for generated prose", () => {
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(await screen.findByText(/Quoted verbatim from the document/i)).toBeInTheDocument();
-    expect(screen.getByText(/no model involved/i)).toBeInTheDocument();
+    expect(screen.getByText(/quoted directly, no AI rewriting/i)).toBeInTheDocument();
     expect(screen.getByText(A1.text)).toBeInTheDocument();
+  });
+
+  // The defect this test exists for: 92 recognised chunks were retrievable
+  // while AnswerCard rendered "Quoted verbatim from the document"
+  // unconditionally. Provenance was stored, carried through retrieval, and
+  // made REQUIRED in the contract - and the screen ignored it. The assertion
+  // that matters is the ABSENCE of the verbatim label; asserting only that the
+  // OCR label appears would have passed while both were on screen.
+  it("never calls OCR text a verbatim quotation", async () => {
+    mockApi({
+      ask: askResult({
+        passage: OCR_PASSAGE,
+        supporting: [],
+        assistant_message: extractMessage({
+          payload: { passage: OCR_PASSAGE, supporting: [], passages: [],
+                     cited: [], rejected_citations: [], seconds: 1.255 },
+        }),
+      }),
+    });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(
+      await screen.findByText(/Read by OCR from a scanned page/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/not the document's own text — check it against the page below/i),
+    ).toBeInTheDocument();
+
+    // THE ASSERTION THAT WOULD HAVE CAUGHT IT.
+    expect(screen.queryByText(/Quoted verbatim from the document/i)).toBeNull();
+    expect(screen.queryByText(/quoted directly, no AI rewriting/i)).toBeNull();
+  });
+
+  it("shows the page image without being asked, for a recognised passage", async () => {
+    // A label that says "check it against the page" while the page sits behind
+    // a click is a label that expects to be ignored.
+    mockApi({
+      ask: askResult({
+        passage: OCR_PASSAGE,
+        supporting: [],
+        assistant_message: extractMessage({
+          payload: { passage: OCR_PASSAGE, supporting: [], passages: [],
+                     cited: [], rejected_citations: [], seconds: 1.255 },
+        }),
+      }),
+    });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    await screen.findByText(/Read by OCR from a scanned page/i);
+    expect(await screen.findByRole("img", { name: /page 17/i })).toBeInTheDocument();
+  });
+
+  it("still labels EXTRACTED text as a verbatim quotation", async () => {
+    // The other half: the weaker label must not leak onto text that earned the
+    // stronger one.
+    mockApi();
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(await screen.findByText(/Quoted verbatim from the document/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Read by OCR from a scanned page/i)).toBeNull();
   });
 
   it("labels a Tier 2 answer as the model's words, not the document's", async () => {
@@ -311,15 +388,77 @@ describe("citations", () => {
     expect(within(panel).getByText(/Page 17 as printed/i)).toBeInTheDocument();
   });
 
-  it("marks the answering span inside the quoted passage", async () => {
-    mockApi();
+  /** A passage whose answering span is a real fraction of it, and the ask
+   *  response shaped so it actually reaches the screen: ChatView renders
+   *  r.data.assistant_message, not the top-level answer/passage, so those are
+   *  the fields a fixture has to override. */
+  function answering(passage: AnswerPassage) {
+    const base = extractMessage();
+    return askResult({
+      answer: passage.text,
+      passage,
+      supporting: [],
+      assistant_message: {
+        ...base,
+        text: passage.text,
+        payload: { ...base.payload, passage, supporting: [] },
+      },
+    });
+  }
+
+  const PARTIAL: AnswerPassage = {
+    ...A1,
+    text:
+      "Cleanliness shall be ISO 8501-1 Sa 2 1/2. " +
+      "The nominal dry film thickness is 280 um. " +
+      "Adhesion shall be tested on each batch.",
+    highlight: [42, 83],
+  };
+
+  async function ask() {
     await openChat();
     await userEvent.type(screen.getByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+  }
+
+  it("marks the answering span inside the quoted passage", async () => {
+    // A1's own highlight spans its ENTIRE text, which is deliberately not
+    // marked - emphasising everything leaves the eye nowhere to land, the same
+    // reason the page-image path refuses a box covering most of a page. So the
+    // property is asserted with a partial span, and on the mark itself rather
+    // than only on the words being present.
+    mockApi({ ask: answering(PARTIAL) });
+    await ask();
     await userEvent.click(await screen.findByRole("button", { name: "Show source 1" }));
 
     const panel = await screen.findByRole("complementary", { name: "Evidence" });
-    expect(within(panel).getByText(A1.text.slice(0, 70))).toBeInTheDocument();
+    const mark = within(panel).getByText("The nominal dry film thickness is 280 um.");
+    expect(mark.tagName).toBe("MARK");
+    expect(panel.textContent).toContain(PARTIAL.text);
+  });
+
+  it("marks the answering sentence inside the answer itself, not only the panel", async () => {
+    // The reader looks at the quotation first. The mark lived only in the side
+    // panel, so on a passage of standards prose the answering fragment arrived
+    // in the same weight as everything around it.
+    mockApi({ ask: answering(PARTIAL) });
+    await ask();
+
+    const quote = await screen.findByText("The nominal dry film thickness is 280 um.");
+    expect(quote.tagName).toBe("MARK");
+    // partial, not the whole passage
+    expect((quote.textContent ?? "").length).toBeLessThan(PARTIAL.text.length);
+    // and the passage is still quoted in full around it
+    expect(document.querySelector("blockquote")?.textContent).toBe(PARTIAL.text);
+  });
+
+  it("leaves the quotation plain when no span could be located", async () => {
+    // Nothing emphasised, rather than something emphasised wrongly - the rule
+    // the page-image path already follows when it cannot locate an answer.
+    mockApi({ ask: answering({ ...PARTIAL, highlight: null }) });
+    await ask();
+    await screen.findByText(PARTIAL.text);
+    expect(document.querySelector("blockquote mark")).toBeNull();
   });
 
   it("reports a citation the model invented rather than hiding it", async () => {

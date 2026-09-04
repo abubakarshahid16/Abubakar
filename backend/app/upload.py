@@ -150,6 +150,7 @@ def to_api(row: sqlite3.Row) -> dict:
         "embedded_count": row["embedded_count"],
         "status": row["status"],
         "needs_ocr_pages": row["needs_ocr_pages"],
+        "recognised_pages": row["recognised_pages"] if "recognised_pages" in row.keys() else 0,
         "equation_pages": row["equation_pages"],
         "error": (
             {
