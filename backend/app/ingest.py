@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from . import errors, states
 from .chunker import chunk_document
 from .db import connect
+from . import keyword
 from .extract import extract_document
 from .embedder import Embedder, EmbedderConfig
 
@@ -255,10 +256,12 @@ class IngestionWorker:
                     continue
 
                 if status == states.INDEXING_KEYWORD:
-                    # Keyword indexing lands in the next step. Until it exists
-                    # the document still reaches a defined answerable state.
+                    # Keyword search needs no vectors, so it is built FIRST and
+                    # the document becomes answerable here - seconds after
+                    # upload rather than after the whole corpus is embedded.
+                    result["keyword_index"] = keyword.index_document(doc_id)
                     self._set_state(doc_id, states.PARTIALLY_SEARCHABLE)
-                    result["stages"].append("keyword_index:pending_implementation")
+                    result["stages"].append("keyword_index")
                     continue
 
                 if status == states.PARTIALLY_SEARCHABLE:

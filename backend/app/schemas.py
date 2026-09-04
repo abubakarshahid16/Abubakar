@@ -212,6 +212,32 @@ class EmbedResult(BaseModel):
     indexed_at: str | None
 
 
+class KeywordHit(BaseModel):
+    chunk_id: str
+    document_id: str
+    filename: str
+    section: str | None
+    page_start: int
+    page_end: int
+    bm25: float = Field(description="lower is a better match")
+    text: str
+
+
+class KeywordSearchResult(BaseModel):
+    query: str
+    match_expression: str = Field(description="the FTS5 expression actually run")
+    total: int
+    seconds: float
+    hits: list[KeywordHit]
+
+
+class KeywordIndexResult(BaseModel):
+    document_id: str
+    indexed: int
+    seconds: float
+    chunks_per_sec: float | None
+
+
 class DeleteResult(BaseModel):
     deleted: str
     filename: str
