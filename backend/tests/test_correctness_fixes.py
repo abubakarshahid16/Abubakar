@@ -391,3 +391,48 @@ def test_plausible_heading_numbers_depends_on_document_order():
     backwards = chunker.plausible_heading_numbers(["11", "4.4", "8.2", "8.1", "8"])
     assert "11" not in backwards
     assert backwards != forwards
+
+
+# ================================ the rerank window must cover the chunk
+
+
+def test_the_rerank_window_covers_the_largest_possible_chunk():
+    """A cross-encoder asked to rate a fragment rates the fragment.
+
+    At 256 tokens against a 480-token ceiling, NORSOK's clause 11 was scored
+    on its first 256 tokens - environmental conditions and visual examination
+    - while the answer, "Holiday detection NACE RP0188 voltage", sat at token
+    350. It returned -10.95, which was correct about what it was shown and
+    wrong about the passage. The evaluation recorded a retrieval failure that
+    was really a truncation failure.
+    """
+    assert settings.rerank_max_tokens >= settings.chunk_max_tokens, (
+        f"rerank window {settings.rerank_max_tokens} is smaller than the chunk "
+        f"ceiling {settings.chunk_max_tokens}: any chunk longer than the window "
+        f"is judged on a fragment of itself"
+    )
+
+
+def test_a_long_chunk_is_scored_on_content_past_the_old_window():
+    """The behaviour, not just the setting. A phrase deep inside a long chunk
+    must be able to win, which it cannot if it is truncated away."""
+    from app import reranker
+
+    tail = "Holiday detection NACE RP0188 voltage as required by the specification."
+    filler = (
+        "Ambient and steel temperature shall be recorded before each shift and "
+        "the relative humidity shall be measured at the same time in accordance "
+        "with the specified requirements for the work being carried out here. "
+    )
+    long_text = filler * 8 + tail
+    scored = reranker.rerank(
+        "which standard gives the holiday detection voltage",
+        [("deep", long_text), ("shallow", filler)],
+    )
+    if not scored:
+        pytest.skip("reranker model not staged")
+    by_id = dict(scored)
+    assert by_id["deep"] > by_id["shallow"], (
+        "a phrase past the old 256-token window did not beat filler, so the "
+        "reranker is still not seeing the tail of a long chunk"
+    )

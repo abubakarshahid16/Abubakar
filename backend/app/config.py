@@ -50,8 +50,41 @@ class Settings(BaseSettings):
     # reranking 30 candidates at 320 tokens costs ~1025ms, 20 at 256 costs
     # ~500ms, which is what keeps the Tier 1 answer inside its 1-2s budget.
     search_candidates: int = 30       # retrieved from each side before fusion
-    rerank_candidates: int = 20       # how many of those the cross-encoder sees
-    rerank_max_tokens: int = 256
+    #: How many candidates the cross-encoder sees. Reduced from 20 to claw
+    #: back the latency that widening the rerank window cost, measured over
+    #: the independent 15-question set:
+    #:
+    #:   candidates   retrieval  citation  tokens  refusal  false  median
+    #:           20      10/10       9/9   10/10      5/5      0   2213 ms
+    #:           16      10/10       9/9   10/10      5/5      0   1961 ms
+    #:           12       9/10       8/9    9/10      5/5      0   1712 ms
+    #:           10      10/10       9/9   10/10      5/5      0   1697 ms
+    #:
+    #: 16, not 10. The result is NOT monotonic - 12 degrades and 10 recovers -
+    #: which means the shortlist composition is changing under the questions
+    #: rather than the depth being genuinely unnecessary. One perfect run at 10
+    #: sitting next to a degraded run at 12 is noise, not evidence, so 16 keeps
+    #: a margin above the unstable region for the 250 ms it costs.
+    rerank_candidates: int = 16
+    #: MUST cover chunk_max_tokens, or the cross-encoder judges a chunk on a
+    #: fragment of it and is asked to rate relevance it was never shown.
+    #:
+    #: At 256 this silently broke every long chunk. NORSOK's clause 11 holds
+    #: Table 3 flattened to 486 tokens, and "Holiday detection NACE RP0188
+    #: voltage" sits at token 350 - so the reranker scored the passage on its
+    #: first 256 tokens, which are about environmental conditions and visual
+    #: examination, and returned -10.95. That score was CORRECT about what it
+    #: had been given and wrong about the passage. The evaluation recorded it
+    #: as a retrieval failure, and it was a truncation failure.
+    #:
+    #: Measured cost of covering the whole chunk, 20 candidates, median of 5:
+    #:   256 tokens   583 ms
+    #:   320 tokens   603 ms
+    #:   384 tokens   910 ms
+    #:   480 tokens   796 ms
+    #:   512 tokens  1182 ms
+    #: +213 ms against 256, which keeps Tier 1 inside its 1-2 second target.
+    rerank_max_tokens: int = 480
     rerank_batch: int = 32
     # Small-to-big. Retrieval runs on the small chunk; the reader is shown
     # the surrounding parent block, expanded to neighbours up to this many
