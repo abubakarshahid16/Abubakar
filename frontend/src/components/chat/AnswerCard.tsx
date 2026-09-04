@@ -60,6 +60,40 @@ function asSentence(text: string): string {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
+/**
+ * Milliseconds are a developer's unit. "2755 ms" is a measurement; "2.8s" is
+ * how long the reader waited.
+ */
+function formatDuration(seconds: number): string {
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  return `${Math.round(seconds)}s`;
+}
+
+function chipClass(active: boolean): string {
+  return [
+    "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 align-baseline font-mono text-[11px] leading-none",
+    active
+      ? "bg-signal-500/30 text-signal-300 ring-1 ring-signal-500/60"
+      : "bg-ink-700 text-slateish-300 hover:bg-ink-600",
+  ].join(" ");
+}
+
+/**
+ * The chip as a plain mark, for when it sits INSIDE a row that is already a
+ * button. It used to be a real button in both places, which put a <button>
+ * inside a <button>: invalid HTML that React reported on every answer, and
+ * that leaves the inner control unreachable by keyboard and ambiguous to a
+ * screen reader. The row owns the action; here the number is only a label for
+ * it, so it is announced as part of the row rather than as a second target.
+ */
+function ChipMark({ n, active }: { n: number; active: boolean }) {
+  return (
+    <span aria-hidden="true" className={chipClass(active)}>
+      {n}
+    </span>
+  );
+}
+
 function Chip({
   n,
   onClick,
@@ -74,12 +108,7 @@ function Chip({
       type="button"
       onClick={onClick}
       aria-label={`Show source ${n}`}
-      className={[
-        "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 align-baseline font-mono text-[11px] leading-none",
-        active
-          ? "bg-signal-500/30 text-signal-300 ring-1 ring-signal-500/60"
-          : "bg-ink-700 text-slateish-300 hover:bg-ink-600",
-      ].join(" ")}
+      className={chipClass(active)}
     >
       {n}
     </button>
@@ -248,7 +277,7 @@ ollama serve
           <Label tone="quote">Quoted verbatim from the document</Label>
           {view.seconds != null && (
             <span className="font-mono text-[11px] text-slateish-500">
-              {Math.round(view.seconds * 1000)} ms · no model involved
+              {formatDuration(view.seconds)} · quoted directly, no AI rewriting
             </span>
           )}
         </div>
@@ -285,7 +314,7 @@ ollama serve
                     onClick={() => onSelectSource(i + 1)}
                     className="flex w-full items-center gap-2 rounded border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
                   >
-                    <Chip n={i + 2} active={activeSource === i + 1} onClick={() => onSelectSource(i + 1)} />
+                    <ChipMark n={i + 2} active={activeSource === i + 1} />
                     <PassageLocation passage={s} />
                   </button>
                 </li>
@@ -324,7 +353,7 @@ ollama serve
         </Label>
         {view.seconds != null && (
           <span className="font-mono text-[11px] text-slateish-500">
-            {Math.round(view.seconds * 1000)} ms
+            {formatDuration(view.seconds)}
           </span>
         )}
       </div>
@@ -353,7 +382,7 @@ ollama serve
                 onClick={() => onSelectSource(i)}
                 className="flex w-full items-center gap-2 rounded border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
               >
-                <Chip n={i + 1} active={activeSource === i} onClick={() => onSelectSource(i)} />
+                <ChipMark n={i + 1} active={activeSource === i} />
                 <PassageLocation passage={s} />
               </button>
             </li>

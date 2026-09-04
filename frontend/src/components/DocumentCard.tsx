@@ -50,6 +50,7 @@ export function DocumentCard({
   actions: DocumentActions;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [showStages, setShowStages] = useState(false);
   const status = presentStatus(doc);
   const ratio = retrievableRatio(doc);
   const excluded = excludedCount(doc);
@@ -112,9 +113,23 @@ export function DocumentCard({
           <Action label="Inspect chunks" onClick={() => actions.onInspect(doc)} primary />
           <Action label="Excluded" onClick={() => actions.onExcluded(doc)} />
           <Action label="Pages" onClick={() => actions.onPages(doc)} />
-          <Action label="Extract" onClick={() => actions.onExtract(doc)} disabled={busy} />
-          <Action label="Chunk" onClick={() => actions.onChunk(doc)} disabled={busy} />
-          <Action label="Embed" onClick={() => actions.onEmbed(doc)} disabled={busy} />
+          {/* Re-running a stage is a maintenance operation, not a reading one.
+              On a 1,400-page document each of these is minutes of compute, and
+              they sat one keystroke apart from the reading controls where a
+              stray Enter reached them. They stay available and stay honest -
+              just not in the path of someone looking at their document. */}
+          <Action
+            label={showStages ? "Hide stages" : "Stages"}
+            onClick={() => setShowStages((v) => !v)}
+            expanded={showStages}
+          />
+          {showStages && (
+            <>
+              <Action label="Extract" onClick={() => actions.onExtract(doc)} disabled={busy} />
+              <Action label="Chunk" onClick={() => actions.onChunk(doc)} disabled={busy} />
+              <Action label="Embed" onClick={() => actions.onEmbed(doc)} disabled={busy} />
+            </>
+          )}
           {confirmingDelete ? (
             <>
               <Action
@@ -237,18 +252,21 @@ function Action({
   disabled,
   primary,
   danger,
+  expanded,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
   primary?: boolean;
   danger?: boolean;
+  expanded?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-expanded={expanded}
       className={[
         "rounded border px-2.5 py-1 text-xs transition-colors disabled:opacity-40",
         primary

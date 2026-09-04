@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { Connection } from "../components/Shell";
 import { DisconnectedState, ErrorState, Spinner } from "../components/states";
+import { humaniseReason } from "../components/WorkerPanel";
 import type { ApiError, Metrics, MetricWarning, StageThroughput } from "../types/api";
 
 const STAGE_LABELS: Record<string, string> = {
@@ -382,8 +383,22 @@ export function DashboardView({
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Stat
             label="State"
-            value={worker.stalled ? "STALLED" : worker.alive ? "running" : "stopped"}
-            tone={worker.stalled ? "danger" : worker.alive ? "good" : "warn"}
+            value={
+              worker.stalled && worker.current_document == null
+                ? "not moving"
+                : worker.current_document != null
+                  ? "working"
+                  : worker.alive
+                    ? "idle"
+                    : "stopped"
+            }
+            tone={
+              worker.stalled && worker.current_document == null
+                ? "danger"
+                : worker.alive
+                  ? "good"
+                  : "warn"
+            }
           />
           <Stat
             label="Last heartbeat"
@@ -392,7 +407,7 @@ export function DashboardView({
           <Stat label="Documents completed" value={worker.documents_completed} />
           <Stat
             label="Current document"
-            value={worker.current_document ?? "idle"}
+            value={worker.current_document ?? "nothing in progress"}
           />
         </div>
         {worker.stalled_reasons.length > 0 && (
@@ -403,7 +418,7 @@ export function DashboardView({
                 role="alert"
                 className="rounded border border-danger-500/50 bg-danger-500/10 px-3 py-1.5 text-sm text-slateish-300"
               >
-                {reason}
+                {humaniseReason(reason)}
               </li>
             ))}
           </ul>

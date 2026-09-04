@@ -211,7 +211,7 @@ describe("a quotation is never mistaken for generated prose", () => {
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(await screen.findByText(/Quoted verbatim from the document/i)).toBeInTheDocument();
-    expect(screen.getByText(/no model involved/i)).toBeInTheDocument();
+    expect(screen.getByText(/quoted directly, no AI rewriting/i)).toBeInTheDocument();
     expect(screen.getByText(A1.text)).toBeInTheDocument();
   });
 

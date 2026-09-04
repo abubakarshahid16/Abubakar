@@ -86,7 +86,9 @@ export function ConnectionBadge({ connection }: { connection: Connection }) {
     );
   }
   const worker = connection.health.ingestion;
-  if (worker.stalled) {
+  // Only when nothing is being worked on. A document mid-embed is work, not a
+  // fault, and this badge claimed otherwise on a healthy 1,400-page ingest.
+  if (worker.stalled && worker.current_document == null) {
     return (
       <span
         className="flex items-center gap-2 text-xs font-medium text-danger-500"
@@ -94,7 +96,7 @@ export function ConnectionBadge({ connection }: { connection: Connection }) {
         aria-live="assertive"
       >
         <span aria-hidden className="h-2 w-2 rounded-full bg-danger-500" />
-        Worker stalled
+        Queue not moving
       </span>
     );
   }
@@ -120,7 +122,7 @@ export function Shell({
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <div className="flex min-h-full flex-col bg-ink-900 md:flex-row">
+    <div className="flex min-h-screen flex-col bg-ink-900 md:flex-row">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded focus:bg-ink-700 focus:px-3 focus:py-2 focus:text-slateish-200"

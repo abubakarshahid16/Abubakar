@@ -245,9 +245,13 @@ describe("worker panel", () => {
     });
     render(<App />);
 
-    expect(await screen.findByText("STALLED")).toBeInTheDocument();
-    expect(screen.getByText(/6_pending_but_no_progress_for_240s/)).toBeInTheDocument();
-    expect(screen.getByText(/not making progress/i)).toBeInTheDocument();
+    // The reason code is now a sentence, and the alarm names the situation
+    // rather than shouting an internal flag.
+    expect(await screen.findByText("not moving")).toBeInTheDocument();
+    expect(
+      screen.getByText(/6 documents are waiting, and nothing has moved/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/6_pending_but_no_progress_for_240s/)).toBeNull();
   });
 
   it("shows the backlog even when not stalled", async () => {
@@ -282,7 +286,9 @@ describe("B3 chunk inspector", () => {
     await waitFor(() =>
       expect(within(dialog).getByText(/no_clause\(longest=1<6\)/)).toBeInTheDocument(),
     );
-    expect(within(dialog).getByText(/null rather than a guess/i)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/left blank rather than guessed/i),
+    ).toBeInTheDocument();
   });
 });
 

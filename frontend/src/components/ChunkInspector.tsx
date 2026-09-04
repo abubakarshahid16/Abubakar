@@ -165,7 +165,7 @@ export function ChunkInspector({
                 {c.section ? (
                   <span className="text-slateish-300">{c.section}</span>
                 ) : (
-                  <span className="italic">none — null rather than a guess</span>
+                  <span className="italic">not identified — left blank rather than guessed</span>
                 )}
               </p>
 
@@ -179,7 +179,12 @@ export function ChunkInspector({
 {c.text}
               </pre>
 
-              <p className="mt-1 font-mono text-[10px] text-slateish-400">{c.id}</p>
+              <details className="mt-1">
+                <summary className="cursor-pointer text-[10px] text-slateish-500 hover:text-slateish-400">
+                  Reference
+                </summary>
+                <p className="mt-0.5 font-mono text-[10px] text-slateish-400">{c.id}</p>
+              </details>
             </li>
           ))}
         </ul>

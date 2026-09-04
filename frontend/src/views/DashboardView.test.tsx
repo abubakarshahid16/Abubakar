@@ -388,7 +388,7 @@ describe("the required fields", () => {
       }),
     );
     await openDashboard();
-    expect(await screen.findByText("STALLED")).toBeInTheDocument();
+    expect(await screen.findByText("not moving")).toBeInTheDocument();
     expect(
       screen.getByText(/work pending with no progress for 300s/),
     ).toBeInTheDocument();

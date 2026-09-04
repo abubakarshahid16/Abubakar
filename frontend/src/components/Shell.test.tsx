@@ -125,7 +125,7 @@ describe("connection state", () => {
       }),
     );
     render(<App />);
-    expect(await screen.findByText(/Worker stalled/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Queue not moving/i)).toBeInTheDocument();
   });
 
   it("offers a retry that re-attempts the connection", async () => {
