@@ -9,6 +9,7 @@ from . import chunker as chunk_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import keyword as keyword_mod
+from . import answer as answer_mod
 from . import search as search_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
@@ -262,6 +263,35 @@ def search(
         rerank=rerank,
         dense=(mode == "hybrid"),
     )
+
+
+@app.get("/api/answer", response_model=schemas.AnswerResult,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def get_answer(
+    request: Request,
+    q: str = Query(..., min_length=1, max_length=500),
+    tier: str = Query("extract"),
+    document_id: str | None = Query(None),
+    limit: int = Query(3, ge=1, le=5),
+):
+    """Answer a question against the indexed documents.
+
+    tier=extract   (default) the top passage verbatim, no model involved
+    tier=generated             2-3 passages summarised by the local model
+
+    The response always carries answer_type, so a quotation and generated
+    prose can never be confused.
+    """
+    reject_unknown_params(request, {"q", "tier", "document_id", "limit"})
+    if document_id:
+        require_document(document_id)
+    if tier not in ("extract", "generated"):
+        return JSONResponse(
+            status_code=422,
+            content=errors.safe_error(
+                errors.INVALID_PARAMETER, "tier must be extract or generated"),
+        )
+    return answer_mod.answer(q, tier=tier, document_id=document_id, limit=limit)
 
 
 # ------------------------------------------------------------------ pages

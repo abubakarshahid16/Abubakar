@@ -297,12 +297,20 @@ def search(
         if scored:
             reranked = True
             by_id = dict(scored)
-            for c in pool:
-                if c.chunk_id in by_id:
-                    # the identifier boost still applies on top of the rerank,
-                    # so a semantically plausible passage that omits the
-                    # identifier cannot displace the one that names it
-                    c.rerank_score = by_id[c.chunk_id] + c.boost
+            for c in shortlist:
+                # the identifier boost still applies on top of the rerank,
+                # so a semantically plausible passage that omits the
+                # identifier cannot displace the one that names it
+                c.rerank_score = by_id.get(c.chunk_id, float("-inf")) + c.boost
+
+            # Only the shortlist was reranked, and the two scales are not
+            # comparable: an unrelated passage scores about -11 from the
+            # cross-encoder while an unreranked candidate keeps a raw RRF of
+            # about 0.012. Mixing them let a leftover candidate outrank every
+            # properly scored one - and because its RRF sat just above the
+            # fallback threshold, an unanswerable question returned a
+            # confident-looking passage instead of refusing.
+            pool = shortlist
             pool.sort(key=lambda c: -c.score)
 
     return {
