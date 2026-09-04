@@ -12,12 +12,15 @@ export default function App() {
 
   return (
     <Shell view={view} onNavigate={setView} connection={connection}>
-      {connection.state === "offline" && (
-        <div className="mb-6">
-          <DisconnectedState onRetry={recheck} />
-        </div>
-      )}
-
+      {/* ONE connection-level error at a time. With the backend down this
+          rendered its banner AND let the view render its own failed-request
+          card, so an amber "backend is not running" and a red "HTTP 502"
+          appeared together. The shell owns this condition; the view is not
+          rendered at all while it holds. */}
+      {connection.state === "offline" ? (
+        <DisconnectedState onRetry={recheck} />
+      ) : (
+        <>
       {view === "documents" && (
         <DocumentsView connection={connection} onRetryConnection={recheck} />
       )}
@@ -27,6 +30,8 @@ export default function App() {
       {view === "ingestion" && <NotBuiltYet name="Ingestion" />}
       {view === "dashboard" && (
         <DashboardView connection={connection} onRetryConnection={recheck} />
+      )}
+        </>
       )}
     </Shell>
   );

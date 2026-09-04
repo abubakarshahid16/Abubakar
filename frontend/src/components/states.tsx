@@ -41,15 +41,39 @@ export function EmptyState({
   );
 }
 
+/** A human title per error code.
+ *
+ *  Never the code itself and never a raw HTTP status. "code: internal" and
+ *  "HTTP 502" tell a reader nothing they can act on, and on a client-facing
+ *  screen they read as the product being broken rather than as a condition
+ *  with a cause. The code still reaches the backend log, where it is useful.
+ */
+const ERROR_TITLES: Record<string, string> = {
+  not_found: "Not found",
+  invalid_parameter: "That request was not valid",
+  unknown_parameter: "That request was not valid",
+  confirm_required: "Confirmation needed",
+  not_pdf: "That file is not a PDF",
+  encrypted_pdf: "That PDF is password protected",
+  too_large: "That file is too large",
+  duplicate: "Already uploaded",
+  extract_failed: "This document could not be read",
+  chunk_failed: "This document could not be prepared",
+  embed_failed: "This document could not be indexed",
+  model_unavailable: "The local answer model is not running",
+  disk_full: "There is not enough disk space",
+  no_searchable_content: "Nothing in this document is searchable",
+  internal: "Something went wrong",
+};
+
 export function ErrorState({ error, onRetry }: { error: ApiError; onRetry?: () => void }) {
   return (
     <div
       role="alert"
       className="rounded-lg border border-danger-500/50 bg-danger-500/10 p-4 text-sm"
     >
-      <p className="font-medium text-danger-500">Request failed</p>
+      <p className="font-medium text-danger-500">{ERROR_TITLES[error.code] ?? "That did not work"}</p>
       <p className="mt-1 text-slateish-300">{error.message}</p>
-      <p className="mt-1 font-mono text-xs text-slateish-400">code: {error.code}</p>
       {onRetry && (
         <button
           type="button"

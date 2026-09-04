@@ -307,6 +307,11 @@ class AnswerPassage(BaseModel):
     chunks_joined: int = Field(
         1, description="how many chunks were joined to form this passage"
     )
+    kind: ChunkKind = Field(
+        "prose",
+        description="a table cannot be reflowed as prose - its column pairing "
+        "is positional, so wrapping it destroys the only structure it has",
+    )
     score: float
     identifier_hits: list[str] = []
 

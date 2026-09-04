@@ -207,6 +207,21 @@ export function ChatView({
   const evidenceMessage = evidence ? messages.find((m) => m.id === evidence.messageId) : undefined;
   const evidenceSources = evidenceMessage ? sourcesOf(viewFromMessage(evidenceMessage)) : [];
 
+  // The question that produced this answer: the last user turn before it. The
+  // RESOLVED question is used when a follow-up carried terms forward, because
+  // that is what retrieval actually ran and therefore what the span was found
+  // against.
+  const evidenceQuestion = (() => {
+    if (!evidenceMessage) return undefined;
+    const index = messages.findIndex((m) => m.id === evidenceMessage.id);
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "user") {
+        return messages[i].resolved_question ?? messages[i].text ?? undefined;
+      }
+    }
+    return undefined;
+  })();
+
   /** An assistant turn already followed by its explanation must not offer
    *  Explain again — pressing it twice would spend another ~50 seconds
    *  reproducing an answer already on screen. */
@@ -366,6 +381,10 @@ export function ChatView({
           selected={Math.min(evidence.index, evidenceSources.length - 1)}
           onSelect={(i) => setEvidence({ messageId: evidence.messageId, index: i })}
           onClose={() => setEvidence(null)}
+          // The question this answer came from, so the answering sentence can
+          // be boxed on the rendered page. Taken from the user turn that
+          // preceded this assistant turn.
+          question={evidenceQuestion}
         />
       )}
     </div>

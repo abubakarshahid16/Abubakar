@@ -30,6 +30,41 @@ function Highlighted({ passage }: { passage: AnswerPassage }) {
   );
 }
 
+/** The citation, set as a citation rather than as a row of metadata.
+ *
+ *  An engineer cites a specification as "NORSOK M-501, clause A.1, page 17".
+ *  Rendering that as three chips of equal weight makes the reader assemble it
+ *  themselves; rendering it as a line makes it quotable straight into an
+ *  email, which is what they actually do with it.
+ */
+export function Citation({ passage }: { passage: AnswerPassage }) {
+  const pages =
+    passage.page_start === passage.page_end
+      ? `page ${passage.page_start}`
+      : `pages ${passage.page_start}–${passage.page_end}`;
+  return (
+    <cite className="text-[13px] not-italic leading-relaxed text-slateish-300">
+      <span className="font-medium">{passage.filename}</span>
+      {passage.section ? (
+        <>
+          {", clause "}
+          <span className="font-mono text-[12px] text-slateish-200">
+            {passage.section.split(" ")[0]}
+          </span>
+          <span className="text-slateish-400"> {passage.section.split(" ").slice(1).join(" ")}</span>
+        </>
+      ) : (
+        /* Stated, not hidden. This document does not number its headings, and
+           implying otherwise would misrepresent the citation. */
+        <span className="text-slateish-500 italic"> (no clause numbering)</span>
+      )}
+      {", "}
+      <span className="text-slateish-400">{pages}</span>
+    </cite>
+  );
+}
+
+
 export function PassageLocation({ passage }: { passage: AnswerPassage }) {
   const pages =
     passage.page_start === passage.page_end
@@ -65,16 +100,23 @@ export function EvidencePanel({
   selected,
   onSelect,
   onClose,
+  question,
 }: {
   passages: AnswerPassage[];
   selected: number;
   onSelect: (i: number) => void;
   onClose: () => void;
+  /** The question, so the answering sentence can be boxed on the page. */
+  question?: string;
 }) {
   const [imageLoading, setImageLoading] = useState(true);
   const passage = passages[selected];
 
-  useEffect(() => setImageLoading(true), [selected]);
+  useEffect(() => setImageLoading(true), [selected, question]);
+
+  // The box is only requested when there IS an answering span to box, so an
+  // unboxed page never leaves the reader wondering whether the answer is on it.
+  const boxed = Boolean(question && passage?.highlight);
 
   if (!passage) return null;
 
@@ -122,28 +164,60 @@ export function EvidencePanel({
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <PassageLocation passage={passage} />
+        <Citation passage={passage} />
 
         <h3 className="mt-4 text-xs uppercase tracking-wide text-slateish-400">
           Quoted passage
         </h3>
-        <blockquote className="mt-1.5 whitespace-pre-wrap rounded border-l-2 border-signal-500/50 bg-ink-900 px-3 py-2 font-serif text-sm leading-relaxed text-slateish-200">
+        <blockquote
+          className={[
+            "mt-1.5 rounded border-l-2 border-signal-500/50 bg-ink-900 px-3 py-2.5 text-slateish-200",
+            passage.kind === "table"
+              ? "document-table"
+              : "document-quote whitespace-pre-wrap text-sm",
+          ].join(" ")}
+        >
           <Highlighted passage={passage} />
         </blockquote>
 
         <h3 className="mt-5 text-xs uppercase tracking-wide text-slateish-400">
           Page {passage.page_start} as printed
+          {boxed && (
+            <span className="ml-2 rounded bg-signal-500/20 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-signal-300">
+              answer outlined
+            </span>
+          )}
         </h3>
         <p className="mt-1 text-xs text-slateish-500">
-          Extraction flattens tables and drops equation operators. This is the
-          real page.
+          {boxed
+            ? "The answering sentence is outlined on the real page. Extraction flattens tables and drops equation operators; this is the page as printed."
+            : "Extraction flattens tables and drops equation operators. This is the real page."}
         </p>
+        {question && !passage.highlight && (
+          <p className="mt-1 text-xs text-slateish-500 italic">
+            The exact location of the answer on this page could not be
+            confirmed, so nothing is outlined.
+          </p>
+        )}
         <div className="mt-2 overflow-auto rounded border border-ink-700 bg-ink-950 p-2">
           {imageLoading && <Spinner label={`Rendering page ${passage.page_start}`} />}
           <img
-            key={`${passage.document_id}-${passage.page_start}`}
-            src={api.pageImageUrl(passage.document_id, passage.page_start)}
-            alt={`Page ${passage.page_start} of ${passage.filename}`}
+            key={`${passage.document_id}-${passage.page_start}-${boxed ? "boxed" : "plain"}`}
+            src={
+              boxed
+                ? api.pageImageWithAnswerUrl(
+                    passage.document_id,
+                    passage.page_start,
+                    passage.chunk_id,
+                    question!,
+                  )
+                : api.pageImageUrl(passage.document_id, passage.page_start)
+            }
+            alt={
+              boxed
+                ? `Page ${passage.page_start} of ${passage.filename}, with the answer outlined`
+                : `Page ${passage.page_start} of ${passage.filename}`
+            }
             onLoad={() => setImageLoading(false)}
             onError={() => setImageLoading(false)}
             className="block w-full rounded bg-white"

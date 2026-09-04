@@ -9,6 +9,7 @@ from . import chat as chat_mod
 from . import chunker as chunk_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
+from . import highlight as highlight_mod
 from . import keyword as keyword_mod
 from . import metrics as metrics_mod
 from . import acronyms as acronyms_mod
@@ -483,22 +484,57 @@ def document_pages(
          response_class=FileResponse,
          responses={200: {"content": {"image/png": {}}, "description": "Rendered page"},
                     **schemas.ERRORS_404, **schemas.ERRORS_422})
-def page_image(document_id: str, page_no: int, request: Request, dpi: int = Query(150, ge=50, le=300)):
+def page_image(
+    document_id: str,
+    page_no: int,
+    request: Request,
+    dpi: int = Query(150, ge=50, le=300),
+    chunk_id: str | None = Query(None),
+    q: str | None = Query(None, max_length=500),
+):
     """Render one page to PNG on demand, cached by content hash.
 
     The durable answer to degraded equations and flattened tables: whatever
     the extracted text lost, the reader can see the real page.
+
+    Pass `chunk_id` and `q` together to have the answering span BOXED on the
+    image. An engineer who sees the answer outlined on the specification page
+    they already know stops having to trust the extraction at all.
+
+    When the span cannot be located the page is returned WITHOUT a box and
+    `X-Answer-Located: 0` says so. Never a box in a plausible-looking wrong
+    place: one wrong box and no box is ever trusted again.
     """
-    reject_unknown_params(request, {"dpi"})
+    reject_unknown_params(request, {"dpi", "chunk_id", "q"})
     doc = require_document(document_id)
+
+    rects: list[tuple[float, float, float, float]] = []
+    if chunk_id and q:
+        # The answering span depends on the QUESTION, so it is recomputed here
+        # rather than stored: the same passage highlights differently for two
+        # different questions, and passing the text itself would not fit in a
+        # URL. Given the chunk and the question, the span is derived by exactly
+        # the same code the answer used.
+        located = highlight_mod.for_chunk(document_id, chunk_id, q)
+        rects = located.get("rects", [])
+
     try:
-        path = pageimage_mod.render_page(doc, page_no, dpi=dpi)
+        if rects:
+            path = pageimage_mod.render_page_with_highlight(doc, page_no, rects, dpi=dpi)
+        else:
+            path = pageimage_mod.render_page(doc, page_no, dpi=dpi)
     except pageimage_mod.PageOutOfRange as e:
         return JSONResponse(
             status_code=404,
             content=errors.safe_error(errors.NOT_FOUND, str(e), document_id=document_id),
         )
-    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+    headers = {"Cache-Control": "max-age=86400"}
+    if chunk_id and q:
+        # Stated in a header so the caller can say "location could not be
+        # confirmed" instead of the reader assuming an unboxed page means the
+        # answer is not on it.
+        headers["X-Answer-Located"] = "1" if rects else "0"
+    return FileResponse(path, media_type="image/png", headers=headers)
 
 
 # ----------------------------------------------------------------- chunks

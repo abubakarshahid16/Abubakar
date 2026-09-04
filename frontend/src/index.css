@@ -51,6 +51,43 @@ pre,
     "Liberation Mono", monospace;
 }
 
+/* ---------------------------------------------------------------- reading
+   The quoted passage IS the product. It should read like a document, not
+   like data: a measure the eye can track, leading generous enough for dense
+   specification prose, and a serif so a quotation is recognisable as the
+   document's own words before a single label is read. */
+
+.document-quote {
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  /* ~70 characters at this size. Longer and the eye loses the line return. */
+  max-width: 38rem;
+  line-height: 1.68;
+  letter-spacing: 0.002em;
+  /* Hyphenation off: breaking "pre-qualification" across lines in a
+     specification quotation invents a word the document does not contain. */
+  hyphens: none;
+}
+
+/* A quoted TABLE cannot be reflowed as prose - column pairing is positional,
+   so wrapping it destroys the only structure it has. Held in a monospace
+   grid that scrolls sideways rather than wrapped into a wall of text. */
+.document-table {
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas,
+    "Liberation Mono", monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow-x: auto;
+  tab-size: 4;
+}
+
+/* Generated prose: sans, and never the serif. The typeface is the fastest
+   signal the reader has for whose words these are. */
+.model-prose {
+  max-width: 38rem;
+  line-height: 1.62;
+}
+
 /* Focus must always be visible - keyboard navigation is a requirement, not a
    nicety, and the default ring disappears against this palette. */
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {

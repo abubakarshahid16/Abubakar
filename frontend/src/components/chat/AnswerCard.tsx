@@ -9,7 +9,7 @@
  * because only one of them is the specification.
  */
 import type { AnswerPassage, AnswerType, Message } from "../../types/api";
-import { PassageLocation } from "./EvidencePanel";
+import { Citation, PassageLocation } from "./EvidencePanel";
 
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
@@ -253,14 +253,21 @@ ollama serve
           )}
         </div>
 
-        <blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-signal-500/60 bg-ink-900 py-2 pl-3 pr-2 font-serif text-[15px] leading-relaxed text-slateish-100">
+        <blockquote
+          className={[
+            "mt-2 border-l-2 border-signal-500/60 bg-ink-900 py-2.5 pl-4 pr-3 text-slateish-100",
+            p?.kind === "table"
+              ? "document-table"
+              : "document-quote whitespace-pre-wrap text-[15px]",
+          ].join(" ")}
+        >
           {view.answer}
         </blockquote>
 
         {p && (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="mt-2.5 flex flex-wrap items-baseline gap-2 border-t border-ink-700/60 pt-2">
             <Chip n={1} active={activeSource === 0} onClick={() => onSelectSource(0)} />
-            <PassageLocation passage={p} />
+            <Citation passage={p} />
           </div>
         )}
 
@@ -329,7 +336,7 @@ ollama serve
         </p>
       )}
 
-      <p className="mt-2 text-[15px] leading-relaxed text-slateish-200">
+      <p className="model-prose mt-2 text-[15px] text-slateish-200">
         <CitedProse
           text={view.answer ?? ""}
           onCite={onSelectSource}

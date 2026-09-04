@@ -53,5 +53,8 @@ def test_the_documented_api_origin_matches_the_configured_bind():
 def test_the_documented_python_path_is_the_project_root_venv():
     python = read_const("PYTHON")
     assert python.endswith("python.exe")
-    assert "\.venv\\" in python
+    # "\." is not a valid escape. Python leaves an unknown escape as-is, so
+    # this happened to mean the right thing while emitting a SyntaxWarning on
+    # every run - visible in the CI log the first time the suite ran there.
+    assert "\\.venv\\" in python
     assert r"backend\.venv" not in python, "the venv is at the project root"
