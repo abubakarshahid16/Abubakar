@@ -49,7 +49,13 @@ class Settings(BaseSettings):
     rerank_max_tokens: int = 256
     rerank_batch: int = 32
     running_line_threshold: float = 0.03   # fraction of pages; a running head repeats per chapter, not book-wide
-    running_line_scan_lines: int = 3
+    # Only the top/bottom N lines of a page are considered for running
+    # header/footer removal. NORSOK stacks four lines of furniture -
+    # "NORSOK standard M-501" / "Rev. 5, June 2004" / "NORSOK standard" /
+    # "Page 6 of 20" - so a 3-line window caught the first three and left the
+    # page number prepended to the text of nearly every chunk. The short-page
+    # guard inside strip_running_lines keeps a wider window safe.
+    running_line_scan_lines: int = 5
 
     # Content-quality gate. A chunk failing these does not read like natural
     # language and is stored but not retrievable. Tuned against known-good

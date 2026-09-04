@@ -39,6 +39,15 @@ IDENTIFIER_BOOST = 0.5
 #: Two chunks whose texts share this proportion of tokens are near-duplicates.
 DUPLICATE_OVERLAP = 0.85
 
+#: A passage whose heading names a DIFFERENT member of the designator the
+#: question asked about is not merely less relevant - it is about something
+#: else. Quoting coating system 4's film thickness for a question about system
+#: 1 reads perfectly plausible and is simply false, so it is pushed below every
+#: passage that does not contradict the question. Expressed as a fraction of
+#: the observed score spread, so it works on the rerank scale and the RRF scale
+#: alike.
+CONFLICT_PENALTY = 1.0
+
 _TOKEN = re.compile(r"[\w.\-/]+")
 
 
@@ -57,15 +66,24 @@ class Candidate:
     cosine: float | None = None
     rrf: float = 0.0
     identifier_hits: list[str] = field(default_factory=list)
+    #: designators this passage names that the question did NOT ask for
+    conflicts: list[str] = field(default_factory=list)
     boost: float = 0.0
+    penalty: float = 0.0
     rerank_score: float | None = None
+
+    @property
+    def searchable_text(self) -> str:
+        """Heading plus body. What the passage actually is, for matching and
+        reranking - the heading carries the clause number and designator."""
+        return self.section + "\n" + self.text if self.section else self.text
 
     @property
     def score(self) -> float:
         """Final ordering score. Rerank wins when available."""
         if self.rerank_score is not None:
-            return self.rerank_score
-        return self.rrf + self.boost
+            return self.rerank_score - self.penalty
+        return self.rrf + self.boost - self.penalty
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +97,8 @@ class Candidate:
             "score": round(self.score, 6),
             "rrf": round(self.rrf, 6),
             "boost": round(self.boost, 6),
+            "penalty": round(self.penalty, 6),
+            "conflicts": self.conflicts,
             "rerank_score": None if self.rerank_score is None else round(self.rerank_score, 6),
             "bm25": None if self.bm25 is None else round(self.bm25, 4),
             "cosine": None if self.cosine is None else round(self.cosine, 6),
@@ -161,23 +181,92 @@ def find_identifiers(text: str) -> list[str]:
     return keyword.IDENTIFIER.findall(text)
 
 
+def find_designators(text: str) -> list[str]:
+    return keyword.find_designators(text)
+
+
 def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
-    """Reward chunks that literally contain the identifiers in the question.
+    """Reward chunks that literally contain the question's identifiers.
 
     A question about `API 610` is about API 610. Semantic similarity will
     happily rank a passage about vibration limits generally above the one that
     names the standard, which is the wrong answer for an engineering lookup.
+
+    Designators are treated the same way and matter more, because getting one
+    wrong is not a missing answer but a confidently wrong one: quoting coating
+    system 4's film thickness in answer to a question about system 1 reads
+    perfectly plausible and is simply false.
     """
-    wanted = {i.lower() for i in find_identifiers(question)}
+    wanted: dict[str, list[str]] = {}
+    for ident in find_identifiers(question):
+        wanted[ident.lower()] = [ident.lower()]
+    for designator in keyword.find_designators(question):
+        wanted[designator.lower()] = [
+            v.lower() for v in keyword.designator_variants(designator)
+        ]
     if not wanted:
         return
+
     top_rrf = max((c.rrf for c in candidates), default=0.0) or 1.0
+    wanted_designators = keyword.find_designators(question)
     for c in candidates:
-        lowered = c.text.lower()
-        hits = sorted({w for w in wanted if w in lowered})
+        # The section heading is part of the passage's identity, and in a
+        # specification it is where the designator usually lives: annex A.1's
+        # body never says "system 1", its heading does. Matching the body
+        # alone ranked system 4's table first for a question about system 1 -
+        # a confidently wrong answer, not a missing one.
+        lowered = c.searchable_text.lower()
+        hits = sorted(
+            key for key, spellings in wanted.items()
+            if any(v in lowered for v in spellings)
+        )
         if hits:
             c.identifier_hits = hits
             c.boost = IDENTIFIER_BOOST * top_rrf * (len(hits) / len(wanted))
+
+        # Which member does the HEADING declare? In a specification the clause
+        # heading is the authoritative scope of the passage; a mention in the
+        # body is usually a cross-reference. Annex A.4's text really does say
+        # "Coating system no. 1 may be used on other deck areas", so matching
+        # body text alone cannot tell A.1 from A.4 - and getting that wrong
+        # quotes system 4's film thickness as system 1's.
+        heading = c.section or ""
+        for want in wanted_designators:
+            word, _, value = want.partition(" ")
+            declared = {
+                m.group(2).upper()
+                for m in keyword.DESIGNATOR.finditer(heading)
+                if m.group(1).lower() == word
+            }
+            if not declared:
+                continue
+            if value.upper() in declared:
+                c.identifier_hits = sorted(set(c.identifier_hits) | {want})
+                c.boost = max(c.boost, IDENTIFIER_BOOST * top_rrf * 2)
+            else:
+                c.conflicts = sorted(f"{word} {v}" for v in declared)
+
+
+def _apply_conflict_penalty(candidates: list[Candidate], reranked: bool = False) -> None:
+    """Push contradicting passages below every non-contradicting one.
+
+    Scaled to the spread of whatever scores are in play, because the RRF scale
+    (~0.03) and the cross-encoder scale (~1-8) differ by two orders of
+    magnitude - a boost tuned for one is numerically invisible on the other,
+    which is exactly how a passage about coating system 4 stayed top for a
+    question about system 1.
+    """
+    if not any(c.conflicts for c in candidates):
+        return
+    scores = [
+        c.rerank_score if (reranked and c.rerank_score is not None) else c.rrf
+        for c in candidates
+    ]
+    scores = [s for s in scores if s is not None and s != float("-inf")]
+    spread = (max(scores) - min(scores)) if len(scores) > 1 else 1.0
+    step = max(spread, 1e-6) * CONFLICT_PENALTY
+    for c in candidates:
+        c.penalty = step if c.conflicts else 0.0
 
 
 def _tokens(text: str) -> set[str]:
@@ -193,7 +282,9 @@ def deduplicate(candidates: list[Candidate]) -> list[Candidate]:
     kept: list[Candidate] = []
     kept_tokens: list[set[str]] = []
     for c in sorted(candidates, key=lambda x: -x.score):
-        tokens = _tokens(c.text)
+        # two annex tables can share almost all their body text and differ
+        # only by heading, so dedup must see the heading too
+        tokens = _tokens(c.searchable_text)
         if not tokens:
             continue
         duplicate = False
@@ -283,6 +374,7 @@ def search(
         )
 
     apply_identifier_boost(question, pool)
+    _apply_conflict_penalty(pool)
     pool = deduplicate(pool)
     pool.sort(key=lambda c: -c.score)
 
@@ -292,7 +384,11 @@ def search(
 
         t = Timer()
         shortlist = pool[: settings.rerank_candidates]
-        scored = reranker.rerank(question, [(c.chunk_id, c.text) for c in shortlist])
+        # rerank on heading + body, so the cross-encoder can see which coating
+        # system, clause or annex a passage belongs to
+        scored = reranker.rerank(
+            question, [(c.chunk_id, c.searchable_text) for c in shortlist]
+        )
         timings["rerank_ms"] = round(t.elapsed * 1000, 2)
         if scored:
             reranked = True
@@ -311,6 +407,7 @@ def search(
             # fallback threshold, an unanswerable question returned a
             # confident-looking passage instead of refusing.
             pool = shortlist
+            _apply_conflict_penalty(pool, reranked=True)
             pool.sort(key=lambda c: -c.score)
 
     return {

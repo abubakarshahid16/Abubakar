@@ -58,6 +58,45 @@ IDENTIFIER = re.compile(
     re.VERBOSE,
 )
 
+#: A designator: a noun followed by a number or alphanumeric suffix.
+#:   "coating system no. 1", "system 3B", "type 2", "class 300", "grade B"
+#: These are NOT code-shaped, so the pattern above misses them entirely - and
+#: missing one is worse than missing a code, because the retrieved passage is
+#: about a DIFFERENT system and reads perfectly plausible. On a coating
+#: specification that means reporting system 4's film thickness as system 1's.
+DESIGNATOR_WORDS = (
+    "system", "type", "class", "grade", "category", "level", "group",
+    "table", "figure", "annex", "clause", "section", "revision", "rev",
+)
+DESIGNATOR = re.compile(
+    r"\b(" + "|".join(DESIGNATOR_WORDS) + r")\b"
+    r"(?:\s+(?:no\.?|number|nr\.?))?"
+    r"\s*[:.]?\s*"
+    r"(\d+[A-Za-z]?)\b",
+    re.IGNORECASE,
+)
+
+
+def find_designators(text: str) -> list[str]:
+    """Normalised designators, e.g. "system 1", "type 2", "class 300"."""
+    return [f"{m.group(1).lower()} {m.group(2).upper()}" for m in DESIGNATOR.finditer(text)]
+
+
+def designator_variants(designator: str) -> list[str]:
+    """The spellings a document might use for one designator.
+
+    "system 1" appears as "system no. 1", "system No. 1", "system 1" - all of
+    which must match, or requiring the designator would exclude the very
+    passage that answers the question.
+    """
+    word, _, value = designator.partition(" ")
+    return [
+        f"{word} {value}",
+        f"{word} no. {value}",
+        f"{word} no {value}",
+        f"{word} number {value}",
+    ]
+
 
 def ensure_schema(conn: sqlite3.Connection | None = None) -> None:
     conn = conn or connect()
@@ -155,11 +194,20 @@ def build_match_query(question: str) -> str:
     returns something rather than nothing.
     """
     identifiers = IDENTIFIER.findall(question)
+    designators = find_designators(question)
     words = [w for w in re.findall(r"[\w.\-/]{2,}", question) if w not in identifiers]
 
     parts: list[str] = []
     if identifiers:
         parts.append(" AND ".join(_escape(i) for i in identifiers))
+    if designators:
+        # A designator is REQUIRED, like an identifier, but matched across its
+        # spellings. "coating system no. 1" and "coating system 1" are the same
+        # thing, and retrieving system 4 for a question about system 1 is not a
+        # missing answer - it is a confidently wrong one.
+        for d in designators:
+            variants = " OR ".join(_escape(v) for v in designator_variants(d))
+            parts.append(f"({variants})")
     if words:
         ors = " OR ".join(_escape(w) for w in words)
         parts.append(f"({ors})")

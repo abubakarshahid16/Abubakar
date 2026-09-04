@@ -106,12 +106,18 @@ def strip_running_lines(text: str, running: set[str]) -> tuple[str, int]:
 # 5.1 Introduction / 2.2.3 Location Tracking / CHAPTER 9
 _HEADING = re.compile(
     r"^\s*(?:(?:CHAPTER|Chapter|SECTION|Section)\s+)?"
-    r"(\d+(?:\.\d+){0,3})\s+([A-Z][^\n]{2,70})\s*$"
+    r"((?:[A-Z]\.)?\d+(?:\.\d+){0,3})\s+([A-Z][^\n]{2,70})\s*$"
 )
+_CHAPTER_PREFIX = re.compile(r"^\s*(?:CHAPTER|Chapter|SECTION|Section)\s+")
 _ALLCAPS_HEADING = re.compile(r"^\s*([A-Z][A-Z \-&/]{6,60})\s*$")
 _TABLE_CAPTION = re.compile(r"^\s*(?:TABLE|Table|FIGURE|Figure)\s+\d+")
 _SENTENCE_END = re.compile(r"(?<=[.!?;:])\s+")
 _TRAILING_PAGE_NO = re.compile(r"\s\d{1,4}$")
+#: A trailing number that belongs to the TITLE rather than being a page
+#: reference: "A.4 Coating system no. 4", "System 3B", "Type 2".
+_DESIGNATOR_TAIL = re.compile(
+    r"(?i)\b(?:no\.?|number|system|type|class|grade|level|group)\s+\d+[A-Za-z]?\s*$"
+)
 _NUMERIC_TOKEN = re.compile(r"[-+]?\d[\d.,%/:-]*")
 
 _MIN_TABLE_LINES = 4
@@ -125,6 +131,19 @@ _CONTENTS_PAGE_HEADINGS = 4
 _MAX_SECTION_NUMBER = 99
 _ANY_DIGIT = re.compile(r"\d")
 _MATH_PUNCT = re.compile(r"[()\[\]{}=+*/\<>|^_~]")
+# As above but without parentheses, which specification headings do use.
+_MATH_PUNCT_STRICT = re.compile(r"[\[\]{}=+*/\<>|^_~]")
+
+# A clause number alone on its line, with the title on the NEXT line. This is
+# how NORSOK and most engineering specifications lay out headings:
+#     '4.6 '
+#     'Steel materials '
+# A single-line "4.6 Steel materials" is the textbook convention. Both occur,
+# so both are detected. Annex numbering (A.1, A.5.1) is included because
+# engineers cite annex clauses exactly as they cite body clauses.
+_CLAUSE_NUMBER_ONLY = re.compile(r"^\s*((?:[A-Z]\.)?\d+(?:\.\d+)*)\.?\s*$")
+#: The clause number part of a heading, body or annex.
+_CLAUSE_NUMBER = r"(?:[A-Z]\.)?\d+(?:\.\d+){0,3}"
 
 # ------------------------------------------------------ page classification
 
@@ -349,36 +368,69 @@ def looks_like_heading(line: str) -> str | None:
     m = _HEADING.match(line)
     if not m:
         return None
-    # a table-of-contents line ends in a page number - not a real heading
-    if _TRAILING_PAGE_NO.search(line):
+    # A contents line ends in a page number - but so does a legitimate
+    # specification heading like "A.4 Coating system no. 4". The difference is
+    # what precedes the number: a designator word means it is part of the
+    # title, anything else means it is a page reference.
+    if _TRAILING_PAGE_NO.search(line) and not _DESIGNATOR_TAIL.search(line):
         return None
 
     number, title = m.group(1), m.group(2).strip()
+    if _CHAPTER_PREFIX.match(line) and "." not in number:
+        # "CHAPTER 9 Numerical Solutions" - the word makes it unambiguous
+        return f"{number} {title}" if len(title.split()) >= 2 else None
+    return _validate_heading(number, title)
+
+
+def _validate_heading(number: str, title: str) -> str | None:
+    """Shared checks for both the single-line and split-line heading forms."""
+    title = title.strip().rstrip(".")
+    if not title or len(title) > 90:
+        return None
+
+    # An annex clause (A.4) carries a letter prefix; body clauses do not.
+    parts = [p for p in number.split(".") if p]
+    numeric = [p for p in parts if p.isdigit()]
+    lettered = [p for p in parts if not p.isdigit()]
+
+    if lettered:
+        # exactly one single-letter annex prefix, and it must come first
+        if len(lettered) != 1 or parts[0] != lettered[0] or len(lettered[0]) != 1:
+            return None
+    if not numeric:
+        return None
 
     # A section number is small and non-zero. "330 Hudson Street" is a street
     # address; "0 K(s, t) f(t) dt" is an integral, not section zero.
-    parts = number.split(".")
-    if any(int(p) > _MAX_SECTION_NUMBER for p in parts):
+    if any(int(p) > _MAX_SECTION_NUMBER for p in numeric):
         return None
-    if int(parts[0]) < 1:
-        return None
-
-    # Maths and code punctuation never appears in a section title.
-    if _MATH_PUNCT.search(title):
-        return None
-    # A real title is mostly letters and spaces.
-    letters = sum(1 for ch in title if ch.isalpha() or ch.isspace())
-    if letters < len(title) * 0.85:
+    if int(numeric[0]) < 1:
         return None
 
-    # A title carrying digits is an address, a measurement or a code line
-    # ("330 Hudson Street, NY, NY 10013"), not a section title.
-    if _ANY_DIGIT.search(title):
+    # Maths and code punctuation never appears in a section title. Parentheses
+    # are allowed because specification headings use them:
+    # "A.1 Coating system no. 1 (shall be pre-qualified)".
+    if _MATH_PUNCT_STRICT.search(title):
+        return None
+    # A real title is mostly letters, digits and spaces. Titles legitimately
+    # carry numbers - "Coating system no. 4", "System 3B" - so digits are no
+    # longer disqualifying; the address case is caught by the size guard above.
+    allowed = sum(
+        1 for ch in title if ch.isalnum() or ch.isspace() or ch in "()-,/&'."
+    )
+    if allowed < len(title) * 0.9:
+        return None
+    if not any(ch.isalpha() for ch in title):
         return None
 
-    # A bare integer with a short title is a figure annotation ("3 L/min").
-    # A dotted number ("5.1 Introduction") is unambiguous on its own.
-    if "." not in number and len(title.split()) < 3:
+    # A BARE integer is ambiguous: "1 Acceptance criteria are considered
+    # acceptable" is a footnote, "15 Proper use of mutexes" is a rubric row,
+    # "1 (a) Cosine integral" is an equation label. A dotted number
+    # ("5.1 Introduction") or an annex letter ("A.1 ...") is unambiguous, and
+    # every real heading in the four documents examined uses one. Bare
+    # integers are therefore only accepted with an explicit CHAPTER/SECTION
+    # prefix, handled by the caller.
+    if "." not in number:
         return None
 
     return f"{number} {title}"
@@ -451,6 +503,34 @@ def _table_run_length(lines: list[str], i: int) -> int:
     return j - i
 
 
+def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
+    """A clause number alone on its line, with the title on the next.
+
+        '4.6 '
+        'Steel materials '
+
+    Returns (heading, lines_consumed). The title must look like a title and
+    not like body text, or a numbered list item would swallow the sentence
+    after it.
+    """
+    m = _CLAUSE_NUMBER_ONLY.match(lines[i])
+    if not m:
+        return None, 1
+
+    for j in range(i + 1, min(i + 3, len(lines))):
+        title = lines[j].strip()
+        if not title:
+            continue
+        # A title is short and is not a sentence.
+        if len(title) > 90 or title.endswith((".", ";", ":")) and len(title.split()) > 8:
+            return None, 1
+        if len(title.split()) > 12:
+            return None, 1
+        head = _validate_heading(m.group(1), title)
+        return (head, j - i + 1) if head else (None, 1)
+    return None, 1
+
+
 def segment_document(
     pages: list[tuple[int, str]],
     running: set[str],
@@ -496,12 +576,20 @@ def segment_document(
             line = lines[i]
 
             head = looks_like_heading(line)
+            consumed = 1
+            if head is None:
+                # The split-line form: a clause number alone, its title on the
+                # next line. This is how NORSOK and most engineering
+                # specifications lay headings out, and it is why every chunk
+                # in such a document had section: null.
+                head, consumed = _split_line_heading(lines, i)
+
             if head:
                 flush_prose()
                 if not contents_page:
                     # heading state persists across pages until the next heading
                     section = head
-                i += 1
+                i += consumed
                 continue
 
             run = _table_run_length(lines, i)
@@ -674,6 +762,24 @@ def build_chunks(blocks: list[Block]) -> list[Block]:
     return _merge_runts(_enforce_ceiling([c for c in chunks if c.text.strip()]))
 
 
+def _heading_prefix_length(text: str) -> int:
+    """How many leading words belong to a heading that must not be split off.
+
+    Returns 0 when the text does not begin with a heading.
+    """
+    lines = text.splitlines()
+    if not lines:
+        return 0
+    first = lines[0].strip()
+    head = looks_like_heading(first)
+    if head is None and len(lines) > 1:
+        head, consumed = _split_line_heading([line.strip() for line in lines], 0)
+        if head:
+            return len(" ".join(lines[:consumed]).split())
+        return 0
+    return len(first.split()) if head else 0
+
+
 def _enforce_ceiling(chunks: list[Block]) -> list[Block]:
     """Final invariant: no chunk may exceed the ceiling, whatever produced it.
 
@@ -691,9 +797,18 @@ def _enforce_ceiling(chunks: list[Block]) -> list[Block]:
         # Only the rare oversized chunk reaches here, so measure exactly rather
         # than sampling - an approximate check is what let a 499-token chunk
         # through in the first place.
+        # A heading must never be split from the block it introduces. Splitting
+        # "A.5.1 Coating system no." from "5A (shall be pre-qualified)" left a
+        # chunk starting mid-heading, which is unreadable as a citation and
+        # unfindable by the clause it belongs to.
+        words = c.text.split()
+        protected = _heading_prefix_length(c.text)
+
         cur: list[str] = []
-        for w in c.text.split():
+        for index, w in enumerate(words):
             cur.append(w)
+            if index < protected:
+                continue
             if count_tokens(" ".join(cur)) > ceiling:
                 cur.pop()
                 piece = " ".join(cur).strip()
