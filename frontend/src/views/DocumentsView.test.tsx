@@ -37,6 +37,7 @@ function makeDoc(over: Partial<DocumentRecord> = {}): DocumentRecord {
     embedded_count: 1096,
     status: "ready",
     needs_ocr_pages: 12,
+    recognised_pages: 0,
     equation_pages: 0,
     error: null,
     uploaded_at: "2026-09-04T00:00:00Z",

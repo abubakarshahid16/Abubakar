@@ -36,7 +36,13 @@ export interface DocumentRecord {
   /** how many retrievable chunks have vectors so far */
   embedded_count: number;
   status: DocStatus;
-  needs_ocr_pages: number;   // detected only; OCR is not implemented
+  /** Pages with no usable extractable text - candidates for recognition.
+   *  NOT the same as recognised_pages: some of these are simply blank. */
+  needs_ocr_pages: number;
+  /** Pages OCR actually read text from. A COUNT, never a badge: a 546-page
+   *  document with 12 recognised pages must not be presented as "OCR'd".
+   *  State the fraction - "12 of 546 pages read by OCR". */
+  recognised_pages: number;
   /** pages whose mathematics did not survive extraction; see the page image */
   equation_pages: number;
   error: ApiError | null;
@@ -234,6 +240,27 @@ export interface AnswerPassage {
   kind: ChunkKind;
   score: number;
   identifier_hits: string[];
+  /** Where these characters came from.
+   *
+   *  `"extracted"` - out of the PDF's own text layer. This CAN carry the
+   *  "Quoted verbatim from the document" label, because it is literally true.
+   *
+   *  `"recognised"` - OCR read them off a page image. A guess about pixels,
+   *  and it must NEVER carry the verbatim label: measured errors include
+   *  `Pyblish` for "Publish" and `≦` where the document says `≤`. Render
+   *  "Read by OCR from a scanned page" instead, with the page image EXPANDED
+   *  rather than collapsed - a label that says "check it against the page"
+   *  while the page is hidden is a label that expects to be ignored.
+   *
+   *  A chunk spanning one recognised page and one extracted page is
+   *  `"recognised"`: a reader cannot tell which sentence came from where, so
+   *  the label makes the weaker claim. */
+  text_source: "extracted" | "recognised";
+  /** Lowest OCR confidence across the chunk's recognised pages - the weakest
+   *  evidence governs. null for extracted text. This is DATA, not a gate:
+   *  nothing is hidden on the strength of it, and no threshold is set until
+   *  there is labelled ground truth to set one from. */
+  ocr_min_conf: number | null;
 }
 
 export interface AnswerResult {

@@ -201,13 +201,25 @@ config for this reason.
 |---|---|---|
 | 4 — direction classifier | **Keep it on** | Turning it off saved 1 % (0.90 → 0.89 s/page) and *changed* the output on 2 of 12 pages. A 1 % saving is not worth a behaviour change. Measured, not assumed |
 | 5 — dpi | **150 dpi** | 300 dpi costs 39 % more time and 186 MB more RSS and is **not more accurate**. On the book2 cover, 150 read `Differential Equations … Dennis G. Zill`; 300 read `Different / tial / EquationsS … Denis G. Zill` — a split word, a spurious `S`, and a dropped `n` from a proper name |
-| 6 — parallelism | **2 workers, from memory** | 430–530 MB per worker against ~1.2 GB headroom. Two fit; three do not. Matches `extract_processes` |
+| 6 — parallelism | **1 worker** — *corrected, see below* | Measuring the real stage rather than a worker in isolation gave **1,399 MB for two against 598 MB for one**. Two do not fit in the 1.15 GiB free at demo time |
 | 7 — separate render cache | **Confirmed** | `cache_path` already keys on dpi. Both `…_p00169_150.png` and `…_p00169_300.png` exist side by side; the OCR render cannot evict the display render |
 
 **`intra_op_num_threads` is set to 2, never −1**, and `enable_cpu_mem_arena`
 is already `false` in the RapidOCR default config — the arena behaviour that
 cost 829 MB on the reranker is off here by default. `Rec.rec_batch_num` is
 pinned at 4 and `Global.max_side_len` at 2000.
+
+### Correction: one worker, not two
+
+The lever-6 figure above was revised after Phase 3, and the reason is worth
+keeping. Measuring **one worker in isolation** gave 524–549 MB, and two of
+those against ~1.2 GB of headroom looked like a fit. Running the **real stage**
+and sampling parent plus children at their simultaneous peak gave **1,399 MB
+for two workers and 598 MB for one**.
+
+The isolated measurement was not wrong; it was measuring the wrong thing. It
+omitted the parent process and assumed the two children peak independently.
+`ocr_processes` is 1, set from the number that describes the whole operation.
 
 ## Model choice: tiny, and why not small
 

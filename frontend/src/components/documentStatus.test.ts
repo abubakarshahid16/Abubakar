@@ -27,6 +27,7 @@ function doc(over: Partial<DocumentRecord> = {}): DocumentRecord {
     embedded_count: 2831,
     status: "ready",
     needs_ocr_pages: 0,
+    recognised_pages: 0,
     equation_pages: 0,
     error: null,
     uploaded_at: "2026-09-04T00:00:00Z",

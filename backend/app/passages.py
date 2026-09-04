@@ -33,7 +33,7 @@ def _rows_for(document_id: str) -> list[dict]:
         dict(r)
         for r in connect().execute(
             """SELECT id, ordinal, page_start, page_end, section, parent_id,
-                      kind, text
+                      kind, text, text_source, ocr_min_conf
                FROM chunks
                WHERE document_id = ? AND retrievable = 1
                ORDER BY ordinal""",
@@ -115,6 +115,18 @@ def expand_passage(
         # UI needs to know which it is holding.
         "kind": hit["kind"],
         "chunks_joined": hi - lo + 1,
+        # Provenance over the JOINED passage, not just the matched chunk. The
+        # reader is shown the whole expanded block, so if any part of it was
+        # recognised the whole thing must say so - the same rule that makes a
+        # chunk spanning a recognised page recognised. See ADR-0006.
+        "text_source": (
+            "recognised"
+            if any(rows[i]["text_source"] == "recognised" for i in range(lo, hi + 1))
+            else "extracted"
+        ),
+        "ocr_min_conf": min(
+            (rows[i]["ocr_min_conf"] for i in range(lo, hi + 1)
+             if rows[i]["ocr_min_conf"] is not None), default=None),
         # where the chunk that actually matched sits inside the joined text
         "match_span": [offset, offset + len(hit["text"])],
     }

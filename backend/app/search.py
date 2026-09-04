@@ -62,6 +62,11 @@ class Candidate:
     page_start: int
     page_end: int
     text: str
+    #: 'extracted' | 'recognised'. Carried on the chunk row rather than joined
+    #: back to pages, so retrieval and the UI see provenance without a join.
+    #: This is what stops recognised text reaching a "quoted verbatim" label.
+    text_source: str = "extracted"
+    ocr_min_conf: float | None = None
     keyword_rank: int | None = None
     dense_rank: int | None = None
     bm25: float | None = None
@@ -116,6 +121,8 @@ class Candidate:
             "keyword_rank": self.keyword_rank,
             "dense_rank": self.dense_rank,
             "identifier_hits": self.identifier_hits,
+            "text_source": self.text_source,
+            "ocr_min_conf": self.ocr_min_conf,
             "defines_term": self.defines_term,
             "heading_declares": self.heading_declares,
             "separation": self.separation,
@@ -330,7 +337,7 @@ def _hydrate(chunk_ids: list[str]) -> dict[str, sqlite3.Row]:
     marks = ",".join("?" * len(chunk_ids))
     rows = conn.execute(
         f"""SELECT id, document_id, filename, section, page_start, page_end,
-                   text, retrievable
+                   text, retrievable, text_source, ocr_min_conf
             FROM chunks WHERE id IN ({marks})""",
         chunk_ids,
     ).fetchall()
@@ -551,6 +558,8 @@ def search(
                 page_start=row["page_start"],
                 page_end=row["page_end"],
                 text=row["text"],
+                text_source=row["text_source"],
+                ocr_min_conf=row["ocr_min_conf"],
                 keyword_rank=meta.get("keyword_rank"),
                 dense_rank=meta.get("dense_rank"),
                 bm25=meta.get("bm25"),

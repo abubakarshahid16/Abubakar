@@ -58,7 +58,16 @@ class Document(BaseModel):
     chunk_count_total: int = Field(description="every chunk row, including excluded")
     embedded_count: int
     status: DocStatus
-    needs_ocr_pages: int = Field(description="detected only; OCR is not implemented")
+    needs_ocr_pages: int = Field(
+        description="pages with no usable extractable text - candidates for "
+        "recognition. Not the same as recognised_pages: some are simply blank"
+    )
+    recognised_pages: int = Field(
+        0,
+        description="pages OCR actually read text from. A COUNT, never a "
+        "badge: a 546-page document with 12 recognised pages must not be "
+        "presented as 'OCR'd'. State the fraction.",
+    )
     equation_pages: int = Field(description="maths did not survive extraction")
     error: DocumentError | None = None
     pages_excluded: int = Field(
@@ -262,6 +271,21 @@ class Passage(BaseModel):
     keyword_rank: int | None
     dense_rank: int | None
     identifier_hits: list[str]
+    text_source: Literal["extracted", "recognised"] = Field(
+        "extracted",
+        description="'extracted' means the characters came out of the PDF's own "
+        "text layer and CAN be called a verbatim quotation. 'recognised' means "
+        "OCR read them off a page image - a guess about pixels, which must NEVER "
+        "carry the verbatim label. A chunk spanning one recognised page and one "
+        "extracted page is 'recognised': the reader cannot tell which sentence "
+        "came from where.",
+    )
+    ocr_min_conf: float | None = Field(
+        None,
+        description="lowest OCR confidence across the chunk's recognised pages - "
+        "the weakest evidence governs. null for extracted text. A number here is "
+        "data, not a quality gate: nothing is hidden on the strength of it.",
+    )
 
 
 class SearchResult(BaseModel):
@@ -314,6 +338,13 @@ class AnswerPassage(BaseModel):
     )
     score: float
     identifier_hits: list[str] = []
+    text_source: Literal["extracted", "recognised"] = Field(
+        "extracted",
+        description="'recognised' means OCR read this off a page image. It must "
+        "NEVER be presented under the verbatim-quotation label; render the "
+        "OCR label with the page image expanded instead.",
+    )
+    ocr_min_conf: float | None = None
 
 
 class AnswerResult(BaseModel):

@@ -19,6 +19,47 @@ class Settings(BaseSettings):
 
     embed_model_dir: Path = BACKEND_DIR / "models" / "e5-small"
 
+    # ------------------------------------------------------------------ OCR
+    #: Weights are VENDORED and addressed by explicit path. RapidOCR resolves
+    #: an unset model_path by downloading from modelscope.cn on first
+    #: construction, which fails on an air-gapped machine at the first
+    #: recognition rather than at install. Staged by scripts/fetch_models.py.
+    ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
+    ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"
+    #: The recogniser is the open decision. PP-OCRv6 ships no English model, so
+    #: this multilingual one can emit CJK into an English document - measured:
+    #: 凤, 日, ≦ for "Save". `en_PP-OCRv5_rec_mobile.onnx` cannot, by
+    #: construction, at 2.16 s/page against 0.90. Switch when the client
+    #: confirms whether the corpus contains Arabic. See ADR-0005.
+    ocr_rec_model: str = "PP-OCRv6_rec_tiny.onnx"
+    ocr_cls_model: str = "ch_ppocr_mobile_v2.0_cls_mobile.onnx"
+
+    #: 150, measured, not assumed. 300 dpi produced WORSE text on these
+    #: documents for 39% more time and 186 MB more RSS - it splits words and
+    #: drops letters from proper names. See ADR-0005.
+    ocr_dpi: int = 150
+    #: Kept ON. Turning it off saved 1% and changed the output on 2 of 12
+    #: pages; a 1% saving is not worth a behaviour change.
+    ocr_use_cls: bool = True
+    #: Bounded explicitly. Never -1: that takes all 12 logical cores and
+    #: allocates a per-thread arena each, which is how the reranker came to
+    #: reserve 829 MB for a 22 MB model.
+    ocr_threads: int = 2
+    ocr_rec_batch: int = 4
+    ocr_max_side_len: int = 2000
+    #: Memory-bound, not CPU-bound, and ONE - corrected by measuring the real
+    #: stage rather than one worker in isolation. Isolated workers peaked at
+    #: 524-549 MB, which suggested two would fit in the 1.15 GiB free at demo
+    #: time. Running the actual stage measured the WHOLE operation, parent plus
+    #: children at their simultaneous peak: 1,399 MB for two workers against
+    #: 598 MB for one. Two do not fit. NOT scaled to cores - that is how the
+    #: reranker came to reserve 829 MB for a 22 MB model.
+    ocr_processes: int = 1
+    ocr_batch_size: int = 8
+    #: Characters outside this script in recognised text are a recognition
+    #: failure, not a curiosity. Counted and flagged, never deleted.
+    ocr_expected_script: str = "latin"
+
     ollama_url: str = "http://127.0.0.1:11434"
     answer_model: str = "qwen3.5:4b"
     #: Resident size of the answer model. Used to warn BEFORE someone presses

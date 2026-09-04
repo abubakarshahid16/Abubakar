@@ -58,6 +58,41 @@ CREATE TABLE IF NOT EXISTS pages (
     PRIMARY KEY (document_id, page_no)
 );
 
+-- Recognised text. A SEPARATE TABLE, deliberately, and this is the whole
+-- point of it: extract.py writes `pages` with INSERT OR REPLACE, which deletes
+-- the row and inserts a new one. Any column on `pages` - a provenance flag and
+-- the recognised text alike - is therefore destroyed by a re-extraction, and
+-- states.py explicitly permits re-extraction from both no_searchable_content
+-- and failed. Twenty minutes of recognition would be silently overwritten by
+-- the empty extraction that triggered it. Extraction cannot reach this table.
+-- See ADR-0006.
+CREATE TABLE IF NOT EXISTS page_ocr (
+    document_id   TEXT    NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    page_no       INTEGER NOT NULL,
+    text          TEXT    NOT NULL,      -- already through normalise_text
+    char_count    INTEGER NOT NULL,
+    -- Provenance: a result states what it ran against, so a number is never
+    -- orphaned from its conditions.
+    engine        TEXT    NOT NULL,      -- 'rapidocr-3.9.2'
+    model         TEXT    NOT NULL,      -- 'PP-OCRv6_det_tiny+PP-OCRv6_rec_tiny'
+    dpi           INTEGER NOT NULL,
+    -- Confidence is data, not a knob. Stored so a threshold can be set from
+    -- measurement later; NULL when the page produced no boxes at all.
+    mean_conf     REAL,
+    min_conf      REAL,
+    box_count     INTEGER NOT NULL,
+    -- Characters outside the document's expected script. Non-zero means the
+    -- recogniser emitted something it should not be able to - under a
+    -- Latin-only recogniser this should never fire, which makes it a guard on
+    -- the guard.
+    alphabet_violations INTEGER NOT NULL DEFAULT 0,
+    alphabet_sample     TEXT,
+    seconds       REAL    NOT NULL,
+    recognised_at TEXT    NOT NULL,
+    batch_no      INTEGER NOT NULL,
+    PRIMARY KEY (document_id, page_no)
+);
+
 CREATE TABLE IF NOT EXISTS chunks (
     id             TEXT PRIMARY KEY,
     document_id    TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -76,7 +111,17 @@ CREATE TABLE IF NOT EXISTS chunks (
     token_count    INTEGER NOT NULL,
     content_hash   TEXT NOT NULL,
     retrievable    INTEGER NOT NULL DEFAULT 1,
-    quality_flags  TEXT
+    quality_flags  TEXT,
+    -- 'extracted' | 'recognised'. If ANY page a chunk spans was recognised,
+    -- the whole chunk is 'recognised': a reader cannot tell which sentence
+    -- came from where, so the label makes the weaker claim. A third 'mixed'
+    -- state was considered and rejected - it pushes an unresolvable hedge onto
+    -- the reader. Carried here rather than joined back to pages so retrieval
+    -- and the UI see it without a join.
+    text_source    TEXT NOT NULL DEFAULT 'extracted',
+    -- Minimum confidence over the chunk's recognised pages: the weakest
+    -- evidence governs. NULL unless text_source = 'recognised'.
+    ocr_min_conf   REAL
 );
 
 CREATE TABLE IF NOT EXISTS chunk_vectors (
@@ -208,6 +253,35 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if docs and "embedded_count" not in docs:
         conn.execute(
             "ALTER TABLE documents ADD COLUMN embedded_count INTEGER NOT NULL DEFAULT 0")
+    # ------------------------------------------------------------------ OCR
+    # Every existing chunk resolves to 'extracted', and that is a FACT rather
+    # than a convenient default: OCR has never run in any build of this system,
+    # so no recognised text can exist in any database this migration will meet.
+    if have and "text_source" not in have:
+        conn.execute(
+            "ALTER TABLE chunks ADD COLUMN text_source TEXT NOT NULL DEFAULT 'extracted'")
+    if have and "ocr_min_conf" not in have:
+        conn.execute("ALTER TABLE chunks ADD COLUMN ocr_min_conf REAL")
+    if docs and "recognised_pages" not in docs:
+        # A count, not a boolean, matching needs_ocr_pages and equation_pages.
+        # A 546-page document with 12 recognised pages must never read as
+        # "OCR'd"; the UI states the fraction.
+        conn.execute(
+            "ALTER TABLE documents ADD COLUMN recognised_pages INTEGER NOT NULL DEFAULT 0")
+    # The old rule name asserted a property of the SYSTEM - "OCR is not
+    # implemented" - which goes false the day OCR ships, leaving rows carrying
+    # a name that no longer describes reality. The new name asserts a property
+    # of the PAGE, which was true when the row was written and stays true.
+    # Chunking regenerates exclusions per document, so this only matters for
+    # documents that are never re-chunked - which is why it is done here too.
+    conn.execute(
+        "UPDATE exclusions SET rule = 'ocr_not_run',"
+        " reason = 'scanned page with no extractable text; recognition has not run'"
+        " WHERE rule = 'needs_ocr_not_implemented'"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_page_ocr_document ON page_ocr(document_id)"
+    )
     # created after the migration so it cannot reference a missing column
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_chunks_retrievable ON chunks(retrievable)"

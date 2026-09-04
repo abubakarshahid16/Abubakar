@@ -43,6 +43,8 @@ const A1: AnswerPassage = {
   highlight: [0, 70],
   match_span: [0, 70],
   chunks_joined: 1,
+  text_source: "extracted",
+  ocr_min_conf: null,
   kind: "prose",
   score: 6.538,
   identifier_hits: ["system 1"],

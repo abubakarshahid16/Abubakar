@@ -364,3 +364,85 @@ the test path** — neither `app/` nor `tests/` imports `PIL`, `cv2` or
 account for only 62 s of 304 s, so the cost is thin per-test overhead sensitive
 to machine load. **A quiet-machine baseline is needed before any future number
 here is called a regression.**
+
+---
+
+## OCR stage, run for real on the whole corpus (measured 2026-09-05)
+
+Not a harness: `ocr.recognise_document` through the real pipeline, writing to
+the real database. Machine state as stamped in the previous section, except the
+backend API was stopped so the stage had the machine to itself.
+
+| Document | Pages recognised | With text | s/page | Peak RSS (parent + children) | Alphabet violations |
+|---|---|---|---|---|---|
+| NORSOK M-501 Rev 5 | 3 | 1 | 0.94 | 563 MB | 0 |
+| book1 professional practices | 12 | 7 | 0.85 (2 workers) | **1,399 MB** | 0 |
+| book2 differential equations | 8 | 8 | 0.62 | 598 MB | 0 |
+| book4 chemical process | 54 | 54 | 1.32 | 652 MB | **84** |
+
+### Two workers do not fit. One does. This corrects the earlier estimate.
+
+Measuring one worker in isolation gave 524–549 MB and suggested two would fit
+in the 1.15 GiB free at demo time. **Measuring the real stage — parent and
+children at their simultaneous peak — gave 1,399 MB for two against 598 MB for
+one.** The isolated figure missed the parent and the overlap. `ocr_processes`
+is 1, on this measurement rather than on the estimate.
+
+### The alphabet guard fired on real data, and it matters
+
+| | |
+|---|---|
+| Pages recognised across the corpus | 77 |
+| Pages containing characters the document cannot contain | **18 (23 %)** |
+| Such characters in total | 84 |
+
+Observed: `米 。【华博器四性 国昌立 口我日 凤 二十大 一反 区回` — and **`≦` on two
+pages**. The CJK ideographs are obvious to any reader. `≦` where a
+specification says `≤` is not, and that is the failure this system exists to
+prevent. This is the multilingual PP-OCRv6 recogniser on an all-English corpus;
+the English recogniser cannot produce any of it.
+
+### Provenance, end to end
+
+| Document | extracted | recognised | worst chunk confidence |
+|---|---|---|---|
+| NORSOK M-501 | 80 | 1 | 0.997 |
+| book1 | 1,100 | 7 | 0.864 |
+| book2 | 1,740 | 8 | 0.957 |
+| book4 | 2,175 | 93 | 0.501 |
+
+Mixed documents behave as designed: 7 recognised chunks among 1,107 in book1,
+so nothing presents as "an OCR'd document". The 0.501 worst case is the first
+real data point for a confidence threshold; it is still not enough to set one.
+
+### Re-chunk cost, which sets the re-index cadence
+
+| Document | Chunks | Full re-chunk |
+|---|---|---|
+| NORSOK M-501 | 81 | 0.7 s |
+| book1 | 1,107 | 2.6 s |
+| book2 | 1,748 | 4.8 s |
+| book4 | 2,268 | 8.6 s |
+
+Re-chunking is whole-document, so re-indexing after every OCR batch would cost
+more than the recognition. Rounds double instead — page 40 is answerable within
+a couple of rounds while page 900 is still being read, and the total re-index
+cost converges to about twice one full pass rather than growing with the page
+count. A 1,400-page scanned document reaches full coverage in **at most 10
+rounds**, asserted in `test_ocr.py`.
+
+### Exclusion ledger after the rename
+
+| Rule | Rows |
+|---|---|
+| `content_quality_gate` | 268 |
+| `page_classified_toc` | 46 |
+| `page_classified_frontmatter` | 13 |
+| `page_classified_index` | 9 |
+| `ocr_found_no_text` | 5 |
+| `page_yielded_no_chunk` | 1 |
+| `page_classified_references` | 1 |
+| `needs_ocr_not_implemented` | **0** — 15 rows renamed by the migration |
+
+`ocr_found_no_text` is the five genuinely blank pages. They are recorded as
+blank rather than as unreadable, which the single old rule could not express.

@@ -1232,6 +1232,28 @@ def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]]) -> str:
     return h.hexdigest()
 
 
+def chunk_provenance(page_start: int, page_end: int,
+                     recognised: set[int], conf: dict) -> tuple[str, float | None]:
+    """('extracted'|'recognised', min confidence) for one chunk's page span.
+
+    A chunk spanning one recognised page and one extracted page is
+    RECOGNISED. The reader cannot tell which sentence came from where, so the
+    label makes the weaker claim - under-claiming costs a little confidence,
+    over-claiming is the failure this system exists to prevent. The minimum
+    confidence governs, because the weakest evidence in the chunk is what the
+    reader is exposed to. See ADR-0006.
+
+    Module level so a test can exercise THIS function rather than a copy of
+    its logic - a test that reimplements the rule cannot fail when the rule
+    changes.
+    """
+    spanned = [p for p in range(page_start, page_end + 1) if p in recognised]
+    if not spanned:
+        return ("extracted", None)
+    scores = [conf[p] for p in spanned if conf.get(p) is not None]
+    return ("recognised", min(scores) if scores else None)
+
+
 def chunk_document(doc_id: str, force: bool = False) -> dict:
     """Chunk one extracted document. Idempotent - re-running replaces rows."""
     timer = Timer()
@@ -1241,13 +1263,26 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
     if doc is None:
         raise ValueError(f"unknown document {doc_id}")
 
-    pages = [
-        (r["page_no"], r["text"])
-        for r in conn.execute(
-            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
-            (doc_id,),
-        )
-    ]
+    # Recognised text overrides the empty extraction that triggered it. The
+    # resolution is explicit rather than a column read, because page_ocr is a
+    # separate table precisely so extraction cannot destroy it - see ADR-0006.
+    # Anything reading pages.text directly will silently ignore recognised
+    # text, which is why this is the one place pages are loaded.
+    page_rows = conn.execute(
+        """SELECT p.page_no,
+                  COALESCE(NULLIF(o.text, ''), p.text) AS text,
+                  CASE WHEN o.page_no IS NULL OR o.text = '' THEN 0 ELSE 1 END
+                      AS recognised,
+                  o.min_conf AS min_conf
+           FROM pages p
+           LEFT JOIN page_ocr o
+             ON o.document_id = p.document_id AND o.page_no = p.page_no
+           WHERE p.document_id = ? ORDER BY p.page_no""",
+        (doc_id,),
+    ).fetchall()
+    pages = [(r["page_no"], r["text"]) for r in page_rows]
+    recognised_pages = {r["page_no"] for r in page_rows if r["recognised"]}
+    page_conf = {r["page_no"]: r["min_conf"] for r in page_rows if r["recognised"]}
     if not pages:
         raise ValueError(f"{doc_id} has no extracted pages - run extraction first")
 
@@ -1342,6 +1377,8 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
                 chash,
                 int(c.kind in RETRIEVABLE_KINDS and q["ok"]),
                 ",".join(q["reasons"]) or None,
+                *chunk_provenance(c.page_start, c.page_end,
+                                  recognised_pages, page_conf),
             )
         )
 
@@ -1367,6 +1404,17 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
         r["page_no"]
         for r in conn.execute(
             "SELECT page_no FROM pages WHERE document_id = ? AND needs_ocr = 1",
+            (doc_id,),
+        )
+    }
+    # What recognition actually did to each flagged page, so the exclusion
+    # ledger can tell "not run yet" from "ran and the page is blank" from
+    # "ran and failed". Conflating those is the defect the old single rule had.
+    ocr_results = {
+        r["page_no"]: {"box_count": r["box_count"], "char_count": r["char_count"],
+                       "error": None}
+        for r in conn.execute(
+            "SELECT page_no, box_count, char_count FROM page_ocr WHERE document_id = ?",
             (doc_id,),
         )
     }
@@ -1416,8 +1464,30 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
 
         # The page survived classification but produced no chunk at all.
         if pno in ocr_pages:
-            reason = "scanned page with no extractable text; OCR is not implemented"
-            rule = "needs_ocr_not_implemented"
+            # Four rules, each describing the PAGE rather than the system. The
+            # old single rule asserted "OCR is not implemented", which is a
+            # property of the build and goes false the day it ships.
+            rec = ocr_results.get(pno)
+            if rec is None:
+                rule = "ocr_not_run"
+                reason = ("scanned page with no extractable text; recognition "
+                          "has not run")
+            elif rec["error"]:
+                rule = "ocr_failed"
+                reason = f"recognition failed on this page: {rec['error']}"
+            elif rec["box_count"] == 0:
+                # Measured: 5 of 12 flagged pages return zero boxes at both 150
+                # and 300 dpi. Those pages are BLANK, not unreadable, and
+                # calling them unreadable puts a false accusation in the ledger.
+                rule = "ocr_found_no_text"
+                reason = ("scanned page; recognition ran and found no text - "
+                          "the page appears to be blank")
+            else:
+                rule = "ocr_yielded_no_chunk"
+                reason = (
+                    f"recognition read {rec['char_count']} characters from this "
+                    "scanned page but they produced no chunk"
+                )
         elif length == 0:
             reason = "page contained no text after normalisation"
             rule = "page_empty"
@@ -1468,8 +1538,8 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
             """INSERT OR REPLACE INTO chunks
                (id, document_id, filename, ordinal, page_start, page_end,
                 section, parent_id, kind, text, token_count, content_hash,
-                retrievable, quality_flags)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                retrievable, quality_flags, text_source, ocr_min_conf)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         # chunk_count is the RETRIEVABLE count - what search can actually see.
