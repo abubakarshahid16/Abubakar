@@ -250,3 +250,117 @@ An approximate (ANN) index remains cancelled, and for a better reason than
 before: at ~29 ms the whole dense stage is under 2% of query latency, and the
 matmul half of it grew x1.05. An ANN index would target the smaller half of an
 already negligible cost.
+
+---
+
+## OCR — RapidOCR 3.9.2 / PP-OCRv6 (measured 2026-09-05)
+
+**Machine state stamped:** backend API process **not running**; Ollama server up
+but `qwen3.5:4b` **not loaded** (23 MB RSS, not 3.4 GB); three Vite dev servers
+running; free RAM 2.31–2.39 GB of 15.57 GB. VS Code, CapCut, WhatsApp and six
+Edge WebView processes resident. **This is not the demo-time state**, where the
+answer model is loaded and free RAM was 1.15 GiB.
+
+Pages are the **real** flagged pages of the ingested corpus, not synthetic
+images. 12 pages per run, identical page set, runs serialised.
+
+### Rate and memory, one worker
+
+| Config | s/page | Peak RSS (sampled 20 Hz) |
+|---|---|---|
+| tiny, 150 dpi, cls on | **0.90** | 430 MB |
+| tiny, 300 dpi, cls on | 1.25 | 616 MB |
+| tiny, 150 dpi, cls off | 0.89 | 456 MB |
+| small, 150 dpi, cls on | 4.43 | 444 MB |
+| tiny, 150 dpi — 8 heaviest pages only | 1.36 | 527 MB |
+| tiny, 150 dpi — same 12-page run, later in session | 0.99 | 416 MB |
+
+The last row is the repeatability check: the same benchmark 90 minutes later on
+a busier machine moved 0.90 → 0.99 s/page, **+10 %**. Absolute rates carry that
+much noise; the relative comparisons above were run back-to-back and do not.
+
+### Two workers
+
+| Metric | Value |
+|---|---|
+| Effective rate, 2 workers × 8 heaviest pages | **0.97 s/page** (vs 1.36 single) |
+| Speed-up | 1.4× — not 2×; 2 P-cores, 2 ONNX threads each |
+| Per-worker peak RSS | 549 MB and 524 MB |
+| Free RAM before / lowest during | 2.39 GB → **1.48 GB** (0.91 GB consumed) |
+
+**Two workers do not fit at demo time.** 0.91 GB consumed against the 1.15 GiB
+free measured with the answer model loaded leaves 0.24 GB. One worker, or OCR
+only while the answer model is unloaded. This is the measurement behind the
+runbook rule that OCR must not run while questions are being answered.
+
+### Recogniser alphabet: v5 English vs v6 multilingual (same 12 pages, 150 dpi)
+
+| Config | s/page | Peak RSS | Non-ASCII emitted | Weights |
+|---|---|---|---|---|
+| v6 tiny det + v6 tiny rec (multilingual) | 0.90 | 430 MB | `≦ 凤 日 · Ç` | 6.9 MB |
+| v6 small det + rec (multilingual) | 4.43 | 444 MB | — | 31.8 MB |
+| v5 mobile det + v5 **en** rec | 4.11 | 421 MB | `√` (a real tick on the page) | 13.3 MB |
+| **v6 tiny det + v5 en rec (hybrid)** | **2.16** | 421 MB | **NONE** | **10.3 MB** |
+
+Detection and recognition configure independently, so the hybrid pairs v6's
+fast multilingual detector with v5's Latin-only recogniser. Engine choice is
+held pending one client question (Arabic in the corpus or not); both are
+staged.
+
+### Vendored OCR weights — SHA-256
+
+| File | SHA-256 |
+|---|---|
+| `ocr/PP-OCRv6_det_tiny.onnx` | `f42c0fbd294d95eac1a550e131b277dac97462c8025fa4b6c3cec1b7894bd3d5` |
+| `ocr/PP-OCRv6_rec_tiny.onnx` | `e16e242de5937ad92609223f19bc2aff3727ee40b095f996907c24749bad251b` |
+| `ocr/en_PP-OCRv5_rec_mobile.onnx` | `c3461add59bb4323ecba96a492ab75e06dda42467c9e3d0c18db5d1d21924be8` |
+| `ocr/ch_ppocr_mobile_v2.0_cls_mobile.onnx` | `e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c` |
+
+Pinned by RapidOCR release tag `v3.9.2` in the URL as well as by hash, and
+checked by `fetch_models.py --verify-only`. Guard proven by deliberate
+failure: nine bytes appended to the detector produced
+`WRONG CONTENT (SHA-256 does not match the pinned value)`, exit 1.
+
+### Projections (labelled as projections, per the rule at the top of this file)
+
+At the measured 0.90–1.36 s/page single-worker range, for a **fully scanned**
+document where every page needs recognition:
+
+| Document | 1 worker | 2 workers (model unloaded) |
+|---|---|---|
+| 74 flagged pages, this corpus | ~1.2 min | ~1 min |
+| 500 pages | 8–11 min | ~8 min |
+| 1,400 pages | **21–32 min** | ~23 min |
+
+The brief projected 12–23 min for 1,400 pages. Measured is **slower than that
+at the top of the range**, because 0.5 s/page is RapidOCR's documented figure
+and this 15 W mobile CPU does not reach it.
+
+### Model artefacts on disk
+
+| File | Size |
+|---|---|
+| `PP-OCRv6_det_tiny.onnx` | 1.83 MB |
+| `PP-OCRv6_rec_tiny.onnx` | 4.49 MB |
+| `ch_ppocr_mobile_v2.0_cls_mobile.onnx` | 0.59 MB |
+| **tiny set total** | **6.91 MB** |
+| `PP-OCRv6_det_small.onnx` | 9.93 MB |
+| `PP-OCRv6_rec_small.onnx` | 21.23 MB |
+
+### Test-suite wall time is not a usable regression signal on this machine
+
+478 tests passed on every run. Wall time, unchanged tree, four runs:
+
+| Run | Wall |
+|---|---|
+| Before installing rapidocr | 195 s |
+| After | 421 s |
+| After | 466 s |
+| After (`--durations=12`) | 304 s |
+
+A 2.4× spread with no code change. The new packages are **not reachable from
+the test path** — neither `app/` nor `tests/` imports `PIL`, `cv2` or
+`rapidocr`, and page rendering goes through PyMuPDF — and the 12 slowest tests
+account for only 62 s of 304 s, so the cost is thin per-test overhead sensitive
+to machine load. **A quiet-machine baseline is needed before any future number
+here is called a regression.**

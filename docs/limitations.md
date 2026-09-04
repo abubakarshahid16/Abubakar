@@ -68,7 +68,10 @@ with a noise band, not a sharp line.
 
 ## Scope not implemented
 
-- **OCR is not implemented.** Scanned pages are detected and flagged, not read. A scanned document will not be searchable.
+- **OCR reads scanned pages, and its output is never presented as a quotation.** Recognised text is a guess about pixels, so it is stored separately (`page_ocr`), labelled *"Read by OCR from a scanned page — not the document's own text"*, and shown with the page image expanded rather than collapsed. See ADR-0005 and ADR-0006.
+  - **No accuracy claim is made, because this corpus cannot support one.** Of 74 flagged pages, those carrying text are book covers and Excel/Mathematica UI screenshots — not scanned specification prose. Measured errors on that material include `Pyblish` for "Publish" and `Ja66nqaa` for "Debugger". **Neither model has been tested on the content this system is for**, and no number will be quoted until the Aramco documents arrive. Saying so is worth more than a figure nobody can defend.
+  - **The tiny-vs-small choice is a judgement call on unrepresentative evidence, recorded as one.** `small` is visibly more accurate (4.9x slower); the pages that expose the difference are UI screenshots we will never answer from. Revisit on real documents; it is a config value, not a code path.
+  - **PP-OCRv6 has no English model** — every artefact is multilingual, so recognising English pages emitted `凤`, `日`, `区` and `≦` for "Save". An alphabet guard counts characters outside the document's expected script and flags the page. The engine choice is open pending one client question: whether the Aramco documents contain Arabic.
 - **No ANN index** — brute-force vector search. Correct and fast at prototype scale; requires an index before full-corpus use.
 - **Perfect table and diagram extraction is not claimed** for every PDF type.
 - **Table column pairing is not preserved.** A table chunk keeps its caption, headers and every value in reading order, one cell per line, but the row/column pairing is positional rather than explicit. A reader can see the table; a search engine cannot reliably answer "what is the value at row X, column Y".
