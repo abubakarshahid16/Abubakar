@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     rerank_candidates: int = 20       # how many of those the cross-encoder sees
     rerank_max_tokens: int = 256
     rerank_batch: int = 32
+    # Small-to-big. Retrieval runs on the small chunk; the reader is shown
+    # the surrounding parent block, expanded to neighbours up to this many
+    # characters. The generated budget is smaller because three sources have
+    # to fit inside num_ctx alongside the prompt.
+    answer_context_chars: int = 2400
+    generated_context_chars: int = 1200
     running_line_threshold: float = 0.03   # fraction of pages; a running head repeats per chapter, not book-wide
     # Only the top/bottom N lines of a page are considered for running
     # header/footer removal. NORSOK stacks four lines of furniture -

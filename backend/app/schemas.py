@@ -285,6 +285,14 @@ class AnswerPassage(BaseModel):
     highlight: list[int] | None = Field(
         None, description="character offsets of the answering span within text"
     )
+    match_span: list[int] | None = Field(
+        None,
+        description="offsets of the chunk that actually matched, inside the "
+        "expanded passage - retrieval works small, the reader is shown big",
+    )
+    chunks_joined: int = Field(
+        1, description="how many chunks were joined to form this passage"
+    )
     score: float
     identifier_hits: list[str] = []
 

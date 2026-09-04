@@ -1093,6 +1093,20 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
         if c.kind in RETRIEVABLE_KINDS and quality[id(c)]["ok"]
     ]
 
+    # A parent id per contiguous run of chunks sharing a section and kind.
+    # build_chunks accumulates ACROSS source blocks - one chunk can span
+    # several blocks and one block several chunks - so a single block id is
+    # not well defined here. What is well defined, and what the reader
+    # actually needs, is the run of chunks that belong to the same clause:
+    # NORSOK's A.1 is a table chunk followed by its notes chunk, and quoting
+    # only one of them answers with the notes and leaves the figure behind.
+    parents: list[str] = []
+    group = 0
+    for i, c in enumerate(chunks):
+        if i and (c.section != chunks[i - 1].section or c.kind != chunks[i - 1].kind):
+            group += 1
+        parents.append(f"{doc['sha256'][:12]}:g{group:05d}")
+
     rows = []
     for ordinal, c in enumerate(chunks):
         chash = content_hash(c.text)
@@ -1106,6 +1120,7 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
                 c.page_start,
                 c.page_end,
                 c.section,
+                parents[ordinal],
                 c.kind,
                 c.text,
                 c.tokens,
@@ -1209,9 +1224,9 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
         conn.executemany(
             """INSERT OR REPLACE INTO chunks
                (id, document_id, filename, ordinal, page_start, page_end,
-                section, kind, text, token_count, content_hash, retrievable,
-                quality_flags)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                section, parent_id, kind, text, token_count, content_hash,
+                retrievable, quality_flags)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         # chunk_count is the RETRIEVABLE count - what search can actually see.
