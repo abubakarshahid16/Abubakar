@@ -258,3 +258,89 @@ def test_a_document_reset_to_queued_after_completion_reaches_ready_again():
     ).fetchone()
     assert row["status"] == states.READY
     assert row["indexed_at"] is not None
+
+
+# ------------------------------------------- live worker, no restart allowed
+
+def _wait_until(predicate, timeout=90.0, interval=0.25):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return False
+
+
+@pytest.mark.parametrize(
+    "injected_status",
+    [states.QUEUED, states.EXTRACTING, states.CHUNKING, states.INDEXING_KEYWORD],
+)
+def test_a_running_worker_picks_up_work_without_a_restart(injected_status):
+    """The question this answers: does the queue drain because the worker
+    POLLS, or only because the process restarted?
+
+    A worker thread is started FIRST and left running. A document is then
+    moved to a non-terminal status behind its back. It must reach a terminal
+    state on its own - no restart, no notification, no manual nudge.
+    """
+    client = TestClient(app)
+    doc_id = upload(client)
+
+    worker = IngestionWorker(poll_seconds=0.2)
+    worker.start()
+    try:
+        assert worker.alive
+        # let it settle the document once, so the injection below is a genuine
+        # mid-flight regression rather than first-time processing
+        assert _wait_until(
+            lambda: db.connect().execute(
+                "SELECT status FROM documents WHERE id = ?", (doc_id,)
+            ).fetchone()["status"] in (states.READY, states.FAILED)
+        ), "worker never processed the document at all"
+
+        conn = db.connect()
+        with conn:
+            conn.execute(
+                "UPDATE documents SET status = ?, indexed_at = NULL WHERE id = ?",
+                (injected_status, doc_id),
+            )
+
+        reached = _wait_until(
+            lambda: db.connect().execute(
+                "SELECT status FROM documents WHERE id = ?", (doc_id,)
+            ).fetchone()["status"] in (states.READY, states.FAILED)
+        )
+        row = db.connect().execute(
+            "SELECT status, indexed_at FROM documents WHERE id = ?", (doc_id,)
+        ).fetchone()
+        assert reached, (
+            f"injected at {injected_status!r} and the RUNNING worker never picked it up "
+            f"- still {row['status']!r}. The queue only drains on restart."
+        )
+        assert row["status"] == states.READY, f"ended {row['status']!r}: not recovered cleanly"
+        assert row["indexed_at"] is not None
+    finally:
+        worker.stop()
+
+
+def test_a_running_worker_picks_up_a_document_uploaded_after_it_started():
+    """The demo scenario: the worker is idle, a client uploads, nobody restarts
+    anything."""
+    client = TestClient(app)
+    worker = IngestionWorker(poll_seconds=0.2)
+    worker.start()
+    try:
+        assert _wait_until(lambda: worker.status()["pending_count"] == 0, timeout=15)
+        doc_id = upload(client, "arrives-later.pdf")     # uploaded while idle
+        reached = _wait_until(
+            lambda: db.connect().execute(
+                "SELECT status FROM documents WHERE id = ?", (doc_id,)
+            ).fetchone()["status"] in (states.READY, states.FAILED)
+        )
+        row = db.connect().execute(
+            "SELECT status, indexed_at FROM documents WHERE id = ?", (doc_id,)
+        ).fetchone()
+        assert reached, "a document uploaded while the worker was idle was never picked up"
+        assert row["status"] == states.READY and row["indexed_at"] is not None
+    finally:
+        worker.stop()

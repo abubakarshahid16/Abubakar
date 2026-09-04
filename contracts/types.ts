@@ -13,6 +13,7 @@ export type DocStatus =
   | "indexing_keyword"
   | "partially_searchable"   // keyword search works, vectors still arriving
   | "ready"                  // keyword + vector both complete
+  | "no_searchable_content"  // finished, but nothing is searchable - NOT ready
   | "failed";
 
 /** A document can answer questions in these states - never block on embedding. */
@@ -129,10 +130,19 @@ export interface ExclusionsResponse {
 export interface WorkerStatus {
   alive: boolean;
   current_document: string | null;
+  /** only proves the loop is spinning - not that work is moving */
   seconds_since_heartbeat: number;
-  /** a dead worker must be visible on screen, not hidden behind "queued" */
+  /** since a document last reached a terminal state - the honest signal */
+  seconds_since_progress: number;
+  documents_completed: number;
+  /** non-terminal work waiting; a backlog must be visible on screen */
+  pending_count: number;
+  oldest_pending_age_seconds: number | null;
+  /** not alive, OR no heartbeat, OR work pending with no progress */
   stalled: boolean;
-  last_error: string | null;
+  stalled_reasons: string[];
+  /** response-safe only; tracebacks go to the local log */
+  last_error: ApiError | null;
 }
 
 export interface ChunkPage {
@@ -239,20 +249,33 @@ export interface DashboardStats {
 
 // ---------- errors ----------
 
+/** `internal` is reserved for genuine unexpected failure. A caller's mistake
+ *  never reports as internal. Error bodies never carry a traceback or a path. */
 export interface ApiError {
   code:
+    // caller's fault
+    | "not_found"
+    | "invalid_parameter"
+    | "unknown_parameter"
+    | "confirm_required"
+    // the upload was not acceptable
     | "not_pdf"
     | "encrypted_pdf"
     | "too_large"
-    | "disk_full"
     | "duplicate"
+    // processing failed for an identifiable reason
     | "extract_failed"
+    | "chunk_failed"
     | "embed_failed"
     | "model_unavailable"
-    | "not_found"
+    | "disk_full"
+    | "no_searchable_content"
+    // genuine, unexpected internal failure
     | "internal";
   message: string;
-  detail?: string;
+  document_id?: string | null;
+  stage?: string | null;
+  at?: string | null;
 }
 
 // ---------- request/response envelopes ----------

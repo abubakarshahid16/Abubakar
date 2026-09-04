@@ -18,6 +18,7 @@ from typing import BinaryIO
 
 from .config import settings
 from .db import connect
+from .errors import redact
 
 PDF_MAGIC = b"%PDF-"
 _SAFE = re.compile(r"[^A-Za-z0-9._ -]")
@@ -151,7 +152,10 @@ def to_api(row: sqlite3.Row) -> dict:
         "needs_ocr_pages": row["needs_ocr_pages"],
         "equation_pages": row["equation_pages"],
         "error": (
-            {"code": row["error_code"], "message": row["error_message"]}
+            {
+                "code": row["error_code"],
+                "message": redact(row["error_message"] or ""),
+            }
             if row["error_code"]
             else None
         ),

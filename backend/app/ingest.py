@@ -15,10 +15,9 @@ from __future__ import annotations
 
 import threading
 import time
-import traceback
 from datetime import datetime, timezone
 
-from . import states
+from . import errors, states
 from .chunker import chunk_document
 from .db import connect
 from .extract import extract_document
@@ -51,7 +50,9 @@ class IngestionWorker:
         # freshness only proves the loop is spinning, not that work is moving.
         self.last_progress: float = time.time()
         self.documents_completed: int = 0
-        self.last_error: str | None = None
+        # Response-safe only: code, short message, document id, timestamp.
+        # The full traceback goes to the local log, never to the API.
+        self.last_error: dict | None = None
 
     # ------------------------------------------------------------- lifecycle
 
@@ -174,8 +175,8 @@ class IngestionWorker:
                 if not before and self._is_finished(doc_id):
                     self.last_progress = time.time()
                     self.documents_completed += 1
-            except Exception:
-                self.last_error = traceback.format_exc(limit=3)
+            except Exception as exc:  # noqa: BLE001
+                self.last_error = errors.record_failure(exc, stage="worker_loop")
                 self._stop.wait(self.poll_seconds)
             finally:
                 self.last_beat = time.time()
@@ -221,7 +222,8 @@ class IngestionWorker:
                     result["stages"].append(f"unknown_status:{status}->extracting")
                     continue
 
-                if status == states.FAILED:
+                if status in (states.FAILED, states.NO_SEARCHABLE_CONTENT):
+                    result["stages"].append(status)
                     return result
 
                 if status == states.QUEUED:
@@ -255,7 +257,7 @@ class IngestionWorker:
                     after = conn.execute(
                         "SELECT status FROM documents WHERE id = ?", (doc_id,)
                     ).fetchone()["status"]
-                    if after == states.PARTIALLY_SEARCHABLE:
+                    if after == states.PARTIALLY_SEARCHABLE:  # nothing more to do now
                         # nothing further can be done in this pass
                         return result
                     continue
@@ -265,19 +267,22 @@ class IngestionWorker:
                     return result
 
         except Exception as exc:  # noqa: BLE001 - the record must capture anything
-            self.last_error = traceback.format_exc(limit=3)
+            self.last_error = errors.record_failure(
+                exc, code=errors.INTERNAL, document_id=doc_id, stage="process"
+            )
+            safe_message = self.last_error["message"]
             with conn:
                 conn.execute(
                     "UPDATE documents SET status = ?, error_code = ?, error_message = ?"
                     " WHERE id = ?",
-                    (states.FAILED, "internal", str(exc)[:400], doc_id),
+                    (states.FAILED, errors.INTERNAL, safe_message, doc_id),
                 )
                 conn.execute(
                     "UPDATE jobs SET state = 'failed', error_code = 'internal',"
                     " error_message = ?, updated_at = ? WHERE document_id = ?",
-                    (str(exc)[:400], _now(), doc_id),
+                    (safe_message, _now(), doc_id),
                 )
-            result["error"] = str(exc)
+            result["error"] = self.last_error
             return result
 
     def embed_pending(self, doc_id: str, batch: int = 64) -> int:
@@ -331,9 +336,35 @@ class IngestionWorker:
         ).fetchone()
         if row is None:
             return True
-        return row["status"] == states.FAILED or (
-            row["status"] == states.READY and row["indexed_at"] is not None
-        )
+        if row["status"] in (states.FAILED, states.NO_SEARCHABLE_CONTENT):
+            return True
+        return row["status"] == states.READY and row["indexed_at"] is not None
+
+    def _no_content_reason(self, doc_id: str) -> str:
+        """Why this document produced nothing searchable - stated, not implied."""
+        conn = connect()
+        doc = conn.execute(
+            "SELECT page_count, needs_ocr_pages, chunk_count_total FROM documents"
+            " WHERE id = ?", (doc_id,)
+        ).fetchone()
+        pages = doc["page_count"] or 0
+        if pages and doc["needs_ocr_pages"] >= pages:
+            return (
+                f"all {pages} pages are scanned images with no extractable text; "
+                "OCR is not implemented"
+            )
+        if doc["chunk_count_total"]:
+            top = conn.execute(
+                """SELECT rule, COUNT(*) n FROM exclusions
+                   WHERE document_id = ? GROUP BY rule ORDER BY n DESC LIMIT 1""",
+                (doc_id,),
+            ).fetchone()
+            rule = top["rule"] if top else "unknown"
+            return (
+                f"all {doc['chunk_count_total']} chunks were excluded from search "
+                f"(most common rule: {rule}); see /excluded"
+            )
+        return "the document produced no chunks at all"
 
     def _set_state(self, doc_id: str, nxt: str) -> None:
         conn = connect()
@@ -355,10 +386,26 @@ class IngestionWorker:
         ).fetchone()
         if row["status"] != states.PARTIALLY_SEARCHABLE:
             return
-        # A document with no retrievable chunks has nothing to embed. It is
-        # still finished - the exclusion ledger explains why it is empty - so
-        # it must reach a terminal state rather than waiting forever.
-        if row["chunk_count"] == 0 or row["embedded_count"] >= row["chunk_count"]:
+        # A document with no retrievable chunks is finished, but calling it
+        # "ready" tells an operator it is usable when it can answer nothing.
+        # A fully scanned PDF, or one whose every chunk was excluded, gets its
+        # own terminal state and a reason.
+        if row["chunk_count"] == 0:
+            reason = self._no_content_reason(doc_id)
+            with conn:
+                conn.execute(
+                    "UPDATE documents SET status = ?, indexed_at = ?,"
+                    " error_code = ?, error_message = ? WHERE id = ?",
+                    (states.NO_SEARCHABLE_CONTENT, _now(),
+                     errors.NO_SEARCHABLE_CONTENT, reason, doc_id),
+                )
+                conn.execute(
+                    "UPDATE jobs SET state = 'done', updated_at = ? WHERE document_id = ?",
+                    (_now(), doc_id),
+                )
+            return
+
+        if row["embedded_count"] >= row["chunk_count"]:
             with conn:
                 conn.execute(
                     "UPDATE documents SET status = ?, indexed_at = ? WHERE id = ?",
