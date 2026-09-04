@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from . import answer as answer_mod
 from . import intent as intent_mod
 from . import keyword
+from . import search as search_mod
 from .db import connect
 
 #: How many previous USER questions resolution may look at. Beyond about three
@@ -131,6 +132,15 @@ def resolve_followup(
     # about, which is the bug this ordering exists to prevent.
     if not intent_mod.is_document_question(question):
         return question, []
+    # A definition is not context-dependent. "what is ndft" asks what the
+    # letters mean, and carrying "system 4" in from the previous turn changes
+    # the question into a different one. Restricted to a single-word term, so
+    # "what is its curing time" stays a follow-up and keeps inheriting its
+    # subject - that one genuinely does depend on what came before.
+    term = search_mod.definitional_term(question)
+    if term and len(term.split()) == 1 and term.lower() not in ANAPHORA:
+        return question, []
+
     if not prior_questions or not is_followup(question):
         return question, []
 

@@ -66,6 +66,11 @@ CREATE TABLE IF NOT EXISTS chunks (
     page_start     INTEGER NOT NULL,
     page_end       INTEGER NOT NULL,
     section        TEXT,
+    -- The parent block this chunk came out of. Retrieval works on the small
+    -- chunk; the reader is shown the surrounding block, because a clause cut
+    -- between its table and its notes answers with the notes and leaves the
+    -- figure behind. See expand_passage.
+    parent_id      TEXT,
     kind           TEXT NOT NULL DEFAULT 'prose',
     text           TEXT NOT NULL,
     token_count    INTEGER NOT NULL,
@@ -160,6 +165,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE chunks ADD COLUMN retrievable INTEGER NOT NULL DEFAULT 1")
     if have and "quality_flags" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN quality_flags TEXT")
+    if have and "parent_id" not in have:
+        conn.execute("ALTER TABLE chunks ADD COLUMN parent_id TEXT")
     pg = {r["name"] for r in conn.execute("PRAGMA table_info(pages)")}
     if pg and "equation_heavy" not in pg:
         conn.execute("ALTER TABLE pages ADD COLUMN equation_heavy INTEGER NOT NULL DEFAULT 0")
@@ -178,6 +185,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # created after the migration so it cannot reference a missing column
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_chunks_retrievable ON chunks(retrievable)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_id, ordinal)"
     )
     conn.commit()
 

@@ -292,3 +292,75 @@ def test_punctuation_stripping_does_not_rescue_an_unanswerable_question():
         "what is the maximum allowable chloride content in NORSOK M-630 duplex piping??"
     )
     assert result["answer_type"] == "insufficient_evidence"
+
+
+# ------------------------------------------------------------ small-to-big
+
+
+def test_a_passage_is_expanded_to_its_parent_block():
+    """Retrieval works on the small chunk; the reader is shown the surrounding
+    block. NORSOK's A.1 is a thickness table followed by its notes, and
+    quoting only one of them answered with the notes and left the figures in
+    the chunk next door."""
+    client = TestClient(app)
+    upload(client)
+    result = answer.answer("what is the vibration limit for pump P-101A")
+    p = result["passage"]
+    assert p["chunks_joined"] >= 1
+    assert p["match_span"] is not None
+    start, end = p["match_span"]
+    # the chunk that actually matched is still locatable inside the expansion
+    assert 0 <= start < end <= len(p["text"])
+
+
+def test_expansion_never_crosses_into_another_section():
+    """A passage labelled A.1 containing A.2's text would be a worse defect
+    than the one small-to-big fixes."""
+    from app import passages
+
+    client = TestClient(app)
+    upload(client)
+    conn = db.connect()
+    rows = conn.execute(
+        "SELECT id, document_id, section FROM chunks WHERE retrievable = 1"
+    ).fetchall()
+    for r in rows:
+        expanded = passages.expand_passage(r["id"], r["document_id"])
+        if expanded:
+            assert expanded["section"] == r["section"]
+
+
+def test_the_matched_chunk_is_never_dropped_by_the_budget():
+    from app import passages
+
+    client = TestClient(app)
+    upload(client)
+    conn = db.connect()
+    r = conn.execute(
+        "SELECT id, document_id, text FROM chunks WHERE retrievable = 1 LIMIT 1"
+    ).fetchone()
+    # a budget far below one chunk must still return that chunk
+    expanded = passages.expand_passage(r["id"], r["document_id"], budget=10)
+    assert r["text"] in expanded["text"]
+    assert expanded["chunks_joined"] == 1
+
+
+def test_an_unknown_chunk_expands_to_nothing_rather_than_erroring():
+    from app import passages
+
+    assert passages.expand_passage("nope", "doc_nope") == {}
+
+
+def test_the_generated_tier_uses_a_smaller_budget_so_sources_fit(monkeypatch):
+    """Three expanded sources have to fit inside num_ctx alongside the prompt.
+    Overflowing it would silently truncate the evidence the answer is supposed
+    to be grounded in."""
+    client = TestClient(app)
+    upload(client)
+    seen = {}
+    monkeypatch.setattr(
+        answer, "_call_model",
+        lambda prompt, timeout=180.0: seen.update(prompt=prompt) or {"response": "x [S1]."},
+    )
+    answer.answer("what is the vibration limit", tier="generated")
+    assert len(seen["prompt"]) <= 3 * settings.generated_context_chars + 800

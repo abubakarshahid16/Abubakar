@@ -337,3 +337,34 @@ def test_a_greeting_between_two_real_questions_does_not_break_the_follow_up():
     # the real question is still reachable past the greeting
     assert "system 1" in body["carried_terms"]
     assert "thanks" not in body["carried_terms"]
+
+
+def test_a_single_term_definitional_lookup_is_not_a_follow_up():
+    """"what is ndft" asks what the letters mean. Carrying "system 4" in from
+    the previous turn turns it into a different question, and asked third in a
+    conversation it answered from A.4 instead of the abbreviations clause."""
+    prior = ["what is the NDFT for coating system no. 1", "what about system 4"]
+    assert chat.resolve_followup("what is ndft", prior) == ("what is ndft", [])
+    assert chat.resolve_followup("define MDFT", prior) == ("define MDFT", [])
+
+
+def test_a_multi_word_question_still_inherits_its_subject():
+    """The exemption is narrow on purpose. "what is its curing time" genuinely
+    does depend on what came before, and so does "what is the vibration limit"."""
+    prior = ["what is the NDFT for coating system no. 1"]
+    _, carried = chat.resolve_followup("what is its curing time", prior)
+    assert "system 1" in carried
+
+
+def test_the_definitional_answer_survives_a_conversation():
+    """The acceptance case, in sequence, which is how it broke."""
+    client = TestClient(app)
+    upload(client)
+    convo = client.post("/api/conversations").json()
+    for q in ["what is the NDFT for coating system no. 1", "what about system 1"]:
+        client.post(f"/api/conversations/{convo['id']}/ask", json={"question": q})
+    body = client.post(
+        f"/api/conversations/{convo['id']}/ask", json={"question": "what is ndft"}
+    ).json()
+    assert body["carried_terms"] == []
+    assert body["passage"]["section"] == "3.2 Abbreviations"

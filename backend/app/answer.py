@@ -22,6 +22,7 @@ import re
 import httpx
 
 from . import intent as intent_mod
+from . import passages as passages_mod
 from . import search as search_mod
 from .config import settings
 from .rates import Timer
@@ -91,17 +92,31 @@ def find_answer_span(question: str, text: str) -> tuple[int, int] | None:
     return best_span if best_score > 0 else None
 
 
-def _passage_payload(hit: dict, question: str) -> dict:
-    span = find_answer_span(question, hit["text"])
+def _passage_payload(hit: dict, question: str, budget: int | None = None) -> dict:
+    """The passage as the reader should see it.
+
+    Small-to-big: retrieval chose the chunk, but the chunk is shown expanded
+    to its parent block. Everything positional is recomputed against the
+    expanded text - a highlight offset measured on the small chunk would land
+    in the wrong place once the text around it grew.
+    """
+    expanded = passages_mod.expand_passage(
+        hit["chunk_id"], hit["document_id"], budget=budget
+    )
+    text = expanded.get("text") or hit["text"]
+    span = find_answer_span(question, text)
     return {
         "chunk_id": hit["chunk_id"],
         "document_id": hit["document_id"],
         "filename": hit["filename"],
-        "page_start": hit["page_start"],
-        "page_end": hit["page_end"],
-        "section": hit["section"],
-        "text": hit["text"],
+        "page_start": expanded.get("page_start", hit["page_start"]),
+        "page_end": expanded.get("page_end", hit["page_end"]),
+        "section": expanded.get("section", hit["section"]),
+        "text": text,
         "highlight": list(span) if span else None,
+        # where the chunk that actually matched sits inside the expanded text
+        "match_span": expanded.get("match_span"),
+        "chunks_joined": expanded.get("chunks_joined", 1),
         "score": hit["score"],
         "identifier_hits": hit.get("identifier_hits", []),
     }
@@ -232,7 +247,13 @@ def answer(
         }
 
     # ---- tier 2: generated, grounded, cited
-    passages = [_passage_payload(h, question) for h in hits[:limit]]
+    # A smaller budget here: three expanded sources have to fit inside num_ctx
+    # alongside the system prompt, and overflowing it would silently truncate
+    # the evidence the answer is supposed to be grounded in.
+    passages = [
+        _passage_payload(h, question, budget=settings.generated_context_chars)
+        for h in hits[:limit]
+    ]
     prompt = _build_prompt(question, passages)
 
     t = Timer()
