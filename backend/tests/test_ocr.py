@@ -347,6 +347,23 @@ def test_ocr_runs_after_the_keyword_index_never_before_it(tmp_path, monkeypatch)
     assert all(s == states.PARTIALLY_SEARCHABLE for s in seen), seen
     assert all(s in states.ANSWERABLE_STATES for s in seen), seen
 
+    # AND THE DOCUMENT HAS TO SURVIVE IT. Asserting only the statuses this test
+    # observed let a real defect through: the OCR round set CHUNKING from
+    # PARTIALLY_SEARCHABLE, which was not a legal transition, process() caught
+    # the exception and recorded `failed`, and this test passed anyway because
+    # it never looked at where the document ended up. A run from a clean clone
+    # found it. Observing a step is not the same as observing an outcome.
+    row = connect().execute(
+        "SELECT status, error_message FROM documents WHERE id = ?", (doc_id,)
+    ).fetchone()
+    assert row["status"] != states.FAILED, row["error_message"]
+    assert row["status"] in states.ANSWERABLE_STATES, row["status"]
+    # and the recognised text actually reached a chunk
+    assert connect().execute(
+        "SELECT COUNT(*) c FROM chunks WHERE document_id=? AND text_source='recognised'",
+        (doc_id,),
+    ).fetchone()["c"] > 0, "recognition ran but produced no recognised chunk"
+
 
 def _fake_recognition(stored_path, sha256, page_nos):
     """What the worker returns, without a 500 MB ONNX session."""
