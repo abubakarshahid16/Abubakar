@@ -209,6 +209,41 @@ def _pages_of(result: dict) -> list[int]:
     return pages
 
 
+def check_ground_truth(questions: list[dict]) -> list[str]:
+    """An "unanswerable" question is only unanswerable relative to a corpus.
+
+    Question 12 asked which coating system applies to Inconel 625 and was
+    marked absent, correctly, against a three-document corpus. A 1,400-page
+    manual was then added which contains the word "inconel", and the harness
+    reported the question as ANSWERED THE UNANSWERABLE - a refusal regression
+    - when the truth was that its ground truth had gone stale.
+
+    That cost a diagnosis. The corpus was checked by hand to find it, and the
+    harness should have found it first. So: before scoring anything, every
+    question marked absent has its distinctive terms checked against the
+    index, and a term that is now PRESENT is reported as a stale-ground-truth
+    error rather than as a system failure.
+    """
+    from app import lexical  # noqa: PLC0415 - keeps the import local to the check
+
+    problems: list[str] = []
+    for q in questions:
+        if q["answerable"]:
+            continue
+        for term in lexical.distinctive_terms(q["question"]):
+            if not lexical.looks_like_a_named_subject(term, q["question"]):
+                continue
+            occurrences = keyword.term_occurrences(term)
+            if occurrences > 0:
+                problems.append(
+                    f"question {q['id']} is marked UNANSWERABLE but its named "
+                    f"subject {term!r} now appears in {occurrences} indexed "
+                    f"chunk(s). The corpus has changed since this question was "
+                    f"written; the ground truth is stale, not the system."
+                )
+    return problems
+
+
 def score_one(q: dict, result: dict) -> dict:
     """Score one question. Every metric is None when the set does not specify
     the ground truth for it, so an unscored dimension is never counted as a
@@ -396,12 +431,36 @@ def main() -> int:
     init_db()
     keyword.ensure_schema()
 
+    # Stale ground truth is a different failure from a system regression, and
+    # conflating them wastes the time of whoever reads the report.
+    stale = check_ground_truth(data["questions"])
+    if stale:
+        print()
+        print("=" * 72)
+        print("STALE GROUND TRUTH - the corpus changed since these were written")
+        print("=" * 72)
+        for problem in stale:
+            print(f"  {problem}")
+        print()
+        print("These questions are EXCLUDED from scoring, not counted as failures.")
+        print("Fix the set for the current corpus, or write new absent-topic questions.")
+        print("This is NOT a refusal regression.")
+        print("=" * 72)
+
     before = None
     if args.compare:
         before = json.loads(args.compare.read_text(encoding="utf-8"))["summary"]
 
+    # Excluded from scoring, never counted as a system failure. Conflating a
+    # stale question with a regression is what cost a diagnosis when a new
+    # document made question 12's absent term present.
+    stale_ids = {p.split()[1] for p in stale}
+
     rows = []
     for q in data["questions"]:
+        if q["id"] in stale_ids:
+            print(f"  {q['id']:>5} SKIPPED - ground truth stale for this corpus")
+            continue
         result = answer_mod.answer(q["question"], tier=args.tier, limit=args.limit)
         row = score_one(q, result)
         rows.append(row)

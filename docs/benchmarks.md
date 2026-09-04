@@ -114,3 +114,31 @@ Ollama: `qwen3.5:4b` — id `2a654d98e6fb`, 3.4 GB, digest `81fb60c7daa8`.
 
 Supply chain: `gitleaks_8.30.1_windows_x64.zip` SHA-256 verified as
 `d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e`.
+
+## Capacity - the 1,400-page document (measured 2026-09-04)
+
+This closes the claim that no document over 613 pages had been processed.
+`book4ChemicalProcessDynamicsAndControls.pdf`, 1,400 pages, 2,030,224
+characters, ingested cold with no configuration changed.
+
+| stage | measured | rate |
+|---|---|---|
+| extract | 5.0 s | 277.6 pages/s |
+| chunk | 8.1 s | 2,223 chunks, 2,110 retrievable |
+| keyword index | 0.2 s | answerable from here |
+| **time to answerable** | **~13 s** | inside the 30-second target |
+| embedding | 2,113 vectors | at the measured 9.22 chunks/s sustained |
+
+### The cost of a larger corpus is latency, not ingestion
+
+Adding this one document more than doubled the corpus and answer latency rose
+with it, measured on the same 14 questions:
+
+| corpus | median answer latency | p95 |
+|---|---|---|
+| 3 documents (2,966 chunks) | 1,915 ms | 2,345 ms |
+| 4 documents (~5,100 chunks) | 4,346 ms | 9,887 ms |
+
+**2.3x slower for 1.7x the chunks**, on brute-force vector search with no ANN
+index. Ingestion scales; retrieval does not. This is the number that matters
+for any multi-hundred-document ambition.

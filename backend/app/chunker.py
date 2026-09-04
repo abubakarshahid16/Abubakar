@@ -222,6 +222,37 @@ def _is_page_number_column(lines: list[str], total_pages: int) -> bool:
     return ascending >= (len(in_range) - 1) * 0.75
 
 
+_REFERENCE_HEADING = re.compile(
+    r"(?i)\b(?:references|bibliography|works\s+cited|further\s+reading|"
+    r"selected\s+readings)\b"
+)
+
+
+def _only_reference_headings(text: str) -> bool:
+    """Is every numbered heading on this page a references heading?
+
+    Used to keep the dropped-real-content alert sharp. A page whose only
+    numbered heading is "9.15 References" is a bibliography, not body text
+    that went missing - but a page classified as references while carrying a
+    heading like "9.15 Mass balance" is a misclassification worth an alert.
+    """
+    lines = [line.rstrip() for line in text.splitlines()]
+    stripped = [line.strip() for line in lines]
+    found: list[str] = []
+    i = 0
+    while i < len(lines):
+        head = looks_like_heading(lines[i])
+        consumed = 1
+        if head is None:
+            head, consumed = _split_line_heading(stripped, i)
+        if head:
+            found.append(head)
+        i += consumed
+    if not found:
+        return False
+    return all(_REFERENCE_HEADING.search(h) for h in found)
+
+
 def count_clause_headings(text: str) -> int:
     """How many validated numbered clause headings this page carries.
 
@@ -1352,6 +1383,14 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
         whole of Clause 8, dropped as front matter - has happened again.
         """
         if rule.endswith(("_toc", "_index")):
+            return 0
+        # A references page legitimately carries its own numbered heading -
+        # "9.15 References" - followed by bibliography entries long enough to
+        # read as prose. The alert fired on exactly that in book4, which is a
+        # false positive: the page is correctly excluded and nothing was lost.
+        # Left alone it would fire on every chapter of every textbook, and an
+        # alert that fires on the normal case stops being read.
+        if rule.endswith("_references") and _only_reference_headings(text):
             return 0
         if count_clause_headings(text) >= 1 and longest_clause(text) >= MIN_CLAUSE_WORDS:
             return 1

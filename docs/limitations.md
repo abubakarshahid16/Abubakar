@@ -14,6 +14,28 @@
   - **Do not re-tune `rerank_max_tokens` downward without re-running `eval/run_eval.py`.** The setting must remain >= `chunk_max_tokens`; a test asserts that relationship rather than the literal number, because the alternative to a slower answer here is a wrong safety-relevant figure delivered confidently.
   - `rerank_candidates` was reduced 20 -> 16 to recover part of the cost. 10 candidates also scored perfectly and was faster, but 12 degraded, and a non-monotonic curve means the shortlist composition is shifting rather than the depth being unnecessary - so the safer point was taken.
 
+## Extraction fidelity - substituted ligatures
+
+- **Some PDFs encode `ti` and `fi` as glyphs whose embedded font mapping is wrong**, so extraction yields the wrong character entirely: `Introduc,on` for Introduction, `Sec3on` for Section, `DeEinitions` for Definitions. No retrieval change can match a word that is not in the text, so this is a **coverage** limit rather than a ranking one.
+  - **Measured on book4 (1,400 pages, 2,030,224 characters):** 292 pages affected (20.9%), 535 corrupted tokens = 0.68% of words on affected pages, **0.18% of the document**. Sparse, but concentrated where it hurts: the commonest were `Sec3on` (91), `Introduc,on` (83) and `Ques,on` (51) - the structural words a "what is section 3.4 about" question matches on.
+  - **Repaired at extraction, and validated.** Corrupt and clean forms coexist in the same document (177 pages corrupt against 1,196 clean), which made a targeted repair verifiable rather than a guess. Applied to 2,281 clean pages across the whole corpus it produces **zero changes**, and that safety property is a permanent test. book4 now carries 0 corrupted tokens, down from 537.
+  - **NOT repaired:** an `ff -> ?` substitution on 37 pages (50 hits) has no clean reference in that document, so there is nothing to validate a rule against. Left alone rather than guessed at.
+  - The other three documents carry no ligature corruption.
+
+## Known false refusals - phrasing sensitivity
+
+- **6 of 10 facts answer identically across three phrasings; 4 do not.** Measured by `eval/run_phrasings.py`, which asks each fact as originally written, as the document words it, and as a user loosely types it.
+- Two are **false refusals** where the correct passage was retrieved at rank 1 and then rejected:
+
+| question | correct passage | rerank | outcome |
+|---|---|---|---|
+| "how humid is too humid to paint" | 4.4 Ambient conditions, p7 | -5.09 | refused |
+| "how often do i check humidity and what's the max" | 4.4 Ambient conditions, p7 | -8.01 | refused |
+
+- **Why this is not tuned away.** The cross-encoder's score for the same passage swings 16 points across two phrasings of one fact. Over 35 queries with known ground truth the answer-present and answer-absent populations do not separate on any shape statistic: a floor low enough to admit every correct-at-rank-1 query is -8.01 or lower, and the highest-scoring genuinely absent question the lexical gate permits scores -3.85. Such a floor admits **3 of 3** unanswerable questions. Lowering `MIN_RERANK_SCORE` trades three correct refusals for three confident wrong answers, so it stays absolute.
+- **Mitigation, and it is how engineers work anyway: use the document's own words and write designators in full.** "relative humidity" not "humid"; "coating system no. 1" not "system 1" - though both designator forms now work.
+- **A related vocabulary limit, not fixed:** "how much salt is allowed on the surface before painting" cites the wrong clause because the document says *chlorides* and *NaCl*, never *salt*. A domain-synonym problem; a curated glossary would fix it and is a decision for later, not a change made on one observation.
+
 ## Scope not implemented
 
 - **OCR is not implemented.** Scanned pages are detected and flagged, not read. A scanned document will not be searchable.

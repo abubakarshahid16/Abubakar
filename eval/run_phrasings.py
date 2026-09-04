@@ -60,7 +60,11 @@ def main() -> int:
     init_db()
     keyword.ensure_schema()
 
-    originals = {str(q["id"]): q for q in json.loads(QUESTIONS.read_text(encoding="utf-8"))}
+    # Loaded through the harness's own reader, so both scripts accept either
+    # a bare array or a set with its corpus provenance recorded.
+    from run_eval import load_questions
+
+    originals = {str(q["id"]): q for q in load_questions(QUESTIONS)["questions"]}
     spec = json.loads(PHRASINGS.read_text(encoding="utf-8"))["phrasings"]
 
     rows = []
