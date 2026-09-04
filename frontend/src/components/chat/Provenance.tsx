@@ -82,6 +82,31 @@ export function ProvenanceMark({
   );
 }
 
+/**
+ * The recogniser's confidence, shown as a VALUE WITH NO VERDICT.
+ *
+ * No threshold has been measured, so there is nothing to pass or fail against
+ * and nothing to colour. A red 0.62 would be a number wearing a judgement it
+ * has not earned, and the reader would reasonably infer a line exists where
+ * none does. It sits in the citation as plain monospace text, next to the OCR
+ * mark that already tells them to check the page.
+ *
+ * It is also deliberately the WEAKER of the two signals on offer. Confidence
+ * is the model's opinion of itself; an alphabet violation is proof. Two
+ * passages can both sit at 0.95 and one of them contains a CJK ideograph.
+ */
+export function OcrConfidence({ passage }: { passage: AnswerPassage }) {
+  if (!isRecognised(passage) || passage.ocr_min_conf == null) return null;
+  return (
+    <span
+      className="font-mono text-[11px] text-slateish-500"
+      title="Lowest OCR confidence across this passage. No pass/fail threshold is set - this is the measurement, not a verdict."
+    >
+      OCR confidence {passage.ocr_min_conf.toFixed(2)}
+    </span>
+  );
+}
+
 /** The line beside the duration, stating what the reader should do. */
 export function provenanceDetail(passage: AnswerPassage): string {
   if (!isRecognised(passage)) return "quoted directly, no AI rewriting";

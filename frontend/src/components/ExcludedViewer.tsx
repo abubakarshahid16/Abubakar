@@ -22,6 +22,24 @@ const RULE_EXPLANATION: Record<string, string> = {
   page_classified_frontmatter: "Title page, copyright, credits or dedication.",
   page_classified_index: "A back-of-book index.",
   page_classified_references: "A bibliography or reference list.",
+  page_empty: "The page held no text at all once control characters were stripped.",
+  page_yielded_no_chunk:
+    "The page had text but too little, or too fragmented, to form a chunk.",
+
+  // OCR. Four rules rather than one, because "the page is blank" and "the page
+  // could not be read" are DIFFERENT FACTS and a reader acts differently on
+  // each. Five real pages in this corpus are the former; calling those
+  // unreadable would put a false accusation in the ledger.
+  ocr_not_run:
+    "A scanned page with no extractable text. Recognition has not run on it yet — this is a queue state, not a verdict on the page.",
+  ocr_found_no_text:
+    "Recognition ran and found nothing, at both resolutions. The page appears to be genuinely BLANK — it is not a page we failed to read.",
+  ocr_failed:
+    "Recognition raised an error on this page. Unlike a blank page, there may well be text here that nothing has read.",
+  ocr_yielded_no_chunk:
+    "Recognition read text from this scanned page, but it was too little or too fragmented to form a chunk.",
+  ocr_confidence_below_threshold:
+    "Recognition was too unsure of this page to index it. No threshold is currently set, so this rule should not fire.",
 };
 
 export function ExcludedViewer({

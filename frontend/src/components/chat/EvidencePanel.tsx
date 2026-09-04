@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../../api/client";
-import { ProvenanceMark } from "./Provenance";
+import { OcrConfidence, ProvenanceMark } from "./Provenance";
 import type { AnswerPassage } from "../../types/api";
 import { Spinner } from "../states";
 
@@ -80,7 +80,8 @@ export function Citation({ passage }: { passage: AnswerPassage }) {
       {passage.text_source === "recognised" && (
         <>
           {" "}
-          <ProvenanceMark passage={passage} />
+          <ProvenanceMark passage={passage} />{" "}
+          <OcrConfidence passage={passage} />
         </>
       )}
     </cite>

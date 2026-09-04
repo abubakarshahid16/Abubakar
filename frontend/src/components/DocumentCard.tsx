@@ -66,12 +66,18 @@ export function DocumentCard({
             <span className={`rounded px-2 py-0.5 text-[11px] ${TONE[status.tone]}`}>
               {status.label}
             </span>
-            {doc.needs_ocr_pages > 0 && (
+{/* Amber ONLY while pages are still unread. A document being partly
+                OCR'd is a capability working, not a problem - once recognition
+                has covered the scanned pages this badge disappears and the
+                fact moves to the facts line below, where it belongs. The old
+                tooltip said "OCR is not implemented", which stopped being true
+                the day it shipped. */}
+            {doc.needs_ocr_pages > doc.recognised_pages && (
               <span
                 className="rounded bg-warn-500/15 px-2 py-0.5 text-[11px] text-warn-500"
-                title="Scanned pages with no extractable text. OCR is not implemented."
+                title="Scanned pages with no extractable text that recognition has not yet read."
               >
-                {doc.needs_ocr_pages} need OCR
+                {doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR
               </span>
             )}
             {doc.equation_pages > 0 && (
@@ -105,6 +111,17 @@ export function DocumentCard({
           <p className="mt-2 text-xs text-slateish-400">
             {nf.format(doc.chunk_count)} searchable of {nf.format(doc.chunk_count_total)} chunks
             {excluded > 0 && <> · {nf.format(excluded)} excluded</>}
+            {/* A FACT, not a badge. "12 of 546 pages read by OCR" tells the
+                reader what happened; an amber pill would tell them something
+                is wrong, and nothing is. Stated as a fraction because a bare
+                count invites reading a 546-page document as an OCR'd one. */}
+            {doc.recognised_pages > 0 && doc.page_count != null && (
+              <>
+                {" "}
+                · {nf.format(doc.recognised_pages)} of {nf.format(doc.page_count)} pages
+                read by OCR
+              </>
+            )}
             {doc.indexed_at && <> · finished {doc.indexed_at.replace("T", " ").replace("Z", "")}</>}
           </p>
         </div>

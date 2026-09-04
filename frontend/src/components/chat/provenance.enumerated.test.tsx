@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 
 import { AnswerCard, type AnswerView } from "./AnswerCard";
 import { Citation, EvidencePanel, Highlighted, PassageLocation } from "./EvidencePanel";
-import { ProvenanceMark, VERBATIM_STRINGS } from "./Provenance";
+import { OcrConfidence, ProvenanceMark, VERBATIM_STRINGS } from "./Provenance";
 import type { AnswerPassage } from "../../types/api";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -108,6 +108,12 @@ const RENDERERS: Record<string, Entry> = {
         onClose={() => {}}
       />
     ),
+  },
+  OcrConfidence: {
+    // Shows "OCR confidence 0.87" - the word OCR is the provenance, and the
+    // number carries no verdict because no threshold has been measured.
+    kind: "shows",
+    render: () => <OcrConfidence passage={RECOGNISED} />,
   },
   ProvenanceMark: {
     kind: "shows",
