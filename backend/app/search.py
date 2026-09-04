@@ -23,6 +23,7 @@ import numpy as np
 
 from . import keyword
 from . import scores
+from . import vectorcache
 from .db import connect
 from .config import settings
 from .embedder import EMBEDDING_DIM, Embedder, EmbedderConfig
@@ -127,26 +128,24 @@ class Candidate:
 def _load_vectors(document_id: str | None = None) -> tuple[list[str], np.ndarray]:
     """All stored vectors for retrievable chunks, as one matrix.
 
-    Joined against `chunks` so a vector orphaned by a re-chunk can never be
-    retrieved, and filtered on `retrievable` so an excluded chunk cannot come
-    back through the dense path even if it slipped past the index.
-    """
-    conn = connect()
-    sql = """SELECT v.chunk_id, v.vector FROM chunk_vectors v
-             JOIN chunks c ON c.id = v.chunk_id
-             WHERE c.retrievable = 1"""
-    params: list[object] = []
-    if document_id:
-        sql += " AND v.document_id = ?"
-        params.append(document_id)
-    rows = conn.execute(sql, params).fetchall()
-    if not rows:
-        return [], np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
+    Served from a memory-mapped cache, rebuilt only when the corpus changes.
+    Re-reading every blob from SQLite per query was the only component of
+    retrieval measured to grow with the corpus (x2.11 across a doubling, while
+    the matmul grew x1.05).
 
-    ids = [r["chunk_id"] for r in rows]
-    matrix = np.frombuffer(b"".join(r["vector"] for r in rows), dtype=np.float32)
-    matrix = matrix.reshape(len(ids), EMBEDDING_DIM)
-    return ids, matrix
+    The underlying read is joined against `chunks` so a vector orphaned by a
+    re-chunk can never be retrieved, and filtered on `retrievable` so an
+    excluded chunk cannot come back through the dense path even if it slipped
+    past the index.
+
+    Reranking is an enhancement, never a dependency, and the same rule applies
+    here: if the cache cannot be built or mapped for any reason, the direct
+    read still answers the query.
+    """
+    try:
+        return vectorcache.load(document_id)
+    except Exception:  # noqa: BLE001 - never let a cache fault break retrieval
+        return vectorcache._read_from_db(document_id)
 
 
 def dense_search(question: str, limit: int = 30, document_id: str | None = None) -> list[dict]:

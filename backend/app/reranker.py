@@ -72,6 +72,11 @@ def _load():
             opts.intra_op_num_threads = settings.num_thread
             opts.inter_op_num_threads = 1
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            # The arena reserves per-thread blocks sized for the worst-case
+            # padded batch and never releases them - 829 MB for a 22 MB model.
+            # See settings.onnx_cpu_arena for the measurement. Scores are
+            # bit-identical either way.
+            opts.enable_cpu_mem_arena = settings.onnx_cpu_arena_rerank
 
             session = ort.InferenceSession(
                 str(path), sess_options=opts, providers=["CPUExecutionProvider"]

@@ -42,6 +42,7 @@ still produces the metrics it can support rather than failing or guessing.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import statistics
@@ -54,6 +55,8 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from app import answer as answer_mod  # noqa: E402
 from app import keyword  # noqa: E402
+from app.db import connect
+from app.config import settings
 from app.db import init_db  # noqa: E402
 
 DEFAULT_QUESTIONS = Path(__file__).resolve().parent / "questions.json"
@@ -419,6 +422,79 @@ def report(summary: dict, rows: list[dict], before: dict | None) -> None:
             print(f"          reason: {r['reason']}")
 
 
+
+def observed_corpus() -> dict:
+    """The corpus this run ACTUALLY ran against, read from the database.
+
+    The stored field used to be `data.get("corpus")` - a static string copied
+    out of the questions file. It described what the questions were written
+    against and was stamped on the result regardless of what was ingested, so
+    a result file claimed "3 documents" whether or not a fourth was present.
+    Every stored result was therefore unattributable, which is why a phantom
+    "superlinear latency growth" could not be checked against the record and
+    had to be re-measured from scratch.
+
+    A result that cannot say what it ran against is not a measurement.
+    """
+    conn = connect()
+    docs = conn.execute(
+        "SELECT id, filename, chunk_count FROM documents WHERE status = 'ready'"
+        " ORDER BY id"
+    ).fetchall()
+    chunks = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+    retrievable = conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE retrievable = 1"
+    ).fetchone()[0]
+    vectors = conn.execute("SELECT COUNT(*) FROM chunk_vectors").fetchone()[0]
+    ids = "".join(r["id"] for r in docs)
+    return {
+        "documents": len(docs),
+        "document_ids_sha256": hashlib.sha256(ids.encode()).hexdigest()[:16],
+        "filenames": [r["filename"] for r in docs],
+        "chunks": chunks,
+        "retrievable": retrievable,
+        "excluded": chunks - retrievable,
+        "vectors": vectors,
+    }
+
+
+def machine_state() -> dict:
+    """Free RAM and whether the answer model is resident.
+
+    Recorded because it moves the headline number more than anything about the
+    corpus does: across nine runs of the same question set, the first
+    question's latency and the warm median correlated at r = 0.977, and the
+    median ranged 1,434-4,291 ms with the corpus unchanged. A latency figure
+    without this is not reproducible.
+    """
+    state: dict = {}
+    try:
+        import psutil
+
+        mem = psutil.virtual_memory()
+        state["ram_percent_used"] = mem.percent
+        state["ram_available_gib"] = round(mem.available / 2**30, 2)
+        state["process_rss_mib"] = round(
+            psutil.Process().memory_info().rss / 2**20
+        )
+    except Exception as exc:  # noqa: BLE001 - provenance must never fail a run
+        state["memory_error"] = f"{type(exc).__name__}: {exc}"
+
+    # Whether the generation model is loaded. Asked of the local daemon only;
+    # no document text, question or answer leaves the machine.
+    try:
+        import httpx
+
+        r = httpx.get(f"{settings.ollama_url}/api/ps", timeout=2.0)
+        loaded = [m.get("name") for m in r.json().get("models", [])]
+        state["answer_model_resident"] = bool(loaded)
+        state["models_resident"] = loaded
+    except Exception as exc:  # noqa: BLE001
+        state["answer_model_resident"] = None
+        state["ollama_error"] = f"{type(exc).__name__}: {exc}"
+    return state
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--questions", type=Path, default=DEFAULT_QUESTIONS)
@@ -470,6 +546,21 @@ def main() -> int:
     summary = summarise(rows)
     report(summary, rows, before)
 
+    observed = observed_corpus()
+    machine = machine_state()
+    print()
+    print("  RAN AGAINST (read from the database, not from the question set)")
+    print(f"    {observed['documents']} ready documents, "
+          f"{observed['chunks']} chunks, {observed['retrievable']} retrievable, "
+          f"{observed['excluded']} excluded, {observed['vectors']} vectors")
+    print(f"    document-set hash {observed['document_ids_sha256']}")
+    declared = data.get("corpus")
+    if declared:
+        print(f"    questions were written against: {declared}")
+    print(f"    machine: RAM {machine.get('ram_percent_used')}% used, "
+          f"{machine.get('ram_available_gib')} GiB free, "
+          f"answer model resident: {machine.get('answer_model_resident')}")
+
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out = RESULTS_DIR / f"{stamp}-{args.tier}.json"
@@ -479,7 +570,13 @@ def main() -> int:
                 "at": stamp,
                 "tier": args.tier,
                 "questions_file": str(args.questions),
-                "corpus": data.get("corpus"),
+                # what the QUESTIONS were written against (static, from the
+                # question set) versus what this run ACTUALLY saw (read from
+                # the database). Keeping both makes a mismatch visible instead
+                # of letting the first masquerade as the second.
+                "corpus_declared": data.get("corpus"),
+                "corpus_observed": observed,
+                "machine": machine,
                 "summary": summary,
                 "rows": rows,
             },

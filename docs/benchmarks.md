@@ -73,6 +73,47 @@ Implication: `keep_alive` must hold the model resident for the demo.
 
 ---
 
+## Cross-encoder: already batched, and the memory it holds
+
+Two latency levers were investigated and both came back negative. Recorded
+because a negative result stops the next person spending the same day on it.
+
+**It already batches.** `rerank_batch = 32` against a 16-passage shortlist, so
+16 pairs are one forward pass, not sixteen. Scoring them individually is not
+reliably faster — 0.59x to 1.43x across five questions, median 0.85x — and it
+perturbs scores by up to 0.49 (see `limitations.md`). There is no loop to
+remove; the cross-encoder's ~1.45 s is 89% of retrieval and irreducible
+without an accuracy trade.
+
+**ONNX Runtime's CPU arena holds a great deal of memory.** It reserves large
+per-thread blocks and never returns them:
+
+| | process RSS | tier-1 query | embed |
+|---|---|---|---|
+| both arenas on (default) | 3,247 MB | ~1,926 ms | 6.9 chunks/s |
+| rerank off, embed on | 2,438 MB | ~2,493 ms | 6.8 chunks/s |
+| both off | **503 MB** | ~2,500 ms | 5.7 chunks/s |
+
+Rerank scores are **bit-identical** either way (`np.array_equal`, max
+difference exactly 0.0) — arena configuration changes allocation, not
+arithmetic. So there is no accuracy trade, but there is a latency one: roughly
+2.7 GB against roughly 575 ms.
+
+**Default is ON.** Two hypotheses for turning it off were tested and both
+failed:
+
+- that it would recover the latency lost to memory pressure — it does not, it
+  costs latency;
+- that freeing memory would speed up Explain, which needs ~2.5 GB for
+  `qwen3.5:4b` — measured with the model warm, Explain is 7.4-7.9 s with the
+  arena on against 8.3-10.5 s with it off. A 63 s Explain measured first was
+  Ollama's cold model load, and the arena-on run had *more* free RAM at the
+  time, so it cannot be attributed to the arena.
+
+Left configurable as `onnx_cpu_arena_rerank` / `onnx_cpu_arena_embed`, because
+503 MB against 3,247 MB is a real option on a machine that demos at 92% RAM —
+but it buys headroom, not speed.
+
 ## Not yet measured
 
 These rows stay empty until measured. Do not fill them with estimates.
@@ -129,16 +170,83 @@ characters, ingested cold with no configuration changed.
 | **time to answerable** | **~13 s** | inside the 30-second target |
 | embedding | 2,113 vectors | at the measured 9.22 chunks/s sustained |
 
-### The cost of a larger corpus is latency, not ingestion
+### RETRACTED: "the cost of a larger corpus is latency"
 
-Adding this one document more than doubled the corpus and answer latency rose
-with it, measured on the same 14 questions:
+**This section previously claimed retrieval scaled superlinearly with the
+corpus. It does not. The claim was wrong and is retracted here rather than
+quietly deleted.**
+
+What it said:
 
 | corpus | median answer latency | p95 |
 |---|---|---|
 | 3 documents (2,966 chunks) | 1,915 ms | 2,345 ms |
 | 4 documents (~5,100 chunks) | 4,346 ms | 9,887 ms |
 
-**2.3x slower for 1.7x the chunks**, on brute-force vector search with no ANN
-index. Ingestion scales; retrieval does not. This is the number that matters
-for any multi-hundred-document ambition.
+...concluding "2.3x slower for 1.7x the chunks. Ingestion scales; retrieval
+does not."
+
+**Why it was wrong.** The two figures came from two different eval runs 40
+minutes apart, and no stored result could say which corpus either ran against
+— the `corpus` field was a static string copied from the questions file (see
+instance nine in `status-honesty-audit.md`). Both runs were attributed by
+assumption, not by record.
+
+### What a direct measurement shows
+
+Both corpus sizes measured in one process against the same warmed models, on a
+copy of the database with the fourth document deleted from the copy:
+
+| corpus | chunks | total | FTS5 | dense | (load / matmul) | cross-encoder | RRF + assembly |
+|---|---|---|---|---|---|---|---|
+| 3 documents | 2,670 | 1,573 ms | 14 | 87 | 39 / 48 | **1,450** | 24 |
+| 4 documents | 4,780 | 1,637 ms | 23 | 133 | 83 / 51 | **1,463** | 26 |
+
+**Retrieval grew x1.04 for x1.79 the chunks.** End-to-end `answer()` was flat
+too — 1,934 ms against 1,851 ms, with an identical tier mix. The larger corpus
+measured marginally faster, which is noise, and that is the point.
+
+Work done per question does not grow at all: FTS5 hits 30 -> 30, pool 16 -> 16,
+**cross-encoder pairs 16 -> 16**. Both candidate lists are hard-capped at
+`search_candidates = 30` and the shortlist at `rerank_candidates = 16`, so the
+cross-encoder — 89% of retrieval latency — scores exactly 16 pairs at any
+corpus size.
+
+### What the 1,915 -> 4,346 ms actually was
+
+Machine state. Across nine runs of the same question set, on the same code:
+
+| run | cold start | warm median |
+|---|---|---|
+| 09:35 | 7.5 s | 1,716 ms |
+| 09:51 | 5.4 s | 1,434 ms |
+| 11:45 | 6.3 s | 1,910 ms |
+| 12:04 | 16.5 s | 2,550 ms |
+| 12:23 | **38.4 s** | **4,291 ms** |
+
+Cold start and warm median correlate at **r = 0.977** with the corpus
+unchanged. RAM was at 91.9% with 1.26 GiB free. Absolute latency on this
+machine drifts by more than 2x with free memory, so **any single latency figure
+here is only comparable against another measured in the same session** — which
+is why `run_eval.py` now stamps free RAM and model residency on every result.
+
+### The one component that does grow with the corpus
+
+Only the dense vector load: x2.11 across the doubling, against x1.05 for the
+matmul. It re-read every vector blob from SQLite on every query. Now served
+from a memory-mapped cache (`app/vectorcache.py`), revalidated by a 1.2 ms
+signature:
+
+| | before | after |
+|---|---|---|
+| vector load | 27.2 ms | **0.93 ms** |
+| dense stage | 133.3 ms | **28.9 ms** |
+
+Mapped rather than heap-resident deliberately: this machine demos at 92% RAM,
+so the matrix should be pages the OS can evict and share. Results are
+bit-identical to a direct read.
+
+An approximate (ANN) index remains cancelled, and for a better reason than
+before: at ~29 ms the whole dense stage is under 2% of query latency, and the
+matmul half of it grew x1.05. An ANN index would target the smaller half of an
+already negligible cost.

@@ -71,11 +71,60 @@ running the suite, so a half-armed run cannot pass as a clean one.
 `.github/workflows/tests.yml` now runs pytest, vitest, `tsc -b` and the
 production build on every push and pull request.
 
+### A seventh: a written-down trap is not yet a guard
+
+A reprocessing script omitted the `__main__` guard that Windows `spawn`
+requires. The project had this hazard **documented** — PyMuPDF must run in
+processes, and Windows re-imports `__main__` in each child — and the script
+still fell into it, deleting book4's extracted pages before dying.
+
+The lesson is not "remember the guard". It is that **a trap written down in a
+document is not in the path of the tool that falls into it.** Knowledge in
+prose protects nothing; only a check in the execution path does.
+
+### An eighth, and the first one caught by a check rather than by luck
+
+A heredoc ate a `\b` and wrote a literal 0x08 backspace byte into a source
+file. This had happened seven times before and every previous instance was
+found by accident. The eighth was caught by `test_source_hygiene.py`, which
+named the file, the line and the byte.
+
+Recorded because it is the first time this class of bug was stopped by a guard
+instead of by noticing. That is the whole point of the rule below, observed
+working.
+
+### A ninth: a result file that certified a corpus it never inspected
+
+`eval/run_eval.py` stamped `"corpus": data.get("corpus")` on every result — a
+static string copied out of the **questions file**. It described what the
+questions were written against and was written to the result regardless of what
+was actually ingested. The 4,346 ms result claims `"3 documents: NORSOK,
+book1, book2"` whether or not a fourth 1,400-page document was present.
+
+The cost was concrete. A reported **superlinear latency growth, 1,915 ms at 3
+documents to 4,346 ms at 4**, could not be checked against the record, because
+no stored result could say which corpus it ran on. Every one of nine runs was
+unattributable. It had to be re-measured from scratch — and **the growth did
+not exist**: retrieval grew x1.04 for x1.79 the chunks, and the change was
+machine state across a 40-minute gap.
+
+Replaced with `observed_corpus()`, read from the database at run time —
+document count, chunk count, retrievable count, excluded count, vector count
+and a hash of the document ids — kept as `corpus_observed` **alongside** the
+static `corpus_declared`, so a mismatch between what the questions assume and
+what the run saw is visible rather than silently resolved in favour of the
+claim. `machine_state()` records free RAM and whether the answer model is
+resident, because that moves the headline number further than the corpus does.
+
+`test_eval_provenance.py` reinstates the old field and confirms four of its
+six tests go red against it.
+
 ### The rule this produces
 
 **Before trusting a check, confirm it fails when it should.** Plant the defect
-it exists to catch and watch it go red. Two of the five above passed for weeks;
-none of the five failed loudly; two were found only by accident.
+it exists to catch and watch it go red. Two of the first five passed for weeks;
+none failed loudly; two were found only by accident. Of the nine instances now
+recorded, exactly one — the eighth — was caught by a check rather than by luck.
 
 Corollary: **guard the guard.** Every check whose scope can silently shrink to
 nothing needs a companion test asserting it still sees something — that the
@@ -180,3 +229,9 @@ asserts no client error ever reports `internal`.
 4. No rate is published from a near-zero denominator — `app/rates.py` returns
    `null` instead.
 5. No API response carries a traceback, a path or a line number.
+6. **A measurement records the state it ran against, read from that state.**
+   Corpus counts and machine state come from the database and the OS at run
+   time, never from a static declaration. A result that cannot say what it ran
+   against is not a measurement.
+7. **A documented hazard is not a guard.** If a trap is worth writing down, the
+   check belongs in the path of the tool that can fall into it.

@@ -14,6 +14,35 @@
   - **Do not re-tune `rerank_max_tokens` downward without re-running `eval/run_eval.py`.** The setting must remain >= `chunk_max_tokens`; a test asserts that relationship rather than the literal number, because the alternative to a slower answer here is a wrong safety-relevant figure delivered confidently.
   - `rerank_candidates` was reduced 20 -> 16 to recover part of the cost. 10 candidates also scored perfectly and was faster, but 12 degraded, and a non-monotonic curve means the shortlist composition is shifting rather than the depth being unnecessary - so the safer point was taken.
 
+## Reranker score depends on which passages it was batched with
+
+The cross-encoder scores the 16-passage shortlist in one forward pass, padding
+every passage to the longest in the batch. Measured on one real shortlist, the
+same question and passage scores differently depending on its company:
+
+| effect | isolated by | largest difference |
+|---|---|---|
+| padding width | pair alone vs padded to the batch's longest | **0.494** |
+| batch composition | padded alone vs inside the real batch | **0.435** |
+
+Both are int8 quantisation artefacts: activation scales are computed per
+tensor over the whole batch, so a passage's rounding depends on its
+batchmates. Ordering was preserved in the case measured.
+
+**Why it matters.** `MIN_RERANK_SCORE = -3.0` is an absolute threshold that
+decides answer against refuse. In the shortlist measured, a passage at -3.281
+scored -3.039 in the batch — it stayed on the refuse side, but within 0.04 of
+crossing. So the answer/refuse boundary carries roughly ±0.5 of noise that has
+nothing to do with the passage.
+
+**Not fixed, and deliberately.** Scoring each pair alone removes the padding
+component and is sometimes faster, but it shifts every score, which would
+invalidate the measured calibration of the -3.0 floor — the number that stands
+between the system and a confident wrong answer. Changing it requires
+re-running `eval/run_eval.py` and `eval/run_phrasings.py` and re-deriving the
+floor, not a code edit. Recorded here so the -3.0 floor is read as a threshold
+with a noise band, not a sharp line.
+
 ## Extraction fidelity - substituted ligatures
 
 - **Some PDFs encode `ti` and `fi` as glyphs whose embedded font mapping is wrong**, so extraction yields the wrong character entirely: `Introduc,on` for Introduction, `Sec3on` for Section, `DeEinitions` for Definitions. No retrieval change can match a word that is not in the text, so this is a **coverage** limit rather than a ranking one.
@@ -25,6 +54,7 @@
 ## Known false refusals - phrasing sensitivity
 
 - **6 of 10 facts answer identically across three phrasings; 4 do not.** Measured by `eval/run_phrasings.py`, which asks each fact as originally written, as the document words it, and as a user loosely types it.
+- **The 6/10 held through a corpus doubling** — the same 6 of 10, unchanged, after a 1,400-page document was added. A result that survives the corpus changing underneath it is evidence of a real fix rather than one fitted to the measurement, so it is recorded as such.
 - Two are **false refusals** where the correct passage was retrieved at rank 1 and then rejected:
 
 | question | correct passage | rerank | outcome |
@@ -73,3 +103,13 @@
 
 - No accuracy or throughput figure is claimed without a recorded benchmark in `docs/benchmarks.md`, stating hardware, corpus, version, and sample size.
 - Domain accuracy cannot be claimed until the client supplies answerable and unanswerable questions with expected page evidence.
+- **Every result file records the corpus it actually ran against**, read from
+  the database — document count, chunk count, retrievable count, excluded
+  count, vector count, and a hash of the document ids — plus free RAM and
+  whether the answer model was resident. Previously the stored corpus was a
+  static string from the questions file, which made all nine stored results
+  unattributable and cost a retracted finding (see
+  `status-honesty-audit.md`, instance nine).
+- **A latency figure is only comparable against one measured in the same
+  session.** Absolute latency on this machine moved 1,434-4,291 ms on an
+  unchanged corpus, correlating with free memory at r = 0.977.

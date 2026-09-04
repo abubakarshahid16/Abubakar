@@ -86,6 +86,32 @@ class Settings(BaseSettings):
     #: +213 ms against 256, which keeps Tier 1 inside its 1-2 second target.
     rerank_max_tokens: int = 480
     rerank_batch: int = 32
+
+    #: ONNX Runtime's CPU arena allocator reserves large per-thread blocks
+    #: and never returns them. Measured on this machine (16 GB, 12 threads):
+    #:
+    #:                       process RSS   tier-1 query   embed
+    #:   both arenas on          3,247 MB       ~1,926 ms   6.9 c/s
+    #:   rerank off, embed on    2,438 MB       ~2,493 ms   6.8 c/s
+    #:   both off                  503 MB       ~2,500 ms   5.7 c/s
+    #:
+    #: Rerank scores are BIT-IDENTICAL either way (np.array_equal, max diff
+    #: 0.0) - arena configuration changes allocation, not arithmetic. So there
+    #: is no accuracy trade here, but there IS a latency one: roughly 2.7 GB
+    #: against roughly 575 ms.
+    #:
+    #: DEFAULT IS ON, deliberately. Two hypotheses for turning it off were
+    #: tested and both failed:
+    #:   * that it would recover the latency lost to memory pressure - it does
+    #:     not, it costs latency
+    #:   * that freeing memory would speed up Explain, which needs ~2.5 GB for
+    #:     qwen3.5:4b - measured warm, Explain is 7.4-7.9 s with the arena on
+    #:     against 8.3-10.5 s with it off. A 63 s Explain measured earlier was
+    #:     Ollama's cold model load, not the arena.
+    #: Left configurable because 503 MB against 3,247 MB is a real option on a
+    #: machine that demos at 92% RAM - but it buys stability, not speed.
+    onnx_cpu_arena_rerank: bool = True
+    onnx_cpu_arena_embed: bool = True
     # Small-to-big. Retrieval runs on the small chunk; the reader is shown
     # the surrounding parent block, expanded to neighbours up to this many
     # characters. The generated budget is smaller because three sources have
