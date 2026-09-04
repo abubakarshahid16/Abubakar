@@ -38,7 +38,7 @@ Number 5 is the one to remember: **the evaluation recorded a retrieval failure
 that was really a truncation failure.** The system was not bad at retrieval. Its
 judge had read half the evidence.
 
-A sixth, of the same family but caused by tooling rather than by design: a shell
+A seventh, of the same family but caused by tooling rather than by design: a shell
 heredoc silently turned `\b` into the literal byte it names, 0x08, **three
 separate times**. Each produced a regex that could never match, inside a rule
 that looked fully implemented and had never fired once. A 0x08 is invisible in
@@ -47,11 +47,29 @@ string literal. `backend/tests/test_source_hygiene.py` now fails the build on
 any stray control character.
 
 It earned its place within the hour. Writing the paragraph above, the heredoc
-ate the `` **in the sentence describing `` being eaten** - a sixth
+ate the `\b` **in the sentence describing `\b` being eaten** - a sixth
 instance, in the document about the pattern. The guard failed the build
 immediately, naming the file, the line and the byte. That is the whole
 argument for it: the previous three were found by accident, days apart, after
 shipping.
+
+### A sixth, and the worst of them: CI never ran the tests
+
+Found while writing this section. `.github/workflows/` contained
+`secret-scan.yml` and nothing else - gitleaks and the no-client-data guard. So
+**"CI green" on roughly ten pull requests meant "no secrets leaked"** and
+nothing whatever about the 407 backend and 89 frontend tests. A failing test
+could be committed and merged, and was: the source-hygiene guard was red in the
+commit that introduced it.
+
+Model weights are gitignored, which is presumably why no test job existed -
+without them most of the backend suite does not fail, it SKIPS, and a skipped
+suite reports success. `scripts/fetch_models.py` stages them and exits
+non-zero on a partial staging, and the CI job verifies the staging BEFORE
+running the suite, so a half-armed run cannot pass as a clean one.
+
+`.github/workflows/tests.yml` now runs pytest, vitest, `tsc -b` and the
+production build on every push and pull request.
 
 ### The rule this produces
 
