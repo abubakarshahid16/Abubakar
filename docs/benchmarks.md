@@ -446,3 +446,102 @@ rounds**, asserted in `test_ocr.py`.
 
 `ocr_found_no_text` is the five genuinely blank pages. They are recorded as
 blank rather than as unreadable, which the single old rule could not express.
+
+---
+
+## Coverage per document, before and after OCR (measured 2026-09-05)
+
+**Machine state:** backend API not running; Ollama server up, `qwen3.5:4b` NOT
+resident; RAM 89.1% used, 1.7 GiB free. Corpus read at run time by
+`observed_corpus()`: 4 ready documents, 5,204 chunks, 4,787 retrievable, 417
+excluded, 4,787 vectors, document-set hash `051b4e592931faea`.
+
+Coverage is the ceiling on everything downstream: if a page never reaches the
+index, no retrieval improvement can answer from it.
+
+| Document | Pages | Before | After | Gain | Recognised |
+|---|---|---|---|---|---|
+| NORSOK M-501 Rev 5 | 24 | 87.5% | 91.7% | **+4.2%** | 1 |
+| book1 professional practices | 546 | 95.8% | 96.9% | +1.1% | 7 |
+| book2 differential equations | 613 | 93.3% | 93.8% | +0.5% | 8 |
+| book4 chemical process | 1,400 | 93.6% | 97.2% | **+3.6%** | 54 |
+| **ALL** | **2,583** | **94.0%** | **96.3%** | **+2.3%** | **70** |
+
+### The first version of this measurement was wrong, and hand-checking caught it
+
+`before` was first computed by dropping every recognised CHUNK. That also drops
+coverage of pages such a chunk merely *spans*. One NORSOK chunk covers pages
+21–24: page 21 was already covered, **page 22 has 413 extracted characters of
+its own**, page 23 is genuinely blank. Only page 24 was reached by OCR.
+
+That definition reported **+12.5%** for NORSOK. The true figure is **+4.2%** —
+it would have overstated the feature's value by three times, in the feature's
+own headline number. Coverage is now attributed per PAGE, by that page's own
+text source: a page counts as OCR-dependent only if it had no usable
+extractable text AND recognition produced characters for it.
+
+NORSOK was chosen as the first proof precisely because 24 pages can be checked
+by hand. It was worth it.
+
+### What is still missing, with the rule that accounts for it
+
+| Document | Missing | Rules |
+|---|---|---|
+| NORSOK M-501 | 2 of 24 (8.3%) | `page_classified_toc` 1, `ocr_found_no_text` 1 (pages 2 and 3) |
+| book1 | 17 of 546 (3.1%) | toc 8, frontmatter 4, `ocr_found_no_text` 4, yielded-no-chunk 1 |
+| book2 | 38 of 613 (6.2%) | **(no exclusion recorded) 17**, index 9, frontmatter 7, toc 5 |
+| book4 | 39 of 1,400 (2.8%) | toc 32, **(no exclusion recorded) 4**, frontmatter 2, references 1 |
+
+Most of what remains is *deliberately* excluded — contents, index, front matter
+and references never compete with body text.
+
+**21 pages are uncovered with NO exclusion recorded**, 17 of them in book2.
+Those were dropped by something that did not write down why, which is the one
+category here that is a defect rather than a policy. Filed to the backlog.
+
+---
+
+## Stale embeddings, repaired and observed (measured 2026-09-05)
+
+Asserted before, observed now. Retrievable chunks with no vector:
+
+| | Count |
+|---|---|
+| Before a worker cycle | **4,787** |
+| After a worker cycle (438 s) | **0** |
+
+The earlier report said re-chunking left "some" stale. It left **all of them** —
+re-chunking the whole corpus for OCR provenance invalidated every vector. The
+repair works, and now it has been watched working rather than asserted.
+
+---
+
+## The 15-question eval, before and after OCR (measured 2026-09-05)
+
+NORSOK M-501 restored. Compared against `20260904T133641Z-extract.json`, the
+last pre-OCR run.
+
+| Metric | Before | After |
+|---|---|---|
+| Retrieval (correct page) | 10/10 (100%) | **10/10 (100%)** |
+| Citation (correct clause) | 9/9 (100%) | **9/9 (100%)** |
+| Answer tokens present | 10/10 (100%) | **10/10 (100%)** |
+| Refusal accuracy | 4/4 (100%) | **4/4 (100%)** |
+| False refusals | 0/10 (0%) | **0/10 (0%)** |
+| Median latency | 1,703 ms | 1,804 ms |
+| p95 / worst | — | 2,129 / 3,073 ms |
+
+**Accuracy did not move.** The 6% latency difference is a busy shared machine,
+not a regression; question 12 is excluded as stale ground truth, not as a
+failure.
+
+**And OCR contributed an answer.** Question 3 now cites a **recognised**
+passage — NORSOK page 21, confidence 0.9973, zero alphabet violations — and
+still scores correct on both page and clause.
+
+### Provenance asserted, not eyeballed
+
+Every cited passage across all 15 questions was compared against the database's
+own `text_source` for that chunk: **32 cited passages, provenance matches for
+every one.** The check that this is not vacuous: a recognised chunk retrieved
+by its own text arrives labelled `recognised`.
