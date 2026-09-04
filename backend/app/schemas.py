@@ -307,6 +307,82 @@ class AnswerResult(BaseModel):
     timings: dict[str, float]
 
 
+MessageRole = Literal["user", "assistant"]
+
+
+class Message(BaseModel):
+    id: str
+    conversation_id: str
+    ordinal: int
+    role: MessageRole
+    text: str | None
+    resolved_question: str | None = Field(
+        None, description="user rows: what retrieval actually ran after follow-up resolution"
+    )
+    carried_terms: list[str] = Field(
+        [], description="terms carried in from earlier questions; shown, never silent"
+    )
+    answer_type: AnswerType | None = None
+    reason: str | None = None
+    explains_id: str | None = Field(
+        None, description="assistant rows: the extract answer this Tier 2 answer explains"
+    )
+    payload: dict | None = Field(None, description="passages and citations, for replay")
+    created_at: str
+
+
+class Conversation(BaseModel):
+    id: str
+    title: str
+    document_id: str | None
+    message_count: int
+    created_at: str
+    updated_at: str
+
+
+class ConversationSummary(Conversation):
+    first_question: str | None = None
+
+
+class ConversationList(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    conversations: list[ConversationSummary]
+
+
+class ConversationDetail(BaseModel):
+    conversation: Conversation
+    messages: list[Message]
+
+
+class NewConversation(BaseModel):
+    model_config = {"extra": "forbid"}
+    title: str | None = None
+    document_id: str | None = None
+
+
+class AskRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    question: str = Field("", max_length=500)
+    tier: Literal["extract", "generated"] = "extract"
+    document_id: str | None = None
+    limit: int = Field(3, ge=1, le=5)
+    explain_of: str | None = Field(
+        None,
+        description="upgrade this assistant message to Tier 2 instead of asking anew; "
+        "question is ignored and the already-resolved question is reused",
+    )
+
+
+class AskResult(AnswerResult):
+    conversation: Conversation
+    user_message: Message
+    assistant_message: Message
+    resolved_question: str
+    carried_terms: list[str] = []
+
+
 class KeywordIndexResult(BaseModel):
     document_id: str
     indexed: int

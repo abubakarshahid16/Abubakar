@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Query, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+from . import chat as chat_mod
 from . import chunker as chunk_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
@@ -292,6 +293,112 @@ def get_answer(
                 errors.INVALID_PARAMETER, "tier must be extract or generated"),
         )
     return answer_mod.answer(q, tier=tier, document_id=document_id, limit=limit)
+
+
+# ---------------------------------------------------------- conversations
+
+
+def _require_conversation(conversation_id: str) -> dict:
+    try:
+        return chat_mod.get_conversation(conversation_id)
+    except chat_mod.ConversationNotFound:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no conversation with that id"),
+        )
+
+
+@app.post("/api/conversations", response_model=schemas.Conversation,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def create_conversation(body: schemas.NewConversation | None = None):
+    """Start a conversation. Optionally scoped to one document."""
+    body = body or schemas.NewConversation()
+    if body.document_id:
+        require_document(body.document_id)
+    return chat_mod.create_conversation(
+        title=body.title or "New conversation", document_id=body.document_id
+    )
+
+
+@app.get("/api/conversations", response_model=schemas.ConversationList,
+         responses=schemas.ERRORS_422)
+def list_conversations(
+    request: Request,
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+):
+    """Recent conversations, most recently used first, so one can be reopened."""
+    reject_unknown_params(request, {"limit", "offset"})
+    return chat_mod.list_conversations(limit=limit, offset=offset)
+
+
+@app.get("/api/conversations/{conversation_id}", response_model=schemas.ConversationDetail,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def get_conversation(conversation_id: str, request: Request):
+    """A conversation with every turn, including the passages behind each
+    answer, so reopening it restores the citations rather than bare text."""
+    reject_unknown_params(request, set())
+    conversation = _require_conversation(conversation_id)
+    return {"conversation": conversation, "messages": chat_mod.get_messages(conversation_id)}
+
+
+@app.delete("/api/conversations/{conversation_id}", response_model=schemas.DeleteResult,
+            responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def delete_conversation(conversation_id: str, request: Request, confirm: bool = Query(False)):
+    reject_unknown_params(request, {"confirm"})
+    conversation = _require_conversation(conversation_id)
+    if not confirm:
+        return JSONResponse(
+            status_code=400,
+            content=errors.safe_error(
+                errors.CONFIRM_REQUIRED, "pass confirm=true to delete this conversation"),
+        )
+    messages = conversation["message_count"]
+    chat_mod.delete_conversation(conversation_id)
+    return {
+        "deleted": conversation_id,
+        "filename": conversation["title"],
+        "rows_removed": {"conversations": 1, "messages": messages},
+        "files_removed": 0,
+    }
+
+
+@app.post("/api/conversations/{conversation_id}/ask", response_model=schemas.AskResult,
+          responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def ask(conversation_id: str, body: schemas.AskRequest):
+    """Ask inside a conversation, resolving follow-ups from earlier questions.
+
+    Only previous USER questions inform the resolution. A previous ANSWER is
+    never evidence and never reaches retrieval or the prompt.
+
+    Set `explain_of` to upgrade an existing extract answer to Tier 2 rather
+    than asking again - the reader pressing Explain is not asking a new
+    question, and should not get a duplicate turn in their transcript.
+    """
+    _require_conversation(conversation_id)
+    if body.document_id:
+        require_document(body.document_id)
+    if body.explain_of is None and not body.question.strip():
+        return JSONResponse(
+            status_code=400,
+            content=errors.safe_error(
+                errors.INVALID_PARAMETER, "question is required unless explain_of is given"),
+        )
+    try:
+        return chat_mod.ask(
+            conversation_id,
+            body.question,
+            tier=body.tier,
+            document_id=body.document_id,
+            limit=body.limit,
+            explain_of=body.explain_of,
+        )
+    except chat_mod.MessageNotFound:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(
+                errors.NOT_FOUND, "no answered message with that id in this conversation"),
+        )
 
 
 # ------------------------------------------------------------------ pages

@@ -99,6 +99,38 @@ CREATE TABLE IF NOT EXISTS exclusions (
     created_at    TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS conversations (
+    id            TEXT PRIMARY KEY,
+    title         TEXT NOT NULL,
+    document_id   TEXT REFERENCES documents(id) ON DELETE SET NULL,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id                TEXT PRIMARY KEY,
+    conversation_id   TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    ordinal           INTEGER NOT NULL,
+    role              TEXT NOT NULL,      -- 'user' | 'assistant'
+    text              TEXT,               -- question, or answer; null on a refusal
+    -- user rows only: what retrieval actually ran, after follow-up resolution,
+    -- and which terms were carried in. Stored so the UI can show the reader
+    -- what was assumed rather than silently reinterpreting the question.
+    resolved_question TEXT,
+    carried_terms     TEXT,               -- JSON array
+    -- assistant rows only
+    answer_type       TEXT,
+    reason            TEXT,
+    explains_id       TEXT REFERENCES messages(id) ON DELETE SET NULL,
+    payload           TEXT,               -- JSON: passages, citations, timings
+    created_at        TEXT NOT NULL,
+    UNIQUE (conversation_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, ordinal);
+CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_exclusions_document ON exclusions(document_id, scope);
 CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_pages_ocr ON pages(document_id, needs_ocr);
