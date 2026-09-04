@@ -301,3 +301,39 @@ def test_promotion_cannot_rescue_a_term_the_glossary_does_not_define():
 
     result = answer_mod.answer("what is XYZQ")
     assert result["answer_type"] == "insufficient_evidence"
+
+
+def test_a_greeting_never_becomes_context_for_a_later_question():
+    """Guidance turns belong in the transcript but are not questions. Typing
+    "hi", "thanks", then "what is ndft" searched for "what is ndft hi thanks"
+    and refused a question the document answers."""
+    client = TestClient(app)
+    upload(client)
+    convo = client.post("/api/conversations").json()
+    for opener in ("hi", "thanks"):
+        client.post(f"/api/conversations/{convo['id']}/ask", json={"question": opener})
+
+    body = client.post(
+        f"/api/conversations/{convo['id']}/ask", json={"question": "what is ndft"}
+    ).json()
+    assert body["carried_terms"] == []
+    assert body["resolved_question"] == "what is ndft"
+    assert body["answer_type"] == "extract"
+    assert body["passage"]["section"] == "3.2 Abbreviations"
+
+
+def test_a_greeting_between_two_real_questions_does_not_break_the_follow_up():
+    client = TestClient(app)
+    upload(client)
+    convo = client.post("/api/conversations").json()
+    client.post(
+        f"/api/conversations/{convo['id']}/ask",
+        json={"question": "what is the NDFT for coating system no. 1"},
+    )
+    client.post(f"/api/conversations/{convo['id']}/ask", json={"question": "thanks"})
+    body = client.post(
+        f"/api/conversations/{convo['id']}/ask", json={"question": "what is its curing time"}
+    ).json()
+    # the real question is still reachable past the greeting
+    assert "system 1" in body["carried_terms"]
+    assert "thanks" not in body["carried_terms"]

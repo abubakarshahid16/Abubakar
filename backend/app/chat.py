@@ -274,14 +274,23 @@ def prior_user_questions(conversation_id: str, window: int = FOLLOWUP_WINDOW) ->
 
     Restricted to role='user' in SQL rather than filtered afterwards, so no
     future edit here can accidentally start feeding answers back in.
+
+    A greeting is stored as a user turn - it belongs in the transcript - but
+    it is not a question and must never become context for one. Typing "hi",
+    "thanks", then "what is ndft" searched for "what is ndft hi thanks" and
+    refused a question the document answers. Non-questions are dropped here,
+    and a wider window is read so dropping them does not silently shorten it.
     """
     rows = connect().execute(
         """SELECT text FROM messages
            WHERE conversation_id = ? AND role = 'user' AND text IS NOT NULL
            ORDER BY ordinal DESC LIMIT ?""",
-        (conversation_id, window),
+        (conversation_id, window * 4),
     ).fetchall()
-    return [r["text"] for r in reversed(rows)]
+    questions = [
+        r["text"] for r in rows if intent_mod.is_document_question(r["text"])
+    ]
+    return list(reversed(questions[:window]))
 
 
 def _insert_message(conn, conversation_id: str, **fields) -> dict:
