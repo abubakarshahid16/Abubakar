@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -25,6 +25,7 @@ from .api_utils import (
     retrievable_clause,
     validate_retrievable,
 )
+from . import access
 from . import errors
 from . import schemas
 from .config import settings
@@ -96,7 +97,9 @@ def health():
 
 
 @app.get("/api/metrics", response_model=schemas.Metrics, responses=schemas.ERRORS_422)
-def metrics(request: Request):
+def metrics(request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """Everything the dashboard shows.
 
     A value that has not been measured is null rather than zero, and the
@@ -130,11 +133,25 @@ async def upload_document(file: UploadFile = File(...)):
 
 @app.get("/api/documents", response_model=list[schemas.Document],
          responses=schemas.ERRORS_422)
-def list_documents(request: Request):
+def list_documents(request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     reject_unknown_params(request, set())
     conn = connect()
+    # Filtered IN THE QUERY, not after it. Selecting every document and
+    # dropping the unauthorised ones in Python would work here because there is
+    # no LIMIT - but it is the same shape as the retrieval defect fixed in the
+    # previous commit, and the next person to add pagination to this route
+    # would silently turn it into that bug. The scope belongs in the WHERE
+    # clause on principle, not because this particular query needs it.
+    allowed = sorted(scope.allowed_document_ids)
+    if not allowed:
+        return []
+    marks = ",".join("?" * len(allowed))
     rows = conn.execute(
-        "SELECT * FROM documents ORDER BY uploaded_at DESC"
+        f"SELECT * FROM documents WHERE id IN ({marks})"
+        " ORDER BY uploaded_at DESC",
+        allowed,
     ).fetchall()
     # Excluded PAGES carried on the list, so the card can warn without a
     # second request. The Documents screen said "3 excluded" for chunks and
@@ -164,7 +181,9 @@ def list_documents(request: Request):
 
 @app.delete("/api/documents/{document_id}", response_model=schemas.DeleteResult,
             responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
-def delete_document(document_id: str, request: Request, confirm: bool = Query(False)):
+def delete_document(document_id: str, request: Request, confirm: bool = Query(False),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """Remove a document and everything derived from it.
 
     Requires confirm=true - a destructive endpoint should not fire on a
@@ -172,7 +191,7 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     page images and the stored PDF.
     """
     reject_unknown_params(request, {"confirm"})
-    doc = require_document(document_id)
+    doc = require_document(document_id, scope)
     if not confirm:
         return JSONResponse(
             status_code=400,
@@ -214,9 +233,11 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
 
 @app.get("/api/documents/{document_id}", response_model=schemas.Document,
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def get_document(document_id: str, request: Request):
+def get_document(document_id: str, request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     reject_unknown_params(request, set())
-    require_document(document_id)
+    require_document(document_id, scope)
     row = connect().execute(
         "SELECT * FROM documents WHERE id = ?", (document_id,)
     ).fetchone()
@@ -228,30 +249,36 @@ def get_document(document_id: str, request: Request):
 
 @app.post("/api/documents/{document_id}/extract", response_model=schemas.ExtractResult,
           responses=schemas.ERRORS_404)
-def extract(document_id: str):
+def extract(document_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """Extract pages in batches. Resumes from the last completed batch."""
-    require_document(document_id)
+    require_document(document_id, scope)
     return extract_mod.extract_document(document_id)
 
 
 @app.post("/api/documents/{document_id}/chunk", response_model=schemas.ChunkResult,
           responses=schemas.ERRORS_404)
-def chunk(document_id: str, force: bool = Query(False)):
+def chunk(document_id: str, force: bool = Query(False),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """Chunk an extracted document.
 
     Short-circuits when the document already has chunks and its content has
     not changed, matching how /extract resumes rather than redoing work.
     Pass force=true to rebuild.
     """
-    require_document(document_id)
+    require_document(document_id, scope)
     return chunk_mod.chunk_document(document_id, force=force)
 
 
 @app.post("/api/documents/{document_id}/embed", response_model=schemas.EmbedResult,
           responses=schemas.ERRORS_404)
-def embed(document_id: str):
+def embed(document_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """Embed any retrievable chunks that do not yet have a vector."""
-    require_document(document_id)
+    require_document(document_id, scope)
     worker = ingest_mod.get_worker()
     embedded = worker.embed_pending(document_id)
     worker._finish_if_embedded(document_id)
@@ -271,9 +298,11 @@ def embed(document_id: str):
 
 @app.post("/api/documents/{document_id}/index-keyword",
           response_model=schemas.KeywordIndexResult, responses=schemas.ERRORS_404)
-def index_keyword(document_id: str):
+def index_keyword(document_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """Build the keyword index for one document. Needs no vectors."""
-    require_document(document_id)
+    require_document(document_id, scope)
     return keyword_mod.index_document(document_id)
 
 
@@ -286,6 +315,7 @@ def search(
     document_id: str | None = Query(None),
     rerank: bool = Query(True),
     mode: str = Query("hybrid"),
+    scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Hybrid retrieval: FTS5 + dense vectors fused with RRF, then reranked.
 
@@ -295,7 +325,7 @@ def search(
     """
     reject_unknown_params(request, {"q", "limit", "document_id", "rerank", "mode"})
     if document_id:
-        require_document(document_id)
+        require_document(document_id, scope)
     if mode not in ("hybrid", "keyword"):
         return JSONResponse(
             status_code=422,
@@ -308,10 +338,7 @@ def search(
         document_id=document_id,
         rerank=rerank,
         dense=(mode == "hybrid"),
-        # No authentication yet, so this route is explicitly corpus-wide. When
-        # auth lands, THIS LINE is the one that becomes the caller's scope -
-        # which is the point of making it visible now rather than defaulting it.
-        allowed_document_ids=search_mod.every_document_id(),
+        allowed_document_ids=scope.allowed_document_ids,
     )
 
 
@@ -323,6 +350,7 @@ def get_answer(
     tier: str = Query("extract"),
     document_id: str | None = Query(None),
     limit: int = Query(3, ge=1, le=5),
+    scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Answer a question against the indexed documents.
 
@@ -334,7 +362,7 @@ def get_answer(
     """
     reject_unknown_params(request, {"q", "tier", "document_id", "limit"})
     if document_id:
-        require_document(document_id)
+        require_document(document_id, scope)
     if tier not in ("extract", "generated"):
         return JSONResponse(
             status_code=422,
@@ -343,7 +371,7 @@ def get_answer(
         )
     return answer_mod.answer(
         q, tier=tier, document_id=document_id, limit=limit,
-        allowed_document_ids=search_mod.every_document_id(),   # see above
+        allowed_document_ids=scope.allowed_document_ids,
     )
 
 
@@ -362,11 +390,13 @@ def _require_conversation(conversation_id: str) -> dict:
 
 @app.post("/api/conversations", response_model=schemas.Conversation,
           responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def create_conversation(body: schemas.NewConversation | None = None):
+def create_conversation(body: schemas.NewConversation | None = None,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """Start a conversation. Optionally scoped to one document."""
     body = body or schemas.NewConversation()
     if body.document_id:
-        require_document(body.document_id)
+        require_document(body.document_id, scope)
     return chat_mod.create_conversation(
         title=body.title or "New conversation", document_id=body.document_id
     )
@@ -378,6 +408,7 @@ def list_conversations(
     request: Request,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
+    scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Recent conversations, most recently used first, so one can be reopened."""
     reject_unknown_params(request, {"limit", "offset"})
@@ -386,7 +417,9 @@ def list_conversations(
 
 @app.get("/api/conversations/{conversation_id}", response_model=schemas.ConversationDetail,
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def get_conversation(conversation_id: str, request: Request):
+def get_conversation(conversation_id: str, request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """A conversation with every turn, including the passages behind each
     answer, so reopening it restores the citations rather than bare text."""
     reject_unknown_params(request, set())
@@ -417,7 +450,9 @@ def delete_conversation(conversation_id: str, request: Request, confirm: bool = 
 
 @app.post("/api/conversations/{conversation_id}/ask", response_model=schemas.AskResult,
           responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
-def ask(conversation_id: str, body: schemas.AskRequest):
+def ask(conversation_id: str, body: schemas.AskRequest,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """Ask inside a conversation, resolving follow-ups from earlier questions.
 
     Only previous USER questions inform the resolution. A previous ANSWER is
@@ -429,7 +464,7 @@ def ask(conversation_id: str, body: schemas.AskRequest):
     """
     _require_conversation(conversation_id)
     if body.document_id:
-        require_document(body.document_id)
+        require_document(body.document_id, scope)
     # An empty question is not a client error - it is somebody pressing enter.
     # It classifies as "empty" and gets the guidance reply, like any other
     # input that was never a document question.
@@ -441,7 +476,7 @@ def ask(conversation_id: str, body: schemas.AskRequest):
             document_id=body.document_id,
             limit=body.limit,
             explain_of=body.explain_of,
-            allowed_document_ids=search_mod.every_document_id(),   # see above
+            allowed_document_ids=scope.allowed_document_ids,
         )
     except chat_mod.MessageNotFound:
         raise HTTPException(
@@ -461,9 +496,10 @@ def document_pages(
     document_id: str,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
+    scope: access.AccessScope = Depends(access.current_scope),
 ):
     reject_unknown_params(request, {"limit", "offset"})
-    require_document(document_id)
+    require_document(document_id, scope)
     rows = connect().execute(
         """SELECT page_no, char_count, needs_ocr, equation_heavy, batch_no,
                   substr(text, 1, 300) AS preview
@@ -498,6 +534,7 @@ def page_image(
     dpi: int = Query(150, ge=50, le=300),
     chunk_id: str | None = Query(None),
     q: str | None = Query(None, max_length=500),
+    scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Render one page to PNG on demand, cached by content hash.
 
@@ -513,7 +550,7 @@ def page_image(
     place: one wrong box and no box is ever trusted again.
     """
     reject_unknown_params(request, {"dpi", "chunk_id", "q"})
-    doc = require_document(document_id)
+    doc = require_document(document_id, scope)
 
     rects: list[tuple[float, float, float, float]] = []
     if chunk_id and q:
@@ -555,6 +592,7 @@ def document_chunks(
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
     retrievable: str = Query("true"),
+    scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Chunks for a document.
 
@@ -563,7 +601,7 @@ def document_chunks(
                   "all"             everything
     """
     reject_unknown_params(request, {"limit", "offset", "retrievable"})
-    require_document(document_id)
+    require_document(document_id, scope)
     retrievable = validate_retrievable(retrievable)
     clause = retrievable_clause(retrievable)
     conn = connect()
@@ -592,6 +630,7 @@ def document_excluded(
     document_id: str,
     limit: int = Query(50, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
+    scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Everything excluded from search, with the rule that excluded it.
 
@@ -599,7 +638,7 @@ def document_excluded(
     here with its reason and the text that was dropped.
     """
     reject_unknown_params(request, {"limit", "offset"})
-    require_document(document_id)
+    require_document(document_id, scope)
     conn = connect()
     summary = [
         dict(r)

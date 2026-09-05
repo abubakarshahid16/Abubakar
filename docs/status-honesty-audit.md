@@ -38,6 +38,19 @@ The third is the purest form: a comparison between two literals, wearing a
 test's name. It passed for years of commits because **a vacuous test does not
 fail — it passes**, and a passing test is the thing nobody re-reads.
 
+**It recurred within the hour, in the work that recorded it.** The
+route-enforcement tests for the access scope uploaded two PDFs built from the
+same template — identical bytes, therefore the same SHA-256, therefore
+deduplicated by the upload path into ONE document. `visible` and `hidden` were
+the same id, so every test using that fixture was asserting that a document
+could not see itself. It passed. It was caught only by deliberately widening
+the scope and finding that a test which should have failed did not.
+
+The fixture now gives the two documents different text and asserts
+`visible != hidden` with a comment saying why, so the vacuity cannot come back
+silently. That assertion is the cheap form of the rule: **make the fixture
+prove it can produce the condition, in the fixture.**
+
 **Two of the three were found by something other than the test suite.** The
 provenance one was found by reading the branch; the third by `ruff F841` on the
 first lint run this codebase has ever had. The suite could not find them

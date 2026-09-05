@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     #: an unset model_path by downloading from modelscope.cn on first
     #: construction, which fails on an air-gapped machine at the first
     #: recognition rather than at install. Staged by scripts/fetch_models.py.
+    #: `disabled` (default) or `demo_required`. Disabled must behave exactly as
+    #: the system did before authorisation existed, so every pre-existing test
+    #: passes unchanged with it off - which is what proves the enforcement is
+    #: additive, and what makes the rollback a config change rather than a
+    #: revert. The enforcement path runs in BOTH modes; only the contents of
+    #: the scope differ.
+    auth_mode: str = "disabled"
+
     ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
     ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"
     #: The recogniser is the open decision. PP-OCRv6 ships no English model, so

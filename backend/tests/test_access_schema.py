@@ -207,19 +207,42 @@ def test_deleting_a_document_removes_its_grants():
         "SELECT COUNT(*) FROM document_role_access").fetchone()[0] == 0
 
 
-def test_deleting_a_user_keeps_the_audit_trail():
-    """An audit row that vanishes with its subject is not an audit row."""
+def test_deleting_a_user_keeps_both_the_record_and_the_attribution():
+    """An audit row that vanishes with its subject is not an audit row - and
+    one that survives but can no longer say WHO acted is only half of one.
+
+    The nullable FK answers "does this account still exist" and goes NULL. The
+    denormalised name answers "who did this", which is the question an audit
+    trail exists for, and deletion cannot take it away.
+    """
     conn = connect()
     with conn:
         _user(conn, "u1")
         conn.execute(
-            """INSERT INTO audit_events (at, actor_user_id, action, outcome)
-               VALUES (?, 'u1', 'document.read', 'ok')""", (NOW,))
+            """INSERT INTO audit_events (at, actor_user_id, actor_username,
+                                         action, outcome)
+               VALUES (?, 'u1', 'kanwar@nabaa.local', 'document.read', 'ok')""",
+            (NOW,))
         conn.execute("DELETE FROM users WHERE id='u1'")
-    rows = conn.execute("SELECT actor_user_id, action FROM audit_events").fetchall()
+    rows = conn.execute(
+        "SELECT actor_user_id, actor_username, action FROM audit_events"
+    ).fetchall()
     assert len(rows) == 1, "the audit event was deleted with its actor"
-    assert rows[0]["actor_user_id"] is None
+    assert rows[0]["actor_user_id"] is None, "the live link should be severed"
+    assert rows[0]["actor_username"] == "kanwar@nabaa.local", (
+        "attribution was lost with the account - the row survived but no "
+        "longer says who acted")
     assert rows[0]["action"] == "document.read"
+
+
+def test_an_audit_event_cannot_be_written_without_an_actor_name():
+    """NOT NULL, so an unattributed event is impossible to record rather than
+    merely discouraged."""
+    conn = connect()
+    with pytest.raises(sqlite3.IntegrityError):
+        with conn:
+            conn.execute(
+                "INSERT INTO audit_events (at, action) VALUES (?, 'x')", (NOW,))
 
 
 def test_the_migration_is_idempotent():

@@ -225,7 +225,19 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
 CREATE TABLE IF NOT EXISTS audit_events (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     at            TEXT NOT NULL,
+    -- TWO FIELDS FOR THE ACTOR, ON PURPOSE, answering two different
+    -- questions. The nullable FK answers "does this account still exist" and
+    -- goes NULL when the user is deleted, so the row survives. The denormalised
+    -- name answers "who did this", which is the question an audit trail exists
+    -- for, and it is written at event time so deletion cannot take it away.
+    --
+    -- The two CAN disagree - after a rename, actor_username holds the name in
+    -- force when the action happened while the FK resolves to the current one.
+    -- That is intended: an audit record states what was true at the time, not
+    -- what is true now. Reconstructing history from the live users table would
+    -- be re-writing it.
     actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    actor_username TEXT NOT NULL,
     action        TEXT NOT NULL,
     resource_type TEXT,
     resource_id   TEXT,

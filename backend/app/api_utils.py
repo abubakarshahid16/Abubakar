@@ -28,11 +28,25 @@ DEFAULT_LIMIT = 20
 RETRIEVABLE_VALUES = ("true", "false", "all")
 
 
-def require_document(document_id: str) -> dict:
-    """404 on an unknown id, so GET agrees with POST."""
+def require_document(document_id: str, scope=None) -> dict:
+    """404 on an unknown id, so GET agrees with POST.
+
+    AND 404 - not 403 - on a document the caller may not read. A document
+    somebody is not allowed to see must be INDISTINGUISHABLE from one that does
+    not exist: same status, same message, same shape. A 403 where an unknown id
+    returns 404 is an existence oracle, and it leaks the one fact the grant was
+    protecting - that the document is real.
+
+    `scope` is optional only so that internal callers which have already
+    resolved authorisation are not forced to re-derive it. Every ROUTE passes
+    one; a route that forgets is the failure this signature makes visible in
+    review rather than at runtime.
+    """
     row = connect().execute(
         "SELECT * FROM documents WHERE id = ?", (document_id,)
     ).fetchone()
+    if row is not None and scope is not None and not scope.may_read(document_id):
+        row = None      # fall through to the identical not-found path below
     if row is None:
         raise HTTPException(
             status_code=404,
