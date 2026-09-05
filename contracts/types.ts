@@ -294,6 +294,17 @@ export interface AnswerResult {
   cited: number[];
   /** citations the model invented; stripped from `answer` before it was returned */
   rejected_citations: number[];
+  /** The generation stopped because it hit the output-token cap, not because
+   *  the model finished.
+   *
+   *  THE UI MUST SAY SO. An answer that simply stops reads as broken whatever
+   *  its citations say, and the reader cannot otherwise distinguish "the model
+   *  finished", "it ran out of budget" and "it crashed". A half-written
+   *  citation marker at the end - `[S2` with no closing bracket - has already
+   *  been stripped server-side, because a broken citation is worse than a
+   *  missing one and looks like a defect in the citation system rather than a
+   *  length limit. */
+  truncated: boolean;
   /** guidance only: which kind of non-question this was */
   input_kind: string | null;
   /** guidance only: real questions drawn from the loaded documents */

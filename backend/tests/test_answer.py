@@ -380,3 +380,110 @@ def _scope():
     """
     from app.search import every_document_id
     return every_document_id()
+
+
+# ------------------------------------------------- truncation is not silent
+
+def test_a_citation_cut_in_half_by_the_budget_is_removed():
+    """`[S2` with no closing bracket shows the reader literal broken text and
+    reads as a fault in the citation system rather than a length limit. A
+    broken citation is worse than a missing one - the same reasoning that
+    already strips invented citations."""
+    from app.answer import strip_half_citation
+    assert strip_half_citation(
+        "Trust decisions use external sources to run a trust algorithm [S2"
+    ) == "Trust decisions use external sources to run a trust algorithm"
+    assert strip_half_citation("...perform containment [S") == "...perform containment"
+    assert strip_half_citation("...perform containment [") == "...perform containment"
+
+
+def test_a_complete_citation_is_never_stripped():
+    from app.answer import strip_half_citation
+    text = "The policy engine grants access [S2]."
+    assert strip_half_citation(text) == text
+    # and a bracket mid-sentence is ordinary prose, not a half-citation
+    mid = "The array [S1] and later text continues here."
+    assert strip_half_citation(mid) == mid
+
+
+def test_a_truncated_answer_says_it_was_truncated_and_loses_its_half_citation(
+        monkeypatch):
+    """The reader must be able to tell "the model finished" from "it ran out of
+    budget" from "it crashed". Those are three situations and only one is a
+    defect; a silent stop makes all three look identical.
+
+    Reproduces the demo defect exactly: generation stopped inside `[S1`.
+    """
+    from app import answer as answer_mod
+    from app.search import every_document_id
+
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    def fake_model(prompt, timeout=180.0):
+        return {
+            # The realistic shape of the reported defect: complete citations,
+            # then the budget runs out inside the next marker.
+            "response": ("Containment isolates affected hosts [S1]. Eradication "
+                         "removes the cause [S1"),
+            "done_reason": "length",
+            "eval_count": 250,
+            "prompt_eval_count": 900,
+        }
+
+    monkeypatch.setattr(answer_mod, "_call_model", fake_model)
+    r = answer_mod.answer("what vibration limits are specified", tier="generated",
+                          limit=3, allowed_document_ids=every_document_id())
+
+    assert r["answer_type"] == "generated"
+    assert r["truncated"] is True, "a capped generation must say it was capped"
+    assert not r["answer"].rstrip().endswith("[S1"), (
+        "the half-written citation marker survived into the answer")
+    assert r["answer"].rstrip().endswith("removes the cause")
+    assert "[S1]." in r["answer"], "the COMPLETE citation must survive"
+
+
+def test_an_answer_that_finished_is_not_marked_truncated(monkeypatch):
+    from app import answer as answer_mod
+    from app.search import every_document_id
+
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    monkeypatch.setattr(answer_mod, "_call_model", lambda prompt, timeout=180.0: {
+        "response": "Containment includes isolating affected hosts [S1].",
+        "done_reason": "stop", "eval_count": 51, "prompt_eval_count": 900,
+    })
+    r = answer_mod.answer("what vibration limits are specified", tier="generated",
+                          limit=3, allowed_document_ids=every_document_id())
+    assert r["truncated"] is False
+    assert r["answer"].endswith("[S1].")
+
+
+def test_stripping_the_only_citation_refuses_and_says_why(monkeypatch):
+    """A surprising but correct consequence, asserted so it stays deliberate.
+
+    If the budget ran out inside the ONLY citation, removing it leaves an
+    answer with no support - and an uncited generated answer is not shown, by
+    the same rule that rejects invented citations. The refusal must say it was
+    a length limit rather than a lack of evidence, because those are different
+    facts and only one of them is about the documents.
+    """
+    from app import answer as answer_mod
+    from app.search import every_document_id
+
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    monkeypatch.setattr(answer_mod, "_call_model", lambda prompt, timeout=180.0: {
+        "response": "Containment includes isolating affected hosts [S1",
+        "done_reason": "length", "eval_count": 250, "prompt_eval_count": 900,
+    })
+    r = answer_mod.answer("what vibration limits are specified", tier="generated",
+                          limit=3, allowed_document_ids=every_document_id())
+    assert r["answer_type"] == "insufficient_evidence"
+    assert r["truncated"] is True
+    assert "length limit" in r["reason"], r["reason"]

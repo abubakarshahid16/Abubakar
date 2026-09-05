@@ -25,6 +25,8 @@ export interface AnswerView {
   cited: number[];
   rejected_citations: number[];
   model: string | null;
+  /** generation hit the output-token cap; see contracts/types.ts */
+  truncated: boolean;
   seconds: number | null;
   examples: string[];
 }
@@ -41,6 +43,7 @@ export function viewFromMessage(m: Message): AnswerView {
     cited: p.cited ?? [],
     rejected_citations: p.rejected_citations ?? [],
     model: p.model ?? null,
+    truncated: p.truncated ?? false,
     seconds: p.seconds ?? null,
     examples: p.examples ?? [],
   };
@@ -432,6 +435,20 @@ ollama serve
           activeSource={activeSource}
         />
       </p>
+
+      {/* An answer that simply stops reads as broken, whatever its citations
+          say, and the reader cannot otherwise tell whether the model finished,
+          ran out of budget, or crashed. Those are three different situations
+          and only one of them is a defect. A half-written citation marker has
+          already been removed server-side, because `[S2` with no closing
+          bracket looks like a fault in the citation system rather than a
+          length limit. */}
+      {view.truncated && (
+        <p className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
+          This answer reached its length limit and stops early — the model had
+          more to say. The passages below are complete; open them for the rest.
+        </p>
+      )}
 
       {sources.length > 0 && (
         <ul className="mt-3 space-y-1">

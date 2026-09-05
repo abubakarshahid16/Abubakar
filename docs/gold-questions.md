@@ -135,3 +135,40 @@ way.
 cross-collection question — but the four documents mean four different things
 by it, and a question that retrieves all four would be testing vocabulary
 rather than comprehension.
+
+---
+
+## Confirmed against the live system — 2026-09-05
+
+All five questions run at Tier 2 against the 8-document corpus and checked by a
+reader. **These labels are now ground truth, not candidates** — the caveat at
+the top of this file is discharged for these five rows.
+
+| Q | Expected | Returned | |
+|---|---|---|---|
+| Q1 | doc18, pp. 18–19 | doc18, clause *3 Logical Components of Zero Trust Architecture*, p. 18 — all three Tier 2 citations land on pp. 18–19 | ✅ |
+| Q2 | doc02, OCR-labelled | doc02 p. 68, `text_source=recognised`, OCR confidence 0.51 | ✅ |
+| Q3 | NORSOK M-501 | NORSOK, clause 7.3, p. 10 | ✅ |
+| Q4 | doc17 **and** doc19 | **doc19 only** | ⚠️ see below |
+| Q5 | refusal | refused, and named API 610 as the absent subject | ✅ |
+
+### Q4 returned one document of two, and that is not a retrieval failure
+
+The label says an answer needs **both** doc17 (SP 800-53r5, the controls) and
+doc19 (SP 800-61r3, the incident-response process). The system returned doc19,
+correctly, and did not return doc17.
+
+**Multi-document coverage does not exist.** Retrieval selects the best passages
+and the answer is built from them; nothing asks whether a question needs
+evidence from more than one source, and nothing reports when it found only
+part. So doc17 was not missed — it was never sought. Calling this a retrieval
+miss would blame the wrong component and send the next person to tune the
+reranker.
+
+**This row is the BEFORE number for that feature.** When multi-document
+coverage is built, Q4 is the question that measures it: 1 of 2 required
+documents today.
+
+Q2 is worth noting for a second reason: doc02 has no text layer at all, so that
+answer came entirely from OCR, arrived labelled as recognised, and carried its
+confidence — the lowest of the five, 0.51 — through to the reader.

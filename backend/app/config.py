@@ -80,7 +80,19 @@ class Settings(BaseSettings):
     num_thread: int = 12
     num_batch: int = 2048
     num_ctx: int = 1536
-    max_output_tokens: int = 100
+    #: Raised from 100 after measuring what the gold questions actually need.
+    #: At 100, 5 of 12 Tier 2 generations stopped mid-sentence and one stopped
+    #: inside a citation marker. At 250, 0 of 12 did, and the largest answer
+    #: used 108 tokens - so 250 is roughly twice the observed worst case rather
+    #: than a round number.
+    #:
+    #: This costs nothing in latency for answers that already fit: num_predict
+    #: is a CEILING, not a target, and a generation that finishes early stops
+    #: early. Measured medians moved in both directions across the four
+    #: questions (Q1 19.9->24.3s, Q2 21.9->16.1s, Q4 30.5->25.6s), which is
+    #: machine noise, not a cost. The extra tokens are paid only by the answers
+    #: that were previously being cut off.
+    max_output_tokens: int = 250
     temperature: float = 0.1
 
     upload_chunk_bytes: int = 1024 * 1024
