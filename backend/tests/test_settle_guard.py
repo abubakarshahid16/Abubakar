@@ -8,7 +8,6 @@ after three rounds, with a reason that blamed the state machine and never
 named OCR.
 """
 import fitz
-import pytest
 from fastapi.testclient import TestClient
 from app import db, states, ocr as ocr_mod
 from app.config import settings

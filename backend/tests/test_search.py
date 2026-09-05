@@ -1,7 +1,6 @@
 """Hybrid retrieval: RRF fusion, identifier boosting, dedup, reranking."""
 
 import fitz
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 

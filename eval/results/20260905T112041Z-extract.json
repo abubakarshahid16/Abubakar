@@ -1,0 +1,131 @@
+{
+  "at": "20260905T112041Z",
+  "tier": "extract",
+  "questions_file": "eval\\questions-test-corpus.json",
+  "corpus_declared": "test-corpus: doc02 (DOE/NETL NRG CO2NCEPT final report, fully scanned), doc17 (NIST SP 800-53r5), doc18 (NIST SP 800-207 Zero Trust), doc19 (NIST SP 800-61r3)",
+  "corpus_observed": {
+    "documents": 8,
+    "document_ids_sha256": "71bef7272870c361",
+    "filenames": [
+      "doc18.pdf",
+      "book2-Differential-Equations.pdf",
+      "NORSOKM501Rev5.pdf",
+      "book1-professionalpractices.pdf",
+      "book4ChemicalProcessDynamicsAndControls.pdf",
+      "doc19.pdf",
+      "doc02.pdf",
+      "doc17.pdf"
+    ],
+    "chunks": 6654,
+    "retrievable": 6198,
+    "excluded": 456,
+    "vectors": 6198
+  },
+  "machine": {
+    "ram_percent_used": 95.5,
+    "ram_available_gib": 0.7,
+    "process_rss_mib": 911,
+    "answer_model_resident": false,
+    "models_resident": []
+  },
+  "summary": {
+    "questions": 2,
+    "answerable": 2,
+    "unanswerable": 0,
+    "retrieval": [
+      2,
+      2
+    ],
+    "citation": [
+      1,
+      1
+    ],
+    "answer_correctness": [
+      1,
+      2
+    ],
+    "refusal": null,
+    "false_refusals": [
+      0,
+      2
+    ],
+    "median_ms": 2623.0,
+    "p95_ms": 3449.0,
+    "worst_ms": 3449.0,
+    "two_passage_answers": 0
+  },
+  "rows": [
+    {
+      "id": "T1",
+      "question": "what are the logical components of a zero trust architecture",
+      "resolved_question": "what are the logical components of a zero trust architecture",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 3.449,
+      "reason": null,
+      "cited_clause": "3 Logical Components of Zero Trust Architecture",
+      "cited_document": "doc18.pdf",
+      "cited_pages": [
+        18
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": false,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "expected_clauses": [
+        "3"
+      ],
+      "all_cited_clauses": [
+        "3 Logical Components of Zero Trust Architecture"
+      ],
+      "missing_from_answer": [
+        "enforcement"
+      ],
+      "required_tokens": [
+        "policy",
+        "engine",
+        "administrator",
+        "enforcement",
+        "point"
+      ],
+      "expected_answer": "policy engine, policy administrator and policy enforcement point",
+      "returned_text": "There are numerous logical components that make up a ZTA deployment in an enterprise. These components may be operated as an on-premises service or through a cloud-based service. The conceptual framework model in Figure 2 shows the basic relationship between the components and their interactions. Note that this is an ideal model showing logical components and their interactions. From Figure 1, the policy decision point (PDP) is broken down into two logical components: the policy engine and policy administrator (defined below). The ZTA logical components use a separate control plane to communic"
+    },
+    {
+      "id": "T2",
+      "question": "what is the DOE award number for the CO2NCEPT project",
+      "resolved_question": "what is the DOE award number for the CO2NCEPT project",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 1.797,
+      "reason": null,
+      "cited_clause": null,
+      "cited_document": "doc02.pdf",
+      "cited_pages": [
+        1,
+        2
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": null,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "missing_from_answer": [],
+      "required_tokens": [
+        "DE",
+        "FE0026581"
+      ],
+      "expected_answer": "DE-FE0026581",
+      "returned_text": "NRG CO2NCEPT - CONFIRMATION OF NOVEL COST-EFFECTIVE EMERGING POST-COMBUSTION TECHNOLOGY 09/16/2016 Submitted by NRG Energy Inc. 1000 Main St. Suite 2000 Houston, TX 77002 Principal Investigator David Greeson 832-357-5894 David.Greeson@nrg.com Submitted to U.S. Department of Energy Office of Fossil Energy National Energy Technology Laboratory ACKNOWLEDGEMENT This material is based upon work supported by the Department of Energy under Award Number DE- FE0026581. DISCLAIMER This report was prepared as an account of work sponsored by an agency of the United States Government. Neither the United St"
+    }
+  ]
+}

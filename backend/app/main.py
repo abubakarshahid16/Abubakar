@@ -29,7 +29,6 @@ from . import errors
 from . import schemas
 from .config import settings
 from .db import connect, init_db
-from .rates import Timer
 
 
 @asynccontextmanager

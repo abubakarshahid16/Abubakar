@@ -1,4 +1,3 @@
-import pytest
 
 from app.chunker import (
     Block,

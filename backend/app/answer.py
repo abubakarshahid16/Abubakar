@@ -25,7 +25,6 @@ from . import intent as intent_mod
 from . import keyword
 from . import lexical
 from . import passages as passages_mod
-from . import scores as scores_mod
 from . import telemetry
 from . import search as search_mod
 from .config import settings

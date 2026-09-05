@@ -84,8 +84,6 @@ def test_an_upload_over_the_limit_is_rejected_during_the_stream(tmp_path, monkey
     assert exc.value.code in {"too_large", "not_pdf"}
 
     # And the partial file must not be left behind by the caller.
-    ingest_temp = tmp_path / "ingest.part"
-
     def fake_stream(src, path):
         path.write_bytes(b"partial")
         raise UploadError("too_large", "too big")

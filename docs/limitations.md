@@ -73,6 +73,19 @@ with a noise band, not a sharp line.
   - **The tiny-vs-small choice is a judgement call on unrepresentative evidence, recorded as one.** `small` is visibly more accurate (4.9x slower); the pages that expose the difference are UI screenshots we will never answer from. Revisit on real documents; it is a config value, not a code path.
   - **PP-OCRv6 has no English model** — every artefact is multilingual, so recognising English pages emits CJK. **Measured across the whole corpus: 18 of 77 recognised pages (23%) contain characters the document cannot contain**, 84 characters in total, including `≦` on two pages where a specification would say `≤`. The CJK ideographs are obvious; `≦` is not, and that is the dangerous one. An alphabet guard counts these per page and flags them; under an English recogniser it cannot fire at all, which makes it a guard on the guard. The engine choice is open pending one client question: whether the Aramco documents contain Arabic.
   - **No confidence threshold is set.** Confidence is stored per page and per chunk, and a sub-threshold page would go to the exclusion ledger under its own rule — but the threshold itself is not set, because there is no labelled ground truth to set it from. The lowest chunk confidence observed so far is 0.501. Until it is measured the gate stays open: recognised text is indexed and labelled, never silently dropped.
+- **Chunking assumes a clause is a paragraph. On a catalogue whose atomic unit is a TABLE ROW, citations point at the wrong granularity.**
+  - **Which documents this applies to.** Any reference catalogue built as a long series of short, uniformly structured entries — a controls catalogue, a requirements register, a parameter table, a glossary of numbered items — where the thing a reader asks about is one row rather than one paragraph. It does **not** apply to prose specifications like NORSOK M-501, which is what the chunker was tuned on and where a clause genuinely is a paragraph. A reader can tell which kind they have without re-running anything: if the answer to a typical question is one row of a table, this limit applies.
+  - **Measured on NIST SP 800-53r5** (492 pages, 963 retrievable chunks), against the four documents the chunker was developed against:
+
+    | | SP 800-53r5 | Rest of corpus |
+    |---|---|---|
+    | Median chunk | **432 tokens** | 255–289 |
+    | Chunks at the 480-token ceiling | **47%** | — |
+    | Chunks classified `table` | **0** | 95 / 21 / 9 |
+    | Chunks holding more than one control ID | **61%** (median 3, max 67) | — |
+
+  - **What the reader actually sees.** Ask about `AC-2` and you get the right document and the right region of it, quoted accurately — under a section heading of `1.1 PURPOSE AND APPLICABILITY`. The citation names the chapter that contains the control, not the control. Nothing is wrong in the quoted text; the label above it does not name what was asked for, and a reader checking the citation has to find the control themselves.
+  - **Deliberately not fixed.** Chunk sizing, quality thresholds and retrieval heuristics are frozen for the current sprint: changing them would invalidate every measurement in `docs/benchmarks.md`, which is the whole evidence base. Recorded as a limit and a demo boundary instead — **ask a controls catalogue about concepts, not about control IDs.**
 - **No ANN index** — brute-force vector search. Correct and fast at prototype scale; requires an index before full-corpus use.
 - **Perfect table and diagram extraction is not claimed** for every PDF type.
 - **Table column pairing is not preserved.** A table chunk keeps its caption, headers and every value in reading order, one cell per line, but the row/column pairing is positional rather than explicit. A reader can see the table; a search engine cannot reliably answer "what is the value at row X, column Y".

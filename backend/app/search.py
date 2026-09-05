@@ -26,7 +26,7 @@ from . import scores
 from . import vectorcache
 from .db import connect
 from .config import settings
-from .embedder import EMBEDDING_DIM, Embedder, EmbedderConfig
+from .embedder import Embedder, EmbedderConfig
 from .rates import Timer
 
 #: RRF damping. 60 is the value from the original paper and behaves well when

@@ -1,5 +1,4 @@
 """API correctness: an unknown request must never look like a valid one."""
-import io
 
 import pytest
 from fastapi.testclient import TestClient

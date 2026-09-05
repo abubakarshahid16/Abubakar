@@ -362,3 +362,27 @@ Two lessons worth keeping: the attribution should compare NORMALISED
 designators rather than raw substrings, and an earlier version of this
 investigation compounded the error by hand-typing q3 as "system no. 1" and
 reasoning from the typo. Read the question set, do not retype it.
+
+---
+
+## 13. A rerank test that asserts on its own fixture
+
+**What is wrong.** `test_a_passage_too_far_below_the_primary_is_not_admitted`
+calls nothing. It builds two candidate dicts, never uses the first, and asserts
+that the second's `separation` exceeds a constant — but that `separation` is
+`0.89` because the test passed `0.89` into the factory. It is a comparison
+between two literals wearing a test's name.
+
+**The evidence.** `backend/tests/test_rerank_scale.py:306`. `_hit()`
+(line 212) is a pure factory with no side effect, so the unused `primary` is
+not registering anything. Surfaced by `ruff F841` on the first lint run —
+nothing else had ever noticed, because a vacuous test passes.
+
+**Why it matters.** The behaviour it names — a candidate far below the primary
+is not admitted as a co-answer — is a real rule worth guarding, and right now
+it is unguarded while appearing guarded. That is worse than having no test,
+which is the same shape as entry 8 of `status-honesty-audit.md`.
+
+**What fixed looks like.** The test calls the admission path with both
+candidates and asserts the distant one is absent from the result. It must fail
+if `SUPPORTING_SEPARATION` is moved.
