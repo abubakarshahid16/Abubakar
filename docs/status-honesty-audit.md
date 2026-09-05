@@ -3,7 +3,7 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Thirteen separate times something in this system
+**Why this document exists.** Fourteen separate times something in this system
 has claimed what was not so - a status field, a count, a measurement, and twice
 now a design document about the code it was written against:
 
@@ -18,6 +18,7 @@ now a design document about the code it was written against:
 | 10 | Three green tests over code that was broken | Each had fixtures that could not produce the condition the test claimed to check. A vacuous test does not fail; it passes, which is worse |
 | 9 | README: "Disk — ~2 GB" | 768 MB inside the clone, measured. Nobody had ever measured it; the figure was written from intuition and read as a specification |
 | 8 | OCR raised coverage by **+12.5%** on NORSOK | It raised it by **+4.2%**. The "before" figure dropped every recognised CHUNK, which also drops pages that chunk merely spans — three pages were charged to OCR that OCR never read |
+| 14 | `--tier generated`, documented at the top of the eval harness | The scorer could not read a generated answer: every field read `answer_passages`, which only the extract branch sets. Tier 2 rows scored zero passages and no pages, so the harness under-reported its own citation figure |
 | 13 | The coverage design's six-value status enum, reviewed and approved | **None of the six was true of Q4**, the gold question the feature exists to measure. Reviewing a taxonomy against an example is not testing it against that example |
 | 12 | The coverage design: the shortlist cut is "the one place candidates are dropped with no recorded reason" | `deduplicate()` and the pool builder drop silently too. A candidate lost to dedup is indistinguishable from one that never existed, so recording only the cut would have answered "was doc17 ever in the pool?" wrongly, with apparent evidence |
 | 7 | A passing ordering test over a document that had `failed` | The test asserted the statuses it OBSERVED at every OCR invocation and never asserted where the document FINISHED. `partially_searchable -> chunking` was an illegal transition; the raise was swallowed by the broad handler in `process()`; every scanned document on a fresh machine landed at `failed`, green suite and all |
@@ -346,11 +347,39 @@ Fixed by a seventh value, `credible_not_cited`, which names the fact in the
 reader's terms rather than the mechanism: this document had a passage that
 passed the credibility floor, and the answer did not use it.
 
+### A fourteenth: the harness could not score the tier it documented
+
+`eval/run_eval.py` documents `--tier generated` at the top of the file. Its
+scorer could not read a generated answer at all.
+
+Every scored field - the cited pages, the cited document, the cited clause, the
+passage count, the returned text - read `answer_passages` or `passage`, and
+**both are set only by the extract branch**. A Tier 2 answer sets `passages`
+plus `cited`. So a generated answer scored zero passages, no pages, no
+document, and empty text: `retrieval_correct` and `citation_correct` came out
+false however well it had answered.
+
+It surfaced the moment a question pinned itself to Tier 2. Question 17 answered
+correctly - the right table, page 597, clause 15.3, values read off the row -
+and the harness recorded `wrong page, wrong clause, pages []`. Fixing the
+scorer moved the citation figure from 10/11 to **11/11**, which means the
+harness had been under-reporting itself, in the safe direction, for as long as
+anyone had been able to run it that way.
+
+Nobody saw it because the harness had only ever been run at `--tier extract`.
+That is the third instance of the same shape in this build: **the harness could
+not see the defect because every question it asked avoided the condition.** The
+P&ID false refusal needed an answer below rank 1; the token budget needed
+evidence that was not prose; this needed a question asked at Tier 2.
+
+The fix is one function, `evidence_of(result)`, used by every field that
+previously read the extract shape directly, with tests for both tiers.
+
 ### The rule this produces
 
 **Before trusting a check, confirm it fails when it should.** Plant the defect
 it exists to catch and watch it go red. Two of the first five passed for weeks;
-none failed loudly; two were found only by accident. Of the thirteen instances
+none failed loudly; two were found only by accident. Of the fourteen instances
 now recorded, exactly one — the eighth — was caught by an automated check.
 
 The twelfth and thirteenth were caught by reading a design against the code

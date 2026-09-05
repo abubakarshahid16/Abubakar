@@ -438,6 +438,24 @@ class Coverage(BaseModel):
     note: str | None = None
 
 
+class EvidenceRemoved(BaseModel):
+    """A source that did not fit the model's context window.
+
+    Reported rather than discarded quietly. `done_reason == "length"` already
+    tells the reader when the OUTPUT ran out of budget; before this field,
+    input truncation happened inside llama.cpp with no signal at all - the
+    response reported FEWER tokens evaluated than the window holds, so it was
+    indistinguishable from a small prompt.
+    """
+
+    index: int = Field(description="1-based position in the sources as retrieved")
+    filename: str | None = None
+    page_start: int | None = None
+    action: Literal["trimmed", "dropped"]
+    characters_kept: int
+    characters_dropped: int
+
+
 class AnswerResult(BaseModel):
     question: str
     answer_type: AnswerType = Field(
@@ -468,6 +486,13 @@ class AnswerResult(BaseModel):
     )
     input_kind: str | None = Field(
         None, description="why this was answered as guidance rather than searched"
+    )
+    evidence_removed: list[EvidenceRemoved] = Field(
+        [],
+        description="sources trimmed or dropped to fit the context window. A "
+        "numeric table costs about one token per character against a 1,536 "
+        "token window, so three table passages do not fit and the runtime "
+        "used to discard them silently",
     )
     coverage: Coverage | None = Field(
         None,

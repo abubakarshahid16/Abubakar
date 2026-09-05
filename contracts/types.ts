@@ -368,6 +368,29 @@ export interface Coverage {
   note: string | null;
 }
 
+/** A source that did not fit the model's context window.
+ *
+ *  A numeric table costs about ONE TOKEN PER CHARACTER against a 1,536-token
+ *  window, because the tokenizer splits digits individually - so three table
+ *  passages need roughly 3,645 tokens and cannot fit. Before this field the
+ *  runtime discarded the overflow inside llama.cpp and reported FEWER tokens
+ *  evaluated than the window holds, which is indistinguishable from a small
+ *  prompt. The answer was generated from what survived, citing sources it had
+ *  never been shown.
+ *
+ *  THE UI MUST SAY SO, for the same reason it must say so for `truncated`. An
+ *  answer built on two of three sources is not wrong, but a reader who thinks
+ *  it saw three cannot judge it. */
+export interface EvidenceRemoved {
+  /** 1-based position in the sources as retrieved. */
+  index: number;
+  filename: string | null;
+  page_start: number | null;
+  action: "trimmed" | "dropped";
+  characters_kept: number;
+  characters_dropped: number;
+}
+
 export interface AnswerResult {
   question: string;
   answer_type: AnswerType;
@@ -398,6 +421,9 @@ export interface AnswerResult {
   truncated: boolean;
   /** guidance only: which kind of non-question this was */
   input_kind: string | null;
+  /** Sources trimmed or dropped so the evidence would fit the context
+   *  window. Empty in the ordinary case: prose fits comfortably. */
+  evidence_removed: EvidenceRemoved[];
   /** Report-only. Null for a refusal, and null for an answer produced without
    *  the cross-encoder (nothing was scored for credibility). */
   coverage: Coverage | null;

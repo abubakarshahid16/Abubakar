@@ -23,6 +23,7 @@ import httpx
 
 from . import intent as intent_mod
 from . import keyword
+from . import context_budget
 from . import coverage
 from . import lexical
 from . import passages as passages_mod
@@ -576,6 +577,40 @@ def answer(
         _passage_payload(h, question, budget=settings.generated_context_chars)
         for h in hits[:limit]
     ]
+
+    # The character budget above is a stand-in for a token budget, and the
+    # exchange rate is not stable: measured on this corpus, prose runs at
+    # 4.4-5.8 characters per token and a numeric table at 1.01, because Qwen
+    # tokenises digits one at a time. Three table passages built a 3,645-token
+    # prompt against a 1,536-token window, and llama.cpp discarded the overflow
+    # without saying so - reporting 1,026 tokens evaluated, BELOW the ceiling,
+    # so nothing downstream could even detect it.
+    #
+    # The overhead is measured rather than assumed: the same prompt with the
+    # passage bodies emptied, plus the system prompt. A long question cannot
+    # quietly push the evidence over the line.
+    overhead = SYSTEM_PROMPT + _build_prompt(
+        question, [{**p, "text": ""} for p in passages]
+    )
+    passages, evidence_removed = context_budget.fit_passages(passages, overhead)
+
+    if not passages:
+        # Nothing survived the budget. Answering from no evidence at all would
+        # produce exactly the confident, uncited prose this system exists to
+        # avoid.
+        return {
+            **base,
+            "answer_type": "insufficient_evidence",
+            "answer": None,
+            "reason": (
+                "the evidence for this question is too large for the local "
+                "model's context window, and none of it could be included"
+            ),
+            "passages": [],
+            "evidence_removed": evidence_removed,
+            "seconds": timer.seconds(),
+        }
+
     prompt = _build_prompt(question, passages)
 
     t = Timer()
@@ -588,6 +623,7 @@ def answer(
             "answer": None,
             "reason": f"the local answer model could not be reached ({type(exc).__name__})",
             "passages": passages,
+            "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),
         }
     generation_ms = round(t.elapsed * 1000, 2)
@@ -608,6 +644,7 @@ def answer(
             "answer": None,
             "reason": "the model reported the sources do not contain the answer",
             "passages": passages,
+            "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),
             "timings": {**base["timings"], "generation_ms": generation_ms},
         }
@@ -633,6 +670,7 @@ def answer(
             "rejected_citations": invented,
             "truncated": truncated,
             "passages": passages,
+            "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),
             "timings": {**base["timings"], "generation_ms": generation_ms},
         }
@@ -657,6 +695,10 @@ def answer(
         "rejected_citations": invented,
         "truncated": truncated,
         "passages": passages,
+        # What was removed to make the evidence fit the context window, and
+        # why. The reader is already told when the OUTPUT was cut off by the
+        # token cap; input truncation was invisible until now.
+        "evidence_removed": evidence_removed,
         "model": settings.answer_model,
         "prompt_tokens": raw.get("prompt_eval_count"),
         "output_tokens": raw.get("eval_count"),

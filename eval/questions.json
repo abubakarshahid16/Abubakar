@@ -192,6 +192,21 @@
       "expected_answer": "a P&ID does not show every detail",
       "answerable": true,
       "type": "regression: found by a LIVE API SWEEP, not by this harness. Every other gold question has its answer at RANK 1, so the harness structurally could not see a gate that only ever examined hits[0]. Five strong hits all came from section 4.3.2 Inherent Problems of P&IDs and the question was refused with coverage 0, because the gate read the body and the terms were in the heading."
+    },
+    {
+      "id": "17",
+      "q": "wave equation table values",
+      "question": "In the wave equation table, what value is listed at time 4.00?",
+      "document": "book2-Differential-Equations.pdf",
+      "expected_pages": [
+        596,
+        597,
+        598
+      ],
+      "expected_clause": "15.3",
+      "answerable": true,
+      "tier": "generated",
+      "type": "regression: THE TOKEN BUDGET. Every other question in this set lands on prose, at 4.4-5.8 characters per token, so none of them could fill the context window. This one is a numeric table at 1.01 - three such passages built a 3,645-token prompt against num_ctx 1,536 and llama.cpp discarded 72% of it silently, reporting 1,026 tokens evaluated, BELOW the ceiling. Same shape as question 16: the harness could not see the defect because every question it asked avoided the condition. Asked at Tier 2 deliberately - Tier 1 builds no prompt and would prove nothing. NO expected_answer ON PURPOSE. The corpus holds several wave-equation tables, each with a t=4.00 row; a first label naming 8.0000 (page 598) was measured wrong when the system correctly read page 597 instead. Setting the label to whatever the system returned would be fitting the expectation to the output. What this question asserts is that the evidence FITS and any removal is REPORTED. The numeric answer needs an engineer."
     }
   ]
 }

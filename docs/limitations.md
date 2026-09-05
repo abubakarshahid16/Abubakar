@@ -120,6 +120,51 @@ the answer, because those are different facts and only one is about the corpus.
 The alternative would be guessing which source the model meant, and a guessed
 citation is the thing this system exists not to do.
 
+## Numeric tables do not fit the context window, and are reported when trimmed
+
+**A numeric table costs about one token per character.** The tokenizer splits
+digits individually - `30.0000` is eight tokens for seven characters - so a
+1,200-character table passage is around 1,175 tokens where the same length of
+prose is about 250.
+
+The context window is 1,536 tokens with 250 reserved for the answer. **One
+table passage therefore fills most of the evidence budget, and three do not fit
+at all** - measured at 3,645 tokens, 2.4 times the whole window.
+
+Until 2026-09-05 the overflow was discarded silently inside the runtime, and
+**there was no way to detect it from outside**: the same prompt sent at the
+deployed window reported 1,026 tokens evaluated, five hundred BELOW the
+ceiling, indistinguishable from a small prompt. Roughly 72% of the evidence
+disappeared and the answer was generated from what survived, citing sources it
+had never been shown.
+
+The evidence is now costed before the prompt is sent, and anything trimmed or
+dropped is **named on the answer** (`evidence_removed`), the same way an answer
+cut off by the output cap is named. Measured:
+
+| Evidence | Sources kept | Reported |
+|---|---|---|
+| Three prose passages | **3 of 3, untouched** | nothing removed |
+| Three numeric-table passages | 1 whole, 1 trimmed to 949 characters | 1 trimmed, 1 dropped |
+
+**What this costs the reader.** A question answered from a numeric table gets
+roughly one source instead of three. That is a real limit on table-heavy
+documents, and it is the honest version of a limit that was previously hidden.
+
+**As of this commit `evidence_removed` is in the API and not on screen** - the
+same gap as the coverage report below it.
+
+**The token cost is estimated, not measured per question, and the margin is the
+only guard.** The deployed tokenizer is only reachable through Ollama, and both
+routes were measured and rejected: probing at a larger window forces a model
+reload (16.0 s up, 16.3 s back), and probing at the deployed window returns the
+truncated count above. Nor is there a post-hoc check - a truncated prompt and a
+cached prompt both report a low count, so the two cannot be told apart. The
+local estimate is therefore built to over-count: 1.03-1.05x on tables, where
+the decision is made, and 1.25-1.73x on prose, where there is room to spare.
+Worst observed margin **1.035x over twelve measured chunks**. Ground truth in
+`docs/benchmarks.md`, re-checked by `test_context_budget.py`.
+
 ## An answer includes at most three passages
 
 **When more than three credible passages exist, the ones beyond the cut are not

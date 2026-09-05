@@ -417,7 +417,7 @@ _PAYLOAD_KEYS = (
     # Without this, reopening a conversation would show a complete-looking
     # answer with the partial-coverage warning silently gone - worse than
     # never having shipped the field.
-    "coverage",
+    "coverage", "evidence_removed",
 )
 
 

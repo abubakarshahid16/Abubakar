@@ -227,9 +227,43 @@ def _clause_matches(expected: str, actual: str | None) -> bool:
     return actual_number == expected or actual_number.startswith(expected + ".")
 
 
+def evidence_of(result: dict) -> list[dict]:
+    """The passages the answer was actually built from, whichever tier ran.
+
+    THIS FUNCTION EXISTS BECAUSE THE SCORER COULD NOT READ A TIER 2 ANSWER.
+    Every field below - pages, clauses, passage count, returned text - read
+    `answer_passages`, which ONLY the extract branch sets. A generated answer
+    sets `passages` and `cited` instead, so every Tier 2 row scored zero
+    passages, no pages and empty text: retrieval and citation came out false
+    however good the answer was.
+
+    Nobody saw it because the harness has only ever been run at
+    `--tier extract`, even though `--tier generated` is documented at the top
+    of this file. The same shape as the two defects before it: the harness
+    could not see the failure because it never asked under the condition.
+
+    For a generated answer the evidence is the passages the model CITED, not
+    every passage it was shown - citing is what makes a passage part of the
+    answer.
+    """
+    if result.get("answer_passages"):
+        return list(result["answer_passages"])
+    if result.get("passage"):
+        return [result["passage"]]
+    supplied = result.get("passages") or []
+    cited = [i for i in (result.get("cited") or []) if 1 <= i <= len(supplied)]
+    return [supplied[i - 1] for i in cited]
+
+
+def _lead(result: dict) -> dict | None:
+    """The passage the answer leads on, whichever tier ran."""
+    evidence = evidence_of(result)
+    return evidence[0] if evidence else None
+
+
 def _pages_of(result: dict) -> list[int]:
     pages: list[int] = []
-    for p in result.get("answer_passages") or ([result["passage"]] if result.get("passage") else []):
+    for p in evidence_of(result):
         pages.extend(range(p["page_start"], p["page_end"] + 1))
     return pages
 
@@ -290,10 +324,13 @@ def score_one(q: dict, result: dict, asked: str | None = None) -> dict:
         "answered": answered,
         "seconds": round(result["seconds"], 3),
         "reason": result.get("reason"),
-        "cited_clause": (result.get("passage") or {}).get("section"),
-        "cited_document": (result.get("passage") or {}).get("filename"),
+        # Also read through evidence_of: `passage` is an extract-only field, so
+        # a Tier 2 answer reported no document and no clause, and
+        # retrieval_correct was then false however well it had answered.
+        "cited_clause": (_lead(result) or {}).get("section"),
+        "cited_document": (_lead(result) or {}).get("filename"),
         "cited_pages": _pages_of(result),
-        "passage_count": len(result.get("answer_passages") or []),
+        "passage_count": len(evidence_of(result)),
         "retrieval_correct": None,
         "citation_correct": None,
         "answer_correct": None,
@@ -342,9 +379,7 @@ def score_one(q: dict, result: dict, asked: str | None = None) -> dict:
     if q.get("expected_clauses"):
         # Every expected clause must be cited somewhere in the answer. A
         # compound expectation is only satisfied by covering both.
-        cited_clauses = [
-            p["section"] for p in (result.get("answer_passages") or []) if p["section"]
-        ]
+        cited_clauses = [p["section"] for p in evidence_of(result) if p["section"]]
         row["citation_correct"] = bool(answered) and all(
             any(_clause_matches(expected, cited) for cited in cited_clauses)
             for expected in q["expected_clauses"]
@@ -354,8 +389,13 @@ def score_one(q: dict, result: dict, asked: str | None = None) -> dict:
 
     wanted = q.get("expected_answer_contains")
     if wanted:
+        # For a quotation the evidence IS the answer. For generated prose the
+        # answer is the model's own text, and that is where an expected figure
+        # has to appear - a token present only in a source the model was shown
+        # is not the model having answered.
         haystack = " ".join(
-            p["text"] for p in (result.get("answer_passages") or [])
+            [result.get("answer") or ""]
+            + [p["text"] for p in evidence_of(result)]
         ).lower()
         row["answer_correct"] = bool(answered) and all(
             str(w).lower() in haystack for w in wanted
@@ -365,8 +405,9 @@ def score_one(q: dict, result: dict, asked: str | None = None) -> dict:
         ]
         row["required_tokens"] = list(wanted)
         row["expected_answer"] = q.get("expected_answer")
-        row["returned_text"] = " ".join(
-            p["text"] for p in (result.get("answer_passages") or [])
+        row["returned_text"] = (
+            result.get("answer")
+            or " ".join(p["text"] for p in evidence_of(result))
         )[:600]
 
     return row
@@ -619,15 +660,24 @@ def main() -> int:
         if q["id"] in stale_ids:
             print(f"  {q['id']:>5} SKIPPED - ground truth stale for this corpus")
             continue
+        # A question may pin its own tier. Question 17 exists to exercise the
+        # Tier 2 context window against numeric-table evidence, and asked at
+        # Tier 1 it proves nothing at all - Tier 1 never builds a prompt.
+        tier = q.get("tier", args.tier)
         if args.isolated:
             result = answer_mod.answer(
-                q["question"], tier=args.tier, limit=args.limit,
+                q["question"], tier=tier, limit=args.limit,
                 allowed_document_ids=corpus_scope)
         else:
             result = chat_mod.ask(conversation_id, q["question"],
-                                  tier=args.tier, limit=args.limit,
+                                  tier=tier, limit=args.limit,
                                   allowed_document_ids=corpus_scope)
         row = score_one(q, result, asked=q["question"])
+        # Evidence dropped to fit the context window. Recorded per row because
+        # it is invisible otherwise: the runtime used to discard it inside
+        # llama.cpp and report FEWER tokens evaluated than the window holds.
+        row["evidence_removed"] = result.get("evidence_removed") or []
+        row["tier"] = tier
         rows.append(row)
         flag = ""
         if row["question_was_rewritten"]:

@@ -107,3 +107,56 @@ def test_a_scored_run_with_no_truncation_is_unaffected():
     assert s["length_limited"] == 0
     assert s["refusal"] == (1, 1)
     assert s["false_refusals"][0] == 1
+
+
+# ------------------------------------------------- the scorer must read both tiers
+
+
+def test_the_scorer_can_read_a_tier_2_answer():
+    """It could not, and every Tier 2 row scored zero.
+
+    `_pages_of`, `passage_count`, the cited clauses and the returned text all
+    read `answer_passages`, which ONLY the extract branch sets. A generated
+    answer carries `passages` plus `cited`, so a Tier 2 row came back with no
+    pages, no clauses and empty text - retrieval and citation false however
+    good the answer was. Nobody saw it because the harness had only ever been
+    run at --tier extract, though --tier generated is documented.
+    """
+    from run_eval import evidence_of
+
+    generated = {
+        "answer_type": "generated",
+        "answer": "The limit is 3.0 mm/s [S2].",
+        "passages": [
+            {"filename": "a.pdf", "page_start": 1, "page_end": 1, "section": "1",
+             "text": "not this one"},
+            {"filename": "b.pdf", "page_start": 17, "page_end": 17, "section": "5.3.2",
+             "text": "the vibration limit is 3.0 mm/s"},
+        ],
+        "cited": [2],
+    }
+    evidence = evidence_of(generated)
+    assert [p["page_start"] for p in evidence] == [17], (
+        "a generated answer's evidence is the passage it CITED"
+    )
+
+
+def test_an_uncited_source_is_not_counted_as_the_answers_evidence():
+    from run_eval import evidence_of
+
+    assert evidence_of({
+        "answer_type": "generated",
+        "answer": "I cannot say.",
+        "passages": [{"filename": "a.pdf", "page_start": 1, "page_end": 1,
+                      "section": "1", "text": "x"}],
+        "cited": [],
+    }) == []
+
+
+def test_the_extract_shape_is_unchanged():
+    from run_eval import evidence_of
+
+    passage = {"filename": "a.pdf", "page_start": 5, "page_end": 5,
+               "section": "A.1", "text": "x"}
+    assert evidence_of({"answer_passages": [passage]}) == [passage]
+    assert evidence_of({"passage": passage}) == [passage]
