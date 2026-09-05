@@ -769,6 +769,37 @@ def plausible_heading_numbers(numbers: list[str]) -> set[str]:
     return allowed
 
 
+def is_contents_page(lines: list[str]) -> bool:
+    """Whether this page's headings should be ignored as a contents listing.
+
+    Counting heading-like lines alone is not the test, and using it as one was
+    the defect this function exists to fix. A DENSE SPECIFICATION BODY PAGE
+    CARRIES MANY REAL HEADINGS. doc16 page 44 opens clause 5 and runs 5.1,
+    5.2, 5.3, 5.3.1, 5.3.2, 5.4, 5.4.1, 5.4.2 - eight genuine headings with
+    their requirement text under each. Above a bare count of four, every one of
+    them was discarded, the page set no section state, and the label left in
+    force was 4.4.2 from the previous page. The same happened on pages 46, 48
+    and 49, so "8.3.2 DRAWING EXTRACTION REQUIREMENTS" was published as clause
+    6.4.2: a citation pointing an engineer at a different requirement.
+
+    The discriminator is the one classify_page already uses for the same
+    distinction: a contents page is headings WITHOUT prose, body text is
+    headings WITH prose. So the heading lines are set aside and what remains is
+    asked whether it contains a clause-length run of real words. A contents
+    page leaves behind titles and page numbers and fails that; a body page
+    leaves behind its requirements and passes.
+    """
+    heading = [looks_like_heading(line) is not None for line in lines]
+    if sum(heading) <= _CONTENTS_PAGE_HEADINGS:
+        return False
+    rest = " ".join(
+        line
+        for line, is_head in zip(lines, heading, strict=True)
+        if not is_head and line.strip()
+    )
+    return longest_clause(rest) < MIN_CLAUSE_WORDS
+
+
 def _candidate_headings(
     pages: list[tuple[int, str]],
     running: set[str],
@@ -786,7 +817,7 @@ def _candidate_headings(
             continue
         cleaned, _ = strip_running_lines(raw, running)
         lines = cleaned.splitlines()
-        if sum(1 for line in lines if looks_like_heading(line)) > _CONTENTS_PAGE_HEADINGS:
+        if is_contents_page(lines):
             continue  # a contents page never sets heading state
         i = 0
         while i < len(lines):
@@ -835,11 +866,12 @@ def segment_document(
                 blocks.append(Block(page_kind, body, page_no, page_no, None))
             continue
 
-        # A contents page is a wall of heading-like lines. Letting it set the
-        # section state makes every later chunk inherit a heading from the
-        # front matter, so headings from such a page are ignored entirely.
-        heading_hits = sum(1 for line in lines if looks_like_heading(line))
-        contents_page = heading_hits > _CONTENTS_PAGE_HEADINGS
+        # A contents page is a wall of heading-like lines with no prose under
+        # them. Letting it set the section state makes every later chunk
+        # inherit a heading from the front matter, so headings from such a page
+        # are ignored entirely - but see is_contents_page for why the count of
+        # heading lines is NOT on its own the test.
+        contents_page = is_contents_page(lines)
 
         buf: list[str] = []
         i = 0
