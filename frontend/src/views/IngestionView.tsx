@@ -17,7 +17,9 @@
  * Every rate obeys the same rule as the dashboard: a stage that has not been
  * timed measurably says so rather than showing a zero.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+
+import { usePoll } from "../hooks/usePoll";
 
 import { api } from "../api/client";
 import type { Connection } from "../components/Shell";
@@ -232,19 +234,23 @@ export function IngestionView({
     }
   }, []);
 
-  useEffect(() => {
-    if (connection.state !== "online") return;
-    let cancelled = false;
-    const tick = () => {
-      if (!cancelled) void load();
-    };
-    tick();
-    const timer = window.setInterval(tick, 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [connection.state, load]);
+  // Same reasoning as Documents, smaller payoff: this screen was already at
+  // 15 s rather than 3 s, so the saving is a quarter of the size. It still
+  // applies - when the worker is idle this screen renders "Nothing is being
+  // processed", and re-fetching that twice a minute buys nothing.
+  //
+  // The worker flag comes from health, which the shell already polls, so
+  // reading it here costs no request.
+  const busy =
+    connection.state === "online" &&
+    (connection.health.ingestion.busy || connection.health.ingestion.stalled);
+
+  usePoll(
+    useCallback(() => {
+      if (connection.state === "online") void load();
+    }, [connection.state, load]),
+    busy,
+  );
 
   const worker = connection.state === "online" ? connection.health.ingestion : null;
   // The document being processed comes from the SCOPED metrics, never from
