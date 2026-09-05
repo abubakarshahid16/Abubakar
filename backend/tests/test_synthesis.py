@@ -607,3 +607,36 @@ def test_the_engineer_review_sentence_matches_the_card_that_renders_it():
     assert any(synthesis.REVIEW_SENTENCE in f.read_text(encoding="utf-8") for f in files), (
         f"no card renders {synthesis.REVIEW_SENTENCE!r}"
     )
+
+def test_a_blank_fragment_is_not_counted_as_a_removed_sentence():
+    """Model prose ending ". ." splits into an empty tail.
+
+    Before this, that tail failed the cites-nothing check and was reported to
+    the reader as a REMOVED SENTENCE - the screen said "2 sentences were
+    removed from this summary" above two empty bullets. Nothing had been
+    removed; the count was counting whitespace, and an empty bullet is a null
+    rendering as something, which this project's rules forbid.
+
+    Measured on a live answer to "WHAT IS USAR BIM Workflow", doc16.pdf.
+    """
+    sources = [{"evidence_id": "e1", "text": "The workflow begins with cells and modules."}]
+    kept, dropped = synthesis._cite(
+        "The workflow begins with cells and modules [S1]. .", sources
+    )
+    assert len(kept) == 1
+    assert dropped == (), f"a blank fragment was reported as removed: {dropped}"
+    # And every reported removal must carry text a reader can see.
+    for sentence, reason in dropped:
+        assert sentence.strip() and reason.strip()
+
+
+def test_a_genuinely_uncited_sentence_is_still_reported_as_removed():
+    """The fix above must not silence real removals - that would trade a
+    cosmetic defect for a dishonest one."""
+    sources = [{"evidence_id": "e1", "text": "The workflow begins with cells."}]
+    kept, dropped = synthesis._cite(
+        "The workflow begins with cells [S1]. This claim has no citation.", sources
+    )
+    assert len(kept) == 1
+    assert len(dropped) == 1
+    assert dropped[0][0].strip() and dropped[0][1].strip()

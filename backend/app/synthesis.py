@@ -82,6 +82,9 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 #: front of it: "...280 um. [S1]" is one cited sentence, not one uncited
 #: sentence followed by a citation with no claim.
 _MARKERS_ONLY = re.compile(r"^(?:\s*\[S\d+\]\s*)+[.;]?$")
+#: A sentence a reader could read. Anything without a letter or a digit is
+#: stray punctuation from the split, never prose that was removed.
+_HAS_SUBSTANCE = re.compile(r"[^\W_]", re.UNICODE)
 _NUMBER_TOKEN = re.compile(r"\d+(?:[.,]\d+)*")
 
 #: The model's own way of saying it cannot answer. Same token as answer.py, and
@@ -352,6 +355,20 @@ def _cite(
     kept: list[CitedSentence] = []
     dropped: list[tuple[str, str]] = []
     for sentence in split_sentences(text):
+        # A fragment with no letter and no digit is not a sentence, and it is
+        # not a REMOVAL either. Model prose ending ". ." splits into a lone
+        # "." which then fails the cites-nothing check below and is reported
+        # to the reader as "2 sentences were removed from this summary" above
+        # two empty bullets. Nothing was removed; the count was counting
+        # punctuation. Skipped entirely rather than dropped, so the count
+        # stays true.
+        #
+        # Tested for SUBSTANCE, not for blankness: split_sentences already
+        # discards whitespace-only pieces, so a `not sentence.strip()` guard
+        # here can never fire and would leave the defect in place while
+        # looking fixed.
+        if not _HAS_SUBSTANCE.search(sentence):
+            continue
         markers = sorted({int(n) for n in _CITATION.findall(sentence)})
         cited = [sources[n - 1] for n in markers if 1 <= n <= len(sources)]
         if not cited:
