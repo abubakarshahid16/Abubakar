@@ -8,6 +8,10 @@ script says so rather than talking around it.
 on 8000, frontend on 5173, ingestion paused, notifications off, network cable
 out if you want to make the offline point physically.
 
+If section 7 is in the run, also: `python scripts/seed_access.py --verify-only`
+prints **`0 problem(s)`**. A seeded-but-useless user does not fail — it signs
+in and shows an empty corpus, on stage.
+
 ---
 
 ## 0. The one sentence — 30 s
@@ -85,6 +89,15 @@ catch — that passage states the programme goal. The measured result, $39.73, i
 on page 68. Retrieval landed on a neighbouring passage. That's a known class of
 behaviour and it's in our test set."
 
+**Known risk in this question, and it is the only one in the script.** *"what
+did it cost per tonne"* is user vocabulary, not the report's. Retrieval is
+measured as solid when a question borrows the document's words and brittle when
+it does not — 6 of 10 facts cite the same page across all three phrasings
+(`docs/limitations.md`, *Known false refusals — phrasing sensitivity*). This
+question is kept as written because the neighbouring-passage answer is the
+honest thing to show; if you want the result rather than the target, ask it in
+the report's own words: **"what is the measured cost of CO2 captured per tonne"**.
+
 ## 5. Conversation — 1 min
 
 Same conversation, **do not start a new one.**
@@ -105,7 +118,18 @@ Open **Dashboard.**
 
 ## 7. Role-based access — 1.5 min *(if stage 1 landed)*
 
-**Sign out. Sign in as civil_engineer.** Open Documents.
+**Precondition, and check it before the client is in the room:**
+
+```
+python scripts/seed_access.py --verify-only
+```
+
+It must print **`0 problem(s)`**. Anything else means a user or a discipline is
+seeded but useless, and that state does not fail — it signs in successfully and
+shows an empty corpus, which in front of a client looks exactly like broken
+search. If it does not print zero, skip this section.
+
+**Sign out. Sign in as the Civil Engineering user.** Open Documents.
 
 > "Three documents — the civil manuals. The security standards don't exist for
 > this user. Not hidden — absent. Ask about zero trust:"
@@ -114,11 +138,19 @@ Open **Dashboard.**
 
 Refuses. *Does not appear anywhere in the indexed documents.*
 
-> "Same question, different role, different world. The permission check runs
-> inside the database query, not after — a document you may not see cannot
+> "Same question, different discipline, different world. The permission check
+> runs inside the database query, not after — a document you may not see cannot
 > even take up a slot in the results."
 
-Sign out, sign in as it_engineer, ask again. Answered from NIST SP 800-207.
+Sign out, sign in as the IT user, ask again. Answered from NIST SP 800-207.
+
+**If asked how the disciplines are set up**, the four are Civil Engineering,
+Mechanical, Chemical-Process and IT, and `admin` is not a fifth:
+
+> "Admin is a capability, not a discipline. An administrator also works
+> somewhere — our IT administrator is IT *and* admin. If admin were a fifth
+> discipline they'd have to choose between running the system and seeing their
+> own team's documents."
 
 *If stage 1 did not land:* skip this section. Do not describe RBAC as working.
 
@@ -169,6 +201,7 @@ Point at the *not implemented* box.
 | Answer takes >10 s | "The model is loading — first call after idle pays a 24-second load." Wait |
 | Explain button hangs | Ollama not running. Skip Tier 2; the quotation is the answer |
 | Login fails | `AUTH_MODE=disabled`, restart backend, skip section 7 |
+| Signed in but no documents | The user has no discipline. `--verify-only` would have said so. Skip section 7 — do not debug it live |
 | Wrong page cited | Click through to the page image. "This is why we show the source" |
 | Anything else | `git checkout v1.0.0-prototype`, restart. That is what the tag is for |
 

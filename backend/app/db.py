@@ -243,6 +243,28 @@ CREATE TABLE IF NOT EXISTS roles (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL,
+    -- 'discipline' | 'capability'. The ONE thing this column exists to say:
+    -- `admin` is a CAPABILITY, not a fifth discipline. An administrator also
+    -- works somewhere - an IT administrator is IT *and* admin - so admin is
+    -- orthogonal to the four disciplines (Civil Engineering, Mechanical,
+    -- Chemical-Process, IT) rather than a member of them. Modelling it as a
+    -- discipline forces a false choice and leaves an admin unable to see their
+    -- own documents. See docs/design-admin-screen.md.
+    --
+    -- Why a column here rather than a boolean on `users` or a separate
+    -- capability table: user_roles is ALREADY many-to-many, so a person
+    -- holding IT and admin at once needs no new table and no new join - the
+    -- storage was always capable of it. What was missing was any way to tell
+    -- the two kinds APART, and without that the admin screen's `disciplines[]`
+    -- and `is_admin` cannot be derived from the database at all; the split
+    -- would live in a Python constant in one script that every other caller
+    -- would have to import. A boolean on `users` would fix is_admin alone and
+    -- leave a second capability needing a second column.
+    --
+    -- Defaulting to 'discipline' keeps every row written by existing code -
+    -- all of which inserts (id, name, description, created_at) - meaningful
+    -- rather than NULL.
+    kind        TEXT NOT NULL DEFAULT 'discipline',
     created_at  TEXT NOT NULL
 );
 
@@ -434,6 +456,27 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_page_ocr_document ON page_ocr(document_id)"
     )
     # ------------------------------------------------------------- access
+    # `roles` predates the distinction between a discipline and a capability:
+    # every role in a database written before this column was, by construction,
+    # undifferentiated. 'discipline' is the right default for all of them -
+    # they were seeded to carry document grants - with exactly one exception,
+    # corrected by name below.
+    role_cols = {r["name"] for r in conn.execute("PRAGMA table_info(roles)")}
+    if role_cols and "kind" not in role_cols:
+        conn.execute(
+            "ALTER TABLE roles ADD COLUMN kind TEXT NOT NULL DEFAULT 'discipline'")
+    # Idempotent and by NAME, not by id: `admin` is a capability in every
+    # database, including one seeded by an earlier build that had no idea the
+    # two kinds differed. Re-asserted on every init for the same reason the
+    # exclusions rule rename above is - a database that is never re-seeded
+    # would otherwise keep the wrong answer forever.
+    conn.execute("UPDATE roles SET kind = 'capability' WHERE name = 'admin'")
+    # Created HERE and not in SCHEMA, for the reason the retrievable and
+    # parent indexes below are: executescript(SCHEMA) runs BEFORE _migrate, so
+    # an index over `kind` in SCHEMA fails outright on a database whose roles
+    # table predates the column. Measured, not reasoned about - it raised
+    # "no such column: kind" on a legacy database.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_roles_kind ON roles(kind, name)")
     # conversations predate ownership. NULL means "written before there were
     # users", and it must read as INACCESSIBLE rather than as unowned-and-
     # therefore-public. Deliberately no DEFAULT: there is no user to attribute
