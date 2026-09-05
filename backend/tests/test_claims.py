@@ -26,6 +26,7 @@ from app.claims import (
     label_cluster,
     normalise,
     normalise_strict,
+    split_sentences,
     to_api,
 )
 
@@ -313,3 +314,114 @@ def test_identifier_regex_does_not_swallow_a_measurement():
     # A real code keeps its number.
     (d,) = extract_claims([_evidence("e2", "Pumps shall comply with API 610.")])
     assert d.identifiers == ("API 610",) and d.measurements == ()
+
+
+# ------------------------------------------- designators are not measurements
+
+
+#: Verbatim from NORSOKM501Rev5.pdf p.13. Each carries a designator suffix AND
+#: a real measurement, so a fix that suppresses the first must not lose the
+#: second - which is what makes these better than a synthetic pair.
+NORSOK_P13 = (
+    "5A and 5B: Maximum 50 % reduction from original value, minimum 2,0 MPa "
+    "for cement based products and minimum 3,0 MPa for epoxy based products.",
+    "5A to be tested shall be 6 mm.",
+    "Adhesion testing of coating system no. 5A and 5B shall be performed on "
+    "material without reinforcement.",
+)
+
+
+def test_a_designator_suffix_is_not_a_measurement():
+    """"5A" is coating system 5A. It was read as 5 AMPERES.
+
+    A single letter glued to a digit with NO space is a designator suffix.
+    The engine invented `raw_value 5, raw_unit A, normalized 5 A` from a
+    sentence about a coating system, and an invented measurement is worse
+    than a missing one: it enters a claim cluster and gets compared against
+    real values.
+    """
+    for sentence in NORSOK_P13:
+        for m in extract_claims([_evidence("e1", sentence)])[0].measurements:
+            assert m.raw_unit.lower() != "a", (
+                f"{sentence[:40]!r} produced {m.raw_value} {m.raw_unit} - "
+                f"a designator suffix read as amperes"
+            )
+
+
+def test_the_real_measurements_in_those_sentences_survive():
+    """The half that makes the fix a fix rather than a mute button."""
+    (first,) = extract_claims([_evidence("e1", NORSOK_P13[0])])
+    values = {(m.raw_value, m.raw_unit) for m in first.measurements}
+    assert ("50", "%") in values
+    assert ("2,0", "MPa") in values and ("3,0", "MPa") in values
+
+    (second,) = extract_claims([_evidence("e2", NORSOK_P13[1])])
+    assert ("6", "mm") in {(m.raw_value, m.raw_unit) for m in second.measurements}
+
+
+def test_a_unit_glued_to_a_number_is_still_a_unit_when_it_is_not_one_letter():
+    """125μm and 280um are real. Only the SINGLE-letter suffix is suspect."""
+    (c,) = extract_claims([_evidence("e1", "Minimum coating thickness 125μm.")])
+    assert [(m.raw_value, m.raw_unit) for m in c.measurements] == [("125", "μm")]
+    (d,) = extract_claims([_evidence("e2", "A thickness of 280um applied.")])
+    assert [(m.raw_value, m.raw_unit) for m in d.measurements] == [("280", "um")]
+
+
+def test_a_spaced_single_letter_unit_is_still_a_unit():
+    """"5 A" with a space is amperes. The rule is about GLUING, not about the
+    letter - an electrical spec must keep its current ratings."""
+    (c,) = extract_claims([_evidence("e1", "Rated at 5 A continuous.")])
+    assert [(m.raw_value, m.raw_unit) for m in c.measurements] == [("5", "A")]
+
+
+@pytest.mark.parametrize("prefix", ["no.", "No.", "system", "class", "type",
+                                    "grade", "rev.", "Table"])
+def test_a_number_introduced_as_a_designator_is_not_a_measurement(prefix):
+    """"system 5 m" is not five metres. The word before the number says so.
+
+    A sentence with no measurement and no identifier produces no claim ROW at
+    all, which is why this asserts over the rows rather than unpacking one -
+    "no. 5" yields nothing, "system 5" yields a row carrying an identifier,
+    and both are correct.
+    """
+    # MPa, not m: an uppercase multi-letter unit with a space survives every
+    # OTHER guard, so this can only pass because of the designator rule. The
+    # first version used "5 m" and passed against a pattern that could never
+    # match anything - a shell heredoc had eaten every backslash-b into a backspace,
+    # and the lone-lowercase-unit guard was doing all the work.
+    rows = extract_claims([_evidence("e1", f"Applies to {prefix} 5 MPa rating.")])
+    measured = [(m.raw_value, m.raw_unit) for r in rows for m in r.measurements]
+    assert measured == [], f"{prefix!r} 5 was read as {measured}"
+
+
+def test_the_designator_rule_is_what_saves_that_case():
+    """Guard the guard: the same sentence without the designator word IS a
+    measurement, so the rule is doing the work and not a side effect."""
+    rows = extract_claims([_evidence("e1", "The strength shall be 5 MPa minimum.")])
+    measured = [(m.raw_value, m.raw_unit) for r in rows for m in r.measurements]
+    assert measured == [("5", "MPa")]
+
+
+def test_a_measurement_after_an_ordinary_word_is_untouched():
+    """The guard must not swallow every number with a word in front of it."""
+    (c,) = extract_claims([_evidence("e1", "The NDFT shall be 280 um minimum.")])
+    assert [(m.raw_value, m.raw_unit) for m in c.measurements] == [("280", "um")]
+
+
+def test_a_run_of_dots_does_not_crash_extraction():
+    """A table-of-contents leader is real corpus text.
+
+    A chunk beginning ". A" - a sentence split across a page break, which is
+    ordinary in extracted PDF text - leaves a piece that is exactly ".". It
+    survives `prev.strip()`, becomes empty after `rstrip(".")`, and
+    `rsplit()[-1]` then raised IndexError.
+
+    MEASURED: 46 of 7187 retrievable chunks crashed claim extraction, and with
+    it /api/analysis/gaps. Found by sweeping the real corpus - the first
+    version of this test used "..." and passed against the unfixed code,
+    proving nothing.
+    """
+    for text in (". A", ". A coating shall be applied.", ".", ". . ."):
+        split_sentences(text)  # must not raise
+    (c,) = extract_claims([_evidence("e1", ". A thickness of 280 um applies.")])
+    assert ("280", "um") in {(m.raw_value, m.raw_unit) for m in c.measurements}
