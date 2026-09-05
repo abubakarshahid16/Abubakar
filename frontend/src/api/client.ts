@@ -20,6 +20,10 @@ import type {
   DocumentRecord,
   AuthStatus,
   ExclusionsResponse,
+  AnalysisGapsResult,
+  AnalysisRecommendationResult,
+  AnalysisRequest,
+  AnalysisSummaryResult,
   LoginResult,
   MarketFindings,
   MarketQueryPreview,
@@ -149,6 +153,27 @@ export const hasArrayField =
     typeof b === "object" &&
     b !== null &&
     Array.isArray((b as Record<string, unknown>)[field]);
+
+export const analysis = {
+  summary: (body: AnalysisRequest) =>
+    request<AnalysisSummaryResult>("/analysis/summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  recommendations: (body: AnalysisRequest) =>
+    request<AnalysisRecommendationResult>("/analysis/recommendations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  gaps: (body: AnalysisRequest) =>
+    request<AnalysisGapsResult>("/analysis/gaps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+};
 
 export const market = {
   findings: () => request<MarketFindings>("/market/findings"),

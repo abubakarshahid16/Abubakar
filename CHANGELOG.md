@@ -51,6 +51,31 @@ text assertion against a rendered report must NFKC-normalise first.
 Timing on this machine: 2 pages in 8–24 ms; the stabilized double pass in about
 the same. Not a benchmark — one fixture, warm process.
 
+### Stages 3, 4 and 6 — the three engines wired to routes (2026-09-05)
+
+`POST /api/analysis/summary`, `/recommendations` and `/gaps`.
+`backend/app/analysis.py` is the only impure file: `synthesis.py` and
+`claims.py` stay pure — evidence in, result out, no SQLite, no HTTP, no
+Ollama — which is what let them be developed and tested without any of it.
+
+**`evidence_id` is not a chunk id.** It is sha256 over document, page span,
+section and the quoted text, so it survives a re-chunk. A citation that moves
+when the chunker is retuned is not a citation.
+
+**`gaps` makes no model call**, so an unreachable Ollama takes out the summary
+and the recommendation and leaves the mechanical comparison working. The
+frontend calls the three separately for the same reason; one combined endpoint
+would have made a down model look like a broken comparison.
+
+**The system never chooses a baseline.** With none named, applicability is
+`not_applicable` and no facet may come back `met`. Picking the oldest document,
+or the one with "standard" in its name, would be an engineering judgement it
+has no basis for. A baseline the caller may not read is 404.
+
+Four deliberate breaks, all red: an unscoped search, a system-chosen baseline,
+a flag instead of a drop for an unsupported number, and a model call inside
+`gaps`.
+
 ### Stage 5 — public market information, as a labelled fixture (2026-09-05)
 
 `GET /api/market/findings` and `POST /api/market/preview-query`. No provider,
