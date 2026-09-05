@@ -109,11 +109,34 @@ class WorkerStatus(BaseModel):
     )
 
 
+class HealthWorker(BaseModel):
+    """The only worker facts an unauthenticated caller may have.
+
+    Deliberately NOT WorkerStatus. Adding a field to WorkerStatus must never
+    silently widen what /api/health exposes, and a separate model is what makes
+    that impossible rather than merely discouraged.
+    """
+
+    alive: bool
+    stalled: bool = Field(
+        description="up but not making progress - distinct from down"
+    )
+    busy: bool = Field(
+        description="a document is being processed. WHETHER, never WHICH: the "
+        "badge needs this so a healthy long ingest does not read as a fault, "
+        "and a boolean says work is under way where an id would say whose."
+    )
+
+
 class Health(BaseModel):
     ok: bool
     embed_model_present: bool
-    answer_model: str
-    ingestion: WorkerStatus
+    answer_model_present: bool = Field(
+        description="whether an answer model is configured, NOT which one. The "
+        "exact name and version is fingerprinting material and lives on the "
+        "scoped /api/metrics."
+    )
+    ingestion: HealthWorker
 
 
 class Chunk(BaseModel):

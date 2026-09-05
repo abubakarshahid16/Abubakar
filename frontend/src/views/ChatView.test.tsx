@@ -17,18 +17,13 @@ import type { AnswerPassage, AskResult, Conversation, Message } from "../types/a
 const health: Health = {
   ok: true,
   embed_model_present: true,
-  answer_model: "qwen3.5:4b",
+  answer_model_present: true,
   ingestion: {
+    // /api/health is unauthenticated and carries only
+    // these three. The full worker status is on /api/metrics.
     alive: true,
-    current_document: null,
-    seconds_since_heartbeat: 0.5,
-    seconds_since_progress: 20,
-    documents_completed: 4,
-    pending_count: 0,
-    oldest_pending_age_seconds: null,
     stalled: false,
-    stalled_reasons: [],
-    last_error: null,
+    busy: false,
   },
 };
 

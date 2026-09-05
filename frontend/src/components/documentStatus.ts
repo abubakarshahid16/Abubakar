@@ -34,6 +34,18 @@ export function presentStatus(doc: DocumentRecord): StatusPresentation {
     case "partially_searchable":
       return { label: "partially searchable", tone: "progress", answerable: true };
     case "ready":
+      // ONE status, and never "ready" beside "2 awaiting OCR". The README makes
+      // this an invariant: a partially-processed document must never read as
+      // ready. The backend can reach status='ready' with scanned pages still
+      // unread - recognition runs after the keyword index - so the screen
+      // resolves the contradiction rather than displaying both halves of it.
+      if (doc.needs_ocr_pages > doc.recognised_pages) {
+        return {
+          label: "reading scanned pages",
+          tone: "progress",
+          answerable: true,
+        };
+      }
       return { label: "ready", tone: "success", answerable: true };
     case "no_searchable_content":
       // Finished, but nothing can be searched. Calling this a success would
@@ -50,7 +62,7 @@ const nf = new Intl.NumberFormat("en-GB");
 
 /**
  * The progress line, e.g.
- *   "1,204 pages · 2,831 sections · keyword search ready · 340/2831 embedded"
+ *   "1,204 pages · 2,831 passages · keyword search ready · 340/2831 embedded"
  */
 export function progressLine(doc: DocumentRecord): string {
   const parts: string[] = [];
@@ -61,7 +73,10 @@ export function progressLine(doc: DocumentRecord): string {
   }
 
   if (doc.chunk_count_total > 0) {
-    parts.push(`${nf.format(doc.chunk_count)} sections`);
+    // "passages", the word the Dashboard defines. This line said
+    // "sections" while the same object was "chunks" on a button and
+    // "passages" on the Dashboard - three names, one thing.
+    parts.push(`${nf.format(doc.chunk_count)} passages`);
   }
 
   if (doc.status === "no_searchable_content") {

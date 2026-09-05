@@ -88,7 +88,11 @@ export function ConnectionBadge({ connection }: { connection: Connection }) {
   const worker = connection.health.ingestion;
   // Only when nothing is being worked on. A document mid-embed is work, not a
   // fault, and this badge claimed otherwise on a healthy 1,400-page ingest.
-  if (worker.stalled && worker.current_document == null) {
+  //
+  // `busy` is a BOOLEAN from health, where current_document used to be a
+  // document id. Health is unauthenticated, so it may say that work is
+  // happening and must never say which document it is.
+  if (worker.stalled && !worker.busy) {
     return (
       <span
         className="flex items-center gap-2 text-xs font-medium text-danger-500"
@@ -191,9 +195,16 @@ export function Shell({
 
         <div className="border-t border-ink-700 px-5 py-4">
           <ConnectionBadge connection={connection} />
+          {/* The answer model's exact name and version used to sit here,
+              read from /api/health - which is unauthenticated, so it was
+              fingerprinting material available with no login. Health now says
+              only WHETHER a model is configured. The name is on the Dashboard,
+              which reads the scoped /api/metrics. */}
           {connection.state === "online" && (
             <p className="mt-2 font-mono text-[11px] text-slateish-400">
-              {connection.health.answer_model}
+              {connection.health.answer_model_present
+                ? "answer model configured"
+                : "no answer model configured"}
             </p>
           )}
         </div>

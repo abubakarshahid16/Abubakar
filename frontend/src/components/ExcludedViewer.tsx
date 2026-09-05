@@ -117,10 +117,14 @@ export function ExcludedViewer({
                       ].join(" ")}
                     >
                       <span className="min-w-0">
-                        <span className="block font-mono text-xs text-slateish-200">
-                          {s.rule}
-                        </span>
-                        <span className="block text-xs text-slateish-400">
+                        {/* The SENTENCE leads. The row used to be headed by
+                            the database enum - content_quality_gate,
+                            page_classified_toc - with the explanation
+                            underneath, so a reader met the identifier first
+                            and the meaning second. The identifier stays,
+                            small and last, because it is what you quote in a
+                            bug report. */}
+                        <span className="block text-xs text-slateish-200">
                           {RULE_EXPLANATION[s.rule] ?? `Excluded ${s.scope}s.`}
                         </span>
                         {(s.clause_heading_pages ?? 0) > 0 && (
@@ -136,6 +140,9 @@ export function ExcludedViewer({
                         </span>
                         <span className="block text-[11px] text-slateish-400">
                           {nf.format(s.characters_dropped)} chars
+                        </span>
+                        <span className="mt-0.5 block font-mono text-[10px] text-slateish-500">
+                          {s.rule}
                         </span>
                       </span>
                     </button>

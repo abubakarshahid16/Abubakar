@@ -247,6 +247,9 @@ export function IngestionView({
   }, [connection.state, load]);
 
   const worker = connection.state === "online" ? connection.health.ingestion : null;
+  // The document being processed comes from the SCOPED metrics, never from
+  // health: health is unauthenticated and a document id is not public.
+  const activeWorker = metrics?.worker ?? null;
 
   if (error) return <ErrorState error={error} onRetry={onRetryConnection} />;
   // Array.isArray, not a truthiness check. A malformed payload used to crash
@@ -262,8 +265,9 @@ export function IngestionView({
   const finished = documents.filter((d) => d.status === "ready");
   const trouble = documents.filter((d) => OFF_TRACK.includes(d.status));
   const currentName =
-    documents.find((d) => d.id === worker.current_document)?.filename ??
-    worker.current_document;
+    documents.find((d) => d.id === activeWorker?.current_document)?.filename ??
+    activeWorker?.current_document ??
+    null;
 
   return (
     <div>
@@ -284,7 +288,7 @@ export function IngestionView({
           <Tile
             label="Worker"
             value={
-              worker.current_document != null
+              activeWorker?.current_document != null
                 ? "working"
                 : worker.stalled
                   ? "not moving"
@@ -293,7 +297,7 @@ export function IngestionView({
                     : "stopped"
             }
             tone={
-              worker.stalled && worker.current_document == null
+              worker.stalled && activeWorker?.current_document == null
                 ? "danger"
                 : worker.alive
                   ? "good"
@@ -301,15 +305,15 @@ export function IngestionView({
             }
             hint={currentName ?? "nothing in progress"}
           />
-          <Tile label="Waiting" value={worker.pending_count} hint="documents in the queue" />
+          <Tile label="Waiting" value={activeWorker?.pending_count} hint="documents in the queue" />
           <Tile
             label="Oldest wait"
-            value={formatAge(worker.oldest_pending_age_seconds)}
+            value={formatAge((activeWorker?.oldest_pending_age_seconds ?? null))}
             hint="how long the front of the queue has waited"
           />
           <Tile
             label="Finished"
-            value={worker.documents_completed}
+            value={activeWorker?.documents_completed}
             hint="since the worker started"
           />
         </div>

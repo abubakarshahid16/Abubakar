@@ -19,14 +19,34 @@ import type {
   ExclusionsResponse,
   Metrics,
   PagesResponse,
-  WorkerStatus,
 } from "../types/api";
+
+/** The unauthenticated route, and the only one. It answers "is the service up"
+ *  and "are the models present" and nothing else.
+ *
+ *  It used to return document counts, the exact answer-model name and version,
+ *  free-text last_error and stalled_reasons, and current_document - a real
+ *  document id that the UI joined against the document list to display a
+ *  filename. An unauthenticated caller could learn that a specific document
+ *  existed and was being processed.
+ *
+ *  The full worker status lives on /api/metrics, which is scoped. `alive` and
+ *  `stalled` remain here because a client has to distinguish "backend down"
+ *  from "backend up but stuck", and neither fact is about anybody's
+ *  documents. */
+export interface HealthWorker {
+  alive: boolean;
+  stalled: boolean;
+  /** work is under way. WHETHER, never WHICH - see the note above. */
+  busy: boolean;
+}
 
 export interface Health {
   ok: boolean;
   embed_model_present: boolean;
-  answer_model: string;
-  ingestion: WorkerStatus;
+  /** whether an answer model is configured, NOT which one */
+  answer_model_present: boolean;
+  ingestion: HealthWorker;
 }
 
 export type Result<T> =

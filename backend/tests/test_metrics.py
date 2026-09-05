@@ -176,7 +176,11 @@ def test_the_model_status_is_read_from_the_modules_not_reimplemented():
     from app import reranker
 
     status = metrics.models()
-    assert status["reranker_model"] == reranker.model_dir().name
+    # The dashboard read "RERANKER - reranker": the FOLDER reported as the
+    # model, a field showing its own label as its value. The name now comes
+    # from the model's own config, so this asserts it is NOT the directory.
+    assert status["reranker_model"] != reranker.model_dir().name
+    assert "/" in status["reranker_model"], status["reranker_model"]
     assert status["reranker_present"] == reranker.available()
 
 
@@ -254,7 +258,11 @@ def test_undetected_ocr_is_stated_rather_than_implied():
     body = client.get("/api/metrics").json()
     warning = next((w for w in body["warnings"] if w["code"] == "needs_ocr"), None)
     assert warning is not None
-    assert "NOT implemented" in warning["message"]
+    # The alert claimed OCR was "detected but NOT implemented, so those pages
+    # are not searchable" for as long as OCR had shipped, while the Documents
+    # screen said "89 of 89 pages read by OCR" on the same build.
+    assert "NOT implemented" not in warning["message"]
+    assert "not been read yet" in warning["message"]
 
 
 #: Warnings about the MACHINE rather than the corpus. Real, and correct to

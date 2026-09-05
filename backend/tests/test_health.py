@@ -46,8 +46,17 @@ def test_health_works_on_a_completely_empty_install():
     client = TestClient(app)
     body = client.get("/api/health").json()
     assert body["ok"] is True
-    assert body["ingestion"]["pending_count"] == 0
-    assert body["ingestion"]["documents_completed"] == 0
+    # /api/health carries three booleans and nothing else. pending_count was
+    # a document COUNT on an unauthenticated route; it is on the scoped
+    # /api/metrics now. Asserted as an ABSENCE so the field cannot come back.
+    assert set(body["ingestion"]) == {"alive", "stalled", "busy"}
+    assert "answer_model" not in body, (
+        "the exact model name and version is fingerprinting material and "
+        "must not be readable without a login")
+    assert body["answer_model_present"] is True
+    # documents_completed is a document COUNT and has moved to the scoped
+    # /api/metrics with everything else that was about somebody's corpus.
+    assert "documents_completed" not in body["ingestion"]
 
 
 def test_embedding_model_is_staged():

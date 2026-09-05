@@ -13,11 +13,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
 import type { Health } from "../api/client";
-import type { DocumentRecord, Metrics } from "../types/api";
+import type { DocumentRecord, Metrics, WorkerStatus } from "../types/api";
 
 const WORKING_ID = "doc_b4f589095afe";
 
-const idleWorker: Health["ingestion"] = {
+// Health carries three booleans; the detail below is the METRICS worker.
+
+const idleFullWorker: WorkerStatus = {
   alive: true,
   current_document: null,
   seconds_since_heartbeat: 0.4,
@@ -30,12 +32,18 @@ const idleWorker: Health["ingestion"] = {
   last_error: null,
 };
 
-function makeHealth(over: Partial<Health["ingestion"]> = {}): Health {
+function makeHealth(_over: Partial<Health["ingestion"]> = {}): Health {
   return {
     ok: true,
     embed_model_present: true,
-    answer_model: "qwen3.5:4b",
-    ingestion: { ...idleWorker, ...over },
+    answer_model_present: true,
+    ingestion: {
+    // /api/health is unauthenticated and carries only
+    // these three. The full worker status is on /api/metrics.
+    alive: true,
+    stalled: false,
+    busy: false,
+  },
   };
 }
 
@@ -127,7 +135,7 @@ function makeMetrics(over: Partial<Metrics> = {}): Metrics {
       answer_model_loaded: false,
       ollama_error: null,
     },
-    worker: idleWorker,
+    worker: { ...idleFullWorker, current_document: WORKING_ID },
     warnings: [],
     ...over,
   };
@@ -136,7 +144,8 @@ function makeMetrics(over: Partial<Metrics> = {}): Metrics {
 function mockApi({
   metrics = makeMetrics(),
   documents = [makeDoc()],
-  health = makeHealth({ current_document: WORKING_ID }),
+  // Health says only THAT work is happening; the metrics worker says which.
+  health = makeHealth({ busy: true }),
 }: {
   metrics?: Metrics;
   documents?: DocumentRecord[];
@@ -254,7 +263,7 @@ describe("an idle screen teaches", () => {
   it("explains what it will show when nothing is being processed", async () => {
     mockApi({
       documents: [makeDoc({ status: "ready", embedded_count: 2113, indexed_at: "2026-09-04T12:00:00Z" })],
-      health: makeHealth({ current_document: null }),
+      health: makeHealth({ busy: true }),
     });
     await openIngestion();
 

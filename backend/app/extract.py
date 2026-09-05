@@ -24,7 +24,9 @@ from .db import connect
 from .rates import Timer, rate
 
 # A page with less usable text than this is assumed to be scanned or
-# image-dominant. Detection only - OCR is deliberately not implemented.
+# image-dominant. Detection only AT THIS STAGE: the flag is what ocr.py
+# later consumes via idx_pages_ocr. It used to say OCR was deliberately
+# not implemented, which stopped being true when recognition shipped.
 MIN_USABLE_CHARS = 100
 # A page this dense in mathematical symbols extracts as prose ABOUT maths with
 # the maths missing. Flagged rather than silently degraded.

@@ -87,12 +87,38 @@ async def security_headers(request: Request, call_next):
 
 @app.get("/api/health", response_model=schemas.Health)
 def health():
-    """Readiness without loading any model."""
+    """Readiness, and NOTHING ELSE. This is the one unauthenticated route.
+
+    It answers two questions: is the service up, and are the models present.
+    Everything it used to carry belonged to somebody - it returned document
+    counts, the exact answer-model name and version, free-text last_error and
+    stalled_reasons, and current_document, which is a real document id. The UI
+    joins that id against the document list to show a filename, so an
+    unauthenticated caller learned that a specific document existed and was
+    being processed. That is a privacy-boundary problem, not a cosmetic one.
+
+    The full worker status still exists, on /api/metrics, which is scoped.
+    `alive` and `stalled` stay here because a client that cannot reach the
+    backend has to distinguish "down" from "up but stuck", and neither is
+    about anybody's documents.
+    """
+    worker = ingest_mod.get_worker().status()
     return {
         "ok": True,
         "embed_model_present": (settings.embed_model_dir / "tokenizer.json").exists(),
-        "answer_model": settings.answer_model,
-        "ingestion": ingest_mod.get_worker().status(),
+        # Whether an answer model is CONFIGURED, not which one. The exact name
+        # and version is fingerprinting material and is on /api/metrics.
+        "answer_model_present": bool(settings.answer_model),
+        "ingestion": {
+            "alive": worker["alive"],
+            "stalled": worker["stalled"],
+            # WHETHER work is happening, never WHICH document. The badge
+            # needs this to avoid alarming during a healthy long ingest -
+            # `stalled` goes true when nothing has COMPLETED for a while,
+            # which is normal mid-embed on a 1,400-page document. A boolean
+            # says work is under way; an id would say whose.
+            "busy": worker["current_document"] is not None,
+        },
     }
 
 

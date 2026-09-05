@@ -179,10 +179,13 @@ function Warning({ warning }: { warning: MetricWarning }) {
       className={`rounded border px-3 py-2 text-sm ${style}`}
       role={warning.severity === "error" ? "alert" : "status"}
     >
-      <span className="mr-2 font-mono text-[11px] uppercase tracking-wide opacity-80">
+      {/* The message leads. This row used to open with the raw code -
+          NEEDS_OCR, EQUATION_PAGES - which is a database enum, not a sentence.
+          The code stays at the end for a bug report. */}
+      <span className="text-slateish-300">{warning.message}</span>
+      <span className="ml-2 font-mono text-[10px] uppercase tracking-wide opacity-50">
         {warning.code}
       </span>
-      <span className="text-slateish-300">{warning.message}</span>
     </li>
   );
 }
@@ -520,7 +523,12 @@ export function DashboardView({
             label="Last heartbeat"
             value={`${worker.seconds_since_heartbeat.toFixed(1)} s ago`}
           />
-          <Stat label="Documents completed" value={worker.documents_completed} />
+          {/* Since the WORKER STARTED, not out of the corpus. This tile sat
+              on the same page as "DOCUMENTS 8" and read as 4 of 8. */}
+          <Stat
+            label="Documents completed since the worker started"
+            value={worker.documents_completed}
+          />
           <Stat
             label="Current document"
             value={worker.current_document ?? "nothing in progress"}
