@@ -281,7 +281,13 @@ def split_sentences(text: str) -> list[str]:
     for piece in pieces:
         if out:
             prev = out[-1]
-            tail = prev.rstrip().rstrip(".").rsplit(None, 1)[-1].lower() if prev.strip() else ""
+            # `.rsplit()[-1]` on a piece that is nothing BUT dots raises:
+            # "..." survives `prev.strip()`, becomes "" after `rstrip(".")`,
+            # and rsplit then returns an empty list. Real corpus text contains
+            # runs of dots - a table of contents leader, a dotted rule - so
+            # this crashed extraction on documents that are otherwise fine.
+            words = prev.rstrip().rstrip(".").rsplit(None, 1)
+            tail = words[-1].lower() if words else ""
             if prev.rstrip().endswith(".") and tail in _ABBREVIATIONS:
                 # rejoin with the original single whitespace run collapsed to one space
                 out[-1] = prev + " " + piece
@@ -299,6 +305,17 @@ _DECIMAL = re.compile(r"\d+\.\d+")
 #: a space, digits. When those digits carry a recognised unit ("MDFT 280 um")
 #: the number is a measurement and the letters are the subject, not a code.
 _WORD_SPACE_NUMBER = re.compile(r"[A-Z]{2,}\s\d+(?:[.,]\d+)?")
+
+
+#: Words that introduce a NAME rather than a quantity. "system no. 5" is
+#: coating system five, not five of anything, and the word in front of the
+#: number is what says so. Anchored to the end so only the immediately
+#: preceding word counts - "the NDFT for system 1 shall be 280 um" still
+#: yields 280 um.
+_DESIGNATOR_LEAD = re.compile(
+    r"(?:\bno\.?|\bsystem|\bclass|\btype|\bgrade|\brev\.?|\btable)\s*$",
+    re.IGNORECASE,
+)
 
 
 def _is_measurement_not_code(sentence: str, inside: list[tuple[int, int]], start: int, end: int, value: str) -> bool:
@@ -340,6 +357,19 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
             continue
         # A lone lowercase letter after a number ("3 a coat") is a word, not a unit.
         if len(unit) == 1 and unit.isalpha() and not unit.isupper():
+            continue
+        # A SINGLE letter glued to the digits with no space is a designator
+        # suffix, not a unit: "coating system no. 5A and 5B" was read as five
+        # AMPERES, and an invented measurement is worse than a missing one -
+        # it enters a cluster and gets compared against real values.
+        #
+        # The rule is about the GLUING, not the letter. "5 A" with a space is
+        # still amperes, so an electrical spec keeps its current ratings; and
+        # the unit must be one character, so "125um" and "280um" are untouched.
+        if not sentence[m.end("value"):m.start("unit")] and len(unit) == 1                 and unit.isalpha():
+            continue
+        # A number introduced as a designator is a name, not a quantity.
+        if _DESIGNATOR_LEAD.search(sentence[:start]):
             continue
         prefix = sentence[:start].rstrip()
         cmp_match = re.search(r"(?:" + _COMPARATOR_RE + r")\s*$", prefix, re.IGNORECASE)
