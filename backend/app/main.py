@@ -308,6 +308,10 @@ def search(
         document_id=document_id,
         rerank=rerank,
         dense=(mode == "hybrid"),
+        # No authentication yet, so this route is explicitly corpus-wide. When
+        # auth lands, THIS LINE is the one that becomes the caller's scope -
+        # which is the point of making it visible now rather than defaulting it.
+        allowed_document_ids=search_mod.every_document_id(),
     )
 
 
@@ -337,7 +341,10 @@ def get_answer(
             content=errors.safe_error(
                 errors.INVALID_PARAMETER, "tier must be extract or generated"),
         )
-    return answer_mod.answer(q, tier=tier, document_id=document_id, limit=limit)
+    return answer_mod.answer(
+        q, tier=tier, document_id=document_id, limit=limit,
+        allowed_document_ids=search_mod.every_document_id(),   # see above
+    )
 
 
 # ---------------------------------------------------------- conversations
@@ -434,6 +441,7 @@ def ask(conversation_id: str, body: schemas.AskRequest):
             document_id=body.document_id,
             limit=body.limit,
             explain_of=body.explain_of,
+            allowed_document_ids=search_mod.every_document_id(),   # see above
         )
     except chat_mod.MessageNotFound:
         raise HTTPException(

@@ -151,7 +151,7 @@ def test_the_clause_page_is_indexed_and_answers_from_its_own_clause():
     }
     assert any(s.startswith("8.2") for s in sections), sections
 
-    result = answer_mod.answer("maximum operating temperature for zinc metal coating")
+    result = answer_mod.answer("maximum operating temperature for zinc metal coating", allowed_document_ids=_scope())
     assert result["answer_type"] == "extract"
     assert result["passage"]["section"].startswith("8.2")
     assert "120 C" in result["passage"]["text"]
@@ -255,7 +255,7 @@ def test_a_named_subject_absent_from_the_corpus_is_refused_without_scoring():
     judgement needed."""
     client = TestClient(app)
     upload(client, [CLAUSE_PAGE, AMBIENT, INSPECTION])
-    result = answer_mod.answer("what cladding thickness is required for Inconel 625")
+    result = answer_mod.answer("what cladding thickness is required for Inconel 625", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert "Inconel" in result["reason"]
     assert "does not appear anywhere" in result["reason"]
@@ -264,7 +264,7 @@ def test_a_named_subject_absent_from_the_corpus_is_refused_without_scoring():
 def test_the_refusal_names_the_term_rather_than_only_lacking_confidence():
     client = TestClient(app)
     upload(client, [CLAUSE_PAGE])
-    result = answer_mod.answer("what torque is specified for an ASME B16.5 flange")
+    result = answer_mod.answer("what torque is specified for an ASME B16.5 flange", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert result["lexical"]["absent_from_corpus"]
 
@@ -276,7 +276,8 @@ def test_a_lexically_plausible_passage_is_no_longer_refused_by_the_old_threshold
     upload(client, [CLAUSE_PAGE, AMBIENT, INSPECTION])
     result = answer_mod.answer(
         "what is the check frequency and the relative humidity limit during application"
-    )
+    ,
+        allowed_document_ids=_scope())
     assert result["answer_type"] == "extract"
 
 
@@ -294,7 +295,7 @@ def test_a_passage_sharing_only_common_words_is_not_an_answer():
 def test_the_lexical_verdict_is_reported_so_a_refusal_can_be_audited():
     client = TestClient(app)
     upload(client, [CLAUSE_PAGE])
-    result = answer_mod.answer("what cladding thickness is required for Inconel 625")
+    result = answer_mod.answer("what cladding thickness is required for Inconel 625", allowed_document_ids=_scope())
     assert set(result["lexical"]) == {
         "coverage", "terms", "covered", "absent_from_corpus"
     }
@@ -314,7 +315,8 @@ def test_a_compound_question_can_carry_two_passages_from_different_clauses():
     upload(client, [CLAUSE_PAGE, AMBIENT, INSPECTION])
     result = answer_mod.answer(
         "what is the check frequency and the relative humidity limit during application"
-    )
+    ,
+        allowed_document_ids=_scope())
     assert result["answer_type"] == "extract"
     passages = result["answer_passages"]
     assert len(passages) == 2
@@ -328,7 +330,7 @@ def test_a_single_subject_question_carries_one_passage():
     difference is in the QUESTION, not in the candidates."""
     client = TestClient(app)
     upload(client, [CLAUSE_PAGE, AMBIENT, INSPECTION])
-    result = answer_mod.answer("maximum operating temperature for zinc metal coating")
+    result = answer_mod.answer("maximum operating temperature for zinc metal coating", allowed_document_ids=_scope())
     assert len(result["answer_passages"]) == 1
 
 
@@ -345,7 +347,8 @@ def test_a_second_passage_never_replaces_the_first():
     upload(client, [CLAUSE_PAGE, AMBIENT, INSPECTION])
     result = answer_mod.answer(
         "what is the check frequency and the relative humidity limit during application"
-    )
+    ,
+        allowed_document_ids=_scope())
     assert result["answer"] == result["passage"]["text"]
     assert result["answer_passages"][0]["chunk_id"] == result["passage"]["chunk_id"]
 
@@ -355,7 +358,8 @@ def test_a_passage_used_as_an_answer_is_not_repeated_as_supporting():
     upload(client, [CLAUSE_PAGE, AMBIENT, INSPECTION])
     result = answer_mod.answer(
         "what is the check frequency and the relative humidity limit during application"
-    )
+    ,
+        allowed_document_ids=_scope())
     used = {p["chunk_id"] for p in result["answer_passages"]}
     assert not used & {p["chunk_id"] for p in result["supporting"]}
 
@@ -372,7 +376,7 @@ def test_an_acronym_absent_from_the_document_is_refused_a_known_limitation():
     """
     client = TestClient(app)
     upload(client, [AMBIENT, INSPECTION])   # neither page contains "NDFT"
-    result = answer_mod.answer("what is the NDFT for this coating")
+    result = answer_mod.answer("what is the NDFT for this coating", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert "NDFT" in result["lexical"]["absent_from_corpus"]
 
@@ -492,7 +496,7 @@ def test_the_zinc_temperature_answer_is_the_same_clause_whatever_the_phrasing(qu
     client = TestClient(app)
     upload(client, [ZINC_TEMPERATURE, OTHER_TEMPERATURE_CLAUSE])
 
-    result = answer_mod.answer(question)
+    result = answer_mod.answer(question, allowed_document_ids=_scope())
     assert result["answer_type"] == "extract", question
     passage = result["answer_passages"][0]
     assert passage["section"].startswith("8.2"), (
@@ -523,6 +527,20 @@ def test_hiding_clause_8_is_what_produced_the_wrong_answer():
 
     result = answer_mod.answer(
         "What is the maximum operating temperature when zinc or alloys of zinc metal coating is used?"
-    )
+    ,
+        allowed_document_ids=_scope())
     if result["answer_type"] == "extract":
         assert not result["answer_passages"][0]["section"].startswith("8.2")
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    Retrieval now REQUIRES an access scope with no default, so a test has to
+    name the documents it is allowed to see. These tests want all of them, and
+    saying so out loud is the point: when authentication arrives, every one of
+    these is a line somebody changes on purpose rather than a default that
+    quietly kept meaning "everything".
+    """
+    from app.search import every_document_id
+    return every_document_id()

@@ -319,8 +319,15 @@ def answer(
     tier: str = "extract",
     document_id: str | None = None,
     limit: int = 3,
+    *,
+    allowed_document_ids: frozenset[str],
 ) -> dict:
-    """Answer a question. `tier` is "extract" (default) or "generated"."""
+    """Answer a question. `tier` is "extract" (default) or "generated".
+
+    `allowed_document_ids` is REQUIRED and keyword-only. It is threaded down to
+    both retrieval stages unchanged. No default: see search.every_document_id
+    for why a call site with no scope has to say so out loud.
+    """
     timer = Timer()
 
     # Classified BEFORE retrieval. A greeting is not a failed question, and
@@ -345,7 +352,8 @@ def answer(
         }
 
     results = search_mod.search(
-        question, limit=max(limit, 3), document_id=document_id
+        question, limit=max(limit, 3), document_id=document_id,
+        allowed_document_ids=allowed_document_ids,
     )
     hits = results["hits"]
     # Recorded from real questions actually asked, so the dashboard's latency

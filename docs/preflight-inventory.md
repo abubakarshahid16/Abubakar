@@ -227,3 +227,28 @@ The known consequence is recorded in `docs/limitations.md`: on a controls
 catalogue whose atomic unit is a table row rather than a paragraph, citations
 name the chapter containing a control rather than the control itself. Measured
 on NIST SP 800-53r5. Not fixed, deliberately.
+
+---
+
+## 9. Departure recorded: `search()` keeps its dict
+
+Resolved 2026-09-05, before any authentication code.
+
+`search()` now takes `allowed_document_ids` as a **required keyword-only
+parameter with no default**, and filters at both the FTS5 and dense candidate
+stages *before* selection. The plan asked for this and it was right to.
+
+**The return type stays a `dict`, against the plan's `list[SearchResult]`.**
+That dict carries `hits`, `mode`, `timings`, `keyword_candidates`,
+`dense_candidates` and `heading_precedence` — the explainability payload that
+the dashboard, `eval/run_eval.py` and `eval/reachability.py` all read. Changing
+it would break four consumers to satisfy a type signature, and the plan's own
+precedence rule settles it: *the repository and its passing tests are
+authoritative.*
+
+The parameter names also stay as they are: `question`, not `query`.
+
+Every call site that has no scope of its own now passes
+`search.every_document_id()` explicitly. That is deliberate friction — when
+authentication arrives, each of those is a line somebody changes on purpose,
+rather than a default that quietly went on meaning "everything".

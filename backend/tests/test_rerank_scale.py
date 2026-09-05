@@ -149,7 +149,7 @@ def test_an_authoritative_heading_beats_a_passing_mention():
     client = TestClient(app)
     upload(client, [ANNEX_A1, CLAUSE_45, *FILLER])
 
-    result = answer_mod.answer("system 1 coats and thickness")
+    result = answer_mod.answer("system 1 coats and thickness", allowed_document_ids=_scope())
     assert result["answer_type"] == "extract"
     section = result["answer_passages"][0]["section"]
     assert section.startswith("A.1"), f"answered from {section!r}, not annex A.1"
@@ -384,3 +384,16 @@ def test_separation_is_dimensionless_and_normalised_per_query():
     assert isinstance(tight, scores.RelativeScore)
     # the same raw 1.0-point gap means different things in different fields
     assert tight.value < loose.value
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    Retrieval now REQUIRES an access scope with no default, so a test has to
+    name the documents it is allowed to see. These tests want all of them, and
+    saying so out loud is the point: when authentication arrives, every one of
+    these is a line somebody changes on purpose rather than a default that
+    quietly kept meaning "everything".
+    """
+    from app.search import every_document_id
+    return every_document_id()

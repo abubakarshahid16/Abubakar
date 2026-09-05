@@ -160,7 +160,7 @@ def test_guidance_never_reaches_retrieval_at_all(monkeypatch):
     monkeypatch.setattr(
         answer_mod.search_mod, "search", lambda *a, **k: called.append(1) or {}
     )
-    result = answer_mod.answer("hi")
+    result = answer_mod.answer("hi", allowed_document_ids=_scope())
     assert result["answer_type"] == "guidance"
     assert called == []
 
@@ -190,14 +190,14 @@ def test_the_examples_are_answerable():
     for question in examples:
         from app import answer as answer_mod
 
-        assert answer_mod.answer(question)["answer_type"] == "extract"
+        assert answer_mod.answer(question, allowed_document_ids=_scope())["answer_type"] == "extract"
 
 
 def test_an_empty_corpus_offers_no_examples_rather_than_inventing_them():
     assert intent.example_questions() == []
     from app import answer as answer_mod
 
-    result = answer_mod.answer("hi")
+    result = answer_mod.answer("hi", allowed_document_ids=_scope())
     assert result["answer_type"] == "guidance"
     assert result["examples"] == []
     assert result["answer"]
@@ -278,7 +278,7 @@ def test_a_definitional_question_cites_the_section_that_defines_the_term():
     from app import answer as answer_mod
 
     for question in ["what is ndft", "what does NDFT mean", "define NDFT"]:
-        result = answer_mod.answer(question)
+        result = answer_mod.answer(question, allowed_document_ids=_scope())
         assert result["answer_type"] == "extract", question
         assert result["passage"]["section"] == "3.2 Abbreviations", question
 
@@ -288,7 +288,7 @@ def test_the_value_question_still_cites_the_clause_not_the_glossary():
     upload(client)
     from app import answer as answer_mod
 
-    result = answer_mod.answer("what is the NDFT for coating system no. 1")
+    result = answer_mod.answer("what is the NDFT for coating system no. 1", allowed_document_ids=_scope())
     assert result["passage"]["section"].startswith("A.1")
 
 
@@ -299,7 +299,7 @@ def test_promotion_cannot_rescue_a_term_the_glossary_does_not_define():
     upload(client)
     from app import answer as answer_mod
 
-    result = answer_mod.answer("what is XYZQ")
+    result = answer_mod.answer("what is XYZQ", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
 
 
@@ -368,3 +368,16 @@ def test_the_definitional_answer_survives_a_conversation():
     ).json()
     assert body["carried_terms"] == []
     assert body["passage"]["section"] == "3.2 Abbreviations"
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    Retrieval now REQUIRES an access scope with no default, so a test has to
+    name the documents it is allowed to see. These tests want all of them, and
+    saying so out loud is the point: when authentication arrives, every one of
+    these is a line somebody changes on purpose rather than a default that
+    quietly kept meaning "everything".
+    """
+    from app.search import every_document_id
+    return every_document_id()
