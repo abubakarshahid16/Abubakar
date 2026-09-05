@@ -88,6 +88,7 @@ import type {
   DocumentedFinding,
   GapAnalysis,
   GapItem,
+  PublicMarketQuery,
   Recommendation,
 } from "../types/analysis";
 
@@ -462,11 +463,85 @@ interface MarketSlotData {
   findings: MarketFinding[];
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  eyebrow,
+  children,
+}: {
+  title: string;
+  eyebrow?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section aria-label={title} className="space-y-2">
-      <h2 className="text-xs uppercase tracking-wide text-slateish-500">{title}</h2>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slateish-100">{title}</h2>
+        {eyebrow && (
+          <span className="text-[11px] uppercase tracking-wide text-slateish-500">
+            {eyebrow}
+          </span>
+        )}
+      </div>
       {children}
+    </section>
+  );
+}
+
+function RunChip({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return (
+    <span
+      className={[
+        "inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs",
+        active
+          ? "border-signal-500/50 bg-signal-500/10 text-signal-300"
+          : "border-ink-600 bg-ink-850 text-slateish-500",
+      ].join(" ")}
+    >
+      {children}
+      <span className="font-mono text-[10px] uppercase tracking-wide">
+        {active ? "On" : "Off"}
+      </span>
+    </span>
+  );
+}
+
+function RunPlan({
+  mode,
+  engines,
+}: {
+  mode: AnalysisMode;
+  engines: ReturnType<typeof enginesFor>;
+}) {
+  const modeText =
+    mode === "quote"
+      ? "Quote: mechanical evidence comparison"
+      : mode === "focused"
+        ? "Focused: generated synthesis over top passages"
+        : "Comprehensive: wider synthesis request";
+  return (
+    <section
+      aria-label="Selected analysis work"
+      className="rounded-lg border border-ink-600 bg-ink-850 p-3"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
+          Selected work
+        </p>
+        <span className="text-xs text-slateish-500">{modeText}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {engines.summary && <RunChip active>Summary</RunChip>}
+        {engines.recommendation && <RunChip active>AI recommendation</RunChip>}
+        {engines.gaps && <RunChip active>Gap analysis</RunChip>}
+        {engines.market && <RunChip active>Public market sample</RunChip>}
+        {!engines.summary && !engines.recommendation && !engines.market && (
+          <RunChip active={false}>Summary, recommendation and market</RunChip>
+        )}
+      </div>
+      <p className="mt-2 text-xs text-slateish-400">
+        Recommendation, gaps and public evidence stay separate. Review and approval by a
+        qualified engineer is required.
+      </p>
     </section>
   );
 }
@@ -540,6 +615,8 @@ export function AnalysisModeScreen() {
   const [gapsSlot, setGapsSlot] = useState<Slot<GapsSlotData>>({ s: "idle" });
   const [recSlot, setRecSlot] = useState<Slot<RecommendationSlotData>>({ s: "idle" });
   const [marketSlot, setMarketSlot] = useState<Slot<MarketSlotData>>({ s: "idle" });
+  const [pendingQuery, setPendingQuery] = useState<PublicMarketQuery | null>(null);
+  const [queryOutcome, setQueryOutcome] = useState<string | null>(null);
 
   // ------------------------------------------------------ request ownership
   //
@@ -657,7 +734,7 @@ export function AnalysisModeScreen() {
               slotFrom(r, (d) => {
                 const located = locate(d.evidence_ledger);
                 const rec = toRecommendation(d.recommendation, located);
-                const findings = onlySamples(d.public_market_findings);
+                const findings = rec === null ? [] : onlySamples(d.public_market_findings);
                 if (rec === null && findings.length === 0) return null;
                 return {
                   recommendation: rec,
@@ -724,6 +801,32 @@ export function AnalysisModeScreen() {
 
   const onCite = useCallback((evidenceId: string) => setSelected(evidenceId), []);
 
+  // The egress preview. This lived in a MarketScreen that was in neither
+  // App.tsx nor Shell.tsx, so `/api/market/preview-query` had no caller at
+  // all - and that route is the privacy demonstration: it builds the object
+  // that WOULD be sent to a public search and returns `sent: false`.
+  //
+  // Confirming does not send either. It calls the same route, which is the
+  // point: there is one code path, it is inert, and the response says so.
+  const previewQuery = useCallback((q: PublicMarketQuery) => setPendingQuery(q), []);
+  const cancelQuery = useCallback(() => setPendingQuery(null), []);
+  const confirmQuery = useCallback(async () => {
+    if (!pendingQuery) return;
+    const r = await marketApi.previewQuery({
+      query: pendingQuery.query,
+      country: pendingQuery.country,
+      freshness_days: pendingQuery.freshness_days,
+    });
+    // `sent` is false whatever happens; showing what came back is how a
+    // reader sees that for themselves rather than being told it.
+    setQueryOutcome(
+      r.ok
+        ? `Nothing was sent. ${r.data.reason}`
+        : `Nothing was sent: the request failed (${r.error.message}).`,
+    );
+    setPendingQuery(null);
+  }, [pendingQuery]);
+
   const nominateBaseline = useCallback(
     (b: BaselineSelection) => {
       if (b.kind === "stated_requirement" || b.document_id === null) {
@@ -753,65 +856,107 @@ export function AnalysisModeScreen() {
       : [];
 
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="text-lg font-semibold text-slateish-200">Analysis</h1>
-        <p className="mt-1 text-sm text-slateish-400">
-          Every claim below carries the document and page it came from. A claim that cites
-          nothing is not shown at all.
+    <div className="mx-auto max-w-7xl space-y-6">
+      <header className="border-b border-ink-700 pb-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-signal-400">
+          Enterprise FEED intelligence
         </p>
+        <h1 className="mt-1 text-xl font-semibold text-slateish-100">Analysis</h1>
+        <p className="mt-2 max-w-3xl text-sm text-slateish-300">
+          Ask one engineering question, choose the work to run, and inspect only
+          cited document evidence. Public evidence is isolated from private document context.
+        </p>
+        <div className="mt-4 grid gap-2 md:grid-cols-3">
+          <div className="rounded border border-ink-600 bg-ink-850 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+              Evidence rule
+            </p>
+            <p className="mt-1 text-xs text-slateish-300">
+              Document claims render only when citations resolve to page evidence.
+            </p>
+          </div>
+          <div className="rounded border border-ink-600 bg-ink-850 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+              Recommendation rule
+            </p>
+            <p className="mt-1 text-xs text-slateish-300">
+              Advisory output is separate from document facts and carries engineer review.
+            </p>
+          </div>
+          <div className="rounded border border-warn-500/40 bg-warn-500/10 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-warn-500">
+              Market rule
+            </p>
+            <p className="mt-1 text-xs text-slateish-300">
+              Public market rows are sample data unless a governed provider is enabled.
+            </p>
+          </div>
+        </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
-        <div className="space-y-3">
-          <div>
-            <label htmlFor={questionId} className="block text-xs text-slateish-400">
-              Question
-            </label>
-            <textarea
-              id={questionId}
-              rows={3}
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
-            />
+      <section
+        aria-label="Analysis controls"
+        className="rounded-lg border border-ink-600 bg-ink-800 p-4 shadow-sm"
+      >
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="space-y-4">
+            <div>
+              <label htmlFor={questionId} className="block text-xs font-semibold uppercase tracking-wide text-slateish-400">
+                Question
+              </label>
+              <textarea
+                id={questionId}
+                rows={4}
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Example: What does PID mean in this control section?"
+                className="mt-2 w-full resize-y rounded border border-ink-600 bg-ink-900 px-3 py-2 text-base text-slateish-100 placeholder:text-slateish-500"
+              />
+            </div>
+
+            <ModeSelector mode={mode} onChange={changeMode} toggles={toggles} onToggle={changeToggle} />
           </div>
 
-          <ModeSelector mode={mode} onChange={changeMode} toggles={toggles} onToggle={changeToggle} />
+          <div className="space-y-3">
+            <RunPlan mode={mode} engines={engines} />
 
-          {mode === "comprehensive" && (
-            <p className="rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
-              Batch-by-batch analysis and cancellation are not built. This runs the same engine
-              as Focused over a wider set of passages.
-            </p>
-          )}
+            {mode === "comprehensive" && (
+              <p className="rounded border border-warn-500/40 bg-warn-500/[0.08] px-3 py-2 text-xs text-warn-500">
+                Persistent analysis jobs, streaming progress and cancellation are not exposed by
+                this backend yet. This frontend sends the available wider synchronous request and
+                labels that limitation.
+              </p>
+            )}
 
-          <button
-            type="button"
-            disabled={!canRun}
-            onClick={() => void run()}
-            className="w-full rounded border border-signal-500/60 px-3 py-2 text-sm text-signal-300 hover:bg-signal-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Run analysis
-          </button>
+            <button
+              type="button"
+              disabled={!canRun}
+              onClick={() => void run()}
+              className="w-full rounded border border-signal-500/70 bg-signal-500 px-4 py-2.5 text-sm font-semibold text-ink-800 hover:bg-signal-400 disabled:cursor-not-allowed disabled:border-ink-500 disabled:bg-ink-700 disabled:text-slateish-500"
+            >
+              Run analysis
+            </button>
 
-          {baselineRefusal !== null && (
-            <p role="alert" className="rounded border border-warn-500/50 bg-warn-500/10 px-2.5 py-1.5 text-xs text-warn-500">
-              {baselineRefusal}
-            </p>
-          )}
+            {baselineRefusal !== null && (
+              <p role="alert" className="rounded border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
+                {baselineRefusal}
+              </p>
+            )}
+          </div>
         </div>
+      </section>
 
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-6">
           {summarySlot.s === "idle" && gapsSlot.s === "idle" && (
             <EmptyState
               title="Nothing has been run yet."
-              hint="Ask a question and choose a mode. Quote runs the mechanical comparison and needs no model."
+              hint="Choose the sections you need, then run the selected analysis. The frontend will not silently change the selected mode."
             />
           )}
 
           {engines.summary && (
-            <Section title="Summary">
+            <Section title="Summary" eyebrow="document-backed synthesis">
               <SlotBody
                 slot={summarySlot}
                 loadingLabel="Generating the summary"
@@ -853,7 +998,7 @@ export function AnalysisModeScreen() {
           )}
 
           {engines.recommendation && (
-            <Section title="Recommendation">
+            <Section title="AI recommendation" eyebrow="advisory only">
               <SlotBody
                 slot={recSlot}
                 loadingLabel="Computing the recommendation"
@@ -864,12 +1009,6 @@ export function AnalysisModeScreen() {
                 {(d) => (
                   <div className="space-y-3">
                     <RecommendationCard recommendation={d.recommendation} onCite={onCite} />
-                    {d.findings.length > 0 && (
-                      <MarketPanel
-                        findings={d.findings}
-                        egress={{ web_search_enabled: false, allow_public_egress: false }}
-                      />
-                    )}
                   </div>
                 )}
               </SlotBody>
@@ -877,7 +1016,7 @@ export function AnalysisModeScreen() {
           )}
 
           {engines.gaps && (
-            <Section title="Gap analysis and claim comparison">
+            <Section title="Gap analysis" eyebrow="baseline-controlled">
               <SlotBody
                 slot={gapsSlot}
                 loadingLabel="Comparing claims across documents"
@@ -901,7 +1040,7 @@ export function AnalysisModeScreen() {
           )}
 
           {engines.market && (
-            <Section title="Public market sample">
+            <Section title="Public market intelligence" eyebrow="isolated egress">
               <SlotBody
                 slot={marketSlot}
                 loadingLabel="Loading the market sample"
@@ -909,12 +1048,38 @@ export function AnalysisModeScreen() {
                 emptyHint="This machine is offline and there is no provider; there is nothing to show, sample or otherwise."
                 onRetry={retry}
               >
-                {(d) => <MarketPanel findings={d.findings} egress={d.egress} />}
+                {(d) => (
+                  <div className="space-y-3">
+                    {/* What came back from the preview. Rendered so a reader
+                        SEES that nothing was sent rather than being told it
+                        in a tooltip. */}
+                    {queryOutcome && (
+                      <p
+                        role="status"
+                        className="rounded border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300"
+                      >
+                        {queryOutcome}
+                      </p>
+                    )}
+                    {/* `d.egress` is the state the API MEASURED. The copy of
+                        this panel that used to render inside the AI
+                        recommendation section passed a hard-coded
+                        web_search_enabled/allow_public_egress pair of
+                        `false` instead - an egress claim the screen invented
+                        rather than read. */}
+                    <MarketPanel
+                      findings={d.findings}
+                      egress={d.egress}
+                      onPreviewQuery={previewQuery}
+                      pendingQuery={pendingQuery}
+                      onConfirmQuery={confirmQuery}
+                      onCancelQuery={cancelQuery}
+                    />
+                  </div>
+                )}
               </SlotBody>
             </Section>
           )}
-
-          {selectedItem !== null && <SelectedPassage item={selectedItem} />}
 
           {(notImplemented.length > 0 || summarySlot.s === "ready" || gapsSlot.s === "ready") && (
             <section aria-label="Not produced by this build" className="rounded-lg border border-dashed border-ink-600 p-4">
@@ -930,6 +1095,33 @@ export function AnalysisModeScreen() {
             </section>
           )}
         </div>
+
+        <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
+          <section className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
+              Execution-plan boundary
+            </h2>
+            <ul className="mt-3 space-y-2 text-xs text-slateish-300">
+              <li>Backend algorithms and routes are unchanged in this frontend pass.</li>
+              <li>Live market research requires an approved provider and privacy gate.</li>
+              <li>Current market output is the labelled local sample dataset.</li>
+              <li>Durable 202 analysis jobs are not exposed by this backend.</li>
+            </ul>
+          </section>
+
+          {selectedItem !== null ? (
+            <SelectedPassage item={selectedItem} />
+          ) : (
+            <section className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
+                Sources
+              </h2>
+              <p className="mt-2 text-sm text-slateish-500">
+                Select a citation or evidence row to inspect the exact passage here.
+              </p>
+            </section>
+          )}
+        </aside>
       </div>
     </div>
   );

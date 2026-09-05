@@ -360,7 +360,7 @@ describe("AnalysisModeScreen: rules that must hold on screen", () => {
     render(<AnalysisModeScreen />);
     await user.click(screen.getByRole("checkbox", { name: /public market sample/i }));
     await ask(user);
-    const panel = await screen.findByRole("region", { name: "Public market sample" });
+    const panel = await screen.findByRole("region", { name: "Public market intelligence" });
     expect(within(panel).getByText("SAMPLE ROW ALPHA")).toBeInTheDocument();
     // A row that could be mistaken for a real finding is not drawn at all.
     expect(screen.queryByText("UNLABELLED ROW BETA")).toBeNull();
@@ -368,20 +368,63 @@ describe("AnalysisModeScreen: rules that must hold on screen", () => {
     expect(within(panel).getByText(/SAMPLE DATA/)).toBeInTheDocument();
   });
 
-  it("RULE 5: market rows arriving on the recommendation are labelled too", async () => {
+  /** The market panel used to render TWICE: once inside the AI recommendation
+   *  section off `public_market_findings`, and once in its own section off
+   *  `/market/findings`. The rows were identical - the recommendation field is
+   *  literally `market.findings()["findings"]` - but the recommendation copy
+   *  was passed a HARD-CODED `{web_search_enabled: false, allow_public_egress:
+   *  false}` instead of the egress the API measured, so the same sample rows
+   *  appeared twice under two different egress claims, one of them invented.
+   *
+   *  RULE 5 itself is covered by the test above, which drives the same panel
+   *  through the route that still renders it. This test exists only to keep
+   *  the second copy from coming back.
+   */
+  it("renders the market panel once, even when the recommendation carries the same rows", async () => {
     const user = userEvent.setup();
     routes({
       "/analysis/summary": () => Promise.resolve(json(summaryBody())),
       "/analysis/recommendations": () =>
-        Promise.resolve(json(recommendationBody({ public_market_findings: [SAMPLE_ROW, UNLABELLED_ROW] }))),
+        Promise.resolve(json(recommendationBody({ public_market_findings: [SAMPLE_ROW] }))),
+      "/market/findings": () =>
+        Promise.resolve(
+          json({
+            notice: "SAMPLE DATA - NOT LIVE",
+            egress: { web_search_enabled: false, allow_public_egress: false },
+            findings: [SAMPLE_ROW],
+            is_sample: true,
+          }),
+        ),
+    });
+    render(<AnalysisModeScreen />);
+    await user.click(screen.getByRole("checkbox", { name: /generate recommendation/i }));
+    await user.click(screen.getByRole("checkbox", { name: /public market sample/i }));
+    await ask(user);
+    // Both engines returned the row. It is drawn once.
+    const market = await screen.findByRole("region", { name: "Public market intelligence" });
+    expect(within(market).getByText("SAMPLE ROW ALPHA")).toBeInTheDocument();
+    expect(screen.getAllByRole("region", { name: "Public market information" })).toHaveLength(1);
+    expect(screen.getAllByText("SAMPLE ROW ALPHA")).toHaveLength(1);
+  });
+
+  /** The market assertion this test used to carry became vacuous when the
+   *  recommendation section stopped rendering market rows at all: an absence
+   *  that nothing can produce is not a test. What remains is the empty state,
+   *  which is real - a null recommendation must say so rather than render an
+   *  empty card. Whether the market panel appears twice is now the concern of
+   *  the render-once test above, where a fixture can actually produce it.
+   */
+  it("says so when no recommendation was generated", async () => {
+    const user = userEvent.setup();
+    routes({
+      "/analysis/summary": () => Promise.resolve(json(summaryBody())),
+      "/analysis/recommendations": () =>
+        Promise.resolve(json(recommendationBody({ recommendation: null, public_market_findings: [SAMPLE_ROW] }))),
     });
     render(<AnalysisModeScreen />);
     await user.click(screen.getByRole("checkbox", { name: /generate recommendation/i }));
     await ask(user);
-    const panel = await screen.findByRole("region", { name: "Public market information" });
-    expect(within(panel).getByText("SAMPLE ROW ALPHA")).toBeInTheDocument();
-    expect(within(panel).getAllByText("Sample")).toHaveLength(1);
-    expect(screen.queryByText("UNLABELLED ROW BETA")).toBeNull();
+    expect(await screen.findByText("No recommendation was generated.")).toBeInTheDocument();
   });
 
   it("RULE 3: an unnormalisable value renders as nothing - no 0, no dash, no empty row", async () => {
@@ -470,6 +513,67 @@ describe("AnalysisModeScreen: a response belongs to the run that asked for it", 
   });
 });
 
+describe("AnalysisModeScreen: intent does not override selected engines", () => {
+  it("runs the selected Focused mode for WHAT IS PID rather than silently switching to Quote", async () => {
+    const user = userEvent.setup();
+    const fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/analysis/gaps")) return Promise.resolve(json(gapsBody()));
+      if (url.includes("/analysis/summary")) return Promise.resolve(json(summaryBody()));
+      return Promise.reject(new Error(`unrouted ${url}`));
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<AnalysisModeScreen />);
+    await ask(user, "WHAT IS PID ??");
+
+    expect(await screen.findByText(/Discharge pressure floor is 250 kPa/)).toBeInTheDocument();
+    expect(fetch.mock.calls.some(([input]) => String(input).includes("/analysis/summary"))).toBe(true);
+    expect(fetch.mock.calls.some(([input]) => String(input).includes("/analysis/gaps"))).toBe(false);
+  });
+
+  it("honours optional sections for WHAT IS PID when the reader selected them", async () => {
+    const user = userEvent.setup();
+    const fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/analysis/gaps")) return Promise.resolve(json(gapsBody()));
+      if (url.includes("/analysis/summary")) return Promise.resolve(json(summaryBody()));
+      if (url.includes("/analysis/recommendations")) return Promise.resolve(json(recommendationBody()));
+      if (url.includes("/market/findings")) return Promise.resolve(json({ findings: [SAMPLE_ROW], notice: "", egress: { web_search_enabled: false, allow_public_egress: false } }));
+      return Promise.reject(new Error(`unrouted ${url}`));
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<AnalysisModeScreen />);
+    await user.click(screen.getByRole("checkbox", { name: /gap analysis/i }));
+    await user.click(screen.getByRole("checkbox", { name: /public market sample/i }));
+    await user.click(screen.getByRole("checkbox", { name: /generate recommendation/i }));
+    await ask(user, "WHAT IS PID ??");
+
+    expect(await screen.findByText(/Discharge pressure floor is 250 kPa/)).toBeInTheDocument();
+    expect(fetch.mock.calls.some(([input]) => String(input).includes("/analysis/gaps"))).toBe(true);
+    expect(fetch.mock.calls.some(([input]) => String(input).includes("/analysis/summary"))).toBe(true);
+    expect(fetch.mock.calls.some(([input]) => String(input).includes("/analysis/recommendations"))).toBe(true);
+    expect(fetch.mock.calls.some(([input]) => String(input).includes("/market/findings"))).toBe(true);
+  });
+});
+
+describe("AnalysisModeScreen: selected work is explicit", () => {
+  it("does not imply market or recommendation will run in Quote mode", async () => {
+    const user = userEvent.setup();
+    render(<AnalysisModeScreen />);
+
+    await user.click(screen.getByRole("radio", { name: /Quote/ }));
+
+    const plan = screen.getByRole("region", { name: "Selected analysis work" });
+    expect(within(plan).getByText("Quote: mechanical evidence comparison")).toBeInTheDocument();
+    expect(within(plan).getByText("Gap analysis")).toBeInTheDocument();
+    expect(within(plan).getByText("Summary, recommendation and market")).toBeInTheDocument();
+    expect(within(plan).getByText("Off")).toBeInTheDocument();
+    expect(screen.getByText(/Quote mode runs only cited document evidence/)).toBeInTheDocument();
+  });
+});
+
 // ------------------------------------------------------------------ the guards
 
 describe("the guards, directly", () => {
@@ -537,4 +641,5 @@ describe("the guards, directly", () => {
     expect(row?.normalized_value).toBeNull();
     expect(row?.section).toBeNull();
   });
+
 });
