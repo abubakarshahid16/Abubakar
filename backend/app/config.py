@@ -76,7 +76,21 @@ class Settings(BaseSettings):
     temperature: float = 0.1
 
     upload_chunk_bytes: int = 1024 * 1024
-    max_upload_mb: int = 2048
+    #: Ceiling on a single upload, enforced DURING the stream in
+    #: `upload.stream_to_temp` - the count is checked per block and the read
+    #: aborts the moment it is exceeded, rather than discovering afterwards
+    #: that the whole file was already on disk. This is the only unbounded
+    #: untrusted input in the system.
+    #:
+    #: SET FROM MEASUREMENT, not from a round number. The largest document
+    #: ingested is book4 at 37.6 MB / 1,400 pages (27.5 KB per page); the
+    #: corpus ranges 3.6-27.5 KB per page. 512 MB is 13.6x that largest file
+    #: and about 19,000 pages at the observed density - comfortably above any
+    #: real specification, while bounding what a single malicious request can
+    #: write to a volume with ~45 GB free. The previous value of 2048 MB was
+    #: 54x the largest real document and had never been measured against
+    #: anything.
+    max_upload_mb: int = 512
     page_batch_size: int = 32
     extract_processes: int = 2
     embed_batch_size: int = 32
