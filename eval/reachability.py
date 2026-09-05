@@ -87,6 +87,7 @@ def main() -> int:
     ).fetchall()
     print(f"retrievable chunks: {len(rows)}")
 
+    corpus_scope = search.every_document_id()   # no user; stated explicitly
     df = document_frequency([r["text"] for r in rows])
     total = len(rows)
 
@@ -105,7 +106,8 @@ def main() -> int:
             # had a query and still lost.
             no_query.append(r)
             continue
-        hits = search.search(q, limit=10, rerank=False)
+        hits = search.search(q, limit=10, rerank=False,
+                             allowed_document_ids=corpus_scope)
         ids = {h["chunk_id"] for h in hits["hits"]}
         if r["id"] in ids:
             reached += 1

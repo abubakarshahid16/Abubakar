@@ -75,6 +75,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from app import answer as answer_mod  # noqa: E402
 from app import chat as chat_mod  # noqa: E402
+from app.search import every_document_id  # noqa: E402
 from app import keyword  # noqa: E402
 from app.db import connect
 from app.config import settings
@@ -298,7 +299,29 @@ def score_one(q: dict, result: dict, asked: str | None = None) -> dict:
         "answer_correct": None,
         "refusal_correct": None,
         "false_refusal": False,
+        "length_limited": False,
     }
+
+    # A REFUSAL CAUSED BY THE TOKEN BUDGET IS NOT A REFUSAL ABOUT THE CORPUS.
+    #
+    # When generation runs out of room inside its only citation, the marker is
+    # stripped, the answer is left unsupported, and it is refused - correctly,
+    # by the same rule that rejects invented citations. But the CAUSE is a
+    # length limit, not an absence of evidence, and counting the two together
+    # corrupts the metric in both directions:
+    #
+    #   * on an UNANSWERABLE question it scores a correct refusal for the wrong
+    #     reason, so refusal accuracy would IMPROVE the more often generation
+    #     ran out of room - a truncation bug making the system look better.
+    #   * on an ANSWERABLE question it is recorded as a false refusal, blaming
+    #     retrieval for a failure that happened after retrieval succeeded.
+    #
+    # Neither number is about the documents, so it is reported as its own
+    # category and excluded from both. Left unscored rather than counted as a
+    # pass or a fail: an unscored dimension is never a pass here.
+    row["length_limited"] = bool(result.get("truncated") and not answered)
+    if row["length_limited"]:
+        return row
 
     if not q["answerable"]:
         row["refusal_correct"] = not answered
@@ -380,6 +403,10 @@ def summarise(rows: list[dict]) -> dict:
             sum(1 for r in answerable if r["false_refusal"]),
             len(answerable),
         ),
+        # Reported separately and never folded into the two above. Should be
+        # zero; a non-zero value means some questions were not scored at all,
+        # and the other rates are over a smaller population than they look.
+        "length_limited": sum(1 for r in rows if r.get("length_limited")),
         "median_ms": round(statistics.median(latencies), 1) if latencies else None,
         "p95_ms": pct(0.95),
         "worst_ms": round(max(latencies), 1) if latencies else None,
@@ -414,6 +441,14 @@ def report(summary: dict, rows: list[dict], before: dict | None) -> None:
         if before and before.get(key) is not None and summary[key] is not None:
             line += f"   was {_fmt(tuple(before[key]))}"
         print(line)
+    # Printed unconditionally, including when it is zero. A category that only
+    # appears when non-zero is a category nobody remembers exists, and its
+    # absence would be indistinguishable from it never having been checked.
+    n_len = summary.get("length_limited", 0)
+    print(f"  {'length-limited refusals':26} {n_len}"
+          + ("   <- NOT counted in refusal accuracy or false refusals; these "
+             "questions were not scored" if n_len else "   (none - the two "
+             "refusal figures above are over the whole set)"))
     print(f"  {'median latency':26} {summary['median_ms']} ms"
           + (f"   was {before['median_ms']} ms" if before else ""))
     print(f"  {'p95 / worst latency':26} {summary['p95_ms']} / {summary['worst_ms']} ms")
@@ -566,6 +601,10 @@ def main() -> int:
     stale_ids = {p.split()[1] for p in stale}
 
     rows = []
+    # The eval tools have no user, so they state corpus-wide OUT LOUD.
+    # When auth arrives this is a line somebody changes on purpose.
+    corpus_scope = every_document_id()
+
     mode = "isolated" if args.isolated else "conversational"
     print(f"  MODE: {mode}"
           + ("  (diagnostic - no conversation, resolve_followup never runs)"
@@ -581,10 +620,13 @@ def main() -> int:
             print(f"  {q['id']:>5} SKIPPED - ground truth stale for this corpus")
             continue
         if args.isolated:
-            result = answer_mod.answer(q["question"], tier=args.tier, limit=args.limit)
+            result = answer_mod.answer(
+                q["question"], tier=args.tier, limit=args.limit,
+                allowed_document_ids=corpus_scope)
         else:
             result = chat_mod.ask(conversation_id, q["question"],
-                                  tier=args.tier, limit=args.limit)
+                                  tier=args.tier, limit=args.limit,
+                                  allowed_document_ids=corpus_scope)
         row = score_one(q, result, asked=q["question"])
         rows.append(row)
         flag = ""

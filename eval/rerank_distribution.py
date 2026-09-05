@@ -43,7 +43,8 @@ LOOK_AT = 16
 
 def profile(question: str, expected_pages: set[int] | None) -> dict:
     """The shape of the candidate set for one query."""
-    result = search.search(question, limit=LOOK_AT)
+    result = search.search(question, limit=LOOK_AT,
+                           allowed_document_ids=search.every_document_id())
     hits = result["hits"]
     scores = [h["rerank_score"] for h in hits if h["rerank_score"] is not None]
     if not scores:
