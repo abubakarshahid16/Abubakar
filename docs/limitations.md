@@ -165,6 +165,45 @@ the decision is made, and 1.25-1.73x on prose, where there is room to spare.
 Worst observed margin **1.035x over twelve measured chunks**. Ground truth in
 `docs/benchmarks.md`, re-checked by `test_context_budget.py`.
 
+## A summary sees about two passages, however many were retrieved
+
+Measured on 2026-09-05: one retrieved passage costs roughly **849 tokens**, so
+two already exceed the 1,286-token evidence budget. The context guard therefore
+lands on **two sources - one whole, one trimmed - whatever `limit` is set to**,
+and a real call evaluated 776 tokens and generated 122 in 75.5 s wall clock.
+
+Raising the retrieval limit does not give the summary more to work with. It
+gives the **gap analysis** more, which needs no model, and it adds rows to
+`evidence_removed`.
+
+Nothing here is silent: each removal is reported with its source and the
+characters dropped. But a reader looking at eight passages in the evidence
+ledger and a summary built from two needs that list to understand why.
+
+## A generated sentence carrying an unsupported number is deleted, not flagged
+
+If a sentence cites a source but contains a number that appears in no span it
+cites, the sentence is **removed from the prose entirely**. It is reported in
+`dropped_sentences` with the reason and the offending number, so the loss is
+visible and auditable — never silent.
+
+**This deletes some legitimate sentences.** A model that rounds "279.6 µm" to
+"280 µm", or restates a figure in different units, loses the sentence even
+though it said something true.
+
+That trade is deliberate. The alternative — keeping the sentence with a
+`number_unsupported` flag — still puts the number on the screen, and a reader
+takes the number. This build has already recorded twice that a warning shown
+beside the thing it warns about gets ignored. The asymmetry decides it:
+dropping a good sentence costs a **paraphrase**, and the passage it paraphrased
+is still cited and quoted verbatim below it; keeping a bad one puts a converted
+or invented figure in front of an engineer as though the document had stated
+it.
+
+The case that motivates it is a silent unit conversion — "0.28 mm [S1]" over a
+source that says "280 um" cites a real page for a number that page does not
+contain.
+
 ## Public market information is a fixture and can never become one by accident
 
 **There is no provider and this machine makes no network call.** Every row on

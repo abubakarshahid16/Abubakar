@@ -488,6 +488,163 @@ class LoginResult(BaseModel):
     expires_in_seconds: int
 
 
+class ProgressStep(BaseModel):
+    stage: str
+    at_seconds: float
+
+
+class Progress(BaseModel):
+    """Reported by the work itself, never inferred from a clock.
+
+    There is deliberately NO percentage: the generation length is unknown
+    until it ends, so any bar would be a guess. A stage, a count and an
+    elapsed time are all true.
+    """
+
+    stage: Literal["retrieving", "reranking", "reading", "generating", "done"]
+    detail: str | None = Field(
+        None, description="e.g. '3 passages' - a count, never a percentage")
+    seconds: float
+    history: list[ProgressStep] = Field(
+        description="every transition that actually happened, with when")
+
+
+class EvidenceItem(BaseModel):
+    """One retrieved passage, as everything downstream cites it.
+
+    `evidence_id` is sha256 over the document, page span, section and the
+    quoted text - NOT a chunk id. A chunk id changes when a document is
+    re-chunked, and a citation that moves when the chunker is retuned is not a
+    citation.
+    """
+
+    evidence_id: str
+    document_id: str
+    filename: str
+    page_start: int
+    page_end: int
+    section: str | None
+    exact_span: str = Field(description="verbatim; rendered in serif, never as prose")
+    text_source: Literal["extracted", "recognised"]
+    ocr_min_conf: float | None
+    ocr_alphabet_violations: int
+    relevance_score: float | None = Field(
+        None, description="null unless scored in the final rerank batch. Never "
+        "0.0 as a stand-in - 0.0 sits above the -3.0 floor and reads as credible")
+    relevance_score_type: Literal["rerank"] | None = Field(
+        None, description="WHICH SCALE the number is on. A rerank score and an "
+        "RRF score are not comparable, so a bare number would invite exactly "
+        "the comparison this system forbids. Null when nothing scored it")
+
+
+class DocumentedFinding(BaseModel):
+    claim: str
+    citation_ids: list[str]
+    source_kind: Literal["document", "user_stated"] = Field(
+        description="nothing generated here is user_stated: a typed "
+        "requirement is the requirement, not evidence")
+    text_source: Literal["extracted", "recognised", "mixed"]
+
+
+class DroppedSentence(BaseModel):
+    sentence: str
+    reason: str
+
+
+class AnalysisSummary(BaseModel):
+    question: str
+    evidence_ledger: list[EvidenceItem]
+    summary: str | None = Field(
+        None, description="null when synthesis did not run or was refused. "
+        "Null renders as nothing - never an empty prose block")
+    summary_truncated: bool
+    summary_cited_evidence_ids: list[str]
+    documented_findings: list[DocumentedFinding]
+    rejected_citations: list[int]
+    evidence_removed: list[EvidenceRemoved]
+    refusal: str | None
+    dropped_sentences: list[DroppedSentence] = Field(
+        description="sentences removed from the prose, with why. A sentence "
+        "carrying a number no cited span contains is DROPPED, not flagged")
+    not_implemented_sections: list[str]
+
+
+class ClaimClusterOut(BaseModel):
+    facet: str = Field(description="human-readable, e.g. 'thickness / um'")
+    label: Literal["agreement", "addition", "possible_conflict", "unresolved"] = Field(
+        description="possible_conflict, never conflict: documents carry no "
+        "revision or approval status, so which supersedes cannot be known")
+    rows: list[dict]
+    note: str | None
+
+
+class BaselineSelectionOut(BaseModel):
+    kind: Literal["document", "document_section", "stated_requirement"]
+    document_id: str | None
+    section: str | None
+    text: str | None
+
+
+class GapItemOut(BaseModel):
+    facet: str
+    status: Literal["met", "possible_gap", "conflict",
+                    "insufficient_evidence", "not_applicable"]
+    baseline_citation_id: str | None
+    baseline_span: str
+    project_citation_ids: list[str]
+    note: str | None
+
+
+class GapAnalysisOut(BaseModel):
+    applicability: Literal["applicable", "not_applicable",
+                           "insufficient_baseline"] = Field(
+        description="not_applicable when the caller named no baseline. The "
+        "baseline is never chosen by the system: picking one would be an "
+        "engineering judgement it has no basis for")
+    baseline: BaselineSelectionOut | None
+    items: list[GapItemOut]
+
+
+class AnalysisGaps(BaseModel):
+    question: str
+    evidence_ledger: list[EvidenceItem]
+    claim_clusters: list[ClaimClusterOut]
+    gaps: GapAnalysisOut
+    not_implemented_sections: list[str]
+
+
+class ConfidenceCheckOut(BaseModel):
+    label: str
+    fired: bool = Field(description="true = this check lowered confidence")
+
+
+class RecommendationOut(BaseModel):
+    text: str
+    citation_ids: list[str]
+    basis: str
+    confidence: Literal["low", "medium"] | None = Field(
+        None, description='"high" is structurally unreachable, by the same '
+        "rule that forbids coverage.complete == true")
+    checks: list[ConfidenceCheckOut]
+
+
+class AnalysisRecommendation(BaseModel):
+    question: str
+    evidence_ledger: list[EvidenceItem]
+    recommendation: RecommendationOut | None = Field(
+        None, description="null is not an empty recommendation")
+    public_market_findings: list[MarketFinding]
+    not_implemented_sections: list[str]
+
+
+class AnalysisRequest(BaseModel):
+    question: str
+    limit: int = 8
+    baseline_document_id: str | None = Field(
+        None, description="the caller's choice of authoritative document. "
+        "Never chosen by the system")
+
+
 class MarketFinding(BaseModel):
     """An ILLUSTRATIVE row. There is no provider and this machine is offline."""
 
@@ -730,6 +887,12 @@ class AskRequest(BaseModel):
         None,
         description="upgrade this assistant message to Tier 2 instead of asking anew; "
         "question is ignored and the already-resolved question is reused",
+    )
+    progress_id: str | None = Field(
+        None, max_length=64,
+        description="a client-chosen id for polling /api/progress/{id} while "
+        "this runs. Optional: without one the work reports nothing and "
+        "behaves exactly as before",
     )
 
 

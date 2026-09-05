@@ -8,6 +8,7 @@ import { DashboardView } from "./views/DashboardView";
 import { DocumentsView } from "./views/DocumentsView";
 import { IngestionView } from "./views/IngestionView";
 import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
+import { AnalysisScreen } from "./views/AnalysisScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import type { Me } from "./types/api";
 
@@ -147,6 +148,7 @@ export default function App() {
           {view === "dashboard" && (
             <DashboardView connection={connection} onRetryConnection={recheck} />
           )}
+          {view === "analysis" && <AnalysisScreen />}
           {view === "reports" && <ReportsScreen />}
         </>
       )}

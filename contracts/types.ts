@@ -431,6 +431,175 @@ export interface LoginResult {
   expires_in_seconds: number;
 }
 
+// ---------------------------------------------------------------- progress
+
+export interface ProgressStep {
+  stage: string;
+  at_seconds: number;
+}
+
+/** What the machine is doing, REPORTED BY THE WORK ITSELF - never inferred
+ *  from a clock on the client.
+ *
+ *  There is deliberately no percentage. The length of a generation is unknown
+ *  until it ends, so a bar would be an invention; a stage, a count and an
+ *  elapsed time are all true. */
+export interface Progress {
+  stage: "retrieving" | "reranking" | "reading" | "generating" | "done";
+  /** e.g. "3 passages" - a count, never a percentage. */
+  detail: string | null;
+  seconds: number;
+  /** Every transition that actually happened, and when. */
+  history: ProgressStep[];
+}
+
+// ---------------------------------------------------------------- analysis
+
+/** One retrieved passage, as everything downstream cites it.
+ *
+ *  `evidence_id` is sha256 over the document, page span, section and quoted
+ *  text - NOT a chunk id. Chunk ids change when a document is re-chunked, and
+ *  a citation that moves when the chunker is retuned is not a citation. */
+export interface EvidenceItem {
+  evidence_id: string;
+  document_id: string;
+  filename: string;
+  page_start: number;
+  page_end: number;
+  section: string | null;
+  /** Verbatim. Render in serif on a quote rule, never as prose. */
+  exact_span: string;
+  text_source: "extracted" | "recognised";
+  ocr_min_conf: number | null;
+  ocr_alphabet_violations: number;
+  /** Null unless scored in the final rerank batch. Never 0.0 as a stand-in -
+   *  0.0 sits above the -3.0 floor and reads as credible. */
+  relevance_score: number | null;
+  /** WHICH SCALE the number is on. A rerank score and an RRF score are not
+   *  comparable, so a bare number would invite exactly the comparison this
+   *  system forbids. Null when nothing scored it. */
+  relevance_score_type: "rerank" | null;
+}
+
+export interface DocumentedFinding {
+  claim: string;
+  citation_ids: string[];
+  /** Nothing generated here is `user_stated`: a typed requirement is THE
+   *  REQUIREMENT, not evidence, and never enters an evidence ledger. */
+  source_kind: "document" | "user_stated";
+  text_source: "extracted" | "recognised" | "mixed";
+}
+
+/** A sentence removed from the prose, and why. A sentence carrying a number
+ *  that appears in no span it cites is DROPPED, never rendered with a warning
+ *  beside it - the number would still be on screen, and the reader takes the
+ *  number. */
+export interface DroppedSentence {
+  sentence: string;
+  reason: string;
+}
+
+export interface AnalysisSummaryResult {
+  question: string;
+  evidence_ledger: EvidenceItem[];
+  /** Null when synthesis did not run or was refused. Null renders as NOTHING -
+   *  never an empty prose block. */
+  summary: string | null;
+  summary_truncated: boolean;
+  summary_cited_evidence_ids: string[];
+  documented_findings: DocumentedFinding[];
+  rejected_citations: number[];
+  evidence_removed: EvidenceRemoved[];
+  refusal: string | null;
+  dropped_sentences: DroppedSentence[];
+  not_implemented_sections: string[];
+}
+
+export type ClaimLabel = "agreement" | "addition" | "possible_conflict" | "unresolved";
+
+export interface ClaimClusterOut {
+  /** Human-readable, e.g. "thickness / um". */
+  facet: string;
+  /** `possible_conflict`, never `conflict`: documents carry no revision or
+   *  approval status, so which supersedes the other cannot be known. */
+  label: ClaimLabel;
+  rows: Record<string, unknown>[];
+  note: string | null;
+}
+
+export interface BaselineSelectionOut {
+  kind: "document" | "document_section" | "stated_requirement";
+  document_id: string | null;
+  section: string | null;
+  text: string | null;
+}
+
+export type GapItemStatus =
+  | "met"
+  | "possible_gap"
+  | "conflict"
+  | "insufficient_evidence"
+  | "not_applicable";
+
+export interface GapItemOut {
+  facet: string;
+  status: GapItemStatus;
+  baseline_citation_id: string | null;
+  baseline_span: string;
+  project_citation_ids: string[];
+  note: string | null;
+}
+
+export interface GapAnalysisOut {
+  /** `not_applicable` when the caller named no baseline. The system NEVER
+   *  chooses one: picking the oldest document, or the one with "standard" in
+   *  its name, would be an engineering judgement it has no basis for. */
+  applicability: "applicable" | "not_applicable" | "insufficient_baseline";
+  baseline: BaselineSelectionOut | null;
+  items: GapItemOut[];
+}
+
+export interface AnalysisGapsResult {
+  question: string;
+  evidence_ledger: EvidenceItem[];
+  claim_clusters: ClaimClusterOut[];
+  gaps: GapAnalysisOut;
+  not_implemented_sections: string[];
+}
+
+export interface ConfidenceCheckOut {
+  label: string;
+  /** true = this check lowered confidence */
+  fired: boolean;
+}
+
+export interface RecommendationOut {
+  text: string;
+  citation_ids: string[];
+  basis: string;
+  /** "high" is structurally unreachable, by the same rule that forbids
+   *  `coverage.complete === true`. */
+  confidence: "low" | "medium" | null;
+  checks: ConfidenceCheckOut[];
+}
+
+export interface AnalysisRecommendationResult {
+  question: string;
+  evidence_ledger: EvidenceItem[];
+  /** Null is not an empty recommendation. */
+  recommendation: RecommendationOut | null;
+  public_market_findings: MarketFinding[];
+  not_implemented_sections: string[];
+}
+
+export interface AnalysisRequest {
+  question: string;
+  limit?: number;
+  /** The caller's choice of authoritative document. Never chosen by the
+   *  system. */
+  baseline_document_id?: string | null;
+}
+
 // ------------------------------------------------------------------- market
 
 /** How a finding was checked. The full vocabulary, because a UI must be able
@@ -641,6 +810,9 @@ export interface ConversationDetail {
 }
 
 export interface AskRequest {
+  /** A client-chosen id for polling `/api/progress/{id}` while this runs.
+   *  Optional: without one the backend reports nothing and behaves as before. */
+  progress_id?: string | null;
   question: string;
   tier: AnswerTier;
   document_id?: string | null;

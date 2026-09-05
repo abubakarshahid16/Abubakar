@@ -20,9 +20,14 @@ import type {
   DocumentRecord,
   AuthStatus,
   ExclusionsResponse,
+  AnalysisGapsResult,
+  AnalysisRecommendationResult,
+  AnalysisRequest,
+  AnalysisSummaryResult,
   LoginResult,
   MarketFindings,
   MarketQueryPreview,
+  Progress,
   MarketQueryRequest,
   Metrics,
   ReportList,
@@ -149,6 +154,27 @@ export const hasArrayField =
     typeof b === "object" &&
     b !== null &&
     Array.isArray((b as Record<string, unknown>)[field]);
+
+export const analysis = {
+  summary: (body: AnalysisRequest) =>
+    request<AnalysisSummaryResult>("/analysis/summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  recommendations: (body: AnalysisRequest) =>
+    request<AnalysisRecommendationResult>("/analysis/recommendations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  gaps: (body: AnalysisRequest) =>
+    request<AnalysisGapsResult>("/analysis/gaps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+};
 
 export const market = {
   findings: () => request<MarketFindings>("/market/findings"),
@@ -338,6 +364,10 @@ export const api = {
     }),
   /** Tier 2 is not streamed and takes ~50s on this hardware, so callers must
    *  show elapsed time rather than an indefinite spinner. */
+  /** What the machine is doing. 404 once the entry has expired, which is not
+   *  an error - it means the work finished and was collected. */
+  progress: (progressId: string) =>
+    request<Progress>(`/progress/${encodeURIComponent(progressId)}`),
   ask: (id: string, body: Partial<AskRequest>) =>
     request<AskResult>(`/conversations/${encodeURIComponent(id)}/ask`, {
       method: "POST",

@@ -123,11 +123,18 @@ export function SummaryCard({
 }) {
   const ids = result.summary_cited_evidence_ids;
   const n = ids.length;
-  const synthesisOmitted = result.not_implemented_sections.includes("synthesis");
   const hasFindings = result.documented_findings.length > 0;
 
-  // Nothing at all to say: no prose, no named omission, no findings.
-  if (result.summary === null && !synthesisOmitted && !hasFindings) return null;
+  // Nothing at all to say: no prose and no findings. Renders as NOTHING - the
+  // same rule as a null coverage verdict. A line saying the summary is absent
+  // would be a claim about why, and this card does not know why.
+  //
+  // Until stage 3 there was a branch here saying "Generated summary is not
+  // available in this build", shown when not_implemented_sections carried
+  // "synthesis". Synthesis exists now, the API never sends that value, and the
+  // sentence was false the moment it landed - so it is gone rather than
+  // stranded behind a condition that can no longer be true.
+  if (result.summary === null && !hasFindings) return null;
 
   return (
     <section
@@ -159,10 +166,6 @@ export function SummaryCard({
             </p>
           )}
         </>
-      ) : synthesisOmitted ? (
-        <p id="summary-card-heading" className="text-sm text-slateish-500">
-          Generated summary is not available in this build.
-        </p>
       ) : (
         <p id="summary-card-heading" className="sr-only">
           Documented findings
@@ -170,7 +173,7 @@ export function SummaryCard({
       )}
 
       {hasFindings && (
-        <div className={result.summary !== null || synthesisOmitted ? "mt-3 border-t border-ink-700/60 pt-3" : ""}>
+        <div className={result.summary !== null ? "mt-3 border-t border-ink-700/60 pt-3" : ""}>
           <p className="text-xs uppercase tracking-wide text-slateish-500">Documented findings</p>
           <ul className="mt-1.5 space-y-1.5">
             {result.documented_findings.map((f, i) => (

@@ -434,6 +434,7 @@ def ask(
     explain_of: str | None = None,
     *,
     allowed_document_ids: frozenset[str],
+    progress_id: str | None = None,
 ) -> dict:
     """Answer a question inside a conversation and persist both turns.
 
@@ -487,6 +488,7 @@ def ask(
     result = answer_mod.answer(
         resolved, tier=tier, document_id=document_id, limit=limit,
         allowed_document_ids=allowed_document_ids,
+        progress_id=progress_id,
     )
 
     assistant_message = _insert_message(

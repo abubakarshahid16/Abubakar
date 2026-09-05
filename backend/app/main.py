@@ -28,7 +28,9 @@ from .api_utils import (
 from . import access
 from . import auth as auth_mod
 from . import errors
+from . import analysis as analysis_mod
 from . import market as market_mod
+from . import progress as progress_mod
 from . import reports as reports_mod
 from . import schemas
 from .config import settings
@@ -485,6 +487,89 @@ def me(request: Request,
     return {"required": True, "user": described}
 
 
+@app.get("/api/progress/{progress_id}", response_model=schemas.Progress,
+         responses={**schemas.ERRORS_404})
+def read_progress(progress_id: str):
+    """What the machine is doing, as reported by the work itself.
+
+    Unauthenticated, and carries no document content - a stage name, a count
+    and a clock. The id is chosen by the client; guessing one reveals only
+    that somebody is asking a question, which /api/health already reveals
+    through `busy`.
+    """
+    state = progress_mod.read(progress_id)
+    if state is None:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no such request"),
+        )
+    return state
+
+
+# ---------------------------------------------------------------- analysis
+#
+# Three engines, one shape: retrieve inside the caller's scope, run a pure
+# function over the evidence, return it. `summary` and `recommendations` call
+# the local model; `gaps` does not - a mechanical comparison must not depend on
+# a model being up.
+
+
+def _analysis_or_503(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except analysis_mod.ModelUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=errors.safe_error(
+                errors.MODEL_UNAVAILABLE,
+                f"the local answer model could not be reached ({exc})"),
+        )
+
+
+@app.post("/api/analysis/summary", response_model=schemas.AnalysisSummary,
+          responses={**schemas.ERRORS_422})
+def analysis_summary(body: schemas.AnalysisRequest,
+                     scope: access.AccessScope = Depends(access.current_scope)):
+    """Generated prose over retrieved evidence, every sentence cited.
+
+    A sentence citing nothing, or carrying a number that appears in no span it
+    cites, is DROPPED and reported in `dropped_sentences` - never rendered with
+    a warning beside it, because the number would still be on screen.
+    """
+    return _analysis_or_503(analysis_mod.summary, body.question, scope,
+                            limit=body.limit)
+
+
+@app.post("/api/analysis/recommendations",
+          response_model=schemas.AnalysisRecommendation,
+          responses={**schemas.ERRORS_422})
+def analysis_recommendations(
+        body: schemas.AnalysisRequest,
+        scope: access.AccessScope = Depends(access.current_scope)):
+    """One advisory recommendation and the checks behind its confidence."""
+    return _analysis_or_503(
+        analysis_mod.recommendation, body.question, scope, limit=body.limit,
+        baseline_document_id=body.baseline_document_id)
+
+
+@app.post("/api/analysis/gaps", response_model=schemas.AnalysisGaps,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def analysis_gaps(body: schemas.AnalysisRequest,
+                  scope: access.AccessScope = Depends(access.current_scope)):
+    """Mechanical claim comparison. No model call.
+
+    The baseline comes from the caller or there is none. Choosing one here -
+    the oldest document, the one with "standard" in its name - would be the
+    system deciding which document is authoritative.
+    """
+    if body.baseline_document_id:
+        # Through require_document, so an id the caller may not read is 404 and
+        # is indistinguishable from one that does not exist.
+        require_document(body.baseline_document_id, scope)
+    return analysis_mod.gaps(body.question, scope, limit=body.limit,
+                             baseline_document_id=body.baseline_document_id)
+
+
 # ----------------------------------------------------------------- market
 #
 # No network call exists in this build. Both routes are scoped like every
@@ -675,15 +760,22 @@ def ask(conversation_id: str, body: schemas.AskRequest,
     # It classifies as "empty" and gets the guidance reply, like any other
     # input that was never a document question.
     try:
-        return chat_mod.ask(
-            conversation_id,
-            body.question,
-            tier=body.tier,
-            document_id=body.document_id,
-            limit=body.limit,
-            explain_of=body.explain_of,
-            allowed_document_ids=scope.allowed_document_ids,
-        )
+        progress_mod.start(body.progress_id)
+        # `finally`, so an answer that raises still closes its record rather
+        # than leaving a client polling a stage that will never advance.
+        try:
+            return chat_mod.ask(
+                conversation_id,
+                body.question,
+                tier=body.tier,
+                document_id=body.document_id,
+                limit=body.limit,
+                explain_of=body.explain_of,
+                allowed_document_ids=scope.allowed_document_ids,
+                progress_id=body.progress_id,
+            )
+        finally:
+            progress_mod.finish(body.progress_id)
     except chat_mod.MessageNotFound:
         raise HTTPException(
             status_code=404,

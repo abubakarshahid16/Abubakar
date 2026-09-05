@@ -48,12 +48,16 @@ function makeResult(over: Partial<AnalysisResult> = {}): AnalysisResult {
 }
 
 describe("SummaryCard: null summary", () => {
-  it("names the omission in one line when synthesis is not implemented, with no prose block", () => {
+  it("renders no prose block and no claim about why, when there is no summary", () => {
+    // Stage 3 shipped synthesis, so the API never sends "synthesis" in
+    // not_implemented_sections and the card must not say it is unavailable.
+    // A null summary renders as NOTHING rather than as a sentence explaining
+    // itself: this card does not know whether synthesis was refused, was not
+    // run, or produced nothing, and guessing would be a claim.
     const result = makeResult({ summary: null, not_implemented_sections: ["synthesis"] });
     expect(result.summary).toBeNull();
-    expect(result.not_implemented_sections).toContain("synthesis");
     const { container } = render(<SummaryCard result={result} onCite={vi.fn()} />);
-    expect(screen.getByText("Generated summary is not available in this build.")).toBeInTheDocument();
+    expect(screen.queryByText(/not available in this build/)).toBeNull();
     expect(container.querySelector(".model-prose")).toBeNull();
     expect(screen.queryByText(/Written by the model/)).toBeNull();
   });
