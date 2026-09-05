@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api } from "../api/client";
+import { api, reports as reportsApi } from "../api/client";
 import { AnswerCard, sourcesOf, viewFromMessage, type AnswerView } from "../components/chat/AnswerCard";
 import { EvidencePanel } from "../components/chat/EvidencePanel";
 import { LocalWork } from "../components/chat/LocalWork";
@@ -98,6 +98,10 @@ export function ChatView({
   // says it is doing. `progress` stays null until the first poll returns: the
   // stage is never guessed from the clock in the meantime.
   const [progressId, setProgressId] = useState<string | null>(null);
+  // Which message is being turned into a report, and what the last attempt
+  // said. Keyed by message id so a notice appears on the card it belongs to.
+  const [savingReport, setSavingReport] = useState<string | null>(null);
+  const [reportNotice, setReportNotice] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<Progress | null>(null);
   const [failure, setFailure] = useState<ApiError | null>(null);
 
@@ -321,6 +325,29 @@ export function ChatView({
     [current, explainingId, messages, refreshList],
   );
 
+  const saveReport = useCallback(
+    async (messageId: string) => {
+      setSavingReport(messageId);
+      setReportNotice((n) => ({ ...n, [messageId]: "" }));
+      const r = await reportsApi.generate(messageId);
+      setSavingReport(null);
+      if (r.ok) {
+        setReportNotice((n) => ({
+          ...n,
+          [messageId]:
+            `Saved as ${r.data.id} — ${r.data.page_count} page` +
+            `${r.data.page_count === 1 ? "" : "s"}. Open it on the Reports screen.`,
+        }));
+        return;
+      }
+      // The route refuses a message that cites nothing (NotReportable, 422).
+      // Saying so is the point: a button that silently does nothing is the
+      // defect this replaces.
+      setReportNotice((n) => ({ ...n, [messageId]: r.error.message }));
+    },
+    [],
+  );
+
   const offline = connection.state === "offline";
 
   const evidenceMessage = evidence ? messages.find((m) => m.id === evidence.messageId) : undefined;
@@ -436,6 +463,15 @@ export function ChatView({
                       ? () => void explain(m.id)
                       : undefined
                   }
+                  onSaveReport={
+                    // Only an ANSWER can be frozen. A refusal has no evidence
+                    // to freeze, and the route would refuse it anyway.
+                    m.answer_type === "extract" || m.answer_type === "generated"
+                      ? () => void saveReport(m.id)
+                      : undefined
+                  }
+                  savingReport={savingReport === m.id}
+                  reportNotice={reportNotice[m.id] || null}
                   explaining={explainingId === m.id}
                   explainSeconds={explainingId === m.id ? elapsed : undefined}
                 />

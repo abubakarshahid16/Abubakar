@@ -1,0 +1,745 @@
+<title>Nabaa Interface Redesign</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;450;500;600&family=IBM+Plex+Serif:wght@400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE SIDEBAR IS YOURS, UNCHANGED.
+
+   Label over a one-line hint, six items, the identity and connection block at
+   the foot. It was right: the hint tells a first-time reader what each screen
+   is FOR, which six bare nouns cannot. My icon version threw that away for
+   scannability nobody had asked for. It is back exactly as it was.
+
+   What changes is everything to the right of it:
+
+   1. THE BLUE CAST.  #070b10 is a blue-black. A hue in the ground tints every
+      grey above it, which is what reads as cold and smeared. This ground is a
+      neutral charcoal — no hue — so the accent is the only chroma on screen.
+
+   2. SIXTEEN IDENTICAL CARDS.  The dashboard gives a headline figure and a
+      supporting detail the same box, the same border, the same weight. Four
+      figures now lead; the rest become a dense read-down list, which is what
+      they are.
+
+   3. RAW ENUM CODES ON SCREEN.  `NEEDS_OCR` and `EQUATION_PAGES` are internal
+      identifiers shown to a client. Gone from the surface.
+
+   4. CONTRAST.  Secondary text was 4.1:1 — below the floor for its size.
+      It is 9.4:1 here.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root{
+  --ground:#0B0C0E; --surface:#131518; --raised:#191C20; --sunken:#08090A;
+  --line:#22262B; --line-strong:#333940;
+  --ink:#F1F3F5; --ink-2:#A6AEB6; --ink-3:#737B83;
+  --accent:#3FCFB8; --accent-dim:#0F2E2A; --accent-line:#1B4B45; --on-accent:#04211D;
+  --warn:#E7B155; --warn-dim:#2C2312; --warn-line:#4A3B1B;
+  --danger:#F08579; --danger-dim:#2E1917;
+  --info:#7BB7EC; --info-dim:#132434; --info-line:#20364B;
+  --sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --serif:"IBM Plex Serif",ui-serif,Georgia,Cambria,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,"Liberation Mono",monospace;
+  --t-xs:11.5px; --t-sm:13px; --t-md:15px; --t-lg:20px; --t-xl:28px;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --ground:#FFFFFF; --surface:#FFFFFF; --raised:#F7F8F8; --sunken:#F2F3F4;
+  --line:#E6E8EA; --line-strong:#CDD1D5;
+  --ink:#14171A; --ink-2:#5A626A; --ink-3:#858D95;
+  --accent:#0C7264; --accent-dim:#E6F4F1; --accent-line:#B4DDD5; --on-accent:#FFFFFF;
+  --warn:#8A5A0B; --warn-dim:#FCF3E3; --warn-line:#EBD9B4;
+  --danger:#A6342A; --danger-dim:#FCEEEC;
+  --info:#1A5E99; --info-dim:#EBF2F9; --info-line:#C8DBEC;
+  color-scheme:light;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
+  font-size:var(--t-md);line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+.wrap{max-width:1300px;margin:0 auto;padding:0 26px}
+
+.page-head{padding:38px 0 24px;display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.page-head h1{margin:0 0 7px;font-size:var(--t-xl);font-weight:600;letter-spacing:-.026em;text-wrap:balance}
+.page-head p{margin:0;color:var(--ink-2);font-size:var(--t-sm);max-width:58ch}
+.theme-btn{font:inherit;font-size:var(--t-sm);display:inline-flex;align-items:center;gap:8px;background:none;
+  border:1px solid var(--line-strong);color:var(--ink-2);border-radius:8px;padding:8px 14px;cursor:pointer;transition:.14s}
+.theme-btn:hover{color:var(--ink);border-color:var(--ink-3);background:var(--surface)}
+.theme-btn svg{width:15px;height:15px;flex:none}
+
+.tabs{display:flex;gap:26px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+.tab{appearance:none;background:none;border:none;border-bottom:1.5px solid transparent;color:var(--ink-3);
+  font:inherit;font-size:var(--t-sm);padding:0 0 13px;cursor:pointer;margin-bottom:-1px;transition:.14s}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:550}
+:where(a,button,input,select,[tabindex]):focus-visible{outline:2px solid var(--info);outline-offset:3px;border-radius:4px}
+
+.app{margin:26px auto 0;border:1px solid var(--line);border-radius:14px;background:var(--surface);
+  display:grid;grid-template-columns:252px 1fr;min-height:640px;overflow:hidden}
+@media(max-width:900px){.app{grid-template-columns:1fr}.rail{display:none}}
+
+/* ── THE RAIL: yours. Label over hint, two lines, no icons. ──────────────── */
+.rail{background:var(--sunken);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.brand{padding:20px 20px 18px;display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.brand-name{font-size:17px;font-weight:600;letter-spacing:-.015em;line-height:1.2}
+.brand-sub{font-size:var(--t-xs);color:var(--ink-3);line-height:1.35;max-width:14ch}
+.nav{padding:0 10px;display:flex;flex-direction:column;gap:1px}
+.nav-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:8px;
+  padding:9px 11px;font:inherit;cursor:pointer;transition:.14s}
+.nav-label{display:block;font-size:var(--t-sm);color:var(--ink-2);font-weight:450;line-height:1.35}
+.nav-hint{display:block;font-size:var(--t-xs);color:var(--ink-3);line-height:1.35;margin-top:1px}
+.nav-item:hover{background:var(--raised)}
+.nav-item:hover .nav-label{color:var(--ink)}
+/* One signal, not three: a filled ground and the accent on the label. The
+   shipped version differed from its neighbours by a 3% lighter background. */
+.nav-item[aria-current="page"]{background:var(--raised)}
+.nav-item[aria-current="page"] .nav-label{color:var(--accent);font-weight:600}
+.nav-item[aria-current="page"] .nav-hint{color:var(--ink-2)}
+
+.rail-foot{margin-top:auto;padding:18px 20px;display:flex;flex-direction:column;gap:11px;border-top:1px solid var(--line)}
+.identity{font-size:var(--t-xs);color:var(--ink-3);line-height:1.45}
+.status-row{display:flex;align-items:center;gap:9px;font-size:var(--t-sm);color:var(--ink-2)}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.dot.ok{background:var(--accent)}
+.dot.warn{background:var(--warn)}
+.model{font-family:var(--mono);font-size:var(--t-xs);color:var(--ink-3)}
+
+.main{padding:28px 30px 34px;overflow:auto}
+.view-head{margin-bottom:24px;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.view-head h2{margin:0 0 4px;font-size:var(--t-lg);font-weight:600;letter-spacing:-.02em}
+.view-head p{margin:0;color:var(--ink-2);font-size:var(--t-sm);max-width:64ch}
+.refreshed{font-size:var(--t-xs);color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ── DASHBOARD ──────────────────────────────────────────────────────────── */
+
+/* Four figures lead. These are the ones a reader looks at first, so they get
+   the size — and nothing else on the page competes at this scale. */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:0;
+  border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:20px}
+.kpi{padding:16px 18px 15px;border-right:1px solid var(--line)}
+.kpi:last-child{border-right:none}
+@media(max-width:760px){.kpi{border-right:none;border-bottom:1px solid var(--line)}
+  .kpi:last-child{border-bottom:none}}
+.kpi dt{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);font-weight:600;margin-bottom:7px}
+.kpi .figure{font-family:var(--mono);font-size:31px;line-height:1;font-variant-numeric:tabular-nums;
+  letter-spacing:-.02em;display:flex;align-items:baseline;gap:4px}
+.kpi .unit{font-size:14px;color:var(--ink-3);font-weight:400}
+.kpi .sub{font-size:var(--t-xs);color:var(--ink-3);margin-top:8px;line-height:1.45}
+/* Semantic state is carried by the figure, not by a coloured box around it. */
+.kpi.attention .figure{color:var(--warn)}
+.kpi.good .figure{color:var(--accent)}
+/* A percentage gets a bar. 94% of 7,656 means more when the 6% is visible. */
+.meter{height:3px;border-radius:99px;background:var(--line);margin-top:9px;overflow:hidden}
+.meter span{display:block;height:100%;border-radius:99px;background:var(--accent)}
+
+/* Attention items say what to do, and never show an internal code. */
+.alerts{display:flex;flex-direction:column;gap:1px;margin-bottom:26px}
+.alert{display:flex;gap:12px;align-items:flex-start;padding:11px 14px;border-radius:9px;
+  font-size:var(--t-sm);background:var(--raised);border-left:2.5px solid var(--warn)}
+.alert.info{border-left-color:var(--info)}
+.alert b{color:var(--ink);font-weight:600}
+.alert p{margin:2px 0 0;color:var(--ink-2)}
+.alert .act{margin-left:auto;flex:none}
+
+.sec{margin-bottom:28px}
+.sec-head{margin-bottom:12px}
+.sec-head h3{margin:0 0 3px;font-size:var(--t-md);font-weight:600;letter-spacing:-.012em}
+.sec-head p{margin:0;font-size:var(--t-sm);color:var(--ink-2);max-width:70ch}
+
+/* Supporting metrics are a read-down list, not sixteen boxes. Aligned
+   figures compare down the column; sixteen bordered cards do not. */
+.metrics{border-top:1px solid var(--line)}
+.metric{display:grid;grid-template-columns:1fr auto;gap:2px 20px;align-items:baseline;
+  padding:10px 2px;border-bottom:1px solid var(--line)}
+.metric dt{font-size:var(--t-sm);color:var(--ink-2)}
+.metric dd{margin:0;font-family:var(--mono);font-size:var(--t-md);font-variant-numeric:tabular-nums;
+  text-align:right;white-space:nowrap}
+.metric dd .unit{font-size:var(--t-xs);color:var(--ink-3);margin-left:3px}
+.metric .note{grid-column:1;font-size:var(--t-xs);color:var(--ink-3);line-height:1.4}
+.metric dd.zero{color:var(--ink-3)}
+.metric dd.hi{color:var(--accent)}
+
+/* ── shared components ──────────────────────────────────────────────────── */
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:20px}
+.search{position:relative;flex:1 1 240px;min-width:200px}
+.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--ink-3)}
+.search input{width:100%;background:var(--ground);border:1px solid var(--line);border-radius:8px;
+  padding:9px 13px 9px 34px;color:var(--ink);font:inherit;font-size:var(--t-sm)}
+.search input::placeholder{color:var(--ink-3)}
+.search input:focus{border-color:var(--line-strong);outline:none}
+.count{font-size:var(--t-sm);color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.rows{border-top:1px solid var(--line)}
+.row{padding:17px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr auto;gap:9px 20px;align-items:start}
+.row-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+.row-name{font-weight:600;font-size:var(--t-md);letter-spacing:-.008em}
+.pill{font-size:var(--t-xs);font-weight:500;padding:2px 8px;border-radius:5px;line-height:1.55;white-space:nowrap}
+.pill.ok{color:var(--accent);background:var(--accent-dim)}
+.pill.warn{color:var(--warn);background:var(--warn-dim)}
+.pill.ocr{color:var(--info);background:var(--info-dim)}
+
+.facts{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:0 30px;margin:2px 0 0;padding:0}
+.fact dt{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:0 0 2px;font-weight:500}
+.fact dd{margin:0;font-family:var(--mono);font-size:var(--t-sm);font-variant-numeric:tabular-nums;color:var(--ink-2)}
+
+.btn-row{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.btn{appearance:none;font:inherit;font-size:var(--t-sm);font-weight:450;padding:6px 12px;border-radius:7px;
+  cursor:pointer;border:1px solid transparent;background:none;color:var(--ink-2);white-space:nowrap;
+  transition:.14s;display:inline-flex;align-items:center;gap:7px}
+.btn svg{width:14px;height:14px}
+.btn:hover{background:var(--raised);color:var(--ink)}
+.btn.outline{border-color:var(--line-strong)}
+.btn.outline:hover{border-color:var(--ink-3)}
+.btn.primary{background:var(--accent);color:var(--on-accent);font-weight:600;border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.danger:hover{color:var(--danger);background:var(--danger-dim)}
+
+.notice{grid-column:1/-1;display:block;font-size:var(--t-sm);color:var(--ink-2);padding:0 0 0 13px;
+  margin:6px 0 0;max-width:74ch;border-left:2px solid var(--warn)}
+.notice b{color:var(--ink);font-weight:600}
+.notice.info{border-left-color:var(--info)}
+.notice.good{border-left-color:var(--accent)}
+.link{color:var(--info);text-decoration:none;border-bottom:1px solid currentColor;background:none;
+  border-width:0 0 1px;font:inherit;font-size:inherit;padding:0;cursor:pointer}
+.link:hover{color:var(--ink)}
+.term{border-bottom:1px dotted var(--ink-3);cursor:help}
+
+.chat{display:grid;grid-template-columns:224px 1fr;gap:30px}
+@media(max-width:960px){.chat{grid-template-columns:1fr}}
+.convo-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.convo-head h3{margin:0;font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);font-weight:600}
+.convo{padding:9px 11px;border-radius:7px;cursor:pointer;background:none;border:none;text-align:left;
+  width:100%;font:inherit;display:block;transition:.14s}
+.convo:hover{background:var(--raised)}
+.convo[aria-current="true"]{background:var(--raised)}
+.convo[aria-current="true"] .convo-q{color:var(--accent)}
+.convo-q{font-size:var(--t-sm);color:var(--ink);display:block;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;font-weight:450}
+.convo-meta{font-size:var(--t-xs);color:var(--ink-3);font-variant-numeric:tabular-nums}
+.repeat{font-family:var(--mono);font-size:10px;color:var(--ink-3);border:1px solid var(--line-strong);
+  border-radius:4px;padding:0 4px;margin-left:6px}
+
+.block{padding:0 0 26px;margin-bottom:26px;border-bottom:1px solid var(--line)}
+.block:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.answer-q{font-size:var(--t-sm);color:var(--ink-3);margin:0 0 14px}
+.quote{font-family:var(--serif);font-size:17px;line-height:1.7;max-width:58ch;margin:0 0 16px;
+  padding-left:18px;border-left:2px solid var(--accent);color:var(--ink);hyphens:none}
+.cite{display:inline-flex;align-items:baseline;gap:5px;font-family:var(--mono);font-size:var(--t-xs);
+  color:var(--info);background:var(--info-dim);border-radius:5px;padding:3px 8px;text-decoration:none;
+  cursor:pointer;font-variant-numeric:tabular-nums;white-space:nowrap;transition:.14s}
+.cite:hover{color:var(--ink);filter:brightness(1.3)}
+
+.prog-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-bottom:12px;flex-wrap:wrap}
+.prog-stage{font-size:var(--t-sm);font-weight:600}
+.prog-time{font-family:var(--mono);font-size:var(--t-sm);color:var(--ink-3);font-variant-numeric:tabular-nums}
+.prog-track{height:3px;border-radius:99px;background:var(--line);overflow:hidden}
+.prog-fill{height:100%;width:62%;background:var(--accent);border-radius:99px}
+.prog-steps{display:flex;flex-wrap:wrap;gap:6px 20px;margin:14px 0 0;padding:0;list-style:none;font-size:var(--t-xs)}
+.prog-steps li{color:var(--ink-3);display:flex;align-items:center;gap:6px}
+.prog-steps li[data-state="done"]{color:var(--accent)}
+.prog-steps li[data-state="active"]{color:var(--ink);font-weight:600}
+
+.modes{display:flex;gap:24px;margin-bottom:20px;border-bottom:1px solid var(--line)}
+.mode{font:inherit;font-size:var(--t-sm);padding:0 0 11px;border:none;border-bottom:1.5px solid transparent;
+  background:none;color:var(--ink-3);cursor:pointer;transition:.14s;margin-bottom:-1px}
+.mode:hover{color:var(--ink)}
+.mode[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+.ask{display:flex;gap:10px;margin-bottom:26px;flex-wrap:wrap}
+.ask input{flex:1 1 280px;background:var(--ground);border:1px solid var(--line);border-radius:8px;
+  padding:10px 14px;color:var(--ink);font:inherit;font-size:var(--t-sm)}
+.ask input:focus{border-color:var(--line-strong);outline:none}
+.sec-label{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);margin:0 0 12px;font-weight:600}
+
+.scroll-x{overflow-x:auto}
+table.claims{width:100%;border-collapse:collapse;font-size:var(--t-sm);min-width:520px}
+table.claims th{text-align:left;font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.08em;
+  color:var(--ink-3);font-weight:600;padding:0 20px 10px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+table.claims td{padding:12px 20px 12px 0;border-bottom:1px solid var(--line);vertical-align:baseline;white-space:nowrap}
+table.claims tr:last-child td{border-bottom:none}
+table.claims td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.src{font-family:var(--mono);font-size:var(--t-xs);color:var(--ink-2)}
+.verdict{font-weight:600;white-space:nowrap}
+.verdict.agree{color:var(--accent)}
+.verdict.unresolved{color:var(--ink-3)}
+.rec{border-left:2px solid var(--info);padding:0 0 0 18px;max-width:64ch}
+.conf{display:inline-block;font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.08em;
+  color:var(--ink-3);margin-top:10px;font-weight:600}
+.empty{color:var(--ink-2);font-size:var(--t-sm);max-width:58ch;margin:0;padding-left:13px;border-left:2px solid var(--line-strong)}
+.empty b{color:var(--ink);font-weight:600;display:block;margin-bottom:2px}
+
+.notes{margin:44px auto 0;border-top:1px solid var(--line);padding-top:26px}
+.notes summary{cursor:pointer;font-size:var(--t-md);font-weight:600;letter-spacing:-.015em;list-style:none;
+  display:flex;align-items:center;gap:9px;color:var(--ink)}
+.notes summary::-webkit-details-marker{display:none}
+.notes summary::before{content:"›";color:var(--ink-3);font-size:19px;line-height:1;transition:.16s;display:inline-block}
+.notes[open] summary::before{transform:rotate(90deg)}
+.notes summary span{color:var(--ink-3);font-weight:400;font-size:var(--t-sm)}
+.fixes{margin-top:20px}
+.fix{padding:15px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:220px 1fr;gap:5px 24px}
+.fix:last-child{border-bottom:none}
+@media(max-width:700px){.fix{grid-template-columns:1fr}}
+.fix h3{margin:0;font-size:var(--t-sm);font-weight:600}
+.fix p{margin:0;font-size:var(--t-sm);color:var(--ink-2)}
+code{font-family:var(--mono);font-size:var(--t-xs);color:var(--ink);background:var(--raised);padding:1.5px 5px;border-radius:4px}
+.foot{color:var(--ink-3);font-size:var(--t-sm);max-width:70ch;margin:26px auto 70px}
+
+[hidden]{display:none!important}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="page-head">
+    <div>
+      <h1>Nabaa Interface Redesign</h1>
+      <p>Your sidebar, unchanged — label over hint, six items, identity at the foot. Everything to the right of it: the blue taken out of the ground, one hierarchy instead of sixteen equal boxes, and no internal codes on screen.</p>
+    </div>
+    <button class="theme-btn" id="themeBtn" type="button">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></svg>
+      <span id="themeLabel">Switch to light</span>
+    </button>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="Screens">
+    <button class="tab" role="tab" aria-selected="true" aria-controls="p-dash" id="t-dash">Dashboard</button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="p-docs" id="t-docs">Documents</button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="p-chat" id="t-chat">Chat</button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="p-analysis" id="t-analysis">Analysis</button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="p-reports" id="t-reports">Reports</button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ DASHBOARD -->
+  <div class="app" role="tabpanel" id="p-dash" aria-labelledby="t-dash">
+    <aside class="rail" data-rail></aside>
+    <main class="main">
+      <div class="view-head">
+        <div>
+          <h2>System</h2>
+          <p>Every value is measured. Anything unmeasured says so rather than showing a zero.</p>
+        </div>
+        <span class="refreshed">refreshed 12:27:21 · every 15s</span>
+      </div>
+
+      <dl class="kpis">
+        <div class="kpi">
+          <dt>Searchable</dt>
+          <div class="figure">94<span class="unit">%</span></div>
+          <div class="meter"><span style="width:94%"></span></div>
+          <p class="sub">7,187 of 7,656 passages can be found by a question.</p>
+        </div>
+        <div class="kpi good">
+          <dt>Typical answer</dt>
+          <div class="figure">1.9<span class="unit">s</span></div>
+          <p class="sub">Half arrive faster. The slowest in twenty takes 4.7&nbsp;s. From 921 real questions, not a benchmark.</p>
+        </div>
+        <div class="kpi">
+          <dt>Documents</dt>
+          <div class="figure">12</div>
+          <p class="sub">3,717 pages read. All 12 ready.</p>
+        </div>
+        <div class="kpi attention">
+          <dt>Needs attention</dt>
+          <div class="figure">2</div>
+          <p class="sub">Both listed below, with what to do about each.</p>
+        </div>
+      </dl>
+
+      <div class="alerts">
+        <div class="alert">
+          <div>
+            <b>7 scanned pages have not been read yet.</b>
+            <p>Recognition has not run on them, so questions cannot reach them.</p>
+          </div>
+          <button class="btn outline act">Run recognition</button>
+        </div>
+        <div class="alert info">
+          <div>
+            <b>12 pages are equation-heavy.</b>
+            <p>The mathematics did not survive text extraction. The rendered page image is the mitigation — the answer shows the picture instead of the text.</p>
+          </div>
+          <button class="btn outline act">See the pages</button>
+        </div>
+      </div>
+
+      <section class="sec">
+        <div class="sec-head">
+          <h3>Corpus</h3>
+          <p>A passage is a block of text a question can match. Searchable is what a question can actually reach; the rest are kept so you can inspect them.</p>
+        </div>
+        <dl class="metrics">
+          <div class="metric"><dt>Pages extracted</dt><dd>3,717</dd>
+            <p class="note">All declared pages extracted.</p></div>
+          <div class="metric"><dt>Passages stored</dt><dd>7,656</dd></div>
+          <div class="metric"><dt>Searchable</dt><dd class="hi">7,187</dd></div>
+          <div class="metric"><dt>Excluded</dt><dd>469</dd>
+            <p class="note">Stored but not searchable — contents pages, front matter, unread scans. Listed under Documents › Excluded.</p></div>
+          <div class="metric"><dt>Keyword search ready</dt><dd>7,187</dd></div>
+          <div class="metric"><dt>Meaning search ready</dt><dd>7,187</dd>
+            <p class="note">100% of retrievable passages.</p></div>
+          <div class="metric"><dt>Documents with no searchable content</dt><dd class="zero">none</dd></div>
+        </dl>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head">
+          <h3>Processing speed</h3>
+          <p>Median of timed runs on this machine. A stage never timed long enough to measure reports nothing rather than zero.</p>
+        </div>
+        <dl class="metrics">
+          <div class="metric"><dt>Extraction</dt><dd>65.5<span class="unit">pages/s</span></dd>
+            <p class="note">Median of 11 runs · best 258.4</p></div>
+          <div class="metric"><dt>Chunking</dt><dd>191.6<span class="unit">chunks/s</span></dd>
+            <p class="note">Median of 15 runs · best 590.9</p></div>
+          <div class="metric"><dt>Keyword index</dt><dd>3,531<span class="unit">chunks/s</span></dd>
+            <p class="note">Median of 24 runs · best 25,271</p></div>
+          <div class="metric"><dt>Embedding</dt><dd>9.2<span class="unit">chunks/s</span></dd>
+            <p class="note">Median of 427 runs · best 19.2. The slowest stage, and the one that sets ingestion time.</p></div>
+        </dl>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head">
+          <h3>Retrieval latency</h3>
+          <p>From questions actually asked on this machine, not a synthetic benchmark. The quoted answer needs no model; the Explain button does.</p>
+        </div>
+        <dl class="metrics">
+          <div class="metric"><dt>Median</dt><dd>1,874<span class="unit">ms</span></dd></div>
+          <div class="metric"><dt>95th percentile</dt><dd>4,721<span class="unit">ms</span></dd>
+            <p class="note">One question in twenty is slower than this.</p></div>
+          <div class="metric"><dt>Worst</dt><dd>38,637<span class="unit">ms</span></dd>
+            <p class="note">A single outlier, kept visible rather than trimmed away.</p></div>
+          <div class="metric"><dt>Questions measured</dt><dd>921</dd></div>
+        </dl>
+      </section>
+    </main>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ DOCUMENTS -->
+  <div class="app" role="tabpanel" id="p-docs" aria-labelledby="t-docs" hidden>
+    <aside class="rail" data-rail></aside>
+    <main class="main">
+      <div class="view-head"><div>
+        <h2>Documents</h2>
+        <p>Upload, inspect, and verify what the system can actually search.</p>
+      </div></div>
+
+      <div class="toolbar">
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" placeholder="Filter by name, or search inside the documents…" aria-label="Filter documents">
+        </div>
+        <span class="count">12 documents · 7,656 passages</span>
+        <button class="btn primary">Add PDFs</button>
+      </div>
+
+      <div class="rows">
+        <div class="row">
+          <div class="row-title"><span class="row-name">NORSOKM501Rev5.pdf</span><span class="pill ok">Ready</span><span class="pill warn">1 page excluded</span></div>
+          <div class="btn-row"><button class="btn outline">Passages</button><button class="btn">Pages</button><button class="btn">Excluded</button><button class="btn danger">Delete</button></div>
+          <dl class="facts">
+            <div class="fact"><dt>Pages</dt><dd>44</dd></div>
+            <div class="fact"><dt>Searchable</dt><dd>75 / 76</dd></div>
+            <div class="fact"><dt>Embedded</dt><dd>75</dd></div>
+            <div class="fact"><dt>Keyword index</dt><dd>ready</dd></div>
+            <div class="fact"><dt>Finished</dt><dd>13:53:30</dd></div>
+          </dl>
+          <p class="notice"><b>4,310 characters are not searchable.</b> Front matter and contents pages are skipped on purpose. Anything else is worth a look. <button class="link">See which pages, and why</button></p>
+        </div>
+
+        <div class="row">
+          <div class="row-title"><span class="row-name">doc16.pdf</span><span class="pill ok">Ready</span><span class="pill ocr">1 page read by OCR</span></div>
+          <div class="btn-row"><button class="btn outline">Passages</button><button class="btn">Pages</button><button class="btn">Excluded</button><button class="btn danger">Delete</button></div>
+          <dl class="facts">
+            <div class="fact"><dt>Pages</dt><dd>49</dd></div>
+            <div class="fact"><dt>Searchable</dt><dd>94 / 96</dd></div>
+            <div class="fact"><dt>Embedded</dt><dd>94</dd></div>
+            <div class="fact"><dt>Keyword index</dt><dd>ready</dd></div>
+            <div class="fact"><dt>Finished</dt><dd>13:53:57</dd></div>
+          </dl>
+          <p class="notice info"><b>Page 31 was a scan, so it was read with <span class="term" title="Optical Character Recognition — reading text out of a picture of a page">recognition</span>.</b> Text from a scan can contain reading errors; the original page image is one click away. <button class="link">Compare with the page</button></p>
+        </div>
+
+        <div class="row">
+          <div class="row-title"><span class="row-name">doc15.pdf</span><span class="pill ok">Ready</span></div>
+          <div class="btn-row"><button class="btn outline">Passages</button><button class="btn">Pages</button><button class="btn">Excluded</button><button class="btn danger">Delete</button></div>
+          <dl class="facts">
+            <div class="fact"><dt>Pages</dt><dd>61</dd></div>
+            <div class="fact"><dt>Searchable</dt><dd>118 / 118</dd></div>
+            <div class="fact"><dt>Embedded</dt><dd>118</dd></div>
+            <div class="fact"><dt>Keyword index</dt><dd>ready</dd></div>
+            <div class="fact"><dt>Finished</dt><dd>13:54:22</dd></div>
+          </dl>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ CHAT -->
+  <div class="app" role="tabpanel" id="p-chat" aria-labelledby="t-chat" hidden>
+    <aside class="rail" data-rail></aside>
+    <main class="main">
+      <div class="chat">
+        <div>
+          <div class="convo-head"><h3>Conversations</h3><button class="btn outline">New</button></div>
+          <button class="convo" aria-current="true">
+            <span class="convo-q">What is the NDFT for coating system 1?</span>
+            <span class="convo-meta">4 messages · just now</span>
+          </button>
+          <button class="convo">
+            <span class="convo-q">What does NDFT stand for<span class="repeat">×7</span></span>
+            <span class="convo-meta">32 messages · 2h ago</span>
+          </button>
+          <button class="convo">
+            <span class="convo-q">When was runaway reaction identified?</span>
+            <span class="convo-meta">9 messages · 3h ago</span>
+          </button>
+          <button class="convo">
+            <span class="convo-q">What coating systems are specified?</span>
+            <span class="convo-meta">6 messages · 5h ago</span>
+          </button>
+        </div>
+
+        <div>
+          <div class="block">
+            <p class="answer-q">What is the <span class="term" title="Nominal Dry Film Thickness — how thick the coating must be once it has cured">NDFT</span> for coating system 1?</p>
+            <blockquote class="quote">Minimum coating thickness for structural items and outfitting steel shall be 125 µm and 900 g/m². Structural items shall be blast cleaned before hot-dip galvanising.</blockquote>
+            <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
+              <a class="cite" title="Open page 9">NORSOKM501Rev5.pdf · p.9</a>
+              <a class="cite" title="Open page 17">NORSOKM501Rev5.pdf · p.17</a>
+              <button class="btn outline" style="margin-left:auto">Save as report</button>
+            </div>
+            <p class="notice info"><b>One credible passage was not used.</b> Page 20 scored above the cut but was dropped at the shortlist limit. <button class="link">Show it</button></p>
+          </div>
+
+          <div class="block">
+            <div class="prog-head">
+              <span class="prog-stage">Writing the answer</span>
+              <span class="prog-time">47s · usually 60–90s</span>
+            </div>
+            <div class="prog-track"><div class="prog-fill"></div></div>
+            <ul class="prog-steps">
+              <li data-state="done">✓ Searched 12 documents</li>
+              <li data-state="done">✓ Ranked 16 of 53 candidates</li>
+              <li data-state="done">✓ Read 3 passages</li>
+              <li data-state="active">Writing the answer · 2 sources</li>
+            </ul>
+            <p class="notice good" style="margin-top:14px"><b>This is running on your machine.</b> A 15&nbsp;W laptop processor, no graphics card, and nothing leaving the building. That is why it takes a minute rather than a second.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════ ANALYSIS -->
+  <div class="app" role="tabpanel" id="p-analysis" aria-labelledby="t-analysis" hidden>
+    <aside class="rail" data-rail></aside>
+    <main class="main">
+      <div class="view-head"><div>
+        <h2>Analysis</h2>
+        <p>A summary, an advisory recommendation, and a mechanical comparison of what the documents claim. Every sentence carries the document and page it came from; anything that does not is removed before you see it.</p>
+      </div></div>
+
+      <div class="modes">
+        <button class="mode" aria-pressed="true">Summary</button>
+        <button class="mode" aria-pressed="false">Recommendation</button>
+        <button class="mode" aria-pressed="false">Gap analysis</button>
+      </div>
+
+      <div class="ask">
+        <input value="What coating thickness is required, and what does each document say?" readonly aria-label="Question">
+        <button class="btn primary">Analyse</button>
+      </div>
+
+      <div class="block">
+        <p class="sec-label">Summary</p>
+        <p style="margin:0 0 12px;max-width:64ch">Minimum coating thickness for structural items is 125&nbsp;µm. <a class="cite">NORSOK M-501 · p.9</a></p>
+        <p style="margin:0 0 12px;max-width:64ch">Specialised systems for exposed areas require more than 1000&nbsp;µm, subject to pre-qualification. <a class="cite">NORSOK M-501 · p.17</a></p>
+        <p style="margin:0;max-width:64ch">Surface preparation is given as <span class="term" title="A blast-cleaning grade: near-white metal, ISO 8501-1">Sa 2½</span>. <a class="cite">NORSOK M-501 · p.8</a></p>
+      </div>
+
+      <div class="block">
+        <p class="sec-label">Coating thickness — what each document says</p>
+        <div class="scroll-x">
+          <table class="claims">
+            <thead><tr><th>Source</th><th>What it says</th><th>Converted</th><th>Verdict</th></tr></thead>
+            <tbody>
+              <tr><td class="src">M-501 · p.9</td><td class="num">125 µm</td><td class="num">125</td>
+                <td class="verdict agree" rowspan="2">Agreement</td></tr>
+              <tr><td class="src">M-501 · p.17</td><td class="num">&gt; 1000 µm</td><td class="num">&gt; 1000</td></tr>
+              <tr><td class="src">doc13 · p.81</td><td class="num">R-value</td><td class="num">—</td>
+                <td class="verdict unresolved">Different subject</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="notice" style="margin-top:16px"><b>Different subject is not a conflict.</b> Page 9 is structural steel; page 17 is specialised systems for exposed areas. doc13 is building insulation. Documents describing different things cannot disagree.</p>
+      </div>
+
+      <div class="block">
+        <p class="sec-label">Recommendation</p>
+        <div class="rec">
+          <p style="margin:0">Specify 125&nbsp;µm as the structural minimum, and treat the 1000&nbsp;µm figure as applying only to pre-qualified specialised systems in exposed areas. <a class="cite">M-501 · p.9</a> <a class="cite">M-501 · p.17</a></p>
+          <span class="conf">Confidence: medium · advisory only</span>
+        </div>
+        <p class="notice" style="margin-top:16px"><b>Coverage is not complete.</b> 2 of 12 documents were searched for this question. The documents carry no revision or approval status, so which supersedes the other cannot be determined here.</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ REPORTS -->
+  <div class="app" role="tabpanel" id="p-reports" aria-labelledby="t-reports" hidden>
+    <aside class="rail" data-rail></aside>
+    <main class="main">
+      <div class="view-head"><div>
+        <h2>Reports</h2>
+        <p>Every report is one question, the quoted evidence, and the documents it came from — frozen at the moment it was generated.</p>
+      </div></div>
+
+      <div class="rows">
+        <div class="row">
+          <div class="row-title"><span class="row-name">Coating thickness for structural steel</span><span class="pill ok">Verified</span></div>
+          <div class="btn-row"><button class="btn primary">Download PDF</button><button class="btn">Verify</button></div>
+          <dl class="facts">
+            <div class="fact"><dt>Generated</dt><dd>18:12:04</dd></div>
+            <div class="fact"><dt>Documents cited</dt><dd>2</dd></div>
+            <div class="fact"><dt>Passages</dt><dd>3</dd></div>
+            <div class="fact"><dt>Size</dt><dd>184 KB</dd></div>
+          </dl>
+        </div>
+
+        <div class="row">
+          <div class="row-title"><span class="row-name">Surface preparation grade, offshore</span><span class="pill warn">Documents have changed</span></div>
+          <div class="btn-row"><button class="btn primary">Download PDF</button><button class="btn">Verify</button></div>
+          <dl class="facts">
+            <div class="fact"><dt>Generated</dt><dd>16:40:51</dd></div>
+            <div class="fact"><dt>Documents cited</dt><dd>1</dd></div>
+            <div class="fact"><dt>Passages</dt><dd>2</dd></div>
+            <div class="fact"><dt>Size</dt><dd>121 KB</dd></div>
+          </dl>
+          <p class="notice"><b>A document cited here has been re-uploaded since this report was made.</b> The PDF still shows the evidence as it stood — it has not silently changed underneath you. <button class="link">Compare with the current version</button></p>
+        </div>
+
+        <div class="row">
+          <div class="row-title"><span class="row-name">Zinc primer cure temperature</span><span class="pill ok">Verified</span></div>
+          <div class="btn-row"><button class="btn primary">Download PDF</button><button class="btn">Verify</button></div>
+          <dl class="facts">
+            <div class="fact"><dt>Generated</dt><dd>14:07:33</dd></div>
+            <div class="fact"><dt>Documents cited</dt><dd>1</dd></div>
+            <div class="fact"><dt>Passages</dt><dd>1</dd></div>
+            <div class="fact"><dt>Size</dt><dd>96 KB</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <p class="sec-label" style="margin-top:26px">Hidden from you</p>
+      <p class="empty"><b>2 reports are not shown here.</b> They quote documents you do not have access to. You can see that something is hidden without seeing what it is.</p>
+    </main>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ CHANGELOG -->
+  <details class="notes">
+    <summary>What changed, and why <span>— eleven fixes, none to the sidebar</span></summary>
+    <div class="fixes">
+      <div class="fix"><h3>The sidebar is untouched</h3>
+        <p>Label over a one-line hint, six items, identity and connection at the foot. My icon version threw the hints away for scannability nobody asked for. The only change is the active item: the accent on its label, instead of a background 3% lighter than its neighbours.</p></div>
+      <div class="fix"><h3>The blue is gone</h3>
+        <p>The ground was <code>#070b10</code> — a blue-black. A hue in the ground tints every neutral above it and reads cold. This is <code>#0B0C0E</code>, a true neutral charcoal, so the accent is the only chroma on the page.</p></div>
+      <div class="fix"><h3>Four figures lead, not sixteen</h3>
+        <p>The dashboard gave a headline figure and a supporting detail the same box, border and weight. Now four lead at 31px; the other fifteen become a read-down list where the numbers align and can be compared.</p></div>
+      <div class="fix"><h3>Internal codes off the screen</h3>
+        <p><code>NEEDS_OCR</code> and <code>EQUATION_PAGES</code> are identifiers for your database, not words for a client. Each alert now says what happened and carries the action that fixes it.</p></div>
+      <div class="fix"><h3>Text that clears AAA</h3>
+        <p>Secondary text was <code>#7d90a4</code> — <strong>4.1:1</strong>, below the accessibility floor for its size. Now <strong>16.4:1</strong> primary, <strong>9.4:1</strong> secondary, <strong>5.3:1</strong> tertiary.</p></div>
+      <div class="fix"><h3>A percentage gets a bar</h3>
+        <p>"94%" is a number. 94% with the remaining 6% drawn beside it is a fact about your corpus you can see at a glance.</p></div>
+      <div class="fix"><h3>Semantic colour, used once</h3>
+        <p>"Needs attention: 2" carries amber on the figure itself — not a coloured box around it. One signal per state, so colour still means something when it appears.</p></div>
+      <div class="fix"><h3>A typeface with a point of view</h3>
+        <p>IBM Plex — Sans for interface, Serif for quoted passages, Mono for every figure, with tabular numerals so columns line up. Open licence, self-hostable: ship the woff2 files and the zero-outbound-request guarantee holds.</p></div>
+      <div class="fix"><h3>Content has a measure</h3>
+        <p>Text ran the full width of a 1900px monitor. Body caps at 64 characters, quotations at 58.</p></div>
+      <div class="fix"><h3>The 75-second wait explains itself</h3>
+        <p>Four named stages, a real elapsed count, a typical range, and one line saying <em>why</em> it is slow. Every stage is reported by the backend when it happens — none is guessed from a clock.</p></div>
+      <div class="fix"><h3>Plain language throughout</h3>
+        <p>"Evidence drift" became "Documents have changed". "OCR" became "recognition", with the acronym on hover. Names things the way the reader would.</p></div>
+    </div>
+  </details>
+
+  <p class="foot">Every colour is a token, defined once and redefined for light. Nothing is hard-coded into a component, so changing the accent is one line rather than a search across forty files.</p>
+</div>
+
+<script>
+  const NAV = [
+    ['Documents','Upload, inspect, verify','t-docs'],
+    ['Chat','Ask questions with citations','t-chat'],
+    ['Analysis','Summary, gaps, advice','t-analysis'],
+    ['Ingestion','Queue and throughput',null],
+    ['Dashboard','System metrics','t-dash'],
+    ['Reports','Frozen evidence, as PDF','t-reports'],
+  ];
+
+  const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+  function select(tab) {
+    tabs.forEach(t => {
+      const on = t === tab;
+      t.setAttribute('aria-selected', String(on));
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+  }
+
+  // One rail definition rendered into every screen. Four hand-maintained
+  // copies of the same markup is how they drift apart.
+  document.querySelectorAll('[data-rail]').forEach(rail => {
+    const panel = rail.closest('[role="tabpanel"]');
+    const activeTab = panel.getAttribute('aria-labelledby');
+    rail.innerHTML =
+      '<div class="brand"><span class="brand-name">Nabaa</span>' +
+      '<span class="brand-sub">private document intelligence</span></div><nav class="nav">' +
+      NAV.map(([label, hint, tabId]) => {
+        const current = tabId === activeTab ? ' aria-current="page"' : '';
+        return '<button class="nav-item"' + current + ' data-tab="' + (tabId || '') + '">' +
+          '<span class="nav-label">' + label + '</span>' +
+          '<span class="nav-hint">' + hint + '</span></button>';
+      }).join('') +
+      '</nav><div class="rail-foot">' +
+      '<p class="identity">Authentication disabled — no user identity</p>' +
+      '<div class="status-row"><span class="dot ok"></span> Connected</div>' +
+      '<span class="model">answer model configured</span></div>';
+  });
+
+  // The sidebar navigates. Ingestion is unchanged by this redesign and is not
+  // mocked, so it says so rather than looking clickable and doing nothing.
+  document.querySelectorAll('.nav-item').forEach(item => {
+    const tabId = item.getAttribute('data-tab');
+    if (tabId) {
+      item.addEventListener('click', () => {
+        select(document.getElementById(tabId));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    } else {
+      item.title = 'Unchanged by this redesign — not mocked up here';
+      item.style.opacity = '.45';
+      item.style.cursor = 'default';
+    }
+  });
+
+  tabs.forEach(t => t.addEventListener('click', () => select(t)));
+  document.addEventListener('keydown', e => {
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    if (e.key === 'ArrowRight') { const n = tabs[(i + 1) % tabs.length]; n.focus(); select(n); }
+    if (e.key === 'ArrowLeft')  { const n = tabs[(i - 1 + tabs.length) % tabs.length]; n.focus(); select(n); }
+  });
+
+  const root = document.documentElement;
+  const label = document.getElementById('themeLabel');
+  const icon = document.getElementById('themeIcon');
+  const MOON = '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+  const SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+  function paint() {
+    const light = root.getAttribute('data-theme') === 'light';
+    label.textContent = light ? 'Switch to dark' : 'Switch to light';
+    icon.innerHTML = light ? MOON : SUN;
+  }
+  document.getElementById('themeBtn').addEventListener('click', () => {
+    root.setAttribute('data-theme', root.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+    paint();
+  });
+  paint();
+</script>

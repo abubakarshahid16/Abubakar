@@ -190,6 +190,82 @@ function Warning({ warning }: { warning: MetricWarning }) {
   );
 }
 
+function ReadinessPanel({ metrics }: { metrics: Metrics }) {
+  const documentsReady = metrics.corpus.documents > 0 && metrics.corpus.chunks_retrievable > 0;
+  const localModelsReady =
+    metrics.models.embed_model_present &&
+    metrics.models.reranker_present &&
+    metrics.models.answer_model_reachable;
+  const workerReady = metrics.worker.alive && !(metrics.worker.stalled && metrics.worker.current_document == null);
+  const gates = [
+    {
+      label: "Private corpus",
+      ok: documentsReady,
+      detail: documentsReady
+        ? `${nf.format(metrics.corpus.documents)} document(s), ${nf.format(metrics.corpus.chunks_retrievable)} searchable passages`
+        : "upload and index at least one searchable PDF",
+    },
+    {
+      label: "Local models",
+      ok: localModelsReady,
+      detail: localModelsReady
+        ? "embedding, reranker and answer model are available"
+        : "one or more configured models is missing or unreachable",
+    },
+    {
+      label: "Worker",
+      ok: workerReady,
+      detail: workerReady ? "queue is available" : "queue needs attention before a demo run",
+    },
+    {
+      label: "Public market",
+      ok: true,
+      detail: "sample/offline rows only unless a governed provider is enabled",
+      tone: "warn" as const,
+    },
+    {
+      label: "Full Section 8 report",
+      ok: false,
+      detail: "current PDFs are single-answer evidence reports; full analysis PDF is not proven",
+      tone: "warn" as const,
+    },
+  ];
+
+  return (
+    <section className="mt-4 rounded-lg border border-ink-700 bg-ink-850 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slateish-200">Sunday readiness</h2>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slateish-400">
+            This panel follows the execution document: measured local capability is separated
+            from fallback or unfinished gates.
+          </p>
+        </div>
+        <span className="rounded border border-warn-500/40 bg-warn-500/10 px-2 py-1 font-mono text-[11px] text-warn-500">
+          POC, not production
+        </span>
+      </div>
+      <ul className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+        {gates.map((g) => {
+          const tone = g.tone ?? (g.ok ? "good" : "danger");
+          const klass =
+            tone === "good"
+              ? "border-signal-500/35 bg-signal-500/10 text-signal-400"
+              : tone === "warn"
+                ? "border-warn-500/35 bg-warn-500/10 text-warn-500"
+                : "border-danger-500/35 bg-danger-500/10 text-danger-500";
+          return (
+            <li key={g.label} className={`rounded border px-3 py-2 ${klass}`}>
+              <p className="text-xs font-semibold">{g.label}</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-slateish-400">{g.detail}</p>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function Throughput({ stage, data }: { stage: string; data: StageThroughput | null }) {
   const label = STAGE_LABELS[stage] ?? stage;
   if (!data) {
@@ -279,6 +355,8 @@ export function DashboardView({
           {metrics.refresh_seconds}s
         </p>
       </div>
+
+      <ReadinessPanel metrics={metrics} />
 
       {/* ---------------------------------------------- the four answers */}
       <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">

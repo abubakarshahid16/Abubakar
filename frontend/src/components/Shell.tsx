@@ -1,5 +1,5 @@
 /**
- * Application shell: sidebar, four views, and the connection banner.
+ * Application shell: sidebar, Sunday POC navigation, and the connection banner.
  *
  * Documents, Chat and Dashboard are built. Ingestion is listed but visibly
  * marked, so the navigation never implies capability that does not exist.
@@ -16,6 +16,8 @@ export type ViewId =
   | "dashboard"
   | "reports";
 
+export type ThemeMode = "dark" | "light";
+
 interface NavItem {
   id: ViewId;
   label: string;
@@ -24,12 +26,12 @@ interface NavItem {
 }
 
 export const NAV: NavItem[] = [
+  { id: "dashboard", label: "Dashboard", hint: "Metrics, models, readiness", built: true },
   { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
   { id: "chat", label: "Chat", hint: "Ask questions with citations", built: true },
   { id: "analysis", label: "Analysis", hint: "Summary, gaps, advice", built: true },
-  { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
-  { id: "dashboard", label: "Dashboard", hint: "System metrics", built: true },
   { id: "reports", label: "Reports", hint: "Frozen evidence, as PDF", built: true },
+  { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
 ];
 
 export type Connection =
@@ -125,6 +127,8 @@ export function Shell({
   onNavigate,
   connection,
   identity,
+  theme,
+  onThemeChange,
   children,
 }: {
   view: ViewId;
@@ -133,6 +137,8 @@ export function Shell({
   /** Who is signed in, or a quiet note that authentication is off. Optional
    *  so every existing test that renders the Shell keeps working unchanged. */
   identity?: React.ReactNode;
+  theme: ThemeMode;
+  onThemeChange: (theme: ThemeMode) => void;
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -148,15 +154,18 @@ export function Shell({
 
       <header className="flex items-center justify-between border-b border-ink-700 px-4 py-3 md:hidden">
         <span className="font-semibold tracking-wide text-slateish-200">Nabaa</span>
-        <button
-          type="button"
-          aria-expanded={menuOpen}
-          aria-controls="sidebar-nav"
-          onClick={() => setMenuOpen((o) => !o)}
-          className="rounded border border-ink-600 px-3 py-1 text-sm text-slateish-300"
-        >
-          {menuOpen ? "Close" : "Menu"}
-        </button>
+        <div className="flex items-center gap-2">
+          <ThemeToggle theme={theme} onChange={onThemeChange} compact />
+          <button
+            type="button"
+            aria-expanded={menuOpen}
+            aria-controls="sidebar-nav"
+            onClick={() => setMenuOpen((o) => !o)}
+            className="rounded border border-ink-600 px-3 py-1 text-sm text-slateish-300"
+          >
+            {menuOpen ? "Close" : "Menu"}
+          </button>
+        </div>
       </header>
 
       <nav
@@ -164,9 +173,19 @@ export function Shell({
         aria-label="Main"
         className={`${menuOpen ? "block" : "hidden"} w-full shrink-0 border-b border-ink-700 bg-ink-850 md:block md:w-64 md:border-b-0 md:border-r`}
       >
-        <div className="hidden items-baseline gap-2 px-5 py-5 md:flex">
-          <span className="text-lg font-semibold tracking-wide text-slateish-200">Nabaa</span>
-          <span className="text-xs text-slateish-400">private document intelligence</span>
+        <div className="hidden px-5 py-5 md:block">
+          <span className="block text-lg font-semibold tracking-wide text-slateish-200">Nabaa</span>
+          <span className="mt-0.5 block text-xs text-slateish-400">
+            enterprise FEED intelligence
+          </span>
+          <div className="mt-3 rounded-md border border-ink-600 bg-ink-800 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+              Sunday POC lane
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slateish-300">
+              Local evidence, scoped access, cited analysis and auditable reports.
+            </p>
+          </div>
         </div>
 
         <ul className="space-y-1 px-3 pb-4">
@@ -223,12 +242,70 @@ export function Shell({
                 : "no answer model configured"}
             </p>
           )}
+          <div className="mt-4">
+            <ThemeToggle theme={theme} onChange={onThemeChange} />
+          </div>
+          <div className="mt-4 space-y-1.5 text-[11px] text-slateish-400">
+            <p className="flex items-center justify-between gap-2">
+              <span>Private boundary</span>
+              <span className="font-mono text-signal-400">local</span>
+            </p>
+            <p className="flex items-center justify-between gap-2">
+              <span>Public market</span>
+              <span className="font-mono text-warn-500">sample only</span>
+            </p>
+            <p className="flex items-center justify-between gap-2">
+              <span>Reports</span>
+              <span className="font-mono text-signal-400">frozen PDF</span>
+            </p>
+          </div>
         </div>
       </nav>
 
       <main id="main" className="min-w-0 flex-1 px-4 py-6 md:px-8">
         {children}
       </main>
+    </div>
+  );
+}
+
+function ThemeToggle({
+  theme,
+  onChange,
+  compact = false,
+}: {
+  theme: ThemeMode;
+  onChange: (theme: ThemeMode) => void;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Theme mode"
+      className={[
+        "inline-grid grid-cols-2 rounded-md border border-ink-600 bg-ink-900 p-0.5",
+        compact ? "text-[11px]" : "w-full text-xs",
+      ].join(" ")}
+    >
+      {(["dark", "light"] as const).map((mode) => {
+        const active = theme === mode;
+        return (
+          <button
+            key={mode}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(mode)}
+            className={[
+              "rounded px-2 py-1 font-medium capitalize transition-colors",
+              active
+                ? "bg-ink-700 text-slateish-100"
+                : "text-slateish-400 hover:bg-ink-800 hover:text-slateish-200",
+            ].join(" ")}
+          >
+            {mode}
+          </button>
+        );
+      })}
     </div>
   );
 }

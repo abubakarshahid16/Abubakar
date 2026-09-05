@@ -128,6 +128,8 @@ describe("ReportsView: document naming", () => {
     const r = makeReport({ not_implemented_sections: ["gap_analysis", "market_summary"] });
     expect(r.not_implemented_sections.length).toBeGreaterThan(0);
     renderView([r]);
-    expect(screen.getByText(/This report does not include: gap_analysis, market_summary\./)).toBeInTheDocument();
+    expect(screen.getByText(/Outside this report/)).toBeInTheDocument();
+    expect(screen.getByText(/This single-answer PDF does not include:/)).toBeInTheDocument();
+    expect(screen.getByText(/gap_analysis, market_summary/)).toBeInTheDocument();
   });
 });

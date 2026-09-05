@@ -292,7 +292,6 @@ export const api = {
   metrics: () => request<Metrics>("/metrics"),
   documents: () =>
     request<DocumentRecord[]>("/documents", undefined, isArrayBody),
-  document: (id: string) => request<DocumentRecord>(`/documents/${encodeURIComponent(id)}`),
   chunks: (id: string, opts: { limit?: number; offset?: number; retrievable?: string } = {}) => {
     const q = new URLSearchParams();
     if (opts.limit != null) q.set("limit", String(opts.limit));

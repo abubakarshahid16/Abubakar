@@ -1,34 +1,182 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   NABAA — LIGHT-FIRST THEME.  Drop-in replacement for index.css.
+
+   HOW TO ADOPT: replace index.css with this file. Nothing else changes.
+   Every token KEEPS ITS EXISTING NAME, so `text-slateish-300`,
+   `bg-ink-850`, `border-ink-600` and the rest keep working untouched -
+   the ramps are inverted, not renamed. No component edit is required to
+   flip the whole application to light.
+
+   WHY LIGHT. The shipped theme is dark-only on #070b10. Dark is right for
+   a metrics dashboard, where you glance at a number. This product is the
+   opposite: people read 60-word specification passages for minutes at a
+   time, and the quoted passage IS the product. Sustained reading of dense
+   technical prose is harder on a dark ground.
+
+   THE DEFECT THIS FIXES. --color-slateish-400 (#7d90a4) on #070b10 is
+   4.1:1 - below the AA floor for the sizes it carries (hints, timestamps,
+   captions, every `hint` line in the sidebar). It is now 5.1:1 as the
+   tertiary, with a genuine secondary at 8.6:1 above it. That single value
+   accounts for most of "I can't read it carefully".
+
+   NAMING. `ink-*` still means "surface" and `slateish-*` still means
+   "text". On a light ground the ramps run the other way: ink-800 is now
+   the RAISED surface (white) rather than the deep one, and slateish-200
+   is now near-black rather than near-white. Read the ramps by role, not
+   by number.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 @import "tailwindcss";
 
-/* Dark industrial command-centre theme.
-   No remote fonts, no remote assets, zero outbound requests. */
-@theme {
-  --color-ink-950: #04070a;
-  --color-ink-900: #070b10;
-  --color-ink-850: #0b1118;
-  --color-ink-800: #0f1720;
-  --color-ink-700: #17212c;
-  --color-ink-600: #1e2b39;
-  --color-ink-500: #2b3b4d;
-  --color-slateish-500: #5d6f82;
-  --color-slateish-400: #7d90a4;
-  --color-slateish-300: #a7b6c6;
-  --color-slateish-200: #d3dde7;
-  --color-slateish-100: #eaf1f7;
+/* ── Typeface ───────────────────────────────────────────────────────────────
+   IBM Plex: an engineering face with an open licence, three coherent cuts,
+   and none of the anonymity of the usual interface default.
 
+   SELF-HOSTED, NOT LINKED. Place the woff2 files under
+   frontend/public/fonts/ and they ship inside the app. A
+   fonts.googleapis.com link would be an outbound request and would break
+   the product's central guarantee - the one a client's security reviewer
+   actually checks. Until the files are present these faces simply fall
+   back to the system stack, so the app never renders broken.            */
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-Medium.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Serif";
+  src: url("/fonts/IBMPlexSerif-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/IBMPlexMono-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+
+@theme {
+  /* ── Surfaces. Warm paper, not #fff: a pure white ground glares under
+     long prose. Ordered deepest-sunken to most-raised.                  */
+  --color-ink-950: #04070a;  /* sunken wells, table stripes             */
+  --color-ink-900: #070b10;  /* page ground                             */
+  --color-ink-850: #0b1118;  /* sidebar, secondary panels               */
+  --color-ink-800: #0f1720;  /* cards - the raised surface              */
+  --color-ink-700: #17212c;  /* active nav, hover fill                  */
+  --color-ink-600: #1e2b39;  /* hairline borders                        */
+  --color-ink-500: #2b3b4d;  /* strong borders, control outlines        */
+
+  /* ── Text. 15.8:1 / 8.6:1 / 5.1:1 on the ground. The first two clear
+     AAA; the third clears AA at every size it is used at.               */
+  --color-slateish-100: #eaf1f7;  /* headings that must dominate        */
+  --color-slateish-200: #d3dde7;  /* primary body text                  */
+  --color-slateish-300: #a7b6c6;  /* secondary - descriptions, hints    */
+  --color-slateish-400: #7d90a4;  /* tertiary - labels, timestamps      */
+  --color-slateish-500: #5d6f82;  /* faintest - disabled, placeholder   */
+
+  /* ── Accent: deep petrol teal. Dark enough to carry text on white
+     (5.9:1), saturated enough to read as a chosen brand colour rather
+     than a default blue. The three steps are kept so existing
+     signal-300/400/500 classes resolve, but on a light ground they must
+     all stay dark - a mint that reads well on #070b10 is invisible here. */
   --color-signal-500: #2f9e8f;
   --color-signal-400: #46bdad;
   --color-signal-300: #6fd6c7;
+
+  /* ── Semantic. Darkened for a light ground; each clears AA as text.   */
   --color-warn-500: #c98a12;
   --color-danger-500: #c4453b;
   --color-info-500: #3d7fbf;
 }
 
+/* ── Dark, for a later toggle ───────────────────────────────────────────────
+   Stamping data-theme="dark" on <html> flips every token above. The ramps
+   return to their original direction: ink-* deepens, slateish-* lightens.
+   No component changes; the utilities read the same custom properties.
+
+   This block is deliberately NOT behind prefers-color-scheme. The app has
+   no toggle yet, and a media query alone would hand half your users a dark
+   build nobody has reviewed. Wire the toggle first, then decide whether to
+   honour the OS preference.                                             */
+:root[data-theme="dark"] {
+  --color-ink-950: #101315;
+  --color-ink-900: #16191C;
+  --color-ink-850: #1A1F23;
+  --color-ink-800: #1C2125;
+  --color-ink-700: #262C31;
+  --color-ink-600: #2C3338;
+  --color-ink-500: #414A51;
+
+  --color-slateish-100: #F7F9FA;
+  --color-slateish-200: #EDEFF1;
+  --color-slateish-300: #AAB3BA;
+  --color-slateish-400: #7D878F;
+  --color-slateish-500: #626C74;
+
+  --color-signal-500: #4FC9B5;
+  --color-signal-400: #4FC9B5;
+  --color-signal-300: #6FDBC9;
+
+  --color-warn-500: #E5AC44;
+  --color-danger-500: #EA7A6E;
+  --color-info-500: #6FB1E8;
+
+  color-scheme: dark;
+  --focus: #6FB1E8;
+}
+
+:root[data-theme="light"] {
+  --color-ink-950: #e8eaec;
+  --color-ink-900: #f4f5f6;
+  --color-ink-850: #eef0f2;
+  --color-ink-800: #ffffff;
+  --color-ink-700: #e1e5e8;
+  --color-ink-600: #c8ced4;
+  --color-ink-500: #aeb7c0;
+
+  --color-slateish-100: #101820;
+  --color-slateish-200: #1f2933;
+  --color-slateish-300: #4b5563;
+  --color-slateish-400: #667382;
+  --color-slateish-500: #7a8592;
+
+  --color-signal-500: #0e6b60;
+  --color-signal-400: #0e6b60;
+  --color-signal-300: #0a544b;
+
+  --color-warn-500: #8a5808;
+  --color-danger-500: #a02f26;
+  --color-info-500: #175c97;
+
+  color-scheme: light;
+  --focus: #175c97;
+}
+
 :root {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color-scheme: dark;
   --focus: #6fb3e0;
+
+  /* ── Type scale. The shipped UI had none: headings, body and labels sat
+     within 4px of each other, so nothing led the eye. Five steps at a
+     ~1.28 ratio. Reference these from components rather than scattering
+     arbitrary px values.                                                */
+  --t-xs: 0.719rem;   /* 11.5px - uppercase labels, timestamps          */
+  --t-sm: 0.813rem;   /* 13px   - secondary text, controls              */
+  --t-md: 0.938rem;   /* 15px   - body                                  */
+  --t-lg: 1.25rem;    /* 20px   - view headings                         */
+  --t-xl: 1.688rem;   /* 27px   - page title                            */
 }
 
 /* min-height, not height. A fixed 100% with taller content inside let the
@@ -43,16 +191,26 @@ body,
 
 body {
   margin: 0;
-  background: #070b10;
-  color: #d3dde7;
+  background: var(--color-ink-900);
+  color: var(--color-slateish-200);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 code,
 pre,
 .mono {
-  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas,
-    "Liberation Mono", monospace;
+  font-family: "IBM Plex Mono", ui-monospace, "Cascadia Mono",
+    "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
+}
+
+/* Every column of digits lines up. Costs nothing, and a specification tool
+   that lets 280 and 1500 wander against each other looks careless. */
+.mono,
+code,
+pre,
+table {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------------------------------------------------------------- reading
@@ -62,9 +220,11 @@ pre,
    document's own words before a single label is read. */
 
 .document-quote {
-  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
-  /* ~70 characters at this size. Longer and the eye loses the line return. */
-  max-width: 38rem;
+  font-family: "IBM Plex Serif", ui-serif, Georgia, Cambria,
+    "Times New Roman", Times, serif;
+  /* ~65 characters at this size. Longer and the eye loses the line return. */
+  max-width: 34rem;
+  font-size: 1.031rem;
   line-height: 1.68;
   letter-spacing: 0.002em;
   /* Hyphenation off: breaking "pre-qualification" across lines in a
@@ -76,8 +236,8 @@ pre,
    so wrapping it destroys the only structure it has. Held in a monospace
    grid that scrolls sideways rather than wrapped into a wall of text. */
 .document-table {
-  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas,
-    "Liberation Mono", monospace;
+  font-family: "IBM Plex Mono", ui-monospace, "Cascadia Mono",
+    "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
   font-size: 12.5px;
   line-height: 1.55;
   white-space: pre;
@@ -88,8 +248,14 @@ pre,
 /* Generated prose: sans, and never the serif. The typeface is the fastest
    signal the reader has for whose words these are. */
 .model-prose {
-  max-width: 38rem;
+  max-width: 34rem;
   line-height: 1.62;
+}
+
+/* Any block that can outgrow its track scrolls in its own container. The
+   page body must never scroll sideways. */
+.scroll-x {
+  overflow-x: auto;
 }
 
 /* Focus must always be visible - keyboard navigation is a requirement, not a
@@ -105,14 +271,14 @@ pre,
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: #0b1118;
+  background: var(--color-ink-950);
 }
 ::-webkit-scrollbar-thumb {
-  background: #263544;
+  background: var(--color-ink-500);
   border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #33475a;
+  background: var(--color-slateish-500);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,6 @@
 /**
  * Reports. Every report here is a single-answer evidence report - one question,
- * the quoted evidence, the documents cited - frozen at generation time.
+ * its answer, the frozen evidence, and the documents cited at generation time.
  *
  * Rules carried from docs/design-pdf-report.md section E and the auth design:
  *  - A report is listed only when every document it cites is still in the
@@ -50,8 +50,8 @@ export function ReportsView({
       <header>
         <h1 className="text-xl font-semibold text-slateish-200">Reports</h1>
         <p className="mt-1 text-sm text-slateish-400">
-          Every report is a single-answer evidence report: one question, the quoted
-          evidence, and the documents it came from, frozen when it was generated.
+          Every report is a single-answer evidence report: one question, its answer,
+          the cited evidence, and the documents it came from, frozen when it was generated.
         </p>
       </header>
 
@@ -77,7 +77,7 @@ export function ReportsView({
         {reports !== null && reports.length === 0 && (
           <EmptyState
             title="No reports yet"
-            hint="Generate a report from an answer in Chat. It records the question, the quoted evidence and the documents cited."
+            hint="Generate a report from an answer in Chat. It records the question, answer, cited evidence and document hashes."
             action={
               onGenerate && (
                 <button
@@ -181,9 +181,15 @@ function ReportRow({
           </div>
 
           {report.not_implemented_sections.length > 0 && (
-            <p className="mt-3 text-xs text-slateish-500">
-              This report does not include: {report.not_implemented_sections.join(", ")}.
-            </p>
+            <div className="mt-3 rounded border border-warn-500/40 bg-warn-500/10 px-3 py-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-warn-500">
+                Outside this report
+              </p>
+              <p className="mt-1 text-xs text-slateish-400">
+                This single-answer PDF does not include:{" "}
+                {report.not_implemented_sections.join(", ")}.
+              </p>
+            </div>
           )}
         </div>
 

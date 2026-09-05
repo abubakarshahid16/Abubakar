@@ -176,12 +176,47 @@ function Label({
   );
 }
 
+function ReportAction({
+  onSaveReport,
+  savingReport,
+  reportNotice,
+  note,
+}: {
+  onSaveReport?: () => void;
+  savingReport?: boolean;
+  reportNotice?: string | null;
+  note: string;
+}) {
+  if (!onSaveReport) return null;
+  return (
+    <div className="mt-3 border-t border-ink-700 pt-3">
+      <button
+        type="button"
+        onClick={onSaveReport}
+        disabled={savingReport}
+        className="rounded border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:opacity-60"
+      >
+        {savingReport ? "Saving..." : "Save as report"}
+      </button>
+      <p className="mt-1.5 text-xs text-slateish-500">{note}</p>
+      {reportNotice && (
+        <p className="mt-1.5 text-xs text-warn-500" role="status">
+          {reportNotice}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function AnswerCard({
   view,
   onSelectSource,
   activeSource,
   onExplain,
   explaining,
+  onSaveReport,
+  savingReport,
+  reportNotice,
   explainSeconds,
   explainsEarlier,
 }: {
@@ -190,6 +225,13 @@ export function AnswerCard({
   activeSource: number | null;
   onExplain?: () => void;
   explaining?: boolean;
+  /** Freeze this answer as a PDF. Absent when the message cannot become one. */
+  onSaveReport?: () => void;
+  savingReport?: boolean;
+  /** What the last attempt did, in the reader's words. A refusal from the
+   *  route (a message with no citations) is shown here rather than swallowed:
+   *  a button that does nothing is the defect this replaces. */
+  reportNotice?: string | null;
   explainSeconds?: number;
   explainsEarlier?: boolean;
 }) {
@@ -389,6 +431,37 @@ ollama serve
           </details>
         )}
 
+        {onSaveReport && (
+          <div className="mt-3 border-t border-ink-700 pt-3">
+            <button
+              type="button"
+              onClick={onSaveReport}
+              disabled={savingReport}
+              className="rounded border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:opacity-60"
+            >
+              {savingReport ? "Saving…" : "Save as report"}
+            </button>
+            <p className="mt-1.5 text-xs text-slateish-500">
+              Freezes this answer, its passages and the documents they came
+              from into a PDF. The evidence is captured as it is now — later
+              edits to those documents are reported, never silently used.
+            </p>
+            {reportNotice && (
+              <p className="mt-1.5 text-xs text-warn-500" role="status">
+                {reportNotice}
+              </p>
+            )}
+          </div>
+        )}
+
+        {onSaveReport && view.supporting.length > 0 && (
+          <p className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
+            This report will freeze the quoted passage above as the answer.
+            Other matched passages stay in the evidence section, but they are
+            not merged into the quoted answer.
+          </p>
+        )}
+
         {onExplain && (
           <div className="mt-3 border-t border-ink-700 pt-3">
             <button
@@ -510,6 +583,13 @@ ollama serve
           supplied. Removed from the answer above rather than shown to you.
         </p>
       )}
+
+      <ReportAction
+        onSaveReport={onSaveReport}
+        savingReport={savingReport}
+        reportNotice={reportNotice}
+        note="Freezes this generated explanation and its cited passages into a PDF. Use this when the explanation combines multiple cited sources that the quoted extract did not merge."
+      />
     </div>
   );
 }

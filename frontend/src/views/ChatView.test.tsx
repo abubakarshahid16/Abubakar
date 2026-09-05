@@ -155,6 +155,7 @@ interface Routes {
   conversation?: unknown;
   ask?: unknown | (() => unknown);
   newConversation?: unknown;
+  report?: unknown;
 }
 
 function mockApi(routes: Routes = {}) {
@@ -164,6 +165,21 @@ function mockApi(routes: Routes = {}) {
     calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
     const body = (() => {
       if (url.includes("/health")) return health;
+      if (url.endsWith("/reports")) {
+        return routes.report ?? {
+          id: "report_abc",
+          title: "Evidence report",
+          question: "what is the NDFT for coating system no. 1",
+          created_at: "2026-09-04T00:00:00Z",
+          owner_username: null,
+          file_size_bytes: 1234,
+          page_count: 2,
+          passage_count: 1,
+          documents: [],
+          not_implemented_sections: [],
+          suppressed_reason: null,
+        };
+      }
       if (url.endsWith("/ask")) {
         const r = routes.ask ?? askResult();
         return typeof r === "function" ? (r as () => unknown)() : r;
@@ -488,6 +504,57 @@ describe("citations", () => {
 
     expect(await screen.findByText(/\[S9\]/)).toBeInTheDocument();
     expect(screen.getByText(/not among the sources supplied/i)).toBeInTheDocument();
+  });
+
+  it("offers report generation on a generated explanation", async () => {
+    const calls = mockApi({
+      conversation: {
+        conversation,
+        messages: [
+          userMessage(),
+          extractMessage(),
+          extractMessage({
+            id: "msg_a2",
+            ordinal: 3,
+            text: "The service responsibilities continue across two cited passages [S1] [S2].",
+            answer_type: "generated",
+            explains_id: "msg_a1",
+            payload: {
+              passages: [A1, A4],
+              cited: [1, 2],
+              rejected_citations: [],
+              model: "qwen3.5:4b",
+              seconds: 52,
+            },
+          }),
+        ],
+      },
+      conversations: {
+        total: 1,
+        limit: 20,
+        offset: 0,
+        conversations: [{ ...conversation, first_question: "q" }],
+      },
+    });
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
+
+    const buttons = await screen.findAllByRole("button", { name: "Save as report" });
+    await userEvent.click(buttons.at(-1)!);
+
+    await waitFor(() => {
+      expect(calls.some((c) => c.url.endsWith("/reports") && c.body && (c.body as { message_id?: string }).message_id === "msg_a2")).toBe(true);
+    });
+    expect(await screen.findByText(/Saved as report_abc/i)).toBeInTheDocument();
+  });
+
+  it("warns that an extract report does not merge other matched passages into the answer", async () => {
+    mockApi();
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(await screen.findByText(/Other matched passages stay in the evidence section/i)).toBeInTheDocument();
   });
 });
 
