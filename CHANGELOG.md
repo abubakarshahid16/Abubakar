@@ -51,6 +51,46 @@ text assertion against a rendered report must NFKC-normalise first.
 Timing on this machine: 2 pages in 8–24 ms; the stabilized double pass in about
 the same. Not a benchmark — one fixture, warm process.
 
+### The 75-second wait, made legible (2026-09-06)
+
+`GET /api/progress/{id}`, and a `LocalWork` panel in Chat that replaces the
+single "Searching the documents" spinner.
+
+**Every stage shown was reported by the work when it happened.** Nothing is
+inferred from the clock: retrieval usually finishes in ~2.5 s and generation
+takes the rest, so a timer could guess the stage and be right most of the
+time — and on the run where retrieval is slow it would tell the reader the
+model was writing while the search was still going. Measured live against the
+running server:
+
+    retrieving@0.0s -> reranking@1.87s (16 of 53 candidates)
+      -> reading@4.675s (3 passages) -> generating@5.197s (2 sources)   78s total
+
+**There is no percentage bar.** The length of a generation is unknown until it
+ends, so a bar would be an invention. The reader gets a stage, a count and an
+elapsed counter — the counter is the client's own, so it keeps counting through
+a missed poll. The panel also says why it is slow: a 15 W laptop CPU, no GPU,
+and nothing leaving the machine.
+
+The record is in memory, capped, TTL'd, and carries no document content: a
+stage name, a count and a clock. `progress_id` is optional — without one the
+work reports nothing and behaves exactly as before.
+
+### CI was red and the local suite was wrong (2026-09-06)
+
+Twenty backend tests failed in CI with `no such table: chunks` while passing
+here. Reproduced exactly by pointing `DB_PATH` at an empty directory: **20
+failed**, the same twenty.
+
+`test_claims.py` and `test_market.py` had no storage fixture, so locally they
+opened the developer's real 62 MB corpus and passed, and in CI they opened an
+empty file. The local "756 passing" was the wrong number; CI was right.
+
+Both files now create their own tables. And `conftest.py` gains a session
+fixture that points the DEFAULT database at a temp file, so a forgotten
+fixture fails HERE exactly as it fails in CI — the same shape as the three
+guards already in that file, and the reason it is now four.
+
 ### Stages 3, 4 and 6 — the three engines wired to routes (2026-09-05)
 
 `POST /api/analysis/summary`, `/recommendations` and `/gaps`.

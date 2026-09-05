@@ -488,6 +488,27 @@ class LoginResult(BaseModel):
     expires_in_seconds: int
 
 
+class ProgressStep(BaseModel):
+    stage: str
+    at_seconds: float
+
+
+class Progress(BaseModel):
+    """Reported by the work itself, never inferred from a clock.
+
+    There is deliberately NO percentage: the generation length is unknown
+    until it ends, so any bar would be a guess. A stage, a count and an
+    elapsed time are all true.
+    """
+
+    stage: Literal["retrieving", "reranking", "reading", "generating", "done"]
+    detail: str | None = Field(
+        None, description="e.g. '3 passages' - a count, never a percentage")
+    seconds: float
+    history: list[ProgressStep] = Field(
+        description="every transition that actually happened, with when")
+
+
 class EvidenceItem(BaseModel):
     """One retrieved passage, as everything downstream cites it.
 
@@ -866,6 +887,12 @@ class AskRequest(BaseModel):
         None,
         description="upgrade this assistant message to Tier 2 instead of asking anew; "
         "question is ignored and the already-resolved question is reused",
+    )
+    progress_id: str | None = Field(
+        None, max_length=64,
+        description="a client-chosen id for polling /api/progress/{id} while "
+        "this runs. Optional: without one the work reports nothing and "
+        "behaves exactly as before",
     )
 
 

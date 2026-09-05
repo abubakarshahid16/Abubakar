@@ -30,6 +30,7 @@ from . import auth as auth_mod
 from . import errors
 from . import analysis as analysis_mod
 from . import market as market_mod
+from . import progress as progress_mod
 from . import reports as reports_mod
 from . import schemas
 from .config import settings
@@ -486,6 +487,25 @@ def me(request: Request,
     return {"required": True, "user": described}
 
 
+@app.get("/api/progress/{progress_id}", response_model=schemas.Progress,
+         responses={**schemas.ERRORS_404})
+def read_progress(progress_id: str):
+    """What the machine is doing, as reported by the work itself.
+
+    Unauthenticated, and carries no document content - a stage name, a count
+    and a clock. The id is chosen by the client; guessing one reveals only
+    that somebody is asking a question, which /api/health already reveals
+    through `busy`.
+    """
+    state = progress_mod.read(progress_id)
+    if state is None:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no such request"),
+        )
+    return state
+
+
 # ---------------------------------------------------------------- analysis
 #
 # Three engines, one shape: retrieve inside the caller's scope, run a pure
@@ -740,15 +760,22 @@ def ask(conversation_id: str, body: schemas.AskRequest,
     # It classifies as "empty" and gets the guidance reply, like any other
     # input that was never a document question.
     try:
-        return chat_mod.ask(
-            conversation_id,
-            body.question,
-            tier=body.tier,
-            document_id=body.document_id,
-            limit=body.limit,
-            explain_of=body.explain_of,
-            allowed_document_ids=scope.allowed_document_ids,
-        )
+        progress_mod.start(body.progress_id)
+        # `finally`, so an answer that raises still closes its record rather
+        # than leaving a client polling a stage that will never advance.
+        try:
+            return chat_mod.ask(
+                conversation_id,
+                body.question,
+                tier=body.tier,
+                document_id=body.document_id,
+                limit=body.limit,
+                explain_of=body.explain_of,
+                allowed_document_ids=scope.allowed_document_ids,
+                progress_id=body.progress_id,
+            )
+        finally:
+            progress_mod.finish(body.progress_id)
     except chat_mod.MessageNotFound:
         raise HTTPException(
             status_code=404,

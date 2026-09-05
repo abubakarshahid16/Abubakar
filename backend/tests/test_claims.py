@@ -14,7 +14,8 @@ import json
 
 import pytest
 
-from app import claims
+from app import claims, db, keyword
+from app.config import settings
 from app.claims import (
     Claim,
     Measurement,
@@ -27,6 +28,26 @@ from app.claims import (
     normalise_strict,
     to_api,
 )
+
+
+
+@pytest.fixture(autouse=True)
+def temp_storage(tmp_path, monkeypatch):
+    """`claims` reaches the database through `keyword` and `lexical`.
+
+    Without this these tests passed on a development machine - which has a
+    62 MB corpus at backend/data/nabaa.sqlite - and failed in CI with
+    `no such table`. The tables must be CREATED, not present by accident.
+    """
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
+    monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
+    db.reset_connection()
+    db.init_db()
+    keyword.ensure_schema()
+    (tmp_path / "uploads").mkdir(parents=True, exist_ok=True)
+    yield
+    db.reset_connection()
 
 
 def _evidence(evidence_id: str, text: str, filename: str = "spec.pdf", page: int = 1) -> dict:

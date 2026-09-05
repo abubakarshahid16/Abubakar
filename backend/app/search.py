@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import keyword
+from . import progress
 from . import scores
 from . import vectorcache
 from .db import connect
@@ -616,6 +617,7 @@ def search(
     dense: bool = True,
     *,
     allowed_document_ids: frozenset[str],
+    progress_id: str | None = None,
 ) -> dict:
     """Hybrid retrieval end to end.
 
@@ -712,8 +714,13 @@ def search(
     # 4's film thickness as system 1's, the exact defect the rule exists for.
     pool.sort(key=lambda c: (-c.score, not c.heading_declares))
 
+    # Recorded HERE, when the reranker is about to run, rather than guessed
+    # from a clock on the client. See progress.py.
     reranked = False
     if rerank and pool:
+        progress.stage(progress_id, "reranking",
+                       f"{min(len(pool), settings.rerank_candidates)} of "
+                       f"{len(pool)} candidates")
         from . import reranker
 
         t = Timer()
@@ -799,6 +806,8 @@ def search(
             best = row["best_rerank_score"]
             if best is None or c.rerank_score > best:
                 row["best_rerank_score"] = c.rerank_score
+
+    progress.stage(progress_id, "reading", f"{len(pool[:limit])} passages")
 
     return {
         "query": asked,

@@ -25,6 +25,7 @@ from . import intent as intent_mod
 from . import keyword
 from . import context_budget
 from . import coverage
+from . import progress
 from . import lexical
 from . import passages as passages_mod
 from . import telemetry
@@ -438,6 +439,7 @@ def answer(
     limit: int = 3,
     *,
     allowed_document_ids: frozenset[str],
+    progress_id: str | None = None,
 ) -> dict:
     """Answer a question. `tier` is "extract" (default) or "generated".
 
@@ -471,6 +473,7 @@ def answer(
     results = search_mod.search(
         question, limit=max(limit, 3), document_id=document_id,
         allowed_document_ids=allowed_document_ids,
+        progress_id=progress_id,
     )
     hits = results["hits"]
     # Recorded from real questions actually asked, so the dashboard's latency
@@ -612,6 +615,11 @@ def answer(
         }
 
     prompt = _build_prompt(question, passages)
+
+    # The long one. Everything before this is seconds; this is tens of seconds,
+    # and it is the stage a reader spends almost all of the wait in.
+    progress.stage(progress_id, "generating",
+                   f"{len(passages)} source{'' if len(passages) == 1 else 's'}")
 
     t = Timer()
     try:

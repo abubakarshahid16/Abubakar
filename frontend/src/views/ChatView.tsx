@@ -15,7 +15,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { AnswerCard, sourcesOf, viewFromMessage, type AnswerView } from "../components/chat/AnswerCard";
 import { EvidencePanel } from "../components/chat/EvidencePanel";
+import { LocalWork } from "../components/chat/LocalWork";
 import type { Connection } from "../components/Shell";
+import type { Progress } from "../types/api";
 import { DisconnectedState, EmptyState, ErrorState, Spinner } from "../components/states";
 import type { ApiError, ConversationSummary, Message } from "../types/api";
 
@@ -92,6 +94,11 @@ export function ChatView({
   const [askingIn, setAskingIn] = useState<string | null>(null);
   const [explainingId, setExplainingId] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  // The id THIS client chose for the request in flight, and what the backend
+  // says it is doing. `progress` stays null until the first poll returns: the
+  // stage is never guessed from the clock in the meantime.
+  const [progressId, setProgressId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [failure, setFailure] = useState<ApiError | null>(null);
 
   const [evidence, setEvidence] = useState<{ messageId: string; index: number } | null>(null);
@@ -204,6 +211,29 @@ export function ChatView({
     return () => window.clearInterval(t);
   }, [asking, explainingId]);
 
+  // Poll for the stage the backend has actually reached. The elapsed counter
+  // above is the client's own and keeps counting through a missed poll; this
+  // only ever adds what the work REPORTED.
+  useEffect(() => {
+    if (!progressId) {
+      setProgress(null);
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      const r = await api.progress(progressId);
+      // A 404 means the entry has expired or does not exist yet. Neither is an
+      // error and neither is a stage, so nothing is shown for it.
+      if (!cancelled && r.ok) setProgress(r.data);
+    };
+    void tick();
+    const t = window.setInterval(() => void tick(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [progressId]);
+
   useEffect(() => {
     // Guarded: scrollIntoView is absent in some environments, and failing to
     // scroll is not a reason for the whole transcript to stop rendering.
@@ -233,7 +263,11 @@ export function ChatView({
 
     setAskingIn(id);
     setQuestion("");
-    const r = await api.ask(id, { question: text, tier: "extract" });
+    const ticket = crypto.randomUUID();
+    setProgressId(ticket);
+    const r = await api.ask(id, { question: text, tier: "extract",
+                                  progress_id: ticket });
+    setProgressId(null);
     sending.current = false;
     setAskingIn((pending) => (pending === id ? null : pending));
 
@@ -262,7 +296,12 @@ export function ChatView({
 
       setFailure(null);
       setExplainingId(messageId);
-      const r = await api.ask(conversationId, { tier: "generated", explain_of: messageId });
+      const ticket = crypto.randomUUID();
+      setProgressId(ticket);
+      const r = await api.ask(conversationId, { tier: "generated",
+                                                explain_of: messageId,
+                                                progress_id: ticket });
+      setProgressId(null);
       setExplainingId((pending) => (pending === messageId ? null : pending));
 
       if (owned.current !== conversationId) return;
@@ -405,9 +444,7 @@ export function ChatView({
           )}
 
           {askingIn === current && (
-            <div className="max-w-[52rem] rounded-lg border border-ink-700 bg-ink-850 p-4">
-              <Spinner label={`Searching the documents · ${elapsed}s`} />
-            </div>
+            <LocalWork elapsed={elapsed} progress={progress} />
           )}
 
           {failure && (

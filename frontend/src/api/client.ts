@@ -27,6 +27,7 @@ import type {
   LoginResult,
   MarketFindings,
   MarketQueryPreview,
+  Progress,
   MarketQueryRequest,
   Metrics,
   ReportList,
@@ -363,6 +364,10 @@ export const api = {
     }),
   /** Tier 2 is not streamed and takes ~50s on this hardware, so callers must
    *  show elapsed time rather than an indefinite spinner. */
+  /** What the machine is doing. 404 once the entry has expired, which is not
+   *  an error - it means the work finished and was collected. */
+  progress: (progressId: string) =>
+    request<Progress>(`/progress/${encodeURIComponent(progressId)}`),
   ask: (id: string, body: Partial<AskRequest>) =>
     request<AskResult>(`/conversations/${encodeURIComponent(id)}/ask`, {
       method: "POST",

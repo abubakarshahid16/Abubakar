@@ -15,8 +15,28 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app import market
+from app import db, keyword, market
+from app.config import settings
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def temp_storage(tmp_path, monkeypatch):
+    """The market ROUTES resolve an access scope, which reads `documents`.
+
+    Without this these tests passed on a development machine - which has a
+    62 MB corpus at backend/data/nabaa.sqlite - and failed in CI with
+    `no such table`. The tables must be CREATED, not present by accident.
+    """
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
+    monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
+    db.reset_connection()
+    db.init_db()
+    keyword.ensure_schema()
+    (tmp_path / "uploads").mkdir(parents=True, exist_ok=True)
+    yield
+    db.reset_connection()
 
 
 @pytest.fixture(autouse=True)

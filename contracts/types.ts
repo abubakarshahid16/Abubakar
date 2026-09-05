@@ -431,6 +431,28 @@ export interface LoginResult {
   expires_in_seconds: number;
 }
 
+// ---------------------------------------------------------------- progress
+
+export interface ProgressStep {
+  stage: string;
+  at_seconds: number;
+}
+
+/** What the machine is doing, REPORTED BY THE WORK ITSELF - never inferred
+ *  from a clock on the client.
+ *
+ *  There is deliberately no percentage. The length of a generation is unknown
+ *  until it ends, so a bar would be an invention; a stage, a count and an
+ *  elapsed time are all true. */
+export interface Progress {
+  stage: "retrieving" | "reranking" | "reading" | "generating" | "done";
+  /** e.g. "3 passages" - a count, never a percentage. */
+  detail: string | null;
+  seconds: number;
+  /** Every transition that actually happened, and when. */
+  history: ProgressStep[];
+}
+
 // ---------------------------------------------------------------- analysis
 
 /** One retrieved passage, as everything downstream cites it.
@@ -788,6 +810,9 @@ export interface ConversationDetail {
 }
 
 export interface AskRequest {
+  /** A client-chosen id for polling `/api/progress/{id}` while this runs.
+   *  Optional: without one the backend reports nothing and behaves as before. */
+  progress_id?: string | null;
   question: string;
   tier: AnswerTier;
   document_id?: string | null;
