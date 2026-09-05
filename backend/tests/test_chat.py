@@ -466,3 +466,55 @@ def test_a_conversation_cannot_be_scoped_to_an_unknown_document():
     client = TestClient(app)
     r = client.post("/api/conversations", json={"document_id": "doc_zzzzzzzzzzzz"})
     assert r.status_code == 404
+
+
+# ------------------------------------------- the completeness gate (rule: carry
+# on grammatical dependence, never on word count)
+
+def test_a_complete_short_question_does_not_borrow_anyone_elses_subject():
+    """The defect this gate exists for.
+
+    "what is the warranty period" is complete and self-contained. It has two
+    content words, and the old gate - len(_content_words) < 3 - called it a
+    follow-up for that reason alone, so it inherited terms from whatever
+    happened to be asked before it.
+
+    Measured over 200 shuffled orderings of the eval set, that single
+    misclassification made 72 of them (36%) answer confidently where a refusal
+    was correct. It was the ONLY failure in any ordering.
+    """
+    prior = [
+        "what is the MDFT and number of coats for coating system no. 9",
+        "what is the soluble impurity limit in clause 6.3",
+    ]
+    resolved, carried = chat.resolve_followup("what is the warranty period", prior)
+    assert carried == [], f"borrowed {carried} into a self-contained question"
+    assert resolved == "what is the warranty period"
+
+
+def test_a_grammatically_incomplete_question_still_borrows():
+    """The feature must survive the fix. A bare noun phrase genuinely depends
+    on the previous turn, and these two cases are the entire justification for
+    term-carrying existing - both were measured to ANSWER only when carrying."""
+    resolved, carried = chat.resolve_followup(
+        "and the minimum",
+        ["what is the maximum operating temperature for zinc metal spray"],
+    )
+    assert carried, "a bare continuation must still inherit its subject"
+    assert "zinc" in resolved.lower()
+
+    resolved, carried = chat.resolve_followup(
+        "when is it required", ["how is the stripe coat applied"])
+    assert carried, "a question with an unresolved pronoun must still inherit"
+    assert "stripe" in resolved.lower()
+
+
+def test_completeness_is_judged_on_a_finite_verb_not_on_length():
+    assert chat.is_complete_question("what is the warranty period")
+    assert chat.is_complete_question("what does NDFT stand for")
+    # bare noun phrases - no finite verb, cannot stand alone
+    assert not chat.is_complete_question("system 4?")
+    assert not chat.is_complete_question("the minimum")
+    # and the follow-up verdict follows from it
+    assert not chat.is_followup("what is the warranty period")
+    assert chat.is_followup("system 4?")
