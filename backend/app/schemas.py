@@ -488,6 +488,52 @@ class LoginResult(BaseModel):
     expires_in_seconds: int
 
 
+class MarketFinding(BaseModel):
+    """An ILLUSTRATIVE row. There is no provider and this machine is offline."""
+
+    claim: str
+    url: str = Field(description="always sample:// - a scheme that resolves nowhere")
+    publisher: str
+    published_at: str | None
+    retrieved_at: str
+    verification: Literal["source_not_verified"] = Field(
+        description="the only value a sample may carry: nothing here was read"
+    )
+    is_sample: Literal[True] = Field(
+        description="ALWAYS true. Not optional and not defaulted - a row that "
+        "could omit it could be mistaken for a real finding"
+    )
+
+
+class EgressState(BaseModel):
+    web_search_enabled: bool
+    allow_public_egress: bool
+
+
+class MarketFindings(BaseModel):
+    notice: str = Field(description="SAMPLE DATA - NOT LIVE, in full")
+    egress: EgressState
+    findings: list[MarketFinding]
+    is_sample: Literal[True]
+
+
+class MarketQueryRequest(BaseModel):
+    query: str
+    country: str | None = None
+    freshness_days: int | None = None
+
+
+class MarketQueryPreview(BaseModel):
+    """What WOULD be sent. Nothing is sent."""
+
+    query: str
+    country: str | None
+    freshness_days: int | None
+    would_be_sent_to: None = None
+    sent: Literal[False]
+    reason: str
+
+
 class ReportDocumentRow(BaseModel):
     document_id: str
     filename: str = Field(description="as it was named when the report was generated")

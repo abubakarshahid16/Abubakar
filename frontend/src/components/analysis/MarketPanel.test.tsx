@@ -15,7 +15,12 @@ const FINDINGS: MarketFinding[] = [
     publisher: "Example Coatings Index",
     published_at: "2026-06-30",
     retrieved_at: "2026-09-01T10:15:00Z",
-    verification: "snippet_only",
+    // source_not_verified, not snippet_only: MarketFinding.verification is
+    // pinned to the one value this build can produce, because nothing here
+    // has been read. The URL and publisher stay deliberately plausible - the
+    // property under test is that the panel labels a row as SAMPLE even when
+    // it looks real, which is the case that actually misleads someone.
+    verification: "source_not_verified",
     is_sample: true,
   },
   {

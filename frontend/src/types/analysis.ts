@@ -165,31 +165,17 @@ export interface Recommendation {
 
 // --------------------------------------------------------------------- market
 
-export type MarketVerification = "source_read" | "snippet_only" | "source_not_verified";
+// MarketVerification, MarketFinding, EgressState and PublicMarketQuery moved
+// to contracts/types.ts when stage 5 landed. PublicMarketQuery is the API's
+// MarketQueryRequest; the preview response is MarketQueryPreview.
+import type { MarketFinding } from "./api";
 
-export interface MarketFinding {
-  claim: string;
-  url: string;
-  publisher: string;
-  published_at: string | null;
-  retrieved_at: string;
-  verification: MarketVerification;
-  /** Always true in this build. The machine is offline; every row is sample. */
-  is_sample: boolean;
-}
-
-export interface EgressState {
-  web_search_enabled: boolean;
-  allow_public_egress: boolean;
-}
-
-/** The ONLY object that may ever leave the machine. Built from user-approved
- *  public fields, never from retrieved document text. */
-export interface PublicMarketQuery {
-  query: string;
-  country: string | null;
-  freshness_days: number | null;
-}
+export type {
+  EgressState,
+  MarketFinding,
+  MarketVerification,
+  MarketQueryRequest as PublicMarketQuery,
+} from "./api";
 
 // --------------------------------------------------------------------- result
 

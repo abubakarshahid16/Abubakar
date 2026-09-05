@@ -51,6 +51,29 @@ text assertion against a rendered report must NFKC-normalise first.
 Timing on this machine: 2 pages in 8–24 ms; the stabilized double pass in about
 the same. Not a benchmark — one fixture, warm process.
 
+### Stage 5 — public market information, as a labelled fixture (2026-09-05)
+
+`GET /api/market/findings` and `POST /api/market/preview-query`. No provider,
+no HTTP client, no URL that resolves: five illustrative rows from
+`samples/market_sample.json`, every one `is_sample: true` with a `sample://`
+URL.
+
+The one rule — a sample is never presented as a source — is enforced at load
+time, and each way has a test that was watched failing against a loader that
+trusts the file: a row missing `is_sample`, a row setting it false, a row with
+a fetchable `https://` URL, a row claiming `source_read`, and an empty fixture
+(which would otherwise render as "no market findings", reading as a
+measurement rather than an absence).
+
+`preview-query` builds the object that would leave the machine and returns it
+with `sent: false` and `would_be_sent_to: null`. It takes the caller's own
+words only. A query assembled from retrieved document text would exfiltrate the
+client's specification to a search engine one phrase at a time.
+
+`MarketVerification` keeps its three values — a UI must render each — while
+`MarketFinding.verification` is pinned to `source_not_verified`, so the API
+cannot emit a state this build has not earned.
+
 ### Stage 2 — single-answer evidence reports as PDF (2026-09-05)
 
 `POST /api/reports {message_id}` freezes one answered message - question,

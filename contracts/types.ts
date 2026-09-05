@@ -431,6 +431,61 @@ export interface LoginResult {
   expires_in_seconds: number;
 }
 
+// ------------------------------------------------------------------- market
+
+/** How a finding was checked. The full vocabulary, because a UI must be able
+ *  to render each state - but see `MarketFinding.verification`: this build
+ *  can only ever produce the last one. */
+export type MarketVerification = "source_read" | "snippet_only" | "source_not_verified";
+
+/** An ILLUSTRATIVE row. There is no provider and this machine is offline.
+ *
+ *  `is_sample` is always true and is neither optional nor defaulted. A row
+ *  that could omit it could be mistaken for a real finding, and the UI must
+ *  never present one as a source. */
+export interface MarketFinding {
+  claim: string;
+  /** Always `sample://` - a scheme that resolves nowhere, chosen so a row
+   *  cannot become a real citation by being clicked. */
+  url: string;
+  publisher: string;
+  published_at: string | null;
+  retrieved_at: string;
+  /** Pinned, not widened to MarketVerification: nothing in this build has
+   *  been read, so no row may claim it was. */
+  verification: "source_not_verified";
+  is_sample: true;
+}
+
+export interface EgressState {
+  web_search_enabled: boolean;
+  allow_public_egress: boolean;
+}
+
+export interface MarketFindings {
+  /** "SAMPLE DATA - NOT LIVE", in full. Render it; do not summarise it. */
+  notice: string;
+  egress: EgressState;
+  findings: MarketFinding[];
+  is_sample: true;
+}
+
+export interface MarketQueryRequest {
+  query: string;
+  country: string | null;
+  freshness_days: number | null;
+}
+
+/** What WOULD be sent. `sent` is always false and nothing left the machine. */
+export interface MarketQueryPreview {
+  query: string;
+  country: string | null;
+  freshness_days: number | null;
+  would_be_sent_to: null;
+  sent: false;
+  reason: string;
+}
+
 // ------------------------------------------------------------------ reports
 
 export interface ReportDocumentRow {

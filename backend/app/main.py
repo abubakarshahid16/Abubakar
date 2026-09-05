@@ -28,6 +28,7 @@ from .api_utils import (
 from . import access
 from . import auth as auth_mod
 from . import errors
+from . import market as market_mod
 from . import reports as reports_mod
 from . import schemas
 from .config import settings
@@ -482,6 +483,31 @@ def me(request: Request,
                                      "sign in to continue"),
         )
     return {"required": True, "user": described}
+
+
+# ----------------------------------------------------------------- market
+#
+# No network call exists in this build. Both routes are scoped like every
+# other, not because a sample is sensitive, but so that adding a real provider
+# later cannot introduce an unscoped route by inheriting this shape.
+
+
+@app.get("/api/market/findings", response_model=schemas.MarketFindings)
+def market_findings(scope: access.AccessScope = Depends(access.current_scope)):
+    """Illustrative rows, every one labelled as a sample."""
+    return market_mod.findings()
+
+
+@app.post("/api/market/preview-query", response_model=schemas.MarketQueryPreview)
+def market_preview_query(body: schemas.MarketQueryRequest,
+                         scope: access.AccessScope = Depends(access.current_scope)):
+    """Build the object that would leave the machine. Do not send it.
+
+    Takes the caller's own words. It must never be built from retrieved
+    document text: that would exfiltrate the client's specification to a
+    search engine one phrase at a time.
+    """
+    return market_mod.preview_query(body.query, body.country, body.freshness_days)
 
 
 # ---------------------------------------------------------------- reports

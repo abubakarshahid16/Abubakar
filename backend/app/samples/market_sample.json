@@ -1,0 +1,52 @@
+{
+  "_notice": "SAMPLE DATA - NOT LIVE. This machine is offline. Every row is an illustrative placeholder. No publisher, URL or figure here is real, and none may be described as market research, live data, or a source. The plan (section 12) is explicit: a fixture must never be described as live data.",
+  "_generated": "2026-09-05",
+  "_egress": { "web_search_enabled": false, "allow_public_egress": false },
+  "findings": [
+    {
+      "claim": "Illustrative row: offshore protective coating systems are typically specified against a recognised standard such as NORSOK M-501 or ISO 12944.",
+      "url": "sample://not-a-real-source/coatings/1",
+      "publisher": "Sample Publisher A",
+      "published_at": null,
+      "retrieved_at": "2026-09-05T00:00:00Z",
+      "verification": "source_not_verified",
+      "is_sample": true
+    },
+    {
+      "claim": "Illustrative row: thermally sprayed aluminium is one option among several for splash-zone protection; selection depends on design life and maintenance access.",
+      "url": "sample://not-a-real-source/coatings/2",
+      "publisher": "Sample Publisher B",
+      "published_at": null,
+      "retrieved_at": "2026-09-05T00:00:00Z",
+      "verification": "source_not_verified",
+      "is_sample": true
+    },
+    {
+      "claim": "Illustrative row: post-combustion carbon capture cost estimates vary widely with plant configuration and are usually reported per tonne of CO2 captured.",
+      "url": "sample://not-a-real-source/capture/1",
+      "publisher": "Sample Publisher C",
+      "published_at": null,
+      "retrieved_at": "2026-09-05T00:00:00Z",
+      "verification": "source_not_verified",
+      "is_sample": true
+    },
+    {
+      "claim": "Illustrative row: zero-trust architecture guidance is published by several national standards bodies; NIST SP 800-207 is one such document.",
+      "url": "sample://not-a-real-source/security/1",
+      "publisher": "Sample Publisher D",
+      "published_at": null,
+      "retrieved_at": "2026-09-05T00:00:00Z",
+      "verification": "source_not_verified",
+      "is_sample": true
+    },
+    {
+      "claim": "Illustrative row: BIM submission requirements differ between public-sector clients; the level of model detail required is usually stated per deliverable.",
+      "url": "sample://not-a-real-source/civil/1",
+      "publisher": "Sample Publisher E",
+      "published_at": null,
+      "retrieved_at": "2026-09-05T00:00:00Z",
+      "verification": "source_not_verified",
+      "is_sample": true
+    }
+  ]
+}

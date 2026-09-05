@@ -21,6 +21,9 @@ import type {
   AuthStatus,
   ExclusionsResponse,
   LoginResult,
+  MarketFindings,
+  MarketQueryPreview,
+  MarketQueryRequest,
   Metrics,
   ReportList,
   ReportRecord,
@@ -146,6 +149,17 @@ export const hasArrayField =
     typeof b === "object" &&
     b !== null &&
     Array.isArray((b as Record<string, unknown>)[field]);
+
+export const market = {
+  findings: () => request<MarketFindings>("/market/findings"),
+  /** Builds the object that WOULD be sent. Nothing is sent. */
+  previewQuery: (body: MarketQueryRequest) =>
+    request<MarketQueryPreview>("/market/preview-query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+};
 
 export const reports = {
   list: () => request<ReportList>("/reports"),

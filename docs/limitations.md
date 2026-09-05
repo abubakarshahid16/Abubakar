@@ -165,6 +165,36 @@ the decision is made, and 1.25-1.73x on prose, where there is room to spare.
 Worst observed margin **1.035x over twelve measured chunks**. Ground truth in
 `docs/benchmarks.md`, re-checked by `test_context_budget.py`.
 
+## Public market information is a fixture and can never become one by accident
+
+**There is no provider and this machine makes no network call.** Every row on
+the market panel is loaded from `backend/app/samples/market_sample.json`, is
+marked `is_sample: true`, and carries a `sample://` URL - a scheme that
+resolves nowhere, chosen so a row cannot become a real citation by being
+clicked.
+
+The rule that a sample is never presented as a source is enforced at LOAD time
+rather than at render, three ways: a row without `is_sample: true` is refused,
+a row whose URL is fetchable is refused, and a row claiming `source_read` or
+`snippet_only` is refused. The failure this guards against is not somebody
+writing `is_sample: false` on purpose - it is a real row being pasted into the
+fixture during a demo, which is why the `https://` case has its own test.
+
+`MarketVerification` keeps all three values because that is what the word
+means and a UI has to render each; `MarketFinding.verification` is pinned to
+`source_not_verified`, so the API cannot emit the other two.
+
+**No query has ever left this machine.** `POST /api/market/preview-query`
+builds the object that *would* be sent and returns it with `sent: false`. It is
+assembled from the caller's own words and two public fields, never from
+retrieved document text - a query built from a client's specification would
+exfiltrate that specification to a search engine one phrase at a time.
+
+**What this does not claim:** nothing here is market research, and no figure in
+it is real. The panel exists so the shape of the feature - where verification
+sits, what a reader is told about provenance - can be reviewed before egress is
+ever considered, rather than on the day the network is opened.
+
 ## Evidence reports are single-answer, and three things about them are not proven
 
 **Not the analysis report.** A report is one question, its quoted evidence and
