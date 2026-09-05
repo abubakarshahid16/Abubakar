@@ -33,6 +33,34 @@ export interface AnswerView {
   examples: string[];
 }
 
+/**
+ * A Tier 2 upgrade of an extract that produced nothing showable.
+ *
+ * THE DEFECT THIS EXISTS FOR. Pressing "Explain in plain language" persists a
+ * SECOND assistant turn with `explains_id` set. When the model cited no
+ * supplied source, `answer.py` correctly refuses it — `answer_type` comes back
+ * `insufficient_evidence`. The transcript then rendered that refusal as a peer
+ * of the extract it was an upgrade of, so the screen said "here is your
+ * answer, quoted from page 17" and "The documents do not answer this" at the
+ * same time, stacked. Both statements were about the SAME question, and one of
+ * them was false.
+ *
+ * The refusal itself is right and is not weakened here: the uncited prose is
+ * still never shown. What changes is scope — a failed upgrade is reported on
+ * the control that started it, as a failed upgrade, and the page-level "the
+ * documents do not answer this" is reserved for a question the documents
+ * genuinely did not answer.
+ */
+export interface UpgradeFailure {
+  /** `insufficient_evidence` (refused) or `model_unavailable` (never ran). */
+  answer_type: AnswerType;
+  reason: string | null;
+  /** What the model was given, so the reader can still judge for themselves. */
+  considered: AnswerPassage[];
+  activeSource: number | null;
+  onSelectSource: (i: number) => void;
+}
+
 export function viewFromMessage(m: Message): AnswerView {
   const p = m.payload ?? {};
   return {
@@ -208,6 +236,86 @@ function ReportAction({
   );
 }
 
+/**
+ * The failed upgrade, reported where it was asked for.
+ *
+ * Two outcomes, two appearances, deliberately: the model being absent is a
+ * fact about this machine and the reader fixes it with a command, while a
+ * refusal is a fact about what the model wrote and there is nothing to fix.
+ * Rendering them the same would be the "backend offline looks like request
+ * failed" defect, one level down.
+ *
+ * Not exported: `provenance.enumerated.test.tsx` walks the source for exported
+ * components taking an AnswerPassage, and the passages here are rendered by
+ * `PassageLocation`, which already carries the OCR mark and is checked there.
+ */
+function UpgradeFailureNotice({ failure }: { failure: UpgradeFailure }) {
+  if (failure.answer_type === "model_unavailable") {
+    return (
+      <div
+        role="alert"
+        className="mt-2 rounded border border-warn-500/50 bg-warn-500/10 px-2.5 py-2"
+      >
+        <p className="text-xs font-semibold text-warn-500">
+          The plain-language version could not be produced — the local answer
+          model is not running
+        </p>
+        <p className="mt-1 text-xs text-slateish-300">
+          {asSentence(failure.reason ?? "Ollama could not be reached")} This is
+          the machine, not your question. The quoted answer above is unaffected
+          — only the plain-language version needs the model.
+        </p>
+        <pre className="mt-1.5 overflow-x-auto rounded bg-ink-900 p-2 font-mono text-[11px] text-slateish-300">
+ollama serve
+        </pre>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      role="status"
+      className="mt-2 rounded border border-ink-600 bg-ink-900 px-2.5 py-2"
+    >
+      <p className="text-xs font-semibold text-slateish-200">
+        The plain-language version could not be produced
+      </p>
+      <p className="mt-1 text-xs text-slateish-400">
+        {asSentence(
+          failure.reason ?? "the model produced nothing that could be checked",
+        )}{" "}
+        Nothing is shown rather than prose you could not check against a source.
+        The quoted answer above is unaffected and still stands.
+      </p>
+      {failure.considered.length > 0 && (
+        <div className="mt-2">
+          <p className="text-[11px] uppercase tracking-wide text-slateish-500">
+            What the model was given, so you can judge for yourself
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {failure.considered.map((p, i) => (
+              <li key={p.chunk_id}>
+                <button
+                  type="button"
+                  onClick={() => failure.onSelectSource(i)}
+                  className={[
+                    "w-full rounded border px-2 py-1.5 text-left hover:bg-ink-800",
+                    failure.activeSource === i
+                      ? "border-signal-500/60 bg-ink-800"
+                      : "border-ink-700",
+                  ].join(" ")}
+                >
+                  <PassageLocation passage={p} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AnswerCard({
   view,
   onSelectSource,
@@ -219,6 +327,7 @@ export function AnswerCard({
   reportNotice,
   explainSeconds,
   explainsEarlier,
+  upgradeFailure,
 }: {
   view: AnswerView;
   onSelectSource: (i: number) => void;
@@ -234,6 +343,9 @@ export function AnswerCard({
   reportNotice?: string | null;
   explainSeconds?: number;
   explainsEarlier?: boolean;
+  /** A Tier 2 upgrade OF THIS ANSWER that produced nothing showable. Scoped
+   *  to the control that started it rather than shown as a second answer. */
+  upgradeFailure?: UpgradeFailure | null;
 }) {
   const sources = sourcesOf(view);
 
@@ -462,21 +574,35 @@ ollama serve
           </p>
         )}
 
-        {onExplain && (
+        {(onExplain || upgradeFailure) && (
           <div className="mt-3 border-t border-ink-700 pt-3">
-            <button
-              type="button"
-              onClick={onExplain}
-              disabled={explaining}
-              className="rounded border border-warn-500/50 px-3 py-1.5 text-sm text-warn-500 hover:bg-warn-500/10 disabled:opacity-60"
-            >
-              {explaining ? `Explaining… ${explainSeconds ?? 0}s` : "Explain in plain language"}
-            </button>
-            <p className="mt-1.5 text-xs text-slateish-500">
-              {explaining
-                ? "Generation is not streamed. It typically finishes around 50 seconds on this machine."
-                : "Runs the local model over these passages. Takes about 50 seconds on this hardware — the quotation above is already the answer."}
-            </p>
+            {onExplain && (
+              <>
+                <button
+                  type="button"
+                  onClick={onExplain}
+                  disabled={explaining}
+                  className="rounded border border-warn-500/50 px-3 py-1.5 text-sm text-warn-500 hover:bg-warn-500/10 disabled:opacity-60"
+                >
+                  {explaining
+                    ? `Explaining… ${explainSeconds ?? 0}s`
+                    : upgradeFailure
+                      ? "Try the plain-language version again"
+                      : "Explain in plain language"}
+                </button>
+                <p className="mt-1.5 text-xs text-slateish-500">
+                  {explaining
+                    ? "Generation is not streamed. It typically finishes around 50 seconds on this machine."
+                    : "Runs the local model over these passages. Takes about 50 seconds on this hardware — the quotation above is already the answer."}
+                </p>
+              </>
+            )}
+            {/* Rendered whether or not the button is on offer: a failed
+                upgrade that leaves no trace is indistinguishable from a
+                button that did nothing. */}
+            {upgradeFailure && !explaining && (
+              <UpgradeFailureNotice failure={upgradeFailure} />
+            )}
           </div>
         )}
       </div>

@@ -1282,3 +1282,218 @@ describe("evidence dropped to fit the context window", () => {
     expect(screen.queryByText(/did not fit the model/i)).toBeNull();
   });
 });
+
+// ------------------------------------------------ a refused Tier 2 upgrade
+//
+// THE DEFECT. Press "Explain in plain language" on a quoted answer. The model
+// writes prose citing no supplied source, and `answer.py` refuses it — right,
+// and not weakened here. But `chat.ask(explain_of=…)` persists that refusal as
+// its own assistant turn, and the transcript drew it as a PEER of the extract:
+// the screen said "here is your answer, quoted from page 17" and "The
+// documents do not answer this" at the same time, about the same question.
+//
+// The fixtures below reproduce that exact stack — extract, then a message with
+// `explains_id` pointing at it and `answer_type: "insufficient_evidence"`.
+
+describe("a refused plain-language upgrade", () => {
+  const REFUSAL_REASON = "the generated answer cited no supplied source";
+
+  /** The refused upgrade, as chat.ask persists it. `over` lets a test change
+   *  one field — notably `explains_id` — without losing the shape. */
+  const refusedUpgrade = (over: Partial<Message> = {}): Message =>
+    extractMessage({
+      id: "msg_a2",
+      ordinal: 3,
+      text: null,
+      answer_type: "insufficient_evidence",
+      reason: REFUSAL_REASON,
+      explains_id: "msg_a1",
+      payload: { passages: [A4], cited: [], rejected_citations: [], seconds: 51.2 },
+      ...over,
+    });
+
+  const transcript = (...ms: Message[]) => ({
+    conversation: { conversation, messages: ms },
+    conversations: {
+      total: 1,
+      limit: 20,
+      offset: 0,
+      conversations: [{ ...conversation, first_question: "q" }],
+    },
+  });
+
+  async function openTranscript(...ms: Message[]) {
+    mockApi(transcript(...ms));
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
+  }
+
+  // FIXTURE HONESTY. This project has five recorded instances of a fixture
+  // that could not produce the condition its test claimed to cover. The same
+  // payload, on a turn that is NOT an upgrade of anything, must still raise
+  // the page-level refusal — which proves this fixture really is one that
+  // reaches that branch, and that the refusal has not been suppressed
+  // globally by the fix.
+  it("still reads as a page-level refusal when it is not an upgrade of anything", async () => {
+    await openTranscript(userMessage(), refusedUpgrade({ explains_id: null }));
+
+    expect(await screen.findByText(/The documents do not answer this/i)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing was made up to fill the gap/i)).toBeInTheDocument();
+  });
+
+  it("never shows a quoted answer and a page-level refusal for the same question", async () => {
+    await openTranscript(userMessage(), extractMessage(), refusedUpgrade());
+
+    // the extract survives, whole
+    expect(await screen.findByText(A1.text)).toBeInTheDocument();
+    expect(screen.getByText(/Quoted verbatim from the document/i)).toBeInTheDocument();
+
+    // THE ASSERTION THAT WOULD HAVE CAUGHT IT. Both of these were on screen
+    // together, stacked, each contradicting the other.
+    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/Nothing was made up to fill the gap/i)).toBeNull();
+    expect(screen.queryByText(/What was considered, so you can judge/i)).toBeNull();
+  });
+
+  it("reports the failure as a failed upgrade, in the model's own reason", async () => {
+    await openTranscript(userMessage(), extractMessage(), refusedUpgrade());
+
+    expect(
+      await screen.findByText(/The plain-language version could not be produced/i),
+    ).toBeInTheDocument();
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent(REFUSAL_REASON);
+    expect(notice).toHaveTextContent(/nothing is shown rather than prose you could not check/i);
+  });
+
+  it("never shows the uncited prose the model actually wrote", async () => {
+    // The refusal exists to keep this text off the screen. Scoping it must
+    // not have quietly turned it back on.
+    await openTranscript(
+      userMessage(),
+      extractMessage(),
+      refusedUpgrade({ text: "Coatings are generally about 280 micrometres thick." }),
+    );
+
+    await screen.findByText(/The plain-language version could not be produced/i);
+    expect(screen.queryByText(/Coatings are generally about 280/)).toBeNull();
+    expect(screen.queryByText(/Written by the model/i)).toBeNull();
+  });
+
+  it("still lets the reader see what the model was given, with document and page", async () => {
+    await openTranscript(userMessage(), extractMessage(), refusedUpgrade());
+
+    await screen.findByText(/What the model was given/i);
+    const notice = screen.getByRole("status");
+    expect(within(notice).getByText("NORSOKM501Rev5.pdf")).toBeInTheDocument();
+    expect(within(notice).getByText(/pages? 19/)).toBeInTheDocument();
+    expect(within(notice).getByText(/A.4 Coating system no. 4/)).toBeInTheDocument();
+  });
+
+  it("opens the FAILED ATTEMPT's evidence, not the extract's", async () => {
+    // The two passage sets are different. Addressing the considered passages
+    // by the extract's id would open A1 while the row said page 19.
+    await openTranscript(userMessage(), extractMessage(), refusedUpgrade());
+
+    const notice = await screen.findByRole("status");
+    await userEvent.click(within(notice).getByText(/A.4 Coating system no. 4/));
+
+    const panel = await screen.findByRole("complementary", { name: "Evidence" });
+    expect(within(panel).getByText(A4.text)).toBeInTheDocument();
+    expect(within(panel).queryByText(A1.text)).toBeNull();
+  });
+
+  it("offers the upgrade again, labelled as a retry rather than as a first go", async () => {
+    // A refused upgrade put nothing on screen, so the "already explained"
+    // guard does not apply — but the button must not pretend nothing happened.
+    await openTranscript(userMessage(), extractMessage(), refusedUpgrade());
+
+    expect(
+      await screen.findByRole("button", { name: /Try the plain-language version again/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Explain in plain language$/i })).toBeNull();
+  });
+
+  it("keeps hiding the button when the upgrade SUCCEEDED", async () => {
+    await openTranscript(
+      userMessage(),
+      extractMessage(),
+      extractMessage({
+        id: "msg_a2",
+        ordinal: 3,
+        text: "The thickness is 280 um [S1].",
+        answer_type: "generated",
+        explains_id: "msg_a1",
+        payload: { passages: [A1], cited: [1], model: "qwen3.5:4b", seconds: 51.8 },
+      }),
+    );
+
+    await screen.findByText(/Written by the model/i);
+    expect(screen.queryByRole("button", { name: /plain-language version again/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Explain in plain/i })).toBeNull();
+  });
+
+  it("does not swallow a failed upgrade whose answer is not on screen", async () => {
+    // Nothing to attach it to. Reporting it nowhere would be the other half
+    // of this defect: an attempt that silently looks like it never ran.
+    await openTranscript(userMessage(), refusedUpgrade({ explains_id: "msg_gone" }));
+
+    expect(await screen.findByText(/The documents do not answer this/i)).toBeInTheDocument();
+  });
+
+  it("scopes the failure when it arrives live, from pressing the button", async () => {
+    mockApi({
+      ask: (() => {
+        let n = 0;
+        return () => {
+          n += 1;
+          if (n === 1) return askResult();
+          return askResult({
+            answer_type: "insufficient_evidence",
+            answer: null,
+            reason: REFUSAL_REASON,
+            passage: null,
+            supporting: [],
+            passages: [A4],
+            assistant_message: refusedUpgrade(),
+          });
+        };
+      })(),
+    });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await userEvent.click(await screen.findByRole("button", { name: /Explain in plain/i }));
+
+    expect(
+      await screen.findByText(/The plain-language version could not be produced/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(A1.text)).toBeInTheDocument();
+    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+  });
+
+  // Rule: "backend offline" and "that request failed" must never look the
+  // same. A refused upgrade and an upgrade that never ran are both failures
+  // of the same button, and only one of them has anything the reader can do.
+  it("distinguishes the model being down from the model being refused", async () => {
+    await openTranscript(
+      userMessage(),
+      extractMessage(),
+      refusedUpgrade({
+        answer_type: "model_unavailable",
+        reason: "the local answer model could not be reached (ConnectError)",
+        payload: { passages: [A1], seconds: 0.1 },
+      }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/local answer model is not running/i);
+    expect(alert).toHaveTextContent("ollama serve");
+    expect(alert).toHaveTextContent(/This is the machine, not your question/i);
+
+    // not the refusal wording, and not the page-level one either
+    expect(screen.queryByText(/cited no supplied source/i)).toBeNull();
+    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.getByText(A1.text)).toBeInTheDocument();
+  });
+});

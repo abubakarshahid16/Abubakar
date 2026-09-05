@@ -13,7 +13,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, reports as reportsApi } from "../api/client";
-import { AnswerCard, sourcesOf, viewFromMessage, type AnswerView } from "../components/chat/AnswerCard";
+import {
+  AnswerCard,
+  sourcesOf,
+  viewFromMessage,
+  type AnswerView,
+  type UpgradeFailure,
+} from "../components/chat/AnswerCard";
 import { EvidencePanel } from "../components/chat/EvidencePanel";
 import { LocalWork } from "../components/chat/LocalWork";
 import type { Connection } from "../components/Shell";
@@ -368,12 +374,62 @@ export function ChatView({
     return undefined;
   })();
 
+  /** A Tier 2 upgrade that produced nothing showable.
+   *
+   *  `chat.ask(explain_of=…)` persists the attempt as its own assistant turn,
+   *  whatever the outcome. When `synthesis`/`answer` refuses the generated
+   *  prose — the model cited no supplied source — that turn comes back as
+   *  `insufficient_evidence`, and the transcript rendered it as a PEER of the
+   *  extract it was an upgrade of. The screen then asserted "here is your
+   *  answer, quoted from page 17" and "The documents do not answer this"
+   *  simultaneously, about the same question. The refusal is correct; its
+   *  SCOPE was not. */
+  const isFailedUpgrade = (m: Message) =>
+    Boolean(m.explains_id) &&
+    (m.answer_type === "insufficient_evidence" || m.answer_type === "model_unavailable");
+
+  const present = new Set(messages.map((m) => m.id));
+  /** The latest failed upgrade per answer it was an upgrade OF. */
+  const failedUpgrades = new Map<string, Message>();
+  /** Every failed upgrade being reported on another card, so it is not also
+   *  drawn as one. Only suppressed when the card it attaches to is actually
+   *  on screen — a failure with nowhere to go is still shown, because a
+   *  vanished attempt is the other half of this defect. */
+  const attachedElsewhere = new Set<string>();
+  for (const m of messages) {
+    if (!isFailedUpgrade(m) || !present.has(m.explains_id!)) continue;
+    failedUpgrades.set(m.explains_id!, m);
+    attachedElsewhere.add(m.id);
+  }
+
   /** An assistant turn already followed by its explanation must not offer
    *  Explain again — pressing it twice would spend another ~50 seconds
-   *  reproducing an answer already on screen. */
+   *  reproducing an answer already on screen. A REFUSED upgrade put nothing
+   *  on screen, so it is not one of those: the button stays, now labelled as
+   *  a retry, with the failure reported beneath it. */
   const explainedIds = new Set(
-    messages.map((m) => m.explains_id).filter((x): x is string => Boolean(x)),
+    messages
+      .filter((m) => m.answer_type === "generated")
+      .map((m) => m.explains_id)
+      .filter((x): x is string => Boolean(x)),
   );
+
+  /** The failed upgrade to report on the card for `messageId`, if any.
+   *
+   *  Its passages stay addressed by ITS OWN message id, so opening one puts
+   *  the failed attempt's evidence in the panel rather than silently
+   *  substituting the extract's — the two sets are not the same. */
+  const upgradeFailureFor = (messageId: string): UpgradeFailure | null => {
+    const f = failedUpgrades.get(messageId);
+    if (!f) return null;
+    return {
+      answer_type: f.answer_type ?? "insufficient_evidence",
+      reason: f.reason,
+      considered: sourcesOf(viewFromMessage(f)),
+      activeSource: evidence?.messageId === f.id ? evidence.index : null,
+      onSelectSource: (i: number) => setEvidence({ messageId: f.id, index: i }),
+    };
+  };
 
   return (
     <div className="flex h-[calc(100vh-6rem)] min-h-0 flex-col gap-4 lg:flex-row">
@@ -451,7 +507,7 @@ export function ChatView({
           {messages.map((m) =>
             m.role === "user" ? (
               <UserTurn key={m.id} message={m} />
-            ) : (
+            ) : attachedElsewhere.has(m.id) ? null : (
               <div key={m.id} className="max-w-[52rem]">
                 <AnswerCard
                   view={viewFromMessage(m) as AnswerView}
@@ -472,6 +528,7 @@ export function ChatView({
                   }
                   savingReport={savingReport === m.id}
                   reportNotice={reportNotice[m.id] || null}
+                  upgradeFailure={upgradeFailureFor(m.id)}
                   explaining={explainingId === m.id}
                   explainSeconds={explainingId === m.id ? elapsed : undefined}
                 />
