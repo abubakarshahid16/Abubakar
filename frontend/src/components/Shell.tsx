@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type Health } from "../api/client";
 
-export type ViewId = "documents" | "chat" | "ingestion" | "dashboard";
+export type ViewId = "documents" | "chat" | "ingestion" | "dashboard" | "reports";
 
 interface NavItem {
   id: ViewId;
@@ -22,6 +22,7 @@ export const NAV: NavItem[] = [
   { id: "chat", label: "Chat", hint: "Ask questions with citations", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
   { id: "dashboard", label: "Dashboard", hint: "System metrics", built: true },
+  { id: "reports", label: "Reports", hint: "Frozen evidence, as PDF", built: true },
 ];
 
 export type Connection =

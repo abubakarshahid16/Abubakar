@@ -289,7 +289,11 @@ def test_every_endpoint_declares_a_typed_200_response():
         for method, op in ops.items():
             ok = op.get("responses", {}).get("200", {})
             content = ok.get("content", {})
-            if "image/png" in content:
+            # A binary download has no JSON schema, and DECLARING a binary
+            # media type is different from declaring nothing: the first is a
+            # contract, the second is the defect this test exists for. So an
+            # endpoint is exempt only if it says what it returns.
+            if content and "application/json" not in content:
                 continue
             schema = content.get("application/json", {}).get("schema", {})
             if not ("$ref" in schema or schema.get("type") == "array"):

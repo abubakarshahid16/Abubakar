@@ -22,6 +22,9 @@ import type {
   ExclusionsResponse,
   LoginResult,
   Metrics,
+  ReportList,
+  ReportRecord,
+  ReportVerification,
   PagesResponse,
 } from "../types/api";
 
@@ -143,6 +146,23 @@ export const hasArrayField =
     typeof b === "object" &&
     b !== null &&
     Array.isArray((b as Record<string, unknown>)[field]);
+
+export const reports = {
+  list: () => request<ReportList>("/reports"),
+  generate: (message_id: string) =>
+    request<ReportRecord>("/reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message_id }),
+    }),
+  verify: (id: string) =>
+    request<ReportVerification>(`/reports/${encodeURIComponent(id)}/verify`),
+  /** The download is a navigation, not a fetch: the browser saves the file
+   *  under the server-assigned name. The bearer token cannot ride on a plain
+   *  navigation, so this is only reachable under auth_mode=disabled today;
+   *  under demo_required it needs a blob fetch, which stage 2 does not build. */
+  downloadUrl: (id: string) => `${BASE}/reports/${encodeURIComponent(id)}/download`,
+};
 
 export const auth = {
   login: (email: string, password: string) =>

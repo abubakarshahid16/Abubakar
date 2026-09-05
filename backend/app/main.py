@@ -28,6 +28,7 @@ from .api_utils import (
 from . import access
 from . import auth as auth_mod
 from . import errors
+from . import reports as reports_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -233,6 +234,10 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
                 document_id=document_id,
             )} | {"filename": doc["filename"], "retrievable_chunks": doc["chunk_count"]},
         )
+
+    # Reports quote this document. Their FILES go; their ROWS stay, because
+    # the record that a report was issued must survive the document.
+    reports_mod.on_document_deleted(document_id)
 
     conn = connect()
     removed = {}
@@ -477,6 +482,83 @@ def me(request: Request,
                                      "sign in to continue"),
         )
     return {"required": True, "user": described}
+
+
+# ---------------------------------------------------------------- reports
+#
+# A report IS client document content - it quotes it - so every route takes
+# the scope and the check is owner AND still authorised for every cited
+# document. A report the caller may not see is 404, never 403: a 403 confirms
+# it exists and which documents it cites, which is itself the leak.
+
+
+def _report_or_404(fn, *args):
+    try:
+        return fn(*args)
+    except reports_mod.ReportNotFound:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no report with that id"),
+        )
+
+
+@app.post("/api/reports", response_model=schemas.ReportRecord,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def generate_report(body: schemas.GenerateReport,
+                    scope: access.AccessScope = Depends(access.current_scope)):
+    """Freeze one answered message and render it. Renders from the snapshot only."""
+    try:
+        return reports_mod.generate(body.message_id, scope)
+    except reports_mod.ReportNotFound:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no message with that id"),
+        )
+    except reports_mod.NotReportable as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc)),
+        )
+
+
+@app.get("/api/reports", response_model=schemas.ReportList)
+def list_reports(scope: access.AccessScope = Depends(access.current_scope)):
+    return reports_mod.list_reports(scope)
+
+
+@app.get("/api/reports/{report_id}/verify", response_model=schemas.ReportVerification,
+         responses={**schemas.ERRORS_404})
+def verify_report(report_id: str,
+                  scope: access.AccessScope = Depends(access.current_scope)):
+    return _report_or_404(reports_mod.verify, report_id, scope)
+
+
+@app.get("/api/reports/{report_id}/download",
+         # response_class, not just `responses`: without it FastAPI adds a
+         # default application/json entry alongside the PDF, and an endpoint
+         # that claims to return JSON and returns bytes is the untyped-200
+         # defect wearing a content type. A binary response has no JSON
+         # schema, and DECLARING that is different from declaring nothing.
+         response_class=FileResponse,
+         responses={**schemas.ERRORS_404,
+                    200: {"content": {"application/pdf": {}},
+                          "description": "The report PDF"}})
+def download_report(report_id: str,
+                    scope: access.AccessScope = Depends(access.current_scope)):
+    path = _report_or_404(reports_mod.stored_path, report_id, scope)
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no report with that id"),
+        )
+    # private, no-store - NOT the max-age page images use. A page image is a
+    # fragment; this is the assembled evidence with quoted client text in it.
+    # The download name is the server-assigned id, never the question.
+    return FileResponse(
+        path, media_type="application/pdf",
+        filename=f"nabaa-report-{report_id}.pdf",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @app.post("/api/conversations", response_model=schemas.Conversation,

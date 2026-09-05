@@ -222,36 +222,9 @@ export interface AnalysisResult {
 
 // -------------------------------------------------------------------- reports
 
-export interface ReportDocumentRow {
-  document_id: string;
-  filename: string;
-  sha256_prefix: string;
-  revision: string | null;
-  approval_status: string | null;
-  passages_cited: number;
-  text_source: "extracted" | "recognised" | "mixed" | null;
-}
-
-export interface ReportRecord {
-  id: string;
-  question: string;
-  resolved_question: string | null;
-  created_at: string;
-  page_count: number;
-  size_bytes: number;
-  report_sha256: string;
-  /** null under auth_mode="disabled" - there is no user to attribute it to */
-  owner_username: string | null;
-  documents: ReportDocumentRow[];
-  not_implemented_sections: string[];
-}
-
-export interface ReportVerification {
-  report_id: string;
-  snapshot_intact: boolean;
-  file_intact: boolean;
-  evidence_drift: string[];
-}
+// ReportDocumentRow, ReportRecord, ReportList and ReportVerification moved to
+// contracts/types.ts when stage 2 landed. Shipped API shapes live in the
+// contract only.
 
 // ---------------------------------------------------------------------- login
 

@@ -10,6 +10,77 @@ the day they merged.
 
 ## [Unreleased]
 
+### Spike — PyMuPDF `Story` as the report renderer (2026-09-05, 10 minutes)
+
+The design made three claims it had not verified. Each was rendered and read
+back through `fitz` on PyMuPDF 1.26.6. Recorded verbatim, including the one
+that failed.
+
+**1. `<thead>` does NOT repeat across page breaks.** A 40-row table split over
+two pages: page 1 carried the header and 31 rows, page 2 carried 9 rows and no
+header. The design called this "the single highest-value item in the spike —
+verify it, do not assume it". Verified: false. Consequence: a table that may
+span pages needs its header re-drawn per page in Python, or must be kept short
+enough not to span. A single-answer report cites at most three documents, so
+the evidence table does not span; the limitation is stated for anything that
+would.
+
+**2. Arabic is shaped by `Story`, and joining is still not proven.** A mixed
+Arabic/English paragraph rendered in `NotoNaskhArabic-Regular` (embedded in the
+MuPDF DLL, SIL OFL 1.1) with **0 `.notdef` glyphs**. 43 of the 44 Arabic
+characters read back were Unicode **presentation forms** (U+FB50–U+FEFF) — the
+contextual glyph forms a shaper emits — so shaping ran. What this does NOT
+prove: that the joins are the *right* ones, or that bidi order is correct. That
+needs a reader of Arabic looking at the page. Two consequences for tests: assert
+on the font name and on presentation forms being present, never on the logical
+string — it does not come back from the text layer — and do not let a green
+tick imply the Arabic is correct.
+
+**3. `write_stabilized_with_links` produces a TOC only if you build one.** It
+runs the layout twice and hands `contentfn` the element positions from the
+previous pass (`id`, `text`, `page_num`, `heading`), so the HTML can include a
+contents list whose page numbers are final. `<a href="#id">` links resolve to
+internal page links (5 on page 1 of the spike). `doc.get_toc()` — the PDF
+outline — stays **empty**; nothing is added to it automatically.
+
+**A fourth thing nobody claimed:** `fitz` text extraction returns typographic
+ligatures — "prefix" came back as "preﬁx". The first version of the
+`<thead>` check found no header on any page for exactly this reason. Every
+text assertion against a rendered report must NFKC-normalise first.
+
+Timing on this machine: 2 pages in 8–24 ms; the stabilized double pass in about
+the same. Not a benchmark — one fixture, warm process.
+
+### Stage 2 — single-answer evidence reports as PDF (2026-09-05)
+
+`POST /api/reports {message_id}` freezes one answered message - question,
+resolved question, every passage with its provenance, and each cited document's
+filename, SHA-256, page count, chunk signature and indexed_at - and renders a
+PDF from that snapshot **and nothing else**. Rename or re-index the document
+afterwards and the body does not change; `GET /api/reports/{id}/verify` reports
+the divergence as `evidence_drift` instead of using the new state.
+
+On page 1, in a bordered box: what the report is, and the four things it is not
+- coverage ledger, gap analysis, recommendation, public-market findings. Quoted
+text is serif on a quote rule; generated text is sans on amber; every
+recognised passage carries its OCR line; the engineer-approval sentence appears
+where a reader starts and where they stop; `PROTOTYPE - NOT FOR CONSTRUCTION`
+and `Page N of M` are drawn as an overlay on every page. Revision and approval
+status print as "not recorded" - the columns do not exist.
+
+Content-addressed storage (`reports/<sha[:2]>/<sha>.pdf`), server-assigned
+download name, `Cache-Control: private, no-store`. Access is owner AND still
+authorised for every cited document; a report whose document has left the
+reader's scope is **404** - not 403, not redacted - and the listing carries a
+`suppressed_count`. Deleting a document unlinks the files and keeps the rows.
+
+22 tests, all on semantics read back through `fitz` and none on bytes; the
+watermark, approval, and revocation tests were each broken on purpose and
+watched fail. The Arabic test **skipped**: the fixture's Arabic did not survive
+ingestion's own text extraction, so the renderer was never exercised on it, and
+a skip says so where a pass would have lied.
+
+
 ### Added
 - The evaluation harness drives `chat.ask` inside one conversation, so it
   measures the path a person actually uses rather than answering each question

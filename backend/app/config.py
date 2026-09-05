@@ -235,3 +235,30 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+#: The settings that can change an ANSWER. Kept beside the settings so the list
+#: drifts with them rather than living in the reports module and going stale.
+#: Deliberately excludes host, port, paths and auth: a report generated on a
+#: different port is not a different answer.
+ANSWER_AFFECTING_SETTINGS = (
+    "answer_model", "num_ctx", "max_output_tokens", "temperature",
+    "chunk_target_tokens", "chunk_overlap_tokens", "chunk_max_tokens",
+    "search_candidates", "rerank_candidates", "rerank_max_tokens",
+    "generated_context_chars", "answer_context_chars",
+    "ocr_rec_model", "ocr_expected_script",
+)
+
+
+def config_version() -> str:
+    """First 16 hex of a hash over the answer-affecting settings, sorted.
+
+    Stamped on every report so two reports can be told apart when the answer
+    machinery changed between them, and NOT told apart when only the port did.
+    """
+    import hashlib
+    import json
+
+    subset = {k: getattr(settings, k) for k in sorted(ANSWER_AFFECTING_SETTINGS)}
+    return hashlib.sha256(
+        json.dumps(subset, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:16]

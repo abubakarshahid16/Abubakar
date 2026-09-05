@@ -488,6 +488,59 @@ class LoginResult(BaseModel):
     expires_in_seconds: int
 
 
+class ReportDocumentRow(BaseModel):
+    document_id: str
+    filename: str = Field(description="as it was named when the report was generated")
+    sha256_prefix: str
+    revision: str | None = Field(
+        None, description="always null: no such column exists on documents. "
+        "Rendered as 'not recorded', never invented")
+    approval_status: str | None = None
+    passages_cited: int
+    text_source: Literal["extracted", "recognised", "mixed"] | None
+
+
+class ReportRecord(BaseModel):
+    """A report as a client may see it. `stored_path` is never here."""
+
+    id: str
+    question: str | None
+    resolved_question: str | None
+    created_at: str
+    page_count: int
+    size_bytes: int
+    report_sha256: str = Field(
+        description="hash of the PDF bytes. Proves the stored file is the one "
+        "issued; NOT a reproducibility hash - a re-render on another build "
+        "differs in producer string and ID array with identical content")
+    owner_username: str | None = Field(
+        None, description="null under auth_mode=disabled: there is no user, "
+        "and a placeholder name would be a false attribution")
+    documents: list[ReportDocumentRow]
+    not_implemented_sections: list[str] = Field(
+        description="named on page 1 of the PDF as not included")
+
+
+class ReportList(BaseModel):
+    reports: list[ReportRecord]
+    suppressed_count: int = Field(
+        description="reports hidden because a cited document left the caller's "
+        "scope. THAT something is hidden, never WHAT")
+
+
+class ReportVerification(BaseModel):
+    report_id: str
+    snapshot_intact: bool
+    file_intact: bool
+    evidence_drift: list[str] = Field(
+        description="how the cited documents differ NOW from when the report "
+        "was generated. Reported, never silently resolved")
+
+
+class GenerateReport(BaseModel):
+    message_id: str
+
+
 class EvidenceRemoved(BaseModel):
     """A source that did not fit the model's context window.
 

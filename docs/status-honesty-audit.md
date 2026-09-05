@@ -231,8 +231,8 @@ command loads `tsconfig.json`, which has `"files": []`, and checks nothing.
 It surfaced only when eleven untracked frontend files needed checking and the
 listing came back empty - `--listFiles` printed no file at all, which is what a
 vacuous check looks like when you finally ask it what it covered. Run properly
-the eleven were clean, so every conclusion reported was correct and none of the
-evidence for it was worth anything.
+the eleven were clean. **Every conclusion was right and none of the evidence
+was worth anything.**
 
 This is standing rule 11 - **a documented hazard is not a guard** - demonstrated
 against its own author. The hazard was written down, the CI path was fixed, and
@@ -537,3 +537,9 @@ asserts no client error ever reports `internal`.
    typing and requiring it are not the safeguard. Where provenance decides
    what a claim may say, a test must assert the ABSENCE of the stronger claim
    — presence-only assertions pass while both claims are on screen.
+14. **A check that can run against zero inputs must assert it ran against more
+   than zero.** The rule the fixtures already carry, applied to tools. A type
+   checker with no files, a scanner with no paths, a test filter that matched
+   nothing — each exits 0 and reads as a pass. Before believing a tool's clean
+   result, ask it what it covered (`--listFiles`, a count, a non-empty
+   listing), and make the harness ask so a person does not have to.

@@ -16,7 +16,7 @@
 import { useState } from "react";
 
 import { EmptyState, Spinner } from "../components/states";
-import type { ReportRecord, ReportVerification } from "../types/analysis";
+import type { ReportRecord, ReportVerification } from "../types/api";
 
 const nf = new Intl.NumberFormat("en-GB");
 

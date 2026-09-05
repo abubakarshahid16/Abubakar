@@ -8,6 +8,7 @@ import { DashboardView } from "./views/DashboardView";
 import { DocumentsView } from "./views/DocumentsView";
 import { IngestionView } from "./views/IngestionView";
 import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
+import { ReportsScreen } from "./views/ReportsScreen";
 import type { Me } from "./types/api";
 
 /** Whether this deployment wants a sign-in, and who is signed in.
@@ -146,6 +147,7 @@ export default function App() {
           {view === "dashboard" && (
             <DashboardView connection={connection} onRetryConnection={recheck} />
           )}
+          {view === "reports" && <ReportsScreen />}
         </>
       )}
     </Shell>

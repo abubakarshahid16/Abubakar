@@ -431,6 +431,60 @@ export interface LoginResult {
   expires_in_seconds: number;
 }
 
+// ------------------------------------------------------------------ reports
+
+export interface ReportDocumentRow {
+  document_id: string;
+  /** as named when the report was generated */
+  filename: string;
+  sha256_prefix: string;
+  /** Always null: no such column exists on documents. Render as "not
+   *  recorded", never invent one. */
+  revision: string | null;
+  approval_status: string | null;
+  passages_cited: number;
+  text_source: "extracted" | "recognised" | "mixed" | null;
+}
+
+/** A report as a client may see it. `stored_path` is never serialised. */
+export interface ReportRecord {
+  id: string;
+  question: string | null;
+  resolved_question: string | null;
+  created_at: string;
+  page_count: number;
+  size_bytes: number;
+  /** Hash of the PDF bytes. Proves the stored file is the one issued. NOT a
+   *  reproducibility hash: a re-render on another build differs in producer
+   *  string and ID array with identical content. */
+  report_sha256: string;
+  /** null under auth_mode="disabled" - there is no user to attribute it to */
+  owner_username: string | null;
+  documents: ReportDocumentRow[];
+  /** Named on page 1 of the PDF as not included. */
+  not_implemented_sections: string[];
+}
+
+export interface ReportList {
+  reports: ReportRecord[];
+  /** Reports hidden because a cited document left the caller's scope. THAT
+   *  something is hidden, never WHAT. */
+  suppressed_count: number;
+}
+
+export interface ReportVerification {
+  report_id: string;
+  snapshot_intact: boolean;
+  file_intact: boolean;
+  /** How the cited documents differ NOW from when the report was generated.
+   *  Reported, never silently resolved. */
+  evidence_drift: string[];
+}
+
+export interface GenerateReport {
+  message_id: string;
+}
+
 export interface AnswerResult {
   question: string;
   answer_type: AnswerType;

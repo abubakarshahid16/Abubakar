@@ -165,6 +165,45 @@ the decision is made, and 1.25-1.73x on prose, where there is room to spare.
 Worst observed margin **1.035x over twelve measured chunks**. Ground truth in
 `docs/benchmarks.md`, re-checked by `test_context_budget.py`.
 
+## Evidence reports are single-answer, and three things about them are not proven
+
+**Not the analysis report.** A report is one question, its quoted evidence and
+the documents cited, frozen when generated. It says so in a bordered box on
+page 1 and names what it does not contain: coverage ledger, gap analysis,
+recommendation, public-market findings. No revision or approval status either -
+those columns do not exist on `documents`, and the report prints "not recorded"
+rather than inventing one.
+
+**`report_sha256` is not a reproducibility hash.** It is the SHA-256 of the
+stored PDF bytes and proves the file on disk is the one issued. PyMuPDF embeds a
+producer string and an ID array, so re-rendering the same snapshot on a
+different build gives a **different file hash and identical content**. Compare
+`snapshot_sha256` for content. Someone who re-renders and treats the differing
+file hash as corruption has misread which hash is which.
+
+**Arabic is shaped and not proven correct.** The spike (CHANGELOG, 2026-09-05)
+rendered a mixed Arabic/English paragraph through `Story` in the embedded Noto
+Naskh Arabic with no missing glyphs and with contextual (joined) forms present.
+What nobody has done is have a reader of Arabic look at the page: **glyphs
+appearing is not evidence of correct joining or correct bidi order.** The test
+that covers this says in its docstring what it does not prove. Arabic body text
+is confined to `Story`; the simple text APIs perform no shaping and would print
+unjoined Arabic that still looks like Arabic to a non-reader.
+
+**Tables that span a page break lose their header.** Measured in the spike:
+`<thead>` does not repeat in PyMuPDF `Story`. A single-answer report cites at
+most three documents, so its table does not span. Any future report with a
+long table needs its header re-drawn per page.
+
+**Not cleared for client distribution.** PyMuPDF now generates a deliverable
+rather than only parsing an input. That is a different licence question
+(AGPL-3.0 / commercial dual) from the one already answered for ingestion, and
+it is open.
+
+**Download needs `auth_mode=disabled` today.** The PDF is fetched by a plain
+browser navigation, which cannot carry the bearer token. Under `demo_required`
+the download returns 404 until the client fetches it as a blob.
+
 ## An answer includes at most three passages
 
 **When more than three credible passages exist, the ones beyond the cut are not

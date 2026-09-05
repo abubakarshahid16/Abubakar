@@ -39,7 +39,8 @@ land in any order and each component lights up when its data arrives.
 | 1. Types | **stage 1** | `LoginRequest`, `Me`, `LoginResult` and the new `AuthStatus` moved out of `types/analysis.ts` into `contracts/types.ts`. The copy in `analysis.ts` had already drifted - it said `user_id` and `expires_at` where the API says `id` and `expires_in_seconds`. |
 | 2. Shell | **stage 1** | `Shell` takes an optional `identity` slot above the connection badge. Optional so every existing test renders unchanged. |
 | 3. Login | **stage 1** | `LoginView` above the Shell. The mode comes from `/api/auth/me`, never from `/api/health`. |
-| 4-7 | not yet | Stages 2-6. |
+| 6. Reports | **stage 2** | `ReportsScreen.tsx` is the container: it owns the four API calls and hands `ReportsView` its props unchanged. `ReportRecord`, `ReportDocumentRow`, `ReportList`, `ReportVerification` moved to `contracts/types.ts`. Generation is not offered on this screen - a report is made from an answered message, which lives in Chat; that button is stage-3 wiring. |
+| 4, 5, 7 | not yet | Stages 3-6. |
 
 Three things changed in the draft components while wiring them, each because
 the wiring exposed something the components could not have known alone:
