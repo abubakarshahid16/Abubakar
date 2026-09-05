@@ -8,6 +8,8 @@
  *    numbers as if they were live
  */
 import type {
+  DeletedConversation,
+  DeletedDocument,
   ApiError,
   AskRequest,
   AskResult,
@@ -224,7 +226,9 @@ export const api = {
   embed: (id: string) =>
     request<unknown>(`/documents/${encodeURIComponent(id)}/embed`, { method: "POST" }),
   remove: (id: string) =>
-    request<unknown>(`/documents/${encodeURIComponent(id)}?confirm=true`, { method: "DELETE" }),
+    request<DeletedDocument>(`/documents/${encodeURIComponent(id)}?confirm=true`, {
+      method: "DELETE",
+    }),
 
   // ---------- conversations ----------
   conversations: (limit = 20) =>
@@ -240,7 +244,7 @@ export const api = {
       body: JSON.stringify({ document_id: documentId ?? null }),
     }),
   deleteConversation: (id: string) =>
-    request<unknown>(`/conversations/${encodeURIComponent(id)}?confirm=true`, {
+    request<DeletedConversation>(`/conversations/${encodeURIComponent(id)}?confirm=true`, {
       method: "DELETE",
     }),
   /** Tier 2 is not streamed and takes ~50s on this hardware, so callers must

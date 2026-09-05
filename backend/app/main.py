@@ -205,7 +205,7 @@ def list_documents(request: Request,
     return out
 
 
-@app.delete("/api/documents/{document_id}", response_model=schemas.DeleteResult,
+@app.delete("/api/documents/{document_id}", response_model=schemas.DeletedDocument,
             responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def delete_document(document_id: str, request: Request, confirm: bool = Query(False),
     scope: access.AccessScope = Depends(access.current_scope),
@@ -221,11 +221,11 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     if not confirm:
         return JSONResponse(
             status_code=400,
-            content=errors.safe_error(
+            content={"detail": errors.safe_error(
                 errors.CONFIRM_REQUIRED,
                 "pass confirm=true to delete; this cannot be undone",
                 document_id=document_id,
-            ) | {"filename": doc["filename"], "retrievable_chunks": doc["chunk_count"]},
+            )} | {"filename": doc["filename"], "retrievable_chunks": doc["chunk_count"]},
         )
 
     conn = connect()
@@ -355,8 +355,8 @@ def search(
     if mode not in ("hybrid", "keyword"):
         return JSONResponse(
             status_code=422,
-            content=errors.safe_error(
-                errors.INVALID_PARAMETER, "mode must be hybrid or keyword"),
+            content={"detail": errors.safe_error(
+                errors.INVALID_PARAMETER, "mode must be hybrid or keyword")},
         )
     return search_mod.search(
         q,
@@ -392,8 +392,8 @@ def get_answer(
     if tier not in ("extract", "generated"):
         return JSONResponse(
             status_code=422,
-            content=errors.safe_error(
-                errors.INVALID_PARAMETER, "tier must be extract or generated"),
+            content={"detail": errors.safe_error(
+                errors.INVALID_PARAMETER, "tier must be extract or generated")},
         )
     return answer_mod.answer(
         q, tier=tier, document_id=document_id, limit=limit,
@@ -453,7 +453,7 @@ def get_conversation(conversation_id: str, request: Request,
     return {"conversation": conversation, "messages": chat_mod.get_messages(conversation_id)}
 
 
-@app.delete("/api/conversations/{conversation_id}", response_model=schemas.DeleteResult,
+@app.delete("/api/conversations/{conversation_id}", response_model=schemas.DeletedConversation,
             responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def delete_conversation(conversation_id: str, request: Request, confirm: bool = Query(False)):
     reject_unknown_params(request, {"confirm"})
@@ -461,16 +461,23 @@ def delete_conversation(conversation_id: str, request: Request, confirm: bool = 
     if not confirm:
         return JSONResponse(
             status_code=400,
-            content=errors.safe_error(
-                errors.CONFIRM_REQUIRED, "pass confirm=true to delete this conversation"),
+            content={"detail": errors.safe_error(
+                errors.CONFIRM_REQUIRED, "pass confirm=true to delete this conversation")},
         )
     messages = conversation["message_count"]
     chat_mod.delete_conversation(conversation_id)
     return {
         "deleted": conversation_id,
-        "filename": conversation["title"],
+        # A conversation has a TITLE. This said "filename" because the
+        # document-delete response shape was copied without renaming the
+        # field, so a client reading it built a wrong model of what it had
+        # deleted - and the mistake was invisible, because a conversation
+        # title looks exactly as plausible under that key as a filename does.
+        "title": conversation["title"],
+        # No files_removed: a conversation deletes no files, and reporting a
+        # truthful-looking 0 for a thing that never applies is how a field
+        # stops meaning anything.
         "rows_removed": {"conversations": 1, "messages": messages},
-        "files_removed": 0,
     }
 
 
@@ -596,7 +603,7 @@ def page_image(
     except pageimage_mod.PageOutOfRange as e:
         return JSONResponse(
             status_code=404,
-            content=errors.safe_error(errors.NOT_FOUND, str(e), document_id=document_id),
+            content={"detail": errors.safe_error(errors.NOT_FOUND, str(e), document_id=document_id)},
         )
     headers = {"Cache-Control": "max-age=86400"}
     if chunk_id and q:

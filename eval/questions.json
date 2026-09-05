@@ -177,6 +177,21 @@
       "expected_answer": null,
       "answerable": false,
       "type": "unanswerable_commercial"
+    },
+    {
+      "id": "16",
+      "q": "inherent problems of P&IDs",
+      "document": "book4ChemicalProcessDynamicsAndControls.pdf",
+      "expected_pages": [
+        403,
+        404,
+        405,
+        407
+      ],
+      "expected_clause": "4.3.2",
+      "expected_answer": "a P&ID does not show every detail",
+      "answerable": true,
+      "type": "regression: found by a LIVE API SWEEP, not by this harness. Every other gold question has its answer at RANK 1, so the harness structurally could not see a gate that only ever examined hits[0]. Five strong hits all came from section 4.3.2 Inherent Problems of P&IDs and the question was refused with coverage 0, because the gate read the body and the terms were in the heading."
     }
   ]
 }

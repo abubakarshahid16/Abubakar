@@ -3,7 +3,7 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Ten separate times a status field has claimed
+**Why this document exists.** Eleven separate times a status field has claimed
 something the system was not doing:
 
 | # | The claim | The reality |
@@ -13,6 +13,7 @@ something the system was not doing:
 | 3 | `stalled: false` with six documents waiting | Computed from heartbeat freshness, which only proves the loop is spinning |
 | 4 | `failed` on a fully embedded document | The chunk short-circuit did not advance the state, so a guard tripped |
 | 5 | `ready` with nothing searchable | A document whose every chunk was excluded still reported ready |
+| 11 | "50 call sites updated" and "no such string in the frontend" | Both counts were complete WITHIN a boundary the sweep chose for itself and never stated. Five more call sites were in `eval/`; the string was in the backend |
 | 10 | Three green tests over code that was broken | Each had fixtures that could not produce the condition the test claimed to check. A vacuous test does not fail; it passes, which is worse |
 | 9 | README: "Disk — ~2 GB" | 768 MB inside the clone, measured. Nobody had ever measured it; the figure was written from intuition and read as a specification |
 | 8 | OCR raised coverage by **+12.5%** on NORSOK | It raised it by **+4.2%**. The "before" figure dropped every recognised CHUNK, which also drops pages that chunk merely spans — three pages were charged to OCR that OCR never read |
@@ -22,6 +23,28 @@ something the system was not doing:
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
 it is derived from, so the next instance is easy to spot.
+
+**Entry 11 is the same shape twice, and both times the sweep was mine.**
+
+When `search()` gained a required scope parameter I reported **"50 call sites
+now pass `every_document_id()` explicitly"**. The number was exact and the
+boundary was silent: I had swept `backend/`. Five more call sites lived in
+`eval/`, and they surfaced only when the harness crashed with
+`ask() missing 1 required keyword-only argument`. Had the parameter carried a
+default, those five would have kept meaning "every document" and nothing would
+have said so.
+
+Hours later, asked to find copy claiming a shipped feature was missing, I
+searched the frontend and reported the strings I found. **The false string was
+in the backend**, in `metrics.warnings()` - the Dashboard renders whatever the
+API sends, so the copy was never in the frontend at all.
+
+Both reports were accurate inside their boundary and neither stated the
+boundary. **A count without a boundary reads as total** - that is standing
+rule 7 - and the fix in both cases was not a better search but naming the
+territory first. The copy sweep now scans backend, frontend AND contracts, and
+exempts comments rather than files, because a file-level exemption would have
+re-admitted the very string it was written to catch.
 
 **Entry 10 is a pattern rather than an accident, which is why it is recorded
 as one.** Three tests in a single session were green over broken code, and all
@@ -170,7 +193,7 @@ threaded through retrieval and passage expansion, and made a REQUIRED field in
 decides whether a sentence may be called the document's own words never read
 it. Every layer was correct and the claim was still false.
 
-The lesson is a rule, now standing rule 11: **a provenance field that no
+The lesson is a rule, now standing rule 12: **a provenance field that no
 assertion reads is decoration.** Storing it, typing it and requiring it are
 not the safeguard; the safeguard is a test that fails when the label is wrong.
 The test that now guards this asserts the ABSENCE of the verbatim label on
@@ -394,19 +417,22 @@ asserts no client error ever reports `internal`.
    Corpus counts and machine state come from the database and the OS at run
    time, never from a static declaration. A result that cannot say what it ran
    against is not a measurement.
-7. **A test must be shown to FAIL against the unfixed code, or it is not
+7. **When you report a count of things found, state where you looked.** A
+   count without a boundary reads as total. "50 call sites" and "no matches in
+   the frontend" were both true and both incomplete, and neither said so.
+8. **A test must be shown to FAIL against the unfixed code, or it is not
    evidence.** A test that has never been watched failing is an assertion that
    the fixtures reach the code, and that assertion is usually untested.
-8. **A number is not a measurement until you can say what it counts.** Before
+9. **A number is not a measurement until you can say what it counts.** Before
    quoting a figure, name the unit and the population, and check one case by
    hand. An internally consistent wrong number passes every automated check
    there is.
-9. **Observing a step is not observing an outcome.** A test that asserts
+10. **Observing a step is not observing an outcome.** A test that asserts
    intermediate state must also assert terminal state. Watching the right
    thing happen says nothing about whether it worked.
-10. **A documented hazard is not a guard.** If a trap is worth writing down, the
+11. **A documented hazard is not a guard.** If a trap is worth writing down, the
    check belongs in the path of the tool that can fall into it.
-11. **A provenance field that no assertion reads is decoration.** Storing,
+12. **A provenance field that no assertion reads is decoration.** Storing,
    typing and requiring it are not the safeguard. Where provenance decides
    what a claim may say, a test must assert the ABSENCE of the stronger claim
    — presence-only assertions pass while both claims are on screen.

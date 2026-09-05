@@ -65,6 +65,33 @@ export interface UploadAccepted {
   duplicate_of: string | null; // set when sha256 already exists; no job started
 }
 
+/** DELETE /api/documents/{id}
+ *
+ *  Typed because it was not. The conversation-delete response was a COPY of
+ *  this shape with the field names left alone, so it returned a conversation
+ *  TITLE under a key called `filename` - and a client reading it built a wrong
+ *  model of what it had deleted. The mistake was invisible because a title
+ *  looks exactly as plausible under that key as a filename does.
+ *
+ *  Both routes were `request<unknown>` on the client, which is why nothing
+ *  caught it: there was no shape to drift FROM. */
+export interface DeletedDocument {
+  deleted: string;
+  filename: string;
+  rows_removed: Record<string, number>;
+  files_removed: number;
+}
+
+/** DELETE /api/conversations/{id} - a conversation has a TITLE. */
+export interface DeletedConversation {
+  deleted: string;
+  title: string;
+  rows_removed: Record<string, number>;
+  /** No files_removed: a conversation deletes no files, and a truthful-looking
+   *  0 for something that never applies is how a field stops meaning
+   *  anything. */
+}
+
 // ---------- jobs ----------
 
 export type JobStage = "extract" | "chunk" | "embed" | "index";

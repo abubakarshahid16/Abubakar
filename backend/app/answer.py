@@ -176,6 +176,49 @@ def _passage_payload(hit: dict, question: str, budget: int | None = None) -> dic
     }
 
 
+def _searchable_text(hit: dict) -> str:
+    """Heading plus body, the same shape Candidate.searchable_text returns.
+
+    The heading is not decoration: it carries the clause number and the
+    designator, which is exactly what a question tends to name.
+    """
+    section = (hit.get("section") or "").strip()
+    body = hit.get("text") or ""
+    return f"{section}\n{body}" if section else body
+
+
+#: How many ranked candidates the lexical gate may examine. Bounded rather than
+#: unlimited: a candidate far down the list that happens to share a term is not
+#: evidence the question is answerable, and the reranked head is where a real
+#: answer lives. Matches the number of passages a Tier 2 prompt can carry.
+GATE_CANDIDATES = 5
+
+
+def _assess_candidates(
+    question: str, hits: list[dict], document_id: str | None
+) -> tuple[dict, int]:
+    """The best lexical verdict across the top candidates, and whose it was.
+
+    Returns the FIRST passing candidate in rank order, so retrieval's ordering
+    is still respected and the quoted passage is the one that justified
+    answering. When none passes, the strongest verdict is returned so the
+    refusal can still name the missing term.
+    """
+    empty = {"ok": False, "reason": None, "coverage": None,
+             "terms": [], "covered": [], "absent_from_corpus": []}
+    if not hits:
+        return empty, 0
+
+    best, best_index = None, 0
+    for i, hit in enumerate(hits[:GATE_CANDIDATES]):
+        verdict = lexical.assess(question, _searchable_text(hit), document_id)
+        if verdict["ok"]:
+            return verdict, i
+        if best is None or (verdict["coverage"] or 0) > (best["coverage"] or 0):
+            best, best_index = verdict, i
+    return best or empty, best_index
+
+
 def _is_semantically_credible(hit: dict) -> bool:
     """The semantic half of the gate, applied only to lexically plausible
     candidates. On its own this was one knob for two independent failures -
@@ -392,18 +435,35 @@ def answer(
     # decisive. A named subject absent from the corpus needs no semantic
     # judgement at all, and a passage sharing no distinctive term with the
     # question is not an answer however well it scores.
-    lexical_verdict = (
-        lexical.assess(question, hits[0]["text"], document_id)
-        if hits
-        else {"ok": False, "reason": None, "coverage": None,
-              "terms": [], "covered": [], "absent_from_corpus": []}
-    )
+    #
+    # ASSESSED ACROSS THE CANDIDATES, ON HEADING PLUS BODY. Two defects lived
+    # in the single line this replaced, and a live API sweep found them where
+    # the harness could not:
+    #
+    #   * it looked at hits[0] ONLY. "inherent problems of P&IDs" returned five
+    #     strong hits, all from section "4.3.2 Inherent Problems of P&IDs", and
+    #     the candidate at RANK 4 had both "inherent" and "problems" in its
+    #     body. It was never examined, and the question was refused.
+    #   * it was passed hits[0]["text"] - the BODY. Candidate.searchable_text
+    #     is heading plus body and exists precisely because the heading carries
+    #     the clause number and the designator. Every hit here had the question
+    #     almost verbatim in its section heading and still scored coverage 0.
+    #
+    # The gate is unchanged in what it decides; only what it is shown changed.
+    # It still refuses when NO candidate covers the question, which is what the
+    # refusal record rests on. Every gold question had its answer at rank 1, so
+    # the harness structurally could not see this.
+    lexical_verdict, gate_index = _assess_candidates(question, hits, document_id)
     base["lexical"] = {
         k: lexical_verdict[k]
         for k in ("coverage", "terms", "covered", "absent_from_corpus")
     }
 
-    if not hits or not lexical_verdict["ok"] or not _is_semantically_credible(hits[0]):
+    # The passage that PASSED the gate is the passage that gets quoted. Letting
+    # the gate approve rank 4 while the answer quotes rank 0 would mean the
+    # justification and the answer were different passages.
+    lead = hits[gate_index] if hits else None
+    if not hits or not lexical_verdict["ok"] or not _is_semantically_credible(lead):
         if not hits:
             reason = "no indexed passage matched this question"
         elif not lexical_verdict["ok"]:
@@ -420,9 +480,9 @@ def answer(
         }
 
     if tier == "extract":
-        primary = _passage_payload(hits[0], question)
+        primary = _passage_payload(lead, question)
         answers = [primary]
-        second = _second_passage(question, hits, hits[0], document_id)
+        second = _second_passage(question, hits, lead, document_id)
         if second is not None:
             answers.append(_passage_payload(second, question))
         used = {p["chunk_id"] for p in answers}
@@ -431,7 +491,7 @@ def answer(
             "answer_type": "extract",
             # The primary passage stays the answer text for any caller reading
             # only `answer`; a second passage is additive, never a replacement.
-            "answer": hits[0]["text"],
+            "answer": lead["text"],
             "passage": primary,
             # One or two passages that together answer the question. A second
             # appears only when the first cannot cover the question alone.

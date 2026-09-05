@@ -172,3 +172,64 @@ documents today.
 Q2 is worth noting for a second reason: doc02 has no text layer at all, so that
 answer came entirely from OCR, arrived labelled as recognised, and carried its
 confidence — the lowest of the five, 0.51 — through to the reader.
+
+---
+
+## Q6 — Civil collection only  (CANDIDATE LABEL)
+
+> **What must a contractor submit for review, and in what form?**
+
+**Relevant: doc13 (USACE Design Guide Manual), with doc16 (BIM Submission
+Manual) second.**
+
+Checked against the indexed chunk text: `submittal` appears in **185 chunks of
+doc13, 49 of doc16, 2 of doc15, and NOWHERE ELSE IN THE CORPUS** — zero in the
+IT documents, zero in Process, zero in Coatings. It is the cleanest
+single-collection subject the corpus has.
+
+**Candidate, not ground truth.** Term presence proves doc13 *contains* the
+subject. Only a reader can confirm it *answers this question*, and the caveat
+at the top of this file applies until an engineer does.
+
+---
+
+## Q7 — the cross-collection gap: I could NOT close it honestly
+
+The gap stated at the bottom of this file is that Process, Coatings and IT
+share no engineering subject, so no question can require two collections at
+once. Civil was expected to bridge them through materials, inspection and
+submittal requirements. **On this corpus it does not, and the reason is worth
+recording rather than papering over with a question that looks cross-collection
+and is not.**
+
+**What I checked.** Every term appearing in both a Civil and an IT document,
+by indexed-chunk count:
+
+| Term | Civil | IT |
+|---|---|---|
+| `contractor` | doc13 **93**, doc16 15, doc20 11 | doc17 **35** |
+| `training` | doc13 **40**, doc20 4 | doc17 **69** |
+| `documentation` | doc13 **66**, doc16 11 | doc17 **70** |
+| `inspection` | doc13 15 | doc17 23 |
+
+`contractor` looked like the bridge — one subject, contractor obligations,
+substantial on both sides. **Reading the chunks defeated it.** doc13's hits are
+real requirements (*"specifications shall be Corps of Engineers Guide
+Specifications"*). doc17's are generic prose — *"the Federal Government and
+their contractors"* — a word in a sentence, not a section that answers a
+contractor question. That is **term presence, not relevance**, which is the
+distinction this file opens with and the reason the first five labels needed
+confirming by hand.
+
+**One further trap, which would have produced a false success.** doc20 (CISA
+Incident and Vulnerability Response Playbooks) sits in the Civil collection by
+filing, but its SUBJECT is cyber incident response. A question spanning doc20
+and doc19 (NIST SP 800-61r3) would look cross-collection in the manifest and be
+same-subject in substance. It would have satisfied the letter of this gap and
+none of its purpose.
+
+**So the gap stands.** Closing it needs a document that genuinely requires
+another collection to answer — not a term the two happen to share. A Civil
+specification that cites a security control by number, or an IT policy that
+imposes a materials or submittal requirement, would do it. This corpus has
+neither.

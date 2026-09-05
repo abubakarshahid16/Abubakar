@@ -625,11 +625,33 @@ class KeywordIndexResult(BaseModel):
     chunks_per_sec: float | None
 
 
-class DeleteResult(BaseModel):
+class DeletedDocument(BaseModel):
+    """What was removed when a DOCUMENT was deleted."""
+
     deleted: str
     filename: str
     rows_removed: dict[str, int]
     files_removed: int
+
+
+class DeletedConversation(BaseModel):
+    """What was removed when a CONVERSATION was deleted.
+
+    A SEPARATE MODEL, and that is the fix. Both routes shared one
+    `DeleteResult` whose `filename` field was REQUIRED, so the conversation
+    route satisfied it by putting the conversation's TITLE under that key - and
+    a client reading the response built a wrong model of what it had deleted.
+    The mistake was invisible because a title looks exactly as plausible under
+    `filename` as a filename does, and the response_model VALIDATED it, which
+    made the wrong shape look deliberate.
+
+    A conversation deletes no files, so the count is not carried at all rather
+    than reported as a truthful-looking zero.
+    """
+
+    deleted: str
+    title: str
+    rows_removed: dict[str, int]
 
 
 #: Reusable error documentation for the OpenAPI schema.

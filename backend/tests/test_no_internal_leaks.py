@@ -194,7 +194,10 @@ def test_a_client_mistake_is_not_reported_as_an_internal_failure(client):
 
     r = client.delete(f"/api/documents/{doc_id}")
     assert r.status_code == 400
-    assert r.json()["code"] == errors.CONFIRM_REQUIRED
+    # ONE ERROR SHAPE. This route used to return the error flat while every
+    # 404 wrapped it in {"detail": {...}} - two shapes for one client to
+    # parse, and the frontend was compensating with `body?.detail ?? body`.
+    assert r.json()["detail"]["code"] == errors.CONFIRM_REQUIRED
 
     r = client.get("/api/documents/doc_zzzzzzzzzzzz/chunks")
     assert r.json()["detail"]["code"] == errors.NOT_FOUND
