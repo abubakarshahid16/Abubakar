@@ -6,7 +6,7 @@
  * labelled as the model's, a refusal reads as a refusal, a follow-up shows
  * what it carried, and Explain warns about its cost before it is pressed.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -946,5 +946,208 @@ describe("the answer outlined on the rendered page", () => {
     const img = screen.getByRole("img", { name: /^Page 17 of NORSOKM501Rev5\.pdf$/ });
     expect(img.getAttribute("src") ?? "").not.toContain("chunk_id");
     expect(screen.queryByText("answer outlined")).toBeNull();
+  });
+});
+
+// ------------------------------------------------------- request ownership
+
+/**
+ * Tier 2 runs 20-50 seconds and is not streamed, which is exactly the window
+ * in which an impatient reader clicks something else. Three handlers apply
+ * their result with `setMessages(m => [...m, ...])` against whatever transcript
+ * is on screen when the response resolves, not the one it was asked against.
+ *
+ * These tests hold the reader's mental model rather than the code's: an
+ * explanation appears under the answer it explains or not at all, a question
+ * appears once however many times its transcript was reloaded, and the
+ * transcript on screen belongs to the conversation whose name is highlighted.
+ */
+describe("a response belongs to the request that asked for it", () => {
+  const convA: Conversation = { ...conversation, id: "conv_a", title: "Coating systems" };
+  const convB: Conversation = { ...conversation, id: "conv_b", title: "Welding procedures" };
+
+  /** A fetch mock whose responses can be held open, one route at a time. */
+  function holdableApi(handler: (url: string, body: any) => unknown | "HOLD") {
+    const held: ((v: unknown) => void)[] = [];
+    const spy = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (url.includes("/health")) return json(health);
+      const r = handler(url, body);
+      if (r === "HOLD") {
+        return new Promise((resolve) => {
+          held.push((v) => resolve(json(v)));
+        });
+      }
+      return Promise.resolve(json(r));
+    });
+    vi.stubGlobal("fetch", spy);
+    return {
+      release: async (i: number, value: unknown) => {
+        held[i](value);
+        // let the awaiting handler and its re-render run
+        await waitFor(() => expect(true).toBe(true));
+      },
+      heldCount: () => held.length,
+    };
+  }
+
+  function json(body: unknown) {
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const listOf = (...cs: Conversation[]) => ({
+    total: cs.length,
+    limit: 20,
+    offset: 0,
+    conversations: cs.map((c) => ({ ...c, message_count: 2 })),
+  });
+
+  it("drops an explanation whose transcript has moved on", async () => {
+    // Reproduced by hand in the UI: press Explain, get impatient, ask
+    // something else. The explanation lands under the new question's refusal,
+    // and AnswerCard labels it "An explanation of the quoted answer above" -
+    // which is then a false statement about the answer directly above it.
+    const q1 = userMessage({ id: "u1", text: "what is the NDFT for coating system no. 1" });
+    const a1 = extractMessage({ id: "a1" });
+    const api = holdableApi((url, body) => {
+      if (url.endsWith("/ask")) {
+        if (body?.explain_of) return "HOLD";
+        return askResult({
+          answer_type: "insufficient_evidence",
+          answer: null,
+          reason: "The documents do not cover welding preheat.",
+          passage: null,
+          supporting: [],
+          passages: [],
+          user_message: userMessage({ id: "u2", text: "what preheat is required" }),
+          assistant_message: extractMessage({
+            id: "a2",
+            text: null,
+            answer_type: "insufficient_evidence",
+            reason: "The documents do not cover welding preheat.",
+            payload: { passages: [], seconds: 1.2 },
+          }),
+        });
+      }
+      if (url.includes("/conversations/")) return { conversation: convA, messages: [q1, a1] };
+      return listOf(convA);
+    });
+
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^Coating systems/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Explain in plain/i }));
+
+    // the reader gets impatient and asks something else
+    await userEvent.type(screen.getByLabelText("Your question"), "what preheat is required");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText(/do not cover welding preheat/);
+
+    // ...and only now does the explanation come back
+    await api.release(
+      0,
+      askResult({
+        answer_type: "generated",
+        answer: "In plain terms, the coating must be 280 micrometres thick.",
+        assistant_message: extractMessage({
+          id: "a3",
+          answer_type: "generated",
+          text: "In plain terms, the coating must be 280 micrometres thick.",
+          explains_id: "a1",
+        }),
+      }),
+    );
+
+    expect(screen.queryByText(/In plain terms/)).toBeNull();
+  });
+
+  it("shows a question once even if the transcript was reloaded while it ran", async () => {
+    // The user turn is committed server-side BEFORE the answer is generated
+    // (chat.ask), so any reload during those 20-50 seconds already contains
+    // it. send() then appends its own copy of the same turn.
+    let reloaded = false;
+    const q1 = userMessage({ id: "u1", text: "what is the NDFT for coating system no. 1" });
+    const api = holdableApi((url) => {
+      if (url.endsWith("/ask")) return "HOLD";
+      if (url.includes("/conversations/"))
+        return { conversation: convA, messages: reloaded ? [q1] : [] };
+      return listOf(convA);
+    });
+
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^Coating systems/ }));
+    await userEvent.type(
+      screen.getByLabelText("Your question"),
+      "what is the NDFT for coating system no. 1",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    // the reader clicks the conversation again while the answer is running
+    reloaded = true;
+    await userEvent.click(screen.getByRole("button", { name: /^Coating systems/ }));
+    await waitFor(() => expect(screen.getByText(q1.text!)).toBeInTheDocument());
+
+    await api.release(0, askResult({ user_message: q1, assistant_message: extractMessage({ id: "a1" }) }));
+
+    expect(screen.getAllByText(q1.text!)).toHaveLength(1);
+  });
+
+  it("keeps the transcript of the conversation the reader ended on", async () => {
+    // The reverse race: two quick clicks between conversations, where the
+    // slower response wins and paints the wrong transcript under the
+    // highlighted name.
+    const api = holdableApi((url) => {
+      if (url.includes("/conversations/conv_a")) return "HOLD";
+      if (url.includes("/conversations/conv_b"))
+        return {
+          conversation: convB,
+          messages: [userMessage({ id: "u9", text: "which welding procedure applies" })],
+        };
+      return listOf(convA, convB);
+    });
+
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^Coating systems/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Welding procedures/ }));
+    await screen.findByText(/which welding procedure applies/);
+
+    await api.release(0, {
+      conversation: convA,
+      messages: [userMessage({ id: "u1", text: "what is the NDFT for coating system no. 1" })],
+    });
+
+    expect(screen.getByText(/which welding procedure applies/)).toBeInTheDocument();
+    expect(screen.queryByText(/what is the NDFT/)).toBeNull();
+  });
+
+  it("asks once when the Ask button is pressed twice in a fresh chat", async () => {
+    // The `asking` flag is only set AFTER the conversation has been created,
+    // and the button stays enabled across that await. A double-click there
+    // created two conversations and spent two answers on one question.
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        urls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.includes("/health")) return Promise.resolve(json(health));
+        if (url.endsWith("/ask")) return new Promise<Response>(() => {}); // never resolves
+        if (init?.method === "POST") return Promise.resolve(json(convA));
+        return Promise.resolve(json(listOf()));
+      }),
+    );
+
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    const form = screen.getByLabelText("Your question").closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(urls.some((u) => u.endsWith("/ask"))).toBe(true));
+
+    expect(urls.filter((u) => u.endsWith("/ask"))).toHaveLength(1);
+    expect(urls.filter((u) => u === "POST /api/conversations")).toHaveLength(1);
   });
 });

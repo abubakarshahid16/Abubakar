@@ -32,6 +32,20 @@ function relative(iso: string): string {
   return `${Math.floor(seconds / 86400)} d ago`;
 }
 
+/** Append only the turns the transcript does not already have.
+ *
+ * `chat.ask` commits the USER turn to the database BEFORE generating the
+ * answer, so any reload during those 20-50 seconds already contains it. A
+ * blind append then renders the question twice with a single answer beneath
+ * it. Keyed by id rather than by position, because the transcript may have
+ * been replaced wholesale rather than merely grown.
+ */
+function appendUnseen(existing: Message[], incoming: Message[]): Message[] {
+  const seen = new Set(existing.map((m) => m.id));
+  const fresh = incoming.filter((m) => !seen.has(m.id));
+  return fresh.length > 0 ? [...existing, ...fresh] : existing;
+}
+
 function UserTurn({ message }: { message: Message }) {
   return (
     <div className="flex flex-col items-end">
@@ -72,13 +86,41 @@ export function ChatView({
   const [load, setLoad] = useState<Load>({ s: "loading" });
 
   const [question, setQuestion] = useState("");
-  const [asking, setAsking] = useState(false);
+  // WHICH conversation the pending question belongs to, not merely that one is
+  // pending: the spinner must not appear under a transcript the reader moved
+  // to while the answer was still running.
+  const [askingIn, setAskingIn] = useState<string | null>(null);
   const [explainingId, setExplainingId] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [failure, setFailure] = useState<ApiError | null>(null);
 
   const [evidence, setEvidence] = useState<{ messageId: string; index: number } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+
+  const asking = askingIn !== null;
+
+  // ------------------------------------------------------ request ownership
+  //
+  // Every polling loop in this codebase already carries a cancelled flag;
+  // send(), open() and explain() did not. A Tier 2 answer takes 20-50 seconds
+  // and is not streamed, so the window in which the reader gets impatient and
+  // clicks something else is wide - and each of the three applied its result
+  // to whatever transcript was on screen when it resolved.
+  //
+  // `owned` is the conversation the screen currently belongs to, held in a ref
+  // so it can be read synchronously after an await. A response whose ticket no
+  // longer matches is DROPPED, not deferred and not reordered: the reader has
+  // moved on, and a late answer under the wrong question is worse than no
+  // answer at all. The server has persisted it either way, so it is still
+  // there when the conversation is reopened.
+  const owned = useRef<string | null>(null);
+
+  // `askingIn` cannot guard the submit on its own: in a fresh chat there is an
+  // await (creating the conversation) BEFORE it is set, and the Ask button is
+  // still enabled across it. A double-click there created two conversations
+  // and spent two Tier 1 answers. A ref is set synchronously, so the second
+  // click sees it.
+  const sending = useRef(false);
 
   const refreshList = useCallback(async () => {
     const r = await api.conversations();
@@ -101,21 +143,29 @@ export function ChatView({
   }, [loadList]);
 
   const open = useCallback(async (id: string) => {
+    owned.current = id;
     setCurrent(id);
     setEvidence(null);
     setFailure(null);
     const r = await api.conversation(id);
+    // Two quick clicks between conversations: without this, the SLOWER
+    // response wins and paints its transcript under the other name.
+    if (owned.current !== id) return;
     if (r.ok) setMessages(r.data.messages);
     else setFailure(r.error);
   }, []);
 
   const startNew = useCallback(async () => {
     setFailure(null);
+    // Nothing on screen is owned while the new conversation is being created,
+    // so an in-flight response for the previous one cannot land in it.
+    owned.current = null;
     const r = await api.newConversation();
     if (!r.ok) {
       setFailure(r.error);
       return;
     }
+    owned.current = r.data.id;
     setCurrent(r.data.id);
     setMessages([]);
     setEvidence(null);
@@ -130,6 +180,7 @@ export function ChatView({
         return;
       }
       if (current === id) {
+        owned.current = null;
         setCurrent(null);
         setMessages([]);
         setEvidence(null);
@@ -162,49 +213,73 @@ export function ChatView({
 
   const send = useCallback(async () => {
     const text = question.trim();
-    if (!text || asking) return;
+    if (!text || asking || sending.current) return;
+    sending.current = true;
     setFailure(null);
 
     let id = current;
     if (!id) {
       const created = await api.newConversation();
       if (!created.ok) {
+        sending.current = false;
         setFailure(created.error);
         return;
       }
       id = created.data.id;
+      owned.current = id;
       setCurrent(id);
       setMessages([]);
     }
 
-    setAsking(true);
+    setAskingIn(id);
     setQuestion("");
     const r = await api.ask(id, { question: text, tier: "extract" });
-    setAsking(false);
+    sending.current = false;
+    setAskingIn((pending) => (pending === id ? null : pending));
+
+    // Dropped: the reader is reading a different conversation now. Both turns
+    // are persisted server-side and appear when this one is reopened.
+    if (owned.current !== id) return;
+
     if (!r.ok) {
       setFailure(r.error);
       setQuestion(text); // give the question back rather than losing it
       return;
     }
-    setMessages((m) => [...m, r.data.user_message, r.data.assistant_message]);
+    setMessages((m) => appendUnseen(m, [r.data.user_message, r.data.assistant_message]));
     void refreshList();
   }, [question, asking, current, refreshList]);
 
   const explain = useCallback(
     async (messageId: string) => {
       if (!current || explainingId) return;
+      const conversationId = current;
+      // The turn the explanation was going to be appended beneath. The server
+      // appends it at the end of the conversation, so it reads as "an
+      // explanation of the quoted answer above" only if nothing else has
+      // arrived in the meantime.
+      const tailAtRequest = messages.length > 0 ? messages[messages.length - 1].id : null;
+
       setFailure(null);
       setExplainingId(messageId);
-      const r = await api.ask(current, { tier: "generated", explain_of: messageId });
-      setExplainingId(null);
+      const r = await api.ask(conversationId, { tier: "generated", explain_of: messageId });
+      setExplainingId((pending) => (pending === messageId ? null : pending));
+
+      if (owned.current !== conversationId) return;
       if (!r.ok) {
         setFailure(r.error);
         return;
       }
-      setMessages((m) => [...m, r.data.assistant_message]);
+      // The tail is read INSIDE the updater, so it is the live transcript
+      // rather than a copy captured before the await.
+      setMessages((m) => {
+        const tail = m.length > 0 ? m[m.length - 1].id : null;
+        if (tail !== tailAtRequest) return m; // the reader asked something else
+        return appendUnseen(m, [r.data.assistant_message]);
+      });
       void refreshList();
     },
-    [current, explainingId, refreshList],
+    [current, explainingId, messages, refreshList],
   );
 
   const offline = connection.state === "offline";
@@ -300,7 +375,7 @@ export function ChatView({
       {/* ----------------------------------------------------------- transcript */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-ink-700 bg-ink-900">
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-          {messages.length === 0 && !asking && (
+          {messages.length === 0 && askingIn !== current && (
             <EmptyState
               title="Ask a question about the indexed documents"
               hint="You get the document's own words back, with the page and clause. Ask a follow-up and it will carry the subject forward — and show you what it carried."
@@ -329,7 +404,7 @@ export function ChatView({
             ),
           )}
 
-          {asking && (
+          {askingIn === current && (
             <div className="max-w-[52rem] rounded-lg border border-ink-700 bg-ink-850 p-4">
               <Spinner label={`Searching the documents · ${elapsed}s`} />
             </div>
