@@ -161,6 +161,83 @@ CREATE TABLE IF NOT EXISTS exclusions (
     created_at    TEXT NOT NULL
 );
 
+-- ---------------------------------------------------------------- access
+-- Entirely new ground: before this there was no user, tenant, grant, project
+-- or role table anywhere in the schema. Additive and idempotent, matching the
+-- existing style - CREATE TABLE IF NOT EXISTS here, PRAGMA table_info in
+-- _migrate for columns on tables that already exist. No version table, because
+-- this schema has never had one and inventing one for five tables would be a
+-- second convention rather than a followed one.
+--
+-- ROLE GRANTS ONLY. The plan also specifies per-user allow/deny on documents;
+-- that is deliberately NOT built here. Its primary key cannot represent both a
+-- narrower allow and a deny for the same (user, document, permission), so the
+-- semantics are ambiguous before the first row is written. Roles that work now,
+-- a deny model when it is specified.
+
+CREATE TABLE IF NOT EXISTS users (
+    id            TEXT PRIMARY KEY,
+    email         TEXT NOT NULL UNIQUE,
+    display_name  TEXT NOT NULL,
+    -- Hash only. There is no column a password could be stored in, which is a
+    -- cheaper guarantee than a rule saying not to.
+    password_hash TEXT NOT NULL,
+    is_active     INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL,
+    last_login_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS roles (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_roles (
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id    TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    granted_at TEXT NOT NULL,
+    granted_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    PRIMARY KEY (user_id, role_id)
+);
+
+-- Which ROLES may see which documents. There is no row meaning "everyone", and
+-- no wildcard document id: absence of a row is the only way to express "no
+-- access", so deny-by-default is a property of the schema rather than of the
+-- code that reads it.
+CREATE TABLE IF NOT EXISTS document_role_access (
+    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    role_id     TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission  TEXT NOT NULL DEFAULT 'read',
+    granted_at  TEXT NOT NULL,
+    granted_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+    PRIMARY KEY (document_id, role_id, permission)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dra_role ON document_role_access(role_id, permission);
+CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
+
+-- Append-only record of who did what. `actor_user_id` is nullable and
+-- ON DELETE SET NULL on purpose: deleting a user must not delete the evidence
+-- that they acted, and an audit row that vanishes with its subject is not an
+-- audit row.
+CREATE TABLE IF NOT EXISTS audit_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    at            TEXT NOT NULL,
+    actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    action        TEXT NOT NULL,
+    resource_type TEXT,
+    resource_id   TEXT,
+    -- Response-safe detail only. Never a document title, chunk, question or
+    -- answer: the audit log is the one table most likely to be exported.
+    detail        TEXT,
+    outcome       TEXT NOT NULL DEFAULT 'ok'
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_events(at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_events(actor_user_id, at DESC);
+
 CREATE TABLE IF NOT EXISTS stage_runs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     stage        TEXT NOT NULL,
@@ -291,6 +368,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_page_ocr_document ON page_ocr(document_id)"
+    )
+    # ------------------------------------------------------------- access
+    # conversations predate ownership. NULL means "written before there were
+    # users", and it must read as INACCESSIBLE rather than as unowned-and-
+    # therefore-public. Deliberately no DEFAULT: there is no user to attribute
+    # a legacy conversation to, and inventing one would be a false record.
+    convs = {r["name"] for r in conn.execute("PRAGMA table_info(conversations)")}
+    if convs and "owner_user_id" not in convs:
+        conn.execute("ALTER TABLE conversations ADD COLUMN owner_user_id TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_conversations_owner"
+        " ON conversations(owner_user_id, updated_at DESC)"
     )
     # created after the migration so it cannot reference a missing column
     conn.execute(
