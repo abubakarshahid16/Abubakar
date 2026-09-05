@@ -394,3 +394,167 @@ def test_filtering_happens_before_selection_not_after():
         "scoped search returned fewer hits than the same document asked "
         "directly - out-of-scope rows are consuming candidate slots"
     )
+
+
+# ------------------------------------------------------ accounting for drops
+
+
+def test_a_displaced_candidate_is_recorded_with_a_reason(monkeypatch):
+    """The pipeline's one unaccounted loss.
+
+    Candidates ranked below the shortlist cut were dropped with nothing said
+    about it, which made two very different situations identical in the
+    response: a document that matched nothing, and a document that contributed
+    candidates and had every one of them displaced. Any coverage claim built on
+    the second reading would have been wrong, with no way to tell from the
+    result which reading applied.
+    """
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    monkeypatch.setattr(settings, "rerank_candidates", 2)
+    monkeypatch.setattr(
+        reranker, "rerank", lambda q, pairs: [(cid, -1.0) for cid, _ in pairs]
+    )
+
+    result = search.search(
+        "vibration materials coating", limit=10, allowed_document_ids=_scope()
+    )
+    assert result["reranked"] is True
+    assert result["total"] == 2, "the shortlist cut did not apply"
+
+    displaced = [
+        e for e in result["shortlist_excluded"]
+        if e["reason"] == "displaced_before_rerank"
+    ]
+    assert displaced, "candidates were cut from the shortlist with no record"
+    assert all(e["document_id"] == doc_id for e in displaced)
+    assert all(e["rrf"] is not None for e in displaced), (
+        "the score it was cut on is the whole point of the record"
+    )
+
+
+def test_a_document_that_wins_nothing_is_distinguishable_from_one_that_matched_nothing(
+    monkeypatch,
+):
+    """The question this telemetry exists to answer, in miniature.
+
+    Gold question Q4 is answered from one document while a second carries the
+    same terms. Whether the second was ever in the pool decides whether the
+    fix is a retrieval change or a reporting one - and before this record there
+    was no way to find out short of instrumenting a local build.
+    """
+    client = TestClient(app)
+    winner = upload(client, name="a.pdf", blocks=(VIBRATION, MATERIALS))
+    loser = upload(client, name="b.pdf", blocks=(COATING,))
+    worker = IngestionWorker()
+    worker.process(winner)
+    worker.process(loser)
+
+    monkeypatch.setattr(settings, "rerank_candidates", 1)
+    monkeypatch.setattr(
+        reranker, "rerank", lambda q, pairs: [(cid, -1.0) for cid, _ in pairs]
+    )
+
+    result = search.search(
+        "vibration limits and coating systems",
+        limit=10,
+        allowed_document_ids=frozenset({winner, loser}),
+    )
+    answered = {h["document_id"] for h in result["hits"]}
+    recorded = {e["document_id"] for e in result["shortlist_excluded"]}
+
+    assert len(answered) == 1, "the cut should have left one document answering"
+    absent = ({winner, loser} - answered).pop()
+    assert absent in recorded, (
+        "a document contributed candidates, lost all of them, and the result "
+        "looked exactly like a document that matched nothing"
+    )
+
+
+def test_a_near_duplicate_is_recorded_rather_than_vanishing():
+    body = " ".join(f"word{i}" for i in range(60))
+    a = search.Candidate("a", "d", "f", None, 1, 1, body, rrf=0.02)
+    b = search.Candidate("b", "d", "f", None, 2, 2, body + " word60", rrf=0.01)
+    dropped: list[dict] = []
+
+    kept = search.deduplicate([a, b], dropped)
+
+    assert [x.chunk_id for x in kept] == ["a"]
+    assert dropped == [
+        {"chunk_id": "b", "document_id": "d", "rrf": 0.01, "reason": "near_duplicate"}
+    ]
+
+
+def test_dedup_without_a_record_still_returns_a_plain_list():
+    """The out-parameter is optional: one caller wants it, the tests do not."""
+    body = " ".join(f"word{i}" for i in range(60))
+    a = search.Candidate("a", "d", "f", None, 1, 1, body, rrf=0.02)
+    b = search.Candidate("b", "d", "f", None, 2, 2, body, rrf=0.01)
+    assert [x.chunk_id for x in search.deduplicate([a, b])] == ["a"]
+
+
+def test_the_unreranked_path_reports_no_displacement():
+    """`eval/reachability.py` runs with rerank=False.
+
+    Nothing is cut on that path, so nothing may be reported as cut. A sweep
+    that started seeing evictions would be measuring a different thing.
+    """
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    result = search.search(
+        "vibration materials coating", limit=2, rerank=False,
+        allowed_document_ids=_scope(),
+    )
+    assert result["reranked"] is False
+    assert not [
+        e for e in result["shortlist_excluded"]
+        if e["reason"] == "displaced_before_rerank"
+    ]
+
+
+def test_a_candidate_is_never_both_returned_and_reported_as_dropped(monkeypatch):
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    monkeypatch.setattr(settings, "rerank_candidates", 2)
+    monkeypatch.setattr(
+        reranker, "rerank", lambda q, pairs: [(cid, -1.0) for cid, _ in pairs]
+    )
+
+    result = search.search(
+        "vibration materials coating", limit=10, allowed_document_ids=_scope()
+    )
+    returned = {h["chunk_id"] for h in result["hits"]}
+    dropped = {e["chunk_id"] for e in result["shortlist_excluded"]}
+    assert not (returned & dropped)
+    assert all(e["reason"] in search.EVICTION_REASONS for e in result["shortlist_excluded"])
+
+
+def test_a_shortlist_record_is_discarded_when_the_reranker_produces_nothing(monkeypatch):
+    """The cut is recorded before the rerank runs, so it has to be conditional.
+
+    If the reranker returns nothing the pool is left whole - those candidates
+    were never dropped, and reporting them as dropped would be a lie about a
+    path that is exercised every time the model is unavailable.
+    """
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    monkeypatch.setattr(settings, "rerank_candidates", 1)
+    monkeypatch.setattr(reranker, "rerank", lambda q, pairs: [])
+
+    result = search.search(
+        "vibration materials coating", limit=10, allowed_document_ids=_scope()
+    )
+    assert result["reranked"] is False
+    assert result["total"] > 1, "the pool should have been left whole"
+    assert not [
+        e for e in result["shortlist_excluded"]
+        if e["reason"] == "displaced_before_rerank"
+    ]

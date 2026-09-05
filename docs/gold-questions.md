@@ -169,6 +169,42 @@ reranker.
 coverage is built, Q4 is the question that measures it: 1 of 2 required
 documents today.
 
+#### Measured, 2026-09-05: doc17 was sought, retrieved, and ranked fifth
+
+The paragraph above says doc17 "was never sought". That was a reasonable
+reading of the code and it is **wrong about the facts**, which only became
+visible once `search()` began recording what it dropped
+(`shortlist_excluded`). Measured on the 12-document corpus:
+
+| | |
+|---|---|
+| Candidates fused into the pool | 52 |
+| doc17's best candidate, by RRF | **rank 7 of 52** |
+| doc17 candidates in the 16-slot shortlist | **4** |
+| doc17 candidates cut before the rerank | 3 |
+| doc17's best candidate, after rerank | **rank 5 of 16, score +2.104** |
+| The passage | doc17 p179, *3.8 INCIDENT RESPONSE* |
+| Passages the answer takes | 3 |
+
+doc17's right passage is the fifth-best passage in the field, with a healthy
+positive rerank score, sitting above four doc19 candidates that also did not
+make the answer. It loses to nothing but the passage count.
+
+**Three consequences.**
+
+1. Q4 is not a retrieval failure. Retrieval found the correct doc17 section
+   and scored it credibly.
+2. Q4 is not a shortlist-composition failure either, so **the
+   document-diverse shortlist named as "what comes second" in
+   `docs/design-multi-document-coverage.md` would not change this answer** -
+   doc17 is already in the shortlist at rank 5. That plan needs re-deriving
+   from this measurement before any of it is built.
+3. What is missing is exactly what section F reports and does not fix: nothing
+   asks whether the question needs more than one document, and nothing says so
+   when the answer used one. The number to quote stays **1 of 2**, and the
+   claim behind it changes from "never sought" to "retrieved, ranked fifth,
+   and not reported".
+
 Q2 is worth noting for a second reason: doc02 has no text layer at all, so that
 answer came entirely from OCR, arrived labelled as recognised, and carried its
 confidence — the lowest of the five, 0.51 — through to the reader.

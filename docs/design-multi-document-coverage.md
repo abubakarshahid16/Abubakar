@@ -278,3 +278,33 @@ demands the same evidence changing size did.
 
 A second retrieval pass comes last, or never: the `shortlist_excluded` telemetry
 from step 1 answers for free whether doc17 was ever in the pool.
+
+> **It did, and the answer invalidates this section.** Step 1 is built and
+> measured (2026-09-05). doc17's best candidate is **rank 7 of 52 by RRF, one
+> of four doc17 candidates inside the 16-slot shortlist, and rank 5 of 16 after
+> the rerank at +2.104** - its *3.8 INCIDENT RESPONSE* section on p179. It is
+> not displaced by the cut; it is simply below the three passages the answer
+> takes. A document-diverse shortlist reserves slots for a document that is
+> **already in the shortlist**, so it would change nothing here. Whatever comes
+> second has to be derived from this measurement, not from the assumption it
+> replaces. Full figures in `docs/gold-questions.md`, under Q4.
+
+### Step 1, as built
+
+Wider than specified, deliberately. The brief calls the shortlist cut "the one
+silent-drop hole"; it is not. `deduplicate()` discarded near-identical
+candidates silently, and the pool builder silently skipped chunks whose row had
+gone or had been marked non-retrievable. Recording only the cut would have left
+two unaccounted losses in the same pipeline and could have answered the doc17
+question wrongly - a candidate lost to dedup would have looked like a candidate
+that never existed. All five reasons are recorded under one stable slug
+vocabulary (`search.EVICTION_REASONS`).
+
+The record is taken **before** the reranker runs but is only kept if the
+reranker returns scores, because a reranker that returns nothing leaves the
+pool whole and those candidates were never dropped. There is a test for that
+specific lie, and it fails against the naive implementation.
+
+`shortlist_excluded` is not on the HTTP surface: `schemas.SearchResult` does
+not carry it, so `/api/search` is byte-identical and `contracts/types.ts` is
+untouched. It is internal telemetry for the coverage layer in step 2.

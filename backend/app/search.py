@@ -362,11 +362,42 @@ def _tokens(text: str) -> set[str]:
     return set(_TOKEN.findall(text.lower()))
 
 
-def deduplicate(candidates: list[Candidate]) -> list[Candidate]:
+#: Why a candidate that reached the RRF pool is not in the returned field.
+#: Stable slugs rather than prose: these are grouped and counted, and a
+#: coverage report has to be able to tell "displaced by better candidates"
+#: from "no longer exists" without parsing a sentence.
+EVICTION_REASONS = (
+    "chunk_no_longer_exists",     # fused id has no row: the document was re-chunked
+    "not_retrievable",            # excluded by a quality gate since indexing
+    "empty_after_tokenisation",   # no tokens to compare, so nothing to rank
+    "near_duplicate",             # a better-scoring chunk carries the same text
+    "displaced_before_rerank",    # ranked below the shortlist cut
+)
+
+
+def _eviction(
+    chunk_id: str, document_id: str | None, rrf: float | None, reason: str
+) -> dict:
+    assert reason in EVICTION_REASONS, reason
+    return {
+        "chunk_id": chunk_id,
+        "document_id": document_id,
+        "rrf": rrf,
+        "reason": reason,
+    }
+
+
+def deduplicate(
+    candidates: list[Candidate], dropped: list[dict] | None = None
+) -> list[Candidate]:
     """Drop near-identical chunks, keeping the better-scoring one.
 
     Overlapping chunks legitimately share text, so an exact-match check is not
     enough; this compares token overlap against the shorter of the two.
+
+    `dropped`, when given, is appended to with one record per discarded
+    candidate. An out-parameter rather than a second return value so the
+    signature stays a list of candidates for every caller that does not care.
     """
     kept: list[Candidate] = []
     kept_tokens: list[set[str]] = []
@@ -375,6 +406,9 @@ def deduplicate(candidates: list[Candidate]) -> list[Candidate]:
         # only by heading, so dedup must see the heading too
         tokens = _tokens(c.searchable_text)
         if not tokens:
+            if dropped is not None:
+                dropped.append(_eviction(c.chunk_id, c.document_id, c.rrf,
+                                         "empty_after_tokenisation"))
             continue
         duplicate = False
         for existing in kept_tokens:
@@ -382,6 +416,9 @@ def deduplicate(candidates: list[Candidate]) -> list[Candidate]:
             if len(tokens & existing) / shorter >= DUPLICATE_OVERLAP:
                 duplicate = True
                 break
+        if duplicate and dropped is not None:
+            dropped.append(_eviction(c.chunk_id, c.document_id, c.rrf,
+                                     "near_duplicate"))
         if not duplicate:
             kept.append(c)
             kept_tokens.append(tokens)
@@ -613,11 +650,25 @@ def search(
     fused = rrf_fuse(keyword_hits, dense_hits)
     rows = _hydrate(list(fused))
 
+    # Every candidate that entered the RRF pool and did not come back out is
+    # recorded here with a reason. This was the pipeline's one unaccounted
+    # loss: a document could contribute candidates, lose all of them, and the
+    # result was indistinguishable from that document having matched nothing
+    # at all. A coverage report built on the second reading would be wrong,
+    # and there was no way to tell from the response which reading applied.
+    evicted: list[dict] = []
+
     pool: list[Candidate] = []
     for chunk_id, meta in fused.items():
         row = rows.get(chunk_id)
         # a chunk that has since been excluded or re-chunked must not surface
         if row is None or not row["retrievable"]:
+            evicted.append(_eviction(
+                chunk_id,
+                None if row is None else row["document_id"],
+                meta.get("rrf"),
+                "chunk_no_longer_exists" if row is None else "not_retrievable",
+            ))
             continue
         pool.append(
             Candidate(
@@ -642,7 +693,7 @@ def search(
 
     apply_identifier_boost(question, pool)
     _apply_conflict_penalty(pool)
-    pool = deduplicate(pool)
+    pool = deduplicate(pool, evicted)
     # heading_declares is a TIEBREAK here, not a score.
     #
     # It has to be in this sort as well as in apply_heading_precedence, because
@@ -659,6 +710,15 @@ def search(
 
         t = Timer()
         shortlist = pool[: settings.rerank_candidates]
+        # Recorded before the rerank runs, so the record is of the cut itself
+        # and does not depend on the reranker having produced scores. If the
+        # reranker returns nothing the pool is left whole below, and these
+        # candidates were never actually dropped - so the record is discarded
+        # with them.
+        cut = [
+            _eviction(c.chunk_id, c.document_id, c.rrf, "displaced_before_rerank")
+            for c in pool[settings.rerank_candidates:]
+        ]
         # rerank on heading + body, so the cross-encoder can see which coating
         # system, clause or annex a passage belongs to
         scored = reranker.rerank(
@@ -682,6 +742,7 @@ def search(
             # fallback threshold, an unanswerable question returned a
             # confident-looking passage instead of refusing.
             pool = shortlist
+            evicted.extend(cut)
             _apply_conflict_penalty(pool, reranked=True)
             pool.sort(key=lambda c: -c.score)
 
@@ -723,5 +784,10 @@ def search(
         "timings": timings,
         # Stated so a reordering is auditable rather than mysterious.
         "heading_precedence": precedence_note,
+        # A dropped candidate now has a reason attached. `total` still counts
+        # what survived, so a candidate below `limit` is accounted for by the
+        # difference between `total` and the number of hits, not by this list:
+        # it was not dropped, only not asked for.
+        "shortlist_excluded": evicted,
         "hits": [c.to_dict() for c in pool[:limit]],
     }
