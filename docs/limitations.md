@@ -165,6 +165,21 @@ the decision is made, and 1.25-1.73x on prose, where there is room to spare.
 Worst observed margin **1.035x over twelve measured chunks**. Ground truth in
 `docs/benchmarks.md`, re-checked by `test_context_budget.py`.
 
+## A summary sees about two passages, however many were retrieved
+
+Measured on 2026-09-05: one retrieved passage costs roughly **849 tokens**, so
+two already exceed the 1,286-token evidence budget. The context guard therefore
+lands on **two sources - one whole, one trimmed - whatever `limit` is set to**,
+and a real call evaluated 776 tokens and generated 122 in 75.5 s wall clock.
+
+Raising the retrieval limit does not give the summary more to work with. It
+gives the **gap analysis** more, which needs no model, and it adds rows to
+`evidence_removed`.
+
+Nothing here is silent: each removal is reported with its source and the
+characters dropped. But a reader looking at eight passages in the evidence
+ledger and a summary built from two needs that list to understand why.
+
 ## A generated sentence carrying an unsupported number is deleted, not flagged
 
 If a sentence cites a source but contains a number that appears in no span it

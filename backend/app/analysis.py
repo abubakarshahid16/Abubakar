@@ -59,9 +59,7 @@ def evidence_id(hit: dict) -> str:
 def to_evidence(hit: dict) -> dict:
     """A retrieval hit as an evidence item.
 
-    `exact_span` is the chunk's own text, unmodified. `best_rerank_score` stays
-    None when the passage was not scored in the final batch - never 0.0, which
-    sits above the -3.0 floor and would read as credible.
+    `exact_span` is the chunk's own text, unmodified.
     """
     return {
         "evidence_id": evidence_id(hit),
@@ -74,7 +72,12 @@ def to_evidence(hit: dict) -> dict:
         "text_source": hit.get("text_source") or "extracted",
         "ocr_min_conf": hit.get("ocr_min_conf"),
         "ocr_alphabet_violations": hit.get("ocr_alphabet_violations") or 0,
-        "rerank_score": hit.get("rerank_score"),
+        "relevance_score": hit.get("rerank_score"),
+        # WHICH SCALE, not just the number. A rerank score and an RRF score are
+        # not comparable, and a bare figure would invite the comparison this
+        # system forbids. None when nothing scored it - never 0.0, which sits
+        # above the -3.0 floor and would read as credible.
+        "relevance_score_type": "rerank" if hit.get("rerank_score") is not None else None,
     }
 
 
@@ -220,7 +223,7 @@ def _gap_items(clusters, baseline_document_id: str | None,
         else:
             status = "possible_gap"
         items.append({
-            "facet": ", ".join(sorted(c.facet)) or "(unnamed)",
+            "facet": c.facet or "(unnamed)",
             "status": status,
             "baseline_citation_id": baseline_row.evidence_id if baseline_row else None,
             "baseline_span": baseline_row.exact_span if baseline_row else "",

@@ -700,3 +700,51 @@ figure rose because the scorer was fixed to read a Tier 2 answer at all.
 
 The estimate costs nothing measurable: it is pure Python over the prompt text,
 run once per Tier 2 question, against a 20-50 s generation.
+
+
+## A real summarisation call, measured (2026-09-05)
+
+`qwen3.5:4b`, 12-document corpus, the Q4 question, `limit=8`. Counts are
+Ollama's own `prompt_eval_count` / `eval_count`, not an estimate.
+
+| | Measured |
+|---|---:|
+| Prompt evaluated | **776 tokens** |
+| Generated | **122 tokens** |
+| Prompt eval | **33.2 s** |
+| Generation | **16.3 s** |
+| Wall clock | **75.5 s** |
+
+The design doc's figure was an estimate; this is the measurement.
+
+### What the budget actually admits
+
+The interesting number is not the total but how little evidence reaches the
+model. Measured per source count, through `_as_sources` and the real fitter:
+
+| Sources offered | Prompt chars | Estimate | Fits 1,286? | Kept |
+|---:|---:|---:|:--|---:|
+| 1 | 2,564 | 849 | yes | 1 |
+| 2 | 5,057 | 1,511 | **no** | 2 (one trimmed) |
+| 4 | 9,441 | 2,751 | no | 2 |
+| 8 | 17,484 | 5,159 | no | 2 |
+
+**A single retrieved passage costs about 849 tokens, so two do not fit and the
+fitter always lands on two — one whole, one trimmed — whatever `limit` is
+set to.** Raising `limit` adds nothing to the summary; it adds evidence for the
+gap analysis, which needs no model, and it adds rows to `evidence_removed`.
+
+That is honest rather than silent: the removals are reported per source with
+the characters dropped. But a reader who sees eight passages in the ledger and
+a summary built from two must be able to see why, which is what
+`evidence_removed` is for.
+
+**The estimator's looseness has a measurable cost here.** The fitter trims to
+its 1,286-token estimate and the call actually evaluated **776** — about 1.66x
+over-counted, within the 1.03-1.73x range recorded above for prose. Roughly 500
+tokens of window went unused. That is the price of an estimate that may never
+under-count, and it is paid in evidence rather than in correctness.
+
+**Not tuned.** No constant was changed on the strength of this: one question,
+one corpus. The numbers are recorded so a change later has something to be
+measured against.

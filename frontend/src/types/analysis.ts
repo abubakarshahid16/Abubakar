@@ -65,31 +65,12 @@ export interface AnalysisCoverage {
   complete: false | null;
 }
 
-export interface EvidenceItem {
-  /** sha256(document_id|page_start|page_end|section|exact_span)[:16] - stable
-   *  across re-chunking. NOT a chunk id. */
-  evidence_id: string;
-  document_id: string;
-  filename: string;
-  page_start: number;
-  page_end: number;
-  section: string | null;
-  /** Verbatim. Rendered in serif on a quote rule, never as prose. */
-  exact_span: string;
-  text_source: "extracted" | "recognised";
-  ocr_min_conf: number | null;
-  ocr_alphabet_violations: number;
-  /** Null unless scored in the single rerank batch. Never 0.0 as a stand-in. */
-  relevance_score: number | null;
-  relevance_score_type: "rerank" | null;
-}
+// EvidenceItem and DocumentedFinding moved to contracts/types.ts when stages
+// 3, 4 and 6 landed. They had already drifted from what the API returns, which
+// is what a second copy is for.
+import type { DocumentedFinding, EvidenceItem } from "./api";
 
-export interface DocumentedFinding {
-  claim: string;
-  citation_ids: string[];
-  source_kind: "document" | "user_stated";
-  text_source: "extracted" | "recognised" | "mixed";
-}
+export type { DocumentedFinding, EvidenceItem } from "./api";
 
 export type ClaimLabel = "agreement" | "addition" | "possible_conflict" | "unresolved";
 

@@ -41,7 +41,7 @@ land in any order and each component lights up when its data arrives.
 | 3. Login | **stage 1** | `LoginView` above the Shell. The mode comes from `/api/auth/me`, never from `/api/health`. |
 | 6. Reports | **stage 2** | `ReportsScreen.tsx` is the container: it owns the four API calls and hands `ReportsView` its props unchanged. `ReportRecord`, `ReportDocumentRow`, `ReportList`, `ReportVerification` moved to `contracts/types.ts`. Generation is not offered on this screen - a report is made from an answered message, which lives in Chat; that button is stage-3 wiring. |
 | 7. Market | **stage 5** | `MarketScreen.tsx` owns the calls; the banner is driven by the API's `egress` object rather than hard-coded, so a build that enables egress cannot leave a screen saying "web search off" while it is on. A failed load renders no findings and stays blocked — defaulting to "egress allowed" on an unreadable response is the wrong direction to fail. |
-| 4, 5 | not yet | Stages 3, 4, 6. |
+| 4, 5. Analysis | **stages 3, 4, 6** | `AnalysisScreen.tsx` owns the three calls and a nav tab was added in `Shell.tsx` the way Reports was. Gaps is called FIRST and alone because it needs no model; summary and recommendation run together after. `EvidenceItem` and `DocumentedFinding` moved to `contracts/types.ts` — they had already drifted, which is what a second copy is for. |
 
 Three things changed in the draft components while wiring them, each because
 the wiring exposed something the components could not have known alone:

@@ -452,12 +452,19 @@ export interface EvidenceItem {
   ocr_alphabet_violations: number;
   /** Null unless scored in the final rerank batch. Never 0.0 as a stand-in -
    *  0.0 sits above the -3.0 floor and reads as credible. */
-  rerank_score: number | null;
+  relevance_score: number | null;
+  /** WHICH SCALE the number is on. A rerank score and an RRF score are not
+   *  comparable, so a bare number would invite exactly the comparison this
+   *  system forbids. Null when nothing scored it. */
+  relevance_score_type: "rerank" | null;
 }
 
 export interface DocumentedFinding {
-  text: string;
+  claim: string;
   citation_ids: string[];
+  /** Nothing generated here is `user_stated`: a typed requirement is THE
+   *  REQUIREMENT, not evidence, and never enters an evidence ledger. */
+  source_kind: "document" | "user_stated";
   text_source: "extracted" | "recognised" | "mixed";
 }
 
@@ -489,7 +496,8 @@ export interface AnalysisSummaryResult {
 export type ClaimLabel = "agreement" | "addition" | "possible_conflict" | "unresolved";
 
 export interface ClaimClusterOut {
-  facet: string[];
+  /** Human-readable, e.g. "thickness / um". */
+  facet: string;
   /** `possible_conflict`, never `conflict`: documents carry no revision or
    *  approval status, so which supersedes the other cannot be known. */
   label: ClaimLabel;
@@ -524,7 +532,7 @@ export interface GapAnalysisOut {
   /** `not_applicable` when the caller named no baseline. The system NEVER
    *  chooses one: picking the oldest document, or the one with "standard" in
    *  its name, would be an engineering judgement it has no basis for. */
-  applicability: "applicable" | "not_applicable" | "unknown";
+  applicability: "applicable" | "not_applicable" | "insufficient_baseline";
   baseline: BaselineSelectionOut | null;
   items: GapItemOut[];
 }

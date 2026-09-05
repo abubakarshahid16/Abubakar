@@ -100,7 +100,12 @@ def test_the_span_is_the_documents_own_text_not_a_reflow():
         assert item["exact_span"].strip(), "an empty span cannot be quoted"
         assert item["text_source"] in ("extracted", "recognised")
         # never 0.0 as a stand-in: 0.0 is above the -3.0 floor
-        assert item["rerank_score"] is None or isinstance(item["rerank_score"], float)
+        assert item["relevance_score"] is None or isinstance(
+            item["relevance_score"], float)
+        # WHICH SCALE, not a bare number - a rerank score and an RRF score are
+        # not comparable.
+        assert (item["relevance_score_type"] is None) == (
+            item["relevance_score"] is None)
 
 
 # ------------------------------------------------------------------- scope
@@ -289,3 +294,63 @@ def test_market_findings_on_a_recommendation_are_all_samples():
     assert rows, "no rows - an empty panel reads as a measurement"
     assert all(r["is_sample"] is True for r in rows)
     assert all(r["url"].startswith("sample://") for r in rows)
+
+
+# ------------------------------------------- through the route, not around it
+
+
+def test_a_real_summary_serialises_through_the_response_model(monkeypatch):
+    """The test that would have caught a schema this file did not have.
+
+    Every other test here calls `analysis.summary()` directly, so the route's
+    `response_model` never validated a real result - and it would have failed:
+    the schema said `DocumentedFinding.text` while the engine emits `claim`.
+    A 500 on the first real summary, invisible to a suite that never went
+    through FastAPI.
+    """
+    ingest()
+    monkeypatch.setattr(
+        analysis, "ollama_generate",
+        fake_generate("The dry film thickness is 280 um [S1]. "
+                      "Surface preparation is specified [S2]."))
+    r = TestClient(app).post("/api/analysis/summary",
+                             json={"question": "what is the dry film thickness"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["evidence_ledger"], "no evidence - nothing below is measured"
+    for item in body["evidence_ledger"]:
+        # Every claim on screen carries a document and a page.
+        assert item["document_id"] and item["page_start"] is not None
+        # WHICH SCALE, not a bare number.
+        if item["relevance_score"] is None:
+            assert item["relevance_score_type"] is None
+        else:
+            assert item["relevance_score_type"] == "rerank"
+    for finding in body["documented_findings"]:
+        assert finding["claim"] and finding["citation_ids"]
+        assert finding["source_kind"] == "document"
+
+
+def test_a_real_gaps_response_serialises_and_carries_document_and_page(monkeypatch):
+    ingest()
+    r = TestClient(app).post("/api/analysis/gaps", json={"question": "thickness"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["gaps"]["applicability"] in (
+        "applicable", "not_applicable", "insufficient_baseline")
+    for item in body["evidence_ledger"]:
+        assert item["document_id"] and item["page_start"] is not None
+
+
+def test_a_real_recommendation_serialises_and_is_never_high(monkeypatch):
+    ingest()
+    monkeypatch.setattr(
+        analysis, "ollama_generate",
+        fake_generate("Verify the thickness against the datasheet [S1]."))
+    r = TestClient(app).post("/api/analysis/recommendations",
+                             json={"question": "coating thickness"})
+    assert r.status_code == 200, r.text
+    rec = r.json()["recommendation"]
+    if rec is not None:
+        assert rec["confidence"] in ("low", "medium", None), rec["confidence"]
+        assert rec["confidence"] != "high"

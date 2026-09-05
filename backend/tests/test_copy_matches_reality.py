@@ -56,16 +56,15 @@ ALLOWED = {"test_copy_matches_reality.py"}
 #: an entry cannot quietly become a permanent licence. Deleting the entry is
 #: part of landing the capability, and the suite says so rather than a comment
 #: hoping somebody remembers.
-EXEMPTIONS = [
-    (
-        "SummaryCard.tsx",
-        r"is not available",
-        "True until stage 3 (single-batch synthesis) lands. The component "
-        "renders it ONLY when not_implemented_sections includes 'synthesis', "
-        "so the string is driven by the API and stops appearing the moment the "
-        "backend claims the capability. Remove this entry when stage 3 "
-        "commits.",
-    ),
+EXEMPTIONS: list[tuple[str, str, str]] = [
+    # Empty, and that is the mechanism working rather than a gap.
+    #
+    # The one entry here said "true until stage 3 (single-batch synthesis)
+    # lands". Stage 3 landed, SummaryCard stopped claiming the summary was
+    # unavailable, and test_no_exemption_outlives_its_reason went RED until
+    # this entry was deleted. That is what an expiry condition is for: the
+    # suite asked for the deletion instead of a comment hoping someone
+    # remembered.
 ]
 
 #: A COMMENT may say a claim used to be made - that is the fix, not the bug.
@@ -212,3 +211,19 @@ def test_pages_still_awaiting_recognition_do_produce_a_warning(tmp_path,
     assert "needs_ocr" in codes, "outstanding recognition work was silenced"
     assert "87" in codes["needs_ocr"]["message"], codes["needs_ocr"]["message"]
     db.reset_connection()
+
+
+def test_the_scan_covers_more_than_zero_files():
+    """Standing rule 14, applied to this file's own scanner.
+
+    With EXEMPTIONS empty the two exemption tests have nothing to check - one
+    skips, one iterates over nothing - so the only guard left with teeth is the
+    sweep. A sweep whose `_sources()` silently returned an empty list would
+    pass every phrase in DENIALS while checking nothing, which is precisely the
+    vacuous-check failure this repository has recorded twice.
+    """
+    paths = list(_sources())
+    assert len(paths) > 40, f"the scan covered only {len(paths)} files"
+    suffixes = {p.suffix for p in paths}
+    assert {".py", ".ts", ".tsx"} <= suffixes, (
+        f"the scan missed a whole language: {suffixes}")

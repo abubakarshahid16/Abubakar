@@ -507,14 +507,21 @@ class EvidenceItem(BaseModel):
     text_source: Literal["extracted", "recognised"]
     ocr_min_conf: float | None
     ocr_alphabet_violations: int
-    rerank_score: float | None = Field(
+    relevance_score: float | None = Field(
         None, description="null unless scored in the final rerank batch. Never "
         "0.0 as a stand-in - 0.0 sits above the -3.0 floor and reads as credible")
+    relevance_score_type: Literal["rerank"] | None = Field(
+        None, description="WHICH SCALE the number is on. A rerank score and an "
+        "RRF score are not comparable, so a bare number would invite exactly "
+        "the comparison this system forbids. Null when nothing scored it")
 
 
 class DocumentedFinding(BaseModel):
-    text: str
+    claim: str
     citation_ids: list[str]
+    source_kind: Literal["document", "user_stated"] = Field(
+        description="nothing generated here is user_stated: a typed "
+        "requirement is the requirement, not evidence")
     text_source: Literal["extracted", "recognised", "mixed"]
 
 
@@ -542,7 +549,7 @@ class AnalysisSummary(BaseModel):
 
 
 class ClaimClusterOut(BaseModel):
-    facet: list[str]
+    facet: str = Field(description="human-readable, e.g. 'thickness / um'")
     label: Literal["agreement", "addition", "possible_conflict", "unresolved"] = Field(
         description="possible_conflict, never conflict: documents carry no "
         "revision or approval status, so which supersedes cannot be known")
@@ -568,7 +575,8 @@ class GapItemOut(BaseModel):
 
 
 class GapAnalysisOut(BaseModel):
-    applicability: Literal["applicable", "not_applicable", "unknown"] = Field(
+    applicability: Literal["applicable", "not_applicable",
+                           "insufficient_baseline"] = Field(
         description="not_applicable when the caller named no baseline. The "
         "baseline is never chosen by the system: picking one would be an "
         "engineering judgement it has no basis for")
