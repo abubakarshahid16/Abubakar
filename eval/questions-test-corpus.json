@@ -1,0 +1,43 @@
+{
+  "corpus": "test-corpus: doc02 (DOE/NETL NRG CO2NCEPT final report, fully scanned), doc17 (NIST SP 800-53r5), doc18 (NIST SP 800-207 Zero Trust), doc19 (NIST SP 800-61r3)",
+  "corpus_note": "The first corpus this system has faced that it was NOT developed against. doc02 is the first fully scanned document ingested (89 of 89 pages recognised by OCR). Ground truth was read from the documents, not from the system's own answers.",
+  "author": "written against the test corpus, 2026-09-05",
+  "questions": [
+    {
+      "id": "T1",
+      "q": "what are the logical components of a zero trust architecture",
+      "document": "doc18.pdf",
+      "expected_pages": [
+        18,
+        19
+      ],
+      "expected_clause": "3",
+      "expected_answer": "policy engine, policy administrator and policy enforcement point",
+      "answerable": true,
+      "type": "nist_only"
+    },
+    {
+      "id": "T2",
+      "q": "what is the DOE award number for the CO2NCEPT project",
+      "document": "doc02.pdf",
+      "expected_pages": [
+        1,
+        2
+      ],
+      "expected_clause": null,
+      "expected_answer": "DE-FE0026581",
+      "answerable": true,
+      "type": "doe_only_and_ocr_only"
+    },
+    {
+      "id": "T3",
+      "q": "what is the recommended proofing time for sourdough",
+      "document": null,
+      "expected_pages": null,
+      "expected_clause": null,
+      "expected_answer": null,
+      "answerable": false,
+      "type": "absent_from_every_document (subject verified absent: 0 chunks)"
+    }
+  ]
+}
