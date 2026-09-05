@@ -45,6 +45,29 @@ SEARCHED = [
 #: This file names the phrases in order to search for them.
 ALLOWED = {"test_copy_matches_reality.py"}
 
+#: (filename, phrase, reason) - a SINGLE phrase in a single file, never the
+#: whole file. A file-level exemption is what re-admitted this defect once
+#: before: the original string lived in `metrics.py`, and excluding
+#: `metrics.py` would have hidden the string along with the comment explaining
+#: it.
+#:
+#: Every entry must carry the condition under which it stops being true, and
+#: `test_no_exemption_outlives_its_reason` FAILS once the string is gone - so
+#: an entry cannot quietly become a permanent licence. Deleting the entry is
+#: part of landing the capability, and the suite says so rather than a comment
+#: hoping somebody remembers.
+EXEMPTIONS = [
+    (
+        "SummaryCard.tsx",
+        r"is not available",
+        "True until stage 3 (single-batch synthesis) lands. The component "
+        "renders it ONLY when not_implemented_sections includes 'synthesis', "
+        "so the string is driven by the API and stops appearing the moment the "
+        "backend claims the capability. Remove this entry when stage 3 "
+        "commits.",
+    ),
+]
+
 #: A COMMENT may say a claim used to be made - that is the fix, not the bug.
 #: Excluding whole FILES instead would have been useless here: the original
 #: string lived in metrics.py, and metrics.py now also carries the comment
@@ -83,6 +106,9 @@ def test_no_shipped_capability_is_described_as_missing(phrase):
     for path in _sources():
         if path.name in ALLOWED:
             continue
+        if any(name == path.name and pattern == phrase
+               for name, pattern, _ in EXEMPTIONS):
+            continue
         body = _without_block_comments(path.read_text(encoding="utf-8"))
         for n, line in enumerate(body.splitlines(), 1):
             if _COMMENT.match(line):
@@ -91,9 +117,43 @@ def test_no_shipped_capability_is_described_as_missing(phrase):
                 hits.append(f"{path.relative_to(ROOT)}:{n}: {line.strip()[:90]}")
     assert not hits, (
         f"copy asserts a capability is absent ({phrase!r}). If it genuinely is "
-        f"absent, add the file to ALLOWED with the reason:\n  "
+        f"absent, add (filename, phrase, reason) to EXEMPTIONS - the reason "
+        f"must say when it stops being true:\n  "
         + "\n  ".join(hits)
     )
+
+
+@pytest.mark.parametrize("name,phrase,reason", EXEMPTIONS)
+def test_no_exemption_outlives_its_reason(name, phrase, reason):
+    """An exemption whose string has gone is a licence nobody is using.
+
+    This is the expiry mechanism. When stage 3 lands and SummaryCard stops
+    saying the synthesis is unavailable, this test goes red and the entry has
+    to be deleted - which is the point. A comment saying "remove this later"
+    is not a mechanism, and this file already records what happens to
+    documented hazards that are not guards.
+    """
+    rx = re.compile(phrase, re.I)
+    for path in _sources():
+        if path.name != name:
+            continue
+        body = _without_block_comments(path.read_text(encoding="utf-8"))
+        if any(rx.search(line) for line in body.splitlines()
+               if not _COMMENT.match(line)):
+            return
+    pytest.fail(
+        f"EXEMPTIONS still allows {phrase!r} in {name}, but the string is no "
+        f"longer there. Delete the entry. Its reason was: {reason}"
+    )
+
+
+def test_every_exemption_states_when_it_expires():
+    """A reason without a condition is a permanent exemption in disguise."""
+    for name, phrase, reason in EXEMPTIONS:
+        assert len(reason) > 60, f"{name}: {phrase!r} has no real reason"
+        assert "when" in reason.lower() or "until" in reason.lower(), (
+            f"{name}: {phrase!r} does not say when it stops being true"
+        )
 
 
 def test_the_dashboard_ocr_alert_never_claims_ocr_is_unimplemented(tmp_path,

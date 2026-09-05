@@ -222,6 +222,24 @@ thing it judges**. Five instances, all in this build:
 | 4 | "Stale numbers are dropped on refresh", with fake timers | The timers were installed **after** the component had created its interval with real ones. Advancing them fired nothing; the test passed while asserting nothing. | Reading the test back after writing it |
 | 5 | The cross-encoder's own rerank window | `rerank_max_tokens` was 256 against a `chunk_max_tokens` of 480, so a 486-token passage was scored on its first 256 tokens. The answer sat at token 350. It returned **−10.95** — correct about what it was shown, wrong about the passage. | Measuring a hypothesis that turned out to be false, and looking further |
 
+**Number 3 recurred, on 2026-09-05, in this repository, to the person who wrote
+this list.** CI was fixed to run `tsc -b` and carries a comment saying exactly
+why. That did not stop `npx tsc --noEmit` being typed by hand, repeatedly,
+across a whole session, with "typecheck clean" reported from it each time. The
+command loads `tsconfig.json`, which has `"files": []`, and checks nothing.
+
+It surfaced only when eleven untracked frontend files needed checking and the
+listing came back empty - `--listFiles` printed no file at all, which is what a
+vacuous check looks like when you finally ask it what it covered. Run properly
+the eleven were clean, so every conclusion reported was correct and none of the
+evidence for it was worth anything.
+
+This is standing rule 11 - **a documented hazard is not a guard** - demonstrated
+against its own author. The hazard was written down, the CI path was fixed, and
+the hand-typed path stayed open. The guard that would have caught it is the one
+now applied everywhere else in this document: **ask a check what it covered
+before believing it passed.**
+
 Number 5 is the one to remember: **the evaluation recorded a retrieval failure
 that was really a truncation failure.** The system was not bad at retrieval. Its
 judge had read half the evidence.
