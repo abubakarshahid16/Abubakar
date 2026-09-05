@@ -175,6 +175,58 @@ CREATE TABLE IF NOT EXISTS exclusions (
 -- semantics are ambiguous before the first row is written. Roles that work now,
 -- a deny model when it is specified.
 
+-- Reports: a frozen snapshot of one answer and the documents it cited, and
+-- the PDF rendered from that snapshot alone. Additive, no version table.
+--
+-- message_id and conversation_id are ON DELETE SET NULL: deleting a
+-- conversation must not delete the record that a report was issued - the same
+-- reasoning audit_events uses for its actor. owner_username is denormalised
+-- for the same reason.
+CREATE TABLE IF NOT EXISTS reports (
+    id                  TEXT PRIMARY KEY,
+    created_at          TEXT NOT NULL,
+    message_id          TEXT REFERENCES messages(id) ON DELETE SET NULL,
+    conversation_id     TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+    owner_user_id       TEXT,
+    owner_username      TEXT,
+    auth_mode           TEXT NOT NULL,
+    -- the authorisation decision, frozen
+    scope_unrestricted  INTEGER NOT NULL DEFAULT 0,
+    scope_document_ids  TEXT NOT NULL,
+    question            TEXT,
+    resolved_question   TEXT,
+    snapshot_json       TEXT NOT NULL,
+    snapshot_sha256     TEXT NOT NULL,
+    config_version      TEXT NOT NULL,
+    renderer            TEXT NOT NULL,
+    template_version    TEXT NOT NULL,
+    -- NEVER serialised to a client. NULL once a cited document is deleted.
+    stored_path         TEXT,
+    suppressed_reason   TEXT,
+    report_sha256       TEXT NOT NULL,
+    size_bytes          INTEGER NOT NULL,
+    page_count          INTEGER NOT NULL
+);
+
+-- One row per cited document with its state FROZEN at generation. document_id
+-- is deliberately NOT a foreign key: a deleted document must not erase the
+-- record that it was cited. revision and approval_status are NULL because no
+-- such columns exist on documents - rendered as "not recorded", never invented.
+CREATE TABLE IF NOT EXISTS report_documents (
+    report_id        TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    document_id      TEXT NOT NULL,
+    filename         TEXT NOT NULL,
+    sha256           TEXT NOT NULL,
+    page_count       INTEGER,
+    chunk_signature  TEXT,
+    indexed_at       TEXT,
+    revision         TEXT,
+    approval_status  TEXT,
+    passages_cited   INTEGER NOT NULL DEFAULT 0,
+    text_source      TEXT,
+    PRIMARY KEY (report_id, document_id)
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id            TEXT PRIMARY KEY,
     email         TEXT NOT NULL UNIQUE,

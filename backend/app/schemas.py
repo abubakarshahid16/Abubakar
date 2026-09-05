@@ -109,11 +109,34 @@ class WorkerStatus(BaseModel):
     )
 
 
+class HealthWorker(BaseModel):
+    """The only worker facts an unauthenticated caller may have.
+
+    Deliberately NOT WorkerStatus. Adding a field to WorkerStatus must never
+    silently widen what /api/health exposes, and a separate model is what makes
+    that impossible rather than merely discouraged.
+    """
+
+    alive: bool
+    stalled: bool = Field(
+        description="up but not making progress - distinct from down"
+    )
+    busy: bool = Field(
+        description="a document is being processed. WHETHER, never WHICH: the "
+        "badge needs this so a healthy long ingest does not read as a fault, "
+        "and a boolean says work is under way where an id would say whose."
+    )
+
+
 class Health(BaseModel):
     ok: bool
     embed_model_present: bool
-    answer_model: str
-    ingestion: WorkerStatus
+    answer_model_present: bool = Field(
+        description="whether an answer model is configured, NOT which one. The "
+        "exact name and version is fingerprinting material and lives on the "
+        "scoped /api/metrics."
+    )
+    ingestion: HealthWorker
 
 
 class Chunk(BaseModel):
@@ -357,6 +380,388 @@ class AnswerPassage(BaseModel):
     ocr_alphabet_sample: str | None = None
 
 
+DocumentCoverageStatus = Literal[
+    "answered",
+    "supporting",
+    "credible_not_cited",
+    "retrieved_not_credible",
+    "expected_not_shortlisted",
+    "expected_not_retrieved",
+    "searched_no_match",
+]
+
+
+class DocumentCoverage(BaseModel):
+    document_id: str
+    filename: str
+    status: DocumentCoverageStatus = Field(
+        description="credible_not_cited is the one that matters to a reader: a "
+        "passage from this document cleared the credibility floor and the "
+        "answer used others instead"
+    )
+    expected: bool = Field(
+        description="carries a distinguishing term from the question. Presence, "
+        "NOT relevance - no completeness claim rests on this field"
+    )
+    distinguishing_terms: list[str] = []
+    candidates: int = Field(description="reached the fused pool. 0 is a real 0")
+    shortlisted: int
+    best_rerank_score: float | None = Field(
+        None,
+        description="null unless a passage from this document was scored in the "
+        "final rerank batch. NEVER 0.0 as a stand-in: 0.0 sits above the -3.0 "
+        "floor and would read as credible",
+    )
+    reason: str | None = None
+
+
+class Coverage(BaseModel):
+    basis: Literal["credible_uncited", "single_document_scope", "none"] = Field(
+        description="what the completeness verdict rests on. term_incidence is "
+        "absent by measurement, not oversight: it made all twelve documents "
+        "'expected' on the gold question this feature exists to measure"
+    )
+    expected_documents: int | None = Field(
+        None, description="documents that produced a credible passage. Null "
+        "when no completeness claim is made - never 0"
+    )
+    found_documents: int | None = None
+    searched_documents: int
+    complete: bool | None = Field(
+        None,
+        description="false when a credible passage went unused; otherwise NULL. "
+        "Never true. A null MUST render as nothing at all - no tick, no green - "
+        "because rendering it as a checkmark turns 'I did not check' into "
+        "'I checked and it is fine'",
+    )
+    documents: list[DocumentCoverage] = []
+    note: str | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class Me(BaseModel):
+    """What a client may know about itself.
+
+    Roles, never grants. The document ids a user may see are deliberately
+    absent: the scope is derived server-side on every request, and handing the
+    client the list gives it something to check its guesses against.
+    """
+
+    id: str
+    email: str
+    display_name: str
+    roles: list[str]
+
+
+class AuthStatus(BaseModel):
+    """Whether signing in is required here, and who is signed in.
+
+    `/api/health` deliberately does NOT carry this. Health is unauthenticated
+    and was narrowed on purpose; adding `auth_mode` to it would re-widen the
+    surface that was just reduced.
+
+    Under `disabled` this returns `required: false, user: null` to an
+    anonymous caller. That tells them authentication is off - which is not a
+    leak, because under `disabled` the same caller can already read every
+    document. Under `demo_required` an anonymous caller gets 401 instead, and
+    that 401 is how the frontend knows to show a login screen.
+    """
+
+    required: bool = Field(
+        description="whether a token is needed. False means AUTH_MODE is "
+        "disabled and every request already sees everything"
+    )
+    user: Me | None = None
+
+
+class LoginResult(BaseModel):
+    token: str = Field(
+        description="bearer token. The client holds this in memory only - "
+        "never localStorage, where every XSS becomes credential theft rather "
+        "than a session-length nuisance. A reload logs you out."
+    )
+    user: Me
+    expires_in_seconds: int
+
+
+class ProgressStep(BaseModel):
+    stage: str
+    at_seconds: float
+
+
+class Progress(BaseModel):
+    """Reported by the work itself, never inferred from a clock.
+
+    There is deliberately NO percentage: the generation length is unknown
+    until it ends, so any bar would be a guess. A stage, a count and an
+    elapsed time are all true.
+    """
+
+    stage: Literal["retrieving", "reranking", "reading", "generating", "done"]
+    detail: str | None = Field(
+        None, description="e.g. '3 passages' - a count, never a percentage")
+    seconds: float
+    history: list[ProgressStep] = Field(
+        description="every transition that actually happened, with when")
+
+
+class EvidenceItem(BaseModel):
+    """One retrieved passage, as everything downstream cites it.
+
+    `evidence_id` is sha256 over the document, page span, section and the
+    quoted text - NOT a chunk id. A chunk id changes when a document is
+    re-chunked, and a citation that moves when the chunker is retuned is not a
+    citation.
+    """
+
+    evidence_id: str
+    document_id: str
+    filename: str
+    page_start: int
+    page_end: int
+    section: str | None
+    exact_span: str = Field(description="verbatim; rendered in serif, never as prose")
+    text_source: Literal["extracted", "recognised"]
+    ocr_min_conf: float | None
+    ocr_alphabet_violations: int
+    relevance_score: float | None = Field(
+        None, description="null unless scored in the final rerank batch. Never "
+        "0.0 as a stand-in - 0.0 sits above the -3.0 floor and reads as credible")
+    relevance_score_type: Literal["rerank"] | None = Field(
+        None, description="WHICH SCALE the number is on. A rerank score and an "
+        "RRF score are not comparable, so a bare number would invite exactly "
+        "the comparison this system forbids. Null when nothing scored it")
+
+
+class DocumentedFinding(BaseModel):
+    claim: str
+    citation_ids: list[str]
+    source_kind: Literal["document", "user_stated"] = Field(
+        description="nothing generated here is user_stated: a typed "
+        "requirement is the requirement, not evidence")
+    text_source: Literal["extracted", "recognised", "mixed"]
+
+
+class DroppedSentence(BaseModel):
+    sentence: str
+    reason: str
+
+
+class AnalysisSummary(BaseModel):
+    question: str
+    evidence_ledger: list[EvidenceItem]
+    summary: str | None = Field(
+        None, description="null when synthesis did not run or was refused. "
+        "Null renders as nothing - never an empty prose block")
+    summary_truncated: bool
+    summary_cited_evidence_ids: list[str]
+    documented_findings: list[DocumentedFinding]
+    rejected_citations: list[int]
+    evidence_removed: list[EvidenceRemoved]
+    refusal: str | None
+    dropped_sentences: list[DroppedSentence] = Field(
+        description="sentences removed from the prose, with why. A sentence "
+        "carrying a number no cited span contains is DROPPED, not flagged")
+    not_implemented_sections: list[str]
+
+
+class ClaimClusterOut(BaseModel):
+    facet: str = Field(description="human-readable, e.g. 'thickness / um'")
+    label: Literal["agreement", "addition", "possible_conflict", "unresolved"] = Field(
+        description="possible_conflict, never conflict: documents carry no "
+        "revision or approval status, so which supersedes cannot be known")
+    rows: list[dict]
+    note: str | None
+
+
+class BaselineSelectionOut(BaseModel):
+    kind: Literal["document", "document_section", "stated_requirement"]
+    document_id: str | None
+    section: str | None
+    text: str | None
+
+
+class GapItemOut(BaseModel):
+    facet: str
+    status: Literal["met", "possible_gap", "conflict",
+                    "insufficient_evidence", "not_applicable"]
+    baseline_citation_id: str | None
+    baseline_span: str
+    project_citation_ids: list[str]
+    note: str | None
+
+
+class GapAnalysisOut(BaseModel):
+    applicability: Literal["applicable", "not_applicable",
+                           "insufficient_baseline"] = Field(
+        description="not_applicable when the caller named no baseline. The "
+        "baseline is never chosen by the system: picking one would be an "
+        "engineering judgement it has no basis for")
+    baseline: BaselineSelectionOut | None
+    items: list[GapItemOut]
+
+
+class AnalysisGaps(BaseModel):
+    question: str
+    evidence_ledger: list[EvidenceItem]
+    claim_clusters: list[ClaimClusterOut]
+    gaps: GapAnalysisOut
+    not_implemented_sections: list[str]
+
+
+class ConfidenceCheckOut(BaseModel):
+    label: str
+    fired: bool = Field(description="true = this check lowered confidence")
+
+
+class RecommendationOut(BaseModel):
+    text: str
+    citation_ids: list[str]
+    basis: str
+    confidence: Literal["low", "medium"] | None = Field(
+        None, description='"high" is structurally unreachable, by the same '
+        "rule that forbids coverage.complete == true")
+    checks: list[ConfidenceCheckOut]
+
+
+class AnalysisRecommendation(BaseModel):
+    question: str
+    evidence_ledger: list[EvidenceItem]
+    recommendation: RecommendationOut | None = Field(
+        None, description="null is not an empty recommendation")
+    public_market_findings: list[MarketFinding]
+    not_implemented_sections: list[str]
+
+
+class AnalysisRequest(BaseModel):
+    question: str
+    limit: int = 8
+    baseline_document_id: str | None = Field(
+        None, description="the caller's choice of authoritative document. "
+        "Never chosen by the system")
+
+
+class MarketFinding(BaseModel):
+    """An ILLUSTRATIVE row. There is no provider and this machine is offline."""
+
+    claim: str
+    url: str = Field(description="always sample:// - a scheme that resolves nowhere")
+    publisher: str
+    published_at: str | None
+    retrieved_at: str
+    verification: Literal["source_not_verified"] = Field(
+        description="the only value a sample may carry: nothing here was read"
+    )
+    is_sample: Literal[True] = Field(
+        description="ALWAYS true. Not optional and not defaulted - a row that "
+        "could omit it could be mistaken for a real finding"
+    )
+
+
+class EgressState(BaseModel):
+    web_search_enabled: bool
+    allow_public_egress: bool
+
+
+class MarketFindings(BaseModel):
+    notice: str = Field(description="SAMPLE DATA - NOT LIVE, in full")
+    egress: EgressState
+    findings: list[MarketFinding]
+    is_sample: Literal[True]
+
+
+class MarketQueryRequest(BaseModel):
+    query: str
+    country: str | None = None
+    freshness_days: int | None = None
+
+
+class MarketQueryPreview(BaseModel):
+    """What WOULD be sent. Nothing is sent."""
+
+    query: str
+    country: str | None
+    freshness_days: int | None
+    would_be_sent_to: None = None
+    sent: Literal[False]
+    reason: str
+
+
+class ReportDocumentRow(BaseModel):
+    document_id: str
+    filename: str = Field(description="as it was named when the report was generated")
+    sha256_prefix: str
+    revision: str | None = Field(
+        None, description="always null: no such column exists on documents. "
+        "Rendered as 'not recorded', never invented")
+    approval_status: str | None = None
+    passages_cited: int
+    text_source: Literal["extracted", "recognised", "mixed"] | None
+
+
+class ReportRecord(BaseModel):
+    """A report as a client may see it. `stored_path` is never here."""
+
+    id: str
+    question: str | None
+    resolved_question: str | None
+    created_at: str
+    page_count: int
+    size_bytes: int
+    report_sha256: str = Field(
+        description="hash of the PDF bytes. Proves the stored file is the one "
+        "issued; NOT a reproducibility hash - a re-render on another build "
+        "differs in producer string and ID array with identical content")
+    owner_username: str | None = Field(
+        None, description="null under auth_mode=disabled: there is no user, "
+        "and a placeholder name would be a false attribution")
+    documents: list[ReportDocumentRow]
+    not_implemented_sections: list[str] = Field(
+        description="named on page 1 of the PDF as not included")
+
+
+class ReportList(BaseModel):
+    reports: list[ReportRecord]
+    suppressed_count: int = Field(
+        description="reports hidden because a cited document left the caller's "
+        "scope. THAT something is hidden, never WHAT")
+
+
+class ReportVerification(BaseModel):
+    report_id: str
+    snapshot_intact: bool
+    file_intact: bool
+    evidence_drift: list[str] = Field(
+        description="how the cited documents differ NOW from when the report "
+        "was generated. Reported, never silently resolved")
+
+
+class GenerateReport(BaseModel):
+    message_id: str
+
+
+class EvidenceRemoved(BaseModel):
+    """A source that did not fit the model's context window.
+
+    Reported rather than discarded quietly. `done_reason == "length"` already
+    tells the reader when the OUTPUT ran out of budget; before this field,
+    input truncation happened inside llama.cpp with no signal at all - the
+    response reported FEWER tokens evaluated than the window holds, so it was
+    indistinguishable from a small prompt.
+    """
+
+    index: int = Field(description="1-based position in the sources as retrieved")
+    filename: str | None = None
+    page_start: int | None = None
+    action: Literal["trimmed", "dropped"]
+    characters_kept: int
+    characters_dropped: int
+
+
 class AnswerResult(BaseModel):
     question: str
     answer_type: AnswerType = Field(
@@ -387,6 +792,20 @@ class AnswerResult(BaseModel):
     )
     input_kind: str | None = Field(
         None, description="why this was answered as guidance rather than searched"
+    )
+    evidence_removed: list[EvidenceRemoved] = Field(
+        [],
+        description="sources trimmed or dropped to fit the context window. A "
+        "numeric table costs about one token per character against a 1,536 "
+        "token window, so three table passages do not fit and the runtime "
+        "used to discard them silently",
+    )
+    coverage: Coverage | None = Field(
+        None,
+        description="which documents the question was about and which the "
+        "answer used. Null for a refusal, deliberately: an incidence table "
+        "under a refusal invites the reader to read it as evidence the corpus "
+        "could have answered after all",
     )
     examples: list[str] = Field(
         [], description="real questions drawn from the loaded documents"
@@ -468,6 +887,12 @@ class AskRequest(BaseModel):
         None,
         description="upgrade this assistant message to Tier 2 instead of asking anew; "
         "question is ignored and the already-resolved question is reused",
+    )
+    progress_id: str | None = Field(
+        None, max_length=64,
+        description="a client-chosen id for polling /api/progress/{id} while "
+        "this runs. Optional: without one the work reports nothing and "
+        "behaves exactly as before",
     )
 
 
@@ -602,11 +1027,33 @@ class KeywordIndexResult(BaseModel):
     chunks_per_sec: float | None
 
 
-class DeleteResult(BaseModel):
+class DeletedDocument(BaseModel):
+    """What was removed when a DOCUMENT was deleted."""
+
     deleted: str
     filename: str
     rows_removed: dict[str, int]
     files_removed: int
+
+
+class DeletedConversation(BaseModel):
+    """What was removed when a CONVERSATION was deleted.
+
+    A SEPARATE MODEL, and that is the fix. Both routes shared one
+    `DeleteResult` whose `filename` field was REQUIRED, so the conversation
+    route satisfied it by putting the conversation's TITLE under that key - and
+    a client reading the response built a wrong model of what it had deleted.
+    The mistake was invisible because a title looks exactly as plausible under
+    `filename` as a filename does, and the response_model VALIDATED it, which
+    made the wrong shape look deliberate.
+
+    A conversation deletes no files, so the count is not carried at all rather
+    than reported as a truthful-looking zero.
+    """
+
+    deleted: str
+    title: str
+    rows_removed: dict[str, int]
 
 
 #: Reusable error documentation for the OpenAPI schema.
@@ -618,3 +1065,5 @@ ERRORS_422 = {
     }
 }
 ERRORS_400 = {400: {"model": ApiError, "description": "Rejected request"}}
+ERRORS_401 = {401: {"model": ErrorEnvelope, "description": "Not signed in"}}
+ERRORS_429 = {429: {"model": ErrorEnvelope, "description": "Too many attempts"}}

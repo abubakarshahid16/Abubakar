@@ -12,23 +12,33 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
 import type { Health } from "../api/client";
-import type { Metrics } from "../types/api";
+import type { Metrics ,
+  WorkerStatus,
+} from "../types/api";
+
+const fullWorker: WorkerStatus = {
+  alive: true,
+  current_document: null,
+  seconds_since_heartbeat: 0.4,
+  seconds_since_progress: 12,
+  documents_completed: 5,
+  pending_count: 0,
+  oldest_pending_age_seconds: null,
+  stalled: false,
+  stalled_reasons: [],
+  last_error: null,
+};
 
 const health: Health = {
   ok: true,
   embed_model_present: true,
-  answer_model: "qwen3.5:4b",
+  answer_model_present: true,
   ingestion: {
+    // /api/health is unauthenticated and carries only
+    // these three. The full worker status is on /api/metrics.
     alive: true,
-    current_document: null,
-    seconds_since_heartbeat: 0.5,
-    seconds_since_progress: 20,
-    documents_completed: 6,
-    pending_count: 0,
-    oldest_pending_age_seconds: null,
     stalled: false,
-    stalled_reasons: [],
-    last_error: null,
+    busy: false,
   },
 };
 
@@ -99,7 +109,8 @@ function makeMetrics(over: Partial<Metrics> = {}): Metrics {
       answer_model_loaded: false,
       ollama_error: null,
     },
-    worker: health.ingestion,
+    // The FULL worker status lives on metrics, not on health.
+    worker: fullWorker,
     warnings: [],
     ...over,
   };
@@ -391,7 +402,7 @@ describe("the required fields", () => {
     mockApi(
       makeMetrics({
         worker: {
-          ...health.ingestion,
+          ...fullWorker,
           stalled: true,
           stalled_reasons: ["work pending with no progress for 300s"],
           pending_count: 4,

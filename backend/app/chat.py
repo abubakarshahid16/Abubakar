@@ -414,6 +414,10 @@ _PAYLOAD_KEYS = (
     "retrieval_mode", "reranked", "candidates_considered", "model",
     "prompt_tokens", "output_tokens", "seconds", "timings",
     "input_kind", "examples", "answer_passages", "lexical",
+    # Without this, reopening a conversation would show a complete-looking
+    # answer with the partial-coverage warning silently gone - worse than
+    # never having shipped the field.
+    "coverage", "evidence_removed",
 )
 
 
@@ -430,6 +434,7 @@ def ask(
     explain_of: str | None = None,
     *,
     allowed_document_ids: frozenset[str],
+    progress_id: str | None = None,
 ) -> dict:
     """Answer a question inside a conversation and persist both turns.
 
@@ -483,6 +488,7 @@ def ask(
     result = answer_mod.answer(
         resolved, tier=tier, document_id=document_id, limit=limit,
         allowed_document_ids=allowed_document_ids,
+        progress_id=progress_id,
     )
 
     assistant_message = _insert_message(

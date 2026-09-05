@@ -10,7 +10,7 @@
  */
 import { useEffect } from "react";
 
-import type { AnswerPassage, AnswerType, Message } from "../../types/api";
+import type { AnswerPassage, EvidenceRemoved, AnswerType, Message } from "../../types/api";
 import { Citation, Highlighted, PassageLocation } from "./EvidencePanel";
 import { ProvenanceMark, isRecognised, provenanceDetail } from "./Provenance";
 
@@ -27,6 +27,8 @@ export interface AnswerView {
   model: string | null;
   /** generation hit the output-token cap; see contracts/types.ts */
   truncated: boolean;
+  /** sources trimmed or dropped so the evidence would fit the context window */
+  evidence_removed: EvidenceRemoved[];
   seconds: number | null;
   examples: string[];
 }
@@ -44,6 +46,7 @@ export function viewFromMessage(m: Message): AnswerView {
     rejected_citations: p.rejected_citations ?? [],
     model: p.model ?? null,
     truncated: p.truncated ?? false,
+    evidence_removed: p.evidence_removed ?? [],
     seconds: p.seconds ?? null,
     examples: p.examples ?? [],
   };
@@ -448,6 +451,39 @@ ollama serve
           This answer reached its length limit and stops early — the model had
           more to say. The passages below are complete; open them for the rest.
         </p>
+      )}
+
+      {/* The same gap at the other end of the pipe. Output truncation has been
+          shown to the reader since the token cap was raised; INPUT truncation
+          was invisible, and it is the more serious of the two - the model
+          answers from evidence it was never given, and cites sources it never
+          saw.
+
+          A numeric table costs about one token per character, so three table
+          passages need ~3,645 tokens against a 1,536-token window. Each
+          removal is named, because "some evidence was dropped" is not
+          something a reader can act on and "page 598 was dropped" is. */}
+      {view.evidence_removed.length > 0 && (
+        <div className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
+          <p>
+            {view.evidence_removed.length === 1
+              ? "One source did not fit the model's context window."
+              : `${view.evidence_removed.length} sources did not fit the model's context window.`}{" "}
+            This answer was written without {view.evidence_removed.length === 1 ? "it" : "them"}.
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {view.evidence_removed.map((e) => (
+              <li key={`${e.index}-${e.filename ?? ""}`}>
+                <span className="font-mono">{e.filename ?? "a source"}</span>
+                {e.page_start !== null && <> p{e.page_start}</>}
+                {" — "}
+                {e.action === "dropped"
+                  ? "not used at all"
+                  : `shortened, ${e.characters_dropped.toLocaleString()} characters left out`}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {sources.length > 0 && (

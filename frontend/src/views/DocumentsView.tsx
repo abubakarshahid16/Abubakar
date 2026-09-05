@@ -9,7 +9,7 @@ import type { Connection } from "../components/Shell";
 import { Uploader } from "../components/Uploader";
 import { WorkerPanel } from "../components/WorkerPanel";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
-import type { ApiError, DocumentRecord } from "../types/api";
+import type { ApiError, DocumentRecord, WorkerStatus } from "../types/api";
 
 type Load =
   | { state: "loading" }
@@ -32,11 +32,15 @@ export function DocumentsView({
   onRetryConnection: () => void;
 }) {
   const [load, setLoad] = useState<Load>({ state: "loading" });
+  // Worker DETAIL from the scoped metrics route, never from health.
+  const [worker, setWorker] = useState<WorkerStatus | null>(null);
   const [drawer, setDrawer] = useState<Drawer>({ kind: "none" });
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    const m = await api.metrics();
+    setWorker(m.ok ? m.data.worker : null);
     const result = await api.documents();
     if (result.ok) {
       setLoad({ state: "ready", documents: result.data });
@@ -100,9 +104,14 @@ export function DocumentsView({
         </p>
       </header>
 
+      {/* The worker DETAIL comes from /api/metrics, which is scoped. Health
+          is unauthenticated and now carries only alive/busy/stalled, so this
+          panel names the document being processed only to a reader entitled
+          to see it. */}
       <WorkerPanel
         connection={connection}
         documents={load.state === "ready" ? load.documents : []}
+        worker={worker}
       />
 
       <Uploader onUploaded={refresh} />

@@ -65,6 +65,33 @@ export interface UploadAccepted {
   duplicate_of: string | null; // set when sha256 already exists; no job started
 }
 
+/** DELETE /api/documents/{id}
+ *
+ *  Typed because it was not. The conversation-delete response was a COPY of
+ *  this shape with the field names left alone, so it returned a conversation
+ *  TITLE under a key called `filename` - and a client reading it built a wrong
+ *  model of what it had deleted. The mistake was invisible because a title
+ *  looks exactly as plausible under that key as a filename does.
+ *
+ *  Both routes were `request<unknown>` on the client, which is why nothing
+ *  caught it: there was no shape to drift FROM. */
+export interface DeletedDocument {
+  deleted: string;
+  filename: string;
+  rows_removed: Record<string, number>;
+  files_removed: number;
+}
+
+/** DELETE /api/conversations/{id} - a conversation has a TITLE. */
+export interface DeletedConversation {
+  deleted: string;
+  title: string;
+  rows_removed: Record<string, number>;
+  /** No files_removed: a conversation deletes no files, and a truthful-looking
+   *  0 for something that never applies is how a field stops meaning
+   *  anything. */
+}
+
 // ---------- jobs ----------
 
 export type JobStage = "extract" | "chunk" | "embed" | "index";
@@ -277,6 +304,411 @@ export interface AnswerPassage {
   ocr_alphabet_sample: string | null;
 }
 
+/** Where a document stood in relation to the answer.
+ *
+ *  `credible_not_cited` is the one a reader acts on: a passage from this
+ *  document cleared the credibility floor and the answer used others instead,
+ *  because an answer takes only its highest-ranked passages. It is not a
+ *  retrieval failure and must not be worded as one. */
+export type DocumentCoverageStatus =
+  | "answered"
+  | "supporting"
+  | "credible_not_cited"
+  | "retrieved_not_credible"
+  | "expected_not_shortlisted"
+  | "expected_not_retrieved"
+  | "searched_no_match";
+
+export interface DocumentCoverage {
+  document_id: string;
+  filename: string;
+  status: DocumentCoverageStatus;
+  /** Carries a distinguishing term from the question. PRESENCE, NOT
+   *  RELEVANCE - no completeness claim rests on this, and it must not be
+   *  rendered as a relevance judgement. */
+  expected: boolean;
+  distinguishing_terms: string[];
+  /** Reached the fused candidate pool. 0 is a real 0. */
+  candidates: number;
+  shortlisted: number;
+  /** Null unless a passage from this document was scored in the final rerank
+   *  batch. Never 0.0 as a stand-in - 0.0 sits above the -3.0 floor and would
+   *  read as credible. Do not default it in the UI. */
+  best_rerank_score: number | null;
+  reason: string | null;
+}
+
+/** Which documents the question was about, and which the answer used.
+ *
+ *  Null on the AnswerResult for a refusal, deliberately: an incidence table
+ *  under a refusal invites the reader to read it as evidence the corpus could
+ *  have answered after all. */
+export interface Coverage {
+  /** What the completeness verdict rests on.
+   *
+   *  There is no `term_incidence` basis, by measurement rather than oversight:
+   *  it made all twelve documents "expected" on the gold question this feature
+   *  exists to measure, because "contain" is an ordinary English verb present
+   *  in every one of them. */
+  basis: "credible_uncited" | "single_document_scope" | "none";
+  /** Documents that produced a credible passage. Null when no completeness
+   *  claim is being made - never 0. */
+  expected_documents: number | null;
+  found_documents: number | null;
+  searched_documents: number;
+  /** `false` when a credible passage went unused. Otherwise NULL. NEVER true.
+   *
+   *  A NULL MUST RENDER AS NOTHING AT ALL - no tick, no green, no "complete"
+   *  wording. Rendering a null as a checkmark converts "I did not check" into
+   *  "I checked and it is fine", which is the single easiest way for this
+   *  feature to become a lie. `complete === false` names the gap and the
+   *  document; anything else says nothing. */
+  complete: boolean | null;
+  documents: DocumentCoverage[];
+  note: string | null;
+}
+
+/** A source that did not fit the model's context window.
+ *
+ *  A numeric table costs about ONE TOKEN PER CHARACTER against a 1,536-token
+ *  window, because the tokenizer splits digits individually - so three table
+ *  passages need roughly 3,645 tokens and cannot fit. Before this field the
+ *  runtime discarded the overflow inside llama.cpp and reported FEWER tokens
+ *  evaluated than the window holds, which is indistinguishable from a small
+ *  prompt. The answer was generated from what survived, citing sources it had
+ *  never been shown.
+ *
+ *  THE UI MUST SAY SO, for the same reason it must say so for `truncated`. An
+ *  answer built on two of three sources is not wrong, but a reader who thinks
+ *  it saw three cannot judge it. */
+export interface EvidenceRemoved {
+  /** 1-based position in the sources as retrieved. */
+  index: number;
+  filename: string | null;
+  page_start: number | null;
+  action: "trimmed" | "dropped";
+  characters_kept: number;
+  characters_dropped: number;
+}
+
+/** What a client may know about itself.
+ *
+ *  ROLES, NEVER GRANTS. The document ids a user may see are deliberately
+ *  absent: the scope is derived server-side on every request, and handing the
+ *  client the list gives it something to check its guesses against. */
+export interface Me {
+  id: string;
+  email: string;
+  display_name: string;
+  roles: string[];
+}
+
+/** Whether signing in is required here, and who is signed in.
+ *
+ *  The frontend calls `/api/auth/me` once at startup and the ANSWER decides
+ *  the screen: a 401 means show the login form; `required: false` means
+ *  authentication is off and there is nothing to sign in to.
+ *
+ *  `/api/health` deliberately does not carry this. Health is unauthenticated
+ *  and was narrowed on purpose. */
+export interface AuthStatus {
+  required: boolean;
+  user: Me | null;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResult {
+  /** Held in a module-level variable in `client.ts`. NEVER localStorage -
+   *  that outlives the tab, and every XSS becomes credential theft rather
+   *  than a session-length nuisance. A page reload logs you out, and the UI
+   *  says so rather than letting the reader discover it. */
+  token: string;
+  user: Me;
+  expires_in_seconds: number;
+}
+
+// ---------------------------------------------------------------- progress
+
+export interface ProgressStep {
+  stage: string;
+  at_seconds: number;
+}
+
+/** What the machine is doing, REPORTED BY THE WORK ITSELF - never inferred
+ *  from a clock on the client.
+ *
+ *  There is deliberately no percentage. The length of a generation is unknown
+ *  until it ends, so a bar would be an invention; a stage, a count and an
+ *  elapsed time are all true. */
+export interface Progress {
+  stage: "retrieving" | "reranking" | "reading" | "generating" | "done";
+  /** e.g. "3 passages" - a count, never a percentage. */
+  detail: string | null;
+  seconds: number;
+  /** Every transition that actually happened, and when. */
+  history: ProgressStep[];
+}
+
+// ---------------------------------------------------------------- analysis
+
+/** One retrieved passage, as everything downstream cites it.
+ *
+ *  `evidence_id` is sha256 over the document, page span, section and quoted
+ *  text - NOT a chunk id. Chunk ids change when a document is re-chunked, and
+ *  a citation that moves when the chunker is retuned is not a citation. */
+export interface EvidenceItem {
+  evidence_id: string;
+  document_id: string;
+  filename: string;
+  page_start: number;
+  page_end: number;
+  section: string | null;
+  /** Verbatim. Render in serif on a quote rule, never as prose. */
+  exact_span: string;
+  text_source: "extracted" | "recognised";
+  ocr_min_conf: number | null;
+  ocr_alphabet_violations: number;
+  /** Null unless scored in the final rerank batch. Never 0.0 as a stand-in -
+   *  0.0 sits above the -3.0 floor and reads as credible. */
+  relevance_score: number | null;
+  /** WHICH SCALE the number is on. A rerank score and an RRF score are not
+   *  comparable, so a bare number would invite exactly the comparison this
+   *  system forbids. Null when nothing scored it. */
+  relevance_score_type: "rerank" | null;
+}
+
+export interface DocumentedFinding {
+  claim: string;
+  citation_ids: string[];
+  /** Nothing generated here is `user_stated`: a typed requirement is THE
+   *  REQUIREMENT, not evidence, and never enters an evidence ledger. */
+  source_kind: "document" | "user_stated";
+  text_source: "extracted" | "recognised" | "mixed";
+}
+
+/** A sentence removed from the prose, and why. A sentence carrying a number
+ *  that appears in no span it cites is DROPPED, never rendered with a warning
+ *  beside it - the number would still be on screen, and the reader takes the
+ *  number. */
+export interface DroppedSentence {
+  sentence: string;
+  reason: string;
+}
+
+export interface AnalysisSummaryResult {
+  question: string;
+  evidence_ledger: EvidenceItem[];
+  /** Null when synthesis did not run or was refused. Null renders as NOTHING -
+   *  never an empty prose block. */
+  summary: string | null;
+  summary_truncated: boolean;
+  summary_cited_evidence_ids: string[];
+  documented_findings: DocumentedFinding[];
+  rejected_citations: number[];
+  evidence_removed: EvidenceRemoved[];
+  refusal: string | null;
+  dropped_sentences: DroppedSentence[];
+  not_implemented_sections: string[];
+}
+
+export type ClaimLabel = "agreement" | "addition" | "possible_conflict" | "unresolved";
+
+export interface ClaimClusterOut {
+  /** Human-readable, e.g. "thickness / um". */
+  facet: string;
+  /** `possible_conflict`, never `conflict`: documents carry no revision or
+   *  approval status, so which supersedes the other cannot be known. */
+  label: ClaimLabel;
+  rows: Record<string, unknown>[];
+  note: string | null;
+}
+
+export interface BaselineSelectionOut {
+  kind: "document" | "document_section" | "stated_requirement";
+  document_id: string | null;
+  section: string | null;
+  text: string | null;
+}
+
+export type GapItemStatus =
+  | "met"
+  | "possible_gap"
+  | "conflict"
+  | "insufficient_evidence"
+  | "not_applicable";
+
+export interface GapItemOut {
+  facet: string;
+  status: GapItemStatus;
+  baseline_citation_id: string | null;
+  baseline_span: string;
+  project_citation_ids: string[];
+  note: string | null;
+}
+
+export interface GapAnalysisOut {
+  /** `not_applicable` when the caller named no baseline. The system NEVER
+   *  chooses one: picking the oldest document, or the one with "standard" in
+   *  its name, would be an engineering judgement it has no basis for. */
+  applicability: "applicable" | "not_applicable" | "insufficient_baseline";
+  baseline: BaselineSelectionOut | null;
+  items: GapItemOut[];
+}
+
+export interface AnalysisGapsResult {
+  question: string;
+  evidence_ledger: EvidenceItem[];
+  claim_clusters: ClaimClusterOut[];
+  gaps: GapAnalysisOut;
+  not_implemented_sections: string[];
+}
+
+export interface ConfidenceCheckOut {
+  label: string;
+  /** true = this check lowered confidence */
+  fired: boolean;
+}
+
+export interface RecommendationOut {
+  text: string;
+  citation_ids: string[];
+  basis: string;
+  /** "high" is structurally unreachable, by the same rule that forbids
+   *  `coverage.complete === true`. */
+  confidence: "low" | "medium" | null;
+  checks: ConfidenceCheckOut[];
+}
+
+export interface AnalysisRecommendationResult {
+  question: string;
+  evidence_ledger: EvidenceItem[];
+  /** Null is not an empty recommendation. */
+  recommendation: RecommendationOut | null;
+  public_market_findings: MarketFinding[];
+  not_implemented_sections: string[];
+}
+
+export interface AnalysisRequest {
+  question: string;
+  limit?: number;
+  /** The caller's choice of authoritative document. Never chosen by the
+   *  system. */
+  baseline_document_id?: string | null;
+}
+
+// ------------------------------------------------------------------- market
+
+/** How a finding was checked. The full vocabulary, because a UI must be able
+ *  to render each state - but see `MarketFinding.verification`: this build
+ *  can only ever produce the last one. */
+export type MarketVerification = "source_read" | "snippet_only" | "source_not_verified";
+
+/** An ILLUSTRATIVE row. There is no provider and this machine is offline.
+ *
+ *  `is_sample` is always true and is neither optional nor defaulted. A row
+ *  that could omit it could be mistaken for a real finding, and the UI must
+ *  never present one as a source. */
+export interface MarketFinding {
+  claim: string;
+  /** Always `sample://` - a scheme that resolves nowhere, chosen so a row
+   *  cannot become a real citation by being clicked. */
+  url: string;
+  publisher: string;
+  published_at: string | null;
+  retrieved_at: string;
+  /** Pinned, not widened to MarketVerification: nothing in this build has
+   *  been read, so no row may claim it was. */
+  verification: "source_not_verified";
+  is_sample: true;
+}
+
+export interface EgressState {
+  web_search_enabled: boolean;
+  allow_public_egress: boolean;
+}
+
+export interface MarketFindings {
+  /** "SAMPLE DATA - NOT LIVE", in full. Render it; do not summarise it. */
+  notice: string;
+  egress: EgressState;
+  findings: MarketFinding[];
+  is_sample: true;
+}
+
+export interface MarketQueryRequest {
+  query: string;
+  country: string | null;
+  freshness_days: number | null;
+}
+
+/** What WOULD be sent. `sent` is always false and nothing left the machine. */
+export interface MarketQueryPreview {
+  query: string;
+  country: string | null;
+  freshness_days: number | null;
+  would_be_sent_to: null;
+  sent: false;
+  reason: string;
+}
+
+// ------------------------------------------------------------------ reports
+
+export interface ReportDocumentRow {
+  document_id: string;
+  /** as named when the report was generated */
+  filename: string;
+  sha256_prefix: string;
+  /** Always null: no such column exists on documents. Render as "not
+   *  recorded", never invent one. */
+  revision: string | null;
+  approval_status: string | null;
+  passages_cited: number;
+  text_source: "extracted" | "recognised" | "mixed" | null;
+}
+
+/** A report as a client may see it. `stored_path` is never serialised. */
+export interface ReportRecord {
+  id: string;
+  question: string | null;
+  resolved_question: string | null;
+  created_at: string;
+  page_count: number;
+  size_bytes: number;
+  /** Hash of the PDF bytes. Proves the stored file is the one issued. NOT a
+   *  reproducibility hash: a re-render on another build differs in producer
+   *  string and ID array with identical content. */
+  report_sha256: string;
+  /** null under auth_mode="disabled" - there is no user to attribute it to */
+  owner_username: string | null;
+  documents: ReportDocumentRow[];
+  /** Named on page 1 of the PDF as not included. */
+  not_implemented_sections: string[];
+}
+
+export interface ReportList {
+  reports: ReportRecord[];
+  /** Reports hidden because a cited document left the caller's scope. THAT
+   *  something is hidden, never WHAT. */
+  suppressed_count: number;
+}
+
+export interface ReportVerification {
+  report_id: string;
+  snapshot_intact: boolean;
+  file_intact: boolean;
+  /** How the cited documents differ NOW from when the report was generated.
+   *  Reported, never silently resolved. */
+  evidence_drift: string[];
+}
+
+export interface GenerateReport {
+  message_id: string;
+}
+
 export interface AnswerResult {
   question: string;
   answer_type: AnswerType;
@@ -307,6 +739,12 @@ export interface AnswerResult {
   truncated: boolean;
   /** guidance only: which kind of non-question this was */
   input_kind: string | null;
+  /** Sources trimmed or dropped so the evidence would fit the context
+   *  window. Empty in the ordinary case: prose fits comfortably. */
+  evidence_removed: EvidenceRemoved[];
+  /** Report-only. Null for a refusal, and null for an answer produced without
+   *  the cross-encoder (nothing was scored for credibility). */
+  coverage: Coverage | null;
   /** guidance only: real questions drawn from the loaded documents */
   examples: string[];
   retrieval_mode: string;
@@ -372,6 +810,9 @@ export interface ConversationDetail {
 }
 
 export interface AskRequest {
+  /** A client-chosen id for polling `/api/progress/{id}` while this runs.
+   *  Optional: without one the backend reports nothing and behaves as before. */
+  progress_id?: string | null;
   question: string;
   tier: AnswerTier;
   document_id?: string | null;
@@ -520,6 +961,12 @@ export interface ApiError {
     | "invalid_parameter"
     | "unknown_parameter"
     | "confirm_required"
+    // authentication. These MUST exist here as well as in errors.py: the
+    // union is compiler-enforced only for the codes it lists, so adding them
+    // to the backend alone compiles cleanly and fails at runtime.
+    | "unauthenticated"
+    | "invalid_credentials"
+    | "rate_limited"
     // the upload was not acceptable
     | "not_pdf"
     | "encrypted_pdf"

@@ -3,8 +3,9 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Ten separate times a status field has claimed
-something the system was not doing:
+**Why this document exists.** Fourteen separate times something in this system
+has claimed what was not so - a status field, a count, a measurement, and twice
+now a design document about the code it was written against:
 
 | # | The claim | The reality |
 |---|---|---|
@@ -13,15 +14,41 @@ something the system was not doing:
 | 3 | `stalled: false` with six documents waiting | Computed from heartbeat freshness, which only proves the loop is spinning |
 | 4 | `failed` on a fully embedded document | The chunk short-circuit did not advance the state, so a guard tripped |
 | 5 | `ready` with nothing searchable | A document whose every chunk was excluded still reported ready |
+| 11 | "50 call sites updated" and "no such string in the frontend" | Both counts were complete WITHIN a boundary the sweep chose for itself and never stated. Five more call sites were in `eval/`; the string was in the backend |
 | 10 | Three green tests over code that was broken | Each had fixtures that could not produce the condition the test claimed to check. A vacuous test does not fail; it passes, which is worse |
 | 9 | README: "Disk — ~2 GB" | 768 MB inside the clone, measured. Nobody had ever measured it; the figure was written from intuition and read as a specification |
 | 8 | OCR raised coverage by **+12.5%** on NORSOK | It raised it by **+4.2%**. The "before" figure dropped every recognised CHUNK, which also drops pages that chunk merely spans — three pages were charged to OCR that OCR never read |
+| 14 | `--tier generated`, documented at the top of the eval harness | The scorer could not read a generated answer: every field read `answer_passages`, which only the extract branch sets. Tier 2 rows scored zero passages and no pages, so the harness under-reported its own citation figure |
+| 13 | The coverage design's six-value status enum, reviewed and approved | **None of the six was true of Q4**, the gold question the feature exists to measure. Reviewing a taxonomy against an example is not testing it against that example |
+| 12 | The coverage design: the shortlist cut is "the one place candidates are dropped with no recorded reason" | `deduplicate()` and the pool builder drop silently too. A candidate lost to dedup is indistinguishable from one that never existed, so recording only the cut would have answered "was doc17 ever in the pool?" wrongly, with apparent evidence |
 | 7 | A passing ordering test over a document that had `failed` | The test asserted the statuses it OBSERVED at every OCR invocation and never asserted where the document FINISHED. `partially_searchable -> chunking` was an illegal transition; the raise was swallowed by the broad handler in `process()`; every scanned document on a fresh machine landed at `failed`, green suite and all |
 | 6 | "Quoted verbatim from the document" over OCR text | `AnswerCard.tsx:277` rendered the label unconditionally. 92 recognised chunks were retrievable, so a passage OCR had guessed off a page image could be cited as the document's own words, beside "quoted directly, no AI rewriting" |
 
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
 it is derived from, so the next instance is easy to spot.
+
+**Entry 11 is the same shape twice, and both times the sweep was mine.**
+
+When `search()` gained a required scope parameter I reported **"50 call sites
+now pass `every_document_id()` explicitly"**. The number was exact and the
+boundary was silent: I had swept `backend/`. Five more call sites lived in
+`eval/`, and they surfaced only when the harness crashed with
+`ask() missing 1 required keyword-only argument`. Had the parameter carried a
+default, those five would have kept meaning "every document" and nothing would
+have said so.
+
+Hours later, asked to find copy claiming a shipped feature was missing, I
+searched the frontend and reported the strings I found. **The false string was
+in the backend**, in `metrics.warnings()` - the Dashboard renders whatever the
+API sends, so the copy was never in the frontend at all.
+
+Both reports were accurate inside their boundary and neither stated the
+boundary. **A count without a boundary reads as total** - that is standing
+rule 7 - and the fix in both cases was not a better search but naming the
+territory first. The copy sweep now scans backend, frontend AND contracts, and
+exempts comments rather than files, because a file-level exemption would have
+re-admitted the very string it was written to catch.
 
 **Entry 10 is a pattern rather than an accident, which is why it is recorded
 as one.** Three tests in a single session were green over broken code, and all
@@ -170,7 +197,7 @@ threaded through retrieval and passage expansion, and made a REQUIRED field in
 decides whether a sentence may be called the document's own words never read
 it. Every layer was correct and the claim was still false.
 
-The lesson is a rule, now standing rule 11: **a provenance field that no
+The lesson is a rule, now standing rule 12: **a provenance field that no
 assertion reads is decoration.** Storing it, typing it and requiring it are
 not the safeguard; the safeguard is a test that fails when the label is wrong.
 The test that now guards this asserts the ABSENCE of the verbatim label on
@@ -194,6 +221,24 @@ thing it judges**. Five instances, all in this build:
 | 3 | `tsc --noEmit -p tsconfig.json` | `tsconfig.json` is a solution file with `"files": []` and project references, so it type-checked **zero files**. Every "typecheck clean" report was vacuous. | Noticing exit 0 on a file with an unterminated string literal |
 | 4 | "Stale numbers are dropped on refresh", with fake timers | The timers were installed **after** the component had created its interval with real ones. Advancing them fired nothing; the test passed while asserting nothing. | Reading the test back after writing it |
 | 5 | The cross-encoder's own rerank window | `rerank_max_tokens` was 256 against a `chunk_max_tokens` of 480, so a 486-token passage was scored on its first 256 tokens. The answer sat at token 350. It returned **−10.95** — correct about what it was shown, wrong about the passage. | Measuring a hypothesis that turned out to be false, and looking further |
+
+**Number 3 recurred, on 2026-09-05, in this repository, to the person who wrote
+this list.** CI was fixed to run `tsc -b` and carries a comment saying exactly
+why. That did not stop `npx tsc --noEmit` being typed by hand, repeatedly,
+across a whole session, with "typecheck clean" reported from it each time. The
+command loads `tsconfig.json`, which has `"files": []`, and checks nothing.
+
+It surfaced only when eleven untracked frontend files needed checking and the
+listing came back empty - `--listFiles` printed no file at all, which is what a
+vacuous check looks like when you finally ask it what it covered. Run properly
+the eleven were clean. **Every conclusion was right and none of the evidence
+was worth anything.**
+
+This is standing rule 11 - **a documented hazard is not a guard** - demonstrated
+against its own author. The hazard was written down, the CI path was fixed, and
+the hand-typed path stayed open. The guard that would have caught it is the one
+now applied everywhere else in this document: **ask a check what it covered
+before believing it passed.**
 
 Number 5 is the one to remember: **the evaluation recorded a retrieval failure
 that was really a truncation failure.** The system was not bad at retrieval. Its
@@ -280,12 +325,85 @@ resident, because that moves the headline number further than the corpus does.
 `test_eval_provenance.py` reinstates the old field and confirms four of its
 six tests go red against it.
 
+### A twelfth: the design premise that was wrong about its own pipeline
+
+The multi-document coverage design named the 16-slot shortlist cut as **"the
+one place in this pipeline where candidates are dropped with no recorded
+reason"**. It was not the one place. `deduplicate()` discarded near-identical
+candidates and returned a shorter list saying nothing about it, and the pool
+builder skipped chunks whose row had gone or had been marked non-retrievable,
+also silently.
+
+The cost would have been a false answer to the question the telemetry was built
+to answer. **A candidate lost to dedup is indistinguishable from a candidate
+that never existed**, so a document that contributed candidates and lost them
+all to duplicate-merging would have read as a document that matched nothing —
+and "was doc17 ever in the pool?" would have been answered wrongly with
+apparent evidence. All five drop reasons are now recorded under one slug
+vocabulary.
+
+### A thirteenth: a taxonomy reviewed against its example, never tested against it
+
+The same design specified a six-value status enum for per-document coverage. It
+was reviewed carefully and it reads well. **None of its six values was true of
+Q4** — the gold question the entire feature exists to measure.
+
+doc17 was retrieved, so not `expected_not_retrieved`. Shortlisted, so not
+`expected_not_shortlisted`. Scored **+2.104 against a -3.0 floor**, so not
+`retrieved_not_credible`. Not in `supporting`, and not `answered`, and plainly
+not `searched_no_match`. Had the enum shipped as designed, Q4 would have been
+filed under whichever value was least wrong, and the coverage report would have
+made a false statement about the one case it was built for.
+
+This is the same family as the vacuous fixture: **a structure that cannot
+produce the condition it claims to cover.** The fixture could not produce two
+distinct documents; the enum could not express the outcome it was designed
+around. Reviewing a taxonomy against an example is not testing it against that
+example — the test is to take the real case and try to write its row.
+
+Fixed by a seventh value, `credible_not_cited`, which names the fact in the
+reader's terms rather than the mechanism: this document had a passage that
+passed the credibility floor, and the answer did not use it.
+
+### A fourteenth: the harness could not score the tier it documented
+
+`eval/run_eval.py` documents `--tier generated` at the top of the file. Its
+scorer could not read a generated answer at all.
+
+Every scored field - the cited pages, the cited document, the cited clause, the
+passage count, the returned text - read `answer_passages` or `passage`, and
+**both are set only by the extract branch**. A Tier 2 answer sets `passages`
+plus `cited`. So a generated answer scored zero passages, no pages, no
+document, and empty text: `retrieval_correct` and `citation_correct` came out
+false however well it had answered.
+
+It surfaced the moment a question pinned itself to Tier 2. Question 17 answered
+correctly - the right table, page 597, clause 15.3, values read off the row -
+and the harness recorded `wrong page, wrong clause, pages []`. Fixing the
+scorer moved the citation figure from 10/11 to **11/11**, which means the
+harness had been under-reporting itself, in the safe direction, for as long as
+anyone had been able to run it that way.
+
+Nobody saw it because the harness had only ever been run at `--tier extract`.
+That is the third instance of the same shape in this build: **the harness could
+not see the defect because every question it asked avoided the condition.** The
+P&ID false refusal needed an answer below rank 1; the token budget needed
+evidence that was not prose; this needed a question asked at Tier 2.
+
+The fix is one function, `evidence_of(result)`, used by every field that
+previously read the extract shape directly, with tests for both tiers.
+
 ### The rule this produces
 
 **Before trusting a check, confirm it fails when it should.** Plant the defect
 it exists to catch and watch it go red. Two of the first five passed for weeks;
-none failed loudly; two were found only by accident. Of the nine instances now
-recorded, exactly one — the eighth — was caught by a check rather than by luck.
+none failed loudly; two were found only by accident. Of the fourteen instances
+now recorded, exactly one — the eighth — was caught by an automated check.
+
+The twelfth and thirteenth were caught by reading a design against the code
+while implementing it, and by taking the real case and trying to write its row.
+That is diligence, not a check, and it does not scale — which is why the
+thirteenth produced a standing rule rather than only a fix.
 
 Corollary: **guard the guard.** Every check whose scope can silently shrink to
 nothing needs a companion test asserting it still sees something — that the
@@ -394,19 +512,34 @@ asserts no client error ever reports `internal`.
    Corpus counts and machine state come from the database and the OS at run
    time, never from a static declaration. A result that cannot say what it ran
    against is not a measurement.
-7. **A test must be shown to FAIL against the unfixed code, or it is not
+7. **When you report a count of things found, state where you looked.** A
+   count without a boundary reads as total. "50 call sites" and "no matches in
+   the frontend" were both true and both incomplete, and neither said so.
+8. **A test must be shown to FAIL against the unfixed code, or it is not
    evidence.** A test that has never been watched failing is an assertion that
    the fixtures reach the code, and that assertion is usually untested.
-8. **A number is not a measurement until you can say what it counts.** Before
+9. **A number is not a measurement until you can say what it counts.** Before
    quoting a figure, name the unit and the population, and check one case by
    hand. An internally consistent wrong number passes every automated check
    there is.
-9. **Observing a step is not observing an outcome.** A test that asserts
+10. **Observing a step is not observing an outcome.** A test that asserts
    intermediate state must also assert terminal state. Watching the right
    thing happen says nothing about whether it worked.
-10. **A documented hazard is not a guard.** If a trap is worth writing down, the
+11. **A documented hazard is not a guard.** If a trap is worth writing down, the
    check belongs in the path of the tool that can fall into it.
-11. **A provenance field that no assertion reads is decoration.** Storing,
+12. **A taxonomy is not tested until a real case has been written into it.**
+   Reviewing an enum against an example proves only that it reads well. Take
+   the case the feature exists for, try to fill in every field, and require
+   that exactly one value is true. A structure that cannot express its own
+   headline case will not fail loudly — it will file that case under whichever
+   value is least wrong.
+13. **A provenance field that no assertion reads is decoration.** Storing,
    typing and requiring it are not the safeguard. Where provenance decides
    what a claim may say, a test must assert the ABSENCE of the stronger claim
    — presence-only assertions pass while both claims are on screen.
+14. **A check that can run against zero inputs must assert it ran against more
+   than zero.** The rule the fixtures already carry, applied to tools. A type
+   checker with no files, a scanner with no paths, a test filter that matched
+   nothing — each exits 0 and reads as a pass. Before believing a tool's clean
+   result, ask it what it covered (`--listFiles`, a count, a non-empty
+   listing), and make the harness ask so a person does not have to.

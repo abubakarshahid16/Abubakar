@@ -8,6 +8,8 @@
  *    numbers as if they were live
  */
 import type {
+  DeletedConversation,
+  DeletedDocument,
   ApiError,
   AskRequest,
   AskResult,
@@ -16,17 +18,50 @@ import type {
   ConversationDetail,
   ConversationList,
   DocumentRecord,
+  AuthStatus,
   ExclusionsResponse,
+  AnalysisGapsResult,
+  AnalysisRecommendationResult,
+  AnalysisRequest,
+  AnalysisSummaryResult,
+  LoginResult,
+  MarketFindings,
+  MarketQueryPreview,
+  Progress,
+  MarketQueryRequest,
   Metrics,
+  ReportList,
+  ReportRecord,
+  ReportVerification,
   PagesResponse,
-  WorkerStatus,
 } from "../types/api";
+
+/** The unauthenticated route, and the only one. It answers "is the service up"
+ *  and "are the models present" and nothing else.
+ *
+ *  It used to return document counts, the exact answer-model name and version,
+ *  free-text last_error and stalled_reasons, and current_document - a real
+ *  document id that the UI joined against the document list to display a
+ *  filename. An unauthenticated caller could learn that a specific document
+ *  existed and was being processed.
+ *
+ *  The full worker status lives on /api/metrics, which is scoped. `alive` and
+ *  `stalled` remain here because a client has to distinguish "backend down"
+ *  from "backend up but stuck", and neither fact is about anybody's
+ *  documents. */
+export interface HealthWorker {
+  alive: boolean;
+  stalled: boolean;
+  /** work is under way. WHETHER, never WHICH - see the note above. */
+  busy: boolean;
+}
 
 export interface Health {
   ok: boolean;
   embed_model_present: boolean;
-  answer_model: string;
-  ingestion: WorkerStatus;
+  /** whether an answer model is configured, NOT which one */
+  answer_model_present: boolean;
+  ingestion: HealthWorker;
 }
 
 export type Result<T> =
@@ -39,9 +74,39 @@ const BASE = "/api";
 /** Statuses that mean nothing served the request at all. */
 const GATEWAY_STATUSES = new Set([502, 503, 504]);
 
+/** The bearer token, in memory only.
+ *
+ *  Never localStorage: it outlives the tab, and every XSS then becomes
+ *  credential theft rather than a session-length nuisance. The cost is that a
+ *  reload logs you out, which the login screen states rather than leaving the
+ *  reader to discover.
+ */
+let token: string | null = null;
+let onUnauthenticated: (() => void) | null = null;
+
+export function setToken(next: string | null) {
+  token = next;
+}
+
+export function isSignedIn() {
+  return token !== null;
+}
+
+/** Called when the backend says the token is no good. No auto-retry, no
+ *  refresh, no redirect loop - the screen changes and the reader decides. */
+export function onSignedOut(fn: (() => void) | null) {
+  onUnauthenticated = fn;
+}
+
 /** What to tell a reader, in words they can act on. */
 function humanMessage(status: number): string {
-  if (status === 401 || status === 403) {
+  if (status === 401) {
+    // Split from 403 deliberately. The old shared message told a logged-out
+    // user to check the backend's settings, which sends them to inspect a
+    // server that is working perfectly.
+    return "You are not signed in, or your session has expired. Sign in to continue.";
+  }
+  if (status === 403) {
     return "This action was refused. Check whether the backend was started with different settings.";
   }
   if (status === 404) return "That is not something the backend knows about.";
@@ -90,6 +155,65 @@ export const hasArrayField =
     b !== null &&
     Array.isArray((b as Record<string, unknown>)[field]);
 
+export const analysis = {
+  summary: (body: AnalysisRequest) =>
+    request<AnalysisSummaryResult>("/analysis/summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  recommendations: (body: AnalysisRequest) =>
+    request<AnalysisRecommendationResult>("/analysis/recommendations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  gaps: (body: AnalysisRequest) =>
+    request<AnalysisGapsResult>("/analysis/gaps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+};
+
+export const market = {
+  findings: () => request<MarketFindings>("/market/findings"),
+  /** Builds the object that WOULD be sent. Nothing is sent. */
+  previewQuery: (body: MarketQueryRequest) =>
+    request<MarketQueryPreview>("/market/preview-query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+};
+
+export const reports = {
+  list: () => request<ReportList>("/reports"),
+  generate: (message_id: string) =>
+    request<ReportRecord>("/reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message_id }),
+    }),
+  verify: (id: string) =>
+    request<ReportVerification>(`/reports/${encodeURIComponent(id)}/verify`),
+  /** The download is a navigation, not a fetch: the browser saves the file
+   *  under the server-assigned name. The bearer token cannot ride on a plain
+   *  navigation, so this is only reachable under auth_mode=disabled today;
+   *  under demo_required it needs a blob fetch, which stage 2 does not build. */
+  downloadUrl: (id: string) => `${BASE}/reports/${encodeURIComponent(id)}/download`,
+};
+
+export const auth = {
+  login: (email: string, password: string) =>
+    request<LoginResult>("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    }),
+  me: () => request<AuthStatus>("/auth/me"),
+};
+
 async function request<T>(
   path: string,
   init?: RequestInit,
@@ -97,7 +221,11 @@ async function request<T>(
 ): Promise<Result<T>> {
   let response: Response;
   try {
-    response = await fetch(`${BASE}${path}`, init);
+    // The single fetch in the module, which is why the token can be attached
+    // in exactly one place - the module's own principle, stated at the top.
+    const headers = new Headers(init?.headers);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    response = await fetch(`${BASE}${path}`, { ...init, headers });
   } catch (e) {
     // fetch only rejects on a network-level failure - the server is down
     return disconnected(e instanceof Error ? e.message : "Network request failed.");
@@ -110,6 +238,15 @@ async function request<T>(
     // not running" banner and a red "HTTP 502" card on screen together.
     if (GATEWAY_STATUSES.has(response.status)) {
       return disconnected("Nothing answered on the API port.");
+    }
+
+    // The token is no good - expired, revoked, or the account deactivated.
+    // Clear it and tell the app once. No auto-retry and no refresh flow:
+    // there is no refresh token by design, and a silent retry against a
+    // revoked session is a loop that hides the reason from the reader.
+    if (response.status === 401) {
+      token = null;
+      onUnauthenticated?.();
     }
 
     let error: ApiError = {
@@ -204,7 +341,9 @@ export const api = {
   embed: (id: string) =>
     request<unknown>(`/documents/${encodeURIComponent(id)}/embed`, { method: "POST" }),
   remove: (id: string) =>
-    request<unknown>(`/documents/${encodeURIComponent(id)}?confirm=true`, { method: "DELETE" }),
+    request<DeletedDocument>(`/documents/${encodeURIComponent(id)}?confirm=true`, {
+      method: "DELETE",
+    }),
 
   // ---------- conversations ----------
   conversations: (limit = 20) =>
@@ -220,11 +359,15 @@ export const api = {
       body: JSON.stringify({ document_id: documentId ?? null }),
     }),
   deleteConversation: (id: string) =>
-    request<unknown>(`/conversations/${encodeURIComponent(id)}?confirm=true`, {
+    request<DeletedConversation>(`/conversations/${encodeURIComponent(id)}?confirm=true`, {
       method: "DELETE",
     }),
   /** Tier 2 is not streamed and takes ~50s on this hardware, so callers must
    *  show elapsed time rather than an indefinite spinner. */
+  /** What the machine is doing. 404 once the entry has expired, which is not
+   *  an error - it means the work finished and was collected. */
+  progress: (progressId: string) =>
+    request<Progress>(`/progress/${encodeURIComponent(progressId)}`),
   ask: (id: string, body: Partial<AskRequest>) =>
     request<AskResult>(`/conversations/${encodeURIComponent(id)}/ask`, {
       method: "POST",

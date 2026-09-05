@@ -23,7 +23,7 @@
  * check it against the card below instead of being told two contradictory
  * things at once.
  */
-import type { DocumentRecord } from "../types/api";
+import type { DocumentRecord, WorkerStatus } from "../types/api";
 
 import type { Connection } from "./Shell";
 import { formatAge } from "./documentStatus";
@@ -66,9 +66,20 @@ export function humaniseReason(code: string): string {
 export function WorkerPanel({
   connection,
   documents = [],
+  /** The full worker status, from the SCOPED /api/metrics. Optional: without
+   *  it this panel still reports whether the worker is alive, busy or stalled
+   *  from /api/health, and simply does not name the document being processed.
+   *
+   *  It used to take that name from health.current_document, and health is
+   *  unauthenticated - so the id of a document being processed was readable
+   *  with no login, and this component joined it against the document list to
+   *  render a filename. Naming the document is a legitimate thing to show an
+   *  authorised reader; it just cannot come from the open route. */
+  worker,
 }: {
   connection: Connection;
   documents?: DocumentRecord[];
+  worker?: WorkerStatus | null;
 }) {
   // "Checking" is not "broken". Reporting a connection failure before the
   // first poll has returned made the app's opening statement a false alarm.
@@ -103,13 +114,16 @@ export function WorkerPanel({
   }
 
   const w = connection.health.ingestion;
-  const current = w.current_document
-    ? (documents.find((d) => d.id === w.current_document) ?? null)
+  const currentId = worker?.current_document ?? null;
+  const current = currentId
+    ? (documents.find((d) => d.id === currentId) ?? null)
     : null;
   // A filename if we have one. Falling back to the id is still better than
   // nothing, but it is the exception, not the label.
-  const currentName = current?.filename ?? w.current_document ?? null;
-  const working = w.current_document != null;
+  const currentName = current?.filename ?? currentId ?? null;
+  // `busy` from health, not an id: the panel knows work is happening even
+  // when it is not authorised to know what.
+  const working = w.busy;
 
   // Alarm only when nothing is being worked on. Work in progress is reported
   // as work, however slow.
@@ -155,16 +169,16 @@ export function WorkerPanel({
             Nothing is being processed, and the queue is not moving.
           </p>
           <ul className="mt-1 list-inside list-disc text-xs">
-            {w.stalled_reasons.map((r) => (
+            {(worker?.stalled_reasons ?? []).map((r: string) => (
               <li key={r}>{humaniseReason(r)}</li>
             ))}
           </ul>
         </div>
       )}
 
-      {slow && (w.seconds_since_progress ?? 0) > SLOW_DOCUMENT_SECONDS && (
+      {slow && ((worker?.seconds_since_progress ?? 0)) > SLOW_DOCUMENT_SECONDS && (
         <p role="status" className="mt-3 text-sm text-warn-500">
-          No progress recorded for {formatAge(w.seconds_since_progress)} while working on{" "}
+          No progress recorded for {formatAge((worker?.seconds_since_progress ?? 0))} while working on{" "}
           <span className="font-medium">{currentName}</span>. A long document can run for
           minutes between updates &mdash; the document&rsquo;s own card below shows how far it
           has actually got.
@@ -174,12 +188,19 @@ export function WorkerPanel({
       <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat
           label="pending"
-          value={String(w.pending_count)}
-          tone={w.pending_count > 0 ? "text-warn-500" : undefined}
+          value={String((worker?.pending_count ?? 0))}
+          tone={(worker?.pending_count ?? 0) > 0 ? "text-warn-500" : undefined}
         />
-        <Stat label="oldest waiting" value={formatAge(w.oldest_pending_age_seconds)} />
-        <Stat label="since progress" value={formatAge(w.seconds_since_progress)} />
-        <Stat label="completed" value={String(w.documents_completed)} />
+        <Stat label="oldest waiting" value={formatAge((worker?.oldest_pending_age_seconds ?? null))} />
+        <Stat label="since progress" value={formatAge((worker?.seconds_since_progress ?? 0))} />
+        {/* The count is per WORKER LIFETIME, not per corpus. Unqualified it
+            read "4" beside a list of 8 documents on the same screen. The
+            Ingestion view already carried this caption; it belongs wherever
+            the number does. */}
+        <Stat
+          label="completed since the worker started"
+          value={String(worker?.documents_completed ?? 0)}
+        />
       </dl>
 
       <p className="mt-3 text-xs text-slateish-400">
@@ -195,9 +216,9 @@ export function WorkerPanel({
         )}
       </p>
 
-      {w.last_error && (
+      {worker?.last_error && (
         <p className="mt-2 rounded bg-ink-900 p-2 text-[11px] text-danger-500">
-          Last error: {w.last_error.message}
+          Last error: {worker.last_error.message}
         </p>
       )}
     </section>

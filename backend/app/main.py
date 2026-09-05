@@ -26,7 +26,12 @@ from .api_utils import (
     validate_retrievable,
 )
 from . import access
+from . import auth as auth_mod
 from . import errors
+from . import analysis as analysis_mod
+from . import market as market_mod
+from . import progress as progress_mod
+from . import reports as reports_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -36,6 +41,11 @@ from .db import connect, init_db
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     init_db()
+    # The ONLY wiring authentication needs. It hands access.py an identity
+    # resolver and refuses to start on a weak secret when auth is required -
+    # at startup rather than at first login, because a system that boots and
+    # then rejects everyone looks like a broken deployment.
+    auth_mod.install()
     keyword_mod.ensure_schema()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
@@ -87,12 +97,38 @@ async def security_headers(request: Request, call_next):
 
 @app.get("/api/health", response_model=schemas.Health)
 def health():
-    """Readiness without loading any model."""
+    """Readiness, and NOTHING ELSE. This is the one unauthenticated route.
+
+    It answers two questions: is the service up, and are the models present.
+    Everything it used to carry belonged to somebody - it returned document
+    counts, the exact answer-model name and version, free-text last_error and
+    stalled_reasons, and current_document, which is a real document id. The UI
+    joins that id against the document list to show a filename, so an
+    unauthenticated caller learned that a specific document existed and was
+    being processed. That is a privacy-boundary problem, not a cosmetic one.
+
+    The full worker status still exists, on /api/metrics, which is scoped.
+    `alive` and `stalled` stay here because a client that cannot reach the
+    backend has to distinguish "down" from "up but stuck", and neither is
+    about anybody's documents.
+    """
+    worker = ingest_mod.get_worker().status()
     return {
         "ok": True,
         "embed_model_present": (settings.embed_model_dir / "tokenizer.json").exists(),
-        "answer_model": settings.answer_model,
-        "ingestion": ingest_mod.get_worker().status(),
+        # Whether an answer model is CONFIGURED, not which one. The exact name
+        # and version is fingerprinting material and is on /api/metrics.
+        "answer_model_present": bool(settings.answer_model),
+        "ingestion": {
+            "alive": worker["alive"],
+            "stalled": worker["stalled"],
+            # WHETHER work is happening, never WHICH document. The badge
+            # needs this to avoid alarming during a healthy long ingest -
+            # `stalled` goes true when nothing has COMPLETED for a while,
+            # which is normal mid-embed on a 1,400-page document. A boolean
+            # says work is under way; an id would say whose.
+            "busy": worker["current_document"] is not None,
+        },
     }
 
 
@@ -179,7 +215,7 @@ def list_documents(request: Request,
     return out
 
 
-@app.delete("/api/documents/{document_id}", response_model=schemas.DeleteResult,
+@app.delete("/api/documents/{document_id}", response_model=schemas.DeletedDocument,
             responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def delete_document(document_id: str, request: Request, confirm: bool = Query(False),
     scope: access.AccessScope = Depends(access.current_scope),
@@ -195,12 +231,16 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     if not confirm:
         return JSONResponse(
             status_code=400,
-            content=errors.safe_error(
+            content={"detail": errors.safe_error(
                 errors.CONFIRM_REQUIRED,
                 "pass confirm=true to delete; this cannot be undone",
                 document_id=document_id,
-            ) | {"filename": doc["filename"], "retrievable_chunks": doc["chunk_count"]},
+            )} | {"filename": doc["filename"], "retrievable_chunks": doc["chunk_count"]},
         )
+
+    # Reports quote this document. Their FILES go; their ROWS stay, because
+    # the record that a report was issued must survive the document.
+    reports_mod.on_document_deleted(document_id)
 
     conn = connect()
     removed = {}
@@ -329,8 +369,8 @@ def search(
     if mode not in ("hybrid", "keyword"):
         return JSONResponse(
             status_code=422,
-            content=errors.safe_error(
-                errors.INVALID_PARAMETER, "mode must be hybrid or keyword"),
+            content={"detail": errors.safe_error(
+                errors.INVALID_PARAMETER, "mode must be hybrid or keyword")},
         )
     return search_mod.search(
         q,
@@ -366,8 +406,8 @@ def get_answer(
     if tier not in ("extract", "generated"):
         return JSONResponse(
             status_code=422,
-            content=errors.safe_error(
-                errors.INVALID_PARAMETER, "tier must be extract or generated"),
+            content={"detail": errors.safe_error(
+                errors.INVALID_PARAMETER, "tier must be extract or generated")},
         )
     return answer_mod.answer(
         q, tier=tier, document_id=document_id, limit=limit,
@@ -386,6 +426,250 @@ def _require_conversation(conversation_id: str) -> dict:
             status_code=404,
             detail=errors.safe_error(errors.NOT_FOUND, "no conversation with that id"),
         )
+
+
+# ------------------------------------------------------------------- auth
+#
+# Two routes, and `access.current_scope` changes by zero lines: it already
+# calls the resolver, already falls to empty_scope() without one, and already
+# derives the scope from the grant tables. Authentication supplies WHO;
+# authorisation was already deciding WHAT.
+
+
+@app.post("/api/auth/login", response_model=schemas.LoginResult,
+          responses={**schemas.ERRORS_422})
+def login(body: schemas.LoginRequest):
+    """Exchange credentials for a bearer token.
+
+    Unauthenticated by construction - it is how a caller becomes
+    authenticated. It is also the only unauthenticated WRITER in the API, and
+    it writes exactly one row (`last_login_at`) on success plus an audit row,
+    which is why the rate limiter is in memory rather than a table.
+    """
+    try:
+        return auth_mod.login(body.email, body.password)
+    except auth_mod.AuthError as exc:
+        headers = ({"Retry-After": str(exc.retry_after)}
+                   if exc.retry_after else None)
+        raise HTTPException(
+            status_code=429 if exc.code == errors.RATE_LIMITED else 401,
+            detail=errors.safe_error(exc.code, exc.message),
+            headers=headers,
+        )
+
+
+@app.get("/api/auth/me", response_model=schemas.AuthStatus,
+         responses={**schemas.ERRORS_401})
+def me(request: Request,
+       scope: access.AccessScope = Depends(access.current_scope)):
+    """Who the caller is, and whether signing in is required at all.
+
+    The frontend calls this once at startup, and the ANSWER decides the
+    screen: 401 means show the login form, `required: false` means
+    authentication is off and there is nothing to sign in to.
+
+    Under `disabled` this is 200 with no user. Telling an anonymous caller
+    that authentication is off is not a leak, because under `disabled` that
+    same caller can already read every document; showing them a login form
+    they cannot use would be the actual defect.
+    """
+    if settings.auth_mode == access.AUTH_DISABLED:
+        return {"required": False, "user": None}
+
+    user_id = scope.user_id or auth_mod.resolve_user_id(request)
+    described = auth_mod.describe(user_id) if user_id else None
+    if described is None:
+        raise HTTPException(
+            status_code=401,
+            detail=errors.safe_error(errors.UNAUTHENTICATED,
+                                     "sign in to continue"),
+        )
+    return {"required": True, "user": described}
+
+
+@app.get("/api/progress/{progress_id}", response_model=schemas.Progress,
+         responses={**schemas.ERRORS_404})
+def read_progress(progress_id: str):
+    """What the machine is doing, as reported by the work itself.
+
+    Unauthenticated, and carries no document content - a stage name, a count
+    and a clock. The id is chosen by the client; guessing one reveals only
+    that somebody is asking a question, which /api/health already reveals
+    through `busy`.
+    """
+    state = progress_mod.read(progress_id)
+    if state is None:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no such request"),
+        )
+    return state
+
+
+# ---------------------------------------------------------------- analysis
+#
+# Three engines, one shape: retrieve inside the caller's scope, run a pure
+# function over the evidence, return it. `summary` and `recommendations` call
+# the local model; `gaps` does not - a mechanical comparison must not depend on
+# a model being up.
+
+
+def _analysis_or_503(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except analysis_mod.ModelUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=errors.safe_error(
+                errors.MODEL_UNAVAILABLE,
+                f"the local answer model could not be reached ({exc})"),
+        )
+
+
+@app.post("/api/analysis/summary", response_model=schemas.AnalysisSummary,
+          responses={**schemas.ERRORS_422})
+def analysis_summary(body: schemas.AnalysisRequest,
+                     scope: access.AccessScope = Depends(access.current_scope)):
+    """Generated prose over retrieved evidence, every sentence cited.
+
+    A sentence citing nothing, or carrying a number that appears in no span it
+    cites, is DROPPED and reported in `dropped_sentences` - never rendered with
+    a warning beside it, because the number would still be on screen.
+    """
+    return _analysis_or_503(analysis_mod.summary, body.question, scope,
+                            limit=body.limit)
+
+
+@app.post("/api/analysis/recommendations",
+          response_model=schemas.AnalysisRecommendation,
+          responses={**schemas.ERRORS_422})
+def analysis_recommendations(
+        body: schemas.AnalysisRequest,
+        scope: access.AccessScope = Depends(access.current_scope)):
+    """One advisory recommendation and the checks behind its confidence."""
+    return _analysis_or_503(
+        analysis_mod.recommendation, body.question, scope, limit=body.limit,
+        baseline_document_id=body.baseline_document_id)
+
+
+@app.post("/api/analysis/gaps", response_model=schemas.AnalysisGaps,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def analysis_gaps(body: schemas.AnalysisRequest,
+                  scope: access.AccessScope = Depends(access.current_scope)):
+    """Mechanical claim comparison. No model call.
+
+    The baseline comes from the caller or there is none. Choosing one here -
+    the oldest document, the one with "standard" in its name - would be the
+    system deciding which document is authoritative.
+    """
+    if body.baseline_document_id:
+        # Through require_document, so an id the caller may not read is 404 and
+        # is indistinguishable from one that does not exist.
+        require_document(body.baseline_document_id, scope)
+    return analysis_mod.gaps(body.question, scope, limit=body.limit,
+                             baseline_document_id=body.baseline_document_id)
+
+
+# ----------------------------------------------------------------- market
+#
+# No network call exists in this build. Both routes are scoped like every
+# other, not because a sample is sensitive, but so that adding a real provider
+# later cannot introduce an unscoped route by inheriting this shape.
+
+
+@app.get("/api/market/findings", response_model=schemas.MarketFindings)
+def market_findings(scope: access.AccessScope = Depends(access.current_scope)):
+    """Illustrative rows, every one labelled as a sample."""
+    return market_mod.findings()
+
+
+@app.post("/api/market/preview-query", response_model=schemas.MarketQueryPreview)
+def market_preview_query(body: schemas.MarketQueryRequest,
+                         scope: access.AccessScope = Depends(access.current_scope)):
+    """Build the object that would leave the machine. Do not send it.
+
+    Takes the caller's own words. It must never be built from retrieved
+    document text: that would exfiltrate the client's specification to a
+    search engine one phrase at a time.
+    """
+    return market_mod.preview_query(body.query, body.country, body.freshness_days)
+
+
+# ---------------------------------------------------------------- reports
+#
+# A report IS client document content - it quotes it - so every route takes
+# the scope and the check is owner AND still authorised for every cited
+# document. A report the caller may not see is 404, never 403: a 403 confirms
+# it exists and which documents it cites, which is itself the leak.
+
+
+def _report_or_404(fn, *args):
+    try:
+        return fn(*args)
+    except reports_mod.ReportNotFound:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no report with that id"),
+        )
+
+
+@app.post("/api/reports", response_model=schemas.ReportRecord,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def generate_report(body: schemas.GenerateReport,
+                    scope: access.AccessScope = Depends(access.current_scope)):
+    """Freeze one answered message and render it. Renders from the snapshot only."""
+    try:
+        return reports_mod.generate(body.message_id, scope)
+    except reports_mod.ReportNotFound:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no message with that id"),
+        )
+    except reports_mod.NotReportable as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc)),
+        )
+
+
+@app.get("/api/reports", response_model=schemas.ReportList)
+def list_reports(scope: access.AccessScope = Depends(access.current_scope)):
+    return reports_mod.list_reports(scope)
+
+
+@app.get("/api/reports/{report_id}/verify", response_model=schemas.ReportVerification,
+         responses={**schemas.ERRORS_404})
+def verify_report(report_id: str,
+                  scope: access.AccessScope = Depends(access.current_scope)):
+    return _report_or_404(reports_mod.verify, report_id, scope)
+
+
+@app.get("/api/reports/{report_id}/download",
+         # response_class, not just `responses`: without it FastAPI adds a
+         # default application/json entry alongside the PDF, and an endpoint
+         # that claims to return JSON and returns bytes is the untyped-200
+         # defect wearing a content type. A binary response has no JSON
+         # schema, and DECLARING that is different from declaring nothing.
+         response_class=FileResponse,
+         responses={**schemas.ERRORS_404,
+                    200: {"content": {"application/pdf": {}},
+                          "description": "The report PDF"}})
+def download_report(report_id: str,
+                    scope: access.AccessScope = Depends(access.current_scope)):
+    path = _report_or_404(reports_mod.stored_path, report_id, scope)
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no report with that id"),
+        )
+    # private, no-store - NOT the max-age page images use. A page image is a
+    # fragment; this is the assembled evidence with quoted client text in it.
+    # The download name is the server-assigned id, never the question.
+    return FileResponse(
+        path, media_type="application/pdf",
+        filename=f"nabaa-report-{report_id}.pdf",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @app.post("/api/conversations", response_model=schemas.Conversation,
@@ -427,7 +711,7 @@ def get_conversation(conversation_id: str, request: Request,
     return {"conversation": conversation, "messages": chat_mod.get_messages(conversation_id)}
 
 
-@app.delete("/api/conversations/{conversation_id}", response_model=schemas.DeleteResult,
+@app.delete("/api/conversations/{conversation_id}", response_model=schemas.DeletedConversation,
             responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def delete_conversation(conversation_id: str, request: Request, confirm: bool = Query(False)):
     reject_unknown_params(request, {"confirm"})
@@ -435,16 +719,23 @@ def delete_conversation(conversation_id: str, request: Request, confirm: bool = 
     if not confirm:
         return JSONResponse(
             status_code=400,
-            content=errors.safe_error(
-                errors.CONFIRM_REQUIRED, "pass confirm=true to delete this conversation"),
+            content={"detail": errors.safe_error(
+                errors.CONFIRM_REQUIRED, "pass confirm=true to delete this conversation")},
         )
     messages = conversation["message_count"]
     chat_mod.delete_conversation(conversation_id)
     return {
         "deleted": conversation_id,
-        "filename": conversation["title"],
+        # A conversation has a TITLE. This said "filename" because the
+        # document-delete response shape was copied without renaming the
+        # field, so a client reading it built a wrong model of what it had
+        # deleted - and the mistake was invisible, because a conversation
+        # title looks exactly as plausible under that key as a filename does.
+        "title": conversation["title"],
+        # No files_removed: a conversation deletes no files, and reporting a
+        # truthful-looking 0 for a thing that never applies is how a field
+        # stops meaning anything.
         "rows_removed": {"conversations": 1, "messages": messages},
-        "files_removed": 0,
     }
 
 
@@ -469,15 +760,22 @@ def ask(conversation_id: str, body: schemas.AskRequest,
     # It classifies as "empty" and gets the guidance reply, like any other
     # input that was never a document question.
     try:
-        return chat_mod.ask(
-            conversation_id,
-            body.question,
-            tier=body.tier,
-            document_id=body.document_id,
-            limit=body.limit,
-            explain_of=body.explain_of,
-            allowed_document_ids=scope.allowed_document_ids,
-        )
+        progress_mod.start(body.progress_id)
+        # `finally`, so an answer that raises still closes its record rather
+        # than leaving a client polling a stage that will never advance.
+        try:
+            return chat_mod.ask(
+                conversation_id,
+                body.question,
+                tier=body.tier,
+                document_id=body.document_id,
+                limit=body.limit,
+                explain_of=body.explain_of,
+                allowed_document_ids=scope.allowed_document_ids,
+                progress_id=body.progress_id,
+            )
+        finally:
+            progress_mod.finish(body.progress_id)
     except chat_mod.MessageNotFound:
         raise HTTPException(
             status_code=404,
@@ -570,7 +868,7 @@ def page_image(
     except pageimage_mod.PageOutOfRange as e:
         return JSONResponse(
             status_code=404,
-            content=errors.safe_error(errors.NOT_FOUND, str(e), document_id=document_id),
+            content={"detail": errors.safe_error(errors.NOT_FOUND, str(e), document_id=document_id)},
         )
     headers = {"Cache-Control": "max-age=86400"}
     if chunk_id and q:

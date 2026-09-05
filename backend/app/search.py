@@ -15,6 +15,7 @@ Design constraints that shaped this:
 
 from __future__ import annotations
 
+import collections
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import keyword
+from . import progress
 from . import scores
 from . import vectorcache
 from .db import connect
@@ -362,11 +364,42 @@ def _tokens(text: str) -> set[str]:
     return set(_TOKEN.findall(text.lower()))
 
 
-def deduplicate(candidates: list[Candidate]) -> list[Candidate]:
+#: Why a candidate that reached the RRF pool is not in the returned field.
+#: Stable slugs rather than prose: these are grouped and counted, and a
+#: coverage report has to be able to tell "displaced by better candidates"
+#: from "no longer exists" without parsing a sentence.
+EVICTION_REASONS = (
+    "chunk_no_longer_exists",     # fused id has no row: the document was re-chunked
+    "not_retrievable",            # excluded by a quality gate since indexing
+    "empty_after_tokenisation",   # no tokens to compare, so nothing to rank
+    "near_duplicate",             # a better-scoring chunk carries the same text
+    "displaced_before_rerank",    # ranked below the shortlist cut
+)
+
+
+def _eviction(
+    chunk_id: str, document_id: str | None, rrf: float | None, reason: str
+) -> dict:
+    assert reason in EVICTION_REASONS, reason
+    return {
+        "chunk_id": chunk_id,
+        "document_id": document_id,
+        "rrf": rrf,
+        "reason": reason,
+    }
+
+
+def deduplicate(
+    candidates: list[Candidate], dropped: list[dict] | None = None
+) -> list[Candidate]:
     """Drop near-identical chunks, keeping the better-scoring one.
 
     Overlapping chunks legitimately share text, so an exact-match check is not
     enough; this compares token overlap against the shorter of the two.
+
+    `dropped`, when given, is appended to with one record per discarded
+    candidate. An out-parameter rather than a second return value so the
+    signature stays a list of candidates for every caller that does not care.
     """
     kept: list[Candidate] = []
     kept_tokens: list[set[str]] = []
@@ -375,6 +408,9 @@ def deduplicate(candidates: list[Candidate]) -> list[Candidate]:
         # only by heading, so dedup must see the heading too
         tokens = _tokens(c.searchable_text)
         if not tokens:
+            if dropped is not None:
+                dropped.append(_eviction(c.chunk_id, c.document_id, c.rrf,
+                                         "empty_after_tokenisation"))
             continue
         duplicate = False
         for existing in kept_tokens:
@@ -382,6 +418,9 @@ def deduplicate(candidates: list[Candidate]) -> list[Candidate]:
             if len(tokens & existing) / shorter >= DUPLICATE_OVERLAP:
                 duplicate = True
                 break
+        if duplicate and dropped is not None:
+            dropped.append(_eviction(c.chunk_id, c.document_id, c.rrf,
+                                     "near_duplicate"))
         if not duplicate:
             kept.append(c)
             kept_tokens.append(tokens)
@@ -578,6 +617,7 @@ def search(
     dense: bool = True,
     *,
     allowed_document_ids: frozenset[str],
+    progress_id: str | None = None,
 ) -> dict:
     """Hybrid retrieval end to end.
 
@@ -613,12 +653,33 @@ def search(
     fused = rrf_fuse(keyword_hits, dense_hits)
     rows = _hydrate(list(fused))
 
+    # Every candidate that entered the RRF pool and did not come back out is
+    # recorded here with a reason. This was the pipeline's one unaccounted
+    # loss: a document could contribute candidates, lose all of them, and the
+    # result was indistinguishable from that document having matched nothing
+    # at all. A coverage report built on the second reading would be wrong,
+    # and there was no way to tell from the response which reading applied.
+    evicted: list[dict] = []
+
+    #: How many candidates each document contributed to the RRF pool, counted
+    #: here because this is the only place the whole field exists - the same
+    #: reason `separation` is computed here rather than downstream. A document
+    #: with 0 is a document that genuinely matched nothing.
+    contributed: collections.Counter[str] = collections.Counter()
+
     pool: list[Candidate] = []
     for chunk_id, meta in fused.items():
         row = rows.get(chunk_id)
         # a chunk that has since been excluded or re-chunked must not surface
         if row is None or not row["retrievable"]:
+            evicted.append(_eviction(
+                chunk_id,
+                None if row is None else row["document_id"],
+                meta.get("rrf"),
+                "chunk_no_longer_exists" if row is None else "not_retrievable",
+            ))
             continue
+        contributed[row["document_id"]] += 1
         pool.append(
             Candidate(
                 chunk_id=chunk_id,
@@ -642,7 +703,7 @@ def search(
 
     apply_identifier_boost(question, pool)
     _apply_conflict_penalty(pool)
-    pool = deduplicate(pool)
+    pool = deduplicate(pool, evicted)
     # heading_declares is a TIEBREAK here, not a score.
     #
     # It has to be in this sort as well as in apply_heading_precedence, because
@@ -653,12 +714,26 @@ def search(
     # 4's film thickness as system 1's, the exact defect the rule exists for.
     pool.sort(key=lambda c: (-c.score, not c.heading_declares))
 
+    # Recorded HERE, when the reranker is about to run, rather than guessed
+    # from a clock on the client. See progress.py.
     reranked = False
     if rerank and pool:
+        progress.stage(progress_id, "reranking",
+                       f"{min(len(pool), settings.rerank_candidates)} of "
+                       f"{len(pool)} candidates")
         from . import reranker
 
         t = Timer()
         shortlist = pool[: settings.rerank_candidates]
+        # Recorded before the rerank runs, so the record is of the cut itself
+        # and does not depend on the reranker having produced scores. If the
+        # reranker returns nothing the pool is left whole below, and these
+        # candidates were never actually dropped - so the record is discarded
+        # with them.
+        cut = [
+            _eviction(c.chunk_id, c.document_id, c.rrf, "displaced_before_rerank")
+            for c in pool[settings.rerank_candidates:]
+        ]
         # rerank on heading + body, so the cross-encoder can see which coating
         # system, clause or annex a passage belongs to
         scored = reranker.rerank(
@@ -682,6 +757,7 @@ def search(
             # fallback threshold, an unanswerable question returned a
             # confident-looking passage instead of refusing.
             pool = shortlist
+            evicted.extend(cut)
             _apply_conflict_penalty(pool, reranked=True)
             pool.sort(key=lambda c: -c.score)
 
@@ -712,6 +788,27 @@ def search(
             if c.rerank_score is not None:
                 c.separation = scores.separation(top_score, c.rerank_score, field).value
 
+    # A per-document census of what survived, for coverage reporting. Built
+    # from the final pool, so `best_rerank_score` is None on the unreranked
+    # path rather than 0.0 - a 0.0 sits above the -3.0 floor and would read as
+    # credible when in fact nothing scored it.
+    census: dict[str, dict] = {
+        doc_id: {"candidates": n, "shortlisted": 0, "best_rerank_score": None}
+        for doc_id, n in contributed.items()
+    }
+    for c in pool:
+        row = census.setdefault(
+            c.document_id,
+            {"candidates": 0, "shortlisted": 0, "best_rerank_score": None},
+        )
+        row["shortlisted"] += 1
+        if c.rerank_score is not None:
+            best = row["best_rerank_score"]
+            if best is None or c.rerank_score > best:
+                row["best_rerank_score"] = c.rerank_score
+
+    progress.stage(progress_id, "reading", f"{len(pool[:limit])} passages")
+
     return {
         "query": asked,
         "mode": "hybrid" if dense_hits else "keyword_only",
@@ -723,5 +820,12 @@ def search(
         "timings": timings,
         # Stated so a reordering is auditable rather than mysterious.
         "heading_precedence": precedence_note,
+        # A dropped candidate now has a reason attached. `total` still counts
+        # what survived, so a candidate below `limit` is accounted for by the
+        # difference between `total` and the number of hits, not by this list:
+        # it was not dropped, only not asked for.
+        "shortlist_excluded": evicted,
+        # Report-only, like shortlist_excluded. Not on the HTTP surface.
+        "document_census": census,
         "hits": [c.to_dict() for c in pool[:limit]],
     }

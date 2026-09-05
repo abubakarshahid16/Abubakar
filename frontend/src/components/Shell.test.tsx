@@ -15,18 +15,13 @@ import type { Health } from "../api/client";
 const healthOnline: Health = {
   ok: true,
   embed_model_present: true,
-  answer_model: "qwen3.5:4b",
+  answer_model_present: true,
   ingestion: {
+    // /api/health is unauthenticated and carries only
+    // these three. The full worker status is on /api/metrics.
     alive: true,
-    current_document: null,
-    seconds_since_heartbeat: 0.4,
-    seconds_since_progress: 12,
-    documents_completed: 5,
-    pending_count: 0,
-    oldest_pending_age_seconds: null,
     stalled: false,
-    stalled_reasons: [],
-    last_error: null,
+    busy: false,
   },
 };
 
@@ -124,8 +119,12 @@ describe("connection state", () => {
     mockFetch(() => (online ? json(healthOnline) : Promise.reject(new TypeError("down"))));
     render(<App />);
 
-    // connected first, so the model name is on screen
-    expect(await screen.findByText("qwen3.5:4b")).toBeInTheDocument();
+    // Connected first. The badge says a model is CONFIGURED, not which one -
+    // /api/health is unauthenticated and the exact name and version is
+    // fingerprinting material. The name is on the Dashboard, from the scoped
+    // metrics route.
+    expect(await screen.findByText(/answer model configured/i)).toBeInTheDocument();
+    expect(screen.queryByText("qwen3.5:4b")).toBeNull();
 
     online = false;
     // the poller re-checks; the badge must flip and the warning must appear

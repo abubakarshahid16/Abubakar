@@ -175,6 +175,24 @@ def _directory_size() -> int:
     return total
 
 
+def _reranker_name() -> str:
+    """The reranker's actual name, not the directory it happens to live in."""
+    import json
+
+    from . import reranker as reranker_mod
+
+    cfg = reranker_mod.model_dir() / "config.json"
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - a dashboard label must never 500
+        return f"{reranker_mod.model_dir().name} (name unavailable)"
+    for key in ("_name_or_path", "name_or_path", "model_type"):
+        value = data.get(key)
+        if value:
+            return str(value)
+    return f"{reranker_mod.model_dir().name} (name unavailable)"
+
+
 def models() -> dict:
     """What is actually on disk and actually running.
 
@@ -192,7 +210,13 @@ def models() -> dict:
         # Asked of the reranker module rather than guessed from a path here.
         # A hand-written second copy of the layout is exactly how this field
         # first reported the mandatory reranker as absent while it was working.
-        "reranker_model": reranker_mod.model_dir().name,
+        # The FOLDER was being reported as the model, so the dashboard read
+        # "RERANKER - reranker": a field showing its own label as its value.
+        # Same family as everything in the honesty audit - a value derived
+        # from something adjacent to the truth. Read from the model's own
+        # config, and fall back to the folder only if that is unreadable,
+        # which is stated rather than silent.
+        "reranker_model": _reranker_name(),
         "reranker_present": reranker_mod.available(),
         "answer_model": settings.answer_model,
         "answer_model_reachable": False,
@@ -275,17 +299,41 @@ def warnings() -> list[dict]:
             ),
         })
 
-    ocr = conn.execute(
-        "SELECT COALESCE(SUM(needs_ocr_pages), 0) FROM documents"
-    ).fetchone()[0]
-    if ocr:
+    # Two numbers, not one, and the difference is the whole point. The old
+    # alert summed needs_ocr_pages and said "OCR is detected but NOT
+    # implemented, so those pages are not searchable" - which stopped being
+    # true the day recognition shipped, and left the Dashboard contradicting
+    # the Documents screen about the same documents.
+    #
+    # An alert only when work is OUTSTANDING. Pages that have been recognised
+    # are not a warning; they are the feature working.
+    row = conn.execute(
+        """SELECT COALESCE(SUM(needs_ocr_pages), 0) AS flagged,
+                  COALESCE(SUM(recognised_pages), 0) AS recognised
+           FROM documents"""
+    ).fetchone()
+    flagged, recognised = row["flagged"], row["recognised"]
+    awaiting = max(flagged - recognised, 0)
+    if awaiting:
         out.append({
             "severity": "warning",
             "code": "needs_ocr",
             "document_id": None,
             "message": (
-                f"{ocr} page(s) have no extractable text. OCR is detected but "
-                f"NOT implemented, so those pages are not searchable."
+                f"{awaiting} scanned page(s) have not been read yet. "
+                f"Recognition has not run on them, so they are not searchable "
+                f"until it does."
+            ),
+        })
+    elif recognised:
+        out.append({
+            "severity": "info",
+            "code": "pages_recognised",
+            "document_id": None,
+            "message": (
+                f"{recognised} scanned page(s) were read by OCR and are "
+                f"searchable. Recognised text is labelled as recognised "
+                f"wherever it is quoted, never as the document's own words."
             ),
         })
 

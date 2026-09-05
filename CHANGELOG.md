@@ -10,6 +10,165 @@ the day they merged.
 
 ## [Unreleased]
 
+### Spike — PyMuPDF `Story` as the report renderer (2026-09-05, 10 minutes)
+
+The design made three claims it had not verified. Each was rendered and read
+back through `fitz` on PyMuPDF 1.26.6. Recorded verbatim, including the one
+that failed.
+
+**1. `<thead>` does NOT repeat across page breaks.** A 40-row table split over
+two pages: page 1 carried the header and 31 rows, page 2 carried 9 rows and no
+header. The design called this "the single highest-value item in the spike —
+verify it, do not assume it". Verified: false. Consequence: a table that may
+span pages needs its header re-drawn per page in Python, or must be kept short
+enough not to span. A single-answer report cites at most three documents, so
+the evidence table does not span; the limitation is stated for anything that
+would.
+
+**2. Arabic is shaped by `Story`, and joining is still not proven.** A mixed
+Arabic/English paragraph rendered in `NotoNaskhArabic-Regular` (embedded in the
+MuPDF DLL, SIL OFL 1.1) with **0 `.notdef` glyphs**. 43 of the 44 Arabic
+characters read back were Unicode **presentation forms** (U+FB50–U+FEFF) — the
+contextual glyph forms a shaper emits — so shaping ran. What this does NOT
+prove: that the joins are the *right* ones, or that bidi order is correct. That
+needs a reader of Arabic looking at the page. Two consequences for tests: assert
+on the font name and on presentation forms being present, never on the logical
+string — it does not come back from the text layer — and do not let a green
+tick imply the Arabic is correct.
+
+**3. `write_stabilized_with_links` produces a TOC only if you build one.** It
+runs the layout twice and hands `contentfn` the element positions from the
+previous pass (`id`, `text`, `page_num`, `heading`), so the HTML can include a
+contents list whose page numbers are final. `<a href="#id">` links resolve to
+internal page links (5 on page 1 of the spike). `doc.get_toc()` — the PDF
+outline — stays **empty**; nothing is added to it automatically.
+
+**A fourth thing nobody claimed:** `fitz` text extraction returns typographic
+ligatures — "prefix" came back as "preﬁx". The first version of the
+`<thead>` check found no header on any page for exactly this reason. Every
+text assertion against a rendered report must NFKC-normalise first.
+
+Timing on this machine: 2 pages in 8–24 ms; the stabilized double pass in about
+the same. Not a benchmark — one fixture, warm process.
+
+### The 75-second wait, made legible (2026-09-06)
+
+`GET /api/progress/{id}`, and a `LocalWork` panel in Chat that replaces the
+single "Searching the documents" spinner.
+
+**Every stage shown was reported by the work when it happened.** Nothing is
+inferred from the clock: retrieval usually finishes in ~2.5 s and generation
+takes the rest, so a timer could guess the stage and be right most of the
+time — and on the run where retrieval is slow it would tell the reader the
+model was writing while the search was still going. Measured live against the
+running server:
+
+    retrieving@0.0s -> reranking@1.87s (16 of 53 candidates)
+      -> reading@4.675s (3 passages) -> generating@5.197s (2 sources)   78s total
+
+**There is no percentage bar.** The length of a generation is unknown until it
+ends, so a bar would be an invention. The reader gets a stage, a count and an
+elapsed counter — the counter is the client's own, so it keeps counting through
+a missed poll. The panel also says why it is slow: a 15 W laptop CPU, no GPU,
+and nothing leaving the machine.
+
+The record is in memory, capped, TTL'd, and carries no document content: a
+stage name, a count and a clock. `progress_id` is optional — without one the
+work reports nothing and behaves exactly as before.
+
+### CI was red and the local suite was wrong (2026-09-06)
+
+Twenty backend tests failed in CI with `no such table: chunks` while passing
+here. Reproduced exactly by pointing `DB_PATH` at an empty directory: **20
+failed**, the same twenty.
+
+`test_claims.py` and `test_market.py` had no storage fixture, so locally they
+opened the developer's real 62 MB corpus and passed, and in CI they opened an
+empty file. The local "756 passing" was the wrong number; CI was right.
+
+Both files now create their own tables. And `conftest.py` gains a session
+fixture that points the DEFAULT database at a temp file, so a forgotten
+fixture fails HERE exactly as it fails in CI — the same shape as the three
+guards already in that file, and the reason it is now four.
+
+### Stages 3, 4 and 6 — the three engines wired to routes (2026-09-05)
+
+`POST /api/analysis/summary`, `/recommendations` and `/gaps`.
+`backend/app/analysis.py` is the only impure file: `synthesis.py` and
+`claims.py` stay pure — evidence in, result out, no SQLite, no HTTP, no
+Ollama — which is what let them be developed and tested without any of it.
+
+**`evidence_id` is not a chunk id.** It is sha256 over document, page span,
+section and the quoted text, so it survives a re-chunk. A citation that moves
+when the chunker is retuned is not a citation.
+
+**`gaps` makes no model call**, so an unreachable Ollama takes out the summary
+and the recommendation and leaves the mechanical comparison working. The
+frontend calls the three separately for the same reason; one combined endpoint
+would have made a down model look like a broken comparison.
+
+**The system never chooses a baseline.** With none named, applicability is
+`not_applicable` and no facet may come back `met`. Picking the oldest document,
+or the one with "standard" in its name, would be an engineering judgement it
+has no basis for. A baseline the caller may not read is 404.
+
+Four deliberate breaks, all red: an unscoped search, a system-chosen baseline,
+a flag instead of a drop for an unsupported number, and a model call inside
+`gaps`.
+
+### Stage 5 — public market information, as a labelled fixture (2026-09-05)
+
+`GET /api/market/findings` and `POST /api/market/preview-query`. No provider,
+no HTTP client, no URL that resolves: five illustrative rows from
+`samples/market_sample.json`, every one `is_sample: true` with a `sample://`
+URL.
+
+The one rule — a sample is never presented as a source — is enforced at load
+time, and each way has a test that was watched failing against a loader that
+trusts the file: a row missing `is_sample`, a row setting it false, a row with
+a fetchable `https://` URL, a row claiming `source_read`, and an empty fixture
+(which would otherwise render as "no market findings", reading as a
+measurement rather than an absence).
+
+`preview-query` builds the object that would leave the machine and returns it
+with `sent: false` and `would_be_sent_to: null`. It takes the caller's own
+words only. A query assembled from retrieved document text would exfiltrate the
+client's specification to a search engine one phrase at a time.
+
+`MarketVerification` keeps its three values — a UI must render each — while
+`MarketFinding.verification` is pinned to `source_not_verified`, so the API
+cannot emit a state this build has not earned.
+
+### Stage 2 — single-answer evidence reports as PDF (2026-09-05)
+
+`POST /api/reports {message_id}` freezes one answered message - question,
+resolved question, every passage with its provenance, and each cited document's
+filename, SHA-256, page count, chunk signature and indexed_at - and renders a
+PDF from that snapshot **and nothing else**. Rename or re-index the document
+afterwards and the body does not change; `GET /api/reports/{id}/verify` reports
+the divergence as `evidence_drift` instead of using the new state.
+
+On page 1, in a bordered box: what the report is, and the four things it is not
+- coverage ledger, gap analysis, recommendation, public-market findings. Quoted
+text is serif on a quote rule; generated text is sans on amber; every
+recognised passage carries its OCR line; the engineer-approval sentence appears
+where a reader starts and where they stop; `PROTOTYPE - NOT FOR CONSTRUCTION`
+and `Page N of M` are drawn as an overlay on every page. Revision and approval
+status print as "not recorded" - the columns do not exist.
+
+Content-addressed storage (`reports/<sha[:2]>/<sha>.pdf`), server-assigned
+download name, `Cache-Control: private, no-store`. Access is owner AND still
+authorised for every cited document; a report whose document has left the
+reader's scope is **404** - not 403, not redacted - and the listing carries a
+`suppressed_count`. Deleting a document unlinks the files and keeps the rows.
+
+22 tests, all on semantics read back through `fitz` and none on bytes; the
+watermark, approval, and revocation tests were each broken on purpose and
+watched fail. The Arabic test **skipped**: the fixture's Arabic did not survive
+ingestion's own text extraction, so the renderer was never exercised on it, and
+a skip says so where a pass would have lied.
+
+
 ### Added
 - The evaluation harness drives `chat.ask` inside one conversation, so it
   measures the path a person actually uses rather than answering each question

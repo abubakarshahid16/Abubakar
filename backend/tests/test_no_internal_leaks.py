@@ -133,10 +133,22 @@ def test_health_never_exposes_a_traceback(client):
         r = client.get("/api/health")
         assert r.status_code == 200
         assert_clean(r.text, "GET /api/health")
-        last = r.json()["ingestion"]["last_error"]
-        assert set(last) >= {"code", "message", "document_id", "at"}
-        assert last["document_id"] == "doc_abc123"
-        assert "Traceback" not in last["message"]
+        # STRONGER THAN BEFORE. This test used to assert that last_error on
+        # /api/health carried no traceback. It now asserts the field is not
+        # there at all: free text and a document id do not belong on an
+        # unauthenticated route, however carefully the text is sanitised.
+        # The error detail is on the scoped /api/metrics.
+        ingestion = r.json()["ingestion"]
+        assert "last_error" not in ingestion, ingestion
+        assert "stalled_reasons" not in ingestion, ingestion
+        assert "current_document" not in ingestion, (
+            "a document id was readable with no login")
+        assert "doc_abc123" not in r.text, "a document id leaked into health"
+
+        # The error detail still exists, with the same no-traceback guarantee,
+        # on the scoped /api/metrics - covered by test_metrics.py against a
+        # fixture that has the full schema. This test is about what /api/health
+        # does NOT say.
     finally:
         ingest_mod._worker = None
 
@@ -182,7 +194,10 @@ def test_a_client_mistake_is_not_reported_as_an_internal_failure(client):
 
     r = client.delete(f"/api/documents/{doc_id}")
     assert r.status_code == 400
-    assert r.json()["code"] == errors.CONFIRM_REQUIRED
+    # ONE ERROR SHAPE. This route used to return the error flat while every
+    # 404 wrapped it in {"detail": {...}} - two shapes for one client to
+    # parse, and the frontend was compensating with `body?.detail ?? body`.
+    assert r.json()["detail"]["code"] == errors.CONFIRM_REQUIRED
 
     r = client.get("/api/documents/doc_zzzzzzzzzzzz/chunks")
     assert r.json()["detail"]["code"] == errors.NOT_FOUND
@@ -274,7 +289,11 @@ def test_every_endpoint_declares_a_typed_200_response():
         for method, op in ops.items():
             ok = op.get("responses", {}).get("200", {})
             content = ok.get("content", {})
-            if "image/png" in content:
+            # A binary download has no JSON schema, and DECLARING a binary
+            # media type is different from declaring nothing: the first is a
+            # contract, the second is the defect this test exists for. So an
+            # endpoint is exempt only if it says what it returns.
+            if content and "application/json" not in content:
                 continue
             schema = content.get("application/json", {}).get("schema", {})
             if not ("$ref" in schema or schema.get("type") == "array"):

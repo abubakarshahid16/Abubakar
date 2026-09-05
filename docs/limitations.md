@@ -120,6 +120,183 @@ the answer, because those are different facts and only one is about the corpus.
 The alternative would be guessing which source the model meant, and a guessed
 citation is the thing this system exists not to do.
 
+## Numeric tables do not fit the context window, and are reported when trimmed
+
+**A numeric table costs about one token per character.** The tokenizer splits
+digits individually - `30.0000` is eight tokens for seven characters - so a
+1,200-character table passage is around 1,175 tokens where the same length of
+prose is about 250.
+
+The context window is 1,536 tokens with 250 reserved for the answer. **One
+table passage therefore fills most of the evidence budget, and three do not fit
+at all** - measured at 3,645 tokens, 2.4 times the whole window.
+
+Until 2026-09-05 the overflow was discarded silently inside the runtime, and
+**there was no way to detect it from outside**: the same prompt sent at the
+deployed window reported 1,026 tokens evaluated, five hundred BELOW the
+ceiling, indistinguishable from a small prompt. Roughly 72% of the evidence
+disappeared and the answer was generated from what survived, citing sources it
+had never been shown.
+
+The evidence is now costed before the prompt is sent, and anything trimmed or
+dropped is **named on the answer** (`evidence_removed`), the same way an answer
+cut off by the output cap is named. Measured:
+
+| Evidence | Sources kept | Reported |
+|---|---|---|
+| Three prose passages | **3 of 3, untouched** | nothing removed |
+| Three numeric-table passages | 1 whole, 1 trimmed to 949 characters | 1 trimmed, 1 dropped |
+
+**What this costs the reader.** A question answered from a numeric table gets
+roughly one source instead of three. That is a real limit on table-heavy
+documents, and it is the honest version of a limit that was previously hidden.
+
+**As of this commit `evidence_removed` is in the API and not on screen** - the
+same gap as the coverage report below it.
+
+**The token cost is estimated, not measured per question, and the margin is the
+only guard.** The deployed tokenizer is only reachable through Ollama, and both
+routes were measured and rejected: probing at a larger window forces a model
+reload (16.0 s up, 16.3 s back), and probing at the deployed window returns the
+truncated count above. Nor is there a post-hoc check - a truncated prompt and a
+cached prompt both report a low count, so the two cannot be told apart. The
+local estimate is therefore built to over-count: 1.03-1.05x on tables, where
+the decision is made, and 1.25-1.73x on prose, where there is room to spare.
+Worst observed margin **1.035x over twelve measured chunks**. Ground truth in
+`docs/benchmarks.md`, re-checked by `test_context_budget.py`.
+
+## A summary sees about two passages, however many were retrieved
+
+Measured on 2026-09-05: one retrieved passage costs roughly **849 tokens**, so
+two already exceed the 1,286-token evidence budget. The context guard therefore
+lands on **two sources - one whole, one trimmed - whatever `limit` is set to**,
+and a real call evaluated 776 tokens and generated 122 in 75.5 s wall clock.
+
+Raising the retrieval limit does not give the summary more to work with. It
+gives the **gap analysis** more, which needs no model, and it adds rows to
+`evidence_removed`.
+
+Nothing here is silent: each removal is reported with its source and the
+characters dropped. But a reader looking at eight passages in the evidence
+ledger and a summary built from two needs that list to understand why.
+
+## A generated sentence carrying an unsupported number is deleted, not flagged
+
+If a sentence cites a source but contains a number that appears in no span it
+cites, the sentence is **removed from the prose entirely**. It is reported in
+`dropped_sentences` with the reason and the offending number, so the loss is
+visible and auditable — never silent.
+
+**This deletes some legitimate sentences.** A model that rounds "279.6 µm" to
+"280 µm", or restates a figure in different units, loses the sentence even
+though it said something true.
+
+That trade is deliberate. The alternative — keeping the sentence with a
+`number_unsupported` flag — still puts the number on the screen, and a reader
+takes the number. This build has already recorded twice that a warning shown
+beside the thing it warns about gets ignored. The asymmetry decides it:
+dropping a good sentence costs a **paraphrase**, and the passage it paraphrased
+is still cited and quoted verbatim below it; keeping a bad one puts a converted
+or invented figure in front of an engineer as though the document had stated
+it.
+
+The case that motivates it is a silent unit conversion — "0.28 mm [S1]" over a
+source that says "280 um" cites a real page for a number that page does not
+contain.
+
+## Public market information is a fixture and can never become one by accident
+
+**There is no provider and this machine makes no network call.** Every row on
+the market panel is loaded from `backend/app/samples/market_sample.json`, is
+marked `is_sample: true`, and carries a `sample://` URL - a scheme that
+resolves nowhere, chosen so a row cannot become a real citation by being
+clicked.
+
+The rule that a sample is never presented as a source is enforced at LOAD time
+rather than at render, three ways: a row without `is_sample: true` is refused,
+a row whose URL is fetchable is refused, and a row claiming `source_read` or
+`snippet_only` is refused. The failure this guards against is not somebody
+writing `is_sample: false` on purpose - it is a real row being pasted into the
+fixture during a demo, which is why the `https://` case has its own test.
+
+`MarketVerification` keeps all three values because that is what the word
+means and a UI has to render each; `MarketFinding.verification` is pinned to
+`source_not_verified`, so the API cannot emit the other two.
+
+**No query has ever left this machine.** `POST /api/market/preview-query`
+builds the object that *would* be sent and returns it with `sent: false`. It is
+assembled from the caller's own words and two public fields, never from
+retrieved document text - a query built from a client's specification would
+exfiltrate that specification to a search engine one phrase at a time.
+
+**What this does not claim:** nothing here is market research, and no figure in
+it is real. The panel exists so the shape of the feature - where verification
+sits, what a reader is told about provenance - can be reviewed before egress is
+ever considered, rather than on the day the network is opened.
+
+## Evidence reports are single-answer, and three things about them are not proven
+
+**Not the analysis report.** A report is one question, its quoted evidence and
+the documents cited, frozen when generated. It says so in a bordered box on
+page 1 and names what it does not contain: coverage ledger, gap analysis,
+recommendation, public-market findings. No revision or approval status either -
+those columns do not exist on `documents`, and the report prints "not recorded"
+rather than inventing one.
+
+**`report_sha256` is not a reproducibility hash.** It is the SHA-256 of the
+stored PDF bytes and proves the file on disk is the one issued. PyMuPDF embeds a
+producer string and an ID array, so re-rendering the same snapshot on a
+different build gives a **different file hash and identical content**. Compare
+`snapshot_sha256` for content. Someone who re-renders and treats the differing
+file hash as corruption has misread which hash is which.
+
+**Arabic is shaped and not proven correct.** The spike (CHANGELOG, 2026-09-05)
+rendered a mixed Arabic/English paragraph through `Story` in the embedded Noto
+Naskh Arabic with no missing glyphs and with contextual (joined) forms present.
+What nobody has done is have a reader of Arabic look at the page: **glyphs
+appearing is not evidence of correct joining or correct bidi order.** The test
+that covers this says in its docstring what it does not prove. Arabic body text
+is confined to `Story`; the simple text APIs perform no shaping and would print
+unjoined Arabic that still looks like Arabic to a non-reader.
+
+**Tables that span a page break lose their header.** Measured in the spike:
+`<thead>` does not repeat in PyMuPDF `Story`. A single-answer report cites at
+most three documents, so its table does not span. Any future report with a
+long table needs its header re-drawn per page.
+
+**Not cleared for client distribution.** PyMuPDF now generates a deliverable
+rather than only parsing an input. That is a different licence question
+(AGPL-3.0 / commercial dual) from the one already answered for ingestion, and
+it is open.
+
+**Download needs `auth_mode=disabled` today.** The PDF is fetched by a plain
+browser navigation, which cannot carry the bearer token. Under `demo_required`
+the download returns 404 until the client fetches it as a blob.
+
+## An answer includes at most three passages
+
+**When more than three credible passages exist, the ones beyond the cut are not
+shown.** The answer takes its highest-ranked passages only; a passage that
+cleared the credibility floor in another document can be left out of the answer
+entirely, and nothing on screen says it existed.
+
+This is a client-facing limit and it was invisible until 2026-09-05.
+
+Measured on gold question Q4 (*"what should an organisation do to contain and
+eradicate a security incident?"*): the correct *3.8 INCIDENT RESPONSE* section
+of a second document was retrieved, shortlisted, scored **+2.104 against a
+-3.0 credibility floor**, and placed **fifth of sixteen** - above four passages
+from the document that was cited. It was not missed and it was not judged
+irrelevant. It was fifth, and the answer takes three.
+
+**As of this commit the coverage report exists in the API and not on screen.**
+`AnswerResult.coverage` names every such document with the status
+`credible_not_cited`. Until the UI renders it, those passages are not shown to
+the reader *and not reported to them either* - the API knows, and the screen
+does not. Raising the passage count is deliberately not the fix: three expanded
+sources already have to fit inside the model's context window, and overflowing
+it silently truncates the evidence the answer is grounded in.
+
 ## Scope not implemented
 
 - **OCR reads scanned pages, and its output is never presented as a quotation.** Recognised text is a guess about pixels, so it is stored separately (`page_ocr`), labelled *"Read by OCR from a scanned page — not the document's own text"*, and shown with the page image expanded rather than collapsed. See ADR-0005 and ADR-0006.

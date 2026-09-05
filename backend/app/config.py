@@ -32,6 +32,23 @@ class Settings(BaseSettings):
     #: the scope differ.
     auth_mode: str = "disabled"
 
+    #: HMAC signing key for bearer tokens. Empty is FINE under `disabled` and
+    #: refused at STARTUP under `demo_required` - a system that boots and then
+    #: rejects everyone looks broken, and one that boots with a guessable key
+    #: looks like it is working. See auth.check_secret_or_refuse.
+    auth_secret: str = ""
+    #: Eight hours, and no refresh token. A refresh flow exists to make short
+    #: tokens tolerable; a long token is the alternative to it, not a
+    #: companion. Justified against this system: a Tier 2 answer takes ~50 s
+    #: and an ingest runs for minutes, so a short token means a login screen
+    #: appearing in the middle of a demo.
+    auth_token_seconds: int = 8 * 60 * 60
+    #: Failed logins per email before a lockout, and the window. In memory,
+    #: never a table: a row per failed login would let anyone who can reach
+    #: the port write to the SQLite file ingestion is using.
+    auth_max_attempts: int = 8
+    auth_lockout_seconds: int = 300
+
     ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
     ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"
     #: The recogniser is the open decision. PP-OCRv6 ships no English model, so
@@ -218,3 +235,30 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+#: The settings that can change an ANSWER. Kept beside the settings so the list
+#: drifts with them rather than living in the reports module and going stale.
+#: Deliberately excludes host, port, paths and auth: a report generated on a
+#: different port is not a different answer.
+ANSWER_AFFECTING_SETTINGS = (
+    "answer_model", "num_ctx", "max_output_tokens", "temperature",
+    "chunk_target_tokens", "chunk_overlap_tokens", "chunk_max_tokens",
+    "search_candidates", "rerank_candidates", "rerank_max_tokens",
+    "generated_context_chars", "answer_context_chars",
+    "ocr_rec_model", "ocr_expected_script",
+)
+
+
+def config_version() -> str:
+    """First 16 hex of a hash over the answer-affecting settings, sorted.
+
+    Stamped on every report so two reports can be told apart when the answer
+    machinery changed between them, and NOT told apart when only the port did.
+    """
+    import hashlib
+    import json
+
+    subset = {k: getattr(settings, k) for k in sorted(ANSWER_AFFECTING_SETTINGS)}
+    return hashlib.sha256(
+        json.dumps(subset, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:16]

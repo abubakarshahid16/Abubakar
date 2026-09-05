@@ -23,6 +23,9 @@ import httpx
 
 from . import intent as intent_mod
 from . import keyword
+from . import context_budget
+from . import coverage
+from . import progress
 from . import lexical
 from . import passages as passages_mod
 from . import telemetry
@@ -174,6 +177,101 @@ def _passage_payload(hit: dict, question: str, budget: int | None = None) -> dic
         "ocr_alphabet_sample": expanded.get(
             "ocr_alphabet_sample", hit.get("ocr_alphabet_sample")),
     }
+
+
+def _searchable_text(hit: dict) -> str:
+    """Heading plus body, the same shape Candidate.searchable_text returns.
+
+    The heading is not decoration: it carries the clause number and the
+    designator, which is exactly what a question tends to name.
+    """
+    section = (hit.get("section") or "").strip()
+    body = hit.get("text") or ""
+    return f"{section}\n{body}" if section else body
+
+
+#: How many ranked candidates the lexical gate may examine. Bounded rather than
+#: unlimited: a candidate far down the list that happens to share a term is not
+#: evidence the question is answerable, and the reranked head is where a real
+#: answer lives. Matches the number of passages a Tier 2 prompt can carry.
+GATE_CANDIDATES = 5
+
+
+def _assess_candidates(
+    question: str, hits: list[dict], document_id: str | None
+) -> tuple[dict, int]:
+    """The best lexical verdict across the top candidates, and whose it was.
+
+    Returns the FIRST passing candidate in rank order, so retrieval's ordering
+    is still respected and the quoted passage is the one that justified
+    answering. When none passes, the strongest verdict is returned so the
+    refusal can still name the missing term.
+    """
+    empty = {"ok": False, "reason": None, "coverage": None,
+             "terms": [], "covered": [], "absent_from_corpus": []}
+    if not hits:
+        return empty, 0
+
+    best, best_index = None, 0
+    for i, hit in enumerate(hits[:GATE_CANDIDATES]):
+        verdict = lexical.assess(question, _searchable_text(hit), document_id)
+        if verdict["ok"]:
+            return verdict, i
+        if best is None or (verdict["coverage"] or 0) > (best["coverage"] or 0):
+            best, best_index = verdict, i
+    return best or empty, best_index
+
+
+def _filenames(document_ids: frozenset[str]) -> dict[str, str]:
+    """Filenames for every document in scope, including those with no hits.
+
+    A coverage row for a document that contributed nothing still has to name
+    it, and there is no hit to take the name from.
+    """
+    if not document_ids:
+        return {}
+    from .db import connect
+
+    marks = ",".join("?" * len(document_ids))
+    rows = connect().execute(
+        f"SELECT id, filename FROM documents WHERE id IN ({marks})",
+        list(document_ids),
+    ).fetchall()
+    return {row["id"]: row["filename"] for row in rows}
+
+
+def _coverage(
+    question: str,
+    results: dict,
+    *,
+    document_id: str | None,
+    allowed_document_ids: frozenset[str],
+    answered: list[dict],
+    supporting: list[dict],
+) -> dict:
+    """The coverage report, for an ANSWERED question only.
+
+    A refusal deliberately gets no coverage report: an incidence table under a
+    refusal invites the reader to read it as evidence the corpus could have
+    answered after all.
+
+    `min_rerank_score` is passed in rather than imported by the coverage layer,
+    so the floor stays defined in exactly one place. It is absolute and
+    calibrated on one population - it is never applied per document as a
+    per-document threshold.
+    """
+    return coverage.document_incidence(
+        question,
+        allowed_document_ids,
+        document_id,
+        answered_ids=frozenset(p["document_id"] for p in answered),
+        supporting_ids=frozenset(p["document_id"] for p in supporting),
+        census=results.get("document_census") or {},
+        shortlist_excluded=results.get("shortlist_excluded") or [],
+        min_rerank_score=MIN_RERANK_SCORE,
+        reranked=bool(results.get("reranked")),
+        filenames=_filenames(allowed_document_ids),
+    )
 
 
 def _is_semantically_credible(hit: dict) -> bool:
@@ -341,6 +439,7 @@ def answer(
     limit: int = 3,
     *,
     allowed_document_ids: frozenset[str],
+    progress_id: str | None = None,
 ) -> dict:
     """Answer a question. `tier` is "extract" (default) or "generated".
 
@@ -374,6 +473,7 @@ def answer(
     results = search_mod.search(
         question, limit=max(limit, 3), document_id=document_id,
         allowed_document_ids=allowed_document_ids,
+        progress_id=progress_id,
     )
     hits = results["hits"]
     # Recorded from real questions actually asked, so the dashboard's latency
@@ -392,18 +492,35 @@ def answer(
     # decisive. A named subject absent from the corpus needs no semantic
     # judgement at all, and a passage sharing no distinctive term with the
     # question is not an answer however well it scores.
-    lexical_verdict = (
-        lexical.assess(question, hits[0]["text"], document_id)
-        if hits
-        else {"ok": False, "reason": None, "coverage": None,
-              "terms": [], "covered": [], "absent_from_corpus": []}
-    )
+    #
+    # ASSESSED ACROSS THE CANDIDATES, ON HEADING PLUS BODY. Two defects lived
+    # in the single line this replaced, and a live API sweep found them where
+    # the harness could not:
+    #
+    #   * it looked at hits[0] ONLY. "inherent problems of P&IDs" returned five
+    #     strong hits, all from section "4.3.2 Inherent Problems of P&IDs", and
+    #     the candidate at RANK 4 had both "inherent" and "problems" in its
+    #     body. It was never examined, and the question was refused.
+    #   * it was passed hits[0]["text"] - the BODY. Candidate.searchable_text
+    #     is heading plus body and exists precisely because the heading carries
+    #     the clause number and the designator. Every hit here had the question
+    #     almost verbatim in its section heading and still scored coverage 0.
+    #
+    # The gate is unchanged in what it decides; only what it is shown changed.
+    # It still refuses when NO candidate covers the question, which is what the
+    # refusal record rests on. Every gold question had its answer at rank 1, so
+    # the harness structurally could not see this.
+    lexical_verdict, gate_index = _assess_candidates(question, hits, document_id)
     base["lexical"] = {
         k: lexical_verdict[k]
         for k in ("coverage", "terms", "covered", "absent_from_corpus")
     }
 
-    if not hits or not lexical_verdict["ok"] or not _is_semantically_credible(hits[0]):
+    # The passage that PASSED the gate is the passage that gets quoted. Letting
+    # the gate approve rank 4 while the answer quotes rank 0 would mean the
+    # justification and the answer were different passages.
+    lead = hits[gate_index] if hits else None
+    if not hits or not lexical_verdict["ok"] or not _is_semantically_credible(lead):
         if not hits:
             reason = "no indexed passage matched this question"
         elif not lexical_verdict["ok"]:
@@ -420,27 +537,38 @@ def answer(
         }
 
     if tier == "extract":
-        primary = _passage_payload(hits[0], question)
+        primary = _passage_payload(lead, question)
         answers = [primary]
-        second = _second_passage(question, hits, hits[0], document_id)
+        second = _second_passage(question, hits, lead, document_id)
         if second is not None:
             answers.append(_passage_payload(second, question))
         used = {p["chunk_id"] for p in answers}
+        supporting = [
+            _passage_payload(h, question)
+            for h in hits[1:limit]
+            if h["chunk_id"] not in used
+        ]
         return {
             **base,
             "answer_type": "extract",
             # The primary passage stays the answer text for any caller reading
             # only `answer`; a second passage is additive, never a replacement.
-            "answer": hits[0]["text"],
+            "answer": lead["text"],
             "passage": primary,
             # One or two passages that together answer the question. A second
             # appears only when the first cannot cover the question alone.
             "answer_passages": answers,
-            "supporting": [
-                _passage_payload(h, question)
-                for h in hits[1:limit]
-                if h["chunk_id"] not in used
-            ],
+            "supporting": supporting,
+            # Which documents the question was about, and which of them this
+            # answer used. Report-only: it describes what happened above it
+            # and changes none of it.
+            "coverage": _coverage(
+                question, results,
+                document_id=document_id,
+                allowed_document_ids=allowed_document_ids,
+                answered=answers,
+                supporting=supporting,
+            ),
             "seconds": timer.seconds(),
         }
 
@@ -452,7 +580,46 @@ def answer(
         _passage_payload(h, question, budget=settings.generated_context_chars)
         for h in hits[:limit]
     ]
+
+    # The character budget above is a stand-in for a token budget, and the
+    # exchange rate is not stable: measured on this corpus, prose runs at
+    # 4.4-5.8 characters per token and a numeric table at 1.01, because Qwen
+    # tokenises digits one at a time. Three table passages built a 3,645-token
+    # prompt against a 1,536-token window, and llama.cpp discarded the overflow
+    # without saying so - reporting 1,026 tokens evaluated, BELOW the ceiling,
+    # so nothing downstream could even detect it.
+    #
+    # The overhead is measured rather than assumed: the same prompt with the
+    # passage bodies emptied, plus the system prompt. A long question cannot
+    # quietly push the evidence over the line.
+    overhead = SYSTEM_PROMPT + _build_prompt(
+        question, [{**p, "text": ""} for p in passages]
+    )
+    passages, evidence_removed = context_budget.fit_passages(passages, overhead)
+
+    if not passages:
+        # Nothing survived the budget. Answering from no evidence at all would
+        # produce exactly the confident, uncited prose this system exists to
+        # avoid.
+        return {
+            **base,
+            "answer_type": "insufficient_evidence",
+            "answer": None,
+            "reason": (
+                "the evidence for this question is too large for the local "
+                "model's context window, and none of it could be included"
+            ),
+            "passages": [],
+            "evidence_removed": evidence_removed,
+            "seconds": timer.seconds(),
+        }
+
     prompt = _build_prompt(question, passages)
+
+    # The long one. Everything before this is seconds; this is tens of seconds,
+    # and it is the stage a reader spends almost all of the wait in.
+    progress.stage(progress_id, "generating",
+                   f"{len(passages)} source{'' if len(passages) == 1 else 's'}")
 
     t = Timer()
     try:
@@ -464,6 +631,7 @@ def answer(
             "answer": None,
             "reason": f"the local answer model could not be reached ({type(exc).__name__})",
             "passages": passages,
+            "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),
         }
     generation_ms = round(t.elapsed * 1000, 2)
@@ -484,6 +652,7 @@ def answer(
             "answer": None,
             "reason": "the model reported the sources do not contain the answer",
             "passages": passages,
+            "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),
             "timings": {**base["timings"], "generation_ms": generation_ms},
         }
@@ -509,18 +678,35 @@ def answer(
             "rejected_citations": invented,
             "truncated": truncated,
             "passages": passages,
+            "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),
             "timings": {**base["timings"], "generation_ms": generation_ms},
         }
+
+    # A passage the model actually cited counts as answered; one supplied to
+    # it and left uncited is supporting evidence the reader can still see.
+    cited_passages = [passages[i - 1] for i in valid if 1 <= i <= len(passages)]
+    uncited = [p for p in passages if p not in cited_passages]
 
     return {
         **base,
         "answer_type": "generated",
         "answer": text,
         "cited": valid,
+        "coverage": _coverage(
+            question, results,
+            document_id=document_id,
+            allowed_document_ids=allowed_document_ids,
+            answered=cited_passages,
+            supporting=uncited,
+        ),
         "rejected_citations": invented,
         "truncated": truncated,
         "passages": passages,
+        # What was removed to make the evidence fit the context window, and
+        # why. The reader is already told when the OUTPUT was cut off by the
+        # token cap; input truncation was invisible until now.
+        "evidence_removed": evidence_removed,
         "model": settings.answer_model,
         "prompt_tokens": raw.get("prompt_eval_count"),
         "output_tokens": raw.get("eval_count"),

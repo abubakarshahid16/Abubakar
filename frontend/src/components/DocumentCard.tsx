@@ -127,7 +127,10 @@ export function DocumentCard({
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-1.5">
-          <Action label="Inspect chunks" onClick={() => actions.onInspect(doc)} primary />
+          {/* "passages", the word the Dashboard defines. The same object was
+              called sections, chunks and passages across three screens, and
+              "inspect" and "stages" are developer vocabulary. */}
+          <Action label="Passages" onClick={() => actions.onInspect(doc)} primary />
           <Action label="Excluded" onClick={() => actions.onExcluded(doc)} />
           <Action label="Pages" onClick={() => actions.onPages(doc)} />
           {/* Re-running a stage is a maintenance operation, not a reading one.
@@ -136,7 +139,7 @@ export function DocumentCard({
               stray Enter reached them. They stay available and stay honest -
               just not in the path of someone looking at their document. */}
           <Action
-            label={showStages ? "Hide stages" : "Stages"}
+            label={showStages ? "Hide processing" : "Processing"}
             onClick={() => setShowStages((v) => !v)}
             expanded={showStages}
           />

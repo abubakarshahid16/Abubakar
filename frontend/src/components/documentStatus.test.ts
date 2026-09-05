@@ -72,7 +72,7 @@ describe("progress line", () => {
       doc({ status: "partially_searchable", embedded_count: 340, indexed_at: null }),
     );
     expect(line).toContain("1,204 pages");
-    expect(line).toContain("2,831 sections");
+    expect(line).toContain("2,831 passages");
     expect(line).toContain("keyword search ready");
     expect(line).toContain("340/2,831 embedded");
   });
@@ -112,5 +112,38 @@ describe("retrievable ratio warning", () => {
   it("does not flag a document with no chunks at all", () => {
     // that case is no_searchable_content, a different and louder message
     expect(hasLowRetrievableRatio(doc({ chunk_count: 0, chunk_count_total: 0 }))).toBe(false);
+  });
+});
+
+// ------------------------------------------------ one status, never two
+
+describe("a partially-processed document never reads as ready", () => {
+  it("does not say ready while scanned pages are still unread", () => {
+    // The README makes this an invariant, and the screen was breaking it in
+    // the most visible way possible: "ready" and "2 awaiting OCR" on the same
+    // row. The backend can legitimately reach status='ready' with recognition
+    // still outstanding, because OCR runs after the keyword index - so the
+    // contradiction has to be resolved here rather than displayed.
+    const s = presentStatus(doc({
+      status: "ready", page_count: 89, needs_ocr_pages: 12, recognised_pages: 10,
+    }));
+    expect(s.label).not.toBe("ready");
+    expect(s.label).toBe("reading scanned pages");
+    // Still answerable: the pages that ARE indexed can be searched.
+    expect(s.answerable).toBe(true);
+  });
+
+  it("says ready once recognition has caught up", () => {
+    const s = presentStatus(doc({
+      status: "ready", page_count: 89, needs_ocr_pages: 12, recognised_pages: 12,
+    }));
+    expect(s.label).toBe("ready");
+  });
+
+  it("says ready for a document that never needed recognition", () => {
+    const s = presentStatus(doc({
+      status: "ready", page_count: 40, needs_ocr_pages: 0, recognised_pages: 0,
+    }));
+    expect(s.label).toBe("ready");
   });
 });

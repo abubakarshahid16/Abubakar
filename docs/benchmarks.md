@@ -559,3 +559,192 @@ Every cited passage across all 15 questions was compared against the database's
 own `text_source` for that chunk: **32 cited passages, provenance matches for
 every one.** The check that this is not vacuous: a recognised chunk retrieved
 by its own text arrives labelled `recognised`.
+
+## Coverage reporting — what it costs (measured 2026-09-05)
+
+Twelve documents, 7,187 retrievable chunks. Tier 1, warm, five gold questions
+interleaved.
+
+| | |
+|---|---|
+| Whole answer, median | **2,428 ms** |
+| Coverage report alone, median | **105 ms** |
+| Coverage report, worst of five | **201 ms** |
+| Share of the answer | **4.3%** |
+
+**Three to five times the design's estimate.** `docs/design-multi-document-
+coverage.md` budgeted "tens of ms" for term incidence at eight documents. The
+work is `terms x documents` FTS `COUNT(*)` queries — Q4 issues 5 x 12 plus 5
+corpus-wide, about 65 queries at roughly 1.6 ms each. The estimate was right
+about the shape and low on the constant.
+
+It is paid inside the existing budget rather than on top of it: the eval median
+across all 15 questions was **2,437 ms** with coverage against **2,588 ms**
+recorded on the previous run without it, which is noise in both directions
+rather than an improvement. All six eval metrics are unchanged: retrieval
+11/11, citation 10/10, answer tokens 11/11, refusal accuracy 4/4, false
+refusals 0/11, length-limited 0.
+
+**Not optimised, and here is the obvious way if it ever needs to be.**
+`_incidence` runs one query per (term, document) pair; one query per term with
+`GROUP BY document_id` would cut the count twelvefold for an identical result.
+Not done, because 105 ms on a 2.4 s answer does not justify new surface in
+`keyword.py`. It does not scale regardless — at a thousand documents this
+approach is the entire latency budget and needs a term-to-document posting
+aggregate instead.
+
+
+## The token budget, measured with the deployed tokenizer (2026-09-05)
+
+Counts come from qwen3.5:4b itself, via `prompt_eval_count`. **Every prompt was
+given a unique prefix**, because Ollama reports tokens ACTUALLY EVALUATED and a
+cached prefix is not counted - a first attempt at this measurement read 1,026
+tokens for a prompt of 3,645, and the difference was the cache, not the
+tokenizer.
+
+`30.0000` is **8 tokens** for 7 characters. A table row of ten such values is
+about 70.
+
+### The overflow
+
+| | Tokens |
+|---|---:|
+| `num_ctx` | 1,536 |
+| Reserved for the answer (`max_output_tokens`) | 250 |
+| Evidence budget | **1,286** |
+| Three prose passages + system prompt + question | **720** (fits, 566 spare) |
+| Three numeric-table passages, same path | **3,645** (2.4x the window) |
+
+**The overflow was undetectable from outside.** The same three-table prompt,
+fresh prefix, at two window sizes:
+
+| `num_ctx` | `prompt_eval_count` |
+|---:|---:|
+| 8,192 | **3,645** - the true size |
+| 1,536 | **1,026** - 510 tokens BELOW the ceiling |
+
+A caller could not detect truncation even by comparing against the window: the
+reported count looks like an ordinary small prompt. That is why the guard runs
+before the call rather than inspecting the response afterwards.
+
+### Why the deployed tokenizer is not consulted per question
+
+| Route | Result |
+|---|---|
+| Probe at a larger `num_ctx` | True count, but **changing `num_ctx` reloads the model**: 16.01 s up, 16.34 s back |
+| Probe at the deployed `num_ctx` | No reload, but returns the truncated count above |
+| Inspect `prompt_eval_count` afterwards | Ambiguous: a cached prefix also reports a low count |
+
+One result is worth keeping for other purposes: a probe at the SAME window is
+close to free, because the real call then re-uses the prefix -
+`prompt_eval_duration` fell from **44,313 ms to 298 ms**. It is the truncated
+count, not the cost, that rules the route out.
+
+### The local estimate, against measured ground truth
+
+A numeric run is charged one token per byte plus the whitespace in front of it
+- the hard byte bound, since a byte-level BPE emits at most one token per byte.
+A word run is charged bytes / 3.5. That divisor and a 1.05 factor are the only
+calibrated numbers.
+
+| Content | digits | chars | true | estimate | ratio |
+|---|---:|---:|---:|---:|---:|
+| `book2` table | 71.4% | 1,070 | 1,058 | 1,099 | 1.04 |
+| `book2` table | 70.2% | 1,200 | 1,175 | 1,221 | 1.04 |
+| `book2` table | 69.9% | 1,200 | 1,173 | 1,214 | 1.03 |
+| `book2` **mixed** | 4.3% | 1,200 | 388 | 405 | **1.04** |
+| `doc17` prose | 2.3% | 1,200 | 271 | 398 | 1.47 |
+| `doc02` prose (OCR) | 1.0% | 1,200 | 257 | 321 | 1.25 |
+| `book2` prose | 0.2% | 1,200 | 249 | 314 | 1.26 |
+| `book1` prose | 0.0% | 1,200 | 224 | 305 | 1.36 |
+| `doc13` prose | 0.0% | 914 | 158 | 234 | 1.48 |
+| `doc13` prose | 0.0% | 1,146 | 219 | 292 | 1.33 |
+| table fixture | 75.1% | 1,199 | 1,200 | 1,259 | 1.05 |
+| prose fixture | 0.0% | 1,200 | 179 | 310 | 1.73 |
+
+**Worst ratio 1.035.** It over-counts everywhere, which is the safe direction:
+over-counting wastes window, under-counting loses evidence silently. It is
+tight where the decision is made - 1.03-1.05x on tables, where the answer is
+"does not fit" - and loose on prose, where the answer is "fits with room to
+spare": three prose passages estimate 1,203 against the 1,286 budget, true cost
+720, and are left untouched.
+
+**The divisor is 3.5, not the 4.4-5.8 characters per token that pure prose
+measures, because mixed content is denser than either extreme.** The `book2`
+chunk at 4.3% digits costs 3.09 characters per token: numbers scattered through
+prose break up merges that would otherwise happen. At a divisor of 4.0 the
+estimator under-counted that chunk by 7% - 362 against a true 388 - which is
+precisely the silent-truncation failure it exists to prevent. It was caught by
+recomputing the figures for this table rather than publishing the ones from the
+earlier calibration pass, whose formula was different.
+
+Two earlier formulas were discarded for under-counting the densest chunk by
+1.0%: charging characters rather than bytes, and charging a flat one token per
+separator when a table's newline-plus-indent costs more.
+
+### After the change
+
+| | Before | After |
+|---|---|---|
+| Retrieval | 11/11 | **12/12** |
+| Citation | 10/10 | **11/11** |
+| Answer tokens | 11/11 | **11/11** |
+| Refusal accuracy | 4/4 | **4/4** |
+| False refusals | 0/11 | **0/12** |
+| Median latency | 2,588 ms | 2,488 ms |
+
+Denominators grew because question 17 was added: a Tier 2 question whose
+evidence is a numeric table. On it the guard trims source 2 to 387 of 1,393
+characters and drops source 3 entirely, **and says so** - and the citation
+figure rose because the scorer was fixed to read a Tier 2 answer at all.
+
+The estimate costs nothing measurable: it is pure Python over the prompt text,
+run once per Tier 2 question, against a 20-50 s generation.
+
+
+## A real summarisation call, measured (2026-09-05)
+
+`qwen3.5:4b`, 12-document corpus, the Q4 question, `limit=8`. Counts are
+Ollama's own `prompt_eval_count` / `eval_count`, not an estimate.
+
+| | Measured |
+|---|---:|
+| Prompt evaluated | **776 tokens** |
+| Generated | **122 tokens** |
+| Prompt eval | **33.2 s** |
+| Generation | **16.3 s** |
+| Wall clock | **75.5 s** |
+
+The design doc's figure was an estimate; this is the measurement.
+
+### What the budget actually admits
+
+The interesting number is not the total but how little evidence reaches the
+model. Measured per source count, through `_as_sources` and the real fitter:
+
+| Sources offered | Prompt chars | Estimate | Fits 1,286? | Kept |
+|---:|---:|---:|:--|---:|
+| 1 | 2,564 | 849 | yes | 1 |
+| 2 | 5,057 | 1,511 | **no** | 2 (one trimmed) |
+| 4 | 9,441 | 2,751 | no | 2 |
+| 8 | 17,484 | 5,159 | no | 2 |
+
+**A single retrieved passage costs about 849 tokens, so two do not fit and the
+fitter always lands on two — one whole, one trimmed — whatever `limit` is
+set to.** Raising `limit` adds nothing to the summary; it adds evidence for the
+gap analysis, which needs no model, and it adds rows to `evidence_removed`.
+
+That is honest rather than silent: the removals are reported per source with
+the characters dropped. But a reader who sees eight passages in the ledger and
+a summary built from two must be able to see why, which is what
+`evidence_removed` is for.
+
+**The estimator's looseness has a measurable cost here.** The fitter trims to
+its 1,286-token estimate and the call actually evaluated **776** — about 1.66x
+over-counted, within the 1.03-1.73x range recorded above for prose. Roughly 500
+tokens of window went unused. That is the price of an estimate that may never
+under-count, and it is paid in evidence rather than in correctness.
+
+**Not tuned.** No constant was changed on the strength of this: one question,
+one corpus. The numbers are recorded so a change later has something to be
+measured against.

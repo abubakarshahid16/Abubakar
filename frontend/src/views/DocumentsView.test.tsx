@@ -6,21 +6,29 @@ import App from "../App";
 import type { Health } from "../api/client";
 import type { ChunkRecord, DocumentRecord, ExclusionsResponse } from "../types/api";
 
+const fullWorker = {
+  alive: true,
+  current_document: null,
+  seconds_since_heartbeat: 0.4,
+  seconds_since_progress: 12,
+  documents_completed: 5,
+  pending_count: 0,
+  oldest_pending_age_seconds: null,
+  stalled: false,
+  stalled_reasons: [] as string[],
+  last_error: null,
+};
+
 const health: Health = {
   ok: true,
   embed_model_present: true,
-  answer_model: "qwen3.5:4b",
+  answer_model_present: true,
   ingestion: {
+    // /api/health is unauthenticated and carries only
+    // these three. The full worker status is on /api/metrics.
     alive: true,
-    current_document: null,
-    seconds_since_heartbeat: 0.5,
-    seconds_since_progress: 20,
-    documents_completed: 5,
-    pending_count: 0,
-    oldest_pending_age_seconds: null,
     stalled: false,
-    stalled_reasons: [],
-    last_error: null,
+    busy: false,
   },
 };
 
@@ -99,6 +107,9 @@ function mockApi(docs: DocumentRecord[], over: Record<string, unknown> = {}) {
     const url = typeof input === "string" ? input : input.toString();
     const body = (() => {
       if (url.includes("/health")) return over.health ?? health;
+      // The worker DETAIL now comes from the scoped metrics route, not from
+      // health - so a test about the worker has to mock metrics.
+      if (url.includes("/metrics")) return over.metrics ?? { worker: fullWorker };
       if (url.includes("/excluded")) return over.excluded ?? exclusions;
       if (url.includes("/chunks")) {
         const wantExcluded = url.includes("retrievable=false");
@@ -157,7 +168,7 @@ describe("B2 documents list", () => {
     render(<App />);
 
     const line = await screen.findByText(/1,204 pages/);
-    expect(line).toHaveTextContent("2,831 sections");
+    expect(line).toHaveTextContent("2,831 passages");
     expect(line).toHaveTextContent("keyword search ready");
     expect(line).toHaveTextContent("340/2,831 embedded");
 
@@ -259,10 +270,10 @@ describe("B2 documents list", () => {
 describe("worker panel", () => {
   it("shows a stalled worker with its reasons", async () => {
     mockApi([makeDoc()], {
-      health: {
-        ...health,
-        ingestion: {
-          ...health.ingestion,
+      health: { ...health, ingestion: { ...health.ingestion, stalled: true } },
+      metrics: {
+        worker: {
+          ...fullWorker,
           stalled: true,
           pending_count: 6,
           oldest_pending_age_seconds: 900,
@@ -283,9 +294,8 @@ describe("worker panel", () => {
 
   it("shows the backlog even when not stalled", async () => {
     mockApi([makeDoc()], {
-      health: {
-        ...health,
-        ingestion: { ...health.ingestion, pending_count: 3, oldest_pending_age_seconds: 42 },
+      metrics: {
+        worker: { ...fullWorker, pending_count: 3, oldest_pending_age_seconds: 42 },
       },
     });
     render(<App />);
@@ -300,7 +310,7 @@ describe("B3 chunk inspector", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: /inspect chunks/i }));
+    await user.click(await screen.findByRole("button", { name: /passages/i }));
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByText("1.1 The Pace of Change")).toBeInTheDocument();

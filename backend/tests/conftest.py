@@ -81,6 +81,37 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     )
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _never_the_developers_database(tmp_path_factory):
+    """Point the DEFAULT database at a temp file for the whole session.
+
+    4. A TEST THAT PASSES ONLY BECAUSE A DATABASE HAPPENS TO EXIST.
+       `backend/data/nabaa.sqlite` is 62 MB on a development machine and absent
+       in CI. Two test files had no storage fixture of their own, so here they
+       opened the real corpus and passed, and in CI they opened an empty file
+       and raised `no such table: chunks` twenty times. The suite reported 756
+       passing locally and 736 in CI, and the LOCAL number was the wrong one.
+
+       Same shape as the three above: a check that appears to pass because of
+       state nobody declared. Redirecting the default makes a forgotten fixture
+       fail HERE, exactly as it fails in CI, instead of waiting for a pull
+       request to find it.
+
+       Nothing is created. A file that forgets `init_db()` gets an empty
+       database and fails loudly, which is the point. Tests with their own
+       `temp_storage` override this per test and are unaffected.
+    """
+    from app import db
+
+    session_dir = tmp_path_factory.mktemp("nabaa-session")
+    settings.data_dir = session_dir
+    settings.upload_dir = session_dir / "uploads"
+    settings.db_path = session_dir / "session.sqlite"
+    db.reset_connection()
+    yield
+    db.reset_connection()
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
     """Print every skip with its reason, and state the count plainly.
 

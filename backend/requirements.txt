@@ -5,6 +5,12 @@ pydantic==2.12.3
 pydantic-settings==2.13.0
 python-multipart==0.0.20
 
+# Password hashing. A cffi package: it needs a matching wheel for the platform,
+# so it MUST be installed while the machine still has a network. Installing it
+# later on an air-gapped target is a build from source that will not happen.
+# HMAC needs nothing - stdlib.
+argon2-cffi==25.1.0
+
 # PDF extraction
 PyMuPDF==1.26.6
 
