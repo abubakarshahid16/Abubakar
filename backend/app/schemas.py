@@ -438,6 +438,56 @@ class Coverage(BaseModel):
     note: str | None = None
 
 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class Me(BaseModel):
+    """What a client may know about itself.
+
+    Roles, never grants. The document ids a user may see are deliberately
+    absent: the scope is derived server-side on every request, and handing the
+    client the list gives it something to check its guesses against.
+    """
+
+    id: str
+    email: str
+    display_name: str
+    roles: list[str]
+
+
+class AuthStatus(BaseModel):
+    """Whether signing in is required here, and who is signed in.
+
+    `/api/health` deliberately does NOT carry this. Health is unauthenticated
+    and was narrowed on purpose; adding `auth_mode` to it would re-widen the
+    surface that was just reduced.
+
+    Under `disabled` this returns `required: false, user: null` to an
+    anonymous caller. That tells them authentication is off - which is not a
+    leak, because under `disabled` the same caller can already read every
+    document. Under `demo_required` an anonymous caller gets 401 instead, and
+    that 401 is how the frontend knows to show a login screen.
+    """
+
+    required: bool = Field(
+        description="whether a token is needed. False means AUTH_MODE is "
+        "disabled and every request already sees everything"
+    )
+    user: Me | None = None
+
+
+class LoginResult(BaseModel):
+    token: str = Field(
+        description="bearer token. The client holds this in memory only - "
+        "never localStorage, where every XSS becomes credential theft rather "
+        "than a session-length nuisance. A reload logs you out."
+    )
+    user: Me
+    expires_in_seconds: int
+
+
 class EvidenceRemoved(BaseModel):
     """A source that did not fit the model's context window.
 
@@ -753,3 +803,5 @@ ERRORS_422 = {
     }
 }
 ERRORS_400 = {400: {"model": ApiError, "description": "Rejected request"}}
+ERRORS_401 = {401: {"model": ErrorEnvelope, "description": "Not signed in"}}
+ERRORS_429 = {429: {"model": ErrorEnvelope, "description": "Too many attempts"}}

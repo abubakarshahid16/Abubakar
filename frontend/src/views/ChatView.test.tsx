@@ -1151,3 +1151,67 @@ describe("a response belongs to the request that asked for it", () => {
     expect(urls.filter((u) => u === "POST /api/conversations")).toHaveLength(1);
   });
 });
+
+// ------------------------------------------------- evidence that did not fit
+
+describe("evidence dropped to fit the context window", () => {
+  /**
+   * The other end of the pipe from `truncated`. Output truncation has been on
+   * screen since the token cap was raised; INPUT truncation was invisible, and
+   * it is the worse of the two - the model answers from evidence it was never
+   * given, and cites sources it never saw.
+   *
+   * A numeric table costs about one token per character, so three table
+   * passages need ~3,645 tokens against a 1,536-token window.
+   */
+  it("names each source that was dropped or shortened", async () => {
+    mockApi({
+      ask: askResult({
+        answer_type: "generated",
+        answer: "The amplitude falls from 39.0 to 31.9 [S1].",
+        passage: null,
+        supporting: [],
+        passages: [A1],
+        cited: [1],
+        assistant_message: extractMessage({
+          text: "The amplitude falls from 39.0 to 31.9 [S1].",
+          answer_type: "generated",
+          payload: {
+            passages: [A1],
+            cited: [1],
+            seconds: 40,
+            evidence_removed: [
+              { index: 2, filename: "book2-Differential-Equations.pdf",
+                page_start: 597, action: "trimmed",
+                characters_kept: 387, characters_dropped: 1006 },
+              { index: 3, filename: "book2-Differential-Equations.pdf",
+                page_start: 598, action: "dropped",
+                characters_kept: 0, characters_dropped: 1383 },
+            ],
+          },
+        }),
+      }),
+    });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "amplitude at t=4");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(
+      await screen.findByText(/2 sources did not fit the model's context window/i),
+    ).toBeInTheDocument();
+    // The page is the actionable part. "Some evidence was dropped" is not
+    // something a reader can do anything about; "page 598 was dropped" is.
+    expect(screen.getByText(/not used at all/)).toBeInTheDocument();
+    expect(screen.getByText(/1,006 characters left out/)).toBeInTheDocument();
+    expect(screen.getAllByText(/p59[78]/).length).toBeGreaterThan(0);
+  });
+
+  it("says nothing at all when every source fitted", async () => {
+    mockApi();
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText(A1.text);
+    expect(screen.queryByText(/did not fit the model/i)).toBeNull();
+  });
+});

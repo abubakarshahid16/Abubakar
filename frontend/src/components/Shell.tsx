@@ -116,11 +116,15 @@ export function Shell({
   view,
   onNavigate,
   connection,
+  identity,
   children,
 }: {
   view: ViewId;
   onNavigate: (v: ViewId) => void;
   connection: Connection;
+  /** Who is signed in, or a quiet note that authentication is off. Optional
+   *  so every existing test that renders the Shell keeps working unchanged. */
+  identity?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -194,6 +198,10 @@ export function Shell({
         </ul>
 
         <div className="border-t border-ink-700 px-5 py-4">
+          {/* Identity sits ABOVE the connection badge on purpose: "who am I"
+              and "is the backend up" are different questions and a reader
+              must not have to disentangle one from the other. */}
+          {identity && <div className="mb-3">{identity}</div>}
           <ConnectionBadge connection={connection} />
           {/* The answer model's exact name and version used to sit here,
               read from /api/health - which is unauthenticated, so it was

@@ -50,9 +50,19 @@ NO_SEARCHABLE_CONTENT = "no_searchable_content"
 # it should mean something is actually wrong.
 INTERNAL = "internal"
 
+#: Authentication. These MUST be here and not only in the route.
+#: `safe_error` coerces an unknown code to `internal` (see below), so a login
+#: refusal would be reported to the client as a server crash - exactly the
+#: failure this module exists to prevent, and it would look like a backend
+#: fault rather than a wrong password.
+UNAUTHENTICATED = "unauthenticated"
+INVALID_CREDENTIALS = "invalid_credentials"
+RATE_LIMITED = "rate_limited"
+
 CLIENT_ERROR_CODES = frozenset(
     {NOT_FOUND, INVALID_PARAMETER, UNKNOWN_PARAMETER, CONFIRM_REQUIRED,
-     NOT_PDF, ENCRYPTED_PDF, TOO_LARGE, DUPLICATE}
+     NOT_PDF, ENCRYPTED_PDF, TOO_LARGE, DUPLICATE,
+     UNAUTHENTICATED, INVALID_CREDENTIALS, RATE_LIMITED}
 )
 
 ALL_CODES = CLIENT_ERROR_CODES | {

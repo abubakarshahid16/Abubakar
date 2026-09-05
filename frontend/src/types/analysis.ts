@@ -255,22 +255,10 @@ export interface ReportVerification {
 
 // ---------------------------------------------------------------------- login
 
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface Me {
-  user_id: string;
-  email: string;
-  display_name: string;
-  roles: string[];
-}
-
-export interface LoginResult {
-  token: string;
-  expires_at: string;
-  user: Me;
-}
+// LoginRequest, Me, LoginResult and AuthStatus moved to contracts/types.ts
+// when stage 1 landed. They are shipped API shapes now, and the contract is
+// the single source of truth; a second copy here would be free to drift, and
+// this one already had - it said `user_id` and `expires_at` where the API
+// says `id` and `expires_in_seconds`.
 
 export type AuthMode = "disabled" | "demo_required";

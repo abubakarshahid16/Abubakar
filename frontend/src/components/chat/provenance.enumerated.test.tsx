@@ -65,6 +65,7 @@ function extractView(p: AnswerPassage): AnswerView {
     rejected_citations: [],
     model: null,
     truncated: false,
+  evidence_removed: [],
     seconds: 1.2,
     examples: [],
   };
@@ -220,6 +221,7 @@ function viewWithNoPassage(): AnswerView {
     rejected_citations: [],
     model: null,
     truncated: false,
+  evidence_removed: [],
     seconds: 1.2,
     examples: [],
   };

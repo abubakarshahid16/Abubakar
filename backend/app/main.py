@@ -26,6 +26,7 @@ from .api_utils import (
     validate_retrievable,
 )
 from . import access
+from . import auth as auth_mod
 from . import errors
 from . import schemas
 from .config import settings
@@ -36,6 +37,11 @@ from .db import connect, init_db
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     init_db()
+    # The ONLY wiring authentication needs. It hands access.py an identity
+    # resolver and refuses to start on a weak secret when auth is required -
+    # at startup rather than at first login, because a system that boots and
+    # then rejects everyone looks like a broken deployment.
+    auth_mod.install()
     keyword_mod.ensure_schema()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
@@ -412,6 +418,65 @@ def _require_conversation(conversation_id: str) -> dict:
             status_code=404,
             detail=errors.safe_error(errors.NOT_FOUND, "no conversation with that id"),
         )
+
+
+# ------------------------------------------------------------------- auth
+#
+# Two routes, and `access.current_scope` changes by zero lines: it already
+# calls the resolver, already falls to empty_scope() without one, and already
+# derives the scope from the grant tables. Authentication supplies WHO;
+# authorisation was already deciding WHAT.
+
+
+@app.post("/api/auth/login", response_model=schemas.LoginResult,
+          responses={**schemas.ERRORS_422})
+def login(body: schemas.LoginRequest):
+    """Exchange credentials for a bearer token.
+
+    Unauthenticated by construction - it is how a caller becomes
+    authenticated. It is also the only unauthenticated WRITER in the API, and
+    it writes exactly one row (`last_login_at`) on success plus an audit row,
+    which is why the rate limiter is in memory rather than a table.
+    """
+    try:
+        return auth_mod.login(body.email, body.password)
+    except auth_mod.AuthError as exc:
+        headers = ({"Retry-After": str(exc.retry_after)}
+                   if exc.retry_after else None)
+        raise HTTPException(
+            status_code=429 if exc.code == errors.RATE_LIMITED else 401,
+            detail=errors.safe_error(exc.code, exc.message),
+            headers=headers,
+        )
+
+
+@app.get("/api/auth/me", response_model=schemas.AuthStatus,
+         responses={**schemas.ERRORS_401})
+def me(request: Request,
+       scope: access.AccessScope = Depends(access.current_scope)):
+    """Who the caller is, and whether signing in is required at all.
+
+    The frontend calls this once at startup, and the ANSWER decides the
+    screen: 401 means show the login form, `required: false` means
+    authentication is off and there is nothing to sign in to.
+
+    Under `disabled` this is 200 with no user. Telling an anonymous caller
+    that authentication is off is not a leak, because under `disabled` that
+    same caller can already read every document; showing them a login form
+    they cannot use would be the actual defect.
+    """
+    if settings.auth_mode == access.AUTH_DISABLED:
+        return {"required": False, "user": None}
+
+    user_id = scope.user_id or auth_mod.resolve_user_id(request)
+    described = auth_mod.describe(user_id) if user_id else None
+    if described is None:
+        raise HTTPException(
+            status_code=401,
+            detail=errors.safe_error(errors.UNAUTHENTICATED,
+                                     "sign in to continue"),
+        )
+    return {"required": True, "user": described}
 
 
 @app.post("/api/conversations", response_model=schemas.Conversation,

@@ -18,7 +18,9 @@ import type {
   ConversationDetail,
   ConversationList,
   DocumentRecord,
+  AuthStatus,
   ExclusionsResponse,
+  LoginResult,
   Metrics,
   PagesResponse,
 } from "../types/api";
@@ -61,9 +63,39 @@ const BASE = "/api";
 /** Statuses that mean nothing served the request at all. */
 const GATEWAY_STATUSES = new Set([502, 503, 504]);
 
+/** The bearer token, in memory only.
+ *
+ *  Never localStorage: it outlives the tab, and every XSS then becomes
+ *  credential theft rather than a session-length nuisance. The cost is that a
+ *  reload logs you out, which the login screen states rather than leaving the
+ *  reader to discover.
+ */
+let token: string | null = null;
+let onUnauthenticated: (() => void) | null = null;
+
+export function setToken(next: string | null) {
+  token = next;
+}
+
+export function isSignedIn() {
+  return token !== null;
+}
+
+/** Called when the backend says the token is no good. No auto-retry, no
+ *  refresh, no redirect loop - the screen changes and the reader decides. */
+export function onSignedOut(fn: (() => void) | null) {
+  onUnauthenticated = fn;
+}
+
 /** What to tell a reader, in words they can act on. */
 function humanMessage(status: number): string {
-  if (status === 401 || status === 403) {
+  if (status === 401) {
+    // Split from 403 deliberately. The old shared message told a logged-out
+    // user to check the backend's settings, which sends them to inspect a
+    // server that is working perfectly.
+    return "You are not signed in, or your session has expired. Sign in to continue.";
+  }
+  if (status === 403) {
     return "This action was refused. Check whether the backend was started with different settings.";
   }
   if (status === 404) return "That is not something the backend knows about.";
@@ -112,6 +144,16 @@ export const hasArrayField =
     b !== null &&
     Array.isArray((b as Record<string, unknown>)[field]);
 
+export const auth = {
+  login: (email: string, password: string) =>
+    request<LoginResult>("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    }),
+  me: () => request<AuthStatus>("/auth/me"),
+};
+
 async function request<T>(
   path: string,
   init?: RequestInit,
@@ -119,7 +161,11 @@ async function request<T>(
 ): Promise<Result<T>> {
   let response: Response;
   try {
-    response = await fetch(`${BASE}${path}`, init);
+    // The single fetch in the module, which is why the token can be attached
+    // in exactly one place - the module's own principle, stated at the top.
+    const headers = new Headers(init?.headers);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    response = await fetch(`${BASE}${path}`, { ...init, headers });
   } catch (e) {
     // fetch only rejects on a network-level failure - the server is down
     return disconnected(e instanceof Error ? e.message : "Network request failed.");
@@ -132,6 +178,15 @@ async function request<T>(
     // not running" banner and a red "HTTP 502" card on screen together.
     if (GATEWAY_STATUSES.has(response.status)) {
       return disconnected("Nothing answered on the API port.");
+    }
+
+    // The token is no good - expired, revoked, or the account deactivated.
+    // Clear it and tell the app once. No auto-retry and no refresh flow:
+    // there is no refresh token by design, and a silent retry against a
+    // revoked session is a loop that hides the reason from the reader.
+    if (response.status === 401) {
+      token = null;
+      onUnauthenticated?.();
     }
 
     let error: ApiError = {

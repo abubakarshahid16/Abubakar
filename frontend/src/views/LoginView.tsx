@@ -15,7 +15,7 @@
  */
 import { useId, useState, type FormEvent } from "react";
 
-import type { LoginRequest, Me } from "../types/analysis";
+import type { LoginRequest, Me } from "../types/api";
 
 export type LoginOutcome =
   | { ok: true }
@@ -178,8 +178,12 @@ function ConnectionLine({ connected }: { connected: boolean }) {
  */
 export function RoleBadge({ me, onLogout }: { me: Me | null; onLogout: () => void }) {
   if (me === null) {
+    // Not role="status". A live region announces CHANGES, and this text never
+    // changes - it is a standing label about the deployment. As a status it
+    // also collided with the real status messages elsewhere on screen, so a
+    // screen reader heard it interrupt them.
     return (
-      <span className="text-xs text-slateish-500" role="status">
+      <span className="text-xs text-slateish-500">
         Authentication disabled — no user identity
       </span>
     );

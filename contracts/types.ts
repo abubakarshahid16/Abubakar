@@ -391,6 +391,46 @@ export interface EvidenceRemoved {
   characters_dropped: number;
 }
 
+/** What a client may know about itself.
+ *
+ *  ROLES, NEVER GRANTS. The document ids a user may see are deliberately
+ *  absent: the scope is derived server-side on every request, and handing the
+ *  client the list gives it something to check its guesses against. */
+export interface Me {
+  id: string;
+  email: string;
+  display_name: string;
+  roles: string[];
+}
+
+/** Whether signing in is required here, and who is signed in.
+ *
+ *  The frontend calls `/api/auth/me` once at startup and the ANSWER decides
+ *  the screen: a 401 means show the login form; `required: false` means
+ *  authentication is off and there is nothing to sign in to.
+ *
+ *  `/api/health` deliberately does not carry this. Health is unauthenticated
+ *  and was narrowed on purpose. */
+export interface AuthStatus {
+  required: boolean;
+  user: Me | null;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResult {
+  /** Held in a module-level variable in `client.ts`. NEVER localStorage -
+   *  that outlives the tab, and every XSS becomes credential theft rather
+   *  than a session-length nuisance. A page reload logs you out, and the UI
+   *  says so rather than letting the reader discover it. */
+  token: string;
+  user: Me;
+  expires_in_seconds: number;
+}
+
 export interface AnswerResult {
   question: string;
   answer_type: AnswerType;
@@ -640,6 +680,12 @@ export interface ApiError {
     | "invalid_parameter"
     | "unknown_parameter"
     | "confirm_required"
+    // authentication. These MUST exist here as well as in errors.py: the
+    // union is compiler-enforced only for the codes it lists, so adding them
+    // to the backend alone compiles cleanly and fails at runtime.
+    | "unauthenticated"
+    | "invalid_credentials"
+    | "rate_limited"
     // the upload was not acceptable
     | "not_pdf"
     | "encrypted_pdf"

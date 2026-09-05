@@ -32,6 +32,25 @@ land in any order and each component lights up when its data arrives.
 - **The outbound-query dialog shows the exact string** and its Confirm is disabled while `allow_public_egress === false`.
 - **One error message for all credential failures.** Rate-limit gets its own.
 
+## Wired so far
+
+| Step | Landed | Notes |
+|---|---|---|
+| 1. Types | **stage 1** | `LoginRequest`, `Me`, `LoginResult` and the new `AuthStatus` moved out of `types/analysis.ts` into `contracts/types.ts`. The copy in `analysis.ts` had already drifted - it said `user_id` and `expires_at` where the API says `id` and `expires_in_seconds`. |
+| 2. Shell | **stage 1** | `Shell` takes an optional `identity` slot above the connection badge. Optional so every existing test renders unchanged. |
+| 3. Login | **stage 1** | `LoginView` above the Shell. The mode comes from `/api/auth/me`, never from `/api/health`. |
+| 4-7 | not yet | Stages 2-6. |
+
+Three things changed in the draft components while wiring them, each because
+the wiring exposed something the components could not have known alone:
+
+- `RoleBadge` marked a permanent label as `role="status"`. A live region
+  announces CHANGES; this text never changes, and as a status it collided with
+  the Dashboard's real status messages, so a screen reader heard it cut in.
+- `Me.user_id` became `Me.id`, matching what the API actually returns.
+- `LoginView` imported its types from `types/analysis.ts`. They are shipped API
+  shapes now and live in the contract.
+
 ## Wiring steps
 
 ### 1. Types — merge, do not duplicate
