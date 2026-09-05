@@ -120,6 +120,30 @@ the answer, because those are different facts and only one is about the corpus.
 The alternative would be guessing which source the model meant, and a guessed
 citation is the thing this system exists not to do.
 
+## An answer includes at most three passages
+
+**When more than three credible passages exist, the ones beyond the cut are not
+shown.** The answer takes its highest-ranked passages only; a passage that
+cleared the credibility floor in another document can be left out of the answer
+entirely, and nothing on screen says it existed.
+
+This is a client-facing limit and it was invisible until 2026-09-05.
+
+Measured on gold question Q4 (*"what should an organisation do to contain and
+eradicate a security incident?"*): the correct *3.8 INCIDENT RESPONSE* section
+of a second document was retrieved, shortlisted, scored **+2.104 against a
+-3.0 credibility floor**, and placed **fifth of sixteen** - above four passages
+from the document that was cited. It was not missed and it was not judged
+irrelevant. It was fifth, and the answer takes three.
+
+**As of this commit the coverage report exists in the API and not on screen.**
+`AnswerResult.coverage` names every such document with the status
+`credible_not_cited`. Until the UI renders it, those passages are not shown to
+the reader *and not reported to them either* - the API knows, and the screen
+does not. Raising the passage count is deliberately not the fix: three expanded
+sources already have to fit inside the model's context window, and overflowing
+it silently truncates the evidence the answer is grounded in.
+
 ## Scope not implemented
 
 - **OCR reads scanned pages, and its output is never presented as a quotation.** Recognised text is a guess about pixels, so it is stored separately (`page_ocr`), labelled *"Read by OCR from a scanned page — not the document's own text"*, and shown with the page image expanded rather than collapsed. See ADR-0005 and ADR-0006.

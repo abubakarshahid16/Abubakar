@@ -380,6 +380,64 @@ class AnswerPassage(BaseModel):
     ocr_alphabet_sample: str | None = None
 
 
+DocumentCoverageStatus = Literal[
+    "answered",
+    "supporting",
+    "credible_not_cited",
+    "retrieved_not_credible",
+    "expected_not_shortlisted",
+    "expected_not_retrieved",
+    "searched_no_match",
+]
+
+
+class DocumentCoverage(BaseModel):
+    document_id: str
+    filename: str
+    status: DocumentCoverageStatus = Field(
+        description="credible_not_cited is the one that matters to a reader: a "
+        "passage from this document cleared the credibility floor and the "
+        "answer used others instead"
+    )
+    expected: bool = Field(
+        description="carries a distinguishing term from the question. Presence, "
+        "NOT relevance - no completeness claim rests on this field"
+    )
+    distinguishing_terms: list[str] = []
+    candidates: int = Field(description="reached the fused pool. 0 is a real 0")
+    shortlisted: int
+    best_rerank_score: float | None = Field(
+        None,
+        description="null unless a passage from this document was scored in the "
+        "final rerank batch. NEVER 0.0 as a stand-in: 0.0 sits above the -3.0 "
+        "floor and would read as credible",
+    )
+    reason: str | None = None
+
+
+class Coverage(BaseModel):
+    basis: Literal["credible_uncited", "single_document_scope", "none"] = Field(
+        description="what the completeness verdict rests on. term_incidence is "
+        "absent by measurement, not oversight: it made all twelve documents "
+        "'expected' on the gold question this feature exists to measure"
+    )
+    expected_documents: int | None = Field(
+        None, description="documents that produced a credible passage. Null "
+        "when no completeness claim is made - never 0"
+    )
+    found_documents: int | None = None
+    searched_documents: int
+    complete: bool | None = Field(
+        None,
+        description="false when a credible passage went unused; otherwise NULL. "
+        "Never true. A null MUST render as nothing at all - no tick, no green - "
+        "because rendering it as a checkmark turns 'I did not check' into "
+        "'I checked and it is fine'",
+    )
+    documents: list[DocumentCoverage] = []
+    note: str | None = None
+
+
 class AnswerResult(BaseModel):
     question: str
     answer_type: AnswerType = Field(
@@ -410,6 +468,13 @@ class AnswerResult(BaseModel):
     )
     input_kind: str | None = Field(
         None, description="why this was answered as guidance rather than searched"
+    )
+    coverage: Coverage | None = Field(
+        None,
+        description="which documents the question was about and which the "
+        "answer used. Null for a refusal, deliberately: an incidence table "
+        "under a refusal invites the reader to read it as evidence the corpus "
+        "could have answered after all",
     )
     examples: list[str] = Field(
         [], description="real questions drawn from the loaded documents"

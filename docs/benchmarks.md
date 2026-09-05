@@ -559,3 +559,36 @@ Every cited passage across all 15 questions was compared against the database's
 own `text_source` for that chunk: **32 cited passages, provenance matches for
 every one.** The check that this is not vacuous: a recognised chunk retrieved
 by its own text arrives labelled `recognised`.
+
+## Coverage reporting — what it costs (measured 2026-09-05)
+
+Twelve documents, 7,187 retrievable chunks. Tier 1, warm, five gold questions
+interleaved.
+
+| | |
+|---|---|
+| Whole answer, median | **2,428 ms** |
+| Coverage report alone, median | **105 ms** |
+| Coverage report, worst of five | **201 ms** |
+| Share of the answer | **4.3%** |
+
+**Three to five times the design's estimate.** `docs/design-multi-document-
+coverage.md` budgeted "tens of ms" for term incidence at eight documents. The
+work is `terms x documents` FTS `COUNT(*)` queries — Q4 issues 5 x 12 plus 5
+corpus-wide, about 65 queries at roughly 1.6 ms each. The estimate was right
+about the shape and low on the constant.
+
+It is paid inside the existing budget rather than on top of it: the eval median
+across all 15 questions was **2,437 ms** with coverage against **2,588 ms**
+recorded on the previous run without it, which is noise in both directions
+rather than an improvement. All six eval metrics are unchanged: retrieval
+11/11, citation 10/10, answer tokens 11/11, refusal accuracy 4/4, false
+refusals 0/11, length-limited 0.
+
+**Not optimised, and here is the obvious way if it ever needs to be.**
+`_incidence` runs one query per (term, document) pair; one query per term with
+`GROUP BY document_id` would cut the count twelvefold for an identical result.
+Not done, because 105 ms on a 2.4 s answer does not justify new surface in
+`keyword.py`. It does not scale regardless — at a thousand documents this
+approach is the entire latency budget and needs a term-to-document posting
+aggregate instead.

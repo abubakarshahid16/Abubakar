@@ -3,8 +3,9 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Eleven separate times a status field has claimed
-something the system was not doing:
+**Why this document exists.** Thirteen separate times something in this system
+has claimed what was not so - a status field, a count, a measurement, and twice
+now a design document about the code it was written against:
 
 | # | The claim | The reality |
 |---|---|---|
@@ -17,6 +18,8 @@ something the system was not doing:
 | 10 | Three green tests over code that was broken | Each had fixtures that could not produce the condition the test claimed to check. A vacuous test does not fail; it passes, which is worse |
 | 9 | README: "Disk — ~2 GB" | 768 MB inside the clone, measured. Nobody had ever measured it; the figure was written from intuition and read as a specification |
 | 8 | OCR raised coverage by **+12.5%** on NORSOK | It raised it by **+4.2%**. The "before" figure dropped every recognised CHUNK, which also drops pages that chunk merely spans — three pages were charged to OCR that OCR never read |
+| 13 | The coverage design's six-value status enum, reviewed and approved | **None of the six was true of Q4**, the gold question the feature exists to measure. Reviewing a taxonomy against an example is not testing it against that example |
+| 12 | The coverage design: the shortlist cut is "the one place candidates are dropped with no recorded reason" | `deduplicate()` and the pool builder drop silently too. A candidate lost to dedup is indistinguishable from one that never existed, so recording only the cut would have answered "was doc17 ever in the pool?" wrongly, with apparent evidence |
 | 7 | A passing ordering test over a document that had `failed` | The test asserted the statuses it OBSERVED at every OCR invocation and never asserted where the document FINISHED. `partially_searchable -> chunking` was an illegal transition; the raise was swallowed by the broad handler in `process()`; every scanned document on a fresh machine landed at `failed`, green suite and all |
 | 6 | "Quoted verbatim from the document" over OCR text | `AnswerCard.tsx:277` rendered the label unconditionally. 92 recognised chunks were retrievable, so a passage OCR had guessed off a page image could be cited as the document's own words, beside "quoted directly, no AI rewriting" |
 
@@ -303,12 +306,57 @@ resident, because that moves the headline number further than the corpus does.
 `test_eval_provenance.py` reinstates the old field and confirms four of its
 six tests go red against it.
 
+### A twelfth: the design premise that was wrong about its own pipeline
+
+The multi-document coverage design named the 16-slot shortlist cut as **"the
+one place in this pipeline where candidates are dropped with no recorded
+reason"**. It was not the one place. `deduplicate()` discarded near-identical
+candidates and returned a shorter list saying nothing about it, and the pool
+builder skipped chunks whose row had gone or had been marked non-retrievable,
+also silently.
+
+The cost would have been a false answer to the question the telemetry was built
+to answer. **A candidate lost to dedup is indistinguishable from a candidate
+that never existed**, so a document that contributed candidates and lost them
+all to duplicate-merging would have read as a document that matched nothing —
+and "was doc17 ever in the pool?" would have been answered wrongly with
+apparent evidence. All five drop reasons are now recorded under one slug
+vocabulary.
+
+### A thirteenth: a taxonomy reviewed against its example, never tested against it
+
+The same design specified a six-value status enum for per-document coverage. It
+was reviewed carefully and it reads well. **None of its six values was true of
+Q4** — the gold question the entire feature exists to measure.
+
+doc17 was retrieved, so not `expected_not_retrieved`. Shortlisted, so not
+`expected_not_shortlisted`. Scored **+2.104 against a -3.0 floor**, so not
+`retrieved_not_credible`. Not in `supporting`, and not `answered`, and plainly
+not `searched_no_match`. Had the enum shipped as designed, Q4 would have been
+filed under whichever value was least wrong, and the coverage report would have
+made a false statement about the one case it was built for.
+
+This is the same family as the vacuous fixture: **a structure that cannot
+produce the condition it claims to cover.** The fixture could not produce two
+distinct documents; the enum could not express the outcome it was designed
+around. Reviewing a taxonomy against an example is not testing it against that
+example — the test is to take the real case and try to write its row.
+
+Fixed by a seventh value, `credible_not_cited`, which names the fact in the
+reader's terms rather than the mechanism: this document had a passage that
+passed the credibility floor, and the answer did not use it.
+
 ### The rule this produces
 
 **Before trusting a check, confirm it fails when it should.** Plant the defect
 it exists to catch and watch it go red. Two of the first five passed for weeks;
-none failed loudly; two were found only by accident. Of the nine instances now
-recorded, exactly one — the eighth — was caught by a check rather than by luck.
+none failed loudly; two were found only by accident. Of the thirteen instances
+now recorded, exactly one — the eighth — was caught by an automated check.
+
+The twelfth and thirteenth were caught by reading a design against the code
+while implementing it, and by taking the real case and trying to write its row.
+That is diligence, not a check, and it does not scale — which is why the
+thirteenth produced a standing rule rather than only a fix.
 
 Corollary: **guard the guard.** Every check whose scope can silently shrink to
 nothing needs a companion test asserting it still sees something — that the
@@ -432,7 +480,13 @@ asserts no client error ever reports `internal`.
    thing happen says nothing about whether it worked.
 11. **A documented hazard is not a guard.** If a trap is worth writing down, the
    check belongs in the path of the tool that can fall into it.
-12. **A provenance field that no assertion reads is decoration.** Storing,
+12. **A taxonomy is not tested until a real case has been written into it.**
+   Reviewing an enum against an example proves only that it reads well. Take
+   the case the feature exists for, try to fill in every field, and require
+   that exactly one value is true. A structure that cannot express its own
+   headline case will not fail loudly — it will file that case under whichever
+   value is least wrong.
+13. **A provenance field that no assertion reads is decoration.** Storing,
    typing and requiring it are not the safeguard. Where provenance decides
    what a claim may say, a test must assert the ABSENCE of the stronger claim
    — presence-only assertions pass while both claims are on screen.

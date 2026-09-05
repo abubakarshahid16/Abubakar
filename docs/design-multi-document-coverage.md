@@ -146,6 +146,24 @@ precise failure `keyword.py:230-237` argues against.
 | `eval/reachability.py` | Runs with `rerank=False` — any shortlist change **must** be a no-op on that path, or the sweep's meaning changes |
 | `eval/coverage.py` | A different, older meaning of "coverage" — pages reachable through a retrievable chunk. Do not conflate |
 
+## Superseded by measurement: term incidence forms no expectation
+
+Everything below about `basis: "term_incidence"` and an expected-document count
+was built, measured on the six gold questions, and abandoned. `contain` appears
+in **all twelve documents**, so Q4 reported all twelve as expected; `cost` and
+`form` do the same to Q2 and Q6. Every candidate cutoff is a new constant on a
+new scale set from one example.
+
+What replaced it needs no constant: **a document with a passage above the
+credibility floor that the answer did not use.** `basis: "credible_uncited"`,
+and the status `credible_not_cited` on the row. The incidence table is still
+reported per document, and the `expected` flag it produces is documented as
+presence rather than relevance, with nothing computed from it. Figures in
+`docs/gold-questions.md`.
+
+The two sections that follow are kept as written, because the reasoning in them
+is why the null cases behave as they do.
+
 ## Reporting — the distinction that matters
 
 | Claim | `basis` | `expected_documents` | `complete` |
@@ -267,14 +285,36 @@ It does not improve retrieval. It does not find doc17. It supports no
 completeness guarantee. **Anyone describing it as multi-document *synthesis* is
 overstating it** — it is multi-document *coverage reporting*.
 
-### What comes second
+### What comes second — nothing. Measured and dropped.
 
-The document-diverse shortlist, alone: reserve slots for other documents by RRF
-mass before the 16-slot cut, `rerank=False` path untouched, single batch
-preserved. Re-measure on `run_eval.py` and `run_phrasings.py` before claiming
-anything — `limitations.md` records that `rerank_candidates` 20 to 16 was
-deliberate and that 12 degraded non-monotonically, so changing composition
-demands the same evidence changing size did.
+**The document-diverse shortlist is cancelled, not deferred.** It was to
+reserve shortlist slots for other documents by RRF mass before the 16-slot cut.
+Measured on the question it existed for: **doc17 already had four candidates
+inside the shortlist**, its best ranked 7th of 52 by RRF, and its correct
+section came out of the rerank 5th of 16 at +2.104. Reserving a slot for a
+document that already holds four changes nothing about Q4.
+
+Nothing else currently justifies it. No other gold question shows a document
+losing every candidate at the cut: Q6's only uncited-credible document
+(`book4`) was also already in the shortlist, and the one document that does get
+cut on Q4 (`doc18`, one candidate) is not in the gold label. If a case for it
+appears later it needs its own evidence, on this measurement's terms.
+
+This is recorded as **measured and found unnecessary** rather than left in a
+roadmap for someone to pick up as pending work. It is not pending. The
+paragraph below about `run_phrasings.py` evidence still applies to any future
+change to shortlist size or composition, and `limitations.md` still records
+that `rerank_candidates` 20 to 16 was deliberate and that 12 degraded
+non-monotonically.
+
+### What actually comes second
+
+The coverage report exists in the API and not on screen. `complete: false` on
+Q4 is invisible to a reader today. That is the next piece of work, and its one
+hard rule is already written into `contracts/types.ts`: **a null renders as
+nothing at all** - no tick, no green, no "complete" wording - because a null
+rendered as a checkmark converts "I did not check" into "I checked and it is
+fine".
 
 A second retrieval pass comes last, or never: the `shortlist_excluded` telemetry
 from step 1 answers for free whether doc17 was ever in the pool.

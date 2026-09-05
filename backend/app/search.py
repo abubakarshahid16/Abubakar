@@ -15,6 +15,7 @@ Design constraints that shaped this:
 
 from __future__ import annotations
 
+import collections
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -658,6 +659,12 @@ def search(
     # and there was no way to tell from the response which reading applied.
     evicted: list[dict] = []
 
+    #: How many candidates each document contributed to the RRF pool, counted
+    #: here because this is the only place the whole field exists - the same
+    #: reason `separation` is computed here rather than downstream. A document
+    #: with 0 is a document that genuinely matched nothing.
+    contributed: collections.Counter[str] = collections.Counter()
+
     pool: list[Candidate] = []
     for chunk_id, meta in fused.items():
         row = rows.get(chunk_id)
@@ -670,6 +677,7 @@ def search(
                 "chunk_no_longer_exists" if row is None else "not_retrievable",
             ))
             continue
+        contributed[row["document_id"]] += 1
         pool.append(
             Candidate(
                 chunk_id=chunk_id,
@@ -773,6 +781,25 @@ def search(
             if c.rerank_score is not None:
                 c.separation = scores.separation(top_score, c.rerank_score, field).value
 
+    # A per-document census of what survived, for coverage reporting. Built
+    # from the final pool, so `best_rerank_score` is None on the unreranked
+    # path rather than 0.0 - a 0.0 sits above the -3.0 floor and would read as
+    # credible when in fact nothing scored it.
+    census: dict[str, dict] = {
+        doc_id: {"candidates": n, "shortlisted": 0, "best_rerank_score": None}
+        for doc_id, n in contributed.items()
+    }
+    for c in pool:
+        row = census.setdefault(
+            c.document_id,
+            {"candidates": 0, "shortlisted": 0, "best_rerank_score": None},
+        )
+        row["shortlisted"] += 1
+        if c.rerank_score is not None:
+            best = row["best_rerank_score"]
+            if best is None or c.rerank_score > best:
+                row["best_rerank_score"] = c.rerank_score
+
     return {
         "query": asked,
         "mode": "hybrid" if dense_hits else "keyword_only",
@@ -789,5 +816,7 @@ def search(
         # difference between `total` and the number of hits, not by this list:
         # it was not dropped, only not asked for.
         "shortlist_excluded": evicted,
+        # Report-only, like shortlist_excluded. Not on the HTTP surface.
+        "document_census": census,
         "hits": [c.to_dict() for c in pool[:limit]],
     }

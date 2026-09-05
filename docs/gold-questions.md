@@ -149,7 +149,7 @@ the top of this file is discharged for these five rows.
 | Q1 | doc18, pp. 18–19 | doc18, clause *3 Logical Components of Zero Trust Architecture*, p. 18 — all three Tier 2 citations land on pp. 18–19 | ✅ |
 | Q2 | doc02, OCR-labelled | doc02 p. 68, `text_source=recognised`, OCR confidence 0.51 | ✅ |
 | Q3 | NORSOK M-501 | NORSOK, clause 7.3, p. 10 | ✅ |
-| Q4 | doc17 **and** doc19 | **doc19 only** | ⚠️ see below |
+| Q4 | doc17 **and** doc19 | **doc19 only**, and now reported as such | ⚠️ see below |
 | Q5 | refusal | refused, and named API 610 as the absent subject | ✅ |
 
 ### Q4 returned one document of two, and that is not a retrieval failure
@@ -199,11 +199,50 @@ make the answer. It loses to nothing but the passage count.
    `docs/design-multi-document-coverage.md` would not change this answer** -
    doc17 is already in the shortlist at rank 5. That plan needs re-deriving
    from this measurement before any of it is built.
-3. What is missing is exactly what section F reports and does not fix: nothing
-   asks whether the question needs more than one document, and nothing says so
-   when the answer used one. The number to quote stays **1 of 2**, and the
-   claim behind it changes from "never sought" to "retrieved, ranked fifth,
-   and not reported".
+3. What is missing is exactly what coverage reporting now reports and does not
+   fix: nothing asks whether the question needs more than one document, and
+   nothing said so when the answer used one.
+
+#### The claim to make about Q4, in the reader's terms
+
+Not *"the system missed a document"*. That is false and it sends the next
+person to tune the reranker.
+
+> The system found a credible passage in another document and the answer did
+> not include it, because the answer takes three passages and this was the
+> fifth.
+
+Smaller, truer, and more useful: it points at the passage count and at the
+absence of a report, which are the two things actually wrong.
+
+#### Measured again after coverage reporting was built
+
+`coverage.basis` is `credible_uncited`, `complete` is `false`, and the report
+reads **1 of 3** rather than 1 of 2:
+
+| Document | Status | Best rerank score |
+|---|---|---|
+| doc19 | `answered` | +3.76 |
+| **doc17** | **`credible_not_cited`** | **+2.10** |
+| **doc20** | **`credible_not_cited`** | **-1.04** |
+| book1 | `retrieved_not_credible` | -8.74 |
+| book4 | `retrieved_not_credible` | -5.05 |
+| doc18 | `expected_not_shortlisted` | none |
+| 6 others | `expected_not_retrieved` | none |
+
+**doc20 is a third document the label did not anticipate.** It is the CISA
+*Incident and Vulnerability Response Playbooks*, it clears the credibility
+floor at -1.04, and on this question it is plausibly relevant - which the
+label does not say either way. The figure is reported as measured, **1 of 3**,
+and the label's own requirement remains 1 of 2. **doc20's relevance to Q4 is a
+candidate label until an engineer confirms it**; it has not been assumed in
+either direction.
+
+The floor's own looseness is inherited here and not tuned away. -1.04 clears
+-3.0 by the system's definition of credible, and `limitations.md` already
+records that the floor's calibration gap is 3.5 points. Applying a stricter
+floor inside the coverage layer would be a second, unmeasured constant on the
+same scale, and the design forbids it for that reason.
 
 Q2 is worth noting for a second reason: doc02 has no text layer at all, so that
 answer came entirely from OCR, arrived labelled as recognised, and carried its
@@ -269,3 +308,74 @@ another collection to answer — not a term the two happen to share. A Civil
 specification that cites a security control by number, or an IT policy that
 imposes a materials or submittal requirement, would do it. This corpus has
 neither.
+
+
+---
+
+## What coverage reporting did to the other gold questions
+
+Run on 2026-09-05, all six questions, twelve-document corpus:
+
+| | Verdict | Credible and not cited |
+|---|---|---|
+| Q1 zero trust | `basis: none`, `complete: null` | — |
+| Q2 carbon capture | `basis: none`, `complete: null` | — |
+| Q3 stripe coat | `basis: none`, `complete: null` | — |
+| Q4 contain/eradicate | **`complete: false`, 1 of 3** | doc17 +2.10, doc20 -1.04 |
+| Q5 API 610 | refused, so **no coverage report at all** | — |
+| Q6 contractor submittal | **`complete: false`, 2 of 3** | book4 **-2.25** |
+
+**Q1's predicted false positive did not happen.** The design expected `zero
+trust` appearing once in a non-relevant doc19 chunk to start reporting
+`complete: false` on a question that passes cleanly. It does not, because the
+verdict no longer rests on term presence at all. Q2 and Q3 are quiet for the
+same reason.
+
+**Q6 produced one the design did not predict.** `book4`, a chemical process
+control textbook, scores **-2.25** on *"what must a contractor submit for
+review"* - above the -3.0 floor, so it is reported as a credible passage the
+answer did not use. It is almost certainly not a useful passage. This is the
+floor's calibration showing through the report rather than a fault in the
+report, and it is left visible rather than tuned out: a coverage-specific floor
+would be a new constant on a scale that already moves by 16 points, set from
+one example.
+
+**The consequence for the reader is the honest one.** `credible_not_cited`
+means *"by this system's own credibility standard there was more to read"*, not
+*"this document answers your question"*. The wording in `contracts/types.ts`
+says exactly that, and the `reason` string on each row says it again.
+
+### Why no expectation is computed from term incidence
+
+The design specified `basis: "term_incidence"` with an expected-document count
+from per-document term presence. It was built, measured, and **abandoned on the
+measurement**:
+
+| Question | Term | Documents containing it |
+|---|---|---|
+| Q4 | `contain` | **12 of 12** |
+| Q2 | `cost` | **12 of 12** |
+| Q6 | `form` | **12 of 12** |
+| Q1 | `components` | 11 of 12 |
+| Q2 | `project` | 11 of 12 |
+| Q6 | `review` | 11 of 12 |
+
+On Q4 that made **all twelve documents "expected"** and the answer 1 of 12 - a
+warning so obviously wrong it would train the reader to ignore every warning,
+which is the failure the design itself named as the worst outcome.
+
+Every fix considered was a guess:
+
+- **Drop terms present in every document.** Removes `contain`, `cost`, `form`
+  and leaves `components`, `technology`, `project`, `review` at 11 of 12.
+  Nearly every document stays "expected".
+- **Use only the narrowest term.** Unstable: on Q4 the narrowest term is
+  `organisation` at 1 of 12 - a British-spelling artefact in one document, not
+  the subject of the question.
+- **A document-spread cutoff, or a two-term minimum.** Both are new constants
+  on a new scale with one question of evidence.
+
+So the incidence table is still reported per document - knowing a document
+carries `eradicate` helps a reader decide what to open next - and the
+`expected` flag is documented in the contract as **presence, not relevance**,
+with nothing computed from it.

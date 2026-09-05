@@ -23,6 +23,7 @@ import httpx
 
 from . import intent as intent_mod
 from . import keyword
+from . import coverage
 from . import lexical
 from . import passages as passages_mod
 from . import telemetry
@@ -217,6 +218,58 @@ def _assess_candidates(
         if best is None or (verdict["coverage"] or 0) > (best["coverage"] or 0):
             best, best_index = verdict, i
     return best or empty, best_index
+
+
+def _filenames(document_ids: frozenset[str]) -> dict[str, str]:
+    """Filenames for every document in scope, including those with no hits.
+
+    A coverage row for a document that contributed nothing still has to name
+    it, and there is no hit to take the name from.
+    """
+    if not document_ids:
+        return {}
+    from .db import connect
+
+    marks = ",".join("?" * len(document_ids))
+    rows = connect().execute(
+        f"SELECT id, filename FROM documents WHERE id IN ({marks})",
+        list(document_ids),
+    ).fetchall()
+    return {row["id"]: row["filename"] for row in rows}
+
+
+def _coverage(
+    question: str,
+    results: dict,
+    *,
+    document_id: str | None,
+    allowed_document_ids: frozenset[str],
+    answered: list[dict],
+    supporting: list[dict],
+) -> dict:
+    """The coverage report, for an ANSWERED question only.
+
+    A refusal deliberately gets no coverage report: an incidence table under a
+    refusal invites the reader to read it as evidence the corpus could have
+    answered after all.
+
+    `min_rerank_score` is passed in rather than imported by the coverage layer,
+    so the floor stays defined in exactly one place. It is absolute and
+    calibrated on one population - it is never applied per document as a
+    per-document threshold.
+    """
+    return coverage.document_incidence(
+        question,
+        allowed_document_ids,
+        document_id,
+        answered_ids=frozenset(p["document_id"] for p in answered),
+        supporting_ids=frozenset(p["document_id"] for p in supporting),
+        census=results.get("document_census") or {},
+        shortlist_excluded=results.get("shortlist_excluded") or [],
+        min_rerank_score=MIN_RERANK_SCORE,
+        reranked=bool(results.get("reranked")),
+        filenames=_filenames(allowed_document_ids),
+    )
 
 
 def _is_semantically_credible(hit: dict) -> bool:
@@ -486,6 +539,11 @@ def answer(
         if second is not None:
             answers.append(_passage_payload(second, question))
         used = {p["chunk_id"] for p in answers}
+        supporting = [
+            _passage_payload(h, question)
+            for h in hits[1:limit]
+            if h["chunk_id"] not in used
+        ]
         return {
             **base,
             "answer_type": "extract",
@@ -496,11 +554,17 @@ def answer(
             # One or two passages that together answer the question. A second
             # appears only when the first cannot cover the question alone.
             "answer_passages": answers,
-            "supporting": [
-                _passage_payload(h, question)
-                for h in hits[1:limit]
-                if h["chunk_id"] not in used
-            ],
+            "supporting": supporting,
+            # Which documents the question was about, and which of them this
+            # answer used. Report-only: it describes what happened above it
+            # and changes none of it.
+            "coverage": _coverage(
+                question, results,
+                document_id=document_id,
+                allowed_document_ids=allowed_document_ids,
+                answered=answers,
+                supporting=supporting,
+            ),
             "seconds": timer.seconds(),
         }
 
@@ -573,11 +637,23 @@ def answer(
             "timings": {**base["timings"], "generation_ms": generation_ms},
         }
 
+    # A passage the model actually cited counts as answered; one supplied to
+    # it and left uncited is supporting evidence the reader can still see.
+    cited_passages = [passages[i - 1] for i in valid if 1 <= i <= len(passages)]
+    uncited = [p for p in passages if p not in cited_passages]
+
     return {
         **base,
         "answer_type": "generated",
         "answer": text,
         "cited": valid,
+        "coverage": _coverage(
+            question, results,
+            document_id=document_id,
+            allowed_document_ids=allowed_document_ids,
+            answered=cited_passages,
+            supporting=uncited,
+        ),
         "rejected_citations": invented,
         "truncated": truncated,
         "passages": passages,

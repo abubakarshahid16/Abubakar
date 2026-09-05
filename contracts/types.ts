@@ -304,6 +304,70 @@ export interface AnswerPassage {
   ocr_alphabet_sample: string | null;
 }
 
+/** Where a document stood in relation to the answer.
+ *
+ *  `credible_not_cited` is the one a reader acts on: a passage from this
+ *  document cleared the credibility floor and the answer used others instead,
+ *  because an answer takes only its highest-ranked passages. It is not a
+ *  retrieval failure and must not be worded as one. */
+export type DocumentCoverageStatus =
+  | "answered"
+  | "supporting"
+  | "credible_not_cited"
+  | "retrieved_not_credible"
+  | "expected_not_shortlisted"
+  | "expected_not_retrieved"
+  | "searched_no_match";
+
+export interface DocumentCoverage {
+  document_id: string;
+  filename: string;
+  status: DocumentCoverageStatus;
+  /** Carries a distinguishing term from the question. PRESENCE, NOT
+   *  RELEVANCE - no completeness claim rests on this, and it must not be
+   *  rendered as a relevance judgement. */
+  expected: boolean;
+  distinguishing_terms: string[];
+  /** Reached the fused candidate pool. 0 is a real 0. */
+  candidates: number;
+  shortlisted: number;
+  /** Null unless a passage from this document was scored in the final rerank
+   *  batch. Never 0.0 as a stand-in - 0.0 sits above the -3.0 floor and would
+   *  read as credible. Do not default it in the UI. */
+  best_rerank_score: number | null;
+  reason: string | null;
+}
+
+/** Which documents the question was about, and which the answer used.
+ *
+ *  Null on the AnswerResult for a refusal, deliberately: an incidence table
+ *  under a refusal invites the reader to read it as evidence the corpus could
+ *  have answered after all. */
+export interface Coverage {
+  /** What the completeness verdict rests on.
+   *
+   *  There is no `term_incidence` basis, by measurement rather than oversight:
+   *  it made all twelve documents "expected" on the gold question this feature
+   *  exists to measure, because "contain" is an ordinary English verb present
+   *  in every one of them. */
+  basis: "credible_uncited" | "single_document_scope" | "none";
+  /** Documents that produced a credible passage. Null when no completeness
+   *  claim is being made - never 0. */
+  expected_documents: number | null;
+  found_documents: number | null;
+  searched_documents: number;
+  /** `false` when a credible passage went unused. Otherwise NULL. NEVER true.
+   *
+   *  A NULL MUST RENDER AS NOTHING AT ALL - no tick, no green, no "complete"
+   *  wording. Rendering a null as a checkmark converts "I did not check" into
+   *  "I checked and it is fine", which is the single easiest way for this
+   *  feature to become a lie. `complete === false` names the gap and the
+   *  document; anything else says nothing. */
+  complete: boolean | null;
+  documents: DocumentCoverage[];
+  note: string | null;
+}
+
 export interface AnswerResult {
   question: string;
   answer_type: AnswerType;
@@ -334,6 +398,9 @@ export interface AnswerResult {
   truncated: boolean;
   /** guidance only: which kind of non-question this was */
   input_kind: string | null;
+  /** Report-only. Null for a refusal, and null for an answer produced without
+   *  the cross-encoder (nothing was scored for credibility). */
+  coverage: Coverage | null;
   /** guidance only: real questions drawn from the loaded documents */
   examples: string[];
   retrieval_mode: string;

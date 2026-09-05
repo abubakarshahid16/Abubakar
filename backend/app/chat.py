@@ -414,6 +414,10 @@ _PAYLOAD_KEYS = (
     "retrieval_mode", "reranked", "candidates_considered", "model",
     "prompt_tokens", "output_tokens", "seconds", "timings",
     "input_kind", "examples", "answer_passages", "lexical",
+    # Without this, reopening a conversation would show a complete-looking
+    # answer with the partial-coverage warning silently gone - worse than
+    # never having shipped the field.
+    "coverage",
 )
 
 
