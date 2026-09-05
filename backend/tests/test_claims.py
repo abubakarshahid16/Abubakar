@@ -26,6 +26,7 @@ from app.claims import (
     label_cluster,
     normalise,
     normalise_strict,
+    question_terms,
     split_sentences,
     to_api,
 )
@@ -201,7 +202,12 @@ def test_same_value_two_spellings_two_documents_is_agreement():
     out = cluster(extract_claims(ev), frozenset({"adhesion"}))
     assert len(out) == 1
     assert out[0].label == "agreement"
-    assert out[0].facet == "adhesion · MPa"
+    # "adhesion (MPa)", not "adhesion · MPa": the subject reads as a phrase
+    # and the unit sits in brackets where a unit belongs. The old form joined
+    # every term, designator and unit with " · " and produced things like
+    # "coating · thickness · A · um", which names four things and therefore
+    # names none of them.
+    assert out[0].facet == "adhesion (MPa)"
     assert {r.filename for r in out[0].rows} == {"norsok.pdf", "iso.pdf"}
 
 
@@ -425,3 +431,20 @@ def test_a_run_of_dots_does_not_crash_extraction():
         split_sentences(text)  # must not raise
     (c,) = extract_claims([_evidence("e1", ". A thickness of 280 um applies.")])
     assert ("280", "um") in {(m.raw_value, m.raw_unit) for m in c.measurements}
+
+
+def test_a_facet_names_one_dimension_a_reader_recognises():
+    """"coating · thickness · A · um" names four things and so names none.
+
+    The subject reads as a phrase; the unit goes in brackets. This is the
+    string a reader scans a gap analysis by, so it has to say what is being
+    compared.
+    """
+    rows = extract_claims([
+        _evidence("e1", "Minimum coating thickness shall be 125 um."),
+        _evidence("e2", "The coating thickness shall be 280 um.", filename="b.pdf"),
+    ])
+    (c,) = cluster(rows, question_terms("what coating thickness is required"))
+    assert c.facet == "coating thickness (µm)", c.facet
+    assert " · " not in c.facet
+    assert "um" not in c.facet, "the reader's unit is µm, not the corpus's um"
