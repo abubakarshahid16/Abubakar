@@ -294,7 +294,16 @@ ollama serve
   // ------------------------------------------------------ tier 1: quotation
   if (view.answer_type === "extract") {
     const p = view.passage;
+    // POSITIVE PREDICATE. The verbatim claim is asserted only when provenance
+    // says "extracted" - never as the fallback for everything that is not
+    // recognised. `viewFromMessage` builds from `m.payload ?? {}`, so a
+    // message whose payload is missing or trimmed yields passage: null, and
+    // the old `recognised && p ? OCR : VERBATIM` branch rendered that under
+    // the strongest claim the product can make, with no passage, no citation
+    // and no evidence panel behind it. Absence of provenance is not evidence
+    // of provenance.
     const recognised = isRecognised(p);
+    const extracted = p?.text_source === "extracted";
     return (
       <div className="rounded-lg border border-ink-600 bg-ink-850 p-4">
         {/* THE LABEL IS THE CLAIM. "Quoted verbatim" is literally true only
@@ -307,14 +316,18 @@ ollama serve
         <div className="flex flex-wrap items-center justify-between gap-2">
           {recognised && p ? (
             <ProvenanceMark passage={p} variant="full" />
-          ) : (
+          ) : extracted ? (
             <Label tone="quote">Quoted verbatim from the document</Label>
+          ) : (
+            <Label tone="ocr">Provenance unknown — source not attached</Label>
           )}
           {view.seconds != null && (
             <span className="font-mono text-[11px] text-slateish-500">
               {formatDuration(view.seconds)}
               {" · "}
-              {p ? provenanceDetail(p) : "quoted directly, no AI rewriting"}
+              {p
+                ? provenanceDetail(p)
+                : "this answer arrived without its source passage — it cannot be checked"}
             </span>
           )}
         </div>

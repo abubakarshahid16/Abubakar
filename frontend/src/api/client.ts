@@ -65,7 +65,36 @@ function disconnected(detail: string): Result<never> {
   };
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<Result<T>> {
+/**
+ * A body that parsed as JSON but is not the shape the caller will index into.
+ *
+ * ONE GUARD, AT THE BOUNDARY. The alternative is an Array.isArray check at
+ * every call site, and that is exactly how this defect came back: IngestionView
+ * carried a guard and a comment explaining it, while DocumentsView and both
+ * list reads in ChatView indexed straight into whatever arrived. Four call
+ * sites is four chances to forget, and the fifth screen someone adds will
+ * forget too.
+ *
+ * A malformed body becomes an ordinary ApiError, so the views' existing error
+ * state renders it instead of a white screen. The check lives here because
+ * this is the only place every response passes through.
+ */
+export type ShapeCheck = (body: unknown) => boolean;
+
+export const isArrayBody: ShapeCheck = (b) => Array.isArray(b);
+
+export const hasArrayField =
+  (field: string): ShapeCheck =>
+  (b) =>
+    typeof b === "object" &&
+    b !== null &&
+    Array.isArray((b as Record<string, unknown>)[field]);
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  expect?: ShapeCheck,
+): Promise<Result<T>> {
   let response: Response;
   try {
     response = await fetch(`${BASE}${path}`, init);
@@ -100,13 +129,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<Result<T>> 
     return { ok: false, disconnected: false, error };
   }
 
-  return { ok: true, data: (await response.json()) as T };
+  const body = await response.json();
+  if (expect && !expect(body)) {
+    // Never a white screen. The reader gets the same card any other API
+    // failure produces, and the console keeps the detail for whoever is
+    // debugging the server.
+    // eslint-disable-next-line no-console
+    console.error(`Malformed response from ${path}`, body);
+    return {
+      ok: false,
+      disconnected: false,
+      error: {
+        code: "internal",
+        message:
+          "The server sent a response this screen could not read. " +
+          "Nothing has been lost - try again, and check the API log.",
+      },
+    };
+  }
+  return { ok: true, data: body as T };
 }
 
 export const api = {
   health: () => request<Health>("/health"),
   metrics: () => request<Metrics>("/metrics"),
-  documents: () => request<DocumentRecord[]>("/documents"),
+  documents: () =>
+    request<DocumentRecord[]>("/documents", undefined, isArrayBody),
   document: (id: string) => request<DocumentRecord>(`/documents/${encodeURIComponent(id)}`),
   chunks: (id: string, opts: { limit?: number; offset?: number; retrievable?: string } = {}) => {
     const q = new URLSearchParams();
@@ -159,9 +207,12 @@ export const api = {
     request<unknown>(`/documents/${encodeURIComponent(id)}?confirm=true`, { method: "DELETE" }),
 
   // ---------- conversations ----------
-  conversations: (limit = 20) => request<ConversationList>(`/conversations?limit=${limit}`),
+  conversations: (limit = 20) =>
+    request<ConversationList>(`/conversations?limit=${limit}`, undefined,
+      hasArrayField("conversations")),
   conversation: (id: string) =>
-    request<ConversationDetail>(`/conversations/${encodeURIComponent(id)}`),
+    request<ConversationDetail>(`/conversations/${encodeURIComponent(id)}`,
+      undefined, hasArrayField("messages")),
   newConversation: (documentId?: string | null) =>
     request<Conversation>("/conversations", {
       method: "POST",
