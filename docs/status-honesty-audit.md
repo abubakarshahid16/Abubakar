@@ -3,7 +3,7 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Nine separate times a status field has claimed
+**Why this document exists.** Ten separate times a status field has claimed
 something the system was not doing:
 
 | # | The claim | The reality |
@@ -13,6 +13,7 @@ something the system was not doing:
 | 3 | `stalled: false` with six documents waiting | Computed from heartbeat freshness, which only proves the loop is spinning |
 | 4 | `failed` on a fully embedded document | The chunk short-circuit did not advance the state, so a guard tripped |
 | 5 | `ready` with nothing searchable | A document whose every chunk was excluded still reported ready |
+| 10 | Three green tests over code that was broken | Each had fixtures that could not produce the condition the test claimed to check. A vacuous test does not fail; it passes, which is worse |
 | 9 | README: "Disk — ~2 GB" | 768 MB inside the clone, measured. Nobody had ever measured it; the figure was written from intuition and read as a specification |
 | 8 | OCR raised coverage by **+12.5%** on NORSOK | It raised it by **+4.2%**. The "before" figure dropped every recognised CHUNK, which also drops pages that chunk merely spans — three pages were charged to OCR that OCR never read |
 | 7 | A passing ordering test over a document that had `failed` | The test asserted the statuses it OBSERVED at every OCR invocation and never asserted where the document FINISHED. `partially_searchable -> chunking` was an illegal transition; the raise was swallowed by the broad handler in `process()`; every scanned document on a fresh machine landed at `failed`, green suite and all |
@@ -21,6 +22,46 @@ something the system was not doing:
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
 it is derived from, so the next instance is easy to spot.
+
+**Entry 10 is a pattern rather than an accident, which is why it is recorded
+as one.** Three tests in a single session were green over broken code, and all
+three failed the same way: **the fixtures could not produce the condition the
+test claimed to check.**
+
+| Test | What its fixtures could not produce |
+|---|---|
+| `provenance.enumerated.test.tsx` | Only ever supplied passages that EXIST, so it could not see the verbatim label being claimed over a null passage — the exact defect it was written to prevent |
+| `Shell.test.tsx` | Answered every endpoint with the health object, so `/documents` returned a non-array; the screen degraded to a spinner and the test asserted "Reading the queue" and called that success |
+| `test_a_passage_too_far_below_the_primary_is_not_admitted` | Calls nothing. `_hit` is a pure factory, the `primary` candidate is never used, and the assertion compares a `separation` the test itself set to `0.89` against a constant |
+
+The third is the purest form: a comparison between two literals, wearing a
+test's name. It passed for years of commits because **a vacuous test does not
+fail — it passes**, and a passing test is the thing nobody re-reads.
+
+**It recurred within the hour, in the work that recorded it.** The
+route-enforcement tests for the access scope uploaded two PDFs built from the
+same template — identical bytes, therefore the same SHA-256, therefore
+deduplicated by the upload path into ONE document. `visible` and `hidden` were
+the same id, so every test using that fixture was asserting that a document
+could not see itself. It passed. It was caught only by deliberately widening
+the scope and finding that a test which should have failed did not.
+
+The fixture now gives the two documents different text and asserts
+`visible != hidden` with a comment saying why, so the vacuity cannot come back
+silently. That assertion is the cheap form of the rule: **make the fixture
+prove it can produce the condition, in the fixture.**
+
+**Two of the three were found by something other than the test suite.** The
+provenance one was found by reading the branch; the third by `ruff F841` on the
+first lint run this codebase has ever had. The suite could not find them
+because they were part of the suite.
+
+The rule this implies is standing rule 7: **a test must be shown to fail
+against the unfixed code, or it is not evidence.** Every fix in this session
+that carries "proven by deliberate failure" in its commit message is that rule
+being followed; these three are what it looks like when it is not. Writing the
+test first is one way to get there, but not the only one — reverting the fix
+and watching the test go red works just as well and is available afterwards.
 
 **Entry 9 is the smallest here and the most ordinary, which is the point.**
 The setup guide stated a disk requirement of "~2 GB". The measured figure is
@@ -129,7 +170,7 @@ threaded through retrieval and passage expansion, and made a REQUIRED field in
 decides whether a sentence may be called the document's own words never read
 it. Every layer was correct and the claim was still false.
 
-The lesson is a rule, now standing rule 10: **a provenance field that no
+The lesson is a rule, now standing rule 11: **a provenance field that no
 assertion reads is decoration.** Storing it, typing it and requiring it are
 not the safeguard; the safeguard is a test that fails when the label is wrong.
 The test that now guards this asserts the ABSENCE of the verbatim label on
@@ -353,16 +394,19 @@ asserts no client error ever reports `internal`.
    Corpus counts and machine state come from the database and the OS at run
    time, never from a static declaration. A result that cannot say what it ran
    against is not a measurement.
-7. **A number is not a measurement until you can say what it counts.** Before
+7. **A test must be shown to FAIL against the unfixed code, or it is not
+   evidence.** A test that has never been watched failing is an assertion that
+   the fixtures reach the code, and that assertion is usually untested.
+8. **A number is not a measurement until you can say what it counts.** Before
    quoting a figure, name the unit and the population, and check one case by
    hand. An internally consistent wrong number passes every automated check
    there is.
-8. **Observing a step is not observing an outcome.** A test that asserts
+9. **Observing a step is not observing an outcome.** A test that asserts
    intermediate state must also assert terminal state. Watching the right
    thing happen says nothing about whether it worked.
-9. **A documented hazard is not a guard.** If a trap is worth writing down, the
+10. **A documented hazard is not a guard.** If a trap is worth writing down, the
    check belongs in the path of the tool that can fall into it.
-10. **A provenance field that no assertion reads is decoration.** Storing,
+11. **A provenance field that no assertion reads is decoration.** Storing,
    typing and requiring it are not the safeguard. Where provenance decides
    what a claim may say, a test must assert the ABSENCE of the stronger claim
    — presence-only assertions pass while both claims are on screen.

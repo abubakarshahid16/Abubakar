@@ -25,6 +25,8 @@ export interface AnswerView {
   cited: number[];
   rejected_citations: number[];
   model: string | null;
+  /** generation hit the output-token cap; see contracts/types.ts */
+  truncated: boolean;
   seconds: number | null;
   examples: string[];
 }
@@ -41,6 +43,7 @@ export function viewFromMessage(m: Message): AnswerView {
     cited: p.cited ?? [],
     rejected_citations: p.rejected_citations ?? [],
     model: p.model ?? null,
+    truncated: p.truncated ?? false,
     seconds: p.seconds ?? null,
     examples: p.examples ?? [],
   };
@@ -294,7 +297,16 @@ ollama serve
   // ------------------------------------------------------ tier 1: quotation
   if (view.answer_type === "extract") {
     const p = view.passage;
+    // POSITIVE PREDICATE. The verbatim claim is asserted only when provenance
+    // says "extracted" - never as the fallback for everything that is not
+    // recognised. `viewFromMessage` builds from `m.payload ?? {}`, so a
+    // message whose payload is missing or trimmed yields passage: null, and
+    // the old `recognised && p ? OCR : VERBATIM` branch rendered that under
+    // the strongest claim the product can make, with no passage, no citation
+    // and no evidence panel behind it. Absence of provenance is not evidence
+    // of provenance.
     const recognised = isRecognised(p);
+    const extracted = p?.text_source === "extracted";
     return (
       <div className="rounded-lg border border-ink-600 bg-ink-850 p-4">
         {/* THE LABEL IS THE CLAIM. "Quoted verbatim" is literally true only
@@ -307,14 +319,18 @@ ollama serve
         <div className="flex flex-wrap items-center justify-between gap-2">
           {recognised && p ? (
             <ProvenanceMark passage={p} variant="full" />
-          ) : (
+          ) : extracted ? (
             <Label tone="quote">Quoted verbatim from the document</Label>
+          ) : (
+            <Label tone="ocr">Provenance unknown — source not attached</Label>
           )}
           {view.seconds != null && (
             <span className="font-mono text-[11px] text-slateish-500">
               {formatDuration(view.seconds)}
               {" · "}
-              {p ? provenanceDetail(p) : "quoted directly, no AI rewriting"}
+              {p
+                ? provenanceDetail(p)
+                : "this answer arrived without its source passage — it cannot be checked"}
             </span>
           )}
         </div>
@@ -419,6 +435,20 @@ ollama serve
           activeSource={activeSource}
         />
       </p>
+
+      {/* An answer that simply stops reads as broken, whatever its citations
+          say, and the reader cannot otherwise tell whether the model finished,
+          ran out of budget, or crashed. Those are three different situations
+          and only one of them is a defect. A half-written citation marker has
+          already been removed server-side, because `[S2` with no closing
+          bracket looks like a fault in the citation system rather than a
+          length limit. */}
+      {view.truncated && (
+        <p className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
+          This answer reached its length limit and stops early — the model had
+          more to say. The passages below are complete; open them for the rest.
+        </p>
+      )}
 
       {sources.length > 0 && (
         <ul className="mt-3 space-y-1">

@@ -81,7 +81,7 @@ def test_no_span_is_invented_when_nothing_matches():
 def test_tier_one_quotes_verbatim_and_never_generates():
     client = TestClient(app)
     upload(client)
-    result = answer.answer("what is the vibration limit for pump P-101A")
+    result = answer.answer("what is the vibration limit for pump P-101A", allowed_document_ids=_scope())
 
     assert result["answer_type"] == "extract"
     passage = result["passage"]
@@ -95,7 +95,7 @@ def test_tier_one_quotes_verbatim_and_never_generates():
 def test_tier_one_carries_document_page_and_section():
     client = TestClient(app)
     upload(client)
-    p = answer.answer("what material is the casing")["passage"]
+    p = answer.answer("what material is the casing", allowed_document_ids=_scope())["passage"]
     assert p["filename"] and p["page_start"] and "document_id" in p
     # section may legitimately be null, but the key must exist
     assert "section" in p
@@ -109,7 +109,8 @@ def test_a_question_with_no_evidence_is_refused_rather_than_answered():
     upload(client)
     result = answer.answer(
         "what is the maximum allowable chloride content in NORSOK M-630 duplex piping"
-    )
+    ,
+        allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert result["answer"] is None
     assert result["reason"]
@@ -122,13 +123,14 @@ def test_refusal_happens_before_the_model_is_called():
     upload(client)
     result = answer.answer(
         "what torque is specified for a 24 inch ASME B16.5 flange", tier="generated"
-    )
+    ,
+        allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert "generation_ms" not in result["timings"]
 
 
 def test_an_empty_corpus_refuses_rather_than_erroring():
-    result = answer.answer("anything at all")
+    result = answer.answer("anything at all", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert result["answer"] is None
 
@@ -149,7 +151,7 @@ def test_an_answer_citing_only_invented_sources_becomes_a_refusal(monkeypatch):
     monkeypatch.setattr(
         answer, "_call_model", lambda prompt, timeout=180.0: {"response": "Made up [S9]."}
     )
-    result = answer.answer("what is the vibration limit", tier="generated")
+    result = answer.answer("what is the vibration limit", tier="generated", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert result["reason"] == "the generated answer cited no supplied source"
     assert result["rejected_citations"] == [9]
@@ -163,7 +165,7 @@ def test_an_invented_citation_is_stripped_from_an_otherwise_grounded_answer(monk
         "_call_model",
         lambda prompt, timeout=180.0: {"response": "Real claim [S1]. Invented [S9]."},
     )
-    result = answer.answer("what is the vibration limit", tier="generated")
+    result = answer.answer("what is the vibration limit", tier="generated", allowed_document_ids=_scope())
     assert result["answer_type"] == "generated"
     assert "[S9]" not in result["answer"]
     assert "[S1]" in result["answer"]
@@ -177,7 +179,7 @@ def test_the_model_reporting_insufficient_evidence_is_honoured(monkeypatch):
     monkeypatch.setattr(
         answer, "_call_model", lambda prompt, timeout=180.0: {"response": "INSUFFICIENT EVIDENCE"}
     )
-    result = answer.answer("what is the vibration limit", tier="generated")
+    result = answer.answer("what is the vibration limit", tier="generated", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert result["answer"] is None
 
@@ -190,7 +192,7 @@ def test_the_model_being_unreachable_is_reported_not_crashed(monkeypatch):
         raise ConnectionError("ollama is not running")
 
     monkeypatch.setattr(answer, "_call_model", boom)
-    result = answer.answer("what is the vibration limit", tier="generated")
+    result = answer.answer("what is the vibration limit", tier="generated", allowed_document_ids=_scope())
     assert result["answer_type"] == "model_unavailable"
     assert result["answer"] is None
     assert "could not be reached" in result["reason"]
@@ -268,7 +270,7 @@ def test_a_trailing_period_does_not_eat_a_clause_number():
 def test_the_response_shows_the_question_as_typed_not_as_normalised():
     client = TestClient(app)
     upload(client)
-    result = answer.answer("what is the vibration limit ??")
+    result = answer.answer("what is the vibration limit ??", allowed_document_ids=_scope())
     assert result["question"] == "what is the vibration limit ??"
 
 
@@ -278,8 +280,8 @@ def test_how_a_question_is_punctuated_does_not_change_whether_it_is_answered():
     threshold. The reader typed the same question either way."""
     client = TestClient(app)
     upload(client)
-    plain = answer.answer("what is the vibration limit for pump P-101A")
-    punctuated = answer.answer("what is the vibration limit for pump P-101A ??")
+    plain = answer.answer("what is the vibration limit for pump P-101A", allowed_document_ids=_scope())
+    punctuated = answer.answer("what is the vibration limit for pump P-101A ??", allowed_document_ids=_scope())
     assert plain["answer_type"] == punctuated["answer_type"] == "extract"
     assert plain["passage"]["chunk_id"] == punctuated["passage"]["chunk_id"]
 
@@ -290,7 +292,8 @@ def test_punctuation_stripping_does_not_rescue_an_unanswerable_question():
     upload(client)
     result = answer.answer(
         "what is the maximum allowable chloride content in NORSOK M-630 duplex piping??"
-    )
+    ,
+        allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
 
 
@@ -304,7 +307,7 @@ def test_a_passage_is_expanded_to_its_parent_block():
     the chunk next door."""
     client = TestClient(app)
     upload(client)
-    result = answer.answer("what is the vibration limit for pump P-101A")
+    result = answer.answer("what is the vibration limit for pump P-101A", allowed_document_ids=_scope())
     p = result["passage"]
     assert p["chunks_joined"] >= 1
     assert p["match_span"] is not None
@@ -362,5 +365,125 @@ def test_the_generated_tier_uses_a_smaller_budget_so_sources_fit(monkeypatch):
         answer, "_call_model",
         lambda prompt, timeout=180.0: seen.update(prompt=prompt) or {"response": "x [S1]."},
     )
-    answer.answer("what is the vibration limit", tier="generated")
+    answer.answer("what is the vibration limit", tier="generated", allowed_document_ids=_scope())
     assert len(seen["prompt"]) <= 3 * settings.generated_context_chars + 800
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    Retrieval now REQUIRES an access scope with no default, so a test has to
+    name the documents it is allowed to see. These tests want all of them, and
+    saying so out loud is the point: when authentication arrives, every one of
+    these is a line somebody changes on purpose rather than a default that
+    quietly kept meaning "everything".
+    """
+    from app.search import every_document_id
+    return every_document_id()
+
+
+# ------------------------------------------------- truncation is not silent
+
+def test_a_citation_cut_in_half_by_the_budget_is_removed():
+    """`[S2` with no closing bracket shows the reader literal broken text and
+    reads as a fault in the citation system rather than a length limit. A
+    broken citation is worse than a missing one - the same reasoning that
+    already strips invented citations."""
+    from app.answer import strip_half_citation
+    assert strip_half_citation(
+        "Trust decisions use external sources to run a trust algorithm [S2"
+    ) == "Trust decisions use external sources to run a trust algorithm"
+    assert strip_half_citation("...perform containment [S") == "...perform containment"
+    assert strip_half_citation("...perform containment [") == "...perform containment"
+
+
+def test_a_complete_citation_is_never_stripped():
+    from app.answer import strip_half_citation
+    text = "The policy engine grants access [S2]."
+    assert strip_half_citation(text) == text
+    # and a bracket mid-sentence is ordinary prose, not a half-citation
+    mid = "The array [S1] and later text continues here."
+    assert strip_half_citation(mid) == mid
+
+
+def test_a_truncated_answer_says_it_was_truncated_and_loses_its_half_citation(
+        monkeypatch):
+    """The reader must be able to tell "the model finished" from "it ran out of
+    budget" from "it crashed". Those are three situations and only one is a
+    defect; a silent stop makes all three look identical.
+
+    Reproduces the demo defect exactly: generation stopped inside `[S1`.
+    """
+    from app import answer as answer_mod
+    from app.search import every_document_id
+
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    def fake_model(prompt, timeout=180.0):
+        return {
+            # The realistic shape of the reported defect: complete citations,
+            # then the budget runs out inside the next marker.
+            "response": ("Containment isolates affected hosts [S1]. Eradication "
+                         "removes the cause [S1"),
+            "done_reason": "length",
+            "eval_count": 250,
+            "prompt_eval_count": 900,
+        }
+
+    monkeypatch.setattr(answer_mod, "_call_model", fake_model)
+    r = answer_mod.answer("what vibration limits are specified", tier="generated",
+                          limit=3, allowed_document_ids=every_document_id())
+
+    assert r["answer_type"] == "generated"
+    assert r["truncated"] is True, "a capped generation must say it was capped"
+    assert not r["answer"].rstrip().endswith("[S1"), (
+        "the half-written citation marker survived into the answer")
+    assert r["answer"].rstrip().endswith("removes the cause")
+    assert "[S1]." in r["answer"], "the COMPLETE citation must survive"
+
+
+def test_an_answer_that_finished_is_not_marked_truncated(monkeypatch):
+    from app import answer as answer_mod
+    from app.search import every_document_id
+
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    monkeypatch.setattr(answer_mod, "_call_model", lambda prompt, timeout=180.0: {
+        "response": "Containment includes isolating affected hosts [S1].",
+        "done_reason": "stop", "eval_count": 51, "prompt_eval_count": 900,
+    })
+    r = answer_mod.answer("what vibration limits are specified", tier="generated",
+                          limit=3, allowed_document_ids=every_document_id())
+    assert r["truncated"] is False
+    assert r["answer"].endswith("[S1].")
+
+
+def test_stripping_the_only_citation_refuses_and_says_why(monkeypatch):
+    """A surprising but correct consequence, asserted so it stays deliberate.
+
+    If the budget ran out inside the ONLY citation, removing it leaves an
+    answer with no support - and an uncited generated answer is not shown, by
+    the same rule that rejects invented citations. The refusal must say it was
+    a length limit rather than a lack of evidence, because those are different
+    facts and only one of them is about the documents.
+    """
+    from app import answer as answer_mod
+    from app.search import every_document_id
+
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    monkeypatch.setattr(answer_mod, "_call_model", lambda prompt, timeout=180.0: {
+        "response": "Containment includes isolating affected hosts [S1",
+        "done_reason": "length", "eval_count": 250, "prompt_eval_count": 900,
+    })
+    r = answer_mod.answer("what vibration limits are specified", tier="generated",
+                          limit=3, allowed_document_ids=every_document_id())
+    assert r["answer_type"] == "insufficient_evidence"
+    assert r["truncated"] is True
+    assert "length limit" in r["reason"], r["reason"]

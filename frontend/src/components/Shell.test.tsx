@@ -30,6 +30,15 @@ const healthOnline: Health = {
   },
 };
 
+/** Enough of /api/metrics for the Ingestion screen to actually render. */
+const ingestionMetrics = {
+  refresh_seconds: 15,
+  throughput: {
+    extract: { unit: "pages/s", samples: 2, median: 277.6, best: 280.1,
+               items_total: 1400 },
+  },
+};
+
 function mockFetch(impl: (url: string) => Promise<Response> | Response) {
   const spy = vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -63,7 +72,16 @@ describe("shell navigation", () => {
   });
 
   it("renders the ingestion screen rather than a placeholder", async () => {
-    mockFetch(() => json(healthOnline));
+    // Route-aware, not one body for every endpoint. The previous fixture
+    // answered /documents with the HEALTH object, and the screen only looked
+    // healthy because a shape guard degraded it to a spinner - so this test
+    // asserted "Reading the queue" and called that success. A fixture that
+    // cannot produce the real screen is not testing the real screen.
+    mockFetch((url) => {
+      if (url.includes("/documents")) return json([]);
+      if (url.includes("/metrics")) return json(ingestionMetrics);
+      return json(healthOnline);
+    });
     const user = userEvent.setup();
     render(<App />);
 

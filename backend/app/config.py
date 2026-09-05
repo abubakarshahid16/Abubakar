@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     #: an unset model_path by downloading from modelscope.cn on first
     #: construction, which fails on an air-gapped machine at the first
     #: recognition rather than at install. Staged by scripts/fetch_models.py.
+    #: `disabled` (default) or `demo_required`. Disabled must behave exactly as
+    #: the system did before authorisation existed, so every pre-existing test
+    #: passes unchanged with it off - which is what proves the enforcement is
+    #: additive, and what makes the rollback a config change rather than a
+    #: revert. The enforcement path runs in BOTH modes; only the contents of
+    #: the scope differ.
+    auth_mode: str = "disabled"
+
     ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
     ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"
     #: The recogniser is the open decision. PP-OCRv6 ships no English model, so
@@ -72,11 +80,37 @@ class Settings(BaseSettings):
     num_thread: int = 12
     num_batch: int = 2048
     num_ctx: int = 1536
-    max_output_tokens: int = 100
+    #: Raised from 100 after measuring what the gold questions actually need.
+    #: At 100, 5 of 12 Tier 2 generations stopped mid-sentence and one stopped
+    #: inside a citation marker. At 250, 0 of 12 did, and the largest answer
+    #: used 108 tokens - so 250 is roughly twice the observed worst case rather
+    #: than a round number.
+    #:
+    #: This costs nothing in latency for answers that already fit: num_predict
+    #: is a CEILING, not a target, and a generation that finishes early stops
+    #: early. Measured medians moved in both directions across the four
+    #: questions (Q1 19.9->24.3s, Q2 21.9->16.1s, Q4 30.5->25.6s), which is
+    #: machine noise, not a cost. The extra tokens are paid only by the answers
+    #: that were previously being cut off.
+    max_output_tokens: int = 250
     temperature: float = 0.1
 
     upload_chunk_bytes: int = 1024 * 1024
-    max_upload_mb: int = 2048
+    #: Ceiling on a single upload, enforced DURING the stream in
+    #: `upload.stream_to_temp` - the count is checked per block and the read
+    #: aborts the moment it is exceeded, rather than discovering afterwards
+    #: that the whole file was already on disk. This is the only unbounded
+    #: untrusted input in the system.
+    #:
+    #: SET FROM MEASUREMENT, not from a round number. The largest document
+    #: ingested is book4 at 37.6 MB / 1,400 pages (27.5 KB per page); the
+    #: corpus ranges 3.6-27.5 KB per page. 512 MB is 13.6x that largest file
+    #: and about 19,000 pages at the observed density - comfortably above any
+    #: real specification, while bounding what a single malicious request can
+    #: write to a volume with ~45 GB free. The previous value of 2048 MB was
+    #: 54x the largest real document and had never been measured against
+    #: anything.
+    max_upload_mb: int = 512
     page_batch_size: int = 32
     extract_processes: int = 2
     embed_batch_size: int = 32

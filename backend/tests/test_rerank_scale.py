@@ -149,7 +149,7 @@ def test_an_authoritative_heading_beats_a_passing_mention():
     client = TestClient(app)
     upload(client, [ANNEX_A1, CLAUSE_45, *FILLER])
 
-    result = answer_mod.answer("system 1 coats and thickness")
+    result = answer_mod.answer("system 1 coats and thickness", allowed_document_ids=_scope())
     assert result["answer_type"] == "extract"
     section = result["answer_passages"][0]["section"]
     assert section.startswith("A.1"), f"answered from {section!r}, not annex A.1"
@@ -283,7 +283,13 @@ def test_a_genuinely_two_part_question_still_gets_two_passages(monkeypatch):
         lambda *a, **k: ["limit"],
     )
 
-    primary = _hit("c11", "11 Inspection and testing", 16, "check frequency", 0.0, False)
+    # FIXME(backlog 13): this test does not exercise the system. `_hit` is a
+    # pure factory, `primary` is never used, and the assertion below compares
+    # `distant["separation"]` - a value this test set to 0.89 itself - against
+    # a constant. Nothing is called and nothing is admitted or rejected. Found
+    # by ruff F841; left in place rather than deleted because `primary` is the
+    # only remaining evidence of what the test was meant to check.
+    primary = _hit("c11", "11 Inspection and testing", 16, "check frequency", 0.0, False)  # noqa: F841
     co_answer = _hit(
         "c44", "4.4 Ambient conditions", 7,
         "the relative humidity limit is 85 %",
@@ -303,7 +309,13 @@ def test_a_genuinely_two_part_question_still_gets_two_passages(monkeypatch):
 def test_a_passage_too_far_below_the_primary_is_not_admitted():
     """The separation rule still does its own job: a candidate far down a
     decisive field is not a co-answer however it is worded."""
-    primary = _hit("c11", "11 Inspection and testing", 16, "check frequency", 0.0, False)
+    # FIXME(backlog 13): this test does not exercise the system. `_hit` is a
+    # pure factory, `primary` is never used, and the assertion below compares
+    # `distant["separation"]` - a value this test set to 0.89 itself - against
+    # a constant. Nothing is called and nothing is admitted or rejected. Found
+    # by ruff F841; left in place rather than deleted because `primary` is the
+    # only remaining evidence of what the test was meant to check.
+    primary = _hit("c11", "11 Inspection and testing", 16, "check frequency", 0.0, False)  # noqa: F841
     distant = _hit("zz", "3.1 LINEAR MODELS", 111, "the limit of a sequence", 0.89, False)
     assert distant["separation"] > answer_mod.SUPPORTING_SEPARATION
 
@@ -372,3 +384,16 @@ def test_separation_is_dimensionless_and_normalised_per_query():
     assert isinstance(tight, scores.RelativeScore)
     # the same raw 1.0-point gap means different things in different fields
     assert tight.value < loose.value
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    Retrieval now REQUIRES an access scope with no default, so a test has to
+    name the documents it is allowed to see. These tests want all of them, and
+    saying so out loud is the point: when authentication arrives, every one of
+    these is a line somebody changes on purpose rather than a default that
+    quietly kept meaning "everything".
+    """
+    from app.search import every_document_id
+    return every_document_id()

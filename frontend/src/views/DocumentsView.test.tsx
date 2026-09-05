@@ -417,3 +417,20 @@ describe("excluded pages are impossible to miss", () => {
     expect(screen.queryByText(/excluded from search/i)).toBeNull();
   });
 });
+
+// --------------------------------------------------- malformed API responses
+
+describe("a malformed response is an error card, never a white screen", () => {
+  it("does not crash when /documents returns a non-array", async () => {
+    // DocumentsView did setLoad({documents: result.data}) with no shape check,
+    // then .length, .map, and handed the same value to WorkerPanel, which
+    // calls .find. IngestionView already guarded against exactly this and the
+    // other three call sites did not, which is why the guard now lives once at
+    // the client boundary instead of four times in the views.
+    mockApi({ error: "not a list" } as never);
+    render(<App />);
+    expect(
+      await screen.findByText(/could not read|That did not work/i),
+    ).toBeInTheDocument();
+  });
+});

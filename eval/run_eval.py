@@ -5,13 +5,33 @@ and must never grow any: a system evaluated against questions its own author
 chose is measuring the author, not the system. If eval/questions.json is
 absent this script refuses to run rather than substituting anything.
 
+TWO MODES, MEASURING TWO DIFFERENT THINGS.
+
+  conversational (DEFAULT)  Drives chat.ask inside ONE conversation, asking the
+                            questions in order, which is what a person does.
+                            This exercises resolve_followup, so terms carried
+                            from an earlier turn can change or rewrite a later
+                            question before retrieval ever sees it. THIS IS THE
+                            PRODUCT, and it is the headline number.
+
+  isolated (--isolated)     Calls answer.answer directly with no conversation,
+                            so every question is asked in a vacuum. This is a
+                            DIAGNOSTIC: it measures retrieval and answering
+                            with the conversation layer removed.
+
+The isolated mode was the only mode for the first eleven runs, and it reported
+a clean sheet while the product did not have one. It structurally cannot fail
+on a conversational defect, because it never creates a conversation. A harness
+that scores better than the product is the harness being wrong.
+
 Re-runnable by design. Every run writes a timestamped JSON result beside the
 question set so any two runs can be diffed, which is the only way to know
 whether a change helped or merely moved the failures around.
 
 Usage, from the project root with the venv active:
 
-    python eval/run_eval.py                       # against eval/questions.json
+    python eval/run_eval.py                       # conversational (the product)
+    python eval/run_eval.py --isolated            # diagnostic: no conversation
     python eval/run_eval.py --questions other.json
     python eval/run_eval.py --compare eval/results/<earlier>.json
     python eval/run_eval.py --tier generated      # Tier 2; slow, ~50s each
@@ -54,6 +74,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app import answer as answer_mod  # noqa: E402
+from app import chat as chat_mod  # noqa: E402
+from app.search import every_document_id  # noqa: E402
 from app import keyword  # noqa: E402
 from app.db import connect
 from app.config import settings
@@ -247,14 +269,22 @@ def check_ground_truth(questions: list[dict]) -> list[str]:
     return problems
 
 
-def score_one(q: dict, result: dict) -> dict:
+def score_one(q: dict, result: dict, asked: str | None = None) -> dict:
     """Score one question. Every metric is None when the set does not specify
     the ground truth for it, so an unscored dimension is never counted as a
     pass."""
     answered = result["answer_type"] in ("extract", "generated")
+    # What retrieval ACTUALLY ran, and what was borrowed from earlier turns.
+    # A row that scores wrong because the question was rewritten has to say so
+    # on its face rather than needing someone to go digging.
+    resolved = result.get("resolved_question") or asked or q["question"]
+    carried = result.get("carried_terms") or []
     row: dict = {
         "id": q["id"],
         "question": q["question"],
+        "resolved_question": resolved,
+        "carried_terms": carried,
+        "question_was_rewritten": resolved.strip() != q["question"].strip(),
         "answerable": bool(q["answerable"]),
         "answer_type": result["answer_type"],
         "answered": answered,
@@ -269,7 +299,29 @@ def score_one(q: dict, result: dict) -> dict:
         "answer_correct": None,
         "refusal_correct": None,
         "false_refusal": False,
+        "length_limited": False,
     }
+
+    # A REFUSAL CAUSED BY THE TOKEN BUDGET IS NOT A REFUSAL ABOUT THE CORPUS.
+    #
+    # When generation runs out of room inside its only citation, the marker is
+    # stripped, the answer is left unsupported, and it is refused - correctly,
+    # by the same rule that rejects invented citations. But the CAUSE is a
+    # length limit, not an absence of evidence, and counting the two together
+    # corrupts the metric in both directions:
+    #
+    #   * on an UNANSWERABLE question it scores a correct refusal for the wrong
+    #     reason, so refusal accuracy would IMPROVE the more often generation
+    #     ran out of room - a truncation bug making the system look better.
+    #   * on an ANSWERABLE question it is recorded as a false refusal, blaming
+    #     retrieval for a failure that happened after retrieval succeeded.
+    #
+    # Neither number is about the documents, so it is reported as its own
+    # category and excluded from both. Left unscored rather than counted as a
+    # pass or a fail: an unscored dimension is never a pass here.
+    row["length_limited"] = bool(result.get("truncated") and not answered)
+    if row["length_limited"]:
+        return row
 
     if not q["answerable"]:
         row["refusal_correct"] = not answered
@@ -351,6 +403,10 @@ def summarise(rows: list[dict]) -> dict:
             sum(1 for r in answerable if r["false_refusal"]),
             len(answerable),
         ),
+        # Reported separately and never folded into the two above. Should be
+        # zero; a non-zero value means some questions were not scored at all,
+        # and the other rates are over a smaller population than they look.
+        "length_limited": sum(1 for r in rows if r.get("length_limited")),
         "median_ms": round(statistics.median(latencies), 1) if latencies else None,
         "p95_ms": pct(0.95),
         "worst_ms": round(max(latencies), 1) if latencies else None,
@@ -385,6 +441,14 @@ def report(summary: dict, rows: list[dict], before: dict | None) -> None:
         if before and before.get(key) is not None and summary[key] is not None:
             line += f"   was {_fmt(tuple(before[key]))}"
         print(line)
+    # Printed unconditionally, including when it is zero. A category that only
+    # appears when non-zero is a category nobody remembers exists, and its
+    # absence would be indistinguishable from it never having been checked.
+    n_len = summary.get("length_limited", 0)
+    print(f"  {'length-limited refusals':26} {n_len}"
+          + ("   <- NOT counted in refusal accuracy or false refusals; these "
+             "questions were not scored" if n_len else "   (none - the two "
+             "refusal figures above are over the whole set)"))
     print(f"  {'median latency':26} {summary['median_ms']} ms"
           + (f"   was {before['median_ms']} ms" if before else ""))
     print(f"  {'p95 / worst latency':26} {summary['p95_ms']} / {summary['worst_ms']} ms")
@@ -501,6 +565,10 @@ def main() -> int:
     ap.add_argument("--tier", choices=("extract", "generated"), default="extract")
     ap.add_argument("--compare", type=Path, help="an earlier results file")
     ap.add_argument("--limit", type=int, default=3)
+    ap.add_argument(
+        "--isolated", action="store_true",
+        help="ask every question in a vacuum (diagnostic). The default drives "
+             "chat.ask in one conversation, which is what a person does.")
     args = ap.parse_args()
 
     data = load_questions(args.questions)
@@ -533,15 +601,45 @@ def main() -> int:
     stale_ids = {p.split()[1] for p in stale}
 
     rows = []
+    # The eval tools have no user, so they state corpus-wide OUT LOUD.
+    # When auth arrives this is a line somebody changes on purpose.
+    corpus_scope = every_document_id()
+
+    mode = "isolated" if args.isolated else "conversational"
+    print(f"  MODE: {mode}"
+          + ("  (diagnostic - no conversation, resolve_followup never runs)"
+             if args.isolated else
+             "  (the product - one conversation, questions in order)"))
+    conversation_id = None
+    if not args.isolated:
+        conversation_id = chat_mod.create_conversation(
+            title=f"eval {datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}")["id"]
+
     for q in data["questions"]:
         if q["id"] in stale_ids:
             print(f"  {q['id']:>5} SKIPPED - ground truth stale for this corpus")
             continue
-        result = answer_mod.answer(q["question"], tier=args.tier, limit=args.limit)
-        row = score_one(q, result)
+        if args.isolated:
+            result = answer_mod.answer(
+                q["question"], tier=args.tier, limit=args.limit,
+                allowed_document_ids=corpus_scope)
+        else:
+            result = chat_mod.ask(conversation_id, q["question"],
+                                  tier=args.tier, limit=args.limit,
+                                  allowed_document_ids=corpus_scope)
+        row = score_one(q, result, asked=q["question"])
         rows.append(row)
+        flag = ""
+        if row["question_was_rewritten"]:
+            # The single most useful thing this harness can print. A wrong row
+            # whose question was rewritten is a DIFFERENT defect from a wrong
+            # row whose question was asked as written.
+            flag = f"  <- REWRITTEN, carried {row['carried_terms']}"
         print(f"  {row['id']:5} {row['answer_type']:22} "
-              f"{str(row['cited_clause'])[:30]:30} {row['seconds'] * 1000:>7.0f} ms")
+              f"{str(row['cited_clause'])[:30]:30} {row['seconds'] * 1000:>7.0f} ms{flag}")
+        if flag:
+            print(f"        asked   : {row['question']}")
+            print(f"        ran     : {row['resolved_question']}")
 
     summary = summarise(rows)
     report(summary, rows, before)

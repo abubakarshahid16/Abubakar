@@ -33,7 +33,9 @@ PHRASINGS = ROOT / "eval" / "phrasings.json"
 
 
 def ask(question: str) -> dict:
-    result = answer_mod.answer(question)
+    from app.search import every_document_id
+    result = answer_mod.answer(
+        question, allowed_document_ids=every_document_id())
     passages = result.get("answer_passages") or []
     pages: list[int] = []
     clauses: list[str] = []

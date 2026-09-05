@@ -220,19 +220,45 @@ def search(
     question: str,
     limit: int = 30,
     document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
 ) -> list[dict]:
-    """Keyword search over retrievable chunks. bm25: lower is better."""
+    """Keyword search over retrievable chunks. bm25: lower is better.
+
+    `allowed_document_ids` is REQUIRED and keyword-only, and has no default.
+    A default would eventually come to mean "every document", which is the one
+    thing this parameter exists to prevent - and it would do so silently, at
+    whichever call site forgot to pass a scope.
+
+    The restriction is applied INSIDE the SQL, before `ORDER BY ... LIMIT`.
+    Filtering the returned rows instead would let an unauthorised chunk consume
+    a slot in the candidate set and push an authorised one out, so the caller
+    would get fewer results because of a document they are not allowed to know
+    exists. Discarding results after selection is not access control.
+
+    IDs are bound as parameters. They are never concatenated into the SQL.
+    """
     match = build_match_query(question)
     if not match:
         return []
 
     conn = connect()
     ensure_schema(conn)
+    if not allowed_document_ids:
+        # An empty scope is a real answer: this caller may see nothing.
+        return []
+
     params: list[object] = [match]
     where = "chunks_fts MATCH ?"
     if document_id:
         where += " AND document_id = ?"
         params.append(document_id)
+    # SQLITE_MAX_VARIABLE_NUMBER is 32,766 here, measured; a 20-document
+    # prototype is far inside it. See docs/preflight-inventory.md for the
+    # note on what to do at 1,200 documents.
+    marks = ",".join("?" * len(allowed_document_ids))
+    where += f" AND document_id IN ({marks})"
+    params.extend(sorted(allowed_document_ids))
     params.append(limit)
 
     try:

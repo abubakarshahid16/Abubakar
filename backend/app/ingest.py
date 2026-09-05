@@ -40,6 +40,38 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _stuck_reason(conn, doc_id: str, row, status: str) -> str:
+    """Say what actually stopped, not that a loop noticed.
+
+    "state machine did not settle" names the mechanism that detected the
+    problem and nothing about the problem, which is the same defect the status
+    honesty audit catalogues: a message derived from something adjacent to the
+    truth. The stage that is stuck, and what it was still waiting for, is what
+    an operator needs.
+    """
+    detail = f"stalled in {status!r} with no further progress"
+    try:
+        pending = conn.execute(
+            """SELECT COUNT(*) c FROM pages p
+               LEFT JOIN page_ocr o ON o.document_id = p.document_id
+                                   AND o.page_no = p.page_no
+               WHERE p.document_id = ? AND p.needs_ocr = 1 AND o.page_no IS NULL""",
+            (doc_id,),
+        ).fetchone()["c"]
+        if pending:
+            detail = (f"recognition stalled in {status!r}: {pending} scanned "
+                      f"page(s) still unread and no round is making progress")
+        elif row["chunk_count"] and row["embedded_count"] < row["chunk_count"]:
+            detail = (f"embedding stalled in {status!r}: "
+                      f"{row['chunk_count'] - row['embedded_count']} of "
+                      f"{row['chunk_count']} chunks still have no vector")
+        elif not row["chunk_count_total"]:
+            detail = (f"stalled in {status!r}: the document produced no chunks")
+    except Exception:  # noqa: BLE001 - a diagnostic must never mask the failure
+        pass
+    return detail
+
+
 class IngestionWorker:
     """One worker thread draining the document queue, one document at a time."""
 
@@ -212,20 +244,48 @@ class IngestionWorker:
         """
         conn = connect()
         result: dict = {"document_id": doc_id, "stages": []}
-        guard = 0
+        # CHURN, NOT ITERATIONS. The old guard counted loop passes and allowed
+        # about ten, which was right when every document walked the states once
+        # and wrong the moment OCR arrived: one recognition round costs three
+        # passes (partially_searchable -> chunking -> indexing_keyword -> back),
+        # and ocr.round_size doubles each round, so a heavily scanned document
+        # legitimately needs far more than ten. A document that was progressing
+        # correctly reached `failed` after three rounds, and the recorded reason
+        # blamed the state machine without ever naming OCR.
+        #
+        # The guard still has to catch a real non-settling loop, so the fix is
+        # not a bigger number - it is telling PROGRESS from CHURN. A pass that
+        # advanced the document's measurable work is progress and costs nothing.
+        # A pass that returns to a (status, work) signature already seen has
+        # done nothing, and only those count against the budget. A genuine loop
+        # repeats a signature immediately and still trips in a few passes.
+        seen: set[tuple] = set()
+        churn = 0
+        churn_budget = len(states.ALL_STATES) + 2
 
         try:
             while True:
-                guard += 1
-                if guard > len(states.ALL_STATES) + 2:
-                    raise RuntimeError(f"state machine did not settle for {doc_id}")
-
                 row = conn.execute(
                     "SELECT * FROM documents WHERE id = ?", (doc_id,)
                 ).fetchone()
                 if row is None:
                     return {"document_id": doc_id, "error": "unknown document"}
                 status = row["status"]
+
+                signature = (
+                    status,
+                    row["pages_done"],
+                    row["chunk_count"],
+                    row["chunk_count_total"],
+                    row["embedded_count"],
+                    row["recognised_pages"] if "recognised_pages" in row.keys() else 0,
+                )
+                if signature in seen:
+                    churn += 1
+                    if churn > churn_budget:
+                        raise RuntimeError(_stuck_reason(conn, doc_id, row, status))
+                else:
+                    seen.add(signature)
 
                 # A status this build does not know (written by an earlier
                 # build) restarts from extraction. Extraction is resumable, so

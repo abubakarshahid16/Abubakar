@@ -38,7 +38,12 @@ function UserTurn({ message }: { message: Message }) {
       <p className="max-w-[42rem] rounded-lg bg-ink-700 px-3 py-2 text-[15px] text-slateish-100">
         {message.text}
       </p>
-      {message.carried_terms.length > 0 && (
+      {/* `?? []` because carried_terms was added later: a transcript row
+          written before it exists has no such field, and `.length` on
+          undefined kills the whole conversation view for one legacy row.
+          The response-shape guard at the client boundary cannot catch
+          this - the body is well formed, one row inside it is old. */}
+      {(message.carried_terms ?? []).length > 0 && (
         <p className="mt-1 max-w-[42rem] text-right text-xs text-slateish-500">
           Read as a follow-up. Also searched for{" "}
           {message.carried_terms.map((t, i) => (

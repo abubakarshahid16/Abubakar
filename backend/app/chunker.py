@@ -15,7 +15,6 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime, timezone
-from collections.abc import Iterable
 from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
@@ -27,7 +26,7 @@ from .db import connect
 from .rates import Timer, rate
 from . import states
 from . import keyword
-from .quality import MIN_CLAUSE_WORDS, assess, longest_clause, looks_like_table
+from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
 
 # ---------------------------------------------------------------- tokenizer
 
@@ -845,11 +844,24 @@ def segment_document(
         buf: list[str] = []
         i = 0
 
-        def flush_prose() -> None:
+        # `page_no` is a default argument ON PURPOSE, and it is not redundant:
+        # it makes the closure capture this page's VALUE instead of the loop
+        # variable, so the function cannot mis-attribute a block if it is ever
+        # called after the loop has moved on. Today every call sits inside the
+        # iteration that defined it, which is a property of the CALL SITES and
+        # not of the function - exactly the fragility ruff's B023 flags.
+        #
+        # `section` is deliberately NOT bound the same way. It is reassigned
+        # while the page is walked, and each flush must use the section in
+        # force at that moment: text before a heading belongs to the PREVIOUS
+        # section, which is why the flush happens before the reassignment.
+        # Freezing it as a default would silently mis-file every heading, so it
+        # is passed in at each call instead of read from the enclosing scope.
+        def flush_prose(current_section: str | None, page_no: int = page_no) -> None:
             nonlocal buf
             body = "\n".join(buf).strip()
             if body:
-                blocks.append(Block("prose", body, page_no, page_no, section))
+                blocks.append(Block("prose", body, page_no, page_no, current_section))
             buf = []
 
         while i < len(lines):
@@ -888,7 +900,7 @@ def segment_document(
                         last_bare_integer = int(number)
 
             if head:
-                flush_prose()
+                flush_prose(section)
                 if not contents_page:
                     # heading state persists across pages until the next heading
                     section = head
@@ -897,7 +909,7 @@ def segment_document(
 
             run = _table_run_length(lines, i)
             if run:
-                flush_prose()
+                flush_prose(section)
                 body = "\n".join(lines[i:i + run]).strip()
                 if body:
                     blocks.append(Block("table", body, page_no, page_no, section))
@@ -907,7 +919,7 @@ def segment_document(
             buf.append(line)
             i += 1
 
-        flush_prose()
+        flush_prose(section)
 
     return blocks, removed_total
 

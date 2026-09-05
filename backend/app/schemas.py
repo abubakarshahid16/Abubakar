@@ -382,6 +382,9 @@ class AnswerResult(BaseModel):
     rejected_citations: list[int] = Field(
         [], description="citations the model invented; removed from the answer"
     )
+    truncated: bool = Field(
+        False, description="the generation stopped because it hit the output-token cap, not because the model finished. The UI MUST say so: an answer that simply stops reads as broken, and the reader cannot otherwise tell whether the model finished, ran out of budget, or crashed. Any half-written citation marker at the end has already been removed."
+    )
     input_kind: str | None = Field(
         None, description="why this was answered as guidance rather than searched"
     )

@@ -25,7 +25,6 @@ from . import intent as intent_mod
 from . import keyword
 from . import lexical
 from . import passages as passages_mod
-from . import scores as scores_mod
 from . import telemetry
 from . import search as search_mod
 from .config import settings
@@ -91,6 +90,11 @@ SECOND_PASSAGE_MAX_GAP = 6.0
 MIN_RRF_SCORE = 0.012
 
 _CITATION = re.compile(r"\[S(\d+)\]")
+#: A citation marker the generator started and did not finish, because the
+#: token budget ran out inside it: "[", "[S", "[S1" with no closing bracket,
+#: at the very end of the text. Anchored to the end on purpose - a bare "["
+#: mid-sentence is ordinary prose and must survive.
+_HALF_CITATION = re.compile(r"\s*\[S?\d*$")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -304,6 +308,21 @@ def _call_model(prompt: str, timeout: float = 180.0) -> dict:
         return response.json()
 
 
+def strip_half_citation(text: str) -> str:
+    """Remove a citation marker the budget cut in half.
+
+    An answer that stops inside `[S2` shows the reader literal broken text and
+    reads as a malformed citation system rather than as a length limit. A
+    broken citation is worse than a missing one - the same reasoning that makes
+    an invented citation get stripped below, and the same machinery.
+
+    Only the trailing fragment goes. The sentence it was attached to is left
+    alone: it is still the model's text and still supported by the citations
+    that did survive.
+    """
+    return _HALF_CITATION.sub("", text).rstrip()
+
+
 def validate_citations(text: str, passage_count: int) -> tuple[list[int], list[int]]:
     """Split the citations into those that exist and those the model invented."""
     cited = [int(n) for n in _CITATION.findall(text)]
@@ -320,8 +339,15 @@ def answer(
     tier: str = "extract",
     document_id: str | None = None,
     limit: int = 3,
+    *,
+    allowed_document_ids: frozenset[str],
 ) -> dict:
-    """Answer a question. `tier` is "extract" (default) or "generated"."""
+    """Answer a question. `tier` is "extract" (default) or "generated".
+
+    `allowed_document_ids` is REQUIRED and keyword-only. It is threaded down to
+    both retrieval stages unchanged. No default: see search.every_document_id
+    for why a call site with no scope has to say so out loud.
+    """
     timer = Timer()
 
     # Classified BEFORE retrieval. A greeting is not a failed question, and
@@ -346,7 +372,8 @@ def answer(
         }
 
     results = search_mod.search(
-        question, limit=max(limit, 3), document_id=document_id
+        question, limit=max(limit, 3), document_id=document_id,
+        allowed_document_ids=allowed_document_ids,
     )
     hits = results["hits"]
     # Recorded from real questions actually asked, so the dashboard's latency
@@ -442,6 +469,12 @@ def answer(
     generation_ms = round(t.elapsed * 1000, 2)
 
     text = (raw.get("response") or "").strip()
+    # Ollama reports why generation stopped. "length" means the cap ended it,
+    # not the model - the difference between an answer that finished and one
+    # that was cut off, which the reader currently cannot see at all.
+    truncated = raw.get("done_reason") == "length"
+    if truncated:
+        text = strip_half_citation(text)
     valid, invented = validate_citations(text, len(passages))
 
     if not text or INSUFFICIENT in text.upper():
@@ -467,8 +500,14 @@ def answer(
             **base,
             "answer_type": "insufficient_evidence",
             "answer": None,
-            "reason": "the generated answer cited no supplied source",
+            "reason": (
+                "the generated answer was cut off at its length limit before "
+                "it cited a source"
+                if truncated else
+                "the generated answer cited no supplied source"
+            ),
             "rejected_citations": invented,
+            "truncated": truncated,
             "passages": passages,
             "seconds": timer.seconds(),
             "timings": {**base["timings"], "generation_ms": generation_ms},
@@ -480,6 +519,7 @@ def answer(
         "answer": text,
         "cited": valid,
         "rejected_citations": invented,
+        "truncated": truncated,
         "passages": passages,
         "model": settings.answer_model,
         "prompt_tokens": raw.get("prompt_eval_count"),

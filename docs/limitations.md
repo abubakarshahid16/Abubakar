@@ -66,6 +66,60 @@ with a noise band, not a sharp line.
 - **Mitigation, and it is how engineers work anyway: use the document's own words and write designators in full.** "relative humidity" not "humid"; "coating system no. 1" not "system 1" - though both designator forms now work.
 - **A related vocabulary limit, not fixed:** "how much salt is allowed on the surface before painting" cites the wrong clause because the document says *chlorides* and *NaCl*, never *salt*. A domain-synonym problem; a curated glossary would fix it and is a decision for later, not a change made on one observation.
 
+## The output-token cap, and what raising it cost
+
+Recorded the way the reranker-window trade is recorded: what it cost in
+seconds, what it bought.
+
+**The defect.** `max_output_tokens` was 100, chosen for generation speed on a
+15 W CPU and tuned against short factual answers. Two of two Tier 2 answers in
+a live demo stopped mid-sentence, one of them *inside a citation marker* —
+`…to run a trust algorithm [S2` — which reads as a malformed citation system
+rather than a length limit.
+
+**Measured**, four gold questions, model warm, caps interleaved, three repeats:
+
+| Question | cap 100 median | cap 250 median | tokens used | truncated at 100 |
+|---|---|---|---|---|
+| Q1 zero trust | 19.9 s | 24.3 s | 101 | **2 of 3** |
+| Q2 carbon capture | 21.9 s | 16.1 s | 89 | 0 of 3 |
+| Q3 stripe coat | 14.7 s | 15.3 s | 56 | 0 of 3 |
+| Q4 incident response | 30.5 s | 25.6 s | 108 | **3 of 3** |
+
+**At 100, 5 of 12 generations were cut off. At 250, none were.** The largest
+answer used 108 tokens, so 250 is about twice the observed worst case rather
+than a round number.
+
+**What it cost: nothing measurable.** `num_predict` is a CEILING, not a target
+— a generation that finishes early stops early. The medians moved in *both*
+directions (Q1 slower, Q2 and Q4 faster), which is machine noise on a shared
+laptop, not a latency cost. The extra tokens are paid only by the answers that
+were previously being truncated, which is exactly the population that needed
+them.
+
+**What it bought:** the demo-visible defect, on the two questions that showed
+it.
+
+### Two invariants that hold at any cap
+
+- **An answer never ends inside a citation marker.** A trailing `[`, `[S` or
+  `[S1` with no closing bracket is stripped, using the same machinery that
+  already removes invented citations. A broken citation is worse than a missing
+  one.
+- **A truncated answer says so.** The response carries `truncated`, set from
+  Ollama's `done_reason == "length"`, and the UI renders a line saying the
+  answer reached its length limit. Without it a reader cannot tell "the model
+  finished" from "it ran out of budget" from "it crashed" — three situations,
+  one appearance, and only one of them a defect.
+
+**One consequence worth knowing.** If the budget runs out inside the *only*
+citation, stripping it leaves an answer with no support, and an uncited
+generated answer is refused — by the same rule that rejects invented citations.
+The refusal then says it hit a length limit rather than that the documents lack
+the answer, because those are different facts and only one is about the corpus.
+The alternative would be guessing which source the model meant, and a guessed
+citation is the thing this system exists not to do.
+
 ## Scope not implemented
 
 - **OCR reads scanned pages, and its output is never presented as a quotation.** Recognised text is a guess about pixels, so it is stored separately (`page_ocr`), labelled *"Read by OCR from a scanned page — not the document's own text"*, and shown with the page image expanded rather than collapsed. See ADR-0005 and ADR-0006.
@@ -73,6 +127,19 @@ with a noise band, not a sharp line.
   - **The tiny-vs-small choice is a judgement call on unrepresentative evidence, recorded as one.** `small` is visibly more accurate (4.9x slower); the pages that expose the difference are UI screenshots we will never answer from. Revisit on real documents; it is a config value, not a code path.
   - **PP-OCRv6 has no English model** — every artefact is multilingual, so recognising English pages emits CJK. **Measured across the whole corpus: 18 of 77 recognised pages (23%) contain characters the document cannot contain**, 84 characters in total, including `≦` on two pages where a specification would say `≤`. The CJK ideographs are obvious; `≦` is not, and that is the dangerous one. An alphabet guard counts these per page and flags them; under an English recogniser it cannot fire at all, which makes it a guard on the guard. The engine choice is open pending one client question: whether the Aramco documents contain Arabic.
   - **No confidence threshold is set.** Confidence is stored per page and per chunk, and a sub-threshold page would go to the exclusion ledger under its own rule — but the threshold itself is not set, because there is no labelled ground truth to set it from. The lowest chunk confidence observed so far is 0.501. Until it is measured the gate stays open: recognised text is indexed and labelled, never silently dropped.
+- **Chunking assumes a clause is a paragraph. On a catalogue whose atomic unit is a TABLE ROW, citations point at the wrong granularity.**
+  - **Which documents this applies to.** Any reference catalogue built as a long series of short, uniformly structured entries — a controls catalogue, a requirements register, a parameter table, a glossary of numbered items — where the thing a reader asks about is one row rather than one paragraph. It does **not** apply to prose specifications like NORSOK M-501, which is what the chunker was tuned on and where a clause genuinely is a paragraph. A reader can tell which kind they have without re-running anything: if the answer to a typical question is one row of a table, this limit applies.
+  - **Measured on NIST SP 800-53r5** (492 pages, 963 retrievable chunks), against the four documents the chunker was developed against:
+
+    | | SP 800-53r5 | Rest of corpus |
+    |---|---|---|
+    | Median chunk | **432 tokens** | 255–289 |
+    | Chunks at the 480-token ceiling | **47%** | — |
+    | Chunks classified `table` | **0** | 95 / 21 / 9 |
+    | Chunks holding more than one control ID | **61%** (median 3, max 67) | — |
+
+  - **What the reader actually sees.** Ask about `AC-2` and you get the right document and the right region of it, quoted accurately — under a section heading of `1.1 PURPOSE AND APPLICABILITY`. The citation names the chapter that contains the control, not the control. Nothing is wrong in the quoted text; the label above it does not name what was asked for, and a reader checking the citation has to find the control themselves.
+  - **Deliberately not fixed.** Chunk sizing, quality thresholds and retrieval heuristics are frozen for the current sprint: changing them would invalidate every measurement in `docs/benchmarks.md`, which is the whole evidence base. Recorded as a limit and a demo boundary instead — **ask a controls catalogue about concepts, not about control IDs.**
 - **No ANN index** — brute-force vector search. Correct and fast at prototype scale; requires an index before full-corpus use.
 - **Perfect table and diagram extraction is not claimed** for every PDF type.
 - **Table column pairing is not preserved.** A table chunk keeps its caption, headers and every value in reading order, one cell per line, but the row/column pairing is positional rather than explicit. A reader can see the table; a search engine cannot reliably answer "what is the value at row X, column Y".

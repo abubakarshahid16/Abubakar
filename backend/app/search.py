@@ -26,7 +26,7 @@ from . import scores
 from . import vectorcache
 from .db import connect
 from .config import settings
-from .embedder import EMBEDDING_DIM, Embedder, EmbedderConfig
+from .embedder import Embedder, EmbedderConfig
 from .rates import Timer
 
 #: RRF damping. 60 is the value from the original paper and behaves well when
@@ -159,17 +159,74 @@ def _load_vectors(document_id: str | None = None) -> tuple[list[str], np.ndarray
         return vectorcache._read_from_db(document_id)
 
 
-def dense_search(question: str, limit: int = 30, document_id: str | None = None) -> list[dict]:
-    """Brute-force cosine. Returns [] when nothing is embedded yet."""
+def dense_search(
+    question: str,
+    limit: int = 30,
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> list[dict]:
+    """Brute-force cosine. Returns [] when nothing is embedded yet.
+
+    `allowed_document_ids` is REQUIRED and keyword-only - see keyword.search
+    for why it has no default.
+
+    The mask is applied to the score vector BEFORE top-k selection. Taking the
+    top k and then dropping unauthorised rows would silently shrink the result
+    set, and the size of that shrinkage would itself leak how much matching
+    material exists in documents the caller cannot see.
+    """
     ids, matrix = _load_vectors(document_id)
     if not ids:
+        return []
+    if not allowed_document_ids:
         return []
 
     query_vec = Embedder.instance(EmbedderConfig()).embed_queries([question])[0]
     # both sides are unit length, so the dot product IS the cosine
     scores = matrix @ query_vec
+
+    # Which rows are in scope. The vector cache is keyed by chunk, so the
+    # document each chunk belongs to is resolved once here rather than per row.
+    owner = _chunk_owner_map()
+    mask = np.array(
+        [owner.get(cid) in allowed_document_ids for cid in ids], dtype=bool
+    )
+    if not mask.any():
+        return []
+    # -inf rather than deletion: the index positions stay aligned with `ids`,
+    # and an out-of-scope row can never be selected however high it scored.
+    scores = np.where(mask, scores, -np.inf)
+
     top = np.argsort(-scores)[:limit]
-    return [{"chunk_id": ids[i], "cosine": float(scores[i])} for i in top]
+    return [
+        {"chunk_id": ids[i], "cosine": float(scores[i])}
+        for i in top
+        if np.isfinite(scores[i])
+    ]
+
+
+def _chunk_owner_map() -> dict[str, str]:
+    """chunk_id -> document_id, for masking the dense matrix by scope."""
+    return {
+        r["id"]: r["document_id"]
+        for r in connect().execute("SELECT id, document_id FROM chunks")
+    }
+
+
+def every_document_id() -> frozenset[str]:
+    """Every document in the corpus.
+
+    A PLACEHOLDER FOR AN ACCESS SCOPE, and deliberately something a caller has
+    to type. Authentication does not exist yet, so a call site with no scope of
+    its own says so out loud by passing this; when auth arrives each one is a
+    line somebody has to change on purpose. The alternative - defaulting the
+    parameter to "everything" - is the same behaviour with nobody accountable
+    for it, and it is what this refactor exists to make impossible.
+    """
+    return frozenset(
+        r["id"] for r in connect().execute("SELECT id FROM documents")
+    )
 
 
 # ---------------------------------------------------------------- fusion
@@ -519,6 +576,8 @@ def search(
     document_id: str | None = None,
     rerank: bool = True,
     dense: bool = True,
+    *,
+    allowed_document_ids: frozenset[str],
 ) -> dict:
     """Hybrid retrieval end to end.
 
@@ -536,13 +595,19 @@ def search(
     question = normalise_question(question)
 
     t = Timer()
-    keyword_hits = keyword.search(question, limit=candidates, document_id=document_id)
+    keyword_hits = keyword.search(
+        question, limit=candidates, document_id=document_id,
+        allowed_document_ids=allowed_document_ids,
+    )
     timings["keyword_ms"] = round(t.elapsed * 1000, 2)
 
     dense_hits: list[dict] = []
     if dense:
         t = Timer()
-        dense_hits = dense_search(question, limit=candidates, document_id=document_id)
+        dense_hits = dense_search(
+            question, limit=candidates, document_id=document_id,
+            allowed_document_ids=allowed_document_ids,
+        )
         timings["dense_ms"] = round(t.elapsed * 1000, 2)
 
     fused = rrf_fuse(keyword_hits, dense_hits)

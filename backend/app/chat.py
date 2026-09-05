@@ -55,6 +55,43 @@ FOLLOWUP_OPENERS = (
     "so ", "why", "ok ", "okay ",
 )
 
+#: Finite verbs that turn a noun phrase into a question. A clause has one; a
+#: bare noun phrase does not, and that is the difference the completeness test
+#: turns on. Auxiliaries and copulas only - deliberately NOT a list of lexical
+#: verbs, which would never be complete and would drift with the corpus.
+FINITE_VERBS = {
+    "is", "are", "was", "were", "be", "am",
+    "does", "do", "did", "done",
+    "has", "have", "had",
+    "can", "could", "shall", "should", "will", "would", "must", "may", "might",
+    "need", "needs", "gives", "give", "says", "say", "means", "mean",
+    "applies", "apply", "requires", "require", "specifies", "specify",
+    "stands", "stand", "allows", "allow", "happens", "happen",
+}
+
+
+def is_complete_question(question: str) -> bool:
+    """Can this question stand on its own, grammatically?
+
+    A COMPLETE question contains a finite verb - "what is the warranty period",
+    "how often must humidity be checked". A bare noun phrase does not -
+    "system 4?", "the minimum", "warranty".
+
+    This replaces a word-count test, `len(_content_words(question)) < 3`, which
+    was not a test of whether a question is a follow-up at all. It classified
+    "what is the warranty period" - a complete, self-contained question with
+    two content words - as a follow-up, so it inherited terms from whatever was
+    asked before it. Measured over 200 shuffled orderings of the evaluation
+    set, that single misclassification made 72 of them return a confident wrong
+    answer where a refusal was correct: 36% of conversations, and the ONLY
+    failure in any of them.
+
+    Length was never the signal. Completeness is.
+    """
+    words = set(_WORD.findall(question.lower()))
+    return bool(words & FINITE_VERBS)
+
+
 #: Function words. Excluded when judging whether a question carries enough of
 #: its own subject to stand alone. Deliberately does NOT include specification
 #: verbs like "shall", "required" or "specified", which are meaningful here.
@@ -112,7 +149,13 @@ def is_followup(question: str) -> bool:
     Three independent signals, any of which is enough:
       * it contains an anaphor ("its curing time")
       * it opens as a continuation ("and the roughness requirement")
-      * it is too short to carry its own subject ("system 4?")
+      * it is grammatically INCOMPLETE - a bare noun phrase with no finite
+        verb ("system 4?", "the minimum")
+
+    The third signal used to be `len(_content_words(question)) < 3`. Word count
+    is not a test of dependence: "what is the warranty period" is complete and
+    self-contained, and being two content words long is not a reason to feed it
+    somebody else's subject. See is_complete_question.
     """
     lowered = question.strip().lower()
     if not lowered:
@@ -122,7 +165,7 @@ def is_followup(question: str) -> bool:
         return True
     if lowered.startswith(FOLLOWUP_OPENERS):
         return True
-    return len(_content_words(lowered)) < 3
+    return not is_complete_question(lowered)
 
 
 def _designator_words(question: str) -> set[str]:
@@ -385,6 +428,8 @@ def ask(
     document_id: str | None = None,
     limit: int = 3,
     explain_of: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
 ) -> dict:
     """Answer a question inside a conversation and persist both turns.
 
@@ -436,7 +481,8 @@ def ask(
                 )
 
     result = answer_mod.answer(
-        resolved, tier=tier, document_id=document_id, limit=limit
+        resolved, tier=tier, document_id=document_id, limit=limit,
+        allowed_document_ids=allowed_document_ids,
     )
 
     assistant_message = _insert_message(

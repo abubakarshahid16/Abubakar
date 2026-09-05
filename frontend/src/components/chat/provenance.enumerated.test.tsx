@@ -64,6 +64,7 @@ function extractView(p: AnswerPassage): AnswerView {
     cited: [],
     rejected_citations: [],
     model: null,
+    truncated: false,
     seconds: 1.2,
     examples: [],
   };
@@ -193,4 +194,79 @@ describe("every passage renderer states provenance (rule 8)", () => {
       expect(screen.getAllByText(/OCR/i).length).toBeGreaterThan(0);
     });
   }
+});
+
+
+// --------------------------------------------------- provenance UNKNOWN
+//
+// The fixtures above all supply a passage that exists, which is why this test
+// could not catch the defect it now covers: `viewFromMessage` builds from
+// `m.payload ?? {}`, so a message whose payload is missing or trimmed yields
+// `passage: null`. The old branch was `recognised && p ? OCR : VERBATIM`, and
+// isRecognised(null) is false - so a message with NO passage, NO citation and
+// NO evidence panel rendered under the strongest claim the product can make.
+//
+// A test whose fixtures exclude the failing case is not a test of that case.
+
+function viewWithNoPassage(): AnswerView {
+  return {
+    answer_type: "extract",
+    answer: "Coating system no. 1 shall have a nominal dry film thickness of 280 um.",
+    reason: null,
+    passage: null,          // payload missing or trimmed
+    supporting: [],
+    passages: [],
+    cited: [],
+    rejected_citations: [],
+    model: null,
+    truncated: false,
+    seconds: 1.2,
+    examples: [],
+  };
+}
+
+describe("absence of provenance never resolves to the strongest claim", () => {
+  it("does not call an answer with NO passage a verbatim quotation", () => {
+    render(
+      <AnswerCard
+        view={viewWithNoPassage()}
+        onSelectSource={() => {}}
+        activeSource={null}
+      />,
+    );
+    for (const s of VERBATIM_STRINGS) {
+      expect(
+        screen.queryByText(new RegExp(s, "i")),
+        `claimed "${s}" over an answer with no passage to support it`,
+      ).toBeNull();
+    }
+  });
+
+  it("says the provenance is unknown rather than staying silent", () => {
+    render(
+      <AnswerCard
+        view={viewWithNoPassage()}
+        onSelectSource={() => {}}
+        activeSource={null}
+      />,
+    );
+    expect(screen.getByText(/provenance unknown/i)).toBeInTheDocument();
+  });
+
+  it("still calls EXTRACTED text a verbatim quotation", () => {
+    // The positive predicate must not over-correct: text known to come from
+    // the PDF's own layer has earned the strong label.
+    const extracted: AnswerPassage = { ...RECOGNISED, text_source: "extracted",
+      ocr_min_conf: null, ocr_alphabet_violations: 0, ocr_alphabet_sample: null };
+    render(
+      <AnswerCard
+        view={{ ...viewWithNoPassage(), passage: extracted }}
+        onSelectSource={() => {}}
+        activeSource={null}
+      />,
+    );
+    expect(
+      screen.getByText(/Quoted verbatim from the document/i),
+    ).toBeInTheDocument();
+  });
 });

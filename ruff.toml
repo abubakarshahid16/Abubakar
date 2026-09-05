@@ -1,0 +1,47 @@
+# Linting for the backend. The frontend has oxlint; Python had nothing, which
+# is 9,700 lines with no automated check at all.
+#
+# Rules are chosen to catch real defects rather than to enforce taste. Where a
+# rule would fight a convention this project holds deliberately, it is disabled
+# here with the reason, not silenced at every call site.
+
+target-version = "py312"
+line-length = 88
+extend-exclude = [".venv", "backend/models", "backend/data", "**/__pycache__"]
+
+[lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes - undefined names, unused imports, dead code
+    "I",      # import sorting
+    "UP",     # pyupgrade - syntax that 3.12 supersedes
+    "B",      # bugbear - mutable defaults, loop-variable binding, and friends
+    "SIM",    # simplifiable constructs
+    "C4",     # comprehension correctness
+    "RUF",    # ruff's own checks
+    "BLE",    # blind except - this project allows two, both annotated
+    "PTH",    # pathlib over os.path
+    "ARG",    # unused arguments
+    "RET",    # return-statement consistency
+]
+
+ignore = [
+    "E501",   # line length - the formatter owns this, not the linter
+    "B008",   # function call in a default argument: FastAPI's Depends/File
+              # idiom depends on exactly this
+    "RET504", # a named variable before return is often the clearest form when
+              # the name explains what the expression means
+]
+
+[lint.per-file-ignores]
+# Tests assert on internals and construct deliberately awkward inputs.
+"backend/tests/**" = ["ARG", "B", "SIM"]
+# The evaluation harness prints; that is its job.
+"eval/**" = ["ARG"]
+
+[lint.isort]
+known-first-party = ["app"]
+
+[format]
+quote-style = "double"
+docstring-code-format = true

@@ -34,7 +34,6 @@ contiguous high-water mark a restart can trust, exactly as extraction does.
 from __future__ import annotations
 
 import concurrent.futures as cf
-import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 

@@ -79,12 +79,12 @@ def test_identifiers_are_required_not_merely_preferred():
 
 def test_a_question_with_no_usable_tokens_returns_nothing_rather_than_erroring():
     assert keyword.build_match_query("?? !!") == ""
-    assert keyword.search("?? !!") == []
+    assert keyword.search("?? !!", allowed_document_ids=_scope()) == []
 
 
 def test_a_malformed_query_does_not_raise():
     # FTS5 treats several characters as syntax; every token is quoted
-    assert isinstance(keyword.search('AND OR NOT " ( )'), list)
+    assert isinstance(keyword.search('AND OR NOT " ( )', allowed_document_ids=_scope()), list)
 
 
 # ------------------------------------------------------- ordering guarantee
@@ -105,7 +105,7 @@ def test_a_document_is_searchable_before_a_single_vector_exists():
     ).fetchone()[0]
     assert vectors == 0, "this test is meaningless if embedding already ran"
 
-    hits = keyword.search("API 610 vibration limit")
+    hits = keyword.search("API 610 vibration limit", allowed_document_ids=_scope())
     assert hits, "keyword search returned nothing without vectors"
     assert hits[0]["document_id"] == doc_id
 
@@ -139,7 +139,7 @@ def test_the_document_becomes_answerable_at_the_indexing_stage():
         "SELECT status FROM documents WHERE id = ?", (doc_id,)
     ).fetchone()["status"]
     assert states.is_answerable(status)
-    assert keyword.search("vibration limit")
+    assert keyword.search("vibration limit", allowed_document_ids=_scope())
 
 
 # --------------------------------------------------------------- exclusions
@@ -158,7 +158,7 @@ def test_search_never_returns_a_non_retrievable_chunk():
     keyword.index_document(doc_id)
 
     assert keyword.indexed_count(doc_id) == 0
-    assert keyword.search("vibration limit API 610") == []
+    assert keyword.search("vibration limit API 610", allowed_document_ids=_scope()) == []
 
 
 def test_reindexing_replaces_rather_than_duplicates():
@@ -235,3 +235,16 @@ def test_search_can_be_scoped_to_one_document():
     assert all(h["document_id"] == b for h in r["hits"])
 
     assert client.get("/api/search?q=x&document_id=doc_zzzzzzzzzzzz").status_code == 404
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    Retrieval now REQUIRES an access scope with no default, so a test has to
+    name the documents it is allowed to see. These tests want all of them, and
+    saying so out loud is the point: when authentication arrives, every one of
+    these is a line somebody changes on purpose rather than a default that
+    quietly kept meaning "everything".
+    """
+    from app.search import every_document_id
+    return every_document_id()

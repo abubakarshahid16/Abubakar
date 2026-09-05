@@ -192,7 +192,7 @@ def test_a_question_using_an_acronym_the_document_only_spells_out_answers():
     """The case that started this. FULL_TERM_ONLY never writes NDFT."""
     client = TestClient(app)
     upload(client, [PARENTHETICAL, FULL_TERM_ONLY])
-    result = answer_mod.answer("what happens to the NDFT where a repair is required")
+    result = answer_mod.answer("what happens to the NDFT where a repair is required", allowed_document_ids=_scope())
     assert result["answer_type"] == "extract"
     assert "NDFT" not in result["lexical"]["absent_from_corpus"]
 
@@ -213,7 +213,7 @@ def test_a_genuinely_absent_term_still_refuses():
     """The gate must not have been widened into uselessness."""
     client = TestClient(app)
     upload(client, [PARENTHETICAL, GLOSSARY, ACRONYM_ONLY])
-    result = answer_mod.answer("what cladding thickness is required for Inconel 625")
+    result = answer_mod.answer("what cladding thickness is required for Inconel 625", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert "Inconel" in result["lexical"]["absent_from_corpus"]
 
@@ -221,7 +221,7 @@ def test_a_genuinely_absent_term_still_refuses():
 def test_an_absent_acronym_gets_a_useful_refusal_not_a_dead_end():
     client = TestClient(app)
     upload(client, [PARENTHETICAL, GLOSSARY])
-    result = answer_mod.answer("what does SAES require for shop priming")
+    result = answer_mod.answer("what does SAES require for shop priming", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert "If it is an abbreviation, try the full term" in result["reason"]
 
@@ -230,7 +230,7 @@ def test_an_absent_ordinary_word_does_not_get_the_abbreviation_hint():
     """The hint has to mean something. Offered on every refusal it is noise."""
     client = TestClient(app)
     upload(client, [PARENTHETICAL, GLOSSARY])
-    result = answer_mod.answer("what is the Inconel cladding requirement")
+    result = answer_mod.answer("what is the Inconel cladding requirement", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert "abbreviation" not in (result["reason"] or "")
 
@@ -243,3 +243,16 @@ def test_the_expansion_map_never_invents_an_equivalence():
     for acronym, expansions in acronyms.harvest().items():
         for expansion in expansions:
             assert acronyms.initials_match(acronym, expansion), (acronym, expansion)
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    Retrieval now REQUIRES an access scope with no default, so a test has to
+    name the documents it is allowed to see. These tests want all of them, and
+    saying so out loud is the point: when authentication arrives, every one of
+    these is a line somebody changes on purpose rather than a default that
+    quietly kept meaning "everything".
+    """
+    from app.search import every_document_id
+    return every_document_id()

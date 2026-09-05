@@ -1,7 +1,6 @@
 """Hybrid retrieval: RRF fusion, identifier boosting, dedup, reranking."""
 
 import fitz
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -189,7 +188,7 @@ def test_search_works_keyword_only_before_any_vector_exists():
     ).fetchone()[0]
     assert vectors == 0
 
-    result = search.search("vibration limits API 610", limit=5)
+    result = search.search("vibration limits API 610", limit=5, allowed_document_ids=_scope())
     assert result["mode"] == "keyword_only"
     assert result["dense_candidates"] == 0
     assert result["total"] > 0, "keyword-only retrieval returned nothing"
@@ -200,14 +199,14 @@ def test_search_upgrades_to_hybrid_once_vectors_arrive():
     doc_id = upload(client)
     IngestionWorker().process(doc_id)
 
-    result = search.search("vibration limits API 610", limit=5)
+    result = search.search("vibration limits API 610", limit=5, allowed_document_ids=_scope())
     assert result["mode"] == "hybrid"
     assert result["dense_candidates"] > 0
     assert result["total"] > 0
 
 
 def test_dense_search_returns_nothing_rather_than_failing_with_no_vectors():
-    assert search.dense_search("anything at all") == []
+    assert search.dense_search("anything at all", allowed_document_ids=_scope()) == []
 
 
 # --------------------------------------------------------------- safety
@@ -218,14 +217,14 @@ def test_search_never_returns_a_non_retrievable_chunk():
     doc_id = upload(client)
     worker = IngestionWorker()
     worker.process(doc_id)
-    assert search.search("vibration limits", limit=10)["total"] > 0
+    assert search.search("vibration limits", limit=10, allowed_document_ids=_scope())["total"] > 0
 
     conn = db.connect()
     with conn:
         conn.execute("UPDATE chunks SET retrievable = 0 WHERE document_id = ?", (doc_id,))
     keyword.index_document(doc_id)
 
-    result = search.search("vibration limits API 610", limit=10)
+    result = search.search("vibration limits API 610", limit=10, allowed_document_ids=_scope())
     assert result["total"] == 0, "an excluded chunk came back through search"
 
 
@@ -238,7 +237,7 @@ def test_a_vector_orphaned_by_rechunking_cannot_be_retrieved():
     conn = db.connect()
     with conn:
         conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
-    assert search.dense_search("vibration limits") == []
+    assert search.dense_search("vibration limits", allowed_document_ids=_scope()) == []
 
 
 # --------------------------------------------------------------- reranker
@@ -260,7 +259,7 @@ def test_retrieval_still_works_when_the_reranker_is_unavailable():
     doc_id = upload(client)
     IngestionWorker().process(doc_id)
 
-    result = search.search("vibration limits API 610", limit=5, rerank=False)
+    result = search.search("vibration limits API 610", limit=5, rerank=False, allowed_document_ids=_scope())
     assert result["reranked"] is False
     assert result["total"] > 0
     assert all(h["rerank_score"] is None for h in result["hits"])
@@ -292,3 +291,106 @@ def test_the_search_endpoint_validates_its_parameters():
     assert client.get("/api/search?q=x&bogus=1").status_code == 422
     assert client.get("/api/search?q=x&limit=0").status_code == 422
     assert client.get("/api/search?q=x&document_id=doc_zzzzzzzzzzzz").status_code == 404
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    Retrieval now REQUIRES an access scope with no default, so a test has to
+    name the documents it is allowed to see. These tests want all of them, and
+    saying so out loud is the point: when authentication arrives, every one of
+    these is a line somebody changes on purpose rather than a default that
+    quietly kept meaning "everything".
+    """
+    from app.search import every_document_id
+    return every_document_id()
+
+
+# ------------------------------------------------------- the access scope
+#
+# These are the negative tests for the scope parameter. They contain no
+# authentication - authentication does not exist yet. They assert the one
+# property everything above it will depend on: a document outside the scope is
+# not reachable through EITHER retrieval path.
+
+
+def test_the_keyword_path_cannot_reach_a_document_outside_the_scope():
+    client = TestClient(app)
+    visible = upload(client, "visible.pdf")
+    hidden = upload(client, "hidden.pdf")
+    for d in (visible, hidden):
+        IngestionWorker().process(d)
+
+    # Scope names ONE document. The other must be unreachable, not merely
+    # absent from the top of the list.
+    result = search.search(
+        "vibration limits API 610", limit=50, dense=False, rerank=False,
+        allowed_document_ids=frozenset({visible}),
+    )
+    got = {h["document_id"] for h in result["hits"]}
+    assert got == {visible}, f"keyword path leaked {got - {visible}}"
+    assert result["hits"], "scoped search returned nothing at all"
+
+
+def test_the_dense_path_cannot_reach_a_document_outside_the_scope():
+    client = TestClient(app)
+    visible = upload(client, "visible.pdf")
+    hidden = upload(client, "hidden.pdf")
+    for d in (visible, hidden):
+        IngestionWorker().process(d)
+
+    vectors = db.connect().execute("SELECT COUNT(*) FROM chunk_vectors").fetchone()[0]
+    assert vectors > 0, "no vectors: this test would pass vacuously"
+
+    result = search.search(
+        "vibration limits API 610", limit=50, dense=True, rerank=False,
+        allowed_document_ids=frozenset({visible}),
+    )
+    got = {h["document_id"] for h in result["hits"]}
+    assert got == {visible}, f"dense path leaked {got - {visible}}"
+    assert result["dense_candidates"] > 0, "dense side did not run"
+
+
+def test_an_empty_scope_returns_nothing_rather_than_everything():
+    """The failure mode this parameter exists to prevent. An empty scope is a
+    real answer - this caller may see nothing - and must never be read as
+    'unfiltered'."""
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+
+    result = search.search(
+        "vibration limits API 610", limit=50,
+        allowed_document_ids=frozenset(),
+    )
+    assert result["hits"] == []
+    assert result["total"] == 0
+
+
+def test_filtering_happens_before_selection_not_after():
+    """Discarding results after top-k is not access control.
+
+    If an out-of-scope chunk consumed a candidate slot and were dropped
+    afterwards, an authorised chunk would be pushed out of the result - so the
+    caller would get FEWER results because of a document they are not allowed
+    to know exists. Scoping to one document must return as many hits as asking
+    that document directly.
+    """
+    client = TestClient(app)
+    visible = upload(client, "visible.pdf")
+    hidden = upload(client, "hidden.pdf")
+    for d in (visible, hidden):
+        IngestionWorker().process(d)
+
+    scoped = search.search(
+        "vibration limits API 610", limit=10, rerank=False,
+        allowed_document_ids=frozenset({visible}),
+    )
+    direct = search.search(
+        "vibration limits API 610", limit=10, rerank=False,
+        document_id=visible, allowed_document_ids=frozenset({visible}),
+    )
+    assert len(scoped["hits"]) == len(direct["hits"]), (
+        "scoped search returned fewer hits than the same document asked "
+        "directly - out-of-scope rows are consuming candidate slots"
+    )
