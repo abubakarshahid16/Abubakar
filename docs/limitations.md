@@ -53,7 +53,17 @@ with a noise band, not a sharp line.
 
 ## Known false refusals - phrasing sensitivity
 
-- **6 of 10 facts answer identically across three phrasings; 4 do not.** Measured by `eval/run_phrasings.py`, which asks each fact as originally written, as the document words it, and as a user loosely types it.
+- **6 of 10 facts cite the same page across all three phrasings; 4 do not.** Measured by `eval/run_phrasings.py` and recorded fact by fact in `docs/demo-readiness-table.md`, which asks each fact as originally written, as the document words it, and as a user loosely types it.
+- **The pattern, in plain terms: retrieval is solid when a question borrows the document's vocabulary and brittle when it does not.** Ask about *relative humidity* and the right page comes back; ask *how humid* and it does not. The system is matching words, and a question that shares none of the document's words has little to match on.
+- **The two questions that matter most, because they are how a person actually talks:**
+
+| question, as a user types it | what should be cited | what happens | why |
+|---|---|---|---|
+| "how humid is too humid to paint" | 4.4 Ambient conditions, p7 | **wrong page** | the document says *relative humidity*, never *humid* |
+| "how much salt is allowed on the surface" | 6.3 Soluble impurities, p10 | **wrong page** — cites 2.1, p5-6 | the document says *chlorides* and *NaCl*, never *salt* |
+
+- **Recorded, not moved.** The number is a measurement of the system as it stands. Retrieval heuristics are frozen for this sprint (`NABAA-SUNDAY-POC-EXECUTION.md`, change budget), and tuning them would invalidate every figure in `docs/benchmarks.md` — so this entry exists to state the limit, not to justify closing it.
+- **One caveat, stated so the pattern is not read as a law.** Three of the four failures are the loosely-typed phrasing, but the fourth is not: `In clause 3.2 Abbreviations, what does the abbreviation NDFT mean?` is worded straight out of the document and still cites the wrong page, while both the original and the casual `ndft means what` are correct. Document vocabulary raises the odds; it does not guarantee the page.
 - **The 6/10 held through a corpus doubling** — the same 6 of 10, unchanged, after a 1,400-page document was added. A result that survives the corpus changing underneath it is evidence of a real fix rather than one fitted to the measurement, so it is recorded as such.
 - Two are **false refusals** where the correct passage was retrieved at rank 1 and then rejected:
 
@@ -366,7 +376,17 @@ it silently truncates the evidence the answer is grounded in.
 - **The contents/index detector is positional and will not generalise to the real corpus.** It looks for contents pages in the front 6% of a document and index pages in the back 15%, which is right for books. Saudi Aramco specifications are often multi-part compilations with contents pages part-way through, which this rule would miss.
   - **Durable answer:** the generic content-quality gate, not more positional detectors. The gate rejects a chunk whose text does not read like natural language (alphabetic ratio, symbol ratio, proportion of real words, average word length, longest unbroken run, control characters), and it catches failure modes no structural detector anticipated. Tuned against known-good prose and known-bad symbol-font tables: 0 of 1033 good chunks rejected, 157 of 159 known-bad rejected.
 - **Section headings are null when uncertain.** A heading is only accepted from an unambiguous numbered pattern. Roughly 12% of retrievable chunks carry no section. That is deliberate: a wrong heading in a citation is worse than a missing one.
-- **No authentication, RBAC, SSO, high availability, disaster recovery, or enterprise key management.**
+- **RBAC and password authentication exist and are OFF BY DEFAULT.** `auth.py` (389 lines, 23 tests) implements login, a signed bearer token and role-scoped document access, and there is a login screen — that shipped in commit `e1d7ea7`. But `AUTH_MODE` defaults to **`disabled`** (`backend/app/config.py`), and in that mode every request is unauthenticated and every document is visible to whoever opens the app. **A deployment that does not set `AUTH_MODE=demo_required` has no access control at all.** The shell header now says so — `RoleBadge` renders "Authentication disabled — no user identity" (`LoginView.tsx:187`) — which corrects the previous sentence here, "and nothing in the UI says so". That was true when written and stopped being true with the redesign. The header states the condition; it does not prevent it.
+
+  The role model gained a `kind` column in the same period: `admin` is a capability held alongside a discipline, not a fifth discipline (`db.py`). The four seeded disciplines are Civil Engineering, Mechanical, Chemical/Process and IT. **No admin screen is reachable in this build** — users, disciplines and grants are still managed by `scripts/seed_access.py` from a terminal.
+  - **Turning it on activates five documented holes, none of which is fixed** (`docs/design-access-holes.md`). All five are pre-existing and all five are invisible while `AUTH_MODE=disabled`:
+    1. **Page images bypass the bearer token** — `GET /api/documents/{id}/pages/{n}/image` takes no scope, so a guessed document id returns a rendered page of a document the caller may not see.
+    2. **Conversations are unscoped** — history is not filtered by owner, and a conversation written before there were users has `owner_user_id` NULL.
+    3. **Upload is unscoped, and its deduplication is an oracle** — anyone may upload, and the "already indexed" response tells an unauthorised caller that a document with that hash exists.
+    4. **`/api/metrics` declares a scope and discards it** — it returns filenames across the whole corpus.
+    5. **`DELETE /api/conversations/{id}` takes no scope at all** — any caller may delete any conversation by id.
+  - Also absent, and unchanged: **SSO, high availability, disaster recovery, enterprise key management, and password reset** (deliberately out of scope — see `docs/design-admin-screen.md`).
+  - Fine for a demo on a machine you control. **Not fine on a client's machine.**
 - **No domain fine-tuning**, and no production accuracy claim.
 - **Full corpus not ingested.** ~45 GB free disk does not accommodate ~1.2 M pages.
 
