@@ -145,6 +145,80 @@ def test_the_engineer_approval_sentence_appears_twice():
     assert text.count(key) >= 2, f"approval sentence appears {text.count(key)} time(s)"
 
 
+def test_extract_report_warns_when_matched_passages_are_not_merged():
+    ingest()
+    m = answered_message()
+    conn = db.connect()
+    payload = json.loads(conn.execute("SELECT payload FROM messages WHERE id = ?",
+                                      (m["id"],)).fetchone()["payload"])
+    supporting = dict(payload["passage"])
+    supporting.update(
+        chunk_id="supporting-continuation",
+        text="The continuation passage is relevant but was not part of the quoted answer.",
+    )
+    payload["supporting"] = [supporting]
+    with conn:
+        conn.execute("UPDATE messages SET payload = ? WHERE id = ?",
+                     (json.dumps(payload), m["id"]))
+
+    rec = reports.generate(m["id"], access.unrestricted_scope())
+    text = all_text(pdf_of(rec))
+    assert "quoted answer is the cited extract only" in text
+    assert "Other matched passages are preserved in the Evidence section" in text
+    assert "supplied, not cited" in text
+    assert "not merged into the quoted answer" in text
+
+
+def test_generated_report_prints_a_citation_audit():
+    ingest()
+    m = answered_message("what are the vibration limits for pump P-101A")
+    conn = db.connect()
+    payload = json.loads(conn.execute("SELECT payload FROM messages WHERE id = ?",
+                                      (m["id"],)).fetchone()["payload"])
+    second = dict(payload["passage"])
+    second.update(
+        chunk_id="second-cited",
+        text="A second cited passage also supports the generated answer.",
+    )
+    payload.update(passages=[payload["passage"], second], cited=[1, 2],
+                   model="qwen3.5:4b")
+    with conn:
+        conn.execute("UPDATE messages SET payload = ?, answer_type = 'generated', text = ? "
+                     "WHERE id = ?",
+                     (json.dumps(payload), "The answer is supported by two sources [S1][S2].",
+                      m["id"]))
+
+    rec = reports.generate(m["id"], access.unrestricted_scope())
+    text = all_text(pdf_of(rec))
+    assert "Citation audit" in text
+    assert "Answer markers: S1, S2" in text
+    assert "Evidence marked cited: S1, S2" in text
+    assert "Supporting passages not cited by the answer: 0" in text
+    assert "Citation audit passed" in text
+    assert "[S1] spec.pdf, page 1" in text
+    assert "cited by answer" in text
+
+
+def test_generated_report_warns_when_answer_names_missing_evidence():
+    ingest()
+    m = answered_message("what are the vibration limits for pump P-101A")
+    conn = db.connect()
+    payload = json.loads(conn.execute("SELECT payload FROM messages WHERE id = ?",
+                                      (m["id"],)).fetchone()["payload"])
+    payload.update(passages=[payload["passage"]], cited=[1], model="qwen3.5:4b")
+    with conn:
+        conn.execute("UPDATE messages SET payload = ?, answer_type = 'generated', text = ? "
+                     "WHERE id = ?",
+                     (json.dumps(payload), "The answer cites evidence that is absent [S9].",
+                      m["id"]))
+
+    rec = reports.generate(m["id"], access.unrestricted_scope())
+    text = all_text(pdf_of(rec))
+    assert "Citation audit failed" in text
+    assert "missing evidence marker" in text
+    assert "S9" in text
+
+
 def test_quoted_text_is_serif_and_generated_text_is_sans_on_amber():
     """The two kinds of text must never look alike. Checked by font family
     read back from the spans, not by eye."""
