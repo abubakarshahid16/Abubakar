@@ -435,11 +435,41 @@ def facet_key(claim: Claim, question_terms: frozenset[str]) -> frozenset[str] | 
     return None
 
 
+#: How a unit is written for a person rather than for a parser. "um" is what
+#: the corpus contains and "µm" is what a coatings engineer reads.
+_UNIT_DISPLAY = {"um": "µm", "degC": "°C", "percent": "%"}
+
+
 def _facet_string(key: frozenset[str]) -> str:
+    """One dimension, named so a reader recognises it: "coating thickness (µm)".
+
+    This used to join every term, designator and unit in the key with " · ",
+    producing "coating · thickness · A · um" and "coating · % · A · MPa" - a
+    facet that names four things names none of them, and a reader scanning a
+    gap analysis cannot tell what is being compared.
+
+    The subject and the unit are separated: subject words read as a phrase,
+    and the unit goes in brackets where a unit belongs. Terms stay sorted so
+    the string is deterministic - two runs over the same corpus must produce
+    the same facet - which happens to read correctly here ("coating
+    thickness") and is a compromise where it does not.
+    """
     terms = sorted(k for k in key if not k.startswith(("dim:", "designator:")))
     designators = sorted(k.split(":", 1)[1] for k in key if k.startswith("designator:"))
-    units = sorted(_DIMENSION_UNIT[k.split(":", 1)[1]] for k in key if k.startswith("dim:"))
-    return " · ".join(terms + designators + units)
+    units = sorted(
+        _UNIT_DISPLAY.get(u, u)
+        for u in (_DIMENSION_UNIT[k.split(":", 1)[1]] for k in key if k.startswith("dim:"))
+    )
+
+    subject = " ".join(terms) or ", ".join(designators)
+    if terms and designators:
+        subject = f"{subject} ({', '.join(designators)})"
+    if not subject:
+        return "unnamed"
+    # More than one dimension in a facet is unusual and worth showing rather
+    # than hiding: the reader is being told two different things are being
+    # compared under one heading.
+    return f"{subject} ({', '.join(units)})" if units else subject
 
 
 # ------------------------------------------------------------------ labels

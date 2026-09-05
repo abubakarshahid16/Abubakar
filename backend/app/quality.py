@@ -25,6 +25,7 @@ import re
 import unicodedata
 
 from . import ligatures
+from . import symbols
 
 # Control characters that PDF symbol fonts leave behind. Kept as a module
 # constant so extraction and the gate agree on what counts as noise.
@@ -70,6 +71,11 @@ def normalise_text(text: str) -> str:
     # is not in the text. Measured on book4 at 292 of 1,400 pages, and the
     # repair is validated to change nothing across 2,281 clean pages.
     text = ligatures.repair(text)
+    # The same class of defect from a symbol font rather than a ligature: the
+    # micro sign extracted as a capital P, so "1000 um NDFT" yielded no
+    # measurement at all. Narrow by construction and validated over the whole
+    # corpus - see symbols.py for what it deliberately does NOT repair.
+    text = symbols.repair(text)
     return text
 
 

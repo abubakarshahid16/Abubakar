@@ -180,6 +180,41 @@ Nothing here is silent: each removal is reported with its source and the
 characters dropped. But a reader looking at eight passages in the evidence
 ledger and a summary built from two needs that list to understand why.
 
+## Two comparators in NORSOK M-501 are lost, and are not guessed
+
+`NORSOKM501Rev5.pdf` renders some glyphs in a symbol font that extracts as the
+wrong character. Measured span by span through all twelve source PDFs:
+
+| What | Count | Where |
+|---|---:|---|
+| Symbol glyph extracted as a Latin letter | 48 | all NORSOK |
+| — of which the micro sign as `P` | 4 | `"1000 Pm NDFT"` |
+| — of which a bullet as `x` | 44 | list items |
+| Comparator extracted as a C1 control | 2 | p20, p21 |
+
+**The micro sign is repaired** (`backend/app/symbols.py`), so `1000 µm NDFT`
+now yields a measurement where it previously yielded none. The rule fires
+**3 times across 3,717 pages** and is anchored on both sides, because
+`book2-Differential-Equations.pdf` contains `Pm(x)Pn(x)` — Legendre
+polynomials, where P is genuinely P and is even preceded by a digit.
+
+**The fourth `P` is not repaired.** Its digit is on the previous line, so the
+rule declines it rather than guess.
+
+**The two comparators are not repaired, deliberately.** On p20 the coating
+thickness reads `<?> 1000 µm NDFT` and on p21 `operating temperature <?> 80`.
+The byte does not say whether the character was `>` or `≥` — and those mean
+different things to a claim comparison, so inventing one would be the
+invented-measurement defect one level up. The number is extracted; the
+comparator is absent, which means the value is compared as a point value
+rather than as a bound.
+
+**The bullets are not repaired either.** A rule matching `x` at the start of a
+line hit **1,051 places, of which only 44 were NORSOK's bullets** — the other
+992 were the variable `x` in the differential-equations textbook. It cannot be
+gated without the span's font, and `get_text("text")` does not carry fonts. A
+bullet drawn as `x` is cosmetic; a missing `µm` loses the answer.
+
 ## A generated sentence carrying an unsupported number is deleted, not flagged
 
 If a sentence cites a source but contains a number that appears in no span it

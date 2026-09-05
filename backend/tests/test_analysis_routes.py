@@ -354,3 +354,111 @@ def test_a_real_recommendation_serialises_and_is_never_high(monkeypatch):
     if rec is not None:
         assert rec["confidence"] in ("low", "medium", None), rec["confidence"]
         assert rec["confidence"] != "high"
+
+
+# --------------------------------------------------- the finding must lead
+#
+# These build the cluster list directly rather than ingesting a two-page
+# fixture. The first version ingested the small fixture and passed against the
+# UNFIXED code, because a corpus with one facet cannot bury anything - the
+# test was measuring nothing. This one reproduces the shape that was actually
+# reported: several facets, alphabetically ahead of the answer.
+
+
+def _spans(*sentences):
+    return [{"evidence_id": f"ev{i}", "filename": "NORSOK.pdf", "page_start": 9 + i,
+             "page_end": 9 + i, "section": None, "exact_span": s,
+             "text_source": "extracted"}
+            for i, s in enumerate(sentences)]
+
+
+BURIAL = _spans(
+    "Adhesion shall show maximum 50 % reduction from the original value.",
+    "The coating shall have a minimum adhesion of 2,0 MPa when tested.",
+    "Minimum coating thickness for structural items shall be 125 um.",
+    "Coating system no. 1 shall be applied to all external surfaces.",
+)
+
+
+def _items(question, evidence):
+    from app import claims as claims_mod
+
+    rows = claims_mod.extract_claims(evidence)
+    clusters = claims_mod.cluster(rows, claims_mod.question_terms(question))
+    return analysis._gap_items(clusters, None,
+                               {e["evidence_id"]: "doc_1" for e in evidence})
+
+
+def test_the_answer_is_not_buried_under_nothing_to_compare():
+    """A measured facet the question asked about comes FIRST.
+
+    Reported: "Minimum coating thickness ... 125 um" arrived sixth of
+    fourteen, under items reading "Only one document speaks to this facet".
+    Alphabetical order is what put "coating (%)" above "coating thickness
+    (um)" on a question about coating thickness.
+    """
+    items = _items("what is the minimum coating thickness required", BURIAL)
+    assert items, "no gap items - nothing below is measured"
+    assert "thickness" in items[0]["facet"], (
+        f"the answer did not lead; got {[i['facet'] for i in items]}")
+
+
+def test_facets_that_answer_less_of_the_question_come_after():
+    """Guard the guard: the burial case must actually contain a facet that
+    alphabetical order would have put first."""
+    items = _items("what is the minimum coating thickness required", BURIAL)
+    facets = [i["facet"] for i in items]
+    assert len(facets) > 1, f"only one facet - nothing could be buried: {facets}"
+    assert sorted(facets) != facets, (
+        "the facets happen to be in alphabetical order, so this case cannot "
+        f"distinguish the two orderings: {facets}")
+
+
+def test_a_citation_is_never_listed_twice_in_one_item():
+    """One evidence id appeared five times in a single item, which reads as
+    five sources and is one."""
+    # ONE evidence item, several sentences about the same facet - which is
+    # how the duplicate actually arose. Three separate ids could never
+    # collide, so a fixture built that way proves nothing.
+    repeated = [{
+        "evidence_id": "7a86abdc251ea774", "filename": "NORSOK.pdf",
+        "page_start": 9, "page_end": 9, "section": None,
+        "text_source": "extracted",
+        "exact_span": (
+            "The coating thickness shall be 125 um. "
+            "The coating thickness shall be 150 um for splash zones. "
+            "The coating thickness shall be 200 um where immersed."),
+    }, {
+        "evidence_id": "other", "filename": "OTHER.pdf",
+        "page_start": 3, "page_end": 3, "section": None,
+        "text_source": "extracted",
+        "exact_span": "The coating thickness shall be 280 um.",
+    }]
+    items = _items("coating thickness", repeated)
+    assert any(len(i["project_citation_ids"]) for i in items), (
+        "no item cited anything - the duplicate could not have appeared")
+    for item in items:
+        ids = item["project_citation_ids"]
+        assert len(ids) == len(set(ids)), f"{item['facet']}: {ids}"
+
+
+def test_unmeasured_singletons_collapse_into_one_entry_at_the_end():
+    unmeasured = _spans(
+        "Coating system no. 1 shall be applied to external surfaces.",
+        "Coating system no. 2 shall be applied to internal surfaces.",
+        "Minimum coating thickness shall be 125 um.",
+    )
+    items = _items("coating system", unmeasured)
+    collapsed = [i for i in items if i["facet"].startswith("stated once")]
+    assert len(collapsed) <= 1
+    if collapsed:
+        assert items[-1] is collapsed[0], (
+            "the group that says 'nothing to compare' must come last")
+
+
+def test_without_a_baseline_nothing_claims_to_be_met_or_a_gap():
+    """"met" and "possible_gap" both mean measured against the authority, and
+    with none named neither can be assessed. A disagreement between two
+    documents is still knowable, so `conflict` survives."""
+    for item in _items("coating thickness", BURIAL):
+        assert item["status"] not in ("met", "possible_gap"), item
