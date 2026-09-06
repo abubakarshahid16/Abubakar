@@ -36,6 +36,26 @@ from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app
 
+#: A SPECIFICATION, NOT A BUG REPORT. Every test in this module describes
+#: behaviour that is designed and not yet implemented (#90), so all 27 are
+#: expected to fail and the suite reports them as xfailed rather than failed.
+#:
+#: A PERMANENTLY RED SUITE IS HOW A TEAM STOPS READING TEST OUTPUT. Committed
+#: red, "27 failures, that's the spec file" becomes "28 failures, probably the
+#: spec file" inside a week, and the 28th is a real regression nobody looked at.
+#:
+#: `strict=True` is the part that matters, and it is doing more work than the
+#: xfail. The moment somebody implements the gate, these tests PASS - and a
+#: strict xfail that passes is a FAILURE. So the suite goes red at the exact
+#: moment the work is finished, the marker gets deleted, and the 27 become
+#: ordinary passing tests. Nobody has to remember to unmark them; the tests
+#: announce their own completion.
+pytestmark = pytest.mark.xfail(
+    strict=True,
+    reason="#90: recommendation gating and restatement suppression are "
+           "specified here, not implemented yet",
+)
+
 VIBRATION = [
     "5.3.2 Vibration Limits",
     "Vibration limits per API 610 shall not exceed 3.0 mm/s RMS measured at the",

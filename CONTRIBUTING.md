@@ -69,6 +69,34 @@ A stale lock is safe to remove only after confirming no git process is running
 (`tasklist | grep git` on Windows). Git's own message says as much, but it says
 it about a crash, and the common case here is a crash.
 
+### A specification may be committed as a strict xfail, never as a red test
+
+Work is sometimes specified in tests before it is built, and committing that
+specification is right - the tests are the clearest statement of what the
+behaviour must be. Committing them RED is not.
+
+A permanently red suite is how a team stops reading test output. Once "27
+failures, that's the spec file" is normal, "28 failures, probably the spec
+file" follows within a week, and the 28th is a real regression nobody looked
+at.
+
+Mark the module instead:
+
+```python
+pytestmark = pytest.mark.xfail(
+    strict=True,
+    reason="#90: <what is specified here and not yet implemented>",
+)
+```
+
+`strict=True` is the important half. A strict xfail that PASSES is a failure,
+so the suite goes red at the moment the work is finished - the tests announce
+their own completion, and nobody has to remember to unmark them. The reason
+must name the issue, so a reader meeting the marker can find out what is
+missing.
+
+`backend/tests/test_recommendation_gate.py` is the worked example.
+
 ## Pull requests
 
 - One PR per branch, into `main`.
