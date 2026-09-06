@@ -297,7 +297,8 @@ EVERYONE = object()
 
 
 def list_conversations(limit: int = 20, offset: int = 0,
-                       owner: str | None | object = EVERYONE) -> dict:
+                       owner: str | None | object = EVERYONE,
+                       include_unowned: bool = False) -> dict:
     """Recent conversations, most recently used first.
 
     Filtered IN THE QUERY on `owner_user_id`, for the reason /api/documents
@@ -309,10 +310,17 @@ def list_conversations(limit: int = 20, offset: int = 0,
     NOTHING - `owner_user_id = NULL` is false in SQL for every row, including
     the legacy rows whose owner is NULL. That is the behaviour plan line 1017
     requires and it falls out of the comparison rather than from a branch.
+
+    `include_unowned` adds the NULL-owner rows to `owner`'s own. The route
+    passes it for the admin capability only - the decision for the legacy rows
+    - and it is a separate flag rather than a magic owner value so that a
+    caller passing owner=None can never receive them by accident.
     """
     conn = connect()
     if owner is EVERYONE:
         where, args = "", []
+    elif include_unowned:
+        where, args = " WHERE (c.owner_user_id = ? OR c.owner_user_id IS NULL)", [owner]
     else:
         where, args = " WHERE c.owner_user_id = ?", [owner]
     rows = conn.execute(
