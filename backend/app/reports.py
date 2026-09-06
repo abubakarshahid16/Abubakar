@@ -571,14 +571,58 @@ def describe(report_id: str, scope: access.AccessScope) -> dict:
     return _row_to_record(_require(report_id, scope))
 
 
+def _owned_by(rows, scope: access.AccessScope) -> list:
+    """The caller's OWN reports - the population `suppressed_count` measures.
+
+    AN UNIDENTIFIED CALLER OWNS NOTHING, whatever the row says. This function
+    exists because the count did not say that. It was
+
+        [r for r in rows if r["owner_user_id"] == scope.user_id]
+
+    and `scope.user_id` is None for a caller with no token, so every LEGACY
+    report row - written before ownership was stamped, owner NULL - compared
+    equal and was counted as the anonymous caller's own. Measured with no
+    token at all:
+
+        GET /api/reports  ->  {"reports": [], "suppressed_count": 13}
+
+    The ROWS were correctly withheld; the NUMBER was the leak, and it told a
+    stranger how large the corpus of reports is. Same shape as the
+    /api/metrics defect (#75): a scope resolved by the route and then not
+    applied to an aggregate derived from the same rows.
+
+    The rule itself is not new here and must not become a third copy of
+    itself: `AccessScope.owns_conversation` already decides ownership for
+    conversations - no identity owns nothing, and the NULL-owner legacy rows
+    belong to the admin capability and to nobody else. Reports are not routed
+    through it because report visibility is owner AND every cited document
+    (`_visible`), which conversations have no equivalent of; what is shared is
+    the NULL case, and it is spelled the same way in both places on purpose.
+
+    So the anonymous answer is 0, and 0 is TRUE of them rather than a
+    comforting round number: they own no reports, so none of theirs is hidden.
+    The affordance is untouched for a caller who has an identity - a signed-in
+    user is still told how many of THEIR OWN reports a lost document grant has
+    taken away.
+
+    Auth off is unchanged: there is no identity to have, every row is the
+    caller's and every row is visible, so the difference stays 0 as before.
+    """
+    if settings.auth_mode == access.AUTH_DISABLED:
+        return list(rows)
+    if scope.user_id is None:
+        return []
+    return [r for r in rows if r["owner_user_id"] == scope.user_id]
+
+
 def list_reports(scope: access.AccessScope) -> dict:
     rows = connect().execute("SELECT * FROM reports ORDER BY created_at DESC").fetchall()
     visible = [r for r in rows if _visible(r, scope)]
-    owned = rows if settings.auth_mode == access.AUTH_DISABLED else [
-        r for r in rows if r["owner_user_id"] == scope.user_id]
+    owned = _owned_by(rows, scope)
     return {
         "reports": [_row_to_record(r) for r in visible],
-        # THAT something is hidden, never WHAT.
+        # THAT something is hidden, never WHAT - and nothing at all to a
+        # caller who has no identity to hide anything from.
         "suppressed_count": len(owned) - len(visible),
     }
 
