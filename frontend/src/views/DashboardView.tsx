@@ -128,19 +128,19 @@ function Headline({
           ? "text-signal-400"
           : "text-slateish-100";
   return (
-    <div className="rounded-lg border border-ink-700 bg-ink-850 px-4 py-3.5">
-      <p className="text-[11px] uppercase tracking-wide text-slateish-500">{label}</p>
+    <div className="rounded-xl border border-ink-700 bg-ink-800 px-5 py-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-slateish-400">{label}</p>
       {value == null ? (
-        <p className="mt-1.5 text-base italic leading-tight text-slateish-500">
+        <p className="mt-2 text-lg italic leading-tight text-slateish-500">
           nothing measured yet
         </p>
       ) : (
-        <p className={`mt-1.5 font-mono text-3xl leading-none ${toneClass}`}>
+        <p className={`mt-2 font-mono text-[2.6rem] leading-none ${toneClass}`}>
           {value}
-          {unit && <span className="ml-1 text-base text-slateish-500">{unit}</span>}
+          {unit && <span className="ml-1.5 text-lg text-slateish-500">{unit}</span>}
         </p>
       )}
-      <p className="mt-2 text-xs leading-relaxed text-slateish-400">{note}</p>
+      <p className="mt-3 text-sm leading-relaxed text-slateish-300">{note}</p>
     </div>
   );
 }
@@ -199,34 +199,37 @@ function ReadinessPanel({ metrics }: { metrics: Metrics }) {
   const workerReady = metrics.worker.alive && !(metrics.worker.stalled && metrics.worker.current_document == null);
   const gates = [
     {
-      label: "Private corpus",
+      label: "Your documents",
       ok: documentsReady,
       detail: documentsReady
-        ? `${nf.format(metrics.corpus.documents)} document(s), ${nf.format(metrics.corpus.chunks_retrievable)} searchable passages`
-        : "upload and index at least one searchable PDF",
+        ? `${nf.format(metrics.corpus.documents)} document${metrics.corpus.documents === 1 ? "" : "s"} loaded, ${nf.format(metrics.corpus.chunks_retrievable)} passages a question can reach`
+        : "upload at least one PDF with readable text",
     },
     {
-      label: "Local models",
+      label: "Answering",
       ok: localModelsReady,
       detail: localModelsReady
-        ? "embedding, reranker and answer model are available"
-        : "one or more configured models is missing or unreachable",
+        ? "search and the answer model are running on this computer"
+        : "a model is missing or not running - answers will be limited",
     },
     {
-      label: "Worker",
+      label: "Uploads",
       ok: workerReady,
-      detail: workerReady ? "queue is available" : "queue needs attention before a demo run",
+      detail: workerReady ? "new documents will be processed as they arrive" : "processing has stopped - new uploads will wait",
     },
     {
-      label: "Public market",
+      label: "Market data",
       ok: true,
-      detail: "sample/offline rows only unless a governed provider is enabled",
+      detail: "illustrative sample only - no live market source is connected",
       tone: "warn" as const,
     },
     {
-      label: "Full Section 8 report",
+      label: "PDF reports",
       ok: false,
-      detail: "current PDFs are single-answer evidence reports; full analysis PDF is not proven",
+      // "not yet available" is a banned phrase here - it was true of OCR once,
+      // and of the summary once, and each time it stayed on screen after the
+      // thing arrived. Say what exists, not what does not.
+      detail: "one PDF per answer, with its evidence frozen in - reports cover single answers, not a whole analysis",
       tone: "warn" as const,
     },
   ];
@@ -235,14 +238,14 @@ function ReadinessPanel({ metrics }: { metrics: Metrics }) {
     <section className="mt-4 rounded-lg border border-ink-700 bg-ink-850 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slateish-200">Sunday readiness</h2>
+          <h2 className="text-sm font-semibold text-slateish-200">What this system can do right now</h2>
           <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slateish-400">
-            This panel follows the execution document: measured local capability is separated
-            from fallback or unfinished gates.
+            Green is measured and working on this computer. Amber is a limit you should know
+            about before relying on it.
           </p>
         </div>
         <span className="rounded border border-warn-500/40 bg-warn-500/10 px-2 py-1 font-mono text-[11px] text-warn-500">
-          POC, not production
+          Prototype
         </span>
       </div>
       <ul className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
@@ -257,7 +260,7 @@ function ReadinessPanel({ metrics }: { metrics: Metrics }) {
           return (
             <li key={g.label} className={`rounded border px-3 py-2 ${klass}`}>
               <p className="text-xs font-semibold">{g.label}</p>
-              <p className="mt-1 text-[11px] leading-relaxed text-slateish-400">{g.detail}</p>
+              <p className="mt-1 text-xs leading-relaxed text-slateish-300">{g.detail}</p>
             </li>
           );
         })}
@@ -385,8 +388,29 @@ export function DashboardView({
 
       <ReadinessPanel metrics={metrics} />
 
+      {/* THE ONE SENTENCE. Before the numbers, what they add up to - written
+          only from values that were measured, so it never claims readiness
+          the tiles below would contradict. */}
+      <p className="mt-6 text-[1.35rem] leading-snug text-slateish-100">
+        {corpus.documents === 0 ? (
+          <>No documents yet. Upload a PDF to start asking questions.</>
+        ) : metrics.warnings.length > 0 ? (
+          <>
+            Ready to answer questions about{" "}
+            <span className="font-semibold">{nf.format(corpus.documents)} document{corpus.documents === 1 ? "" : "s"}</span>
+            , with <span className="font-semibold text-warn-500">{metrics.warnings.length} thing{metrics.warnings.length === 1 ? "" : "s"} to look at</span>.
+          </>
+        ) : (
+          <>
+            Ready to answer questions about{" "}
+            <span className="font-semibold">{nf.format(corpus.documents)} document{corpus.documents === 1 ? "" : "s"}</span>
+            . Nothing needs attention.
+          </>
+        )}
+      </p>
+
       {/* ---------------------------------------------- the four answers */}
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Headline
           label="Searchable"
           value={
@@ -461,6 +485,22 @@ export function DashboardView({
         </ul>
       )}
 
+      {/* EVERYTHING BELOW IS STILL HERE - folded, not removed. A client
+          opening this screen was met by thirty near-identical tiles in which
+          "keyword search ready 8,145" and "last heartbeat 0.7 s ago" carried
+          the same weight as "is anything wrong". The four answers above and
+          the warnings are what a reader came for; the rest is the operator's
+          console, one click away, with every number intact. Nothing about
+          the honesty rules changes: an unmeasured value still says so. */}
+      <details className="mt-8 group">
+        <summary className="cursor-pointer select-none rounded-lg border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-300 hover:text-slateish-100 [&::-webkit-details-marker]:hidden">
+          <span className="mr-2 inline-block transition-transform group-open:rotate-90">&#9656;</span>
+          <span className="font-medium">Technical detail</span>
+          <span className="ml-2 text-xs text-slateish-500">
+            corpus counts, processing speed, retrieval latency, jobs, worker, models, machine, exclusion rules
+          </span>
+        </summary>
+        <div className="mt-4 space-y-2">
       <Section
         title="Corpus"
         hint="A passage is a block of text a question can match. Searchable is what a question can actually reach; the rest are kept so you can inspect them."
@@ -787,6 +827,8 @@ export function DashboardView({
           </div>
         </Section>
       )}
+        </div>
+      </details>
     </div>
   );
 }

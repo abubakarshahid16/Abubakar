@@ -219,9 +219,14 @@ export function DocumentCard({
           role={(doc.pages_excluded_with_clause_headings ?? 0) > 0 ? "alert" : "status"}
           className={[
             "border-t px-4 py-3 text-sm",
+            // COLOUR MEANS SOMETHING AGAIN. Twelve of thirteen cards were
+            // wrapped in an amber block for the routine exclusion of front
+            // matter and contents pages, so the one card with a dropped CLAUSE
+            // - the thing this block exists to flag - looked exactly like the
+            // rest. Routine is quiet; a dropped clause is the only coloured one.
             (doc.pages_excluded_with_clause_headings ?? 0) > 0
               ? "border-danger-500/40 bg-danger-500/10"
-              : "border-warn-500/30 bg-warn-500/10",
+              : "border-ink-700 bg-transparent",
           ].join(" ")}
         >
           {(doc.pages_excluded_with_clause_headings ?? 0) > 0 ? (
@@ -240,14 +245,15 @@ export function DocumentCard({
             </>
           ) : (
             <>
-              <p className="font-medium text-warn-500">
-                {nf.format(doc.pages_excluded ?? 0)} page
-                {(doc.pages_excluded ?? 0) === 1 ? "" : "s"} excluded from search
-              </p>
-              <p className="mt-1 text-slateish-300">
-                {nf.format(doc.pages_excluded_characters ?? 0)} characters are not
-                searchable. Front matter and contents pages are excluded on
-                purpose; anything else is worth checking.
+              <p className="text-slateish-300">
+                <span className="font-medium text-slateish-200">
+                  {nf.format(doc.pages_excluded ?? 0)} page
+                  {(doc.pages_excluded ?? 0) === 1 ? "" : "s"} left out of search
+                </span>
+                <span className="text-slateish-400">
+                  {" "}&mdash; contents pages, front matter and the like, excluded on purpose.
+                  No numbered clause was among them.
+                </span>
               </p>
             </>
           )}
@@ -258,7 +264,7 @@ export function DocumentCard({
               "mt-2 rounded border px-3 py-1 text-xs",
               (doc.pages_excluded_with_clause_headings ?? 0) > 0
                 ? "border-danger-500/60 text-danger-500 hover:bg-danger-500/15"
-                : "border-warn-500/60 text-warn-500 hover:bg-warn-500/15",
+                : "border-ink-500 text-slateish-300 hover:bg-ink-700",
             ].join(" ")}
           >
             See which pages, and why

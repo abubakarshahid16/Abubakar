@@ -391,7 +391,12 @@ describe("B5 page image viewer", () => {
 // ------------------------------------------------- excluded pages (FIX 1b)
 
 describe("excluded pages are impossible to miss", () => {
-  it("warns about excluded pages rather than showing a quiet count", async () => {
+  it("states excluded pages in words, with a way to see which, rather than a quiet count", async () => {
+    // Routine exclusions - contents pages, front matter - are stated plainly
+    // and QUIETLY. They used to be wrapped in the same amber block as a
+    // dropped clause, on twelve of thirteen cards, so the one card that
+    // actually mattered looked like all the others. Visible, not alarming;
+    // the alarm is reserved for the test below.
     mockApi([
       makeDoc({
         pages_excluded: 3,
@@ -400,11 +405,13 @@ describe("excluded pages are impossible to miss", () => {
       }),
     ]);
     render(<App />);
-    expect(await screen.findByText(/3 pages excluded from search/i)).toBeInTheDocument();
-    expect(screen.getByText(/9,585 characters are not searchable/i)).toBeInTheDocument();
+    expect(await screen.findByText(/3 pages left out of search/i)).toBeInTheDocument();
+    expect(screen.getByText(/No numbered clause was among them/i)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /See which pages, and why/i }),
     ).toBeInTheDocument();
+    // And it is NOT an alert: that role is reserved for a dropped clause.
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("escalates to an ALERT when a dropped page carried clause headings", async () => {
