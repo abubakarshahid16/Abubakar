@@ -88,3 +88,48 @@ Of note for a security reader:
   authentication bypass and the remedy is to replace the key, which invalidates
   every issued token. A report that the key is recoverable from a log, a
   response body, a screenshot or a committed file is in scope.
+
+### 404 where a reader expects 401 — a decision, not an inconsistency
+
+An external review flagged this as inconsistent, and it is: `/api/auth/me` and
+the login routes answer **401** without a valid token, while `/api/admin/*` and
+any report, conversation or document the caller may not read answer **404**.
+The difference is deliberate.
+
+A 401 says *this route exists, this resource exists, and you are not
+authenticated for it*. On a route whose job is authentication that is the only
+useful answer, and the login screen is driven by it. Anywhere else it is a
+disclosure in its own right: 401 on `/api/admin/users` confirms the admin
+surface is deployed here, and 401 on a report id confirms the report is real
+and worth guessing at again — which is exactly the fact ownership was
+protecting. A 403 is worse, because it also confirms *who* the resource
+belongs to by ruling the caller out.
+
+So the rule is:
+
+- Routes that exist to authenticate answer **401**.
+- A write refused purely for lack of an identity answers **401** as well
+  (`main.py::_require_identity_to_write`). There is no resource to conceal: the
+  caller is asking to create something, and the honest answer is "sign in",
+  not "that does not exist".
+- Every READ gated on identity or scope answers **404**, with the same status,
+  error code and body as an id that never existed — so a probe cannot tell
+  "not yours" from "not there".
+
+Enforced in one place per surface, not per route: `admin.py::_not_found` is the
+only authorisation refusal an admin route makes, and `require_document`,
+`_require_owned_conversation` and `_report_or_404` in `main.py` are the scoped
+equivalents.
+
+The cost is stated rather than hidden: a legitimate user whose token has
+expired gets 404 from a route they are entitled to, which reads as "gone"
+rather than "log in again". Login state is discovered from `/api/auth/me`,
+which does answer 401, and the client asks it rather than inferring session
+state from a 404.
+
+Aggregates obey the same rule as the rows they summarise. A count of things
+the caller cannot see is the same disclosure as the things themselves —
+`/api/metrics` leaked corpus totals to every scope until it was fixed, and
+`/api/reports` told an unauthenticated caller how many reports exist while
+correctly returning none of them. A report of a count that outruns the
+caller's scope is in scope for this policy.
