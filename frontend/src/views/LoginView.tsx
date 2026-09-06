@@ -74,16 +74,34 @@ export function LoginView({
   const disabled = submitting;
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-4 py-12">
-      <header className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-slateish-200">Sign in</h1>
-          <p className="mt-1 text-sm text-slateish-400">
-            Local accounts only. Your role decides which documents you can see.
-          </p>
+    /* THE FIRST SCREEN A CLIENT SEES, and it was the weakest in the app: a
+       bare form floating on the page ground with no container, headed "Sign
+       in" and nothing else - a reader arriving cold could not tell what the
+       product was. The form is now on a raised card, under the product's own
+       name, with the two sentences that make this product different (it is
+       local, and your role decides what you see) where they will actually be
+       read.
+
+       The card is `bg-ink-800` on `ink-900`: the same raised-surface step the
+       Dashboard tiles use, so this screen belongs to the same system rather
+       than looking like a login bolted on. */
+    <main className="flex min-h-screen w-full items-center justify-center px-4 py-12">
+      <div className="w-full max-w-md">
+        <div className="mb-5 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight text-slateish-100">Nabaa</h1>
+          <p className="mt-1 text-sm text-slateish-400">Enterprise FEED intelligence</p>
         </div>
-        <ConnectionLine connected={connected} />
-      </header>
+
+        <div className="rounded-xl border border-ink-700 bg-ink-800 px-6 py-6 shadow-lg shadow-black/20">
+          <header className="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slateish-200">Sign in</h2>
+              <p className="mt-1 text-sm leading-relaxed text-slateish-400">
+                Local accounts only. Your role decides which documents you can see.
+              </p>
+            </div>
+            <ConnectionLine connected={connected} />
+          </header>
 
       <form onSubmit={submit} noValidate className="space-y-4" aria-describedby={errorId}>
         <div>
@@ -141,12 +159,18 @@ export function LoginView({
           {submitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
+        </div>
 
-      <p className="mt-6 text-xs text-slateish-400">
-        Your session is held in memory only. Reloading or closing this page signs
-        you out. This is deliberate: nothing about your login is written to disk.
-      </p>
-      <p className="mt-2 text-xs text-slateish-500">Nothing you type leaves this machine.</p>
+        {/* Outside the card, quieter: these are properties of the deployment,
+            not instructions for signing in. They stay because they are the two
+            facts a security reviewer checks first, and burying them in a
+            tooltip would be hiding the product's best argument. */}
+        <p className="mt-5 text-xs leading-relaxed text-slateish-400">
+          Your session is held in memory only. Reloading or closing this page signs
+          you out. This is deliberate: nothing about your login is written to disk.
+        </p>
+        <p className="mt-2 text-xs text-slateish-500">Nothing you type leaves this machine.</p>
+      </div>
     </main>
   );
 }

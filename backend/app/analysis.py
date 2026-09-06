@@ -31,6 +31,7 @@ import httpx
 
 from . import access, claims, market, search as search_mod, synthesis
 from .config import settings
+from .db import connect
 
 #: What the plan asks for that this build does not produce. Named on the
 #: result so a missing section is visible as missing rather than as an empty
@@ -81,6 +82,66 @@ def to_evidence(hit: dict) -> dict:
     }
 
 
+#: A filename or its stem, as a whole token. "doc17.pdf" and "doc17" both name
+#: doc17.pdf; "17 mm" names nothing, because a bare number is a measurement and
+#: the stem has to appear as written. Case-insensitive: nobody types NORSOK the
+#: way the file is spelled.
+def named_documents(question: str, filenames: list[str]) -> list[str]:
+    """The corpus filenames the question mentions, in corpus order.
+
+    Nothing in the system parsed document names out of a question before
+    this (#82, R.2). Retrieval took a global top-k, so "compare doc17.pdf and
+    doc20.pdf" could - and did - gather eight passages of which every doc20
+    one ranked below the budget line.
+    """
+    import re
+    q = question.lower()
+    named: list[str] = []
+    for filename in filenames:
+        stem = filename.rsplit(".", 1)[0].lower()
+        if len(stem) < 3:
+            continue
+        pattern = rf"(?<![\w.]){re.escape(stem)}(?:\.{re.escape(filename.rsplit('.', 1)[-1].lower())})?(?![\w.])"
+        if re.search(pattern, q):
+            named.append(filename)
+    return named
+
+
+def interleave_by_document(evidence: list[dict], names: list[str]) -> list[dict]:
+    """Reorder so every NAMED document reaches the front before any repeats.
+
+    The context budget keeps a PREFIX of this list and drops the rest, and the
+    [S#] markers are positional - so the only safe place to fix "the second
+    named document was cut entirely" is here, before the list is numbered.
+    Round-robin across the named documents in the order the question named
+    them, each document's passages in their original rank; then everything the
+    question did not name, in rank order. Nothing is dropped and nothing is
+    duplicated: an unnamed document may still be relevant, it just may not
+    crowd out one the reader asked about.
+    """
+    if not names:
+        return evidence
+    buckets = {n: [e for e in evidence if e.get("filename") == n] for n in names}
+    rest = [e for e in evidence if e.get("filename") not in buckets]
+    out: list[dict] = []
+    while any(buckets.values()):
+        for n in names:
+            if buckets[n]:
+                out.append(buckets[n].pop(0))
+    return out + rest
+
+
+def _corpus_filenames(scope: access.AccessScope) -> list[str]:
+    """Filenames the caller may read. A name the caller cannot see is not a
+    name they can ask about, so the scope bounds the match as well."""
+    ids = sorted(scope.allowed_document_ids)
+    if not ids:
+        return []
+    marks = ",".join("?" * len(ids))
+    return [r["filename"] for r in connect().execute(
+        f"SELECT filename FROM documents WHERE id IN ({marks}) ORDER BY filename", ids)]
+
+
 def gather(question: str, scope: access.AccessScope, *, limit: int = 8,
            document_id: str | None = None) -> tuple[list[dict], dict]:
     """Retrieve, and return evidence plus the raw search result.
@@ -89,12 +150,21 @@ def gather(question: str, scope: access.AccessScope, *, limit: int = 8,
     rows are built from the census and the eviction record, not from the hits -
     a document that contributed candidates and lost them all is invisible in
     the hits and visible in the census.
+
+    If the question NAMES documents, the evidence is interleaved so each named
+    document is represented before the context budget cuts the tail. Measured
+    before this (#82): 8 passages gathered for a doc17-vs-doc20 comparison, 2
+    kept by the budget, both from other documents; the model, shown no doc20
+    text, correctly refused. The census in `result` is untouched - it reports
+    what retrieval found, and this reorders only what the model is shown.
     """
     result = search_mod.search(
         question, limit=limit, document_id=document_id,
         allowed_document_ids=scope.allowed_document_ids,
     )
-    return [to_evidence(h) for h in result["hits"]], result
+    evidence = [to_evidence(h) for h in result["hits"]]
+    names = named_documents(question, _corpus_filenames(scope))
+    return interleave_by_document(evidence, names), result
 
 
 # ------------------------------------------------------------------- the model

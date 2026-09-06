@@ -27,6 +27,26 @@ import pytest
 from app import context_budget as cb
 from app import synthesis
 from app.config import settings
+
+
+#: The window the BUDGET tests in this file pin themselves to.
+#:
+#: Only the three tests about overflow need it, and they say so by using the
+#: `overflow_window` fixture explicitly rather than an autouse one - the rest
+#: of this file is about citation and refusal behaviour and must keep running
+#: at whatever `num_ctx` the deployment actually uses.
+#:
+#: Raising num_ctx 1536 -> 4096 (config.py, #82) made three 1,200-character
+#: table passages FIT, so nothing was trimmed and the trimming assertions
+#: failed while the code was correct. The test that guards its own fixture -
+#: "the fixture is not expensive enough to overflow; this test would be
+#: vacuous" - caught it and pointed straight here.
+OVERFLOW_WINDOW = 1536
+
+
+@pytest.fixture
+def overflow_window(monkeypatch):
+    monkeypatch.setattr(settings, "num_ctx", OVERFLOW_WINDOW)
 from app.synthesis import (
     CitedSentence,
     ConfidenceCheck,
@@ -257,7 +277,8 @@ def test_evidence_that_cannot_be_cited_is_refused():
 # ------------------------------------------------- the budget, before the call
 
 
-def test_three_numeric_table_passages_are_budgeted_before_the_call_and_reported():
+def test_three_numeric_table_passages_are_budgeted_before_the_call_and_reported(
+        overflow_window):
     """The overflow path, on the fixture that can actually produce it.
 
     Three 1,200-character table passages are ~3,777 estimated tokens against a
@@ -294,16 +315,24 @@ def test_prose_of_exactly_the_same_size_is_left_completely_alone():
 
 
 @pytest.mark.parametrize(
-    "evidence,expect_trim",
+    "evidence,expect_trim,window",
     [
-        ([ev(f"p{i}", PROSE_TEXT, f"doc{i}.pdf", i) for i in (1, 2, 3)], False),
+        # Prose fits at the deployed window, whatever it is - that is the
+        # property, so this case does NOT pin one.
+        ([ev(f"p{i}", PROSE_TEXT, f"doc{i}.pdf", i) for i in (1, 2, 3)], False, None),
         # Two table passages that together overflow but individually do not:
         # the first is kept whole, the second is cut back to what is left.
-        ([ev("t1", TABLE_TEXT[:700], "book2.pdf", 1), ev("t2", TABLE_TEXT[:900], "book4.pdf", 2)], True),
+        # Overflow only exists relative to a window, so this case states the
+        # one it needs instead of inheriting whatever the deployment runs.
+        ([ev("t1", TABLE_TEXT[:700], "book2.pdf", 1), ev("t2", TABLE_TEXT[:900], "book4.pdf", 2)],
+         True, OVERFLOW_WINDOW),
     ],
     ids=["prose-fits", "tables-trimmed"],
 )
-def test_the_prompt_actually_sent_fits_the_window_with_room_for_the_answer(evidence, expect_trim):
+def test_the_prompt_actually_sent_fits_the_window_with_room_for_the_answer(
+        evidence, expect_trim, window, monkeypatch):
+    if window is not None:
+        monkeypatch.setattr(settings, "num_ctx", window)
     model = Stub("Both sources are present [S1][S2].")
     out = summarise(QUESTION, evidence, model)
     if not model.calls:
@@ -313,7 +342,7 @@ def test_the_prompt_actually_sent_fits_the_window_with_room_for_the_answer(evide
     assert ("trimmed" in [r["action"] for r in out.evidence_removed]) is expect_trim
 
 
-def test_evidence_removed_is_reported_on_the_recommendation_too():
+def test_evidence_removed_is_reported_on_the_recommendation_too(overflow_window):
     tables = [ev(f"t{i}", TABLE_TEXT, f"book{i}.pdf", i) for i in (1, 2)]
     model = Stub("Verify the amplitude at 30.0000 [S1].")
     rec = recommend(QUESTION, tables, model)

@@ -114,7 +114,19 @@ class Settings(BaseSettings):
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12
     num_batch: int = 2048
-    num_ctx: int = 1536
+    # 1536 -> 4096, and this is a DECISION, not a tuning pass. The execution
+    # plan's change budget forbade touching model settings mid-sprint so the
+    # evidence base would stay comparable; the project owner overrode that
+    # after the measurement in #82, which showed why: at 1536 the evidence
+    # budget fits TWO passages, so a question naming two documents can never
+    # show the model both of them, and every multi-document feature was
+    # structurally impossible rather than merely weak. Measured on the same
+    # question, same machine (1.6 GB free): 1536 -> two passages, model
+    # correctly refuses, 18 s; 4096 -> six of eight passages, a correct
+    # doc17-vs-doc20 comparison, 88 s. The cost is real and is stated here so
+    # nobody reads the slower answer as a regression. Below ~1.5 GB free the
+    # 4B model swaps regardless of this value.
+    num_ctx: int = 4096
     #: Raised from 100 after measuring what the gold questions actually need.
     #: At 100, 5 of 12 Tier 2 generations stopped mid-sentence and one stopped
     #: inside a citation marker. At 250, 0 of 12 did, and the largest answer
