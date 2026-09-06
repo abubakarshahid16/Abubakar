@@ -224,13 +224,28 @@ def grant(conn, role: str, document_id: str) -> int:
         print(f"no such role: {role}", file=sys.stderr)
         return 2
     if role_row["kind"] == CAPABILITY:
-        # A grant to a capability is silently useless: nobody holds `admin`
-        # *as* their discipline, so the document reaches no one through it
-        # while looking, in the tables, granted.
-        print(f"refusing: {role_row['name']} is a capability, not a "
-              f"discipline. Grant documents to one of: "
-              f"{', '.join(DISCIPLINES)}", file=sys.stderr)
-        return 2
+        # ALLOWED, and the refusal that used to stand here was wrong on the
+        # facts. It said a grant to a capability "is silently useless: nobody
+        # holds `admin` *as* their discipline, so the document reaches no one
+        # through it while looking, in the tables, granted."
+        #
+        # That assumed a filter `access.scope_for_user` does not have. It joins
+        # user_roles to document_role_access on role_id and never looks at
+        # `kind`, so a document granted to the admin capability reaches every
+        # user holding it. Measured: granting one document to `admin` took the
+        # administrator's scope from 6 documents to 7.
+        #
+        # It is the honest way to give an administrator corpus-wide READ
+        # access, which the execution plan (line 1001) makes an explicit choice
+        # rather than a default: "Administrator status grants management UI/API
+        # permission but does not automatically grant the right to read every
+        # confidential document." Granting it here puts that decision in the
+        # grant tables, where `--verify-only` shows it and a single DELETE
+        # revokes it, instead of in a branch of access.py that no query can
+        # see.
+        print(f"note: {role_row['name']} is a capability, not a discipline. "
+              f"This grants the document to everyone holding it.",
+              file=sys.stderr)
     doc = conn.execute("SELECT id, filename FROM documents WHERE id = ?",
                        (document_id,)).fetchone()
     if doc is None:

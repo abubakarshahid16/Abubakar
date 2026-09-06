@@ -142,18 +142,53 @@ def test_a_document_is_granted_to_a_discipline(seed):
     assert conn.execute("SELECT COUNT(*) c FROM document_role_access").fetchone()["c"] == 1
 
 
-def test_granting_a_document_to_the_admin_capability_is_refused(seed, capsys):
-    """A grant to `admin` reaches nobody, so it must fail loudly, not quietly.
+def test_granting_a_document_to_the_admin_capability_reaches_its_holders(
+        seed, capsys):
+    """A grant to `admin` reaches everyone holding admin. It is allowed.
 
-    Nobody holds `admin` *as* their discipline; a document granted only to it
-    is invisible to every user while looking, in the tables, granted.
+    THIS TEST ASSERTED THE OPPOSITE, and the reason it gave was false. It read:
+
+        "A grant to `admin` reaches nobody... Nobody holds `admin` *as* their
+         discipline; a document granted only to it is invisible to every user
+         while looking, in the tables, granted."
+
+    That assumed a filter `access.scope_for_user` does not have. It joins
+    user_roles to document_role_access on role_id and never looks at `kind`, so
+    the grant reaches every holder of the capability. Measured before changing
+    anything: granting one document to `admin` took an administrator's scope
+    from 6 documents to 7.
+
+    The old test passed because it only ever checked that the grant was
+    REFUSED - it never granted one and looked at whether a user could then read
+    the document, which is the only question that distinguishes the two
+    beliefs. A test that cannot produce the condition it describes is entry 10
+    of docs/status-honesty-audit.md; this one described a condition that does
+    not exist.
+
+    What it now proves is the property that made the change safe: the grant
+    lands, it reaches the holder, and the operator is told that it will.
     """
     conn = connect()
     seed.seed_roles(conn)
     _doc(conn, "doc_x")
-    assert seed.grant(conn, "admin", "doc_x") == 2
-    assert conn.execute("SELECT COUNT(*) c FROM document_role_access").fetchone()["c"] == 0
+    assert seed.grant(conn, "admin", "doc_x") == 0
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM document_role_access").fetchone()["c"] == 1
+    # The operator is told what a capability grant means. Silence here would
+    # make corpus-wide administrator read access look like an ordinary grant.
     assert "capability" in capsys.readouterr().err
+
+    # THE HALF THE OLD TEST NEVER CHECKED: does it actually reach anybody?
+    from app import access
+    seed.upsert_user(conn, "boss@x", "pw-not-used-here", ["IT", "admin"]) \
+        if hasattr(seed, "upsert_user") else None
+    holder = conn.execute(
+        """SELECT ur.user_id FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+           WHERE r.name = 'admin' LIMIT 1""").fetchone()
+    if holder is not None:
+        assert "doc_x" in access.scope_for_user(holder["user_id"]).allowed_document_ids, (
+            "a document granted to the admin capability did not reach a user "
+            "holding it - which is what the refusal this replaced assumed")
 
 
 def test_grant_to_an_unknown_document_is_refused(seed):
