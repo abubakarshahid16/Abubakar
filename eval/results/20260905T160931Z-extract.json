@@ -1,0 +1,656 @@
+{
+  "at": "20260905T160931Z",
+  "tier": "extract",
+  "questions_file": "D:\\project\\Rag_chatbot\\eval\\questions.json",
+  "corpus_declared": "3 documents: NORSOKM501Rev5.pdf, book1-professionalpractices.pdf, book2-Differential-Equations.pdf",
+  "corpus_observed": {
+    "documents": 12,
+    "document_ids_sha256": "38676b3dbdc26d80",
+    "filenames": [
+      "doc18.pdf",
+      "book2-Differential-Equations.pdf",
+      "doc20.pdf",
+      "doc15.pdf",
+      "doc16.pdf",
+      "NORSOKM501Rev5.pdf",
+      "doc13.pdf",
+      "book1-professionalpractices.pdf",
+      "book4ChemicalProcessDynamicsAndControls.pdf",
+      "doc19.pdf",
+      "doc02.pdf",
+      "doc17.pdf"
+    ],
+    "chunks": 7656,
+    "retrievable": 7187,
+    "excluded": 469,
+    "vectors": 7187
+  },
+  "machine": {
+    "ram_percent_used": 96.6,
+    "ram_available_gib": 0.54,
+    "process_rss_mib": 1044,
+    "answer_model_resident": true,
+    "models_resident": [
+      "qwen3.5:4b"
+    ]
+  },
+  "summary": {
+    "questions": 16,
+    "answerable": 12,
+    "unanswerable": 4,
+    "retrieval": [
+      11,
+      12
+    ],
+    "citation": [
+      10,
+      11
+    ],
+    "answer_correctness": [
+      11,
+      12
+    ],
+    "refusal": [
+      4,
+      4
+    ],
+    "false_refusals": [
+      0,
+      12
+    ],
+    "length_limited": 0,
+    "median_ms": 2273.0,
+    "p95_ms": 3544.0,
+    "worst_ms": 85831.0,
+    "two_passage_answers": 1
+  },
+  "rows": [
+    {
+      "id": "1",
+      "question": "what does NDFT stand for",
+      "resolved_question": "what does NDFT stand for",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 3.544,
+      "reason": null,
+      "cited_clause": "3.2 Abbreviations",
+      "cited_document": "NORSOKM501Rev5.pdf",
+      "cited_pages": [
+        7
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "3.2"
+      ],
+      "all_cited_clauses": [
+        "3.2 Abbreviations"
+      ],
+      "missing_from_answer": [],
+      "required_tokens": [
+        "nominal",
+        "film",
+        "thickness"
+      ],
+      "expected_answer": "nominal dry film thickness",
+      "returned_text": "CPS coating procedure specification CPT coating procedure test CSDS coating system data sheet MDFT minimum dry film thickness NACE National Association of Corrosion Engineers NDFT nominal dry film thickness OAR occupational air requirements RAL colour definitions issued by RAL (Deutsches Institut f\u00fcr G\u00fctesicherung und Kennzeichnung e.V.) SSPC Steel Structures Painting Council SSPM Steel Structures Painting Manual QC quality control VOC volatile organic components",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "2",
+      "question": "what is the maximum relative humidity allowed for blast cleaning and coating",
+      "resolved_question": "what is the maximum relative humidity allowed for blast cleaning and coating",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 2.732,
+      "reason": null,
+      "cited_clause": "4.4 Ambient conditions",
+      "cited_document": "NORSOKM501Rev5.pdf",
+      "cited_pages": [
+        7
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "4.4"
+      ],
+      "all_cited_clauses": [
+        "4.4 Ambient conditions"
+      ],
+      "missing_from_answer": [],
+      "required_tokens": [
+        "85",
+        "3",
+        "0"
+      ],
+      "expected_answer": "85 % relative humidity; steel at least 3 C above dew point; above 0 C",
+      "returned_text": "No final blast cleaning or coating application shall be done if the relative humidity is more than 85 % and when the steel temperature is less than 3 \u00b0C above the dew point. Coating shall only be applied or cured at ambient and steel temperatures above 0 \u00b0C. The coating manufacturer shall specify the maximum and minimum application and curing temperature and other relevant limitations regarding application and curing conditions for each product in any coating system.",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "3",
+      "question": "what is the MDFT and number of coats for coating system no. 9",
+      "resolved_question": "what is the MDFT and number of coats for coating system no. 9",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 2.975,
+      "reason": null,
+      "cited_clause": "A.9 Coating system no. 9",
+      "cited_document": "NORSOKM501Rev5.pdf",
+      "cited_pages": [
+        21,
+        22,
+        23,
+        24
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "A.9"
+      ],
+      "all_cited_clauses": [
+        "A.9 Coating system no. 9"
+      ],
+      "missing_from_answer": [],
+      "required_tokens": [
+        "2",
+        "150",
+        "300"
+      ],
+      "expected_answer": "2 coats x 150 um, 300 um total",
+      "returned_text": "Application (if not specified under others) Surface preparation Coating system NDFT \u03bcm Bulk supplied carbon steel valves with operating temperature up to 150 oC. Cleanliness: ISO 8501-1 Sa 21\u20442 Roughness: ISO 8503 Grade Medium G (50 \u03bcm to 85 \u03bcm, Ry5) 2 coats immersion grade epoxy phenolic: MDFT (\u03bcm) of complete coating system: 2 x 150 300 General notes: 1. When it is possible to identify the operating conditions (temperature, insulation, exposure conditions, etc.) at the time the order is placed, the bulk ordered valves shall be supplied coated with one of the relevant coating systems in this ",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "4",
+      "question": "what is the soluble impurity limit in clause 6.3",
+      "resolved_question": "what is the soluble impurity limit in clause 6.3",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 2.216,
+      "reason": null,
+      "cited_clause": "6.3 Final surface condition",
+      "cited_document": "NORSOKM501Rev5.pdf",
+      "cited_pages": [
+        10
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "6.3"
+      ],
+      "all_cited_clauses": [
+        "6.3 Final surface condition"
+      ],
+      "missing_from_answer": [],
+      "required_tokens": [
+        "8502",
+        "9",
+        "20",
+        "ISO 8502-9",
+        "NaCl"
+      ],
+      "expected_answer": "ISO 8502-9; NaCl 20 mg/m2",
+      "returned_text": "The surface to be coated shall be clean, dry, free from oil/grease, and have the specified roughness and cleanliness until the first coat is applied. Dust, blast abrasives etc. shall be removed from the surface after blast cleaning such that the particle quantity and particle size do not exceed rating 2 of ISO 8502-3. The maximum content of soluble impurities on the blasted surface as sampled using ISO 8502-6 and distilled water, shall not exceed a conductivity measured in accordance with ISO 8502-9 corresponding to a NaCl content of 20 mg/m2.",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "5",
+      "question": "which standard gives the holiday detection voltage",
+      "resolved_question": "which standard gives the holiday detection voltage",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 2.153,
+      "reason": null,
+      "cited_clause": "11 Inspection and testing",
+      "cited_document": "NORSOKM501Rev5.pdf",
+      "cited_pages": [
+        16
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "11"
+      ],
+      "all_cited_clauses": [
+        "11 Inspection and testing"
+      ],
+      "missing_from_answer": [],
+      "required_tokens": [
+        "NACE",
+        "RP0188"
+      ],
+      "expected_answer": "NACE RP0188",
+      "returned_text": "Testing and inspection shall be carried out in accordance with Table 3. Surfaces shall be accessible until final inspection is carried out. Table 3 - Inspection and testing Test type Method Frequency Acceptance criteria Consequence Environmental conditions Ambient and steel temperature. Relative humidity. Dew point. Before start of each shift + minimum twice per shift. In accordance with specified requirements No blasting or coating Visual examination Visual for sharp edges weld spatter slivers, rustgrade, etc. 100 % of all surfaces No defects, see specified requirements Defects to be repaired",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "6",
+      "question": "how is the stripe coat applied",
+      "resolved_question": "how is the stripe coat applied",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 1.984,
+      "reason": null,
+      "cited_clause": "7.3 Application",
+      "cited_document": "NORSOKM501Rev5.pdf",
+      "cited_pages": [
+        10
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "7.3"
+      ],
+      "all_cited_clauses": [
+        "7.3 Application"
+      ],
+      "missing_from_answer": [],
+      "required_tokens": [
+        "brush",
+        "welds",
+        "corners",
+        "edges"
+      ],
+      "expected_answer": "by brush to welds, corners and edges",
+      "returned_text": "For each coat, a stripe coat shall be applied by brush to all welds, corners, behind angles, edges of beams etc. and areas not fully reachable by spray in order to obtain the specified coverage and thickness. Edges of existing coating shall be feathered towards the substrate prior to overcoating. Each coat shall be applied uniformly over the entire surface. Skips, runs, sags and drips shall be avoided. Each coat shall be free from pinholes, blisters and holidays. Contamination of painted surfaces between coats shall be avoided. Any contamination shall be removed.",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "7",
+      "question": "how often must temperature, relative humidity and dew point be checked, and what is the relative humidity limit",
+      "resolved_question": "how often must temperature, relative humidity and dew point be checked, and what is the relative humidity limit",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 2.951,
+      "reason": null,
+      "cited_clause": "11 Inspection and testing",
+      "cited_document": "NORSOKM501Rev5.pdf",
+      "cited_pages": [
+        16,
+        7
+      ],
+      "passage_count": 2,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "4.4",
+        "11"
+      ],
+      "all_cited_clauses": [
+        "11 Inspection and testing",
+        "4.4 Ambient conditions"
+      ],
+      "missing_from_answer": [],
+      "required_tokens": [
+        "85"
+      ],
+      "expected_answer": "before start of each shift and at least twice per shift; relative humidity limit 85 %",
+      "returned_text": "Testing and inspection shall be carried out in accordance with Table 3. Surfaces shall be accessible until final inspection is carried out. Table 3 - Inspection and testing Test type Method Frequency Acceptance criteria Consequence Environmental conditions Ambient and steel temperature. Relative humidity. Dew point. Before start of each shift + minimum twice per shift. In accordance with specified requirements No blasting or coating Visual examination Visual for sharp edges weld spatter slivers, rustgrade, etc. 100 % of all surfaces No defects, see specified requirements Defects to be repaired",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "8",
+      "question": "how many coats and what MDFT for coating system no. 1",
+      "resolved_question": "how many coats and what MDFT for coating system no. 1",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 2.08,
+      "reason": null,
+      "cited_clause": "A.1 Coating system no. 1 (shall be pre-qualified)",
+      "cited_document": "NORSOKM501Rev5.pdf",
+      "cited_pages": [
+        17
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "A.1"
+      ],
+      "all_cited_clauses": [
+        "A.1 Coating system no. 1 (shall be pre-qualified)"
+      ],
+      "missing_from_answer": [],
+      "required_tokens": [
+        "3",
+        "280",
+        "1",
+        "4"
+      ],
+      "expected_answer": "minimum 3 coats, 280 um, with general notes 1-4",
+      "returned_text": "Application (if not specified under others) Surface preparation Coating system MDFT \u03bcm Carbon steel with operating temperature < 120 \u00b0C Structural steel Exteriors of equipment, vessels, piping and valves (not insulated) Cleanliness: ISO 8501-1 Sa 21\u20442 Roughness: ISO 8503 Grade Medium G (50 \u03bcm to 85 \u03bcm, Ry5) 1 coat zinc rich primer: Minimum number of coats: 3 MDFT of complete coating system: 60 280 General notes: 1. If the second coat is not applied immediately after a zinc rich primer has cured, or if the primer is exposed to humid or outdoor conditions prior to application of the second coat,",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "9",
+      "question": "what is the maximum operating temperature for zinc metal coating",
+      "resolved_question": "what is the maximum operating temperature for zinc metal coating",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 2.527,
+      "reason": null,
+      "cited_clause": "8.2 Coating materials",
+      "cited_document": "NORSOKM501Rev5.pdf",
+      "cited_pages": [
+        11
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "8.2"
+      ],
+      "all_cited_clauses": [
+        "8.2 Coating materials"
+      ],
+      "missing_from_answer": [],
+      "required_tokens": [
+        "120"
+      ],
+      "expected_answer": "120 C",
+      "returned_text": "The materials for metal spraying shall be in accordance with the following: Aluminium: Type Al 99.5 of DIN 8566-2 or equivalent. Aluminium alloy: Aluminium alloy with 5 % Mg, DIN 8566-2 AlMg5 or equivalent. Zinc or alloys of zinc. All coating metals shall be supplied with product data sheets and quality control certificates, and be marked with coating metal manufacturer's name, manufacturing standard, metal composition, weight and manufacture date. Metal coating shall be sealed or overcoated as specified in coating system no. 2 in Annex A. Maximum operating temperature when zinc or alloys of z",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "10",
+      "question": "what percentage of crashes are caused by human error",
+      "resolved_question": "what percentage of crashes are caused by human error",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 2.398,
+      "reason": null,
+      "cited_clause": "1.2.1 Self-Driving Vehicles",
+      "cited_document": "book1-professionalpractices.pdf",
+      "cited_pages": [
+        27,
+        28
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": null,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "missing_from_answer": [],
+      "required_tokens": [
+        "95"
+      ],
+      "expected_answer": "roughly 95 %",
+      "returned_text": "Social scientists have credited and blamed the automobile for huge changes in our environment and lifestyles: suburbs, pollution, freedom, family vacations, ending lives, and saving lives. Will self-driving cars have similarly broad impacts? We briefly run through some possible results and some ethical, legal, and social issues. Our purpose is not only to learn about self-driving cars but also to \u201cwarm up\u201d our thinking about potential consequences of technology throughout this book. Perhaps the biggest benefit of self-driving cars is that they will save lives. Currently, roughly 35,000 people ",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "11",
+      "question": "what bolt torque is specified for a 6 inch flange",
+      "resolved_question": "what bolt torque is specified for a 6 inch flange",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": false,
+      "answer_type": "insufficient_evidence",
+      "answered": false,
+      "seconds": 2.33,
+      "reason": "the closest passages were not a credible match",
+      "cited_clause": null,
+      "cited_document": null,
+      "cited_pages": [],
+      "passage_count": 0,
+      "retrieval_correct": null,
+      "citation_correct": null,
+      "answer_correct": null,
+      "refusal_correct": true,
+      "false_refusal": false,
+      "length_limited": false,
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "13",
+      "question": "what is the price per square metre for coating system 1",
+      "resolved_question": "what is the price per square metre for coating system 1",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": false,
+      "answer_type": "insufficient_evidence",
+      "answered": false,
+      "seconds": 1.953,
+      "reason": "the closest passages were not a credible match",
+      "cited_clause": null,
+      "cited_document": null,
+      "cited_pages": [],
+      "passage_count": 0,
+      "retrieval_correct": null,
+      "citation_correct": null,
+      "answer_correct": null,
+      "refusal_correct": true,
+      "false_refusal": false,
+      "length_limited": false,
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "14",
+      "question": "what is the warranty period",
+      "resolved_question": "what is the warranty period",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": false,
+      "answer_type": "insufficient_evidence",
+      "answered": false,
+      "seconds": 2.132,
+      "reason": "the closest passages were not a credible match",
+      "cited_clause": null,
+      "cited_document": null,
+      "cited_pages": [],
+      "passage_count": 0,
+      "retrieval_correct": null,
+      "citation_correct": null,
+      "answer_correct": null,
+      "refusal_correct": true,
+      "false_refusal": false,
+      "length_limited": false,
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "15",
+      "question": "what is the delivery lead time",
+      "resolved_question": "what is the delivery lead time",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": false,
+      "answer_type": "insufficient_evidence",
+      "answered": false,
+      "seconds": 2.054,
+      "reason": "the closest passages were not a credible match",
+      "cited_clause": null,
+      "cited_document": null,
+      "cited_pages": [],
+      "passage_count": 0,
+      "retrieval_correct": null,
+      "citation_correct": null,
+      "answer_correct": null,
+      "refusal_correct": true,
+      "false_refusal": false,
+      "length_limited": false,
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "16",
+      "question": "inherent problems of P&IDs",
+      "resolved_question": "inherent problems of P&IDs system 1",
+      "carried_terms": [
+        "system 1"
+      ],
+      "question_was_rewritten": true,
+      "answerable": true,
+      "answer_type": "extract",
+      "answered": true,
+      "seconds": 2.128,
+      "reason": null,
+      "cited_clause": "4.3.2 Inherent Problems of P&IDs",
+      "cited_document": "book4ChemicalProcessDynamicsAndControls.pdf",
+      "cited_pages": [
+        404
+      ],
+      "passage_count": 1,
+      "retrieval_correct": true,
+      "citation_correct": true,
+      "answer_correct": true,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "4.3.2"
+      ],
+      "all_cited_clauses": [
+        "4.3.2 Inherent Problems of P&IDs"
+      ],
+      "missing_from_answer": [],
+      "required_tokens": [
+        "ID"
+      ],
+      "expected_answer": "a P&ID does not show every detail",
+      "returned_text": "There are a few problems with P&IDs that are only solved by being conscious of them. One problem is that P&IDs are constantly being updated, revised, changed, and added to. When reading a P&ID it is always important to check the date it was last revised and if there is a later revision available. Making adjustments to equipment that isn't there anymore not only causes confusion and frustration, but is a waste of everyone's time. Moreover, making sure you are using the most recent edition to the P&ID will ensure that you do not purchase equipment to install that has already been installed. Usua",
+      "evidence_removed": [],
+      "tier": "extract"
+    },
+    {
+      "id": "17",
+      "question": "In the wave equation table, what value is listed at time 4.00?",
+      "resolved_question": "In the wave equation table, what value is listed at time 4.00?",
+      "carried_terms": [],
+      "question_was_rewritten": false,
+      "answerable": true,
+      "answer_type": "generated",
+      "answered": true,
+      "seconds": 85.831,
+      "reason": null,
+      "cited_clause": null,
+      "cited_document": null,
+      "cited_pages": [],
+      "passage_count": 0,
+      "retrieval_correct": false,
+      "citation_correct": false,
+      "answer_correct": false,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "length_limited": false,
+      "expected_clauses": [
+        "15.3"
+      ],
+      "all_cited_clauses": [],
+      "missing_from_answer": [
+        "8.0000"
+      ],
+      "required_tokens": [
+        "8.0000"
+      ],
+      "expected_answer": "8.0000",
+      "returned_text": "",
+      "evidence_removed": [
+        {
+          "index": 2,
+          "filename": "book2-Differential-Equations.pdf",
+          "page_start": 597,
+          "action": "trimmed",
+          "characters_kept": 387,
+          "characters_dropped": 1006
+        },
+        {
+          "index": 3,
+          "filename": "book2-Differential-Equations.pdf",
+          "page_start": 598,
+          "action": "dropped",
+          "characters_kept": 0,
+          "characters_dropped": 1383
+        }
+      ],
+      "tier": "generated"
+    }
+  ]
+}
