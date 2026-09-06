@@ -56,10 +56,44 @@
  * "N authorized" - a number this screen would have to invent. The omission is
  * named on screen instead, alongside the `not_implemented_sections` the API
  * itself reports.
+ *
+ * WHERE THE STATE LIVES, and why it is not useState. App.tsx renders
+ * `{view === "analysis" && <AnalysisModeScreen />}`, so opening Documents
+ * UNMOUNTS this screen and React state dies with it - a run in flight was
+ * lost the moment a reader went to check a document. The question, mode,
+ * sections, the run in flight and its result therefore live in a module-level
+ * store (below, "screen state") that the component subscribes to. See that
+ * section for the alternatives that were weighed and for what happens on
+ * sign-out.
+ *
+ * ONE RUN AT A TIME. How long a run takes is not known in advance and is not
+ * claimed anywhere on this screen - only the elapsed seconds are shown, which
+ * are measured, not estimated. The button used to stay live throughout: a
+ * second click meant two concurrent model generations on a machine with memory
+ * for one. While a run is in flight the button is
+ * disabled and `aria-busy`, and the screen shows the seconds elapsed since the
+ * run's REAL start timestamp - the same pattern ChatView/LocalWork use for
+ * chat. Unlike chat, the analysis routes accept no `progress_id` and report no
+ * stage, so none is shown: what IS shown is which engines have not yet
+ * answered, which the client knows for a fact because it sent the requests.
  */
-import { useCallback, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
-import { analysis as analysisApi, market as marketApi, type Result } from "../api/client";
+import {
+  analysis as analysisApi,
+  isSignedIn,
+  market as marketApi,
+  type Result,
+} from "../api/client";
 import { ClaimTable } from "../components/analysis/ClaimTable";
 import { GapAnalysisCard } from "../components/analysis/GapAnalysisCard";
 import { MarketPanel } from "../components/analysis/MarketPanel";
@@ -255,9 +289,22 @@ export function toClaimClusters(
       ? (c.facet as unknown[]).filter((f): f is string => typeof f === "string").join(" · ")
       : (str(c.facet) ?? "");
     const rawRows: Record<string, unknown>[] = Array.isArray(c.rows) ? c.rows : [];
-    const rows = rawRows
-      .map((r: Record<string, unknown>) => toClaimRow(r, located))
-      .filter((r): r is ClaimRow => r !== null);
+    // Retrieval can hand back the same passage twice - overlapping chunks over
+    // one page - and the table then shows one piece of evidence as two. A
+    // reader counts rows, so an IDENTICAL row (same document, same page, same
+    // words) is kept once. Two different passages from the same page differ in
+    // their words and stay two rows; nothing is merged on document and page
+    // alone.
+    const rows: ClaimRow[] = [];
+    const seenRows = new Set<string>();
+    for (const r of rawRows) {
+      const row = toClaimRow(r, located);
+      if (row === null) continue;
+      const key = JSON.stringify([row.filename, row.page_start, row.exact_span]);
+      if (seenRows.has(key)) continue;
+      seenRows.add(key);
+      rows.push(row);
+    }
     // A cluster whose every row was uncitable is not a comparison; it is an
     // empty box with a heading, and rule 3 says an absent thing is absent.
     if (rows.length === 0) continue;
@@ -463,6 +510,329 @@ interface MarketSlotData {
   findings: MarketFinding[];
 }
 
+// ------------------------------------------------------------- screen state
+//
+// A module-level store, subscribed to with useSyncExternalStore. It outlives
+// the component, which is the point: App.tsx unmounts this screen on every
+// view switch.
+//
+// THE OPTIONS, and why this one. Lifting to App: App owns the view switch, not
+// one screen's results, and it is out of scope here anyway. sessionStorage:
+// survives a page reload - but the bearer token deliberately does not (see
+// api/client.ts), so a reload signs the reader out BY DESIGN while the results
+// of the signed-out session would still be sitting on disk under a signed-in
+// key for the next person to open the tab. That is a leak, so no. A module
+// store lives exactly as long as the page: a view switch keeps it, the reload
+// that signs the reader out destroys it with everything else, and it can be
+// cleared here the moment the client's token is gone.
+//
+// SIGN-OUT. `onSignedOut` in api/client.ts is a single slot, and App.tsx holds
+// it - that is how a 401 becomes the login screen. Registering here would
+// REPLACE App's handler, not add to it. And App's own Log out button never
+// goes through that hook at all: it calls setToken(null) directly. Both paths
+// end the same way, `isSignedIn()` flips to false, so that is what the store
+// watches: at every mount, before every write, and once a second while it
+// holds anything written under a signed-in client. Under auth_mode=disabled
+// nothing is ever signed in and nothing is ever cleared, which is right -
+// there is no session to leak across.
+//
+// The run itself belongs to the store too, not to the component. A response
+// arriving while the reader is on Documents lands here and is on screen when
+// they come back.
+
+interface ScreenState {
+  question: string;
+  mode: AnalysisMode;
+  toggles: AnalysisToggles;
+  baselineDocumentId: string | null;
+  baselineRefusal: string | null;
+  selected: string | null;
+  summarySlot: Slot<SummarySlotData>;
+  gapsSlot: Slot<GapsSlotData>;
+  recSlot: Slot<RecommendationSlotData>;
+  marketSlot: Slot<MarketSlotData>;
+  /** `Date.now()` when the run in flight began; null when nothing is running.
+   *  The elapsed counter is derived from this, so it is real time - it is
+   *  right even after an unmount and remount mid-run. */
+  runStartedAt: number | null;
+  /** Whether this was written under a signed-in client. Every write first
+   *  checks that a held store is still signed in (see `patch`), so a slot
+   *  written by the very response that carried the 401 never lands. */
+  heldForSession: boolean;
+}
+
+function freshState(): ScreenState {
+  return {
+    question: "",
+    mode: "focused",
+    toggles: { gaps: false, market: false, recommendation: false },
+    baselineDocumentId: null,
+    baselineRefusal: null,
+    selected: null,
+    summarySlot: { s: "idle" },
+    gapsSlot: { s: "idle" },
+    recSlot: { s: "idle" },
+    marketSlot: { s: "idle" },
+    runStartedAt: null,
+    heldForSession: false,
+  };
+}
+
+let state: ScreenState = freshState();
+const listeners = new Set<() => void>();
+// Request ownership. Taken synchronously before the awaits, re-read after
+// them. Bumped on every run, every mode or toggle change, and every reset, so
+// a summary still in flight when the reader switches to Quote - or signs out -
+// cannot land under the claim table.
+let ticket = 0;
+let signOutWatch: ReturnType<typeof setInterval> | null = null;
+
+function subscribe(fn: () => void) {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
+function getSnapshot() {
+  return state;
+}
+
+function emit() {
+  for (const fn of listeners) fn();
+}
+
+/** Forget everything: question, mode, sections, results and any run in flight.
+ *  Called when the client's session has ended; exported so a test can start
+ *  from nothing. */
+export function resetAnalysisScreen() {
+  ticket += 1;
+  state = freshState();
+  if (signOutWatch !== null) {
+    clearInterval(signOutWatch);
+    signOutWatch = null;
+  }
+  emit();
+}
+
+/** The one sign-out rule: results written under a signed-in client do not
+ *  survive that client being signed out. Returns true when it fired. */
+function clearIfSignedOut(): boolean {
+  if (state.heldForSession && !isSignedIn()) {
+    resetAnalysisScreen();
+    return true;
+  }
+  return false;
+}
+
+function watchSignOut() {
+  if (signOutWatch !== null) return;
+  signOutWatch = setInterval(clearIfSignedOut, 1000);
+}
+
+/** Every write goes through here. A write attempted after sign-out is dropped
+ *  on the floor - there is nobody it belongs to any more. */
+function patch(p: Partial<ScreenState>) {
+  if (clearIfSignedOut()) return;
+  state = { ...state, ...p, heldForSession: isSignedIn() };
+  if (state.heldForSession) watchSignOut();
+  emit();
+}
+
+function supersede() {
+  ticket += 1;
+  patch({
+    runStartedAt: null,
+    summarySlot: { s: "idle" },
+    gapsSlot: { s: "idle" },
+    recSlot: { s: "idle" },
+    marketSlot: { s: "idle" },
+    selected: null,
+    baselineRefusal: null,
+  });
+}
+
+function setQuestion(question: string) {
+  patch({ question });
+}
+
+function changeMode(mode: AnalysisMode) {
+  patch({ mode });
+  supersede();
+}
+
+function changeToggle(k: keyof AnalysisToggles, v: boolean) {
+  patch({ toggles: { ...state.toggles, [k]: v } });
+  supersede();
+}
+
+function setSelected(selected: string | null) {
+  patch({ selected });
+}
+
+/** Run the selected engines for the current question. Exported so the
+ *  one-run-at-a-time guard can be tested without a button in front of it. */
+export async function runAnalysis(overrideBaseline?: string | null): Promise<void> {
+  if (clearIfSignedOut()) return;
+  const asked = state.question.trim();
+  if (asked === "") return;
+  // One run at a time. The button is disabled while this is non-null, and this
+  // guard is for every other way in: retry, baseline nomination, a keyboard
+  // activation that beat the re-render.
+  if (state.runStartedAt !== null) return;
+
+  const mine = ticket + 1;
+  ticket = mine;
+  const mineStill = () => ticket === mine;
+
+  const { mode, toggles } = state;
+  const baseline = overrideBaseline === undefined ? state.baselineDocumentId : overrideBaseline;
+  const engines = enginesFor(mode, toggles);
+  // The wider set is the only thing "comprehensive" can honestly mean in
+  // this build; the batch-by-batch run it describes is not implemented and
+  // the screen says so rather than pretending.
+  const limit = mode === "comprehensive" ? 24 : 8;
+  const body = { question: asked, limit, baseline_document_id: baseline };
+
+  patch({
+    selected: null,
+    runStartedAt: Date.now(),
+    summarySlot: engines.summary ? { s: "loading" } : { s: "off" },
+    gapsSlot: engines.gaps ? { s: "loading" } : { s: "off" },
+    recSlot: engines.recommendation ? { s: "loading" } : { s: "off" },
+    marketSlot: engines.market ? { s: "loading" } : { s: "off" },
+  });
+
+  const jobs: Promise<void>[] = [];
+
+  if (engines.summary) {
+    jobs.push(
+      analysisApi.summary(body).then((r) => {
+        if (!mineStill()) return;
+        patch({
+          summarySlot: slotFrom(r, (d) => {
+            const located = locate(d.evidence_ledger);
+            const findings = citedFindings(d.documented_findings, located);
+            const prose = citedSummary(d);
+            const refusal = str(d.refusal);
+            // Both halves are normalised to strings HERE so the renderer never
+            // has to guess. An entry whose `sentence` is missing or empty is
+            // still a removal the API reported: it stays in the count and is
+            // named as text-not-returned below, never rendered as a bullet
+            // with nothing in it.
+            const dropped = (Array.isArray(d.dropped_sentences) ? d.dropped_sentences : [])
+              .filter((s) => s !== null && typeof s === "object")
+              .map((s) => ({
+                sentence: typeof s.sentence === "string" ? s.sentence : "",
+                reason: typeof s.reason === "string" ? s.reason : "",
+              }));
+            if (prose === null && findings.length === 0 && refusal === null) return null;
+            return {
+              result: toAnalysisResult(d, prose, findings),
+              refusal,
+              dropped,
+              ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
+            };
+          }),
+        });
+      }),
+    );
+  }
+
+  if (engines.gaps) {
+    jobs.push(
+      analysisApi.gaps(body).then((r) => {
+        if (!mineStill()) return;
+        patch({
+          gapsSlot: slotFrom(r, (d: AnalysisGapsResult) => {
+            const located = locate(d.evidence_ledger);
+            const clusters = toClaimClusters(d.claim_clusters, located);
+            const items = toGapItems(d.gaps?.items, located);
+            if (clusters.length === 0 && items.length === 0) return null;
+            return {
+              clusters,
+              gaps: toGapAnalysis(d.gaps, items),
+              ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
+            };
+          }),
+        });
+      }),
+    );
+  }
+
+  if (engines.recommendation) {
+    jobs.push(
+      analysisApi.recommendations(body).then((r) => {
+        if (!mineStill()) return;
+        patch({
+          recSlot: slotFrom(r, (d) => {
+            const located = locate(d.evidence_ledger);
+            const rec = toRecommendation(d.recommendation, located);
+            const findings = rec === null ? [] : onlySamples(d.public_market_findings);
+            if (rec === null && findings.length === 0) return null;
+            return {
+              recommendation: rec,
+              findings,
+              ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
+            };
+          }),
+        });
+      }),
+    );
+  }
+
+  if (engines.market) {
+    jobs.push(
+      marketApi.findings().then((r) => {
+        if (!mineStill()) return;
+        patch({
+          marketSlot: slotFrom(r, (d) => {
+            const findings = onlySamples(d.findings);
+            if (findings.length === 0) return null;
+            return {
+              notice: typeof d.notice === "string" ? d.notice : "",
+              egress: d.egress,
+              findings,
+            };
+          }),
+        });
+      }),
+    );
+  }
+
+  await Promise.all(jobs);
+  if (mineStill()) patch({ runStartedAt: null });
+}
+
+function nominateBaseline(b: BaselineSelection) {
+  if (b.kind === "stated_requirement" || b.document_id === null) {
+    // The gaps route accepts `baseline_document_id` and nothing else. A
+    // typed requirement would have to be dropped on the floor, and a form
+    // that silently discards what was typed into it is worse than one that
+    // says it cannot take it.
+    patch({
+      baselineRefusal:
+        "This build's gap route takes a baseline DOCUMENT only. A stated requirement " +
+        "cannot be sent, so nothing was run - the requirement you typed has not been used.",
+    });
+    return;
+  }
+  patch({ baselineRefusal: null, baselineDocumentId: b.document_id });
+  void runAnalysis(b.document_id);
+}
+
+/** Which engines have not answered yet. Not a stage - the analysis routes
+ *  report none - but a fact the client holds: it sent these requests and has
+ *  not had the responses. */
+function stillWaitingOn(s: ScreenState): string[] {
+  const out: string[] = [];
+  if (s.summarySlot.s === "loading") out.push("Summary");
+  if (s.recSlot.s === "loading") out.push("AI recommendation");
+  if (s.gapsSlot.s === "loading") out.push("Gap analysis");
+  if (s.marketSlot.s === "loading") out.push("Public market sample");
+  return out;
+}
+
 function Section({
   title,
   eyebrow,
@@ -573,6 +943,55 @@ function SlotBody<T>({
   return <>{children(slot.data)}</>;
 }
 
+/**
+ * What was removed from the generated summary, and why.
+ *
+ * THE DISCLOSURE IS THE POINT, so it may never be empty. A live run showed
+ * "2 sentences were removed from this summary" over two bullets with no text
+ * in them: the reader was told something had been hidden and then shown
+ * nothing, which is worse than saying nothing at all. An empty bullet is a
+ * null rendering as something, which rule 3 forbids.
+ *
+ * So: a bullet is rendered only for an entry that HAS the removed text. The
+ * count in the summary line still counts every removal the API reported - the
+ * honest number is the number removed, not the number this screen can show -
+ * and any entry whose text did not come back is named in one line as exactly
+ * that. No reason is ever invented, and a missing reason renders as nothing
+ * rather than as a bare dash.
+ */
+function DroppedSentences({ dropped }: { dropped: { sentence: string; reason: string }[] }) {
+  if (dropped.length === 0) return null;
+  const shown = dropped.filter((s) => s.sentence.trim() !== "");
+  const withheld = dropped.length - shown.length;
+  return (
+    <details className="rounded border border-ink-700 bg-ink-850 px-3 py-2">
+      <summary className="cursor-pointer text-xs text-slateish-400">
+        {dropped.length} sentence{dropped.length === 1 ? " was" : "s were"} removed from this
+        summary
+      </summary>
+      {shown.length > 0 && (
+        <ul className="mt-2 space-y-1.5">
+          {shown.map((s, i) => (
+            <li key={`${i}-${s.sentence.slice(0, 24)}`} className="text-xs text-slateish-400">
+              <span className="text-slateish-300">{s.sentence}</span>
+              {s.reason.trim() !== "" && (
+                <span className="ml-1 text-slateish-500">&mdash; {s.reason}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {withheld > 0 && (
+        <p className="mt-2 text-xs text-slateish-500">
+          {withheld === 1
+            ? "One of them was reported without the removed text, so it is not shown here."
+            : `${withheld} of them were reported without the removed text, so they are not shown here.`}
+        </p>
+      )}
+    </details>
+  );
+}
+
 /** The passage behind a citation: a document, a page, and the words. Nothing
  *  on this screen cites anything that cannot be shown here. */
 function SelectedPassage({ item }: { item: EvidenceItem }) {
@@ -599,182 +1018,39 @@ const NOT_RENDERED_HERE =
 
 export function AnalysisModeScreen() {
   const questionId = useId();
+  const s = useSyncExternalStore(subscribe, getSnapshot);
+  const { question, mode, toggles, baselineRefusal, selected } = s;
+  const { summarySlot, gapsSlot, recSlot, marketSlot } = s;
 
-  const [question, setQuestion] = useState("");
-  const [mode, setMode] = useState<AnalysisMode>("focused");
-  const [toggles, setToggles] = useState<AnalysisToggles>({
-    gaps: false,
-    market: false,
-    recommendation: false,
-  });
-  const [baselineDocumentId, setBaselineDocumentId] = useState<string | null>(null);
-  const [baselineRefusal, setBaselineRefusal] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  // The mount-time half of the sign-out rule. Before paint, so a remount after
+  // a sign-out never shows the previous session's results for even one frame.
+  useLayoutEffect(() => {
+    clearIfSignedOut();
+  }, []);
 
-  const [summarySlot, setSummarySlot] = useState<Slot<SummarySlotData>>({ s: "idle" });
-  const [gapsSlot, setGapsSlot] = useState<Slot<GapsSlotData>>({ s: "idle" });
-  const [recSlot, setRecSlot] = useState<Slot<RecommendationSlotData>>({ s: "idle" });
-  const [marketSlot, setMarketSlot] = useState<Slot<MarketSlotData>>({ s: "idle" });
+  // Egress preview state is transient UI and stays with the component.
   const [pendingQuery, setPendingQuery] = useState<PublicMarketQuery | null>(null);
   const [queryOutcome, setQueryOutcome] = useState<string | null>(null);
 
-  // ------------------------------------------------------ request ownership
-  //
-  // Taken synchronously before the awaits, re-read after them. Bumped on every
-  // run AND on every mode or toggle change, so a summary still in flight when
-  // the reader switches to Quote cannot land under the claim table.
-  const ticket = useRef(0);
-  const running = useRef(false);
-
-  const supersede = useCallback(() => {
-    ticket.current += 1;
-    running.current = false;
-    setSummarySlot({ s: "idle" });
-    setGapsSlot({ s: "idle" });
-    setRecSlot({ s: "idle" });
-    setMarketSlot({ s: "idle" });
-    setSelected(null);
-    setBaselineRefusal(null);
-  }, []);
-
-  const changeMode = useCallback(
-    (m: AnalysisMode) => {
-      setMode(m);
-      supersede();
-    },
-    [supersede],
-  );
-
-  const changeToggle = useCallback(
-    (k: keyof AnalysisToggles, v: boolean) => {
-      setToggles((t) => ({ ...t, [k]: v }));
-      supersede();
-    },
-    [supersede],
-  );
-
-  const run = useCallback(
-    async (overrideBaseline?: string | null) => {
-      const asked = question.trim();
-      if (asked === "") return;
-
-      const mine = ticket.current + 1;
-      ticket.current = mine;
-      running.current = true;
-      const mineStill = () => ticket.current === mine;
-
-      const baseline =
-        overrideBaseline === undefined ? baselineDocumentId : overrideBaseline;
-      const engines = enginesFor(mode, toggles);
-      // The wider set is the only thing "comprehensive" can honestly mean in
-      // this build; the batch-by-batch run it describes is not implemented and
-      // the screen says so rather than pretending.
-      const limit = mode === "comprehensive" ? 24 : 8;
-      const body = { question: asked, limit, baseline_document_id: baseline };
-
-      setSelected(null);
-      setSummarySlot(engines.summary ? { s: "loading" } : { s: "off" });
-      setGapsSlot(engines.gaps ? { s: "loading" } : { s: "off" });
-      setRecSlot(engines.recommendation ? { s: "loading" } : { s: "off" });
-      setMarketSlot(engines.market ? { s: "loading" } : { s: "off" });
-
-      const jobs: Promise<void>[] = [];
-
-      if (engines.summary) {
-        jobs.push(
-          analysisApi.summary(body).then((r) => {
-            if (!mineStill()) return;
-            setSummarySlot(
-              slotFrom(r, (d) => {
-                const located = locate(d.evidence_ledger);
-                const findings = citedFindings(d.documented_findings, located);
-                const prose = citedSummary(d);
-                const refusal = str(d.refusal);
-                const dropped = (Array.isArray(d.dropped_sentences) ? d.dropped_sentences : [])
-                  .filter((s) => s !== null && typeof s === "object" && typeof s.sentence === "string");
-                if (prose === null && findings.length === 0 && refusal === null) return null;
-                return {
-                  result: toAnalysisResult(d, prose, findings),
-                  refusal,
-                  dropped,
-                  ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
-                };
-              }),
-            );
-          }),
-        );
-      }
-
-      if (engines.gaps) {
-        jobs.push(
-          analysisApi.gaps(body).then((r) => {
-            if (!mineStill()) return;
-            setGapsSlot(
-              slotFrom(r, (d: AnalysisGapsResult) => {
-                const located = locate(d.evidence_ledger);
-                const clusters = toClaimClusters(d.claim_clusters, located);
-                const items = toGapItems(d.gaps?.items, located);
-                if (clusters.length === 0 && items.length === 0) return null;
-                return {
-                  clusters,
-                  gaps: toGapAnalysis(d.gaps, items),
-                  ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
-                };
-              }),
-            );
-          }),
-        );
-      }
-
-      if (engines.recommendation) {
-        jobs.push(
-          analysisApi.recommendations(body).then((r) => {
-            if (!mineStill()) return;
-            setRecSlot(
-              slotFrom(r, (d) => {
-                const located = locate(d.evidence_ledger);
-                const rec = toRecommendation(d.recommendation, located);
-                const findings = rec === null ? [] : onlySamples(d.public_market_findings);
-                if (rec === null && findings.length === 0) return null;
-                return {
-                  recommendation: rec,
-                  findings,
-                  ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
-                };
-              }),
-            );
-          }),
-        );
-      }
-
-      if (engines.market) {
-        jobs.push(
-          marketApi.findings().then((r) => {
-            if (!mineStill()) return;
-            setMarketSlot(
-              slotFrom(r, (d) => {
-                const findings = onlySamples(d.findings);
-                if (findings.length === 0) return null;
-                return {
-                  notice: typeof d.notice === "string" ? d.notice : "",
-                  egress: d.egress,
-                  findings,
-                };
-              }),
-            );
-          }),
-        );
-      }
-
-      await Promise.all(jobs);
-      if (mineStill()) running.current = false;
-    },
-    [baselineDocumentId, mode, question, toggles],
-  );
+  // A ticking counter rather than a bare spinner, exactly as ChatView does it:
+  // the seconds since the run's real start, re-derived from the timestamp each
+  // tick so a missed tick or a remount cannot make it drift. Nothing here
+  // estimates how long is left - the length of a generation is unknown until
+  // it ends, and a bar would be an invention.
+  const running = s.runStartedAt !== null;
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (s.runStartedAt === null) return;
+    const started = s.runStartedAt;
+    const tick = () => setElapsed(Math.floor((Date.now() - started) / 1000));
+    tick();
+    const t = window.setInterval(tick, 1000);
+    return () => window.clearInterval(t);
+  }, [s.runStartedAt]);
 
   const retry = useCallback(() => {
-    void run();
-  }, [run]);
+    void runAnalysis();
+  }, []);
 
   // The documents the run actually retrieved from. Not "the corpus" - this
   // screen has no list of authorised documents and will not pretend to one.
@@ -800,6 +1076,38 @@ export function AnalysisModeScreen() {
   );
 
   const onCite = useCallback((evidenceId: string) => setSelected(evidenceId), []);
+
+  /**
+   * BRING THE SOURCES PANEL INTO VIEW ON SELECT.
+   *
+   * The panel sits at the top of the right rail. On a long result page a
+   * citation click populated it a screen or two ABOVE the viewport, so the
+   * click looked like it did nothing and the reader concluded the audit trail
+   * was broken.
+   *
+   * Both remedies are in place, and they cover different widths. The rail is
+   * `xl:sticky` (below), which keeps the panel on screen only once the layout
+   * is two columns; below xl the rail stacks under the results and sticky does
+   * nothing at all. So the scroll is the one that matters on a narrow window,
+   * and it is `block: "nearest"` deliberately: "nearest" is a NO-OP when the
+   * panel is already visible, where "center" would yank the page out from
+   * under a reader who could see it perfectly well.
+   *
+   * `prefers-reduced-motion` turns the animation off, not the scroll - the
+   * reader still needs to be taken to the panel, they just do not need to be
+   * flown there.
+   */
+  const sourcesRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selected === null) return;
+    const el = sourcesRef.current;
+    // jsdom and older engines have no scrollIntoView; the selection still works.
+    if (el === null || typeof el.scrollIntoView !== "function") return;
+    const reduced =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView(reduced ? { block: "nearest" } : { block: "nearest", behavior: "smooth" });
+  }, [selected]);
 
   // The egress preview. This lived in a MarketScreen that was in neither
   // App.tsx nor Shell.tsx, so `/api/market/preview-query` had no caller at
@@ -827,28 +1135,9 @@ export function AnalysisModeScreen() {
     setPendingQuery(null);
   }, [pendingQuery]);
 
-  const nominateBaseline = useCallback(
-    (b: BaselineSelection) => {
-      if (b.kind === "stated_requirement" || b.document_id === null) {
-        // The gaps route accepts `baseline_document_id` and nothing else. A
-        // typed requirement would have to be dropped on the floor, and a form
-        // that silently discards what was typed into it is worse than one that
-        // says it cannot take it.
-        setBaselineRefusal(
-          "This build's gap route takes a baseline DOCUMENT only. A stated requirement " +
-            "cannot be sent, so nothing was run - the requirement you typed has not been used.",
-        );
-        return;
-      }
-      setBaselineRefusal(null);
-      setBaselineDocumentId(b.document_id);
-      void run(b.document_id);
-    },
-    [run],
-  );
-
   const engines = enginesFor(mode, toggles);
-  const canRun = question.trim() !== "";
+  const canRun = question.trim() !== "" && !running;
+  const waitingOn = stillWaitingOn(s);
 
   const notImplemented =
     summarySlot.s === "ready"
@@ -931,11 +1220,46 @@ export function AnalysisModeScreen() {
             <button
               type="button"
               disabled={!canRun}
-              onClick={() => void run()}
+              aria-busy={running}
+              onClick={() => void runAnalysis()}
               className="w-full rounded border border-signal-500/70 bg-signal-500 px-4 py-2.5 text-sm font-semibold text-ink-800 hover:bg-signal-400 disabled:cursor-not-allowed disabled:border-ink-500 disabled:bg-ink-700 disabled:text-slateish-500"
             >
-              Run analysis
+              {running ? "Running…" : "Run analysis"}
             </button>
+
+            {/* Real elapsed time from the run's own start timestamp, and the
+                engines that have not answered - both facts the client holds.
+                No stage: the analysis routes take no progress_id and report
+                none, and a stage guessed from the clock would be wrong on
+                exactly the run where it mattered. */}
+            {running && (
+              <div
+                role="status"
+                aria-live="polite"
+                data-testid="analysis-run-status"
+                className="rounded border border-ink-700 bg-ink-850 p-3"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-sm font-medium text-slateish-200">Working on this machine</p>
+                  <span
+                    data-testid="analysis-elapsed"
+                    className="shrink-0 font-mono text-sm tabular-nums text-slateish-300"
+                  >
+                    {elapsed}s
+                  </span>
+                </div>
+                {waitingOn.length > 0 && (
+                  <p className="mt-1.5 text-xs text-slateish-400">
+                    Still waiting on: {waitingOn.join(", ")}.
+                  </p>
+                )}
+                <p className="mt-1.5 text-xs text-slateish-500">
+                  Generation runs on this CPU and is not streamed; the backend reports no stage for
+                  analysis, so only the elapsed time is shown. Leaving this screen does not cancel
+                  the run - the result will be here when you come back.
+                </p>
+              </div>
+            )}
 
             {baselineRefusal !== null && (
               <p role="alert" className="rounded border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
@@ -975,22 +1299,7 @@ export function AnalysisModeScreen() {
                       </p>
                     )}
                     <SummaryCard result={d.result} onCite={onCite} />
-                    {d.dropped.length > 0 && (
-                      <details className="rounded border border-ink-700 bg-ink-850 px-3 py-2">
-                        <summary className="cursor-pointer text-xs text-slateish-400">
-                          {d.dropped.length} sentence{d.dropped.length === 1 ? " was" : "s were"} removed
-                          from this summary
-                        </summary>
-                        <ul className="mt-2 space-y-1.5">
-                          {d.dropped.map((s, i) => (
-                            <li key={`${i}-${s.sentence.slice(0, 24)}`} className="text-xs text-slateish-400">
-                              <span className="text-slateish-300">{s.sentence}</span>
-                              <span className="ml-1 text-slateish-500">&mdash; {s.reason}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    )}
+                    <DroppedSentences dropped={d.dropped} />
                   </div>
                 )}
               </SlotBody>
@@ -1032,7 +1341,7 @@ export function AnalysisModeScreen() {
                       onCite={onCite}
                       onNominateBaseline={nominateBaseline}
                     />
-                    <ClaimTable clusters={d.clusters} onCite={onCite} />
+                    <ClaimTable clusters={d.clusters} onCite={onCite} selectedEvidenceId={selected} />
                   </div>
                 )}
               </SlotBody>
@@ -1109,18 +1418,20 @@ export function AnalysisModeScreen() {
             </ul>
           </section>
 
-          {selectedItem !== null ? (
-            <SelectedPassage item={selectedItem} />
-          ) : (
-            <section className="rounded-lg border border-ink-600 bg-ink-850 p-4">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
-                Sources
-              </h2>
-              <p className="mt-2 text-sm text-slateish-500">
-                Select a citation or evidence row to inspect the exact passage here.
-              </p>
-            </section>
-          )}
+          <div ref={sourcesRef} data-testid="analysis-sources-panel">
+            {selectedItem !== null ? (
+              <SelectedPassage item={selectedItem} />
+            ) : (
+              <section className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
+                  Sources
+                </h2>
+                <p className="mt-2 text-sm text-slateish-500">
+                  Select a citation or evidence row to inspect the exact passage here.
+                </p>
+              </section>
+            )}
+          </div>
         </aside>
       </div>
     </div>

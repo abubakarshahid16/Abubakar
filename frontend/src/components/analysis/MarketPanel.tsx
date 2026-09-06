@@ -172,9 +172,27 @@ function ConfirmDialog({
   const descId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  /** The element that had focus when this dialog opened. A modal that takes
+   *  focus must give it back: without this, closing the dialog dropped focus on
+   *  <body> and a keyboard reader lost their place in the query form. */
+  const returnFocusTo = useRef<HTMLElement | null>(null);
 
+  // The trap below already holds focus inside the dialog. This is the other
+  // half of it: capture the trigger on open, restore it on close. The dialog is
+  // unmounted by the parent on every close path - Confirm, Cancel and Escape
+  // all end in the same `pendingQuery: null` - so one cleanup covers all three
+  // rather than three handlers that can drift apart.
   useEffect(() => {
+    const active = document.activeElement;
+    returnFocusTo.current = active instanceof HTMLElement ? active : null;
     cancelRef.current?.focus();
+    return () => {
+      const prev = returnFocusTo.current;
+      returnFocusTo.current = null;
+      // A trigger that has since been removed from the document cannot take
+      // focus; forcing it would throw and leave focus nowhere.
+      if (prev !== null && prev.isConnected) prev.focus();
+    };
   }, []);
 
   function onKeyDown(e: React.KeyboardEvent) {

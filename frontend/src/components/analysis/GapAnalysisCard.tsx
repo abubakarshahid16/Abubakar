@@ -106,15 +106,25 @@ function BaselineHeader({
       </div>
     );
   }
-  const filename =
-    documents.find((d) => d.id === baseline.document_id)?.filename ?? baseline.document_id ?? "unknown document";
+  // The filename, the way every other surface in this app names a document. A
+  // raw `doc_4e2b...` tells the reader nothing about which document is the
+  // requirement. `documents` is the run's own evidence, so a baseline the run
+  // retrieved nothing from is not in it: the identifier is shown then, WITH
+  // the reason it is an identifier, never bare.
+  const filename = documents.find((d) => d.id === baseline.document_id)?.filename ?? null;
   return (
     <div className="mt-2 text-sm">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-signal-400">Baseline</p>
       <p className="mt-1 text-slateish-200">
-        {filename}
+        {filename ?? baseline.document_id}
         {baseline.section !== null && <span className="text-slateish-400"> &sect; {baseline.section}</span>}
       </p>
+      {filename === null && baseline.document_id !== null && (
+        <p className="mt-1 text-xs text-slateish-500">
+          Shown as an identifier: this run cited no passage from that document, so its filename
+          is not among the evidence returned.
+        </p>
+      )}
     </div>
   );
 }

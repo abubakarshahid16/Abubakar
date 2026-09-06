@@ -18,7 +18,7 @@
  */
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EvidenceItem } from "../types/api";
 import {
@@ -28,6 +28,7 @@ import {
   confidenceWord,
   locate,
   onlySamples,
+  resetAnalysisScreen,
   toClaimRow,
 } from "./AnalysisModeScreen";
 
@@ -156,6 +157,9 @@ function routes(table: Record<string, () => Promise<Response>>) {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+// The screen's state deliberately outlives the component (it survives a view
+// switch), so each test starts it from nothing rather than from the last one.
+beforeEach(() => resetAnalysisScreen());
 
 async function ask(user: ReturnType<typeof userEvent.setup>, question = "what is the pressure floor") {
   await user.type(screen.getByLabelText("Question"), question);
