@@ -109,6 +109,11 @@ def health():
     being processed. That is a privacy-boundary problem, not a cosmetic one.
 
     The full worker status still exists, on /api/metrics, which is scoped.
+    THAT SENTENCE WAS FALSE WHEN IT WAS WRITTEN and is true only as of the
+    commit that added this note: /api/metrics resolved an access scope and
+    discarded it, so `current_document` and `last_error` moved from one
+    unscoped route to another. Scoping now happens in `metrics.snapshot`, and
+    `_scoped_worker` is what makes this paragraph's claim real.
     `alive` and `stalled` stay here because a client that cannot reach the
     backend has to distinguish "down" from "up but stuck", and neither is
     about anybody's documents.
@@ -118,7 +123,9 @@ def health():
         "ok": True,
         "embed_model_present": (settings.embed_model_dir / "tokenizer.json").exists(),
         # Whether an answer model is CONFIGURED, not which one. The exact name
-        # and version is fingerprinting material and is on /api/metrics.
+        # and version is fingerprinting material and is on /api/metrics,
+        # which is scoped to the caller's grants as of the commit that
+        # added this note - it was not when the field was moved there.
         "answer_model_present": bool(settings.answer_model),
         "ingestion": {
             "alive": worker["alive"],
@@ -137,14 +144,34 @@ def health():
 def metrics(request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """Everything the dashboard shows.
+    """Everything the dashboard shows, restricted to what the caller may read.
 
     A value that has not been measured is null rather than zero, and the
     screen is required to say so. Throughput comes from stage runs actually
     recorded; retrieval latency comes from questions actually asked.
+
+    THIS ROUTE TOOK `scope` AND DISCARDED IT. Resolved on every request and
+    never passed on, so the corpus block was byte-identical for an admin, a
+    Civil Engineering user with four grants, and a user granted nothing at all
+    - measured, all three reporting 12 documents while /api/documents correctly
+    returned 6, 4 and 0. Five comments elsewhere in this codebase described
+    this endpoint as "the scoped /api/metrics", and that belief is why fields
+    were moved here off /api/health.
+
+    ADMIN SEES CORPUS-WIDE FIGURES, AND THAT IS A NEW CAPABILITY. `access.py`
+    grants an administrator no read bypass - an IT+admin user sees exactly the
+    six documents IT sees - so this is not an existing power being surfaced. It
+    is deliberately narrow: aggregate counts only, never document content, and
+    `corpus_wide` travels in the payload so the screen can say which kind of
+    number it is showing. An admin reading counts for documents they cannot
+    open is only defensible if the screen says so out loud.
     """
     reject_unknown_params(request, set())
-    return metrics_mod.snapshot(ingest_mod.get_worker().status())
+    corpus_wide = scope.unrestricted or (
+        scope.user_id is not None and admin_mod.is_admin(scope.user_id))
+    allowed = None if corpus_wide else sorted(scope.allowed_document_ids)
+    return metrics_mod.snapshot(
+        ingest_mod.get_worker().status(), allowed, corpus_wide)
 
 
 # --------------------------------------------------------------- documents

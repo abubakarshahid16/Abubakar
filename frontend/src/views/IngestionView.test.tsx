@@ -73,6 +73,9 @@ function makeMetrics(over: Partial<Metrics> = {}): Metrics {
   return {
     at: "2026-09-04T12:00:00Z",
     refresh_seconds: 15,
+    // Default to the NARROWER claim. A fixture that defaulted to
+    // corpus-wide would make the honest case the one nobody tests.
+    corpus_wide: false,
     corpus: {
       documents: 1,
       by_status: { partially_searchable: 1 },

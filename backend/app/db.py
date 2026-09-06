@@ -271,6 +271,15 @@ CREATE TABLE IF NOT EXISTS roles (
 CREATE TABLE IF NOT EXISTS user_roles (
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role_id    TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    -- NOT NULL AND NO DEFAULT, deliberately: a role grant with no recorded
+    -- time is an audit record that cannot answer "when did this person get
+    -- this access", which is the first question asked after an incident.
+    --
+    -- Stated here because it is not obvious from any calling code and costs
+    -- twenty minutes to rediscover: a hand-written INSERT that omits this
+    -- column fails with `NOT NULL constraint failed: user_roles.granted_at`,
+    -- and every insert in the repository supplies it, so nothing demonstrates
+    -- the requirement. Use `scripts/seed_access.py` rather than raw SQL.
     granted_at TEXT NOT NULL,
     granted_by TEXT REFERENCES users(id) ON DELETE SET NULL,
     PRIMARY KEY (user_id, role_id)

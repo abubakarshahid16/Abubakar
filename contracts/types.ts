@@ -937,6 +937,11 @@ export interface MetricWarning {
 export interface Metrics {
   at: string;
   refresh_seconds: number;
+  /** True when `corpus` and `exclusions` count the WHOLE corpus rather than
+   *  only the documents this caller may read. An admin gets corpus-wide
+   *  figures; everyone else gets their own. The screen MUST say which it is
+   *  showing - a count with no stated boundary reads as total. */
+  corpus_wide: boolean;
   corpus: CorpusMetrics;
   exclusions: ExclusionSummary[];
   jobs: JobMetrics;

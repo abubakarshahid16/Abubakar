@@ -234,7 +234,11 @@ export function Shell({
               read from /api/health - which is unauthenticated, so it was
               fingerprinting material available with no login. Health now says
               only WHETHER a model is configured. The name is on the Dashboard,
-              which reads the scoped /api/metrics. */}
+              which reads /api/metrics. That endpoint was described as
+              "scoped" here and in four other places while it was not:
+              it resolved an access scope and discarded it, so every
+              caller saw the whole corpus. Scoped as of the commit that
+              corrected this comment. */}
           {connection.state === "online" && (
             <p className="mt-2 font-mono text-[11px] text-slateish-400">
               {connection.health.answer_model_present

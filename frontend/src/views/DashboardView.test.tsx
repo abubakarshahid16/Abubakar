@@ -46,6 +46,9 @@ function makeMetrics(over: Partial<Metrics> = {}): Metrics {
   return {
     at: "2026-09-04T12:00:00Z",
     refresh_seconds: 15,
+    // Default to the NARROWER claim. A fixture that defaulted to
+    // corpus-wide would make the honest case the one nobody tests.
+    corpus_wide: false,
     corpus: {
       documents: 6,
       by_status: { ready: 6 },
@@ -156,6 +159,36 @@ describe("dashboard navigation", () => {
     const nav = await screen.findByRole("navigation", { name: "Main" });
     const item = within(nav).getByRole("button", { name: /Dashboard/ });
     expect(within(item).queryByText("not built")).toBeNull();
+  });
+});
+
+// ----------------------------------------------- the boundary on the counts
+
+describe("which corpus these counts describe", () => {
+  /** This screen once reported 12 documents to a reader whose Documents screen
+   *  correctly said "No documents yet", because /api/metrics resolved an
+   *  access scope and discarded it. The count was arithmetically right and
+   *  unreadable: a count with no stated boundary reads as total.
+   *
+   *  An admin is now deliberately allowed corpus-wide figures - a capability
+   *  `access.py` does not otherwise grant - and that is only defensible while
+   *  the screen says so. These two tests are what hold the label in place.
+   */
+  it("says the counts are corpus-wide when the caller is told they are", async () => {
+    mockApi(makeMetrics({ corpus_wide: true }));
+    await openDashboard();
+    expect(await screen.findByText(/Corpus-wide figures/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/including documents you cannot open/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Your documents only/)).toBeNull();
+  });
+
+  it("says the counts are the reader's own when they are", async () => {
+    mockApi(makeMetrics({ corpus_wide: false }));
+    await openDashboard();
+    expect(await screen.findByText(/Your documents only/)).toBeInTheDocument();
+    expect(screen.queryByText(/Corpus-wide figures/)).toBeNull();
   });
 });
 

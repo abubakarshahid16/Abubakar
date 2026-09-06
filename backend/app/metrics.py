@@ -48,24 +48,56 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def corpus() -> dict:
+#: How a scoped query says "every document" versus "these documents".
+#:
+#: `None` means corpus-wide and is reachable only from the route, which decides
+#: it from the caller. An EMPTY LIST is not the same thing and must never be
+#: treated as one - it means the caller is granted nothing, and every count it
+#: produces is zero. Conflating the two is precisely the defect this scoping was
+#: written to fix, in a smaller and harder-to-see form.
+Allowed = list[str] | None
+
+
+def _where(allowed: Allowed, column: str = "document_id") -> tuple[str, list[str]]:
+    """A WHERE fragment restricting `column` to the caller's grants.
+
+    Filtered IN THE QUERY rather than after it, for the reason `main.py`
+    already gives on /api/documents: dropping unauthorised rows in Python
+    happens to work while there is no LIMIT, and silently becomes a leak the
+    day someone adds one.
+    """
+    if allowed is None:
+        return "", []
+    if not allowed:
+        return " WHERE 1 = 0", []
+    return f" WHERE {column} IN ({','.join('?' * len(allowed))})", list(allowed)
+
+
+def corpus(allowed: Allowed = None) -> dict:
     conn = connect()
+    doc_where, doc_args = _where(allowed, "id")
+    chunk_where, chunk_args = _where(allowed)
     docs = conn.execute(
         """SELECT COUNT(*) AS documents,
                   COALESCE(SUM(page_count), 0) AS pages_declared,
                   COALESCE(SUM(chunk_count), 0) AS chunks_retrievable,
                   COALESCE(SUM(chunk_count_total), 0) AS chunks_total,
                   COALESCE(SUM(embedded_count), 0) AS embedded
-           FROM documents"""
+           FROM documents""" + doc_where, doc_args
     ).fetchone()
-    pages_extracted = conn.execute("SELECT COUNT(*) FROM pages").fetchone()[0]
-    chunks_rows = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-    vectors = conn.execute("SELECT COUNT(*) FROM chunk_vectors").fetchone()[0]
-    indexed = conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0]
+    pages_extracted = conn.execute(
+        "SELECT COUNT(*) FROM pages" + chunk_where, chunk_args).fetchone()[0]
+    chunks_rows = conn.execute(
+        "SELECT COUNT(*) FROM chunks" + chunk_where, chunk_args).fetchone()[0]
+    vectors = conn.execute(
+        "SELECT COUNT(*) FROM chunk_vectors" + chunk_where, chunk_args).fetchone()[0]
+    indexed = conn.execute(
+        "SELECT COUNT(*) FROM chunks_fts" + chunk_where, chunk_args).fetchone()[0]
     by_status = {
         r["status"]: r["n"]
         for r in conn.execute(
-            "SELECT status, COUNT(*) AS n FROM documents GROUP BY status"
+            "SELECT status, COUNT(*) AS n FROM documents" + doc_where
+            + " GROUP BY status", doc_args
         )
     }
     return {
@@ -83,32 +115,43 @@ def corpus() -> dict:
     }
 
 
-def exclusions() -> list[dict]:
+def exclusions(allowed: Allowed = None) -> list[dict]:
     """What search cannot see, and which rule excluded it."""
+    where, args = _where(allowed)
     return [
         dict(r)
         for r in connect().execute(
             """SELECT scope, rule, COUNT(*) AS count,
                       COALESCE(SUM(text_length), 0) AS characters_dropped,
                       COALESCE(SUM(clause_headings), 0) AS clause_heading_pages
-               FROM exclusions GROUP BY scope, rule
-               ORDER BY clause_heading_pages DESC, count DESC"""
+               FROM exclusions""" + where
+            + """ GROUP BY scope, rule
+               ORDER BY clause_heading_pages DESC, count DESC""", args
         )
     ]
 
 
-def jobs() -> dict:
+def jobs(allowed: Allowed = None) -> dict:
     conn = connect()
+    job_where, job_args = _where(allowed)
     by_state = {
         r["state"]: r["n"]
-        for r in conn.execute("SELECT state, COUNT(*) AS n FROM jobs GROUP BY state")
+        for r in conn.execute(
+            "SELECT state, COUNT(*) AS n FROM jobs" + job_where
+            + " GROUP BY state", job_args)
     }
+    # `failures` carries the filename and the raw error_message, so this is one
+    # of the two paths by which a document's NAME leaves this endpoint. The
+    # other is `warnings`.
+    id_where, id_args = _where(allowed, "id")
+    clause = (" AND status = ?" if id_where else " WHERE status = ?")
     failures = [
         dict(r)
         for r in conn.execute(
             """SELECT id, filename, error_code, error_message, uploaded_at
-               FROM documents WHERE status = ? ORDER BY uploaded_at DESC LIMIT 20""",
-            (states.FAILED,),
+               FROM documents""" + id_where + clause
+            + " ORDER BY uploaded_at DESC LIMIT 20",
+            [*id_args, states.FAILED],
         )
     ]
     return {
@@ -245,19 +288,28 @@ def models() -> dict:
     return info
 
 
-def warnings() -> list[dict]:
+def warnings(allowed: Allowed = None) -> list[dict]:
     """Conditions an operator must not have to infer from the numbers.
 
     no_searchable_content is the important one: the document finished, so
     every progress bar reads complete, and search can see none of it.
+
+    BOTH document loops below interpolate a FILENAME into the message, so this
+    function is the widest disclosure on the endpoint - and the first loop is
+    the one that matters, because `no_searchable_content` is a SUCCESSFUL
+    terminal state. A scanned PDF whose every chunk is excluded lands there
+    with nothing going wrong, which makes it likelier in normal use than
+    `failed`. Both are scoped.
     """
     conn = connect()
+    id_where, id_args = _where(allowed, "id")
+    clause = (" AND status = ?" if id_where else " WHERE status = ?")
     out: list[dict] = []
 
     for r in conn.execute(
         """SELECT id, filename, page_count, needs_ocr_pages, error_message
-           FROM documents WHERE status = ?""",
-        (states.NO_SEARCHABLE_CONTENT,),
+           FROM documents""" + id_where + clause,
+        [*id_args, states.NO_SEARCHABLE_CONTENT],
     ):
         out.append({
             "severity": "warning",
@@ -270,8 +322,9 @@ def warnings() -> list[dict]:
         })
 
     for r in conn.execute(
-        "SELECT id, filename, error_code, error_message FROM documents WHERE status = ?",
-        (states.FAILED,),
+        "SELECT id, filename, error_code, error_message FROM documents"
+        + id_where + clause,
+        [*id_args, states.FAILED],
     ):
         out.append({
             "severity": "error",
@@ -353,17 +406,53 @@ def warnings() -> list[dict]:
     return out
 
 
-def snapshot(worker_status: dict) -> dict:
+def _scoped_worker(status: dict, allowed: Allowed, corpus_wide: bool) -> dict:
+    """The worker block with anything document-identifying removed.
+
+    THESE ARE THE FIELDS THAT WERE MOVED HERE OFF /api/health, and the reason
+    given for moving them was that this endpoint is scoped. It was not.
+    `current_document` is a real document id which the UI joins against the
+    document list to show a filename, and `last_error` is free text that can
+    name one - so an unauthenticated caller learning that a specific document
+    exists and is being processed was the whole point of moving them, and
+    without this they simply moved to a different unscoped route.
+
+    A caller who may not read the document being processed does not learn its
+    id. `alive`, `stalled` and the counts stay: they describe the machine, not
+    anybody's documents, which is the same distinction /api/health draws.
+    """
+    if corpus_wide:
+        return status
+    current = status.get("current_document")
+    if current is not None and current in (allowed or []):
+        return status
+    return {**status, "current_document": None, "last_error": None}
+
+
+def snapshot(worker_status: dict, allowed: Allowed = None,
+             corpus_wide: bool = False) -> dict:
+    """Everything the dashboard shows, restricted to `allowed`.
+
+    `corpus_wide` is reported back to the client rather than inferred there.
+    A count with no stated boundary reads as total, and an admin looking at
+    figures that include documents they cannot open needs the screen to say so
+    - which it cannot do unless the payload tells it which kind of number it
+    is holding.
+    """
     return {
         "at": _now(),
         "refresh_seconds": 15,
-        "corpus": corpus(),
-        "exclusions": exclusions(),
-        "jobs": jobs(),
+        "corpus_wide": corpus_wide,
+        "corpus": corpus(allowed),
+        "exclusions": exclusions(allowed),
+        "jobs": jobs(allowed),
+        # Throughput and latency are process-level and carry no document
+        # identity. They are the operator's view of the machine, not of a
+        # corpus, so they are not scoped by grants.
         "throughput": telemetry.throughput(),
         "retrieval": telemetry.retrieval_latency(),
         "system": system(),
         "models": models(),
-        "worker": worker_status,
-        "warnings": warnings(),
+        "worker": _scoped_worker(worker_status, allowed, corpus_wide),
+        "warnings": warnings(allowed),
     }

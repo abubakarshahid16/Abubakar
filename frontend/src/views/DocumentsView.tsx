@@ -109,7 +109,9 @@ export function DocumentsView({
         </p>
       </header>
 
-      {/* The worker DETAIL comes from /api/metrics, which is scoped. Health
+      {/* The worker DETAIL comes from /api/metrics, scoped as of the commit
+          that corrected this comment - it previously discarded the scope it
+          resolved, so this sentence was a belief rather than a fact. Health
           is unauthenticated and now carries only alive/busy/stalled, so this
           panel names the document being processed only to a reader entitled
           to see it. */}

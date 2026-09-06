@@ -349,6 +349,33 @@ export function DashboardView({
             Every value is measured. Anything unmeasured says so rather than
             showing a zero.
           </p>
+          {/* THE BOUNDARY, STATED IN BOTH DIRECTIONS. This screen once
+              reported 12 documents to a reader whose Documents screen
+              correctly said "No documents yet", because /api/metrics resolved
+              an access scope and discarded it. The count was arithmetically
+              right and unreadable: a count with no stated boundary reads as
+              total. An admin is now deliberately allowed corpus-wide figures,
+              which is only defensible while the screen says so out loud. */}
+          <p className="mt-1 text-xs text-slateish-400">
+            {metrics.corpus_wide ? (
+              <>
+                <span className="font-semibold text-slateish-300">
+                  Corpus-wide figures.
+                </span>{" "}
+                These counts cover every document in the corpus, including
+                documents you cannot open. You are seeing them because you hold
+                the admin capability.
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-slateish-300">
+                  Your documents only.
+                </span>{" "}
+                These counts cover the documents you have been granted, not the
+                whole corpus.
+              </>
+            )}
+          </p>
         </div>
         <p className="font-mono text-[11px] text-slateish-500">
           refreshed {fetchedAt ? new Date(fetchedAt).toLocaleTimeString() : "—"} · every{" "}

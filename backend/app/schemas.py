@@ -1005,6 +1005,13 @@ class Metrics(BaseModel):
 
     at: str
     refresh_seconds: int
+    corpus_wide: bool = Field(
+        description="True when `corpus` and `exclusions` count the WHOLE "
+                    "corpus rather than only documents this caller may read. "
+                    "Required, not optional: a count with no stated boundary "
+                    "reads as total, and the screen must be able to say which "
+                    "kind of number it is showing."
+    )
     corpus: CorpusMetrics
     exclusions: list[ExclusionSummary]
     jobs: JobMetrics

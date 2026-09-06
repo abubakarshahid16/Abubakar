@@ -20,7 +20,7 @@ import fitz
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, db
+from app import access, db, states
 from app.config import settings
 from app.db import connect
 from app.ingest import IngestionWorker
@@ -189,6 +189,44 @@ def test_a_user_with_no_grants_at_all_sees_an_empty_corpus(
     assert client.get("/api/documents").json() == []
     assert client.get(f"/api/documents/{doc_id}").status_code == 404
     assert client.get("/api/search", params={"q": "coating"}).json()["hits"] == []
+    # The line this test stopped one short of for as long as it has existed.
+    # /api/documents was scoped and /api/metrics was not, so the Documents
+    # screen said "No documents yet" while the Dashboard counted the whole
+    # corpus to the same caller in the same session.
+    assert client.get("/api/metrics").json()["corpus"]["documents"] == 0
+
+
+def test_metrics_does_not_name_another_users_unsearchable_document(
+        tmp_path, monkeypatch):
+    """A filename reaches /api/metrics through `warnings`, not through `corpus`.
+
+    The live probe that found this leak saw only aggregate counts, because
+    every document in that corpus was `ready`. That is a property of the data,
+    not of the code: `warnings()` interpolates the filename into its message
+    for two terminal statuses, and one of them - `no_searchable_content` - is a
+    SUCCESSFUL outcome. The document finished, every progress bar reads
+    complete, and search can see none of it. It is the likelier of the two to
+    occur in normal use, since a scanned PDF whose every chunk is excluded
+    lands there with nothing going wrong.
+
+    So the fixture manufactures the state rather than waiting for it.
+    """
+    client = TestClient(app)
+    doc_id = _upload(client, tmp_path, "someone-elses.pdf")
+    IngestionWorker().process(doc_id)
+    with connect() as conn:
+        conn.execute("UPDATE documents SET status = ?, error_message = ? WHERE id = ?",
+                     (states.NO_SEARCHABLE_CONTENT, "every chunk was excluded", doc_id))
+
+    _grant("nobody", [])
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_REQUIRED)
+    access.set_user_resolver(lambda req: "nobody")
+
+    body = client.get("/api/metrics").text
+    assert "someone-elses.pdf" not in body, (
+        "a filename the caller has no grant for reached the metrics response")
+    assert doc_id not in body, (
+        "a document id the caller has no grant for reached the metrics response")
 
 
 def test_an_unidentified_caller_sees_nothing_rather_than_everything(

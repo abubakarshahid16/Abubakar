@@ -137,7 +137,9 @@ def test_health_never_exposes_a_traceback(client):
         # /api/health carried no traceback. It now asserts the field is not
         # there at all: free text and a document id do not belong on an
         # unauthenticated route, however carefully the text is sanitised.
-        # The error detail is on the scoped /api/metrics.
+        # The error detail is on /api/metrics. NOTE: this test never called
+        # that route, so the word "scoped" here was an assumption it could
+        # not check - and it was wrong until the commit that scoped it.
         ingestion = r.json()["ingestion"]
         assert "last_error" not in ingestion, ingestion
         assert "stalled_reasons" not in ingestion, ingestion
@@ -146,7 +148,7 @@ def test_health_never_exposes_a_traceback(client):
         assert "doc_abc123" not in r.text, "a document id leaked into health"
 
         # The error detail still exists, with the same no-traceback guarantee,
-        # on the scoped /api/metrics - covered by test_metrics.py against a
+        # on /api/metrics - covered by test_metrics.py against a
         # fixture that has the full schema. This test is about what /api/health
         # does NOT say.
     finally:
