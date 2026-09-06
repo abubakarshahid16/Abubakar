@@ -455,3 +455,40 @@ def test_auth_me_names_the_caller_and_their_roles_but_never_their_documents():
     # Roles, never grants: handing the client its document list gives it
     # something to check its guesses against.
     assert "doc_aaa" not in r.text
+
+
+# ------------------------------------------------- the startup announcement
+
+
+def test_the_startup_line_names_the_mode_and_never_the_secret(monkeypatch, caplog):
+    """One line, at startup, saying whether anybody has to log in.
+
+    ITS ABSENCE COST TWO DAYS. `env_file` was a relative path, so a server
+    launched from the repository root ignored backend/.env and came up with
+    authentication OFF while that file said `demo_required`. Nothing said so -
+    not a log line, not a health field, nothing - and the only symptom was a
+    browser sidebar reading "Authentication disabled".
+    """
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_REQUIRED)
+    monkeypatch.setattr(settings, "auth_secret", "x" * 64)
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        auth.announce_mode()
+
+    line = " ".join(r.getMessage() for r in caplog.records)
+    assert "demo_required" in line, f"the mode was not named: {line!r}"
+    assert "present" in line and "64" in line, f"secret presence not stated: {line!r}"
+    assert "x" * 32 not in line, "THE SECRET ITSELF REACHED THE LOG"
+
+
+def test_the_startup_line_warns_when_authentication_is_off(monkeypatch, caplog):
+    """`disabled` is the louder case: every request sees every document."""
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        auth.announce_mode()
+
+    records = [r for r in caplog.records if "AUTH_MODE" in r.getMessage()]
+    assert records, "nothing was logged at all when authentication was off"
+    assert records[0].levelname == "WARNING", (
+        f"authentication being off was logged at {records[0].levelname}, which "
+        "reads as routine")
+    assert "disabled" in records[0].getMessage()

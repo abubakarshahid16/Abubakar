@@ -45,6 +45,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import math
 import secrets
 import threading
@@ -381,9 +382,57 @@ def resolve_user_id(request: Request) -> str | None:
     return row["id"] if row else None
 
 
+def announce_mode() -> None:
+    """Say, once at startup, whether anybody has to log in.
+
+    THIS LINE EXISTS BECAUSE ITS ABSENCE COST TWO DAYS. `env_file` used to be a
+    relative path, so a server launched from the repository root ignored
+    `backend/.env` entirely and came up with authentication OFF while that file
+    said `demo_required`. Nothing said so. The only way to discover it was to
+    call /api/auth/me, see `required: false`, and know what that meant - and in
+    the meantime a browser showed "Authentication disabled" beside a
+    configuration file that had switched it on.
+
+    It is a log line and NOT a field on /api/health, deliberately. That surface
+    was narrowed on purpose - it is the one unauthenticated route, and whether
+    this deployment demands credentials is exactly the kind of fact an
+    unauthenticated caller should not be handed. The operator starting the
+    process can read the terminal; a stranger on the port cannot.
+
+    The secret is reported as PRESENT OR ABSENT and never printed, not even
+    truncated. A prefix is enough to confirm a guess.
+
+    Logged through `uvicorn.error`, NOT through the "nabaa" logger. That one is
+    a rotating FILE handler, attached lazily the first time `errors._log()`
+    runs - so at startup it has no handler at all and a record sent to it is
+    dropped silently. A startup line nobody sees is the defect this function
+    was written to prevent, appearing one level up; the first version of it did
+    exactly that and was caught by looking for the line rather than assuming
+    it. `uvicorn.error` is the logger that prints "Application startup
+    complete", so this lands in the same stream the operator is already
+    watching.
+    """
+    from .access import AUTH_DISABLED
+
+    log = logging.getLogger("uvicorn.error")
+    if settings.auth_mode == AUTH_DISABLED:
+        log.warning(
+            "AUTH_MODE=%s - every request sees every document, and no login is "
+            "required. Set AUTH_MODE=demo_required in backend/.env to enforce "
+            "access control.", settings.auth_mode)
+        return
+    secret = (settings.auth_secret or "").strip()
+    log.info(
+        "AUTH_MODE=%s - a bearer token is required; AUTH_SECRET %s",
+        settings.auth_mode,
+        f"present ({len(secret)} chars)" if secret else "ABSENT",
+    )
+
+
 def install() -> None:
     """The only wiring. Called once from `lifespan`."""
     from . import access
 
     check_secret_or_refuse()
+    announce_mode()
     access.set_user_resolver(resolve_user_id)
