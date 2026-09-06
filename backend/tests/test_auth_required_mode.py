@@ -252,3 +252,97 @@ def test_the_worker_block_is_shown_when_the_caller_may_read_that_document(
             "a document the caller CAN read was hidden from them")
     finally:
         ingest_mod._worker = None
+
+
+# ---------------------------------------------- conversations are owned (#81)
+
+
+def _conversation_as(client, user_id, title):
+    _as(user_id)
+    r = client.post("/api/conversations", json={"title": title})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def test_the_conversation_list_shows_only_the_callers_own(two_users):
+    """Measured with no token: GET /api/conversations returned 200 and every
+    conversation in the system, question text included. #81."""
+    client, mine, theirs = two_users
+    own = _conversation_as(client, "u1", "u1 asks about coating")
+    other = _conversation_as(client, "u2", "u2 asks about welds")
+
+    _as("u1")
+    body = client.get("/api/conversations").json()
+    ids = {c["id"] for c in body["conversations"]}
+    assert own in ids
+    assert other not in ids, "another user's conversation was listed"
+    assert body["total"] == 1, f"total counted conversations the caller cannot see: {body['total']}"
+
+    _as_nobody()
+    body = client.get("/api/conversations").json()
+    assert body["conversations"] == [] and body["total"] == 0, (
+        "an unauthenticated caller was shown conversations")
+
+
+def test_another_users_conversation_is_indistinguishable_from_a_missing_one(two_users):
+    """The transcript carries the cited passage text verbatim - corpus content.
+    A 403 would confirm the conversation exists; the answer is 404 with the
+    same code and message as an id that was never created."""
+    client, mine, theirs = two_users
+    other = _conversation_as(client, "u2", "u2 private")
+
+    _as("u1")
+    hidden = client.get(f"/api/conversations/{other}")
+    unknown = client.get("/api/conversations/conv_never_existed")
+    assert hidden.status_code == 404, (
+        f"another user's conversation answered {hidden.status_code}")
+    assert unknown.status_code == 404
+    assert hidden.json()["detail"]["code"] == unknown.json()["detail"]["code"]
+    assert hidden.json()["detail"]["message"] == unknown.json()["detail"]["message"]
+    assert "u2 private" not in hidden.text, "the title of another user's conversation was echoed"
+
+
+def test_asking_inside_another_users_conversation_is_refused(two_users):
+    client, mine, theirs = two_users
+    other = _conversation_as(client, "u2", "u2 private")
+    _as("u1")
+    r = client.post(f"/api/conversations/{other}/ask", json={"question": "coating thickness"})
+    assert r.status_code == 404, f"a turn was written into another user's conversation: {r.status_code}"
+
+
+def test_deleting_another_users_conversation_is_refused_and_echoes_nothing(two_users):
+    """#80. Measured: an unauthenticated DELETE returned 200 AND the title."""
+    client, mine, theirs = two_users
+    other = _conversation_as(client, "u2", "u2 private title")
+    _as("u1")
+    r = client.delete(f"/api/conversations/{other}?confirm=true")
+    assert r.status_code == 404
+    assert "u2 private title" not in r.text
+    _as("u2")
+    assert client.get(f"/api/conversations/{other}").status_code == 200, (
+        "the conversation was actually deleted by a caller who did not own it")
+
+
+def test_a_conversation_with_no_owner_is_readable_by_nobody_under_demo_required(two_users):
+    """Plan line 1017: NULL ownership never means globally readable. Every
+    conversation created before ownership existed is in this state - 81 of 81
+    on the demo database when this was written."""
+    client, mine, theirs = two_users
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO conversations (id, title, document_id, message_count,"
+            " created_at, updated_at, owner_user_id) VALUES (?,?,?,0,?,?,NULL)",
+            ("conv_legacy0001", "legacy question text", None, NOW, NOW))
+    for who in ("u1", "u2"):
+        _as(who)
+        assert client.get("/api/conversations/conv_legacy0001").status_code == 404
+        assert "conv_legacy0001" not in {c["id"] for c in client.get("/api/conversations").json()["conversations"]}
+
+
+def test_creating_a_conversation_with_no_identity_is_refused(two_users):
+    """A conversation nobody owns is a conversation nobody can ever read. Refuse
+    the write rather than manufacture an orphan - the same gap as #79 on uploads."""
+    client, mine, theirs = two_users
+    _as_nobody()
+    r = client.post("/api/conversations", json={"title": "orphan"})
+    assert r.status_code == 401, r.text

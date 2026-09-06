@@ -446,14 +446,58 @@ def get_answer(
 # ---------------------------------------------------------- conversations
 
 
-def _require_conversation(conversation_id: str) -> dict:
+def _require_owned_conversation(conversation_id: str, scope: access.AccessScope) -> dict:
+    """The conversation, if it exists AND the caller owns it. Otherwise 404.
+
+    THE PREDECESSOR ASKED ONLY "DOES THIS ROW EXIST" (#81). With no token at
+    all, GET /api/conversations returned 200 and 80 conversations; GET on one of
+    them returned 13,491 bytes including the cited passage text verbatim -
+    corpus content, reaching a caller for whom /api/documents correctly
+    returned [] in the same second. The document was unreachable by every
+    scoped route and readable through conversation history.
+
+    Same rule as `require_document`: a conversation the caller may not read is
+    collapsed into the identical not-found path, so it is INDISTINGUISHABLE
+    from one that never existed. A 403 would confirm the conversation is real,
+    which is the fact ownership was protecting. And nothing of the hidden row -
+    not its title - reaches the refusal.
+
+    NULL ownership never means readable. Every row written before ownership was
+    stamped has owner NULL, and `None != scope.user_id` is true for every real
+    user, so those rows fall closed with no special branch - which is what plan
+    line 1017 requires. The unrestricted scope (auth off) sees everything, as it
+    always did; that is what keeps the pre-existing suite meaning what it means.
+    """
+    row: dict | None
     try:
-        return chat_mod.get_conversation(conversation_id)
+        row = chat_mod.get_conversation(conversation_id)
     except chat_mod.ConversationNotFound:
+        row = None
+    if row is not None and not scope.unrestricted:
+        if scope.user_id is None or row.get("owner_user_id") != scope.user_id:
+            row = None      # fall through to the identical not-found path
+    if row is None:
         raise HTTPException(
             status_code=404,
             detail=errors.safe_error(errors.NOT_FOUND, "no conversation with that id"),
         )
+    return row
+
+
+def _require_identity_to_write(scope: access.AccessScope) -> None:
+    """A conversation nobody owns is one nobody can ever read again.
+
+    Under `demo_required` a caller with no identity resolves to an empty scope,
+    and every READ correctly returns nothing. A WRITE that succeeded would
+    manufacture an orphan - the same shape as #79 on uploads - so it is refused
+    with the same 401 /api/auth/me gives, rather than accepted into a void.
+    """
+    if scope.unrestricted or scope.user_id:
+        return
+    raise HTTPException(
+        status_code=401,
+        detail=errors.safe_error(errors.UNAUTHENTICATED, "sign in to continue"),
+    )
 
 
 # ------------------------------------------------------------------- auth
@@ -705,12 +749,14 @@ def download_report(report_id: str,
 def create_conversation(body: schemas.NewConversation | None = None,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """Start a conversation. Optionally scoped to one document."""
+    """Start a conversation, owned by the caller. Optionally scoped to one document."""
+    _require_identity_to_write(scope)
     body = body or schemas.NewConversation()
     if body.document_id:
         require_document(body.document_id, scope)
     return chat_mod.create_conversation(
-        title=body.title or "New conversation", document_id=body.document_id
+        title=body.title or "New conversation", document_id=body.document_id,
+        owner_user_id=scope.user_id,
     )
 
 
@@ -722,9 +768,16 @@ def list_conversations(
     offset: int = Query(0, ge=0),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """Recent conversations, most recently used first, so one can be reopened."""
+    """The CALLER'S recent conversations, most recently used first.
+
+    Filtered on owner in the query. With no token this route returned every
+    conversation in the system, question text included (#81); an unauthenticated
+    caller now has owner None, which matches no row - legacy NULL-owner rows
+    included, because `owner_user_id = NULL` is false for every row in SQL.
+    """
     reject_unknown_params(request, {"limit", "offset"})
-    return chat_mod.list_conversations(limit=limit, offset=offset)
+    owner = chat_mod.EVERYONE if scope.unrestricted else scope.user_id
+    return chat_mod.list_conversations(limit=limit, offset=offset, owner=owner)
 
 
 @app.get("/api/conversations/{conversation_id}", response_model=schemas.ConversationDetail,
@@ -735,15 +788,22 @@ def get_conversation(conversation_id: str, request: Request,
     """A conversation with every turn, including the passages behind each
     answer, so reopening it restores the citations rather than bare text."""
     reject_unknown_params(request, set())
-    conversation = _require_conversation(conversation_id)
+    conversation = _require_owned_conversation(conversation_id, scope)
     return {"conversation": conversation, "messages": chat_mod.get_messages(conversation_id)}
 
 
 @app.delete("/api/conversations/{conversation_id}", response_model=schemas.DeletedConversation,
             responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
-def delete_conversation(conversation_id: str, request: Request, confirm: bool = Query(False)):
+def delete_conversation(conversation_id: str, request: Request, confirm: bool = Query(False),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    # THIS ROUTE HAD NO SCOPE AT ALL (#80). An unauthenticated DELETE returned
+    # 200, removed another user's conversation, and echoed its title back.
+    # The ownership check runs BEFORE the confirm check, so an unowned id gets
+    # the same 404 whether or not confirm=true was passed - a 400 "pass
+    # confirm=true" on a hidden conversation would confirm it exists.
     reject_unknown_params(request, {"confirm"})
-    conversation = _require_conversation(conversation_id)
+    conversation = _require_owned_conversation(conversation_id, scope)
     if not confirm:
         return JSONResponse(
             status_code=400,
@@ -781,7 +841,7 @@ def ask(conversation_id: str, body: schemas.AskRequest,
     than asking again - the reader pressing Explain is not asking a new
     question, and should not get a duplicate turn in their transcript.
     """
-    _require_conversation(conversation_id)
+    _require_owned_conversation(conversation_id, scope)
     if body.document_id:
         require_document(body.document_id, scope)
     # An empty question is not a client error - it is somebody pressing enter.
