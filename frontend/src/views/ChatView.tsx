@@ -374,6 +374,21 @@ export function ChatView({
     return undefined;
   })();
 
+  /** The question that produced this answer, in the READER'S OWN WORDS: the
+   *  last user turn before it. `resolved_question` is deliberately the
+   *  fallback rather than the preference here — the evidence panel wants what
+   *  retrieval ran, but whether a question ASKS for a comparison is a fact
+   *  about what the reader typed, not about what the resolver made of it. */
+  const questionFor = (messageId: string): string | null => {
+    const index = messages.findIndex((m) => m.id === messageId);
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "user") {
+        return messages[i].text ?? messages[i].resolved_question ?? null;
+      }
+    }
+    return null;
+  };
+
   /** A Tier 2 upgrade that produced nothing showable.
    *
    *  `chat.ask(explain_of=…)` persists the attempt as its own assistant turn,
@@ -514,6 +529,7 @@ export function ChatView({
                   activeSource={evidence?.messageId === m.id ? evidence.index : null}
                   onSelectSource={(i) => setEvidence({ messageId: m.id, index: i })}
                   explainsEarlier={Boolean(m.explains_id)}
+                  question={questionFor(m.id)}
                   onExplain={
                     m.answer_type === "extract" && !explainedIds.has(m.id)
                       ? () => void explain(m.id)

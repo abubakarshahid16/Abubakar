@@ -3,8 +3,8 @@
  *
  * A real radio group in a <fieldset>: native radios already give arrow-key
  * navigation, a single tab stop and correct announcement, so nothing here is
- * re-implemented. The timing words are honest ranges measured on this machine,
- * never percentages or progress promises.
+ * re-implemented. The timing words are rough orders of magnitude for this
+ * machine, not measured figures - never percentages or progress promises.
  *
  * The three optional sections are meaningless in "quote" mode (no model runs),
  * so the checkboxes are disabled there rather than hidden - the reader can still
@@ -29,12 +29,12 @@ const MODES: { value: AnalysisMode; label: string; description: string }[] = [
   {
     value: "focused",
     label: "Focused",
-    description: "A generated answer over the top passages. About a minute on this machine.",
+    description: "A generated answer over the top passages. Several minutes on this machine.",
   },
   {
     value: "comprehensive",
     label: "Comprehensive",
-    description: "Every authorised document, batch by batch. Several minutes; you can cancel.",
+    description: "The same answer over a wider passage set. Several minutes on this machine.",
   },
 ];
 

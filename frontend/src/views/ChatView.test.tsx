@@ -359,12 +359,20 @@ describe("citations", () => {
     const chip = await screen.findByRole("button", { name: "Show source 1" });
     const cite = chip.parentElement!.querySelector("cite")!;
     expect(cite.textContent).toContain("NORSOKM501Rev5.pdf");
-    expect(cite.textContent).toContain("clause A.1");
-    expect(cite.textContent).toContain("Coating system no. 1");
     expect(cite.textContent).toContain("page 17");
+    // THE CLAUSE IS NO LONGER PART OF THE CITATION. `chunks.section` does not
+    // reset at chapter or appendix boundaries, so the heading it names is
+    // wrong far more often than it is right, while the page is reliable. See
+    // `clauseLabel` in components/chat/Provenance.tsx.
+    expect(cite.textContent).not.toContain("clause");
+    expect(cite.textContent).not.toContain("A.1");
   });
 
-  it("says so plainly when a document has no clause numbering", async () => {
+  // WAS: "says so plainly when a document has no clause numbering". That
+  // statement is gone with the label it explained. No clause is printed for
+  // any document now, so singling one out as unnumbered would imply the
+  // others had a number the reader could see - and the reader cannot.
+  it("cites a passage with no section exactly as it cites one with a section", async () => {
     mockApi({
       ask: askResult({
         passage: { ...A1, section: null },
@@ -378,7 +386,11 @@ describe("citations", () => {
     await userEvent.type(screen.getByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    expect(await screen.findByText(/no clause numbering/i)).toBeInTheDocument();
+    const chip = await screen.findByRole("button", { name: "Show source 1" });
+    const cite = chip.parentElement!.querySelector("cite")!;
+    expect(cite.textContent).toBe("NORSOKM501Rev5.pdf, page 17");
+    // Nothing stands in for the absent clause. Not "unknown", not a dash.
+    expect(cite.textContent).not.toMatch(/clause|unknown|n\/a|[—–]/i);
   });
 
   it("opens the evidence panel with the passage and the rendered page", async () => {
@@ -671,7 +683,12 @@ describe("insufficient evidence", () => {
     expect(screen.getByText(/Nothing was made up to fill the gap/i)).toBeInTheDocument();
     // what was considered is still offered, so the reader can judge
     expect(screen.getByText(/What was considered/i)).toBeInTheDocument();
-    expect(screen.getByText(/A.4 Coating system no. 4/)).toBeInTheDocument();
+    // Named by document and page - the two things that are reliable. The
+    // clause label is not printed; see `clauseLabel` in chat/Provenance.tsx.
+    const considered = screen.getByText(/What was considered/i).parentElement!;
+    expect(considered.textContent).toContain("NORSOKM501Rev5.pdf");
+    expect(considered.textContent).toMatch(/pages? 19/);
+    expect(screen.queryByText(/A.4 Coating system no. 4/)).toBeNull();
   });
 
   it("distinguishes the model being down from there being no evidence", async () => {
@@ -765,7 +782,9 @@ describe("conversations", () => {
     const cites = document.querySelectorAll("cite");
     expect(cites.length).toBeGreaterThan(0);
     expect(
-      Array.from(cites).some((c) => (c.textContent ?? "").includes("clause A.1")),
+      Array.from(cites).some((c) =>
+        (c.textContent ?? "").includes("NORSOKM501Rev5.pdf, page 17"),
+      ),
     ).toBe(true);
   });
 
@@ -1387,7 +1406,7 @@ describe("a refused plain-language upgrade", () => {
     const notice = screen.getByRole("status");
     expect(within(notice).getByText("NORSOKM501Rev5.pdf")).toBeInTheDocument();
     expect(within(notice).getByText(/pages? 19/)).toBeInTheDocument();
-    expect(within(notice).getByText(/A.4 Coating system no. 4/)).toBeInTheDocument();
+    expect(within(notice).queryByText(/A.4 Coating system no. 4/)).toBeNull();
   });
 
   it("opens the FAILED ATTEMPT's evidence, not the extract's", async () => {
@@ -1396,7 +1415,7 @@ describe("a refused plain-language upgrade", () => {
     await openTranscript(userMessage(), extractMessage(), refusedUpgrade());
 
     const notice = await screen.findByRole("status");
-    await userEvent.click(within(notice).getByText(/A.4 Coating system no. 4/));
+    await userEvent.click(within(notice).getByText(/pages? 19/));
 
     const panel = await screen.findByRole("complementary", { name: "Evidence" });
     expect(within(panel).getByText(A4.text)).toBeInTheDocument();
