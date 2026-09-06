@@ -917,6 +917,25 @@ function RunPlan({
 }
 
 /**
+ * Whether a slot has anything to put under a heading.
+ *
+ * `Section` draws an `<h2>` unconditionally; `SlotBody` returns null for `off`
+ * and `idle`. Together they drew a heading over nothing, and the place it hurt
+ * was Quote mode: Quote turns the summary, recommendation and market engines
+ * OFF, so the only section it keeps is Gap analysis - and before a run that
+ * section was a bare "Gap analysis / baseline-controlled" header with empty
+ * space beneath it, sitting under "Nothing has been run yet". A reader who
+ * selected Quote saw a heading, no content, and concluded Quote does nothing.
+ *
+ * A heading is a promise that something is under it. This is the guard that
+ * keeps the promise: no slot state, no section. It is the same rule the rest of
+ * this screen already follows - an absent thing is absent, not an empty box.
+ */
+export function hasBody<T>(slot: Slot<T>): boolean {
+  return slot.s !== "off" && slot.s !== "idle";
+}
+
+/**
  * The four states, rendered four ways. `off` is nothing at all - a section the
  * reader did not ask for is absent, not disabled and not empty.
  */
@@ -1279,7 +1298,7 @@ export function AnalysisModeScreen() {
             />
           )}
 
-          {engines.summary && (
+          {engines.summary && hasBody(summarySlot) && (
             <Section title="Summary" eyebrow="document-backed synthesis">
               <SlotBody
                 slot={summarySlot}
@@ -1306,7 +1325,7 @@ export function AnalysisModeScreen() {
             </Section>
           )}
 
-          {engines.recommendation && (
+          {engines.recommendation && hasBody(recSlot) && (
             <Section title="AI recommendation" eyebrow="advisory only">
               <SlotBody
                 slot={recSlot}
@@ -1324,8 +1343,24 @@ export function AnalysisModeScreen() {
             </Section>
           )}
 
-          {engines.gaps && (
-            <Section title="Gap analysis" eyebrow="baseline-controlled">
+          {/* In Quote mode this is the ONLY section on the screen: quote turns
+              the summary, the recommendation and the market off, and gaps is
+              the one engine that needs no model - which is exactly what the
+              mode's own description promises. The eyebrow therefore names the
+              mode when quote is selected, so the reader can tell that Quote ran
+              and that what follows is its product, rather than reading a
+              generic "Gap analysis" heading and wondering where their output
+              went. The claim is honest either way: it describes the request
+              this screen actually issued. */}
+          {engines.gaps && hasBody(gapsSlot) && (
+            <Section
+              title="Gap analysis"
+              eyebrow={
+                mode === "quote"
+                  ? "quote mode — cited document evidence, no model"
+                  : "baseline-controlled"
+              }
+            >
               <SlotBody
                 slot={gapsSlot}
                 loadingLabel="Comparing claims across documents"
@@ -1335,6 +1370,13 @@ export function AnalysisModeScreen() {
               >
                 {(d) => (
                   <div className="space-y-3">
+                    {mode === "quote" && (
+                      <p className="rounded border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300">
+                        Quote mode ran the mechanical comparison and nothing else. Everything
+                        below is document evidence with a page behind it — no model wrote any
+                        of it, and no summary or recommendation was requested.
+                      </p>
+                    )}
                     <GapAnalysisCard
                       gaps={d.gaps}
                       documents={documents}
@@ -1348,7 +1390,7 @@ export function AnalysisModeScreen() {
             </Section>
           )}
 
-          {engines.market && (
+          {engines.market && hasBody(marketSlot) && (
             <Section title="Public market intelligence" eyebrow="isolated egress">
               <SlotBody
                 slot={marketSlot}
