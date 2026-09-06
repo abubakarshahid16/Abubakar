@@ -286,6 +286,43 @@ _STATUS_RANK = {
 }
 
 
+#: Every label `claims.label_cluster` can return, and the gap status it earns
+#: WHEN THE PROJECT DOCUMENTS SPOKE. Written as a table rather than an if/else
+#: chain because the chain ended in `else: status = "possible_gap"`, and two
+#: labels fell through it into a status that means the opposite of what they
+#: say:
+#:
+#:   "addition"   one row carries a measurement or identifier the others lack;
+#:                NOTHING IS CONTRADICTED. Measured live, that arrived on screen
+#:                as "Possible gap - Retrieval found nothing addressing this"
+#:                directly above its own note saying nothing is contradicted.
+#:   "unresolved" the unit could not be normalised, so the values could not be
+#:                COMPARED. Retrieval found plenty; it is the comparison that
+#:                failed, which is what `insufficient_evidence` means.
+#:
+#: `addition` maps to `met` rather than to a sixth status, and that is a
+#: deliberate reuse rather than a shortcut. `met` here already means "the
+#: documents address this and nothing contradicts the baseline" - `agreement`
+#: has always mapped to it on exactly that basis, and neither ever claimed a
+#: requirement was formally satisfied. The card's caption for `met`, "Positive
+#: matching evidence was found", is literally true of an addition row: there
+#: are project evidence chips on it. A new status would be more precise by a
+#: hair and would cost a contract change, a sixth concept in a five-concept
+#: UI, and a broken `Record<GapItemStatus, ...>` in a file another agent is
+#: editing right now.
+#:
+#: A label added to claims.py and not added here becomes
+#: `insufficient_evidence` - which overstates nothing - and
+#: test_the_label_to_status_mapping_is_exhaustive_and_honest fails, so the
+#: omission is loud rather than silent.
+STATUS_FOR_LABEL: dict[str, str] = {
+    "possible_conflict": "conflict",
+    "agreement": "met",
+    "addition": "met",
+    "unresolved": "insufficient_evidence",
+}
+
+
 def _gap_items(clusters, baseline_document_id: str | None,
                document_of: dict[str, str]) -> list[dict]:
     """Gap items, with the measured facets first and the singletons collapsed.
@@ -332,12 +369,17 @@ def _gap_items(clusters, baseline_document_id: str | None,
             # right. That one keeps its status so it can lead the list.
             status = ("conflict" if c.label == "possible_conflict"
                       else "not_applicable")
-        elif c.label == "possible_conflict":
-            status = "conflict"
-        elif c.label == "agreement":
-            status = "met"
+        elif others:
+            # THE PROJECT DOCUMENTS SPOKE. Whatever the label says about HOW
+            # they agree, retrieval did not come back empty - so nothing here
+            # may claim it did.
+            status = STATUS_FOR_LABEL.get(c.label, "insufficient_evidence")
         else:
-            status = "possible_gap"
+            # Only the baseline is in this cluster: no project document
+            # addressed the facet at all. That is what `possible_gap` is for,
+            # and it is the finding this panel exists to make - so a conflict
+            # aside, it stands regardless of the label.
+            status = "conflict" if c.label == "possible_conflict" else "possible_gap"
         items.append({
             "facet": c.facet or "(unnamed)",
             "status": status,

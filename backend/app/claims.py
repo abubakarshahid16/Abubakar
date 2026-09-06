@@ -312,6 +312,33 @@ _WORD_SPACE_NUMBER = re.compile(r"[A-Z]{2,}\s\d+(?:[.,]\d+)?")
 #: number is what says so. Anchored to the end so only the immediately
 #: preceding word counts - "the NDFT for system 1 shall be 280 um" still
 #: yields 280 um.
+#: A percentage that NAMES A SUBMITTAL PHASE rather than measuring anything.
+#: "submitted as 100% Design Documents" is the name of a deliverable stage, and
+#: it was being extracted as the quantity 100 - which then formed a facet of its
+#: own, so one run produced "documents (%)" beside "documents" and split one
+#: subject across two rows on the strength of a number nobody wrote.
+#:
+#: THE RULE IS THE FOLLOWING NOUN, not the value. It fires only when the phrase
+#: after the percent names a phase - Design/Construction/Contract/Schematic
+#: Documents, a Submittal, Design Development - so a percentage followed by
+#: anything else is untouched. "at least 30% below ASHRAE 90.1", "maximum 50 %
+#: reduction", "95% of the surface" and "shall not exceed 85%" all still
+#: extract, and are asserted to.
+#:
+#: A false negative here loses a real requirement, which is why the permitted
+#: nouns are listed rather than inferred: an open-ended "percent followed by a
+#: capitalised word" would have swallowed "30% ASHRAE".
+_PHASE_PERCENT = re.compile(
+    r"\s*(?:"
+    r"(?:design|construction|contract|schematic|conceptual)\s+"
+    r"(?:documents?|submittals?|development|drawings?)"
+    r"|submittals?"
+    r"|design\s+development"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 _DESIGNATOR_LEAD = re.compile(
     r"(?:\bno\.?|\bsystem|\bclass|\btype|\bgrade|\brev\.?|\btable)\s*$",
     re.IGNORECASE,
@@ -370,6 +397,9 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
             continue
         # A number introduced as a designator is a name, not a quantity.
         if _DESIGNATOR_LEAD.search(sentence[:start]):
+            continue
+        # Nor is a percentage that names a submittal phase - see _PHASE_PERCENT.
+        if unit == "%" and _PHASE_PERCENT.match(sentence[m.end("unit"):]):
             continue
         prefix = sentence[:start].rstrip()
         cmp_match = re.search(r"(?:" + _COMPARATOR_RE + r")\s*$", prefix, re.IGNORECASE)

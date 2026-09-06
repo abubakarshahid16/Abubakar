@@ -448,3 +448,41 @@ def test_a_facet_names_one_dimension_a_reader_recognises():
     assert c.facet == "coating thickness (µm)", c.facet
     assert " · " not in c.facet
     assert "um" not in c.facet, "the reader's unit is µm, not the corpus's um"
+
+
+# ------------------------------------- a submittal phase is not a percentage
+
+
+@pytest.mark.parametrize("sentence", [
+    "The model shall be submitted as 100% Design Documents.",
+    "Submit at the 60% Design Submittal stage.",
+    "The 100% Construction Documents phase shall include all drawings.",
+    "Deliverables are due at the 30% Design Development milestone.",
+    "Provide the 90 % Contract Documents for review.",
+])
+def test_a_submittal_phase_name_is_not_a_percentage(sentence):
+    """"100% Design Documents" is the NAME OF A PHASE, not a quantity.
+
+    Measured: it was extracted as the percentage 100, which then formed a facet
+    of its own - the run that prompted this produced "documents (%)" beside
+    "documents", splitting one subject in two on the strength of an invented
+    measurement. A percentage nothing measured is worse than a missing one: it
+    enters a cluster and gets compared against real values.
+    """
+    got = claims.extract_measurements(sentence)
+    assert got == (), f"a submittal phase was read as a measurement: {got}"
+
+
+@pytest.mark.parametrize("sentence,value", [
+    ("Energy use shall be at least 30% below ASHRAE 90.1.", "30"),
+    ("Adhesion shall show maximum 50 % reduction from the original value.", "50"),
+    ("The coating shall cover 95% of the surface.", "95"),
+    ("Humidity shall not exceed 85% during application.", "85"),
+])
+def test_a_real_percentage_is_still_extracted(sentence, value):
+    """THE HALF THAT MATTERS. A rule that suppresses a phase name must not
+    suppress a quantity - a false negative here loses a real requirement, and
+    the gate exists to catch fabricated numbers, not to lose true ones."""
+    got = claims.extract_measurements(sentence)
+    assert [m.raw_value for m in got] == [value], (
+        f"a real percentage was suppressed: {sentence!r} -> {got}")
