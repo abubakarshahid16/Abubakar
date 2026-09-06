@@ -167,11 +167,19 @@ def metrics(request: Request,
     open is only defensible if the screen says so out loud.
     """
     reject_unknown_params(request, set())
+    # ONE PREDICATE, used for both. `admin_mod.is_admin` reads roles.kind - the
+    # capability - and not a name comparison, so this and the admin screen
+    # agree by construction rather than by two strings happening to match.
     corpus_wide = scope.unrestricted or (
         scope.user_id is not None and admin_mod.is_admin(scope.user_id))
     allowed = None if corpus_wide else sorted(scope.allowed_document_ids)
+    # The machine's own specifications go to an administrator only (#77). Not
+    # a document, so the corpus scoping could never have removed them; and the
+    # same flag governs whether the low-memory warning may state free RAM,
+    # because gating the block while the prose restates the figure would move
+    # the leak rather than close it.
     return metrics_mod.snapshot(
-        ingest_mod.get_worker().status(), allowed, corpus_wide)
+        ingest_mod.get_worker().status(), allowed, corpus_wide, corpus_wide)
 
 
 # --------------------------------------------------------------- documents

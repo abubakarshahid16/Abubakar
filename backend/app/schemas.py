@@ -1027,7 +1027,15 @@ class Metrics(BaseModel):
     retrieval: RetrievalLatency | None = Field(
         None, description="null until a question has actually been asked"
     )
-    system: SystemMetrics
+    system: SystemMetrics | None = Field(
+        None,
+        description="The machine's own CPU, memory and disk. ABSENT, not "
+                    "zeroed, for any caller without the admin capability "
+                    "(#77) - host specifications are not a document, so "
+                    "document scoping could never have removed them. A "
+                    "blanked block would state measurements that are false; "
+                    "an absent one states nothing.",
+    )
     models: ModelStatus
     worker: WorkerStatus
     warnings: list[MetricWarning]

@@ -729,6 +729,16 @@ export function DashboardView({
         </div>
       </Section>
 
+      {/* ABSENT for any reader without the admin capability (#77): the
+          machine's core count, RAM and disk are not anybody's document, so no
+          grant could scope them, and they were being served to every caller
+          of a product whose stated boundary is "nothing leaves this machine".
+          The whole card goes rather than its values, because `bytes(undefined)`
+          and `percent ?? 0` would render "0 B free of 0 B" and a zeroed bar -
+          a stated measurement that is false, which is a worse defect than the
+          leak. An engineer sees no Machine card; the warnings below still
+          reach them, figure-free. */}
+      {system && (
       <Section title="Machine" hint="Everything runs here. No document or question leaves this computer.">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
@@ -791,6 +801,7 @@ export function DashboardView({
           </div>
         </div>
       </Section>
+      )}
 
       {metrics.exclusions.length > 0 && (
         <Section

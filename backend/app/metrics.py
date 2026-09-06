@@ -288,7 +288,7 @@ def models() -> dict:
     return info
 
 
-def warnings(allowed: Allowed = None) -> list[dict]:
+def warnings(allowed: Allowed = None, host: bool = True) -> list[dict]:
     """Conditions an operator must not have to infer from the numbers.
 
     no_searchable_content is the important one: the document finished, so
@@ -343,12 +343,27 @@ def warnings(allowed: Allowed = None) -> list[dict]:
             "severity": "warning",
             "code": "low_memory_for_answer_model",
             "document_id": None,
+            # THE FIGURE IS HOST TELEMETRY WHEREVER IT APPEARS, including in
+            # prose. Gating the `system` block alone would have left free RAM
+            # and the model's footprint stated in this sentence, to every
+            # caller - the fact leaking through the description of the fact.
+            #
+            # Both versions carry the SAME OPERATIONAL MEANING: Explain may be
+            # slow or fail, quoted answers are not affected, and closing
+            # applications is the remedy. A reader who cannot act on a figure
+            # loses nothing by not being given it, and a warning that simply
+            # vanished for non-admins would be worse than either - it would
+            # hide a real condition from the person sitting in front of it.
             "message": (
                 f"{memory.available / 1e9:.1f} GB of RAM free and "
                 f"{settings.answer_model} needs about {needed / 1e9:.1f} GB. "
                 f"Tier 2 (Explain) may swap hard or fail. Quoted answers are "
                 f"unaffected. Close other applications, or pre-warm the model "
                 f"before it is needed."
+                if host else
+                "This machine is low on memory for the answer model. Tier 2 "
+                "(Explain) may be slow or fail. Quoted answers are unaffected. "
+                "Closing other applications will help."
             ),
         })
 
@@ -430,8 +445,23 @@ def _scoped_worker(status: dict, allowed: Allowed, corpus_wide: bool) -> dict:
 
 
 def snapshot(worker_status: dict, allowed: Allowed = None,
-             corpus_wide: bool = False) -> dict:
+             corpus_wide: bool = False, host: bool = False) -> dict:
     """Everything the dashboard shows, restricted to `allowed`.
+
+    `host` gates the machine's own specifications - CPU cores and load, RAM
+    total/used/free, this process's resident size, disk totals - on the ADMIN
+    CAPABILITY. They are not a document, so the #75 corpus scoping could never
+    have removed them: 411 bytes of fingerprinting material inside a 3,567-byte
+    response, served to every caller including an unauthenticated one, by a
+    product whose stated boundary is that nothing leaves this machine.
+
+    The block is OMITTED, not blanked. Sending each field as 0 or null would
+    state measurements that are false, and this codebase renders an absent
+    value as absent everywhere else.
+
+    `host` also decides whether the low-memory warning may state the figure -
+    see `warnings`. Gating the block while the prose restates free RAM would
+    have moved the leak rather than closed it.
 
     `corpus_wide` is reported back to the client rather than inferred there.
     A count with no stated boundary reads as total, and an admin looking at
@@ -451,8 +481,8 @@ def snapshot(worker_status: dict, allowed: Allowed = None,
         # corpus, so they are not scoped by grants.
         "throughput": telemetry.throughput(),
         "retrieval": telemetry.retrieval_latency(),
-        "system": system(),
+        **({"system": system()} if host else {}),
         "models": models(),
         "worker": _scoped_worker(worker_status, allowed, corpus_wide),
-        "warnings": warnings(allowed),
+        "warnings": warnings(allowed, host),
     }

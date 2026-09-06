@@ -957,7 +957,13 @@ export interface Metrics {
   throughput: Record<string, StageThroughput | null>;
   /** null until a question has actually been asked */
   retrieval: RetrievalLatency | null;
-  system: SystemMetrics;
+  /** The machine's own CPU, memory and disk. ABSENT - the key is not present
+   *  at all - for any caller without the admin capability (#77). Host
+   *  specifications are not a document, so document scoping could never have
+   *  removed them. Render the block only when it is present; NEVER substitute
+   *  zeros for an absent block, which would state measurements that are
+   *  false. */
+  system?: SystemMetrics;
   models: ModelStatus;
   worker: WorkerStatus;
   warnings: MetricWarning[];
