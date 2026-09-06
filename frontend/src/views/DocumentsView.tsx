@@ -27,6 +27,50 @@ type Drawer =
 /** A document in any of these is finished; the row will not change again. */
 const SETTLED = new Set(["ready", "failed", "no_searchable_content"]);
 
+/** What a document held by no discipline is called on screen.
+ *
+ *  It is a REAL group, not a leftovers bin: no discipline holds these, so only
+ *  an administrator can read them. The same words as the badge on the card,
+ *  deliberately - two names for one state is how a reader ends up believing
+ *  they are two states.
+ */
+export const UNCATEGORISED_GROUP = "Admin only";
+
+export type DocumentGroup = { name: string; documents: DocumentRecord[] };
+
+/**
+ * The documents, grouped by the discipline that holds them.
+ *
+ * ONE DOCUMENT CAN APPEAR IN MORE THAN ONE GROUP, and that is correct rather
+ * than a duplicate: `disciplines` is many-to-many because a grant is, and a
+ * document granted to Civil and Mechanical genuinely belongs to both. Showing
+ * it once - under whichever discipline happened to sort first - would tell a
+ * Mechanical reader it was not theirs.
+ *
+ * Group order is alphabetical, with `Admin only` pinned last: it is the group
+ * a reader is least likely to be looking for, and pinning it stops it moving
+ * as disciplines are added. Within a group the API's order is preserved, which
+ * is most-recent-upload-first.
+ */
+export function groupByDiscipline(documents: DocumentRecord[]): DocumentGroup[] {
+  const byName = new Map<string, DocumentRecord[]>();
+  for (const doc of documents) {
+    const names = doc.disciplines.length > 0 ? doc.disciplines : [UNCATEGORISED_GROUP];
+    for (const name of names) {
+      const bucket = byName.get(name);
+      if (bucket) bucket.push(doc);
+      else byName.set(name, [doc]);
+    }
+  }
+  return [...byName.entries()]
+    .map(([name, docs]) => ({ name, documents: docs }))
+    .sort((a, b) => {
+      if (a.name === UNCATEGORISED_GROUP) return 1;
+      if (b.name === UNCATEGORISED_GROUP) return -1;
+      return a.name.localeCompare(b.name);
+    });
+}
+
 export function DocumentsView({
   connection,
   onRetryConnection,
@@ -162,11 +206,26 @@ export function DocumentsView({
         )}
 
         {load.state === "ready" && load.documents.length > 0 && (
-          <ul className="space-y-3">
-            {load.documents.map((doc) => (
-              <DocumentCard key={doc.id} doc={doc} actions={actions} />
+          <div className="space-y-6">
+            {groupByDiscipline(load.documents).map((group) => (
+              <div key={group.name}>
+                <h3
+                  className="mb-2 flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wider text-slateish-400"
+                  aria-label={`${group.name}, ${group.documents.length} document(s)`}
+                >
+                  {group.name}
+                  <span className="font-mono text-slateish-500">
+                    {group.documents.length}
+                  </span>
+                </h3>
+                <ul className="space-y-3">
+                  {group.documents.map((doc) => (
+                    <DocumentCard key={doc.id} doc={doc} actions={actions} />
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </section>
 
