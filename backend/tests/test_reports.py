@@ -564,3 +564,41 @@ def test_arabic_glyphs_come_from_naskh_and_none_are_notdef():
                     "extraction, not rendering; nothing measured here")
     assert notdef == 0
     assert all("Naskh" in f or "Arabic" in f for f in fonts), fonts
+
+
+def test_the_passage_label_names_no_clause():
+    """Document and page only. The chunker's `section` is not printed.
+
+    It was wrong on 5 of 6 cited passages, and 0 of 11 correct on doc16 - a
+    citation pointing an engineer at a different requirement. Chat stopped
+    printing it and so did the claim table; this is the frozen PDF, and a
+    report naming a clause the screen no longer claims is worse than either
+    alone, because the PDF is what outlives the session.
+
+    The fixture PLANTS a distinctive section on the passage, so the assertion
+    can actually fail. Asserting the absence of a value the fixture never
+    supplied is the vacuous shape recorded as entry 10 of
+    docs/status-honesty-audit.md.
+    """
+    ingest()
+    m = answered_message()
+    conn = db.connect()
+    payload = json.loads(conn.execute("SELECT payload FROM messages WHERE id = ?",
+                                      (m["id"],)).fetchone()["payload"])
+    PLANTED = "9.9.9 PLANTED CLAUSE LABEL"
+    payload["passage"]["section"] = PLANTED
+    for ap in (payload.get("answer_passages") or []) + (payload.get("supporting") or []):
+        ap["section"] = PLANTED
+    with conn:
+        conn.execute("UPDATE messages SET payload = ? WHERE id = ?",
+                     (json.dumps(payload), m["id"]))
+
+    rec = reports.generate(m["id"], access.unrestricted_scope())
+    text = all_text(pdf_of(rec))
+
+    assert PLANTED not in text, (
+        "the chunker's clause label reached the frozen PDF, which the screen "
+        "no longer prints")
+    assert "9.9.9" not in text, "the clause number reached the PDF"
+    # And the citation is still usable: the document and page must remain.
+    assert "page" in text.lower(), "the passage label lost its page as well"

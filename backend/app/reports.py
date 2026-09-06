@@ -249,9 +249,18 @@ def _passage_html(p: dict, n: int) -> str:
     where = (f"{_esc(p['filename'])}, page {p['page_start']}"
              if p.get("page_start") == p.get("page_end")
              else f"{_esc(p['filename'])}, pages {p.get('page_start')}-{p.get('page_end')}")
-    section = f" · {_esc(p['section'])}" if p.get("section") else ""
+    # NO CLAUSE LABEL. The chunker's `section` was wrong on 5 of 6 cited
+    # passages, and 0 of 11 correct on doc16 - a citation pointing an engineer
+    # at a different requirement. Chat stopped printing it; this is the frozen
+    # PDF, and a report that names a clause the screen no longer claims is
+    # worse than either alone, because the PDF is the artefact that outlives
+    # the session.
+    #
+    # Rendered as NOTHING rather than as "section unknown": an absent value is
+    # visibly absent, and a placeholder here would be a second claim about a
+    # value we do not have.
     status = "cited by answer" if p.get("cited") else "supplied, not cited"
-    out = [f'<p class="label">[S{n}] {where}{section} ({status})</p>']
+    out = [f'<p class="label">[S{n}] {where} ({status})</p>']
     if (p.get("text_source") or "extracted") == "recognised":
         # ON EVERY recognised passage, never once at the top: the reader may
         # open the report at this page.

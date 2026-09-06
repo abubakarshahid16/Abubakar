@@ -51,7 +51,18 @@ function Row({ row, onCite }: { row: ClaimRow; onCite: (evidenceId: string) => v
           {row.filename}
         </button>
         <span>p.{row.page_start}</span>
-        {row.section !== null && <span>&sect; {row.section}</span>}
+        {/* NO CLAUSE LABEL. `row.section` traces to analysis.py:70
+            `hit.get("section")`, which is the chunker's value - wrong on 5 of
+            6 cited passages, and 0 of 11 correct on doc16. Chat stopped
+            printing it and the PDF no longer prints it; this was the third
+            place, and three surfaces disagreeing about the same clause is
+            worse than none of them naming it.
+
+            Document and page only. The section renders as nothing rather than
+            as a placeholder, because an absent value must be visibly absent.
+
+            NOT the same value as GapAnalysisCard's baseline section, which the
+            USER types and which is unaffected. */}
       </div>
       <blockquote className="document-quote mt-1.5 whitespace-pre-wrap border-l-2 border-signal-500/60 bg-ink-900 py-2 pl-4 pr-3 text-[14px] text-slateish-100">
         {row.exact_span}

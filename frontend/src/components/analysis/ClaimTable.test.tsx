@@ -108,3 +108,33 @@ describe("ClaimTable: verbatim span", () => {
     expect(span.tagName).toBe("BLOCKQUOTE");
   });
 });
+
+describe("ClaimTable: the clause label is not printed", () => {
+  /** `row.section` traces to analysis.py:70 `hit.get("section")` - the
+   *  chunker's value, wrong on 5 of 6 cited passages and 0 of 11 correct on
+   *  doc16. Chat stopped printing it and the frozen PDF stopped printing it;
+   *  this was the third surface, and three of them disagreeing about the same
+   *  clause is worse than none of them naming it.
+   *
+   *  The fixture supplies a distinctive section so the assertion can fail.
+   *  Asserting the absence of a value the fixture never provided is the
+   *  vacuous shape recorded as entry 10 of docs/status-honesty-audit.md.
+   */
+  it("renders no section, even when the row carries one", () => {
+    const r = makeRow({ section: "9.9.9 PLANTED CLAUSE LABEL" });
+    render(<ClaimTable clusters={[{ facet: "Nominal DFT", label: "addition", rows: [r] }]} onCite={vi.fn()} />);
+
+    expect(screen.queryByText(/9\.9\.9 PLANTED CLAUSE LABEL/)).toBeNull();
+    expect(screen.queryByText(/§/)).toBeNull();
+    // The citation must still be usable: document and page remain.
+    expect(screen.getByText(r.filename)).toBeInTheDocument();
+    expect(screen.getByText(`p.${r.page_start}`)).toBeInTheDocument();
+  });
+
+  it("renders no section when the row's section is null either", () => {
+    const r = makeRow({ section: null });
+    render(<ClaimTable clusters={[{ facet: "Nominal DFT", label: "addition", rows: [r] }]} onCite={vi.fn()} />);
+    expect(screen.queryByText(/§/)).toBeNull();
+    expect(screen.getByText(`p.${r.page_start}`)).toBeInTheDocument();
+  });
+});
