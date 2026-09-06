@@ -144,6 +144,7 @@ function mockApi(status: string, busy: boolean) {
               id: "doc_1", filename: "spec.pdf", sha256: "a".repeat(64),
               size_bytes: 1, page_count: 2, pages_done: 2, chunk_count: 3,
               chunk_count_total: 3, embedded_count: 3, status,
+              disciplines: [],
               needs_ocr_pages: 0, recognised_pages: 0, equation_pages: 0,
               error: null, uploaded_at: "2026-09-06T00:00:00Z", indexed_at: null,
             }]

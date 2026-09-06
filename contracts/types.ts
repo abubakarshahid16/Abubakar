@@ -33,6 +33,14 @@ export interface DocumentRecord {
   chunk_count: number;
   /** every chunk row, including ones kept only for inspection */
   chunk_count_total: number;
+  /** The disciplines this document is granted to - its CATEGORY, as the
+   *  access model defines it (plan line 1010: discipline IS the grant). An
+   *  empty list is meaningful and must render as such: the document is held by
+   *  no discipline and only an administrator can read it - "general", in the
+   *  owner's words. Never a placeholder for an empty list. Required, not
+   *  optional, so a missing field is a contract error rather than a silent
+   *  "uncategorised". */
+  disciplines: string[];
   /** how many retrievable chunks have vectors so far */
   embedded_count: number;
   status: DocStatus;

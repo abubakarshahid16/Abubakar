@@ -57,6 +57,7 @@ function makeDoc(over: Partial<DocumentRecord> = {}): DocumentRecord {
     pages_done: 1400,
     chunk_count: 2113,
     chunk_count_total: 2226,
+    disciplines: [],
     embedded_count: 1536,
     status: "partially_searchable",
     needs_ocr_pages: 0,

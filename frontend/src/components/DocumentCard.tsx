@@ -66,6 +66,32 @@ export function DocumentCard({
             <span className={`rounded px-2 py-0.5 text-[11px] ${TONE[status.tone]}`}>
               {status.label}
             </span>
+            {/* THE CATEGORY. It is the access grant - plan line 1010 makes
+                discipline the grant rather than a tag - so this reads the
+                grant tables through the API and never infers from the
+                filename. An EMPTY list is a real state, not missing data: no
+                discipline holds this document and only an administrator can
+                read it. It is labelled as exactly that, never left blank and
+                never given a placeholder. */}
+            {doc.disciplines.length > 0 ? (
+              doc.disciplines.map((d) => (
+                <span
+                  key={d}
+                  data-testid="discipline"
+                  className="rounded border border-signal-500/40 bg-signal-500/10 px-2 py-0.5 text-[11px] text-signal-400"
+                >
+                  {d}
+                </span>
+              ))
+            ) : (
+              <span
+                data-testid="discipline"
+                className="rounded border border-ink-600 px-2 py-0.5 text-[11px] text-slateish-400"
+                title="No discipline holds this document. Only an administrator can read it."
+              >
+                Admin only
+              </span>
+            )}
 {/* Amber ONLY while pages are still unread. A document being partly
                 OCR'd is a capability working, not a problem - once recognition
                 has covered the scanned pages this badge disappears and the

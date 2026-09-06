@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
+from . import access
 from .config import settings
 from .db import connect
 from .errors import redact
@@ -162,4 +163,8 @@ def to_api(row: sqlite3.Row) -> dict:
         ),
         "uploaded_at": row["uploaded_at"],
         "indexed_at": row["indexed_at"],
+        # The category, read from the grant tables. Not the filename: a file
+        # called civil-Design-and-Construction.pdf is Civil because an
+        # administrator granted it to Civil, and would be nothing otherwise.
+        "disciplines": access.disciplines_for(row["id"]),
     }

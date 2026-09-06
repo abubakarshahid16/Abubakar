@@ -82,6 +82,12 @@ class Document(BaseModel):
     )
     uploaded_at: str
     indexed_at: str | None = None
+    disciplines: list[str] = Field(
+        description="The disciplines this document is granted to - its category "
+        "as the access model defines it. Empty means no discipline holds it and "
+        "only an administrator can read it. Read from the grant tables, never "
+        "inferred from the filename or the content."
+    )
 
 
 class UploadAccepted(BaseModel):

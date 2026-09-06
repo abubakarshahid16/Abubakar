@@ -43,6 +43,12 @@ from .db import connect
 AUTH_DISABLED = "disabled"
 AUTH_REQUIRED = "demo_required"
 
+#: The one capability role. Same spelling as `admin.ADMIN_ROLE`, asserted by
+#: test_conversations_ownership so the two can never drift into two concepts.
+#: Not imported from admin.py: that module resolves identity through auth and
+#: would pull the whole admin surface into every request's scope resolution.
+ADMIN_CAPABILITY = "admin"
+
 
 @dataclass(frozen=True, slots=True)
 class AccessScope:
@@ -60,9 +66,57 @@ class AccessScope:
     #: or a test can assert which kind of scope it is holding rather than
     #: inferring it from the size of the id set.
     unrestricted: bool = False
+    #: Names of the CAPABILITY roles this identity holds (`roles.kind =
+    #: 'capability'`), from the grant tables like everything else here. Today
+    #: that is `admin` or nothing. Carried on the scope so the routes never
+    #: re-derive "is this caller an admin" from a second source.
+    capabilities: frozenset[str] = frozenset()
 
     def may_read(self, document_id: str) -> bool:
         return document_id in self.allowed_document_ids
+
+    @property
+    def is_admin(self) -> bool:
+        return ADMIN_CAPABILITY in self.capabilities
+
+    def owns_conversation(self, owner_user_id: str | None) -> bool:
+        """THE ownership rule for conversations. Every /api/conversations route
+        goes through this and nothing else decides it (#81, #80).
+
+          * unrestricted (auth off)     -> yes, as the system always behaved
+          * no identity                 -> no, whatever the row says
+          * the row's owner is me       -> yes
+          * the row has NO owner        -> yes ONLY for the admin capability
+          * anyone else's               -> no
+
+        The NULL-owner branch is the DECISION for the 81 legacy rows written
+        before ownership was stamped: plan line 1017 says "deny them to
+        ordinary users", and they are assigned to the admin capability - not
+        ordinary, and already holding every document grant. Nobody else can
+        ever own NULL: `None == user_id` is false for every real user, and an
+        unidentified caller is refused a line earlier.
+
+        The list route cannot call this per row without dropping rows in
+        Python after a LIMIT - the leak /api/documents already documents - so
+        it uses `conversation_filter`, which is this same rule spelled as a
+        WHERE clause. Change one and the test file changes the other.
+        """
+        if self.unrestricted:
+            return True
+        if self.user_id is None:
+            return False
+        if owner_user_id == self.user_id:
+            return True
+        return owner_user_id is None and self.is_admin
+
+    def conversation_filter(self) -> tuple[str | None, bool] | None:
+        """`owns_conversation` as a query filter: `(owner_user_id,
+        include_unowned)`, or None meaning no filter (unrestricted). An
+        unidentified caller filters on owner None, which no row can match
+        in SQL, and never includes the unowned - so it sees nothing."""
+        if self.unrestricted:
+            return None
+        return (self.user_id, self.user_id is not None and self.is_admin)
 
 
 def unrestricted_scope() -> AccessScope:
@@ -86,9 +140,10 @@ def scope_for_user(user_id: str) -> AccessScope:
     returned nothing, try X" - is where a deny-by-default schema turns into an
     allow-by-accident system.
     """
+    conn = connect()
     ids = frozenset(
         r["document_id"]
-        for r in connect().execute(
+        for r in conn.execute(
             """SELECT DISTINCT dra.document_id
                FROM user_roles ur
                JOIN document_role_access dra ON dra.role_id = ur.role_id
@@ -96,7 +151,43 @@ def scope_for_user(user_id: str) -> AccessScope:
             (user_id,),
         )
     )
-    return AccessScope(user_id=user_id, allowed_document_ids=ids)
+    # A second query for a different question - "which capabilities does this
+    # identity hold" - not a fallback for the first. `kind` is re-asserted for
+    # the admin role on every init_db, so a role named admin is always found.
+    capabilities = frozenset(
+        r["name"]
+        for r in conn.execute(
+            """SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+               WHERE ur.user_id = ? AND r.kind = 'capability'""",
+            (user_id,),
+        )
+    )
+    return AccessScope(user_id=user_id, allowed_document_ids=ids,
+                       capabilities=capabilities)
+
+
+def disciplines_for(document_id: str) -> list[str]:
+    """The disciplines a document is granted to - what the Documents screen
+    shows as its category.
+
+    Lives here because the grant tables are the single source of truth for
+    "who may read this", and a category shown anywhere else would be a second
+    one. Capabilities are excluded on purpose: `admin` holds every document,
+    so listing it would badge every card "admin" and say nothing. Sorted, so
+    two cards granted to the same disciplines read the same.
+    """
+    return [
+        r["name"]
+        for r in connect().execute(
+            """SELECT DISTINCT r.name
+               FROM document_role_access dra
+               JOIN roles r ON r.id = dra.role_id
+               WHERE dra.document_id = ? AND dra.permission = 'read'
+                 AND r.kind = 'discipline'
+               ORDER BY r.name""",
+            (document_id,),
+        )
+    ]
 
 
 def empty_scope(user_id: str | None = None) -> AccessScope:
