@@ -228,29 +228,50 @@ export function Shell({
       <nav
         id="sidebar-nav"
         aria-label="Main"
-        className={`${menuOpen ? "block" : "hidden"} w-full shrink-0 border-b border-ink-700 bg-ink-850 md:block md:w-64 md:border-b-0 md:border-r`}
+        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 md:flex md:h-screen md:w-64 md:shrink-0 md:border-b-0 md:border-r md:sticky md:top-0`}
       >
-        <div className="hidden px-5 py-5 md:block">
-          <span className="block text-lg font-semibold tracking-wide text-slateish-200">RAG Intelligence System</span>
-          <span className="mt-0.5 block text-xs text-slateish-400">
-            cited answers from your own documents
+        {/* THE HEADER PAYS FOR ITSELF IN NAV SPACE. At text-lg the product name
+            wrapped to two lines in a 256px rail, and with the tagline and a
+            bordered box beneath it the sidebar spent ~200px before the first
+            nav item. Set on two deliberate lines at text-base it reads as a
+            name rather than a wrap, and the privacy line - which is the
+            product's single best argument and stays - is a sentence rather
+            than a boxed callout. */}
+        <div className="hidden px-4 pb-3 pt-5 md:block">
+          {/* ONE TEXT NODE. A <br/> here set the name on two tidy lines and
+              split it into two nodes, so `getByText("RAG Intelligence System")`
+              stopped finding it - and a screen reader stopped hearing one
+              name. It wraps on its own at this size; the wrap is cosmetic and
+              the string must stay whole. */}
+          <span className="block text-base font-semibold leading-tight tracking-tight text-slateish-100">
+            RAG Intelligence System
           </span>
-          <div className="mt-3 rounded-md border border-ink-600 bg-ink-800 px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
-              Private by design
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-slateish-300">
-              Your documents stay on this machine. Every answer cites its document
-              and page.
-            </p>
-          </div>
+          <span className="mt-1 block text-[11px] leading-snug text-slateish-400">
+            Cited answers from your own documents
+          </span>
+          <p className="mt-3 border-l-2 border-signal-500/40 pl-2.5 text-[11px] leading-relaxed text-slateish-400">
+            <span className="font-medium text-slateish-300">Private by design.</span>{" "}
+            Your documents stay on this machine, and every answer cites its
+            document and page.
+          </p>
         </div>
 
-        <ul className="space-y-1 px-3 pb-4">
-          {items.map((item) => {
+        {/* ADMINISTRATION IS A DIFFERENT KIND OF THING and is separated by a
+            rule. In one flat list "Users, disciplines, access" read as a
+            seventh place to do work, when it is the place to decide who may do
+            work anywhere else. A non-admin simply has no seventh entry, so
+            there is no gap where something was removed. */}
+        <ul className="space-y-0.5 px-3 pb-4">
+          {items.map((item, i) => {
             const active = item.id === view;
+            const startsAdmin = item.id === "admin" && i > 0;
+            // A RULE, NOT A HEADING. The first version put an "ADMINISTRATION"
+            // label above an item already labelled "Administration", so the
+            // word appeared twice in a row and read as a rendering fault. The
+            // separator alone carries the meaning - this is a different kind
+            // of destination - and the item names itself.
             return (
-              <li key={item.id}>
+              <li key={item.id} className={startsAdmin ? "mt-3 border-t border-ink-700 pt-3" : ""}>
                 <button
                   type="button"
                   aria-current={active ? "page" : undefined}
@@ -260,16 +281,23 @@ export function Shell({
                     setMenuOpen(false);
                   }}
                   className={[
-                    "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition-colors",
+                    "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-sm transition-colors",
                     active
                       ? "bg-ink-700 text-slateish-200"
                       : "text-slateish-300 hover:bg-ink-800",
                     item.built ? "" : "opacity-70",
                   ].join(" ")}
                 >
-                  <span>
-                    <span className="block">{item.label}</span>
-                    <span className="block text-xs text-slateish-400">{item.hint}</span>
+                  <span className="min-w-0">
+                    <span className="block leading-snug">{item.label}</span>
+                    {/* The hint is orientation, not a label: it teaches the
+                        screen once and is read past forever after. Dimmer and
+                        a size down, so the seven destinations scan as seven
+                        destinations rather than fourteen lines of equal
+                        weight. */}
+                    <span className="block truncate text-[11px] leading-snug text-slateish-500">
+                      {item.hint}
+                    </span>
                   </span>
                   {!item.built && (
                     <span className="ml-2 shrink-0 rounded border border-ink-500 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-300">
@@ -282,7 +310,7 @@ export function Shell({
           })}
         </ul>
 
-        <div className="border-t border-ink-700 px-5 py-4">
+        <div className="mt-auto border-t border-ink-700 px-4 py-4">
           {/* Identity sits ABOVE the connection badge on purpose: "who am I"
               and "is the backend up" are different questions and a reader
               must not have to disentangle one from the other. */}
@@ -298,29 +326,34 @@ export function Shell({
               caller saw the whole corpus. Scoped as of the commit that
               corrected this comment. */}
           {connection.state === "online" && (
-            <p className="mt-2 font-mono text-[11px] text-slateish-400">
+            <p className="mt-1.5 text-[11px] text-slateish-500">
               {connection.health.answer_model_present
-                ? "answer model configured"
-                : "no answer model configured"}
+                ? "Answer model configured"
+                : "No answer model configured"}
             </p>
           )}
           <div className="mt-4">
             <ThemeToggle theme={theme} onChange={onThemeChange} />
           </div>
-          <div className="mt-4 space-y-1.5 text-[11px] text-slateish-300">
-            <p className="flex items-center justify-between gap-2">
-              <span>Document storage</span>
-              <span className="font-mono text-signal-400">local</span>
-            </p>
-            <p className="flex items-center justify-between gap-2">
-              <span>Market data</span>
-              <span className="font-mono text-warn-500">sample only</span>
-            </p>
-            <p className="flex items-center justify-between gap-2">
-              <span>Reports</span>
-              <span className="font-mono text-signal-400">frozen PDF</span>
-            </p>
-          </div>
+          {/* THREE STANDING FACTS ABOUT THE DEPLOYMENT, not live status - which
+              is why they are quieter than the connection badge above and why
+              the amber one is the only coloured word. They earn their place:
+              each is a question a client asks in the first minute, and the
+              middle one is the answer nobody volunteers unprompted. */}
+          <dl className="mt-4 space-y-1 text-[11px] text-slateish-500">
+            <div className="flex items-baseline justify-between gap-2">
+              <dt>Documents</dt>
+              <dd className="text-slateish-400">on this machine</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <dt>Market data</dt>
+              <dd className="text-warn-500">sample only</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <dt>Reports</dt>
+              <dd className="text-slateish-400">frozen PDF</dd>
+            </div>
+          </dl>
         </div>
       </nav>
 

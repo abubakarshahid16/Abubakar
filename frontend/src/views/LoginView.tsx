@@ -212,9 +212,15 @@ export function RoleBadge({ me, onLogout }: { me: Me | null; onLogout: () => voi
       </span>
     );
   }
+  /* STACKED, NOT SIDE BY SIDE. In a 256px sidebar the row layout put the name
+     and two role chips in one flex child and "Sign out" in another, so the
+     button was squeezed to its minimum width and broke across two lines - a
+     two-line button reads as a layout fault. The identity gets the full width
+     and the action sits under it, which also puts a destructive control where
+     it will not be hit while reaching for a role chip. */
   return (
-    <div className="flex items-center gap-3 text-xs">
-      <span className="flex flex-wrap items-center gap-1.5">
+    <div className="text-xs">
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <span className="font-medium text-slateish-200">{me.display_name}</span>
         {me.roles.length === 0 ? (
           <span className="text-slateish-500">no roles</span>
@@ -222,17 +228,17 @@ export function RoleBadge({ me, onLogout }: { me: Me | null; onLogout: () => voi
           me.roles.map((r) => (
             <span
               key={r}
-              className="rounded bg-ink-700 px-2 py-0.5 text-[11px] text-slateish-300"
+              className="rounded bg-ink-700 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-300"
             >
               {r}
             </span>
           ))
         )}
-      </span>
+      </div>
       <button
         type="button"
         onClick={onLogout}
-        className="rounded border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 transition-colors hover:bg-ink-700"
+        className="mt-2 w-full rounded border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 transition-colors hover:bg-ink-700"
       >
         Sign out
       </button>
