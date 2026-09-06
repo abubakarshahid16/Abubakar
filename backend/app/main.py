@@ -462,20 +462,20 @@ def _require_owned_conversation(conversation_id: str, scope: access.AccessScope)
     which is the fact ownership was protecting. And nothing of the hidden row -
     not its title - reaches the refusal.
 
-    NULL ownership never means readable. Every row written before ownership was
-    stamped has owner NULL, and `None != scope.user_id` is true for every real
-    user, so those rows fall closed with no special branch - which is what plan
-    line 1017 requires. The unrestricted scope (auth off) sees everything, as it
-    always did; that is what keeps the pre-existing suite meaning what it means.
+    WHO OWNS WHAT is decided in exactly one place, `AccessScope.owns_conversation`
+    - not here, not per route. The 81 legacy rows with owner NULL are assigned
+    to the admin capability and denied to ordinary users (plan line 1017); an
+    unidentified caller owns nothing. The unrestricted scope (auth off) sees
+    everything, as it always did; that is what keeps the pre-existing suite
+    meaning what it means.
     """
     row: dict | None
     try:
         row = chat_mod.get_conversation(conversation_id)
     except chat_mod.ConversationNotFound:
         row = None
-    if row is not None and not scope.unrestricted:
-        if scope.user_id is None or row.get("owner_user_id") != scope.user_id:
-            row = None      # fall through to the identical not-found path
+    if row is not None and not scope.owns_conversation(row.get("owner_user_id")):
+        row = None          # fall through to the identical not-found path
     if row is None:
         raise HTTPException(
             status_code=404,
@@ -770,14 +770,21 @@ def list_conversations(
 ):
     """The CALLER'S recent conversations, most recently used first.
 
-    Filtered on owner in the query. With no token this route returned every
+    Filtered on owner IN THE QUERY - page and `total` both - by the same rule
+    `_require_owned_conversation` applies per row, spelled as a WHERE clause by
+    `scope.conversation_filter()`. With no token this route returned every
     conversation in the system, question text included (#81); an unauthenticated
-    caller now has owner None, which matches no row - legacy NULL-owner rows
-    included, because `owner_user_id = NULL` is false for every row in SQL.
+    caller now filters on owner None, which matches no row in SQL, and does not
+    include the unowned. The admin capability does: the legacy NULL-owner rows
+    are assigned to it.
     """
     reject_unknown_params(request, {"limit", "offset"})
-    owner = chat_mod.EVERYONE if scope.unrestricted else scope.user_id
-    return chat_mod.list_conversations(limit=limit, offset=offset, owner=owner)
+    where = scope.conversation_filter()
+    if where is None:
+        return chat_mod.list_conversations(limit=limit, offset=offset)
+    owner, include_unowned = where
+    return chat_mod.list_conversations(limit=limit, offset=offset, owner=owner,
+                                       include_unowned=include_unowned)
 
 
 @app.get("/api/conversations/{conversation_id}", response_model=schemas.ConversationDetail,
