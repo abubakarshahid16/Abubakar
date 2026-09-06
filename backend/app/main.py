@@ -26,6 +26,7 @@ from .api_utils import (
     validate_retrievable,
 )
 from . import access
+from . import admin as admin_mod
 from . import auth as auth_mod
 from . import errors
 from . import analysis as analysis_mod
@@ -966,3 +967,113 @@ def document_excluded(
         "offset": offset,
         "excluded": [dict(r) for r in rows],
     }
+
+
+# ------------------------------------------------------------------ admin
+#
+# The administration screen: users, disciplines and document grants, replacing
+# `scripts/seed_access.py` for everything except setting a password. Implements
+# `docs/design-admin-screen.md`, which was written before these routes existed.
+#
+# EVERY ROUTE HERE DEPENDS ON `admin.current_admin`, AND A NON-ADMIN GETS 404.
+# Not 403. A 403 confirms both that the route exists and that the caller found
+# the thing it guards, and the admin surface is the most interesting one on
+# this API to probe. It is the same rule `require_document` already follows for
+# a document the caller may not read, and it is why these routes take
+# `current_admin` rather than `current_scope`: the question is not which
+# documents this request may see, it is whether this request may be here at
+# all.
+
+
+@app.get("/api/admin/users", response_model=schemas.AdminUserList,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_list_users(request: Request,
+                     actor: dict | None = Depends(admin_mod.current_admin)):
+    """Every user, with disciplines and the "no discipline" warning.
+
+    Carries NO setup token, for any user, ever - only its SHA-256 is stored,
+    so there is no plaintext here to return.
+    """
+    reject_unknown_params(request, set())
+    return admin_mod.list_users()
+
+
+@app.post("/api/admin/users", response_model=schemas.AdminUserCreated,
+          status_code=201,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_409,
+                     **schemas.ERRORS_422})
+def admin_create_user(body: admin_mod.CreateUserRequest,
+                      actor: dict | None = Depends(admin_mod.current_admin)):
+    """Create a user and return a one-time setup token.
+
+    NO PASSWORD IS ACCEPTED OR RETURNED, and there is no parameter for one.
+    The reasons are argued in the contract: `seed_access.py` guarantees that a
+    password can only ever arrive by being typed interactively twice, an admin
+    who types someone's password knows it, and a password in a request body is
+    a password in a log - which this project found in a 422 handler that
+    echoed the submitted body back.
+    """
+    return admin_mod.create_user(body, actor)
+
+
+@app.delete("/api/admin/users/{user_id}",
+            response_model=schemas.AdminUserDeactivated,
+            responses={**schemas.ERRORS_404, **schemas.ERRORS_409})
+def admin_deactivate_user(user_id: str,
+                          actor: dict | None = Depends(admin_mod.current_admin)):
+    """Deactivate a user. Idempotent, and never a delete.
+
+    An admin cannot deactivate themselves: without that rule the last admin
+    can lock everyone out of a system whose only other door is a terminal.
+    """
+    return admin_mod.deactivate_user(user_id, actor)
+
+
+@app.get("/api/admin/disciplines", response_model=schemas.AdminDisciplineList,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_list_disciplines(request: Request,
+                           actor: dict | None = Depends(admin_mod.current_admin)):
+    """Disciplines with user and document counts.
+
+    A discipline with no documents is flagged, because everyone in it logs in
+    successfully and then sees an empty corpus - which during a demo looks
+    exactly like broken search rather than a missing grant.
+    """
+    reject_unknown_params(request, set())
+    return admin_mod.list_disciplines()
+
+
+@app.get("/api/admin/grants", response_model=schemas.AdminGrantList,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_list_grants(request: Request,
+                      actor: dict | None = Depends(admin_mod.current_admin)):
+    """Documents and the disciplines that can see them.
+
+    A document nobody can see is flagged: it is invisible in every search and
+    looks like a broken upload.
+    """
+    reject_unknown_params(request, set())
+    return admin_mod.list_grants()
+
+
+@app.put("/api/admin/grants", response_model=schemas.AdminGrantResult,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_grant(body: admin_mod.GrantRequest,
+                actor: dict | None = Depends(admin_mod.current_admin)):
+    """Grant a document to a discipline. Idempotent - a retried click cannot
+    double-grant and cannot fail."""
+    return admin_mod.grant(body, actor)
+
+
+@app.delete("/api/admin/grants", response_model=schemas.AdminGrantResult,
+            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_revoke_grant(body: admin_mod.GrantRequest,
+                       actor: dict | None = Depends(admin_mod.current_admin)):
+    """Revoke a document from a discipline. 200 whether or not it was granted.
+
+    The document leaves that discipline's members' search results on their NEXT
+    REQUEST: `access.scope_for_user` re-runs the grant-table join every request
+    and caches nothing, so deleting the row IS the invalidation. See
+    `admin.revoke_grant`, where that is stated at the line it happens.
+    """
+    return admin_mod.revoke_grant(body, actor)

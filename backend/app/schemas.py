@@ -1067,3 +1067,102 @@ ERRORS_422 = {
 ERRORS_400 = {400: {"model": ApiError, "description": "Rejected request"}}
 ERRORS_401 = {401: {"model": ErrorEnvelope, "description": "Not signed in"}}
 ERRORS_429 = {429: {"model": ErrorEnvelope, "description": "Too many attempts"}}
+
+
+# ------------------------------------------------------------------ admin
+#
+# The admin screen's response shapes, matching `docs/design-admin-screen.md`.
+# Every warning is a Literal ENUM and never a sentence: the UI switches on the
+# value and owns the wording. A message built here would be a string the
+# frontend had to parse for meaning, and `facet` being a string on one side of
+# this boundary and a list on the other is what the contract was written after.
+
+
+class AdminUser(BaseModel):
+    """One row of the users table on the admin screen.
+
+    `last_login_at` is None for a user who has never signed in, and the UI
+    renders that as NOTHING - not a dash, not a zero, not "never". The null
+    reaches the client intact so the decision stays on the screen where the
+    reader is.
+    """
+
+    user_id: str = Field(examples=["usr_a1b2c3d4"])
+    email: str
+    disciplines: list[str]
+    is_admin: bool = Field(description="the admin capability, orthogonal to discipline")
+    active: bool
+    created_at: str | None = Field(None, examples=["2026-09-05T18:12:04Z"])
+    last_login_at: str | None = Field(None, description="null when never signed in")
+    warning: Literal["no_discipline"] | None = None
+
+
+class AdminUserList(BaseModel):
+    """Note what is NOT here: there is no `setup_token` field on this model,
+    so the token cannot be returned by this route even by accident."""
+
+    users: list[AdminUser]
+
+
+class AdminUserCreated(BaseModel):
+    """The ONLY response that ever carries a setup token.
+
+    `shown_once` is part of the contract rather than documentation of it: the
+    client is told, in the payload, that this value is not retrievable again -
+    the storage keeps only its SHA-256 - so a UI cannot decide to fetch it
+    later instead of showing it now.
+    """
+
+    user_id: str
+    email: str
+    setup_token: str = Field(description="shown once; never returned again")
+    setup_token_expires_at: str
+    shown_once: Literal[True] = True
+
+
+class AdminUserDeactivated(BaseModel):
+    """Deactivated, never deleted - conversations and reports reference a user
+    and a hard delete would orphan the evidence a report depends on."""
+
+    user_id: str
+    active: Literal[False] = False
+
+
+class AdminDiscipline(BaseModel):
+    name: str
+    user_count: int
+    document_count: int
+    warning: Literal["no_documents"] | None = Field(
+        None, description="everyone in this discipline sees an empty corpus")
+
+
+class AdminDisciplineList(BaseModel):
+    disciplines: list[AdminDiscipline]
+
+
+class AdminGrantDocument(BaseModel):
+    document_id: str
+    filename: str
+    disciplines: list[str]
+    warning: Literal["no_discipline_can_see_this"] | None = Field(
+        None, description="invisible in every search; looks like a broken upload")
+
+
+class AdminGrantList(BaseModel):
+    documents: list[AdminGrantDocument]
+
+
+class AdminGrantResult(BaseModel):
+    """`granted` states the RESULTING state, not what this call changed.
+
+    That is what makes PUT and DELETE idempotent from the client's side too: a
+    revoke of something already revoked returns exactly what a revoke of a live
+    grant returns, so a retried click has nothing to reconcile.
+    """
+
+    document_id: str
+    discipline: str
+    granted: bool
+
+
+ERRORS_409 = {409: {"model": ErrorEnvelope, "description": "Conflicts with existing state"}}
