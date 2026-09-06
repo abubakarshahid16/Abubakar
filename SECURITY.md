@@ -78,3 +78,13 @@ Of note for a security reader:
   hold is in scope.
 - Answers can be wrong. The system cites a page for every claim and refuses
   when evidence is weak, but a refusal is a mitigation, not a guarantee.
+- **Custody of `AUTH_SECRET` is the authentication boundary.** Bearer tokens are
+  HMAC-signed with that key and carry a user id, so anyone holding the key can
+  mint a valid session for any user without knowing a password. This is how
+  signed tokens work and it is correct by design — there is no session table to
+  consult, which is what lets the backend stay stateless — but it means the file
+  holding the key is as sensitive as every password in the system combined.
+  `backend/.env` is gitignored and must stay that way; a leaked key is a full
+  authentication bypass and the remedy is to replace the key, which invalidates
+  every issued token. A report that the key is recoverable from a log, a
+  response body, a screenshot or a committed file is in scope.
