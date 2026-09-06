@@ -42,6 +42,33 @@ fix search bug
 The body is where the reasoning goes. A future reader with a `git blame` in
 front of them is the audience.
 
+### After a `git commit` that errored, check what it actually did
+
+**`git add` can succeed while `git commit` fails on the same `.git/index.lock`,
+and the error message does not say so.** Both report the same lock, so a failed
+commit looks like nothing happened when the index has in fact been staged.
+
+This has bitten once already. A `git add <paths> && git commit` chain hit a
+stale lock; the `add` had gone through, the `commit` had not, and the retry
+committed a much larger change set than intended — one commit ended up carrying
+two unrelated changes under a message describing only one.
+
+So after any commit that reported an error:
+
+```bash
+git show --stat HEAD     # what the last commit actually contains
+git status --short       # what is still staged
+```
+
+Verify the file list matches what you meant to commit before doing anything
+else. If a commit is wrong and **not yet pushed**, `git reset --soft HEAD~1`
+followed by `git reset` puts everything back in the working tree with no work
+lost, and the split can be redone.
+
+A stale lock is safe to remove only after confirming no git process is running
+(`tasklist | grep git` on Windows). Git's own message says as much, but it says
+it about a crash, and the common case here is a crash.
+
 ## Pull requests
 
 - One PR per branch, into `main`.

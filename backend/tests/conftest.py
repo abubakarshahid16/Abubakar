@@ -82,6 +82,43 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _the_suite_does_not_read_the_developers_env(tmp_path_factory):
+    """Pin the authentication mode so the suite answers the same everywhere.
+
+    5. A TEST SUITE WHOSE RESULT DEPENDS ON AN UNTRACKED FILE.
+       `env_file` was a relative path, so `backend/.env` was read when pytest
+       ran from `backend/` - which is what the README and the PR template both
+       prescribe - and ignored when it ran from the repository root. With
+       AUTH_MODE=demo_required in that file, an unauthenticated TestClient
+       resolves to an EMPTY SCOPE, and the same commit on the same machine in
+       the same second reported:
+
+           from backend/   :  32 failed, 848 passed
+           from repo root  :   0 failed, 880 passed
+
+       Neither number was wrong, which is worse than one of them being wrong:
+       no test report from this project could be read without also knowing the
+       reporter's working directory and the contents of a file that is not in
+       the repository. Anchoring `env_file` (config.py) fixes the application;
+       it makes the suite read a developer's local `.env` on EVERY run, which
+       is the opposite of what a suite should do.
+
+       So the mode is pinned here. The suite tests `disabled` by default, and
+       `demo_required` is tested DELIBERATELY, by fixtures that set it - see
+       test_access_routes.py and test_auth_required_mode.py - rather than by
+       whichever file happens to sit on the machine.
+
+       This pin makes the assertion at test_access_routes.py's
+       `test_auth_disabled_is_the_default_and_changes_nothing` vacuous, since
+       it would then be asserting the value this fixture just set. That test
+       was rewritten to construct a fresh Settings() with no environment, which
+       is the claim it was always trying to make.
+    """
+    settings.auth_mode = "disabled"
+    yield
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _never_the_developers_database(tmp_path_factory):
     """Point the DEFAULT database at a temp file for the whole session.
 

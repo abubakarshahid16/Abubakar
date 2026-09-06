@@ -290,7 +290,31 @@ def test_two_concurrent_requests_never_share_scope(tmp_path, monkeypatch):
 
 # --------------------------------------------------- the disabled default
 
-def test_auth_disabled_is_the_default_and_changes_nothing(tmp_path):
+def test_auth_disabled_is_the_shipped_default():
+    """The DEFAULT, read from a Settings built with no environment at all.
+
+    This assertion used to read `settings.auth_mode == AUTH_DISABLED` against
+    the module-level singleton. That was a real check until conftest began
+    pinning the mode for the whole session - at which point it was asserting
+    the value a fixture had just set, three files away, and could not fail.
+    It would have stayed green if the shipped default were flipped to
+    `demo_required` tomorrow.
+
+    A fresh `Settings()` is what the claim was always about: what a deployment
+    gets when it sets nothing. `_env_file=None` is the important half - without
+    it pydantic-settings reads `backend/.env`, and on a developer machine that
+    file says `demo_required`, so the test would assert the developer's local
+    configuration rather than the shipped default.
+    """
+    from app.config import Settings
+
+    assert Settings(_env_file=None).auth_mode == access.AUTH_DISABLED, (
+        "the shipped default is no longer 'disabled' - every pre-existing test "
+        "runs under that default, and changing it silently changes what they "
+        "prove")
+
+
+def test_auth_disabled_changes_nothing(tmp_path):
     """Every pre-existing test runs under this. It is what proves the
     enforcement is additive, and what makes the rollback a config change."""
     assert settings.auth_mode == access.AUTH_DISABLED

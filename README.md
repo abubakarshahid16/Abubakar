@@ -206,7 +206,7 @@ runs.
 cd frontend
 npm ci
 npx tsc -b        # typecheck
-npm run test      # 115 tests
+npm run test      # 279 tests
 cd ..
 ```
 
@@ -214,8 +214,14 @@ cd ..
 
 ```bash
 cd backend
-python -m pytest -q      # 496 tests, ~4 minutes
+python -m pytest -q      # 887 tests, ~5 minutes
 ```
+
+Run it from `backend/`, not from the repository root. `pytest.ini` lives there,
+and so does `.env` - which the application reads for `AUTH_MODE`. The suite pins
+the authentication mode itself (`tests/conftest.py`) so its result does not
+depend on whether you have a local `.env`, but the same is not true of the
+server: see step 5.
 
 Slow tests that build a real ONNX session are marked `slow` and deselected by
 default. Run them with `python -m pytest -m slow`.
@@ -224,6 +230,13 @@ If the models are not staged, the suite **stops immediately** with the command
 that fixes it, rather than producing ninety failures with one cause.
 
 **5. Run it.** Two terminals:
+
+**Start the API from `backend/`, not from the repository root.** `python
+backend/run.py` starts and appears to work, but `backend/.env` is read relative
+to the working directory - so `AUTH_MODE=demo_required` in that file is silently
+ignored and the server comes up with authentication OFF. There is no warning.
+(Fixed in `config.py` by anchoring the path; the habit is still worth keeping,
+because `pytest.ini` has the same requirement.)
 
 ```bash
 # terminal 1 - API on 127.0.0.1:8000 (loopback only, by design)

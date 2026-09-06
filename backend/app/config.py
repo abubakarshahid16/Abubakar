@@ -6,7 +6,25 @@ PROJECT_DIR = BACKEND_DIR.parent
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # ANCHORED, like every other path in this class. It was `".env"` - a
+    # relative path, resolved by pydantic-settings against the process working
+    # directory - while `data_dir`, `db_path` and the model directories were
+    # all built from BACKEND_DIR. So the database and the models were found
+    # wherever the process started, and the file deciding whether anyone needs
+    # to log in was not.
+    #
+    # Launched from the repository root, `backend/.env` was simply not read:
+    #
+    #     from repo root :  auth_mode = disabled       secret len = 0
+    #     from backend/  :  auth_mode = demo_required  secret len = 64
+    #
+    # A security control that can be switched on and stay off, with no error
+    # and no log line. The startup guard in auth.py that refuses a weak secret
+    # under `demo_required` could not help, because it never saw
+    # `demo_required` - the same mechanism that disabled the control also
+    # bypassed its guard.
+    model_config = SettingsConfigDict(
+        env_file=BACKEND_DIR / ".env", extra="ignore")
 
     # Bind loopback only. Never 0.0.0.0 - document content must not be reachable.
     host: str = "127.0.0.1"

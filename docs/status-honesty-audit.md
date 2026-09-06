@@ -23,10 +23,47 @@ now a design document about the code it was written against:
 | 12 | The coverage design: the shortlist cut is "the one place candidates are dropped with no recorded reason" | `deduplicate()` and the pool builder drop silently too. A candidate lost to dedup is indistinguishable from one that never existed, so recording only the cut would have answered "was doc17 ever in the pool?" wrongly, with apparent evidence |
 | 7 | A passing ordering test over a document that had `failed` | The test asserted the statuses it OBSERVED at every OCR invocation and never asserted where the document FINISHED. `partially_searchable -> chunking` was an illegal transition; the raise was swallowed by the broad handler in `process()`; every scanned document on a fresh machine landed at `failed`, green suite and all |
 | 6 | "Quoted verbatim from the document" over OCR text | `AnswerCard.tsx:277` rendered the label unconditionally. 92 recognised chunks were retrievable, so a passage OCR had guessed off a page image could be cited as the document's own words, beside "quoted directly, no AI rewriting" |
+| 15 | `current_document` and `last_error` were moved OFF `/api/health` "to the scoped `/api/metrics`" | **`/api/metrics` was not scoped.** It resolved an `AccessScope` via `Depends` and never passed it on. The fields moved from one unscoped route to another, and a comment recording a false reason is what made the move look like hardening |
 
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
 it is derived from, so the next instance is easy to spot.
+
+**Entry 15 is the only one where the hardening itself carried the lie.**
+
+`/api/health` used to return `current_document` — a real document id the UI
+joins against the document list to show a filename — along with free-text
+`last_error` and `stalled_reasons`. That was correctly identified as a
+privacy-boundary problem and correctly fixed: those fields were removed from the
+one unauthenticated route.
+
+**They were moved to `/api/metrics`, and the reason recorded for choosing that
+destination was that `/api/metrics` is scoped. It was not.** The route took
+`scope: AccessScope = Depends(access.current_scope)` and then called
+`metrics_mod.snapshot(...)` without it. The parameter was resolved on every
+request and discarded, so the corpus block was byte-identical for an
+administrator, a four-document user and a user granted nothing — measured, all
+three reporting 12 documents while `/api/documents` correctly returned 6, 4
+and 0.
+
+So the hardening **relocated the leak**. A document id that an unauthenticated
+caller could previously read on `/api/health` became a document id that any
+authenticated caller could read on `/api/metrics`, regardless of grants, and the
+change was recorded as a security improvement.
+
+The belief spread. **Seven comments in five files** described the endpoint as
+"the scoped `/api/metrics`", including two inside
+`test_health_never_exposes_a_traceback` — the test written to hold this exact
+boundary. That test never called `/api/metrics` at all. It asserts what
+`/api/health` does *not* say, which is real and still passes, and the word
+"scoped" in it was an assumption it had no way to check.
+
+This is the distinguishing feature: the earlier entries are fields derived from
+something adjacent to the truth. This one is **a justification derived from
+something adjacent to the truth** — a comment that made a real design decision
+look safe, and was then cited by later work as though it were a verified
+property. A count without a boundary reads as total; a comment without a test
+reads as a guarantee.
 
 **Entry 11 is the same shape twice, and both times the sweep was mine.**
 
