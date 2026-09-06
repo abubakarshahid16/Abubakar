@@ -62,6 +62,90 @@ _PHRASES: dict[str, str] = {
 }
 
 DOCUMENT_QUESTION = "document_question"
+ADVICE_REQUEST = "advice_request"
+
+# ------------------------------------------------- a request for advice
+#
+# "i would like to implement FEED documentation for an EPC project, can you
+# please help me with that?" used to be searched, refused, and described as
+# "the documents do not answer this - the closest passages were not a credible
+# match". Every word of that is a misdescription: the reader did not ask what a
+# document says, so the corpus was never the thing that fell short.
+#
+# It is recognised HERE rather than after retrieval for the same reason a
+# greeting is: nothing was searched, so nothing may be shown as considered.
+#
+# CONSERVATIVE BY CONSTRUCTION, and deliberately biased towards missing an
+# advice request rather than catching a document question. A miss costs the
+# reader the older, blunter refusal - which is where they are today. A false
+# positive tells someone asking a fair question about their own documents that
+# they were not asking about their documents, and never searches. So:
+#
+#   * a lookup marker anywhere VETOES the whole classification, before any
+#     other rule is consulted. "can you help me find what the spec says about
+#     surface preparation" is a document question wearing a polite wrapper.
+#   * the task verbs name work the reader would CARRY OUT and are chosen to
+#     be words an engineering clause rarely uses about the reader. "prepare",
+#     "apply", "design", "inspect" and "calculate" were considered and left
+#     out: "how should i prepare the surface" is answerable from a coatings
+#     spec, and losing it would be exactly the failure above.
+#   * the polite-help pattern alone is never enough. "can you help me" must
+#     arrive WITH a task verb; on its own it is how half of all questions to
+#     an assistant are phrased.
+
+#: Work the reader would do, rather than something a document states.
+_TASK_VERB = (
+    r"(?:implement|develop|create|build|write|draft|produce|plan|"
+    r"set\s?up|roll\s+out|put\s+together|get\s+started\s+with)"
+)
+
+#: Any of these means the reader wants something looked up IN the documents,
+#: however the sentence around it is phrased. Checked first, and decisive.
+_WANTS_A_LOOKUP = re.compile(
+    r"\b(?:find|locate|look\s+up|search|tell\s+me|show\s+me|what\s+does|"
+    r"what\s+do|what\s+is|what\s+are|where\s+does|where\s+is|"
+    r"which\s+document|says?\s+about|according\s+to|in\s+the\s+documents?|"
+    r"in\s+the\s+spec|clause|section|page|per\s+the)\b"
+)
+
+#: "can you please help me with that", "walk me through it".
+_ASKS_FOR_HELP = re.compile(
+    r"\b(?:help|assist)\s+(?:me|us)\b"
+    r"|\bcan\s+you\s+(?:please\s+)?(?:help|assist)\b"
+    r"|\b(?:walk|guide)\s+(?:me|us)\s+through\b"
+    r"|\bguide\s+(?:me|us)\b"
+)
+
+#: "i would like to implement ...", "we need to write ..."
+_STATES_A_TASK = re.compile(
+    r"\b(?:i|we)\s*(?:'m|m)?\s+"
+    r"(?:would\s+like\s+to|want\s+to|need\s+to|am\s+trying\s+to|"
+    r"are\s+trying\s+to|trying\s+to)\s+" + _TASK_VERB + r"\b"
+)
+
+#: "how do i set up ...", "how should we roll out ..."
+_ASKS_HOW_TO = re.compile(
+    r"\bhow\s+(?:do|can|should|would)\s+(?:i|we)\s+" + _TASK_VERB + r"\b"
+)
+
+_TASK_VERB_ANYWHERE = re.compile(r"\b" + _TASK_VERB + r"\b")
+
+
+def _is_advice_request(normalised: str) -> bool:
+    """Is the reader asking how to do something, rather than what a document
+    says? Two independent signals, and a veto that outranks both."""
+    if len(normalised.split()) < 4:
+        # too short to carry both signals, and short inputs are where the
+        # other classifications live
+        return False
+    if _WANTS_A_LOOKUP.search(normalised):
+        return False
+    if _STATES_A_TASK.search(normalised) or _ASKS_HOW_TO.search(normalised):
+        return True
+    return bool(
+        _ASKS_FOR_HELP.search(normalised) and _TASK_VERB_ANYWHERE.search(normalised)
+    )
+
 
 #: A lone token that names something rather than saying something. "NDFT" and
 #: "P-101A" are real lookups; "coating" on its own is not, and neither is "ok".
@@ -78,7 +162,7 @@ def _normalise(text: str) -> str:
 
 def classify(question: str) -> str:
     """One of: document_question, empty, greeting, thanks, acknowledgement,
-    farewell, about_the_assistant, not_a_question."""
+    farewell, about_the_assistant, advice_request, not_a_question."""
     raw = (question or "").strip()
     if not raw:
         return "empty"
@@ -101,6 +185,12 @@ def classify(question: str) -> str:
     if len(words) == 1 and not _IDENTIFIER_LIKE.match(words[0].strip(".,!?;:")):
         # A single lowercase ordinary word is not a question. An identifier is.
         return "not_a_question"
+
+    # Last, and only on what everything above let through: a request for help
+    # with a task is not a question about the documents. Unsure means
+    # document_question, which is where every borderline phrasing lands.
+    if _is_advice_request(normalised):
+        return ADVICE_REQUEST
 
     return DOCUMENT_QUESTION
 
@@ -175,6 +265,13 @@ _REPLIES = {
         "I answer questions about the documents loaded on this machine. I quote "
         "the source with its page and clause, and I say so when the documents "
         "do not contain the answer. Nothing you type leaves this machine."
+    ),
+    "advice_request": (
+        "That is a request for help with a task, not a question about what the "
+        "documents say. I quote the documents loaded on this machine and cite "
+        "the page and clause; I cannot advise you on how to do the work, and I "
+        "will not invent an answer. If one of these documents covers the "
+        "subject, ask what it says about it."
     ),
     "not_a_question": "I answer questions about your documents. Try a full question.",
 }
