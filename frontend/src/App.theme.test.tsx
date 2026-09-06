@@ -16,13 +16,28 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./api/client", () => ({
-  auth: { me: vi.fn(async () => ({ ok: false, disconnected: true })), login: vi.fn() },
-  onSignedOut: vi.fn(),
-  setToken: vi.fn(),
-  api: { documents: vi.fn(async () => ({ ok: false, disconnected: true })) },
-  health: { get: vi.fn(async () => ({ ok: false, disconnected: true })) },
-}));
+// Everything App reaches for on mount answers "disconnected". The mock is
+// built on the real module so a method this file forgets still exists rather
+// than being `undefined` - the previous hand-written partial stubbed a
+// `health.get` that no longer exists and omitted `api.health` / `api.metrics`
+// (Shell's health poll and DocumentsView's refresh), which surfaced as four
+// unhandled "api.X is not a function" rejections that failed the whole run
+// even though every assertion here passed.
+vi.mock("./api/client", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./api/client")>();
+  // Declared inside the factory: vi.mock is hoisted above any top-level const.
+  const disconnected = async () => ({ ok: false as const, disconnected: true as const });
+  return {
+    ...real,
+    auth: { ...real.auth, me: vi.fn(disconnected), login: vi.fn(disconnected) },
+    api: {
+      ...real.api,
+      health: vi.fn(disconnected),
+      metrics: vi.fn(disconnected),
+      documents: vi.fn(disconnected),
+    },
+  };
+});
 
 import App from "./App";
 

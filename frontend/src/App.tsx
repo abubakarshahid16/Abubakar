@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { auth, onSignedOut, setToken } from "./api/client";
-import { Shell, useConnection, type ThemeMode, type ViewId } from "./components/Shell";
+import {
+  hasAdminCapability,
+  Shell,
+  useConnection,
+  type ThemeMode,
+  type ViewId,
+} from "./components/Shell";
 import { DisconnectedState } from "./components/states";
+import { AdminScreen } from "./views/AdminScreen";
 import { ChatView } from "./views/ChatView";
 import { DashboardView } from "./views/DashboardView";
 import { DocumentsView } from "./views/DocumentsView";
@@ -10,7 +17,7 @@ import { IngestionView } from "./views/IngestionView";
 import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
-import type { Me } from "./types/api";
+import type { AuthStatus, Me } from "./types/api";
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
@@ -34,10 +41,29 @@ type Session =
   | { s: "disabled" }
   | { s: "required"; me: Me | null };
 
-export default function App() {
-  const [view, setView] = useState<ViewId>("documents");
+export default function App({ initialView = "documents" }: { initialView?: ViewId } = {}) {
+  // The view the app opens on. A prop rather than a hard-coded literal so that
+  // "the reader is somehow already on this view" is expressible - which is the
+  // only way to assert that the admin gate is the gate, rather than the
+  // absence of a navigation button being the gate. There is no router yet; if
+  // one lands, this is where a deep link arrives.
+  const [view, setView] = useState<ViewId>(initialView);
   const { connection, recheck } = useConnection();
   const [session, setSession] = useState<Session>({ s: "checking" });
+
+  // The bearer token, mirrored here ONLY so the admin screen can be handed one.
+  //
+  // api/client.ts owns the token and deliberately exposes no getter (it is a
+  // module-level variable, never localStorage), and AdminScreen's transport
+  // needs to attach it. This is the same value that was just passed to
+  // setToken, held in a ref rather than state so that reading it never causes
+  // a render, and cleared everywhere the client's copy is cleared. It is not
+  // persisted and not logged.
+  const tokenRef = useRef<string | null>(null);
+  // Stable across renders on purpose: AdminScreen memoises its transport on
+  // this identity, and a fresh arrow each render would rebuild the client,
+  // re-run its load effect and re-render forever.
+  const readToken = useCallback(() => tokenRef.current, []);
 
   // The mode is discovered from the API, never from /api/health - health is
   // unauthenticated and was narrowed deliberately, and putting auth_mode on it
@@ -71,7 +97,10 @@ export default function App() {
   // The client clears the token on any 401 and calls this. No auto-retry and
   // no refresh flow: there is no refresh token by design.
   useEffect(() => {
-    onSignedOut(() => setSession({ s: "required", me: null }));
+    onSignedOut(() => {
+      tokenRef.current = null;
+      setSession({ s: "required", me: null });
+    });
     return () => onSignedOut(null);
   }, []);
 
@@ -80,6 +109,7 @@ export default function App() {
       const r = await auth.login(email, password);
       if (r.ok) {
         setToken(r.data.token);
+        tokenRef.current = r.data.token;
         setSession({ s: "required", me: r.data.user });
         return { ok: true };
       }
@@ -95,6 +125,7 @@ export default function App() {
 
   const signOut = useCallback(() => {
     setToken(null);
+    tokenRef.current = null;
     setSession({ s: "required", me: null });
   }, []);
 
@@ -145,6 +176,21 @@ export default function App() {
     }
   }, [theme]);
 
+  // `/api/auth/me`'s answer, reassembled. `checking` and `unknown` are null:
+  // the question has not been answered, and an unanswered question grants
+  // nothing.
+  const authStatus: AuthStatus | null =
+    session.s === "disabled"
+      ? { required: false, user: null }
+      : session.s === "required"
+        ? { required: true, user: session.me }
+        : null;
+
+  // The single decision. Both the navigation entry and the screen itself read
+  // THIS - so there is no arrangement of view state in which one exists
+  // without the other.
+  const canAdmin = hasAdminCapability(authStatus);
+
   if (session.s === "required" && session.me === null) {
     return <LoginView onLogin={signIn} connected={connection.state !== "offline"} />;
   }
@@ -154,6 +200,7 @@ export default function App() {
       view={view}
       onNavigate={setView}
       connection={connection}
+      auth={authStatus}
       theme={theme}
       onThemeChange={setTheme}
       identity={
@@ -191,6 +238,12 @@ export default function App() {
           )}
           {view === "analysis" && <AnalysisModeScreen />}
           {view === "reports" && <ReportsScreen />}
+          {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting
+              the view to "admin" by any other means - a stale state value, a
+              devtools poke - renders nothing at all. The server is the real
+              boundary (every /api/admin route 404s a non-admin), and this is
+              the UI keeping the same answer. */}
+          {view === "admin" && canAdmin && <AdminScreen tokenProvider={readToken} />}
         </>
       )}
     </Shell>

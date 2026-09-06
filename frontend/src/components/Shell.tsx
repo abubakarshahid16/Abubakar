@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type Health } from "../api/client";
+import type { AuthStatus } from "../types/api";
 
 export type ViewId =
   | "documents"
@@ -14,7 +15,8 @@ export type ViewId =
   | "analysis"
   | "ingestion"
   | "dashboard"
-  | "reports";
+  | "reports"
+  | "admin";
 
 export type ThemeMode = "dark" | "light";
 
@@ -33,6 +35,54 @@ export const NAV: NavItem[] = [
   { id: "reports", label: "Reports", hint: "Frozen evidence, as PDF", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
 ];
+
+/** The one role name that means "may administer". `admin` is a CAPABILITY and
+ *  not a discipline: it is a row in `roles` like any other, which is why
+ *  `Me.roles` can carry both `IT` and `admin` for the same person. The backend
+ *  says the same thing in `backend/app/admin.py` (`ADMIN_ROLE`). */
+export const ADMIN_CAPABILITY = "admin";
+
+/** The admin entry, kept out of NAV so that the six entries every reader gets
+ *  stay a plain constant and the conditional one is impossible to render by
+ *  accident. */
+export const ADMIN_NAV: NavItem = {
+  id: "admin",
+  label: "Administration",
+  hint: "Users, disciplines, access",
+  built: true,
+};
+
+/**
+ * Whether the caller holds the admin capability, ACCORDING TO THE API.
+ *
+ * The only input is the body of `/api/auth/me` - `Me.roles`, which is the one
+ * field in the identity contract that carries this. Nothing here is inferred
+ * from an email address, a display name, or anything else the client could
+ * decide for itself.
+ *
+ * `null` (the answer has not arrived, or the backend could not be reached) is
+ * NOT admin. An unanswered question is not a yes.
+ *
+ * The `required: false` case is a yes, and deliberately so: under
+ * `AUTH_MODE=disabled` the backend's own `admin.current_admin` lets an
+ * unidentified caller through, because under that mode every caller already
+ * reads every document. A UI stricter than the routes it fronts would hide a
+ * screen that the server is willing to serve, which is the exact defect this
+ * change exists to remove. It is still the API's answer, not a guess: the
+ * deployment said authentication is off.
+ */
+export function hasAdminCapability(auth: AuthStatus | null | undefined): boolean {
+  if (!auth) return false;
+  if (!auth.required) return true;
+  return (auth.user?.roles ?? []).includes(ADMIN_CAPABILITY);
+}
+
+/** The navigation this caller gets. The admin entry is APPENDED, never
+ *  disabled and never hidden with a class - a non-admin's DOM does not
+ *  contain it at all, so there is nothing to un-hide with a devtools edit. */
+export function navFor(auth: AuthStatus | null | undefined): NavItem[] {
+  return hasAdminCapability(auth) ? [...NAV, ADMIN_NAV] : NAV;
+}
 
 export type Connection =
   | { state: "connecting" }
@@ -127,6 +177,7 @@ export function Shell({
   onNavigate,
   connection,
   identity,
+  auth,
   theme,
   onThemeChange,
   children,
@@ -137,11 +188,17 @@ export function Shell({
   /** Who is signed in, or a quiet note that authentication is off. Optional
    *  so every existing test that renders the Shell keeps working unchanged. */
   identity?: React.ReactNode;
+  /** The body of `/api/auth/me`, verbatim. This is what decides whether the
+   *  administration entry exists; see `hasAdminCapability`. Optional and
+   *  defaulting to "not admin", so a caller that has not been taught about it
+   *  gets the six-entry navigation rather than an accidental admin link. */
+  auth?: AuthStatus | null;
   theme: ThemeMode;
   onThemeChange: (theme: ThemeMode) => void;
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const items = navFor(auth);
 
   return (
     <div className="flex min-h-screen flex-col bg-ink-900 md:flex-row">
@@ -153,7 +210,7 @@ export function Shell({
       </a>
 
       <header className="flex items-center justify-between border-b border-ink-700 px-4 py-3 md:hidden">
-        <span className="font-semibold tracking-wide text-slateish-200">Nabaa</span>
+        <span className="font-semibold tracking-wide text-slateish-200">RAG Intelligence System</span>
         <div className="flex items-center gap-2">
           <ThemeToggle theme={theme} onChange={onThemeChange} compact />
           <button
@@ -174,22 +231,23 @@ export function Shell({
         className={`${menuOpen ? "block" : "hidden"} w-full shrink-0 border-b border-ink-700 bg-ink-850 md:block md:w-64 md:border-b-0 md:border-r`}
       >
         <div className="hidden px-5 py-5 md:block">
-          <span className="block text-lg font-semibold tracking-wide text-slateish-200">Nabaa</span>
+          <span className="block text-lg font-semibold tracking-wide text-slateish-200">RAG Intelligence System</span>
           <span className="mt-0.5 block text-xs text-slateish-400">
-            enterprise FEED intelligence
+            cited answers from your own documents
           </span>
           <div className="mt-3 rounded-md border border-ink-600 bg-ink-800 px-3 py-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
-              Sunday POC lane
+              Private by design
             </p>
             <p className="mt-1 text-xs leading-relaxed text-slateish-300">
-              Local evidence, scoped access, cited analysis and auditable reports.
+              Your documents stay on this machine. Every answer cites its document
+              and page.
             </p>
           </div>
         </div>
 
         <ul className="space-y-1 px-3 pb-4">
-          {NAV.map((item) => {
+          {items.map((item) => {
             const active = item.id === view;
             return (
               <li key={item.id}>
@@ -214,7 +272,7 @@ export function Shell({
                     <span className="block text-xs text-slateish-400">{item.hint}</span>
                   </span>
                   {!item.built && (
-                    <span className="ml-2 shrink-0 rounded border border-ink-500 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-400">
+                    <span className="ml-2 shrink-0 rounded border border-ink-500 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-300">
                       not built
                     </span>
                   )}
@@ -249,13 +307,13 @@ export function Shell({
           <div className="mt-4">
             <ThemeToggle theme={theme} onChange={onThemeChange} />
           </div>
-          <div className="mt-4 space-y-1.5 text-[11px] text-slateish-400">
+          <div className="mt-4 space-y-1.5 text-[11px] text-slateish-300">
             <p className="flex items-center justify-between gap-2">
-              <span>Private boundary</span>
+              <span>Document storage</span>
               <span className="font-mono text-signal-400">local</span>
             </p>
             <p className="flex items-center justify-between gap-2">
-              <span>Public market</span>
+              <span>Market data</span>
               <span className="font-mono text-warn-500">sample only</span>
             </p>
             <p className="flex items-center justify-between gap-2">
