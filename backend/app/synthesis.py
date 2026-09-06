@@ -71,9 +71,10 @@ not here and are not this module's business.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
 from . import assertions, context_budget
@@ -169,6 +170,36 @@ INSUFFICIENT = "INSUFFICIENT EVIDENCE"
 #: over a single item converts a quotation into prose. The design calls this
 #: out as its own rule, so it gets its own constant and its own test.
 MIN_BATCH = 2
+
+#: MAP-REDUCE. One generation over 24 passages is not what fails - the prompt
+#: cannot overflow, because `_fit` trims it first. What fails is quieter: the
+#: overhead `_fit` reserves is measured over EVERY source it was handed,
+#: including the ones it is about to drop, and a source header costs ~52
+#: tokens because the tokenizer charges digits one at a time. Twenty-four
+#: headers reserve ~1,250 tokens of a 3,846-token budget for passages the
+#: model will never see, so the Comprehensive prompt carries LESS evidence
+#: than the Quick one - measured, not inferred - and the model, shown a
+#: trimmed fragment, declines.
+#:
+#: The fix is to stop asking one prompt to hold the corpus. Each document is
+#: summarised on its own, over at most this many of its own passages, and the
+#: final call runs over those summaries. Four is what fits with room to spare
+#: at the map cap below, and it is a per-document cap rather than a global
+#: one so a document is never crowded out by another document's passages.
+MAP_PASSAGES_PER_DOCUMENT = 4
+
+#: The hard ceiling on ANY single prompt this module builds, system prompt and
+#: question included. 2,000 tokens is a little over half of `evidence_budget()`
+#: (3,846 at num_ctx 4096), which leaves the estimator's 5% margin, the output
+#: reservation and the per-document header overhead all inside the window with
+#: room that does not have to be argued about. It is enforced by passing it to
+#: `context_budget.fit_passages` as the budget, BEFORE the call, for the same
+#: reason the window is: there is no after.
+MAP_PROMPT_TOKEN_CAP = 2000
+#: The reduce runs over one sentence per finding, so it is far smaller than the
+#: map calls; the cap is the same number so that no prompt anywhere in this
+#: module can exceed one stated ceiling.
+REDUCE_PROMPT_TOKEN_CAP = 2000
 
 #: Rendered on every recommendation by the UI (7.3). Stated here so the backend
 #: and the card cannot drift apart without a test noticing.
@@ -300,6 +331,16 @@ class Summary:
     #: generation ran. None when no call was made. A refusal that says "the
     #: model returned nothing usable" is checkable only against this.
     raw_completion: str | None = None
+    #: MAP-REDUCE ONLY, and empty on a single-call summary. The documents whose
+    #: own summary stood, by filename. Named rather than counted, because "9 of
+    #: 14 documents" does not tell a reader WHICH five are missing from the
+    #: prose in front of them; `len()` is the count.
+    documents_summarised: tuple[str, ...] = ()
+    #: The documents whose map call produced nothing, with why - a refusal per
+    #: document, in the same (what, why) shape `dropped_sentences` uses. One
+    #: document failing is not the summary failing, and it is not silence
+    #: either.
+    documents_refused: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -481,6 +522,19 @@ def lead_with_a_whole_sentence(
     return (), tuple((f.text, FRAGMENT_REASON) for f in findings)
 
 
+def _evidence_ids(source: Mapping[str, object]) -> tuple[str, ...]:
+    """Every evidence id a source stands for, in order.
+
+    `evidence_ids` is set only on a reduce source, where one line of text is a
+    sentence that already cited one or more passages. Everywhere else there is
+    exactly one id and this returns it.
+    """
+    many = source.get("evidence_ids")
+    if many:
+        return tuple(dict.fromkeys(str(eid) for eid in many))  # type: ignore[union-attr]
+    return (str(source["evidence_id"]),)
+
+
 def _text_source(sources: Sequence[Mapping[str, object]]) -> TextSource:
     kinds = {str(s.get("text_source") or "extracted") for s in sources}
     if kinds == {"recognised"}:
@@ -547,10 +601,19 @@ def _cite(
         if asserted:
             dropped.append((sentence, assertions.reason(asserted[0])))
             continue
+        # A source USUALLY stands for one evidence item. A REDUCE source
+        # stands for one already-gated sentence, which may have cited two
+        # passages, and both have to travel: dropping the second would leave
+        # the final summary citing one page for a sentence built from two.
+        ids: list[str] = []
+        for source in cited:
+            for eid in _evidence_ids(source):
+                if eid not in ids:
+                    ids.append(eid)
         kept.append(
             CitedSentence(
                 text=sentence,
-                citation_ids=tuple(dict.fromkeys(str(s["evidence_id"]) for s in cited)),
+                citation_ids=tuple(ids),
                 text_source=_text_source(cited),
             )
         )
@@ -597,7 +660,9 @@ def _as_sources(evidence: Iterable[Mapping[str, object]]) -> list[dict]:
     return out
 
 
-def _fit(question: str, sources: list[dict], system: str) -> tuple[list[dict], list[dict]]:
+def _fit(
+    question: str, sources: list[dict], system: str, token_cap: int | None = None
+) -> tuple[list[dict], list[dict]]:
     """Trim or drop sources until the prompt is certain to fit, BEFORE the call.
 
     There is no after: llama.cpp discards the overflow and reports the
@@ -605,9 +670,68 @@ def _fit(question: str, sources: list[dict], system: str) -> tuple[list[dict], l
     half is indistinguishable from one that fit. The overhead is measured, not
     assumed - the same prompt with the bodies emptied - so a long question
     cannot quietly push the evidence over the line.
+
+    `token_cap` is a SECOND, tighter ceiling for the map-reduce calls, applied
+    on top of the window budget rather than instead of it: a map prompt must
+    fit the window AND stay under the cap, so `min` of the two is what is
+    spent. It is passed to the budget rather than checked afterwards, which is
+    what makes "no prompt exceeds the cap" a property of the code and not of
+    the inputs.
     """
     overhead = system + build_prompt(question, [{**s, "text": ""} for s in sources])
-    return context_budget.fit_passages(sources, overhead)
+    budget = context_budget.evidence_budget()
+    if token_cap is not None:
+        budget = min(budget, token_cap)
+    return context_budget.fit_passages(sources, overhead, budget)
+
+
+# --------------------------------------------------------------- measurement
+
+#: A CHILD of the "nabaa" logger errors.py configures, so these records land in
+#: the same file as everything else without this module importing the error
+#: stack (it must stay free of the retrieval and HTTP layers). Nothing logged
+#: here reaches a response: the route builds its dict from `summary_to_api`,
+#: which has never carried a log line.
+_log = logging.getLogger("nabaa.synthesis")
+
+
+@dataclass
+class _Call:
+    """What one generation cost and what came back. Filled in as the call runs
+    and logged once, whatever the outcome - a refusal is the case worth
+    measuring, so it cannot be the case that goes unrecorded.
+
+    `document` is a FILENAME, never document text. The completion IS model
+    prose over document text, so it is logged at DEBUG only: INFO records the
+    shape of the call, DEBUG records what came back, and a deployment that does
+    not want document-derived text in its log file leaves the level at INFO.
+    Nothing here is ever a secret - no key, token or credential reaches this
+    module at all.
+    """
+
+    stage: str
+    document: str | None = None
+    passage_count: int = 0
+    prompt_tokens: int = 0
+    raw_completion: str | None = None
+    refusal: str | None = None
+
+    def record(self) -> None:
+        _log.info(
+            "synthesis stage=%s document=%s passages=%d prompt_tokens=%d "
+            "completion_chars=%s refusal=%s",
+            self.stage,
+            self.document or "-",
+            self.passage_count,
+            self.prompt_tokens,
+            "-" if self.raw_completion is None else len(self.raw_completion),
+            self.refusal or "-",
+        )
+        if self.raw_completion is not None:
+            _log.debug(
+                "synthesis stage=%s document=%s completion=%r",
+                self.stage, self.document or "-", self.raw_completion,
+            )
 
 
 # ------------------------------------------------------------------ stage 3
@@ -688,6 +812,7 @@ def summarise(
     generate: Generate,
     *,
     system: str = SUMMARY_SYSTEM_PROMPT,
+    token_cap: int | None = None,
 ) -> Summary:
     """Consolidate one batch of evidence into cited prose. One generation.
 
@@ -695,7 +820,48 @@ def summarise(
     refusal names its reason, because an empty summary card and a summary that
     was refused look identical to a reader and mean opposite things.
     """
-    sources = _as_sources(evidence)
+    return _summarise_sources(
+        question, _as_sources(evidence), generate,
+        system=system, token_cap=token_cap, stage="single",
+    )
+
+
+def _summarise_sources(
+    question: str,
+    sources: list[dict],
+    generate: Generate,
+    *,
+    system: str = SUMMARY_SYSTEM_PROMPT,
+    token_cap: int | None = None,
+    stage: str = "single",
+    document: str | None = None,
+) -> Summary:
+    """One generation over sources that are ALREADY normalised, measured.
+
+    Split out of `summarise` so the map and the reduce run the same gate, the
+    same refusal wording and the same rebuild-from-findings as a single-call
+    summary - there is exactly one implementation of "a sentence may be shown",
+    and map-reduce did not get to write a second one.
+    """
+    call = _Call(stage=stage, document=document, passage_count=len(sources))
+    out = _run_summary(
+        question, sources, generate, system=system, token_cap=token_cap, call=call
+    )
+    call.refusal = out.refusal
+    call.raw_completion = out.raw_completion
+    call.record()
+    return out
+
+
+def _run_summary(
+    question: str,
+    sources: list[dict],
+    generate: Generate,
+    *,
+    system: str,
+    token_cap: int | None,
+    call: _Call,
+) -> Summary:
     if len(sources) < MIN_BATCH:
         return _refused(
             "a single passage is passed through as evidence, not summarised: "
@@ -704,7 +870,8 @@ def summarise(
             else "no evidence was supplied"
         )
 
-    sources, removed = _fit(question, sources, system)
+    sources, removed = _fit(question, sources, system, token_cap)
+    call.passage_count = len(sources)
     if len(sources) < MIN_BATCH:
         return _refused(
             "the evidence for this question is too large for the local model's "
@@ -712,7 +879,12 @@ def summarise(
             removed,
         )
 
-    generation = generate(system, build_prompt(question, sources))
+    prompt = build_prompt(question, sources)
+    # Measured on the prompt that is actually sent, not on the one that was
+    # asked for. This is the number the map cap is a cap on, and the number a
+    # refusal has to be read against.
+    call.prompt_tokens = context_budget.estimate_tokens(system + prompt)
+    generation = generate(system, prompt)
     raw = generation.text
     text = raw.strip()
     if generation.truncated:
@@ -783,6 +955,195 @@ def summarise(
         rejected_citations=tuple(invented),
         evidence_removed=tuple(removed),
         raw_completion=raw,
+    )
+
+
+# ------------------------------------------------------- stage 3, map-reduce
+
+
+def group_by_document(sources: Sequence[Mapping[str, object]]) -> dict[str, list[dict]]:
+    """Sources by filename, each document's passages in the order given.
+
+    Filename rather than document_id: it is what the citation shows the reader
+    and what every prompt in this module names a document by, and an evidence
+    item is not required to carry an id. Insertion order is retrieval order, so
+    the first document in the mapping is the one retrieval ranked first.
+    """
+    groups: dict[str, list[dict]] = {}
+    for source in sources:
+        groups.setdefault(str(source.get("filename") or "(unnamed document)"), []).append(
+            dict(source)
+        )
+    return groups
+
+
+def highest_scoring(sources: Sequence[Mapping[str, object]], keep: int) -> list[dict]:
+    """The `keep` best passages of one document, back in their original order.
+
+    Sorted by `relevance_score` when there is one - a rerank score, on the
+    scale `relevance_score_type` names - and by retrieval order when there is
+    not. `None` sorts LAST rather than as zero: an unscored passage is
+    unscored, and 0.0 sits above the credibility floor and would read as
+    credible. The chosen passages are then restored to retrieval order, because
+    the [S#] markers are positional and a reader following them reads down the
+    document.
+    """
+    ordered = sorted(
+        enumerate(sources),
+        key=lambda pair: (
+            pair[1].get("relevance_score") is None,
+            -(pair[1].get("relevance_score") or 0.0),  # type: ignore[operator]
+            pair[0],
+        ),
+    )
+    chosen = sorted(ordered[:keep], key=lambda pair: pair[0])
+    return [dict(source) for _, source in chosen]
+
+
+#: Why a document has no summary of its own. The map refusal is carried up
+#: verbatim where there is one, so "the model reported the sources do not
+#: support a summary" for doc17 stays doc17's sentence and never becomes the
+#: whole run's.
+SINGLE_PASSAGE_DOCUMENT = (
+    "one passage was retrieved from this document, and a single passage is "
+    "passed through as evidence rather than summarised"
+)
+NO_DOCUMENT_STOOD = (
+    "no document produced a summary that survived the citation check, so there "
+    "is nothing to consolidate"
+)
+
+
+def reduce_sources(
+    summaries: Sequence[Summary], ledger: Mapping[str, Mapping[str, object]]
+) -> list[dict]:
+    """The reduce's sources: one already-cited SENTENCE per line.
+
+    THE MARKERS ARE NOT READ, and neither is a lower level's prose pasted in
+    whole. Each surviving finding becomes one source carrying the evidence ids
+    IT cited, re-expanded through the ledger for its filename and page, so a
+    marker in the final summary resolves to the same passage the map sentence
+    was checked against. Two consequences worth stating:
+
+      * the reduce cannot cite anything a map did not, because nothing else is
+        in front of it;
+      * a number in the final summary must appear in a map sentence, and that
+        sentence's numbers were already checked against the passage text. The
+        numeric gate therefore still ends at a document page.
+
+    A cited id missing from the ledger raises, for the same reason
+    `carried_evidence` raises: it means the summaries and the ledger came from
+    different runs.
+    """
+    out: list[dict] = []
+    for summary in summaries:
+        for finding in summary.findings:
+            primary = ledger[finding.citation_ids[0]]
+            out.append({
+                "evidence_id": finding.citation_ids[0],
+                # Every passage this sentence cited, so the final summary
+                # inherits the whole citation rather than its first half.
+                "evidence_ids": tuple(finding.citation_ids),
+                "filename": primary.get("filename"),
+                "page_start": primary.get("page_start"),
+                "page_end": primary.get("page_end"),
+                "section": primary.get("section"),
+                "text": _CITATION.sub("", finding.text).strip(),
+                "text_source": finding.text_source,
+            })
+    return out
+
+
+def map_reduce(
+    question: str,
+    evidence: Iterable[Mapping[str, object]],
+    generate: Generate,
+    *,
+    system: str = SUMMARY_SYSTEM_PROMPT,
+    passages_per_document: int = MAP_PASSAGES_PER_DOCUMENT,
+    map_token_cap: int = MAP_PROMPT_TOKEN_CAP,
+    reduce_token_cap: int = REDUCE_PROMPT_TOKEN_CAP,
+) -> Summary:
+    """Summarise per document, then consolidate. One generation per document
+    plus one, instead of one generation over everything.
+
+    WHAT THIS FIXES, precisely. The single call never overflowed the window -
+    `_fit` saw to that - but it reserved budget for the headers of every
+    passage it was handed, including the ones it then dropped, so twenty-four
+    passages bought the model LESS text than eight did. Here each call sees one
+    document's four best passages, so the reserved overhead is spent on
+    passages that are actually shown.
+
+    ONE DOCUMENT FAILING IS NOT THE SUMMARY FAILING. A map call that declines,
+    returns nothing, or produces no sentence that survives the citation check
+    is recorded in `documents_refused` with its own reason and the run
+    continues. The result is honest about the shortfall - the reader is told
+    which documents are not represented - rather than either hiding it or
+    throwing away the documents that worked.
+
+    Every invariant is the single-call one, because it is the same code: every
+    sentence is gated by `_cite`, the prose is rebuilt from the survivors,
+    `complete` is not a concept here and confidence is never computed here at
+    all.
+    """
+    sources = _as_sources(evidence)
+    ledger = {str(s["evidence_id"]): s for s in sources}
+    groups = group_by_document(sources)
+
+    per_document: list[Summary] = []
+    summarised: list[str] = []
+    refused: list[tuple[str, str]] = []
+    removed: list[dict] = []
+    truncated = False
+    for filename, items in groups.items():
+        if len(items) < MIN_BATCH:
+            refused.append((filename, SINGLE_PASSAGE_DOCUMENT))
+            continue
+        chosen = highest_scoring(items, passages_per_document)
+        mapped = _summarise_sources(
+            question, chosen, generate, system=system,
+            token_cap=map_token_cap, stage="map", document=filename,
+        )
+        removed.extend(dict(r) for r in mapped.evidence_removed)
+        truncated = truncated or mapped.truncated
+        if mapped.findings:
+            per_document.append(mapped)
+            summarised.append(filename)
+        else:
+            refused.append((
+                filename,
+                mapped.refusal or "the model produced no sentence a source supported",
+            ))
+
+    if not per_document:
+        return replace(
+            _refused(NO_DOCUMENT_STOOD, removed, truncated=truncated),
+            documents_refused=tuple(refused),
+        )
+
+    lines = reduce_sources(per_document, ledger)
+    if len(lines) < MIN_BATCH:
+        # One sentence stood in the whole corpus. Generating over it would turn
+        # a cited sentence into a second, differently worded cited sentence -
+        # the same laundering MIN_BATCH exists to prevent - so the map summary
+        # IS the summary, and it is already gated prose.
+        return replace(
+            per_document[0],
+            evidence_removed=tuple(removed),
+            documents_summarised=tuple(summarised),
+            documents_refused=tuple(refused),
+        )
+
+    reduced = _summarise_sources(
+        question, lines, generate, system=system,
+        token_cap=reduce_token_cap, stage="reduce",
+    )
+    return replace(
+        reduced,
+        truncated=reduced.truncated or truncated,
+        evidence_removed=(*removed, *reduced.evidence_removed),
+        documents_summarised=tuple(summarised),
+        documents_refused=tuple(refused),
     )
 
 
@@ -916,6 +1277,7 @@ def recommend(
     checks: Sequence[ConfidenceCheck] = (),
     basis: Basis = "documents_only",
     system: str = RECOMMENDATION_SYSTEM_PROMPT,
+    preface: str | None = None,
 ) -> Recommendation | None:
     """The advisory recommendation, or None. Runs LAST (7.3A).
 
@@ -923,6 +1285,13 @@ def recommend(
     survived the window, a refusal, or prose that cited nothing. An uncited
     recommendation is refused rather than shown, so there is no partial form and
     no default `confidence` of "low" standing in for "not assessed".
+
+    `preface` is one sentence the CALLER writes about where this advice came
+    from - used when it rests on the gap analysis rather than on a documented
+    summary. It is not model output and is not laundered as such: it is
+    constructed here, carries the citations of the advice it introduces, and so
+    is a cited sentence like every other. A reader is never shown advice whose
+    footing differs from the last run's without being told.
 
     `evidence` must be the VALIDATED ledger - the evidence retained after the
     comparison - not arbitrary retrieved chunks (7.3B). Public market findings
@@ -954,6 +1323,19 @@ def recommend(
         for eid in finding.citation_ids:
             if eid not in citation_ids:
                 citation_ids.append(eid)
+
+    if preface:
+        # Cited with everything the advice cites, because it is a statement
+        # ABOUT that evidence. An uncited sentence could not be constructed
+        # here anyway - CitedSentence refuses one - which is the point.
+        findings = (
+            CitedSentence(
+                text=preface,
+                citation_ids=tuple(citation_ids),
+                text_source=_text_source(sources),
+            ),
+            *findings,
+        )
 
     # The checks the caller could not know: this generation's own truncation,
     # and evidence this call dropped to fit the window.
@@ -1007,6 +1389,15 @@ def summary_to_api(summary: Summary) -> dict:
         "refusal": summary.refusal,
         "dropped_sentences": [
             {"sentence": s, "reason": r} for s, r in summary.dropped_sentences
+        ],
+        # MAP-REDUCE. Named, not just counted: "documents_refused: 5" above a
+        # summary does not tell a reader which five documents are missing from
+        # it. Both are empty on a single-call summary, which is what a Quick
+        # run is - an empty list there means "not a map-reduce", and no
+        # document was silently lost.
+        "documents_summarised": list(summary.documents_summarised),
+        "documents_refused": [
+            {"filename": f, "reason": r} for f, r in summary.documents_refused
         ],
         # The unfiltered completion, so a refusal about it can be checked. Not
         # yet declared on schemas.AnalysisSummary, so the response model drops
