@@ -197,12 +197,155 @@ export const reports = {
     }),
   verify: (id: string) =>
     request<ReportVerification>(`/reports/${encodeURIComponent(id)}/verify`),
-  /** The download is a navigation, not a fetch: the browser saves the file
-   *  under the server-assigned name. The bearer token cannot ride on a plain
-   *  navigation, so this is only reachable under auth_mode=disabled today;
-   *  under demo_required it needs a blob fetch, which stage 2 does not build. */
-  downloadUrl: (id: string) => `${BASE}/reports/${encodeURIComponent(id)}/download`,
+  /** Fetch the report PDF as bytes, with the bearer token on the request.
+   *
+   *  This replaces a `window.open(downloadUrl(id))` navigation. A navigation
+   *  carries no Authorization header, and the token is in memory only (see
+   *  the note on `token`), so under auth_mode=demo_required the download
+   *  resolved to an empty scope and the backend answered 404 - telling the
+   *  reader that a report listed on that same screen did not exist. The old
+   *  comment here conceded the path only worked while auth was disabled.
+   *
+   *  The token stays in the Authorization header and is NEVER placed in the
+   *  URL. A URL reaches browser history, proxy and server access logs and
+   *  Referer headers; NABAA rule 6 forbids secrets in logs.
+   *
+   *  Returns bytes, never a file: writing the file is the caller's job, and
+   *  a failure returns no bytes at all so no empty or truncated PDF can be
+   *  handed to the reader. */
+  download: (id: string): Promise<DownloadResult> =>
+    downloadReport(`/reports/${encodeURIComponent(id)}/download`, `nabaa-report-${id}.pdf`),
 };
+
+/** The outcome of a binary download.
+ *
+ *  Failure is a KIND, not a server-authored sentence. The backend answers 404
+ *  with `{"code":"not_found","message":"no report with that id"}` for a report
+ *  that is merely out of the caller's scope; rendering that message asserts a
+ *  falsehood about the reader's own artefact. The UI branches on the kind and
+ *  writes its own words, and `unavailable` deliberately covers "removed" and
+ *  "not in your scope" together so the screen cannot leak which one it is. */
+export type DownloadFailure =
+  | { kind: "network"; detail: string }
+  | { kind: "unauthenticated" }
+  | { kind: "forbidden" }
+  | { kind: "unavailable" }
+  | { kind: "server"; message: string };
+
+export type DownloadResult =
+  | {
+      ok: true;
+      blob: Blob;
+      /** The name to save under. */
+      filename: string;
+      /** true when the name came from Content-Disposition, false when the
+       *  server sent no usable one and the caller's fallback is in use. */
+      filenameFromServer: boolean;
+    }
+  | { ok: false; failure: DownloadFailure };
+
+/** Pull a filename out of a Content-Disposition header.
+ *
+ *  Handles `filename*=UTF-8''...` (RFC 5987, preferred when present), quoted
+ *  `filename="..."` and bare `filename=...`. Exported for its own test.
+ *
+ *  The result is reduced to a bare name: a server-supplied string reaches an
+ *  anchor's `download` attribute, and path separators there are a directory
+ *  the reader did not choose. */
+export function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const extended = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(header);
+  const quoted = /filename\s*=\s*"([^"]*)"/.exec(header);
+  const bare = /filename\s*=\s*([^;"]+)/.exec(header);
+
+  let raw: string | null = null;
+  if (extended) {
+    try {
+      raw = decodeURIComponent(extended[1]);
+    } catch {
+      raw = null; // a malformed percent-escape is no filename at all
+    }
+  }
+  if (raw === null && quoted) raw = quoted[1];
+  if (raw === null && bare) raw = bare[1];
+  if (raw === null) return null;
+
+  // Basename only, and no control characters.
+  const base = raw.trim().split(/[\\/]/).pop() ?? "";
+  // Control characters and path punctuation cannot survive into a
+  // `download` attribute; anything outside letters, digits and a small
+  // safe set becomes an underscore.
+  const clean = base.trim().replace(/[^\p{L}\p{N}. _()+@-]/gu, "_").trim();
+  if (clean === "" || clean === "." || clean === "..") return null;
+  return clean;
+}
+
+async function downloadReport(path: string, fallback: string): Promise<DownloadResult> {
+  let response: Response;
+  try {
+    const headers = new Headers();
+    // The one place a token is attached on this path - the header, never the
+    // URL. `${BASE}${path}` below is built from the id alone.
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    response = await fetch(`${BASE}${path}`, { headers });
+  } catch (e) {
+    return {
+      ok: false,
+      failure: {
+        kind: "network",
+        detail: e instanceof Error ? e.message : "Network request failed.",
+      },
+    };
+  }
+
+  if (!response.ok) {
+    // A gateway status means nothing served the request - the same condition
+    // as a network failure, and it must read as one. Kept in step with the
+    // JSON path above deliberately.
+    if (GATEWAY_STATUSES.has(response.status)) {
+      return { ok: false, failure: { kind: "network", detail: "Nothing answered on the API port." } };
+    }
+    if (response.status === 401) {
+      // Same side effects as the JSON path: drop the dead token and tell the
+      // app once. No retry - there is no refresh token by design.
+      token = null;
+      onUnauthenticated?.();
+      return { ok: false, failure: { kind: "unauthenticated" } };
+    }
+    if (response.status === 403) return { ok: false, failure: { kind: "forbidden" } };
+    if (response.status === 404) {
+      // The body's message is discarded on purpose. See DownloadFailure.
+      return { ok: false, failure: { kind: "unavailable" } };
+    }
+    return { ok: false, failure: { kind: "server", message: humanMessage(response.status) } };
+  }
+
+  // Reading the body is its own failure point: the status line arrives before
+  // the bytes do, so a connection dropped mid-PDF throws HERE, on a response
+  // that already said 200. Unguarded that becomes a rejected promise and the
+  // reader gets a dead button; guarded it is the same "nothing was saved"
+  // message as any other network failure. A partial read is never returned.
+  let blob: Blob;
+  try {
+    blob = await response.blob();
+  } catch (e) {
+    return {
+      ok: false,
+      failure: {
+        kind: "network",
+        detail: e instanceof Error ? e.message : "The response body could not be read.",
+      },
+    };
+  }
+
+  const served = filenameFromContentDisposition(response.headers.get("Content-Disposition"));
+  return {
+    ok: true,
+    blob,
+    filename: served ?? fallback,
+    filenameFromServer: served !== null,
+  };
+}
 
 export const auth = {
   login: (email: string, password: string) =>
