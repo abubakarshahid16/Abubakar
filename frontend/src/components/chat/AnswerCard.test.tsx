@@ -142,13 +142,18 @@ describe("a failed upgrade is scoped to the control that started it", () => {
 });
 
 describe("what was considered stays visible, with its document and page", () => {
-  it("names the document, the page and the clause for each passage", () => {
+  // WAS: "...and the clause for each passage". The clause label is no longer
+  // printed anywhere a reader meets a passage: `chunks.section` does not reset
+  // at chapter or appendix boundaries, so it names the wrong heading far more
+  // often than the right one. The page does not have that problem, and it is
+  // what makes the citation auditable. See `clauseLabel` in ./Provenance.tsx.
+  it("names the document and the page for each passage, and no clause", () => {
     renderCard(refusal(), () => {});
 
     const notice = screen.getByRole("status");
     expect(within(notice).getByText("NORSOKM501Rev5.pdf")).toBeInTheDocument();
     expect(within(notice).getByText("page 19")).toBeInTheDocument();
-    expect(within(notice).getByText("A.4 Coating system no. 4")).toBeInTheDocument();
+    expect(within(notice).queryByText("A.4 Coating system no. 4")).toBeNull();
   });
 
   it("opens the passage the reader clicked, by its index in THAT attempt", () => {

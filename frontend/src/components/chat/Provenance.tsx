@@ -121,3 +121,48 @@ export function provenanceDetail(passage: AnswerPassage): string {
   }
   return "not the document's own text — check it against the page below";
 }
+
+/**
+ * The clause label a citation may show. TODAY: never.
+ *
+ * THE DEFECT. `chunks.section` is the heading the chunker believed was in
+ * force. It does not reset at chapter and appendix boundaries, so a stale
+ * label carries forward across them and is asserted with full confidence over
+ * text it has nothing to do with. Measured two ways, and the two agree:
+ *
+ *   - Seven questions checked against the PDFs: page numbers right 7/7,
+ *     clause labels WRONG on 5 of 6 cited passages. doc16 p22 was labelled
+ *     "6.0 Procedure", a heading that is on p15. doc13 p219 was labelled
+ *     "3.0 CONCEPT SUBMITTAL REQUIREMENTS" where the truth is "Chapter 15,
+ *     8.3 Solar Energy". Every doc15 chunk carries "5 General", which is
+ *     paragraph 5 of the cover page.
+ *   - `scripts/section_audit.py` over the corpus: doc16 scores 0% correct,
+ *     11 of 11 wrong; the whole of doc17's Appendix A carries "3.20 SUPPLY
+ *     CHAIN RISK MANAGEMENT" from the last numbered chapter before it.
+ *
+ * FABRICATED is zero corpus-wide — the chunker never invents a clause number.
+ * That is exactly what makes the label dangerous rather than obviously broken:
+ * a stale label is a real clause from the same document, so it reads as
+ * plausible and an engineer has no way to tell it from a correct one.
+ *
+ * WHY SUPPRESSION AND NOT A FIX. Repairing the chunker means re-ingesting the
+ * corpus. Until then the page number is reliable and the heading is not, and
+ * this codebase does not print a value it cannot stand behind. Document plus
+ * page is the citation; it is auditable on its own, and it is untouched.
+ *
+ * WHY A FUNCTION AND NOT A DELETED BRANCH. `AnswerPassage` carries NO field
+ * that separates a trustworthy label from a stale one — no confidence, no
+ * record of the page the heading was found on, nothing (see contracts/types.ts
+ * line 255: `section: string | null`, and `chunks` in backend/app/db.py, which
+ * stores the bare string). If such a field is ever added, this is the one
+ * place that has to change, and `clauseLabel.test.tsx` is the one place that
+ * states what it must mean.
+ *
+ * Returns null in every case, deliberately. A caller renders NOTHING for null
+ * — never "unknown", never "N/A", never a dash. The absence of a label is not
+ * a fact about the document and must not be dressed up as one.
+ */
+export function clauseLabel(passage: AnswerPassage | null | undefined): string | null {
+  void passage;
+  return null;
+}

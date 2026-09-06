@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../../api/client";
-import { OcrConfidence, ProvenanceMark } from "./Provenance";
+import { clauseLabel, OcrConfidence, ProvenanceMark } from "./Provenance";
 import type { AnswerPassage } from "../../types/api";
 import { Spinner } from "../states";
 
@@ -51,27 +51,35 @@ export function Highlighted({ passage }: { passage: AnswerPassage }) {
  *  Rendering that as three chips of equal weight makes the reader assemble it
  *  themselves; rendering it as a line makes it quotable straight into an
  *  email, which is what they actually do with it.
+ *
+ *  THE CLAUSE IS GONE FROM THIS LINE, and the document and page are not.
+ *  `chunks.section` is wrong far more often than it is right - it does not
+ *  reset at chapter and appendix boundaries, so a stale heading carries
+ *  forward and is asserted here over text it has nothing to do with. See
+ *  `clauseLabel` in Provenance.tsx for the two measurements and the tradeoff.
+ *  Document plus page is the claim, it is auditable, and it stands.
  */
 export function Citation({ passage }: { passage: AnswerPassage }) {
   const pages =
     passage.page_start === passage.page_end
       ? `page ${passage.page_start}`
       : `pages ${passage.page_start}–${passage.page_end}`;
+  // null today, always. Rendered only if it is ever a label worth standing
+  // behind; null renders as NOTHING, never as a placeholder. The old `(no
+  // clause numbering)` branch went with it - now that no clause is ever
+  // printed, saying it of one document would imply the others had one shown.
+  const clause = clauseLabel(passage);
   return (
     <cite className="text-[13px] not-italic leading-relaxed text-slateish-300">
       <span className="font-medium">{passage.filename}</span>
-      {passage.section ? (
+      {clause && (
         <>
           {", clause "}
           <span className="font-mono text-[12px] text-slateish-200">
-            {passage.section.split(" ")[0]}
+            {clause.split(" ")[0]}
           </span>
-          <span className="text-slateish-400"> {passage.section.split(" ").slice(1).join(" ")}</span>
+          <span className="text-slateish-400"> {clause.split(" ").slice(1).join(" ")}</span>
         </>
-      ) : (
-        /* Stated, not hidden. This document does not number its headings, and
-           implying otherwise would misrepresent the citation. */
-        <span className="text-slateish-500 italic"> (no clause numbering)</span>
       )}
       {", "}
       <span className="text-slateish-400">{pages}</span>
@@ -89,30 +97,25 @@ export function Citation({ passage }: { passage: AnswerPassage }) {
 }
 
 
+/** The same claim in a list row: document and page, and no clause. See
+ *  `clauseLabel` in Provenance.tsx. */
 export function PassageLocation({ passage }: { passage: AnswerPassage }) {
   const pages =
     passage.page_start === passage.page_end
       ? `page ${passage.page_start}`
       : `pages ${passage.page_start}–${passage.page_end}`;
+  const clause = clauseLabel(passage);
   return (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
       <span className="font-medium text-slateish-300">{passage.filename}</span>
       <span className="text-slateish-500">·</span>
       <span className="text-slateish-400">{pages}</span>
-      {passage.section ? (
+      {clause && (
         <>
           <span className="text-slateish-500">·</span>
           <span className="rounded bg-ink-700 px-1.5 py-0.5 font-mono text-[11px] text-slateish-200">
-            {passage.section}
+            {clause}
           </span>
-        </>
-      ) : (
-        <>
-          <span className="text-slateish-500">·</span>
-          {/* A missing clause is stated, not hidden. This document does not
-              number its headings, and pretending otherwise would misrepresent
-              the citation. */}
-          <span className="text-slateish-500 italic">no clause numbering</span>
         </>
       )}
       {passage.text_source === "recognised" && (

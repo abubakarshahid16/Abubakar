@@ -36,21 +36,71 @@ function LabelMark({ label }: { label: ClaimLabel }) {
   );
 }
 
-function Row({ row, onCite }: { row: ClaimRow; onCite: (evidenceId: string) => void }) {
+/**
+ * THE WHOLE ROW IS THE CONTROL, not the filename inside it.
+ *
+ * It used to be a ~60px filename button with the passage, the page and the
+ * figures beside it as inert text: on a screen whose entire claim is
+ * auditability, opening the evidence was the hardest thing on it to hit, and
+ * nothing but that one word gave a hover affordance.
+ *
+ * `role="button"` with a keydown handler rather than a real <button>, because a
+ * button element may only contain phrasing content and this row contains a
+ * <blockquote> and a <dl>. Enter and Space are handled explicitly - that is
+ * what a real button would give for free, and it is the part that must not be
+ * skipped. What the activation DOES is unchanged: onCite(evidence_id).
+ *
+ * The selected row says "Showing" in words as well as taking the signal
+ * border - colour alone is not a state.
+ */
+function Row({
+  row,
+  onCite,
+  selected,
+}: {
+  row: ClaimRow;
+  onCite: (evidenceId: string) => void;
+  selected: boolean;
+}) {
   const hasRaw = row.raw_value !== null || row.raw_unit !== null;
   const hasNormalised = row.normalized_value !== null && row.normalized_unit !== null;
+
+  function activate() {
+    onCite(row.evidence_id);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+    // Space scrolls the page by default; Enter would submit an enclosing form.
+    e.preventDefault();
+    activate();
+  }
+
   return (
-    <li className="border-t border-ink-700/60 py-2.5 first:border-t-0">
+    <li className="border-t border-ink-700/60 first:border-t-0">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={selected}
+        aria-label={`Show evidence from ${row.filename}, page ${row.page_start}`}
+        onClick={activate}
+        onKeyDown={onKeyDown}
+        className={[
+          "cursor-pointer rounded border px-2 py-2.5",
+          "hover:bg-ink-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400",
+          selected ? "border-signal-500/50 bg-signal-500/10" : "border-transparent",
+        ].join(" ")}
+      >
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-slateish-400">
-        <button
-          type="button"
-          onClick={() => onCite(row.evidence_id)}
-          aria-label={`Show evidence from ${row.filename}, page ${row.page_start}`}
-          className="rounded font-medium text-slateish-200 underline decoration-ink-500 underline-offset-2 hover:decoration-slateish-300"
-        >
+        <span className="font-medium text-slateish-200 underline decoration-ink-500 underline-offset-2">
           {row.filename}
-        </button>
+        </span>
         <span>p.{row.page_start}</span>
+        {selected && (
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-signal-300">
+            Showing
+          </span>
+        )}
         {/* NO CLAUSE LABEL. `row.section` traces to analysis.py:70
             `hit.get("section")`, which is the chunker's value - wrong on 5 of
             6 cited passages, and 0 of 11 correct on doc16. Chat stopped
@@ -87,6 +137,7 @@ function Row({ row, onCite }: { row: ClaimRow; onCite: (evidenceId: string) => v
           )}
         </dl>
       )}
+      </div>
     </li>
   );
 }
@@ -94,9 +145,14 @@ function Row({ row, onCite }: { row: ClaimRow; onCite: (evidenceId: string) => v
 export function ClaimTable({
   clusters,
   onCite,
+  selectedEvidenceId = null,
 }: {
   clusters: ClaimCluster[];
   onCite: (evidenceId: string) => void;
+  /** The evidence id the Sources panel is currently showing, so the row that
+   *  put it there can say so. Optional: a caller that tracks no selection
+   *  renders exactly what it did before. */
+  selectedEvidenceId?: string | null;
 }) {
   return (
     <section aria-label="Claim comparison" className="rounded-lg border border-ink-600 bg-ink-850 p-4">
@@ -118,7 +174,12 @@ export function ClaimTable({
               </div>
               <ul className="mt-2">
                 {c.rows.map((r) => (
-                  <Row key={r.evidence_id} row={r} onCite={onCite} />
+                  <Row
+                    key={r.evidence_id}
+                    row={r}
+                    onCite={onCite}
+                    selected={r.evidence_id === selectedEvidenceId}
+                  />
                 ))}
               </ul>
               {c.label === "possible_conflict" && (
