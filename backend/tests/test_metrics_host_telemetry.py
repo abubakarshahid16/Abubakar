@@ -380,3 +380,67 @@ def test_the_admin_low_memory_warning_still_states_the_figure(
     assert "0.6 GB" in message, (
         "the admin's warning no longer states free RAM, which is the figure "
         "that makes it actionable")
+
+
+# ------------------------------------ the gate reads the KIND, not the name
+
+def test_a_role_merely_NAMED_admin_is_not_the_admin_capability(
+        corpus_and_identities):
+    """The two predicates that answer "is this an administrator" are not the
+    same question, and this file's own docstring claimed to be asserting the
+    stronger one while every other test here is satisfied by either.
+
+    `admin.is_admin()` reads the role NAME. `AccessScope.is_admin` reads
+    `roles.kind = 'capability'`. The fixture above gives its admin BOTH - the
+    name `admin` and the kind `capability` - so it cannot tell them apart, and
+    the route shipped reading the name while its own comment said capability.
+
+    This user holds a role NAMED admin whose kind is `discipline`. Under the
+    name predicate they are an administrator and are served the machine's
+    specifications. Under the capability predicate they are an engineer who
+    happens to sit in a badly named role. `init_db` re-asserting the kind for
+    the role literally called `admin` is what keeps the two agreeing today; it
+    is not a guarantee, and a disclosure this size should not rest on a
+    re-assertion running.
+
+    The corpus figures are asserted alongside deliberately: this is one flag
+    governing two disclosures, so a fix that moved the host gate to the
+    capability and left the corpus gate on the name would leave the same
+    confusion in place one line down.
+    """
+    client, _, _ = corpus_and_identities
+    with connect() as conn:
+        # The genuine capability role gives up the NAME first. `roles.name` is
+        # unique, so without this the rename below collides instead of
+        # proving anything - and the point is precisely that the name is a
+        # movable label while the kind is the fact.
+        conn.execute("UPDATE roles SET name = 'admin_capability'"
+                     " WHERE id = 'role_admin'")
+        conn.execute(
+            "INSERT INTO users (id, email, display_name, password_hash,"
+            " created_at) VALUES (?,?,?,?,?)",
+            ("named_admin", "named_admin@example.test", "named_admin",
+             "hash", NOW))
+        # A role NAMED admin whose kind is `discipline`: an administrator to
+        # the name predicate, an engineer to the capability predicate.
+        conn.execute(
+            "INSERT INTO roles (id, name, description, kind, created_at)"
+            " VALUES (?,?,?,?,?)",
+            ("role_fake_admin", "admin", "named, not empowered", "discipline",
+             NOW))
+        conn.execute(
+            "INSERT INTO user_roles (user_id, role_id, granted_at)"
+            " VALUES (?,?,?)", ("named_admin", "role_fake_admin", NOW))
+
+    payload = _metrics(client, "named_admin")
+
+    leaked = _leaked(payload)
+    assert leaked == [], (
+        "a role NAMED admin, whose kind is 'discipline', was served host "
+        "telemetry: " + ", ".join(leaked) + ". The gate must read "
+        "roles.kind = 'capability' through AccessScope.is_admin, not the "
+        "role's name through admin.is_admin - a name is a label anybody with "
+        "the admin screen can type.")
+    assert payload["corpus_wide"] is False, (
+        "the same misread name also handed corpus-wide figures to a "
+        "non-capability role")

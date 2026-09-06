@@ -167,11 +167,15 @@ def metrics(request: Request,
     open is only defensible if the screen says so out loud.
     """
     reject_unknown_params(request, set())
-    # ONE PREDICATE, used for both. `admin_mod.is_admin` reads roles.kind - the
-    # capability - and not a name comparison, so this and the admin screen
-    # agree by construction rather than by two strings happening to match.
-    corpus_wide = scope.unrestricted or (
-        scope.user_id is not None and admin_mod.is_admin(scope.user_id))
+    # ONE PREDICATE, used for both, and it reads the KIND rather than the name.
+    # `admin_mod.is_admin` answers the same question from `roles.name`, and the
+    # two agree only because `init_db` re-asserts kind = 'capability' for the
+    # role called `admin` on every start. That re-assertion is not a guarantee:
+    # a role NAMED admin with kind = 'discipline' is an administrator to the
+    # name predicate and an ordinary engineer to this one. `AccessScope`
+    # already resolved the capability set for this request, so the stronger
+    # predicate is also the cheaper one - no second query, no second answer.
+    corpus_wide = scope.unrestricted or scope.is_admin
     allowed = None if corpus_wide else sorted(scope.allowed_document_ids)
     # The machine's own specifications go to an administrator only (#77). Not
     # a document, so the corpus scoping could never have removed them; and the
