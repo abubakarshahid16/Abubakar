@@ -33,6 +33,8 @@ from . import auth as auth_mod
 from . import errors
 from . import analysis as analysis_mod
 from . import market as market_mod
+from . import market_phrase as market_phrase_mod
+from . import market_providers as market_providers_mod
 from . import progress as progress_mod
 from . import reports as reports_mod
 from . import schemas
@@ -724,6 +726,74 @@ def market_preview_query(body: schemas.MarketQueryRequest,
     search engine one phrase at a time.
     """
     return market_mod.preview_query(body.query, body.country, body.freshness_days)
+
+
+@app.get("/api/market/preview")
+def market_preview(
+    phrase: str = Query(..., min_length=1, max_length=2000),
+    country: str | None = Query(None, max_length=8),
+    freshness_days: int | None = Query(None, ge=1, le=3650),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """What WOULD leave, per tier, and nothing is sent. Safe to call always.
+
+    THE SCRUBBING HAPPENS HERE, and this is the only place in the request
+    path that knows the corpus filenames. `phrase` arrives as the user's own
+    words - a question, typically - and `market_phrase.market_phrase` reduces
+    it to a whitelisted phrase or to None. `None` is returned as `phrase:
+    null` and means NO SEARCH IS POSSIBLE; a caller that falls back to the raw
+    text has broken the only guarantee that matters.
+
+    THE FILENAMES ARE SCOPE-BOUND. `analysis._corpus_filenames(scope)` returns
+    only names this caller may read, which is the right list for two separate
+    reasons: a name they cannot see is not one they can ask about, and it
+    means the strip list cannot itself become a way to enumerate the corpus.
+
+    `country` and `freshness_days` are accepted and threaded through, because
+    they appear in every payload a search sends. A preview that omitted them
+    showed an object that was never sent - the defect this route was rewritten
+    to close.
+    """
+    safe = market_phrase_mod.market_phrase(
+        phrase, analysis_mod._corpus_filenames(scope))
+    return market_providers_mod.preview(
+        safe, country=country, freshness_days=freshness_days)
+
+
+@app.post("/api/market/search")
+def market_search(body: dict,
+                  scope: access.AccessScope = Depends(access.current_scope)):
+    """Run the configured tiers, or return the labelled samples with the flag
+    off. NO TRANSPORT IS CONSTRUCTED HERE.
+
+    `fetch` is left unset deliberately, so this route cannot open a socket in
+    this build even with both flags on: `search_all` refuses with "no
+    transport supplied" and reports a failure. Wiring a transport is a
+    separate, reviewable change and is not part of this one.
+
+    THE PHRASE IS RE-SCRUBBED SERVER-SIDE rather than trusted from the client.
+    The browser previewed a scrubbed phrase, but a POST body can carry
+    anything, and "the client already checked" is not a control. Scrubbing
+    again here means the only text that can reach a provider is text this
+    server derived.
+
+    `audit` is stripped by `market_providers.to_api`. The rows it holds are for
+    the persistence call site, not for a browser - shipping them would put a
+    record of every outbound query into any page that calls this endpoint.
+    """
+    raw = str(body.get("phrase") or "")
+    country = body.get("country")
+    freshness = body.get("freshness_days")
+    safe = market_phrase_mod.market_phrase(
+        raw, analysis_mod._corpus_filenames(scope))
+    result = market_providers_mod.search_all(
+        safe, country=country, freshness_days=freshness)
+    # NOT PERSISTED YET. `result["audit"]` holds one row per outbound query,
+    # shaped for the existing `audit_events` table. Nothing writes it, because
+    # nothing has left the machine in this build - there is no transport. When
+    # a transport is wired, this is where the rows get written, and that is
+    # the same change that first makes them meaningful.
+    return market_providers_mod.to_api(result)
 
 
 # ---------------------------------------------------------------- reports

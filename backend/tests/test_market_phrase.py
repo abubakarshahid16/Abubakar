@@ -459,6 +459,27 @@ def test_with_the_flag_off_the_result_is_the_labelled_samples():
         assert row["verification"] == "source_not_verified"
 
 
+def test_with_the_flag_off_the_phrase_is_echoed_not_nulled():
+    """"Feature off" and "phrase refused" are different sentences.
+
+    `phrase: null` is the signal that nothing safe survived. Returning it with
+    the flag off - which the first version of this did - said that about a
+    phrase that scrubbed perfectly well, so a UI branching on it would tell
+    the reader their question could not be used when the truth was that the
+    feature is switched off.
+    """
+    result = market_providers.search_all("iso 12944 coatings")
+    assert result["enabled"] is False
+    assert result["phrase"] == "iso 12944 coatings", (
+        "the flag-off path nulled a phrase that survived scrubbing")
+
+    # ...and a genuinely refused phrase still reads as refused, with the flag
+    # off as well as on.
+    refused = market_providers.search_all(None)
+    assert refused["enabled"] is False
+    assert refused["phrase"] is None
+
+
 def test_with_the_flag_off_no_transport_is_ever_consulted():
     """Even handed a transport, the flag-off path must not call it."""
     def explode(url, headers, timeout):

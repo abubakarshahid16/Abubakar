@@ -698,7 +698,7 @@ def search_all(phrase: str | None, *, fetch: Fetch | None = None,
     if not live_enabled():
         # The flag is off: the honest answer is the labelled samples, and this
         # is the only path that returns them.
-        return _disabled_result()
+        return _disabled_result(phrase)
 
     if phrase is None:
         # None from market_phrase means DO NOT SEARCH. Reported as the
@@ -823,7 +823,7 @@ def redact(text: str) -> str:
     return out
 
 
-def _disabled_result() -> dict:
+def _disabled_result(phrase: str | None = None) -> dict:
     """The flag-off answer: the existing samples, in the contract's row shape.
 
     Imported lazily so `market` and `market_providers` do not import each
@@ -856,9 +856,19 @@ def _disabled_result() -> dict:
     ]
     return {
         "enabled": False,
-        # The phrase is echoed even when the feature is off, so the UI has one
-        # field to branch on for the null-phrase state in both modes.
-        "phrase": None,
+        # THE ACTUAL PHRASE, echoed, not a hardcoded None - and that
+        # distinction is the same defect this response shape was rewritten to
+        # fix, caught one layer down. `phrase: null` means "nothing safe
+        # survived, no search is possible". Returning it unconditionally with
+        # the flag off would have said that about a phrase which scrubbed
+        # perfectly well, conflating "the feature is off" with "your question
+        # could not be used". Off and refused are different sentences and the
+        # reader needs to be told which one applies:
+        #
+        #   enabled false, phrase set   -> feature off, these are samples
+        #   enabled true,  phrase null  -> nothing safe survived
+        #   enabled false, phrase null  -> both
+        "phrase": phrase,
         "rows": rows,
         "tiers_attempted": [],
         "tiers_answered": [],
