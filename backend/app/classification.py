@@ -50,7 +50,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
 from . import access
@@ -500,6 +500,28 @@ def narrow_to_scope(
     # THE INTERSECTION. Never a union, and never the matched set on its own:
     # a classification says nothing about who may read a document.
     return frozenset(matched & set(scope.allowed_document_ids)), True
+
+
+def restrict(scope: access.AccessScope,
+             wanted: ScopeFilter) -> tuple[access.AccessScope, bool]:
+    """A NARROWER scope, and whether the filter applied.
+
+    Returning a scope rather than an id set is what makes widening
+    structurally impossible. Every retrieval path in this system already takes
+    `allowed_document_ids` from the scope it is handed, so a narrowed scope
+    needs no change anywhere downstream - and there is no second code path on
+    which an unfiltered set could be used by mistake.
+
+    `dataclasses.replace` keeps `user_id`, `capabilities` and `unrestricted`
+    exactly as they were: a classification filter changes WHAT IS SEARCHED and
+    never WHO THE CALLER IS. In particular `unrestricted` is carried through
+    untouched - narrowing an unrestricted scope narrows the search and does
+    not turn the caller into a restricted one.
+    """
+    ids, applied = narrow_to_scope(scope, wanted)
+    if not applied:
+        return scope, False
+    return replace(scope, allowed_document_ids=frozenset(ids)), True
 
 
 # --------------------------------------------------------------- vocabulary
