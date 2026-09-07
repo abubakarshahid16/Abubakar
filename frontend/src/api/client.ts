@@ -261,13 +261,14 @@ export const reports = {
    *
    *  The token stays in the Authorization header and is NEVER placed in the
    *  URL. A URL reaches browser history, proxy and server access logs and
-   *  Referer headers; NABAA rule 6 forbids secrets in logs.
+   *  Referer headers; RAG-INTELLIGENCE-POC-EXECUTION.md rule 6 (line 43)
+ *  forbids secrets in logs.
    *
    *  Returns bytes, never a file: writing the file is the caller's job, and
    *  a failure returns no bytes at all so no empty or truncated PDF can be
    *  handed to the reader. */
   download: (id: string): Promise<DownloadResult> =>
-    downloadReport(`/reports/${encodeURIComponent(id)}/download`, `nabaa-report-${id}.pdf`),
+    downloadReport(`/reports/${encodeURIComponent(id)}/download`, `rag-intelligence-report-${id}.pdf`),
 };
 
 /** The outcome of a binary download.

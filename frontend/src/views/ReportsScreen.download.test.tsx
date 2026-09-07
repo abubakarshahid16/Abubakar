@@ -190,8 +190,11 @@ describe("report download: success", () => {
 
     await waitFor(() => expect(clicked).toHaveLength(1));
     expect(clicked[0].download).toBe("server-chose-this.pdf");
-    // The fallback literal from api/client.ts, still un-renamed - see below.
-    expect(clicked[0].download).not.toBe("nabaa-report-rpt_abc123def456.pdf");
+    // The fallback literal from api/client.ts, renamed in step with it. This
+    // stays a real assertion because "server-chose-this.pdf" is deliberately
+    // NOT the fallback: if the Content-Disposition read were deleted, the
+    // fallback would be used and this line would fail.
+    expect(clicked[0].download).not.toBe("rag-intelligence-report-rpt_abc123def456.pdf");
     expect(clicked[0].href).toBe(createdUrls[0]);
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -200,7 +203,17 @@ describe("report download: success", () => {
     // main.py - FileResponse(filename=f"rag-intelligence-report-{report_id}.pdf"),
     // which Starlette emits as `attachment; filename="..."`. This is the name a
     // reader actually gets, because the header wins whenever the server sends
-    // one; the test above is what proves the header is genuinely read.
+    // one.
+    //
+    // READ THIS BEFORE TRUSTING THIS TEST. Now that the client fallback is
+    // ALSO `rag-intelligence-report-{id}.pdf`, the server name and the
+    // fallback are the same string, so this case can no longer fail if the
+    // Content-Disposition read is deleted - it would pass on the fallback
+    // alone. That is the exact trap the first test in this block was written
+    // against. This case documents the real filename a reader receives; the
+    // FIRST test, using "server-chose-this.pdf", is the one that proves the
+    // header is genuinely read. Do not delete that one on the grounds that
+    // this one covers it.
     stubFetch(() =>
       pdfResponse({
         "Content-Disposition":
@@ -218,11 +231,11 @@ describe("report download: success", () => {
     await clickDownload();
 
     await waitFor(() => expect(clicked).toHaveLength(1));
-    // STILL THE OLD NAME, and deliberately so: this asserts the fallback
-    // literal in api/client.ts, which has not been renamed yet. The two must
-    // change together - renaming only this expectation turns a real mismatch
-    // into a green test. See the note in the rename report.
-    expect(clicked[0].download).toBe("nabaa-report-rpt_abc123def456.pdf");
+    // The fallback literal in api/client.ts, renamed together with it. The two
+    // must always change together: renaming only this expectation would turn a
+    // real mismatch into a green test, and renaming only client.ts would fail
+    // here - which is the point.
+    expect(clicked[0].download).toBe("rag-intelligence-report-rpt_abc123def456.pdf");
   });
 
   it("revokes the object URL — a leaked one pins the whole PDF in memory", async () => {
