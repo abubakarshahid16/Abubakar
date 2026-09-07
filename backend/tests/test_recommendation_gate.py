@@ -36,9 +36,9 @@ from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app
 
-#: A SPECIFICATION, NOT A BUG REPORT. Every test in this module describes
-#: behaviour that is designed and not yet implemented (#90), so all 27 are
-#: expected to fail and the suite reports them as xfailed rather than failed.
+#: A SPECIFICATION, NOT A BUG REPORT. This module was written as a spec for
+#: #90: all 27 tests described designed behaviour and were expected to fail,
+#: reported as xfailed rather than failed. Eleven now pass - see PENDING below.
 #:
 #: A PERMANENTLY RED SUITE IS HOW A TEAM STOPS READING TEST OUTPUT. Committed
 #: red, "27 failures, that's the spec file" becomes "28 failures, probably the
@@ -47,13 +47,30 @@ from app.main import app
 #: `strict=True` is the part that matters, and it is doing more work than the
 #: xfail. The moment somebody implements the gate, these tests PASS - and a
 #: strict xfail that passes is a FAILURE. So the suite goes red at the exact
-#: moment the work is finished, the marker gets deleted, and the 27 become
+#: moment the work is finished, the marker gets deleted, and those tests become
 #: ordinary passing tests. Nobody has to remember to unmark them; the tests
 #: announce their own completion.
-pytestmark = pytest.mark.xfail(
+#: PARTIALLY IMPLEMENTED. #90 has two halves and only the first has landed.
+#:
+#: DONE, and now ordinary passing tests: the advisory GATE. A summary that
+#: produced no cited sentence no longer silently takes the recommendation with
+#: it - advice may rest on the gap analysis evidence instead, saying so in its
+#: first sentence, and with neither footing the model is not called at all.
+#: Those eleven tests XPASSed the moment the gate was wired, which is exactly
+#: what `strict=True` is for: they announced their own completion and the
+#: marker came off them rather than being remembered about.
+#:
+#: STILL SPECIFICATION, and still marked: restatement suppression (advice that
+#: merely re-words the summary must be withheld with a reason) and the
+#: nominated-baseline confidence check. Neither is implemented, so these
+#: thirteen functions describe designed behaviour rather than reporting a bug.
+#: When somebody implements them the same mechanism fires again.
+PENDING = pytest.mark.xfail(
     strict=True,
-    reason="#90: recommendation gating and restatement suppression are "
-           "specified here, not implemented yet",
+    reason="#90: restatement suppression and the nominated-baseline "
+           "confidence check are specified here, not implemented yet. The "
+           "advisory gate half of #90 IS implemented and its tests are "
+           "unmarked.",
 )
 
 VIBRATION = [
@@ -204,6 +221,7 @@ def test_the_recommendation_refuses_when_the_model_returned_nothing():
     assert synthesis.REFUSAL_EMPTY in out["recommendation_refusal"]
 
 
+@PENDING
 def test_the_recommendation_refuses_when_too_little_evidence_fit(monkeypatch):
     """The Comprehensive-run refusal, verbatim: the evidence did not fit the
     window and fewer than MIN_BATCH sources survived."""
@@ -229,6 +247,7 @@ def test_the_route_returns_null_not_a_sentence_when_the_summary_refused(monkeypa
 # ----------------------------------------------------- (i) advise or stay silent
 
 
+@PENDING
 def test_a_restatement_of_the_summary_is_suppressed_with_a_reason():
     ingest()
     out = analysis.recommendation(
@@ -238,6 +257,7 @@ def test_a_restatement_of_the_summary_is_suppressed_with_a_reason():
     assert out["recommendation_refusal"] == analysis.REFUSAL_RESTATEMENT
 
 
+@PENDING
 def test_a_verbatim_copy_of_the_summary_is_suppressed():
     ingest()
     out = analysis.recommendation(
@@ -264,6 +284,7 @@ def test_advice_that_adds_an_action_is_kept():
     "Risk: the 280 um requirement is stated for coating system no. 1 only, so other "
     "systems are unverified [S1][S2].",
 ])
+@PENDING
 def test_each_kind_of_advice_is_below_the_restatement_threshold(sentence):
     """An action, a decision with a condition, a named risk. Each introduces
     content the summary does not carry, and the metric sees it."""
@@ -272,11 +293,13 @@ def test_each_kind_of_advice_is_below_the_restatement_threshold(sentence):
 
 
 @pytest.mark.parametrize("sentence", synthesis.split_sentences(RESTATEMENT))
+@PENDING
 def test_each_paraphrase_is_at_or_above_the_restatement_threshold(sentence):
     score = analysis.sentence_containment(sentence, synthesis.split_sentences(SUMMARY_TEXT))
     assert score >= analysis.RESTATEMENT_THRESHOLD, (sentence, score)
 
 
+@PENDING
 def test_containment_ignores_citation_markers_and_function_words():
     """[S1] vs [S3], "shall" vs "must", "the" vs "a": none of it is content, so
     none of it can make a restatement look novel."""
@@ -284,6 +307,7 @@ def test_containment_ignores_citation_markers_and_function_words():
     assert analysis.sentence_containment("A coating must be 280 um thick [S3].", summary) == 1.0
 
 
+@PENDING
 def test_a_mixed_recommendation_is_kept_because_it_adds_something():
     """One restated premise and one action: the action is what the reader is
     owed, and it is not thrown away because a premise was repeated."""
@@ -302,11 +326,13 @@ def gap_result(applicability: str, items: list[dict]) -> dict:
     return {"gaps": {"applicability": applicability, "items": items}}
 
 
+@PENDING
 def test_no_baseline_nominated_means_no_gap_check_at_all():
     assert analysis.gap_check(None, gap_result("not_applicable", [])) is None
     assert analysis.gap_check("", gap_result("not_applicable", [])) is None
 
 
+@PENDING
 def test_a_nominated_baseline_that_matched_nothing_fires():
     """The comparison was asked for and came back with nothing measured
     against the baseline: every item has no baseline citation."""
@@ -320,6 +346,7 @@ def test_a_nominated_baseline_that_matched_nothing_fires():
     assert analysis.gap_check("doc-1", gap_result("insufficient_baseline", items)).fired is True
 
 
+@PENDING
 def test_a_nominated_baseline_that_was_compared_does_not_fire():
     items = [{"status": "met", "baseline_citation_id": "abc"},
              {"status": "not_applicable", "baseline_citation_id": None}]
@@ -327,6 +354,7 @@ def test_a_nominated_baseline_that_was_compared_does_not_fire():
     assert check is not None and check.fired is False
 
 
+@PENDING
 def test_confidence_is_not_lowered_for_a_section_the_reader_never_asked_about():
     """No baseline: the check is absent from the list, so it is neither fired
     nor counted, and confidence is not "low" because of it."""
@@ -342,6 +370,7 @@ def test_confidence_is_not_lowered_for_a_section_the_reader_never_asked_about():
     assert len(labels) == len(set(labels))
 
 
+@PENDING
 def test_a_nominated_baseline_keeps_the_check_in_the_list():
     doc_id = ingest()
     out = analysis.recommendation(
@@ -354,6 +383,7 @@ def test_a_nominated_baseline_keeps_the_check_in_the_list():
     assert len(labels) == 7, labels
 
 
+@PENDING
 def test_a_nominated_baseline_with_nothing_to_compare_fires_through_the_path(monkeypatch):
     doc_id = ingest()
     real = analysis.gaps
