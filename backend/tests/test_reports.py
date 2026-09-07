@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import unicodedata
+from html import escape
 
 import fitz
 import pytest
@@ -43,6 +44,14 @@ def N(s: str) -> str:
     return unicodedata.normalize("NFKC", s)
 
 
+def arabic_chars(text: str) -> int:
+    """Arabic block (U+0600-U+06FF) plus the presentation forms (U+FB50-U+FEFF)
+    that shaping produces. Counted the same way at every stage below, so the
+    numbers are comparable."""
+    return sum(1 for c in text
+               if "؀" <= c <= "ۿ" or "ﭐ" <= c <= "﻿")
+
+
 @pytest.fixture(autouse=True)
 def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
@@ -67,9 +76,36 @@ def build(path, blocks):
     return path
 
 
-def ingest(name="spec.pdf", blocks=(VIBRATION, MATERIALS)) -> str:
+def build_shaped(path, blocks):
+    """Fixture PDF through Story, the only API here that can carry Arabic.
+
+    `build` draws with `page.insert_text`, which uses base-14 Helvetica. That
+    font HAS NO ARABIC GLYPHS: PyMuPDF substitutes a notdef, and every Arabic
+    codepoint in the fixture became "·" in the saved PDF - measured, see
+    `test_arabic_glyphs_come_from_naskh_and_none_are_notdef`. So an Arabic
+    fixture built by `build` was decorative: the Arabic was destroyed at
+    FIXTURE BUILD time, before upload, before extraction, before the report.
+    Story shapes and embeds Noto Naskh Arabic, which is also the path the
+    product renders through, so the fixture and the report agree on the text.
+    """
+    html = "<html><body>" + "".join(
+        "<p>" + "<br/>".join(escape(line) for line in block) + "</p>"
+        for block in blocks) + "</body></html>"
+    story = fitz.Story(html)
+    writer = fitz.DocumentWriter(str(path))
+    more = 1
+    while more:
+        device = writer.begin_page(fitz.paper_rect("letter"))
+        more, _ = story.place(fitz.Rect(72, 72, 540, 720))
+        story.draw(device)
+        writer.end_page()
+    writer.close()
+    return path
+
+
+def ingest(name="spec.pdf", blocks=(VIBRATION, MATERIALS), builder=build) -> str:
     client = TestClient(app)
-    path = build(settings.data_dir / name, blocks)
+    path = builder(settings.data_dir / name, blocks)
     with open(path, "rb") as fh:
         doc_id = client.post("/api/documents",
                              files={"file": (name, fh, "application/pdf")}
@@ -536,17 +572,72 @@ def test_body_text_never_goes_through_the_unshaped_text_apis():
     assert "TextWriter" not in src
 
 
+ARABIC_SPEC = [
+    "3.1 Coating",
+    "The coating thickness shall be 280 um. المواصفات الفنية للطلاء تشترط "
+    "سماكة الفيلم الجاف for every centrifugal pump in "
+    "hydrocarbon service at site.",
+]
+#: The floor every stage below is measured against. The source block carries 40
+#: Arabic letters; extraction returns 34 of them, because two lam-alef
+#: presentation ligatures come back as Latin caron letters (see the note in the
+#: test). 20 is a floor, not the measurement - it fails loudly if a stage keeps
+#: a token letter or two, and it does not have to be re-tuned every time the
+#: shaper changes its mind about a ligature.
+ARABIC_FLOOR = 20
+
+
 def test_arabic_glyphs_come_from_naskh_and_none_are_notdef():
     """WHAT THIS DOES NOT PROVE: that the joins are the right ones, or that bidi
     order is correct. That needs a reader of Arabic. This proves glyph coverage
-    and font identity, so a green tick here must not be read as "Arabic works"."""
-    ingest("ar.pdf", [[
-        "3.1 Coating",
-        "The coating thickness shall be 280 um. المواصفات الفنية للطلاء تشترط سماكة",
-        "الفيلم الجاف for every centrifugal pump in hydrocarbon service at site.",
-    ]])
-    rec = reports.generate(answered_message("what coating thickness is required")["id"],
-                           access.unrestricted_scope())
+    and font identity, so a green tick here must not be read as "Arabic works".
+
+    THIS TEST USED TO SKIP ITSELF when the report contained no Arabic, blaming
+    extraction - "the ingested fixture lost its Arabic before the report". That
+    was measured and is FALSE, and the skip was hiding a broken fixture rather
+    than a broken product. The fixture was built by `build`, i.e. by
+    `page.insert_text` in base-14 Helvetica, which has no Arabic glyphs: the
+    saved fixture PDF contained 0 Arabic characters and 42 "·" notdefs
+    before anything was uploaded. Extraction was never given Arabic to lose.
+    Built through Story instead (`build_shaped`), the same block measures 34
+    Arabic characters out of the fixture, 34 through extraction into the chunk
+    row, 34 in the persisted answer, and 68 in the rendered report - all in
+    NotoNaskhArabic-Regular with 0 notdefs.
+
+    The skip is gone and it must not come back: the four stage assertions below
+    each carry their own floor, so this test can no longer report success while
+    measuring nothing. If Arabic really does vanish at some stage, the
+    assertion for THAT stage fails and names it.
+    """
+    ingest("ar.pdf", [ARABIC_SPEC], builder=build_shaped)
+
+    # STAGE 1 - the fixture. Asserted, not assumed: this is the assertion the
+    # skip existed instead of.
+    fixture = fitz.open(settings.data_dir / "ar.pdf")
+    fixture_arabic = arabic_chars("".join(page.get_text() for page in fixture))
+    assert fixture_arabic >= ARABIC_FLOOR, (
+        f"the fixture itself carries only {fixture_arabic} Arabic characters - "
+        "it is decorative, and nothing downstream can be measured. An Arabic "
+        "fixture must go through build_shaped, never build/insert_text")
+
+    # STAGE 2 - extraction. Where the old skip message put the blame.
+    chunks = "".join(r["text"] for r in
+                     db.connect().execute("SELECT text FROM chunks").fetchall())
+    chunk_arabic = arabic_chars(chunks)
+    assert chunk_arabic >= ARABIC_FLOOR, (
+        f"extraction dropped Arabic: {fixture_arabic} characters in the fixture "
+        f"PDF, {chunk_arabic} in the chunk rows. This is a product defect in "
+        "the extraction path, not a rendering one")
+
+    # STAGE 3 - the persisted answer the report is built from.
+    m = answered_message("what coating thickness is required")
+    answer_arabic = arabic_chars(m.get("text") or "")
+    assert answer_arabic >= ARABIC_FLOOR, (
+        f"the answer persisted only {answer_arabic} Arabic characters from a "
+        f"passage that carried {chunk_arabic}")
+
+    # STAGE 4 - the rendered PDF: coverage and font identity.
+    rec = reports.generate(m["id"], access.unrestricted_scope())
     doc = pdf_of(rec)
     fonts, arabic, notdef = set(), 0, 0
     for page in doc:
@@ -559,10 +650,11 @@ def test_arabic_glyphs_come_from_naskh_and_none_are_notdef():
                             arabic += 1
                             fonts.add(span["font"])
                         notdef += c == "�"
-    if arabic == 0:
-        pytest.skip("the ingested fixture lost its Arabic before the report - "
-                    "extraction, not rendering; nothing measured here")
+    assert arabic >= ARABIC_FLOOR, (
+        f"the report rendered {arabic} Arabic characters from an answer "
+        f"carrying {answer_arabic}; the loss is in rendering")
     assert notdef == 0
+    assert fonts, "unreachable: arabic >= floor means at least one span"
     assert all("Naskh" in f or "Arabic" in f for f in fonts), fonts
 
 
