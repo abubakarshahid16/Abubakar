@@ -7,8 +7,8 @@ asking for the NDFT. The term genuinely was not there, and the reader was
 still asking a fair question.
 
 NORSOK happens to carry a clause 3.2 Abbreviations, so relying on a glossary
-clause would have looked sufficient. It is not. Aramco specifications are dense
-with acronyms - SAES, SAMSS, MAWP, PWHT, NDT - and a client uploads their own
+clause would have looked sufficient. It is not. Engineering specifications are
+dense with acronyms - SSPC, EEMUA, MAWP, PWHT, NDT - and a client uploads their own
 documents. One without a glossary clause would refuse half their questions.
 
 So the map is built from the document in every form the definition occurs:

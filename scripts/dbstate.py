@@ -1,6 +1,6 @@
 import sqlite3, sys
 doc = sys.argv[1]
-c = sqlite3.connect("data/nabaa.sqlite"); c.row_factory = sqlite3.Row
+c = sqlite3.connect("data/rag_intelligence.sqlite"); c.row_factory = sqlite3.Row
 d = c.execute("SELECT page_count,pages_done,needs_ocr_pages,status FROM documents WHERE id=?", (doc,)).fetchone()
 j = c.execute("SELECT state,pages_total,pages_done,last_completed_batch FROM jobs WHERE document_id=? ORDER BY started_at DESC LIMIT 1", (doc,)).fetchone()
 p = c.execute("SELECT COUNT(*) n, MIN(page_no) lo, MAX(page_no) hi, COUNT(DISTINCT page_no) uniq, MAX(batch_no) mb FROM pages WHERE document_id=?", (doc,)).fetchone()

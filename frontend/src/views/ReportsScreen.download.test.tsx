@@ -190,25 +190,27 @@ describe("report download: success", () => {
 
     await waitFor(() => expect(clicked).toHaveLength(1));
     expect(clicked[0].download).toBe("server-chose-this.pdf");
+    // The fallback literal from api/client.ts, still un-renamed - see below.
     expect(clicked[0].download).not.toBe("nabaa-report-rpt_abc123def456.pdf");
     expect(clicked[0].href).toBe(createdUrls[0]);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("uses the name this backend actually sends", async () => {
-    // main.py:697 - FileResponse(filename=f"nabaa-report-{report_id}.pdf"),
-    // which Starlette emits as `attachment; filename="..."`. The fallback is
-    // built to match, so the two agree; the test above is what proves the
-    // header is genuinely read.
+    // main.py - FileResponse(filename=f"rag-intelligence-report-{report_id}.pdf"),
+    // which Starlette emits as `attachment; filename="..."`. This is the name a
+    // reader actually gets, because the header wins whenever the server sends
+    // one; the test above is what proves the header is genuinely read.
     stubFetch(() =>
       pdfResponse({
-        "Content-Disposition": 'attachment; filename="nabaa-report-rpt_abc123def456.pdf"',
+        "Content-Disposition":
+          'attachment; filename="rag-intelligence-report-rpt_abc123def456.pdf"',
       }),
     );
     await clickDownload();
 
     await waitFor(() => expect(clicked).toHaveLength(1));
-    expect(clicked[0].download).toBe("nabaa-report-rpt_abc123def456.pdf");
+    expect(clicked[0].download).toBe("rag-intelligence-report-rpt_abc123def456.pdf");
   });
 
   it("falls back to a sane name when the server sends no Content-Disposition", async () => {
@@ -216,6 +218,10 @@ describe("report download: success", () => {
     await clickDownload();
 
     await waitFor(() => expect(clicked).toHaveLength(1));
+    // STILL THE OLD NAME, and deliberately so: this asserts the fallback
+    // literal in api/client.ts, which has not been renamed yet. The two must
+    // change together - renaming only this expectation turns a real mismatch
+    // into a green test. See the note in the rename report.
     expect(clicked[0].download).toBe("nabaa-report-rpt_abc123def456.pdf");
   });
 

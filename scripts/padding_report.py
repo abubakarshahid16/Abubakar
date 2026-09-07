@@ -10,7 +10,7 @@ from app.embedder import PASSAGE_PREFIX, Embedder
 emb = Embedder.instance()
 tok = emb.tokenizer
 
-c = sqlite3.connect("file:data/nabaa.sqlite?mode=ro", uri=True)
+c = sqlite3.connect("file:data/rag_intelligence.sqlite?mode=ro", uri=True)
 texts = [r[0] for r in c.execute(
     "SELECT text FROM chunks WHERE retrievable=1 ORDER BY document_id, ordinal")]
 print(f"retrievable chunks: {len(texts)}")

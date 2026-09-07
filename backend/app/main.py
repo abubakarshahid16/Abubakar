@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Nabaa",
+    title="RAG Intelligence System",
     version="0.1.0",
     lifespan=lifespan,
     # A trailing slash previously resolved to the same route via a redirect,
@@ -798,7 +798,7 @@ def download_report(report_id: str,
     # The download name is the server-assigned id, never the question.
     return FileResponse(
         path, media_type="application/pdf",
-        filename=f"nabaa-report-{report_id}.pdf",
+        filename=f"rag-intelligence-report-{report_id}.pdf",
         headers={"Cache-Control": "private, no-store"},
     )
 

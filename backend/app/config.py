@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     data_dir: Path = BACKEND_DIR / "data"
     upload_dir: Path = BACKEND_DIR / "data" / "uploads"
-    db_path: Path = BACKEND_DIR / "data" / "nabaa.sqlite"
+    db_path: Path = BACKEND_DIR / "data" / "rag_intelligence.sqlite"
     lance_dir: Path = BACKEND_DIR / "data" / "vectors.lance"
 
     embed_model_dir: Path = BACKEND_DIR / "models" / "e5-small"

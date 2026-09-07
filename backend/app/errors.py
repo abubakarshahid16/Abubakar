@@ -84,9 +84,9 @@ def logger() -> logging.Logger:
     location - which is exactly how a test can pass while logging nothing.
     """
     global _logger
-    target = (settings.data_dir / "logs" / "nabaa.log").resolve()
+    target = (settings.data_dir / "logs" / "rag-intelligence.log").resolve()
 
-    lg = logging.getLogger("nabaa")
+    lg = logging.getLogger("rag_intelligence")
     lg.setLevel(logging.INFO)
     current = next(
         (h for h in lg.handlers if isinstance(h, RotatingFileHandler)), None

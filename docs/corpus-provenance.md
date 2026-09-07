@@ -1,6 +1,6 @@
 # Corpus provenance — what has actually been ingested, and what that means for any claim made to a client
 
-**Status:** current as of 2026-09-06, verified directly against `backend/data/nabaa.sqlite`
+**Status:** current as of 2026-09-06, verified directly against `backend/data/rag_intelligence.sqlite`
 (tables `documents`, `pages`, `page_ocr`, `document_role_access`, `roles`) and against the
 twelve source PDFs in `backend/data/uploads/`.
 
@@ -60,7 +60,7 @@ So the corpus is monolingual English by construction, not by assumption.
 
 ## 2. No client document has ever been ingested
 
-There is no Saudi Aramco document in this corpus. There never has been. The `documents`
+There is no client document in this corpus. There never has been. The `documents`
 table has twelve rows and they are the twelve above.
 
 The direct consequence, stated plainly:
@@ -113,7 +113,7 @@ stand-in documents.
 - **Refusal behaviour on out-of-corpus questions.** The system refuses when retrieval
   returns nothing that grounds an answer. That is a property of the answering logic, not of
   the documents, and the adversarial gold question C5 (`docs/gold-questions-corpus.md`) —
-  which asks about a plausible-sounding Aramco standard number that is deliberately not in
+  which asks about a plausible-sounding client standard number that is deliberately not in
   the corpus — tests exactly this. It transfers.
 - **Access-control behaviour.** Role-scoped retrieval is enforced on document IDs and is
   independent of document content.
@@ -128,7 +128,7 @@ stand-in documents.
   one line with the title beneath it, running headers and footers, contents pages, the shape
   of chapter openers. Those are format properties of a specific publisher's template. The
   headline figures for this corpus were measured on NORSOK, USACE and NIST layouts. A Saudi
-  Aramco specification uses a different template, and the accuracy figure will be different —
+  client specification uses a different template, and the accuracy figure will be different —
   possibly better, possibly worse. **Do not quote a section-accuracy number to a client as a
   prediction about their documents.**
 - **The contents-page and index detector.** It is positional: front 6% for contents, back
@@ -198,5 +198,5 @@ WHERE document_id = ? AND page_no <= 3 ORDER BY page_no;
 -- for doc02.pdf, which has no text layer, read page_ocr instead
 ```
 
-`backend/data/nabaa.sqlite` raises `disk I/O error` when opened across a network mount.
+`backend/data/rag_intelligence.sqlite` raises `disk I/O error` when opened across a network mount.
 Copy it to local disk and open the copy read-only.

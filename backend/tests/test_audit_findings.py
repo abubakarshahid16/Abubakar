@@ -262,7 +262,7 @@ def test_exclusion_text_length_matches_page_char_count():
 
 def test_a_marks_rubric_is_not_classified_as_an_index():
     """OS_Term p12 - a 'Project Rubric' table of criteria against marks - was
-    classified page_classified_index and dropped. Aramco specifications are
+    classified page_classified_index and dropped. Client specifications are
     full of tables of codes and numbers that would trip the same rule."""
     from app.chunker import classify_page
 

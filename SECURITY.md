@@ -1,6 +1,6 @@
 # Security policy
 
-Nabaa processes client engineering documentation. The security posture is
+The RAG Intelligence System processes client engineering documentation. The security posture is
 therefore about **containment** first and vulnerabilities second: the worst
 outcome for this project is not a crash, it is a page of a client's
 specification leaving the machine it was uploaded to.

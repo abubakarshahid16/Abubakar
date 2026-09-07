@@ -1,4 +1,4 @@
-# gitleaks configuration for saudi-aramco-rag-chatbot
+# gitleaks configuration for the RAG Intelligence System repository
 #
 # This is a COMPENSATING CONTROL. GitHub Advanced Security secret scanning is
 # unavailable on this account tier (HTTP 422). See ADR-0004.
@@ -6,7 +6,7 @@
 # Unlike GHAS, this runs BOTH locally as a pre-commit hook (blocking a secret
 # before it ever reaches GitHub) and in CI on every pull request.
 
-title = "nabaa-rag secret scan"
+title = "rag-intelligence secret scan"
 
 [extend]
 useDefault = true

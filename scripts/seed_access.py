@@ -41,7 +41,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 from app.db import connect, init_db  # noqa: E402
 
 #: The four engineering disciplines the demonstration dataset needs
-#: (NABAA-SUNDAY-POC-EXECUTION.md sec.1) plus the one capability. A role is a
+#: (RAG-INTELLIGENCE-POC-EXECUTION.md sec.1) plus the one capability. A role is a
 #: name, a kind and a description; everything else is a grant, and grants are
 #: per document.
 #:
@@ -68,8 +68,16 @@ MIN_PASSWORD = 12
 #: Rejected outright, whatever else the password contains. Not a strength
 #: meter - a list of the passwords that actually get typed at a demo.
 FORBIDDEN = {
-    "password", "passw0rd", "demo", "demo1234", "nabaa", "changeme",
-    "letmein", "welcome", "aramco", "12345678", "qwerty", "admin",
+    "password", "passw0rd", "demo", "demo1234", "changeme",
+    "letmein", "welcome", "12345678", "qwerty", "admin",
+    #: Product names, current and former. A product name is the password people
+    #: actually type at a demo, so the new one is blocked from the start. The
+    #: two former names STAY blocked: everyone who worked on this build still
+    #: has them in their fingers, which makes them a better guess after the
+    #: rename, not a worse one. This list is a blocklist of guessable strings,
+    #: not branding - do not "finish the rename" by deleting them.
+    "ragintel", "ragintelligence", "rag", "ragintelligencesystem",
+    "nabaa", "aramco",
 }
 
 

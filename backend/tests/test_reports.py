@@ -420,7 +420,7 @@ def test_the_download_name_is_the_report_id_and_the_response_is_private():
     r = TestClient(app).get(f"/api/reports/{rec['id']}/download")
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/pdf"
-    assert f"nabaa-report-{rec['id']}.pdf" in r.headers["content-disposition"]
+    assert f"rag-intelligence-report-{rec['id']}.pdf" in r.headers["content-disposition"]
     assert r.headers["cache-control"] == "private, no-store"
 
 

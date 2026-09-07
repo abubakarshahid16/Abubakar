@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Nabaa evaluation question set",
+  "title": "RAG Intelligence System evaluation question set",
   "description": "The shape run_eval.py consumes. Deliberately contains no questions: a system evaluated against questions its own author chose is measuring the author. Only id, question and answerable are required; every other field is scored when present and skipped when absent, so a partially specified set still yields the metrics it can support rather than failing or being guessed at.",
   "type": "object",
   "required": ["questions"],

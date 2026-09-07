@@ -6,7 +6,7 @@ its own body rather than passing quietly - this project has shipped five
 vacuous checks and each of them looked exactly like a passing test.
 
 The rules under test, from docs/design-analysis-and-synthesis.md and
-NABAA-SUNDAY-POC-EXECUTION.md 7.2/7.3:
+RAG-INTELLIGENCE-POC-EXECUTION.md 7.2/7.3:
   - an uncited sentence reaches neither the prose nor documented_findings, and
     an uncited claim is not constructible at all;
   - a number in a sentence must appear in a span that sentence cites;

@@ -3,7 +3,7 @@ import os, subprocess, sqlite3, sys, time, csv
 
 BACKEND = r"d:\project\Rag_chatbot\backend"
 PY = r"d:\project\Rag_chatbot\.venv\Scripts\python.exe"
-DB = os.path.join(BACKEND, "data", "nabaa.sqlite")
+DB = os.path.join(BACKEND, "data", "rag_intelligence.sqlite")
 DOCS = [("doc_b02fb622b193", "book1-professionalpractices.pdf"),
         ("doc_0c5c007fcedd", "book2-Differential-Equations.pdf")]
 

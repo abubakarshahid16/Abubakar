@@ -44,7 +44,7 @@ print(f"\n  VERDICT: {'PASS' if ok else 'FAIL - pipeline is wrong, stop'}")
 # ------------------------------------------------ real chunk, real paraphrase
 print()
 print("REAL CHUNK RETRIEVAL CHECK")
-c = sqlite3.connect("file:data/nabaa.sqlite?mode=ro", uri=True)
+c = sqlite3.connect("file:data/rag_intelligence.sqlite?mode=ro", uri=True)
 c.row_factory = sqlite3.Row
 row = c.execute("""SELECT page_start, section, text FROM chunks
                    WHERE document_id='doc_b02fb622b193' AND retrievable=1

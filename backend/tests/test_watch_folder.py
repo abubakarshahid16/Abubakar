@@ -58,12 +58,20 @@ def temp_storage(tmp_path, monkeypatch):
 #: of the configured path. It sits in the folder's PARENT, so every test using
 #: this fixture is also a standing check that the parent was there to leak and
 #: did not - which is the property the codebase-wide leak sweep asserts.
-PARENT_TOKEN = "NABAA-PARENT-DIR-7Q"
+# A distinctive directory name, so a test asserting the parent path did not
+# leak can prove the parent was actually there to leak.
+#
+# NOT shaped like a credential, deliberately. Named PARENT_DIR_MARKER with an
+# uppercase-and-digits value, gitleaks' generic-api-key rule matched it and
+# blocked the commit - a fixture marker that trips the secret scanner costs
+# every future committer the same investigation, and the tempting way out is
+# --no-verify, which skips the scan for everything else in that commit too.
+PARENT_DIR_MARKER = "parent-dir-marker-for-the-leak-test"
 
 
 @pytest.fixture
 def drop_folder(tmp_path, monkeypatch):
-    folder = tmp_path / PARENT_TOKEN / "dropbox"
+    folder = tmp_path / PARENT_DIR_MARKER / "dropbox"
     folder.mkdir(parents=True)
     monkeypatch.setattr(settings, "watch_folder", str(folder))
     return folder
@@ -517,7 +525,7 @@ def test_the_folder_path_is_admin_information_and_an_engineer_never_sees_it(
         "entirely, and one that expected the whole path would enshrine the "
         "leak the sweep found")
     assert str(drop_folder) not in admin.text
-    assert PARENT_TOKEN not in admin.text, "the parent directory leaked"
+    assert PARENT_DIR_MARKER not in admin.text, "the parent directory leaked"
 
     # An unauthenticated caller is not an administrator either.
     anonymous = client.get("/api/watch/status").json()
@@ -587,7 +595,7 @@ def test_the_feature_being_off_is_a_200_with_nulls_and_never_an_error():
 #: A folder name nothing in a safe error message could produce by accident. If
 #: this string appears in `last_error`, the path leaked - there is no other way
 #: those characters could get there.
-SECRET = "NABAA-SECRET-SHARE-42"
+SECRET = "RAGINTEL-SECRET-SHARE-42"
 
 
 def test_reachable_is_null_until_a_scan_has_actually_run(drop_folder):
@@ -840,7 +848,7 @@ def test_only_the_last_segment_of_the_configured_path_is_ever_named():
     from app.watch_api import folder_name
 
     assert folder_name(r"D:\project\Rag_chatbot\backend\data\watch-inbox") == "watch-inbox"
-    assert folder_name("/srv/nabaa/backend/data/watch-inbox") == "watch-inbox"
+    assert folder_name("/srv/ragintel/backend/data/watch-inbox") == "watch-inbox"
     assert folder_name(r"\\fileserver\engineering\inbox") == "inbox"
     # The server name is the thing a UNC path leaks that a local path cannot.
     assert "fileserver" not in (folder_name(r"\\fileserver\engineering\inbox") or "")
@@ -858,7 +866,7 @@ def test_a_trailing_separator_still_names_the_folder():
     from app.watch_api import folder_name
 
     assert folder_name("D:\\project\\data\\watch-inbox\\") == "watch-inbox"
-    assert folder_name("/srv/nabaa/watch-inbox/") == "watch-inbox"
+    assert folder_name("/srv/ragintel/watch-inbox/") == "watch-inbox"
     assert folder_name("\\\\fileserver\\engineering\\inbox\\") == "inbox"
     # A doubled separator mid-path is the same defect and goes the same way.
     assert folder_name("D:\\project\\\\data\\watch-inbox") == "watch-inbox"
@@ -908,7 +916,7 @@ def test_no_part_of_the_parent_path_appears_anywhere_in_the_payload(
         drop_folder, monkeypatch):
     """The invariant the codebase-wide sweep asserts, held here too.
 
-    THE PARENT IS PROVABLY AVAILABLE TO LEAK: `PARENT_TOKEN` is a real
+    THE PARENT IS PROVABLY AVAILABLE TO LEAK: `PARENT_DIR_MARKER` is a real
     directory the configured path passes through, and the assertion below
     first proves it is in that path. A test whose token was not actually in
     the configured value would pass against a route that published the whole
@@ -924,7 +932,7 @@ def test_no_part_of_the_parent_path_appears_anywhere_in_the_payload(
     access.set_user_resolver(lambda req: req.headers.get("x-test-user") or None)
 
     configured = settings.watch_folder
-    assert PARENT_TOKEN in configured, "the fixture no longer proves anything"
+    assert PARENT_DIR_MARKER in configured, "the fixture no longer proves anything"
 
     (drop_folder / "spec.pdf").write_bytes(pdf_bytes())
     watcher_mod.scan_once()
@@ -933,7 +941,7 @@ def test_no_part_of_the_parent_path_appears_anywhere_in_the_payload(
     body = _client().get(
         "/api/watch/status", headers={"x-test-user": "admin_user"}).text
 
-    assert PARENT_TOKEN not in body, f"the parent directory leaked: {body[:300]}"
+    assert PARENT_DIR_MARKER not in body, f"the parent directory leaked: {body[:300]}"
     assert configured not in body
     # Every segment ABOVE the folder itself, one by one - the drive, the
     # deployment root, and on a real machine the account name a home
@@ -967,5 +975,5 @@ def test_no_refusal_sentence_contains_a_path_either(drop_folder, monkeypatch):
     watcher_mod.scan_once()
     message = watcher_mod.last_error()
     assert message
-    assert PARENT_TOKEN not in message
+    assert PARENT_DIR_MARKER not in message
     assert "/" not in message and "\\" not in message

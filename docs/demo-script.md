@@ -1,4 +1,4 @@
-# Demo script — Nabaa
+# Demo script — RAG Intelligence System
 
 Twelve minutes. Same machine, same order, rehearsed twice with no edits between
 runs. Every number below was measured today; where a feature is not built the

@@ -3,7 +3,7 @@ import re
 import sqlite3
 from collections import Counter
 
-DB = "data/nabaa.sqlite"
+DB = "data/rag_intelligence.sqlite"
 c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
 c.row_factory = sqlite3.Row
 

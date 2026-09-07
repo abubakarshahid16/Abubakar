@@ -402,7 +402,7 @@ def announce_mode() -> None:
     The secret is reported as PRESENT OR ABSENT and never printed, not even
     truncated. A prefix is enough to confirm a guess.
 
-    Logged through `uvicorn.error`, NOT through the "nabaa" logger. That one is
+    Logged through `uvicorn.error`, NOT through the "rag_intelligence" logger. That one is
     a rotating FILE handler, attached lazily the first time `errors._log()`
     runs - so at startup it has no handler at all and a record sent to it is
     dropped silently. A startup line nobody sees is the defect this function

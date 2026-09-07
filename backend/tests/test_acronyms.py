@@ -5,7 +5,7 @@ refused a question asking for the NDFT. The term genuinely was not there, and
 the reader was still asking a fair question.
 
 Relying on a glossary clause alone would have looked sufficient on NORSOK,
-which has one. It is not sufficient in general: Aramco specifications are
+which has one. It is not sufficient in general: engineering specifications are
 dense with acronyms and a client uploads their own documents, one of which may
 have no abbreviations clause at all.
 """
@@ -43,7 +43,7 @@ GLOSSARY = [
     "Abbreviations",
     "CPS coating procedure specification CPT coating procedure test",
     "NACE National Association of Corrosion Engineers PWHT post weld heat",
-    "treatment SAMSS Saudi Aramco materials system specification",
+    "treatment EEMUA Engineering Equipment and Materials Users Association",
 ]
 
 ACRONYM_ONLY = [
@@ -124,7 +124,7 @@ def test_function_words_may_be_skipped_but_not_substantive_ones():
 def test_a_single_letter_is_not_an_abbreviation():
     assert not acronyms.looks_like_acronym("A")
     assert acronyms.looks_like_acronym("AB")
-    assert acronyms.looks_like_acronym("SAES")
+    assert acronyms.looks_like_acronym("SSPC")
     assert acronyms.looks_like_acronym("CERT/CC")
     assert not acronyms.looks_like_acronym("coating")
 
@@ -150,6 +150,12 @@ def test_a_glossary_row_is_harvested():
     harvested = acronyms.harvest()
     assert "coating procedure specification" in harvested["CPS"]
     assert "post weld heat treatment" in harvested["PWHT"]
+    # The last row bounds the one before it, so it has to harvest too - and its
+    # expansion skips a function word ("and"), which the initials check allows.
+    assert any(
+        e.lower() == "engineering equipment and materials users association"
+        for e in harvested["EEMUA"]
+    )
 
 
 def test_a_capitalised_glossary_expansion_is_harvested():
@@ -173,7 +179,7 @@ def test_a_term_the_corpus_never_defines_has_no_equivalents():
     client = TestClient(app)
     upload(client, [PARENTHETICAL])
     assert acronyms.equivalents("Inconel") == []
-    assert acronyms.equivalents("SAES") == []
+    assert acronyms.equivalents("SSPC") == []
 
 
 def test_the_map_is_rebuilt_when_the_corpus_changes():
@@ -221,7 +227,7 @@ def test_a_genuinely_absent_term_still_refuses():
 def test_an_absent_acronym_gets_a_useful_refusal_not_a_dead_end():
     client = TestClient(app)
     upload(client, [PARENTHETICAL, GLOSSARY])
-    result = answer_mod.answer("what does SAES require for shop priming", allowed_document_ids=_scope())
+    result = answer_mod.answer("what does SSPC require for shop priming", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert "If it is an abbreviation, try the full term" in result["reason"]
 

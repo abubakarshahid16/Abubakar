@@ -38,7 +38,7 @@ def temp_storage(tmp_path, monkeypatch):
     """`claims` reaches the database through `keyword` and `lexical`.
 
     Without this these tests passed on a development machine - which has a
-    62 MB corpus at backend/data/nabaa.sqlite - and failed in CI with
+    62 MB corpus at backend/data/rag_intelligence.sqlite - and failed in CI with
     `no such table`. The tables must be CREATED, not present by accident.
     """
     monkeypatch.setattr(settings, "data_dir", tmp_path)

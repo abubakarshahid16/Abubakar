@@ -21,7 +21,16 @@ import type { AuthStatus, Me } from "./types/api";
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
-const THEME_KEY = "nabaa-theme";
+const THEME_KEY = "rag-intelligence-theme";
+
+//: The key this app wrote before the product rename. READ ONCE, NEVER WRITTEN.
+//: Dropping it outright would silently put every user who had chosen light mode
+//: back into dark: the new key reads `null`, the code falls through to the
+//: "dark" default, and nothing errors. No test can catch it either - tests
+//: start from an empty localStorage, where both keys behave identically. The
+//: effect below writes the new key on mount, so the value migrates on first
+//: load; this line can be deleted once no browser in use still holds it.
+const LEGACY_THEME_KEY = "nabaa-theme";
 
 /** Whether this deployment wants a sign-in, and who is signed in.
  *
@@ -158,7 +167,8 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     // A private window throws on READ, not just on write, so the fallback has
     // to sit around the read as well.
     try {
-      const saved = localStorage.getItem(THEME_KEY);
+      const saved =
+        localStorage.getItem(THEME_KEY) ?? localStorage.getItem(LEGACY_THEME_KEY);
       return saved === "light" || saved === "dark" ? saved : "dark";
     } catch {
       return "dark";

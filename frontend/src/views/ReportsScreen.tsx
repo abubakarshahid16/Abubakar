@@ -107,7 +107,7 @@ export function ReportsScreen() {
    * very screen.
    *
    * The token is never put in the URL to work around that - a URL reaches
-   * history, access logs and Referer headers, and NABAA rule 6 forbids secrets
+   * history, access logs and Referer headers, and the POC plan's rule 6 forbids secrets
    * in logs. Nothing is written unless the response was a success, so a failure
    * cannot leave an empty or truncated PDF behind.
    */

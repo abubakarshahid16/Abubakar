@@ -163,7 +163,7 @@ def test_a_worker_failure_is_logged_locally_but_not_returned(client):
         safe = errors.record_failure(exc, document_id="doc_x", stage="process")
 
     assert_clean(str(safe), "record_failure result")
-    log = settings.data_dir / "logs" / "nabaa.log"
+    log = settings.data_dir / "logs" / "rag-intelligence.log"
     assert log.exists(), "the traceback was not written to the local log"
     assert "Traceback" in log.read_text(encoding="utf-8"), "log lost the traceback"
 

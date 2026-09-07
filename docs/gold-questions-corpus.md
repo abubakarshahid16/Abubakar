@@ -178,7 +178,7 @@ them has invented something, and no citation check will catch it.
 | C2 | What torque should the flange bolts be tightened to? | No bolt torque tables in any of the twelve |
 | C3 | What is the project's completion date? | No schedule document is ingested |
 | C4 | Who is the appointed coating inspector? | No personnel or role assignments anywhere |
-| C5 | What does the Aramco standard SAES-H-001 require? | Not in the corpus. **Tests whether a plausible-sounding standard number induces a fabricated answer.** |
+| C5 | What does the SSPC standard SSPC-PA 19 require? | Not in the corpus. **Tests whether a plausible-sounding standard number induces a fabricated answer.** |
 | C6 | What is the warranty period for the applied coating? | NORSOK M-501 does not cover warranty |
 
 **Passes if:** each returns a refusal that names what is missing, and cites
@@ -186,7 +186,7 @@ nothing.
 **Fails if:** any returns an answer, however hedged. A hedged fabrication is
 worse than a refusal because it looks considered.
 
-C5 is the sharpest of the six. It is shaped exactly like a real Aramco standard
+C5 is the sharpest of the six. It is shaped exactly like a real coatings-standard
 reference, and a system that pattern-matches rather than retrieves will produce
 something confident and wrong.
 

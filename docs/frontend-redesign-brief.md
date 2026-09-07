@@ -1,4 +1,4 @@
-# Nabaa — frontend redesign brief
+# RAG Intelligence System — frontend redesign brief
 
 You are redesigning the interface for a working product. The backend is
 finished and will not change for you. Everything below is a description of
@@ -13,7 +13,7 @@ do.
 
 ## 1 · What the product is
 
-**Nabaa** answers questions about engineering documents — coating
+**RAG Intelligence System** answers questions about engineering documents — coating
 specifications, design manuals, security standards — and shows the exact page
 every sentence came from.
 
@@ -92,7 +92,7 @@ happy one.
 
 ### 4.1 Sidebar (persistent)
 
-- Product name **Nabaa**, subtitle "private document intelligence"
+- Product name **RAG Intelligence System**, subtitle "private document intelligence"
 - Six items, each a **label over a one-line hint**:
 
 | Label | Hint |

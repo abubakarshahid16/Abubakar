@@ -88,7 +88,9 @@ export function LoginView({
     <main className="flex min-h-screen w-full items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="mb-5 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-slateish-100">Nabaa</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slateish-100">
+            RAG Intelligence System
+          </h1>
           <p className="mt-1 text-sm text-slateish-400">Enterprise FEED intelligence</p>
         </div>
 

@@ -428,7 +428,7 @@ def _draw_furniture(doc: fitz.Document) -> None:
         )
         page.insert_text(
             fitz.Point(40, page.rect.height - 24),
-            f"Page {page.number + 1} of {total}  |  {WATERMARK}  |  Nabaa evidence report",
+            f"Page {page.number + 1} of {total}  |  {WATERMARK}  |  RAG Intelligence System evidence report",
             fontsize=8, fontname="helv", color=(0.3, 0.3, 0.3), overlay=True,
         )
 
@@ -442,9 +442,9 @@ def render(snapshot: dict) -> bytes:
     doc = story.write_with_links(rectfn)
     _draw_furniture(doc)
     doc.set_metadata({
-        "title": "Nabaa evidence report",
+        "title": "RAG Intelligence System evidence report",
         "subject": "Single-answer evidence report - prototype, not for construction",
-        "creator": "Nabaa",
+        "creator": "RAG Intelligence System",
     })
     try:
         return doc.tobytes(garbage=3, deflate=True)

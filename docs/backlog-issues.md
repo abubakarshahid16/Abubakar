@@ -240,7 +240,7 @@ are how a correct answer becomes a refusal.
 
 **What fixed looks like.** A curated domain glossary, built from the real
 corpus rather than guessed at, with the *salt → chlorides / NaCl* case as its
-first test. Deliberately deferred until the Aramco documents arrive — building
+first test. Deliberately deferred until the client documents arrive — building
 it against three books and one specification would be fitting to the wrong
 vocabulary.
 

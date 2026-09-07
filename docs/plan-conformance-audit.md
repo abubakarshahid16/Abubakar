@@ -1,9 +1,10 @@
-# Plan conformance audit — NABAA-SUNDAY-POC-EXECUTION.md
+# Plan conformance audit — RAG-INTELLIGENCE-POC-EXECUTION.md
 
 **Date:** 2026-09-06
 **Commit audited:** `9f3f6dbc682071d03b29b3008d5f95553b60cf3e` (`feat/frontend: gap rows that do not contradict themselves, ordered and counted`, 2026-09-06 21:54:10 +0500)
 **Working tree at audit time:** one untracked file, `backend/tests/test_metrics_host_telemetry.py`. It is **not** part of the audited commit and is treated separately (see §10).
-**Plan audited:** `NABAA-SUNDAY-POC-EXECUTION.md`, Revision 4, 2026-09-05, 2,150 lines / 132,932 bytes.
+**Plan audited:** `RAG-INTELLIGENCE-POC-EXECUTION.md` (audited under its former
+filename `NABAA-SUNDAY-POC-EXECUTION.md`), Revision 4, 2026-09-05, 2,150 lines / 132,932 bytes.
 **Auditor:** read-only pass. No repository file was modified, created or deleted except this document.
 
 ---
@@ -71,7 +72,7 @@ exist".
 
 The repository lives on a Windows host at `D:\project\Rag_chatbot`. It was copied
 read-only to a Linux VM (`rsync`, excluding `.git`, `node_modules`, `.venv`,
-`backend/data`, `__pycache__`). `backend/data/nabaa.sqlite` was never opened on the mount.
+`backend/data`, `__pycache__`). `backend/data/rag_intelligence.sqlite` was never opened on the mount.
 
 ```
 # Backend — Python 3.12.14, backend/requirements.txt installed at its pinned versions
@@ -131,7 +132,7 @@ same defect class this project has fourteen entries about, even when it under-cl
 > **Percentage MET-or-PARTIAL: 72.9% — 374 of 513.**
 >
 > **Denominator in both cases: 513 testable requirements extracted from
-> `NABAA-SUNDAY-POC-EXECUTION.md` Revision 4 (2026-09-05), excluding the sections listed
+> `RAG-INTELLIGENCE-POC-EXECUTION.md` Revision 4 (2026-09-05), excluding the sections listed
 > in §1.1 above.**
 
 ### A second denominator, because the first one hides something
@@ -139,7 +140,7 @@ same defect class this project has fourteen entries about, even when it under-cl
 **34 requirements could not be assessed here at all** (§7 lists each and why). They need a
 second 48 GB Windows host, a 20-document human-labelled gold fixture, six or seven
 1,000–1,200-page client PDFs, an approved market provider, a GitHub plan this account does
-not have, or `NABAA-CODEBASE.md`, which is not in the repository. Against the **479
+not have, or `RAG-INTELLIGENCE-CODEBASE.md`, which is not in the repository. Against the **479
 requirements that could be assessed**:
 
 > **MET: 54.7% — 262 of 479 assessable. MET-or-PARTIAL: 78.1% — 374 of 479 assessable.**
@@ -201,7 +202,7 @@ piece of evidence. `file:line` references are to the audited commit.
 
 | ID | Requirement | Verdict | Evidence |
 |---|---|---|---|
-| R001 | Preserve all twelve Nabaa invariants (§0.3) | NOT TESTABLE HERE | `NABAA-CODEBASE.md` is not in the repository; the twelve invariants are defined there and nowhere else. The list cannot be checked against anything. |
+| R001 | Preserve all twelve Nabaa invariants (§0.3) | NOT TESTABLE HERE | `RAG-INTELLIGENCE-CODEBASE.md` is not in the repository; the twelve invariants are defined there and nowhere else. The list cannot be checked against anything. |
 | R002 | Introduce no PostgreSQL, Qdrant, LangChain, LlamaIndex, Docker, Kubernetes, Keycloak | MET | `backend/requirements.txt` — 17 direct dependencies, none of them. `frontend/package.json` unchanged framework. |
 | R003 | No client PDFs, text, DBs, vectors, reports, secrets, prompts or answers in Git | MET | `.gitignore` reproduces §11.5 verbatim plus additions; `.githooks/pre-commit` blocks them before history; `.github/workflows/secret-scan.yml` runs gitleaks 8.30.1 pinned by SHA-256 plus a `no-client-data` job. ADR-0004 records a deliberate failure test: fake AWS key → commit rejected, `git log` unchanged. |
 | R004 | Typed backend/frontend contracts; new fields required unless absence is meaningful and explicitly `null` | MET | `contracts/types.ts` mirrored by `backend/app/schemas.py`; `test_api_contract.py` and `test_runtime_contract.py` hold them together. Would fail if a Pydantic field and its TS twin diverged. |
@@ -887,7 +888,7 @@ so nobody has to guess what it hides.
 | 7 | R109, R112, R115, R120, R123, R124, R129 — outbound logging, policy rejection, provider field discipline, client-approved device, non-synchronized folders, OS account hardening, firewall default | **Host and deployment configuration, or an egress path that does not exist.** Six of the seven are properties of the operator's machine; the seventh cannot be observed because nothing is ever sent. | …the audit ran on the demonstration host with an approved provider enabled. |
 | 5 | R435–R437, R439, R440 — per-PR content requirements (one issue, scope, invariants, privacy impact, rollback instructions) | **Properties of pull-request bodies on GitHub, not of the repository tree.** The PR template asks for all five; whether every PR supplied them is not visible from a clone. | …the GitHub PR history were read. |
 | 3 | R461 (A13), R468 (A20), R482 (A34) — market canary test, two live rehearsals, 48 GB clean clone | **Live exercises.** A13 in particular *cannot be run*: no payload is ever sent, so a green result would be the vacuous shape this project has fourteen recorded entries about. | …a provider were enabled (A13) or an operator ran the demo (A20, A34). |
-| 2 | R001, R500 — "preserve all twelve Nabaa invariants" | **`NABAA-CODEBASE.md` is not in the repository.** The twelve invariants are defined there and nowhere else, so the list cannot be checked against anything. The eleven-item Phase-1 preservation contract in §0 *is* assessable and is R013–R024, 11 of which are MET. | …`NABAA-CODEBASE.md` were supplied. |
+| 2 | R001, R500 — "preserve all twelve Nabaa invariants" | **`RAG-INTELLIGENCE-CODEBASE.md` is not in the repository.** The twelve invariants are defined there and nowhere else, so the list cannot be checked against anything. The eleven-item Phase-1 preservation contract in §0 *is* assessable and is R013–R024, 11 of which are MET. | …`RAG-INTELLIGENCE-CODEBASE.md` were supplied. |
 | 1 | R025 — a characterization test before each touched Phase 1 path | **A claim about the order of edits.** The tree shows characterization-shaped tests; it cannot show they preceded the edits. | …the commit history were walked per touched path. |
 | 1 | R251 — feature flags must not alter evidentiary meaning | **The invariant has no subject** — there are no feature flags. | …flags were implemented. |
 
@@ -1026,7 +1027,7 @@ scored**, so that a future reader does not conclude the audit missed it.
 4. `cd frontend && npm ci && npx tsc -b && npx vitest run` — expect 467 passed, 39 files.
    Confirm coverage with `npx tsc -p tsconfig.app.json --noEmit --listFiles | grep -c src/`
    → 79.
-5. Read `NABAA-SUNDAY-POC-EXECUTION.md` and apply the extraction rule in §1.1: a sentence
+5. Read `RAG-INTELLIGENCE-POC-EXECUTION.md` and apply the extraction rule in §1.1: a sentence
    is a requirement when it states a must-do, must-not-do or must-say **and** a reader can
    settle it from the repository, a command, or the running system. Exclude the sections
    named in §1.1's table.

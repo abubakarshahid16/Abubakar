@@ -505,7 +505,7 @@ Reporting only one of them is how "19% of pages vanished" stayed invisible.
 | `oldest_pending_age_seconds` | age of the oldest pending document's `uploaded_at` | Distinguishes a fresh queue from a stuck one |
 | `stalled` | `not alive` **or** heartbeat > 120 s **or** (`pending_count > 0` **and** `seconds_since_progress` > 180 s) | Reflects whether work is *moving* |
 | `stalled_reasons` | which of the above fired | Never just a bare boolean |
-| `last_error` | `{code, message, document_id, stage, at}` | **Response-safe only.** Full tracebacks go to `backend/data/logs/nabaa.log` |
+| `last_error` | `{code, message, document_id, stage, at}` | **Response-safe only.** Full tracebacks go to `backend/data/logs/rag-intelligence.log` |
 
 An idle worker with an empty queue is **not** stalled. A worker alive and
 ignoring a backlog **is**.

@@ -180,7 +180,7 @@ invocations therefore audit different databases.
     python scripts/section_audit.py
 
     # No import of the app at all:
-    python scripts/section_audit.py --db backend/data/nabaa.sqlite
+    python scripts/section_audit.py --db backend/data/rag_intelligence.sqlite
 
 If the database lives on a network or virtualised mount, SQLite can raise
 "disk I/O error" on open.  Copy the file to local disk and point ``--db`` at
@@ -900,7 +900,7 @@ def resolve_db(explicit: str | None) -> tuple[Path, str]:
         raise SystemExit(
             f"Could not import backend/app/config.py ({exc.__class__.__name__}: {exc}).\n"
             "Pass the database explicitly, e.g.:\n"
-            "    python scripts/section_audit.py --db backend/data/nabaa.sqlite"
+            "    python scripts/section_audit.py --db backend/data/rag_intelligence.sqlite"
         ) from exc
 
 
@@ -1002,7 +1002,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog="Run from backend/ so that backend/.env applies:  "
                "cd backend && python ../scripts/section_audit.py",
     )
-    ap.add_argument("--db", help="Path to nabaa.sqlite. Default: settings.db_path "
+    ap.add_argument("--db", help="Path to rag_intelligence.sqlite. Default: settings.db_path "
                                  "from backend/app/config.py.")
     ap.add_argument("--document", help="Audit one document: its id, or a substring "
                                        "of its filename (e.g. doc16, book2).")
@@ -1032,8 +1032,8 @@ def main(argv: list[str] | None = None) -> int:
             "SQLite raises 'disk I/O error' on some network and virtualised mounts.\n"
             "Copy the database to local disk and audit the copy -- this script never\n"
             "writes, so a copy is a faithful subject:\n"
-            f"    cp '{db}' /tmp/nabaa.sqlite\n"
-            "    python scripts/section_audit.py --db /tmp/nabaa.sqlite"
+            f"    cp '{db}' /tmp/rag_intelligence.sqlite\n"
+            "    python scripts/section_audit.py --db /tmp/rag_intelligence.sqlite"
         ) from exc
     if args.document:
         needle = args.document.lower()

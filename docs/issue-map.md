@@ -33,7 +33,7 @@ scope cuts recorded in ADR-0003 are reflected rather than the original backlog.
 Read this before filing anything against a milestone number.
 
 This file's milestones (below) are **clock deadlines** — M2 is the 3PM prototype
-cut. `NABAA-SUNDAY-POC-EXECUTION.md` §12 defines a **different** set under the
+cut. `RAG-INTELLIGENCE-POC-EXECUTION.md` §12 defines a **different** set under the
 same numbers, named for what they contain: M2 is the authorization boundary.
 They are not the same milestone and they do not contain the same work.
 
