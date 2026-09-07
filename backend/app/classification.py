@@ -86,7 +86,10 @@ DOC_CLASS_PATTERNS: tuple[tuple[str, str], ...] = (
     ("PHILOSOPHY", r"\bphilosoph(?:y|ies)\b"),
     ("CALCULATION", r"\bcalculation(?:s)?\b"),
     ("DATASHEET", r"\bdata\s?sheet(?:s)?\b"),
-    ("P&ID", r"\bp\s?&\s?id(?:s)?\b|\bpiping\s+and\s+instrument"),
+    # Matched against the NORMALISED text, where "&" has already become a
+    # space - so the register's "P&ID" arrives as "p id" and a filename's
+    # "PID" as "pid". Both spellings are listed rather than relying on one.
+    ("P&ID", r"\bp\s?&?\s?id(?:s)?\b|\bpids?\b|\bpiping\s+and\s+instrument"),
     ("SLD", r"\bsld\b|\bsingle\s+line\s+diagram\b"),
     ("REPORT", r"\breport\b"),
 )
@@ -151,6 +154,25 @@ def normalise(text: str) -> str:
     return _SPACE.sub(" ", _PUNCT.sub(" ", stripped.lower())).strip()
 
 
+def normalise_tight(text: str) -> str:
+    """`normalise` with the separators removed as well as replaced.
+
+    WHY A SECOND FORM. `normalise` turns punctuation into a SPACE, which is
+    right for finding a term inside a title - but it splits "P&ID" into
+    "p id", and a filename writing the same thing as "PID" then does not
+    match the register's "P&ID". Measured on this project's own naming: the
+    register writes "Hot Oil System P&ID" and uploads arrive as
+    "HOT-OIL-SYSTEM-PID.pdf".
+
+    Still case, punctuation and whitespace ONLY - nothing here touches
+    meaning. Used for WHOLE-TITLE EQUALITY and never for substring search,
+    because a tight form makes substrings dangerous: "meg" is inside "omega",
+    so matching subjects this way would attach a MEG subject to a document
+    about omega values.
+    """
+    return re.sub(r"[^a-z0-9]+", "", normalise(text))
+
+
 # ------------------------------------------------------ the register lookup
 
 def register_revision() -> str | None:
@@ -181,12 +203,17 @@ def match_register(title: str, revision: str | None) -> dict | None:
     if revision is None:
         return None
     key = normalise(title)
+    tight = normalise_tight(title)
     if not key:
         return None
     for row in connect().execute(
             "SELECT id, doc_type, discipline, vendor, title FROM"
             " deliverables_register WHERE register_revision = ?", (revision,)):
-        if normalise(row["title"]) == key:
+        # Either normalisation, and both are whole-string equality. The tight
+        # form is what lets "HOT-OIL-SYSTEM-PID.pdf" match "Hot Oil System
+        # P&ID"; it is safe here precisely because it compares complete titles
+        # rather than searching for a substring.
+        if normalise(row["title"]) == key or normalise_tight(row["title"]) == tight:
             return dict(row)
     return None
 
