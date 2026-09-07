@@ -538,3 +538,68 @@ def revoke_grant(body: GrantRequest, actor: dict | None) -> dict:
            detail=role["name"])
     return {"document_id": body.document_id, "discipline": role["name"],
             "granted": False}
+
+
+def grant_on_upload(document_id: str, user_id: str | None) -> list[str]:
+    """Give a freshly uploaded document the grants that make it readable (#79).
+
+    `document_role_access` is written by `grant()` and by nothing else, and no
+    ingestion path assigns a discipline, so before this existed every upload
+    was born an orphan: a row nobody could see, holding disk and occupying the
+    worker, invisible even to an administrator. Refusing the anonymous upload
+    without this would have fixed the status code and left the orphan.
+
+    TWO GRANTS, for two different reasons.
+
+    The ADMIN CAPABILITY, because an administrator has whole control of the
+    corpus and a document no administrator can see cannot be granted, revoked,
+    re-categorised or deleted by anyone. Matched on `kind = 'capability'` AND
+    the name, which is deliberate belt-and-braces rather than redundancy:
+    `init_db` re-asserts `kind = 'capability' WHERE name = 'admin'` on every
+    start, so the two can only disagree on a database mid-migration, and there
+    a query on either column alone would silently grant the wrong role or no
+    role. If a second capability is ever added, this keeps meaning the
+    administrator specifically.
+
+    The uploader's own DISCIPLINE roles, because otherwise an engineer's
+    upload disappears from their own screen the instant it succeeds, which is
+    the same void in a second costume. An administrator holding no discipline
+    gets the capability alone, which is correct rather than a special case:
+    they can already read it.
+
+    `user_id` is None only under `AUTH_MODE=disabled`, where every caller
+    already holds every document through `unrestricted_scope()` and a grant
+    row would decide nothing. Nothing is written, and that is stated here so
+    that a later reader does not add a row to "make it consistent" and
+    quietly change what the disabled mode means.
+
+    Returns the role names granted, so a caller can log or assert what
+    happened rather than infer it from the table afterwards.
+    """
+    if user_id is None:
+        return []
+
+    conn = connect()
+    roles = [dict(r) for r in conn.execute(
+        """SELECT r.id, r.name, r.kind FROM user_roles ur
+           JOIN roles r ON r.id = ur.role_id
+           WHERE ur.user_id = ?""", (user_id,))]
+
+    admin_role = conn.execute(
+        "SELECT id, name FROM roles WHERE kind = 'capability' AND name = ?",
+        (ADMIN_ROLE,)).fetchone()
+
+    targets = {r["id"]: r["name"] for r in roles if r["kind"] == "discipline"}
+    if admin_role is not None:
+        targets[admin_role["id"]] = admin_role["name"]
+
+    now = _now()
+    with conn:
+        for role_id in targets:
+            conn.execute(
+                """INSERT OR IGNORE INTO document_role_access
+                       (document_id, role_id, permission, granted_at,
+                        granted_by)
+                   VALUES (?, ?, 'read', ?, ?)""",
+                (document_id, role_id, now, user_id))
+    return sorted(targets.values())

@@ -336,6 +336,22 @@ def test_the_low_memory_warning_still_reaches_a_non_admin(
 
     monkeypatch.setattr(psutil, "virtual_memory", lambda: Tight)
     monkeypatch.setattr(settings, "answer_model_ram_bytes", 5_000_000_000)
+    # AND the model's residency, which is the other half of the condition:
+    # `warnings()` raises this only when the model is NOT already loaded,
+    # because a resident model has already paid the memory it needs. `models()`
+    # answers that by asking the real Ollama over HTTP, so without this pin the
+    # test passes or fails on whether the developer happens to have run a query
+    # recently - it was green in isolation and red in the full suite for
+    # exactly that reason, with no code change between the two runs. Pinned to
+    # "reachable but not resident", the state in which the warning is the
+    # actionable thing it exists to be.
+    monkeypatch.setattr(metrics, "models", lambda: {
+        "embed_model": "e5-small", "embed_model_present": True,
+        "reranker_model": "reranker", "reranker_present": True,
+        "answer_model": settings.answer_model,
+        "answer_model_reachable": True, "answer_model_installed": True,
+        "answer_model_loaded": False, "ollama_error": None,
+    })
 
     client, _, _ = corpus_and_identities
     payload = _metrics(client, "engineer")
@@ -370,6 +386,22 @@ def test_the_admin_low_memory_warning_still_states_the_figure(
 
     monkeypatch.setattr(psutil, "virtual_memory", lambda: Tight)
     monkeypatch.setattr(settings, "answer_model_ram_bytes", 5_000_000_000)
+    # AND the model's residency, which is the other half of the condition:
+    # `warnings()` raises this only when the model is NOT already loaded,
+    # because a resident model has already paid the memory it needs. `models()`
+    # answers that by asking the real Ollama over HTTP, so without this pin the
+    # test passes or fails on whether the developer happens to have run a query
+    # recently - it was green in isolation and red in the full suite for
+    # exactly that reason, with no code change between the two runs. Pinned to
+    # "reachable but not resident", the state in which the warning is the
+    # actionable thing it exists to be.
+    monkeypatch.setattr(metrics, "models", lambda: {
+        "embed_model": "e5-small", "embed_model_present": True,
+        "reranker_model": "reranker", "reranker_present": True,
+        "answer_model": settings.answer_model,
+        "answer_model_reachable": True, "answer_model_installed": True,
+        "answer_model_loaded": False, "ollama_error": None,
+    })
 
     client, _, _ = corpus_and_identities
     payload = _metrics(client, "admin_user")

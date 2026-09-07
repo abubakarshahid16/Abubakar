@@ -91,9 +91,30 @@ class Document(BaseModel):
 
 
 class UploadAccepted(BaseModel):
-    document: Document
+    document: Document | None = Field(
+        None,
+        description="ABSENT when the bytes duplicate a document this caller "
+                    "may not read (#79). Not an error and not an empty "
+                    "record: the response says nothing about a document "
+                    "outside the caller's scope, the same answer every read "
+                    "path gives. Present in every other case.",
+    )
     job_id: str = Field(description="empty when the upload was a duplicate")
-    duplicate_of: str | None = None
+    duplicate_of: str | None = Field(
+        None,
+        description="The document these bytes already match, and null when "
+                    "the caller may not read it - the id is derived from the "
+                    "content hash, so stating it would confirm the content "
+                    "as well as the existence.",
+    )
+    awaiting_grant: bool = Field(
+        False,
+        description="The upload was accepted and there is nothing for this "
+                    "caller to see until an administrator grants it. About "
+                    "the CALLER's request, never about the corpus: it does "
+                    "not distinguish a duplicate from anything else, so it "
+                    "is not an existence oracle.",
+    )
 
 
 class WorkerStatus(BaseModel):

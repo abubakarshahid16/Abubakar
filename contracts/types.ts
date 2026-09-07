@@ -68,9 +68,24 @@ export interface DocumentRecord {
 }
 
 export interface UploadAccepted {
-  document: DocumentRecord;
+  /** ABSENT when the bytes duplicate a document this caller may not read
+   *  (#79). `ingest` dedupes by sha256 and returns the EXISTING row, so
+   *  returning it would disclose that document's filename, status and page
+   *  count to someone with no grant for it - and suppressing `duplicate_of`
+   *  alone would move the leak here rather than close it. Render the
+   *  `awaiting_grant` message when this is missing; never a placeholder
+   *  record. */
+  document?: DocumentRecord;
   job_id: string;
-  duplicate_of: string | null; // set when sha256 already exists; no job started
+  /** Set when sha256 already exists and no job started - and null when the
+   *  caller may not read that document. The id is derived from the content
+   *  hash, so stating it would confirm the content as well as the existence. */
+  duplicate_of: string | null;
+  /** The upload was accepted and there is nothing for this caller to see
+   *  until an administrator grants it. About the CALLER's request, never
+   *  about the corpus: it does not distinguish a duplicate from anything
+   *  else, so it is not an existence oracle. */
+  awaiting_grant?: boolean;
 }
 
 /** DELETE /api/documents/{id}

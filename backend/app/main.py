@@ -201,9 +201,29 @@ def metrics(request: Request,
 
 
 @app.post("/api/documents", response_model=schemas.UploadAccepted,
-          responses=schemas.ERRORS_400)
-async def upload_document(file: UploadFile = File(...)):
-    """Stream a PDF to disk. Returns the document record and a job id."""
+          responses={**schemas.ERRORS_400, **schemas.ERRORS_401})
+async def upload_document(
+    file: UploadFile = File(...),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Stream a PDF to disk. Returns the document record and a job id.
+
+    IDENTITY FIRST (#79). This was the only non-GET route besides login with
+    no guard at all, and an unauthenticated caller could write to the document
+    store of a product whose boundary is that access is by grant. Three
+    consequences, and they are not equally serious: an orphan holds disk
+    forever, ingestion is the most expensive thing this system does and could
+    be queued by anyone who reached the port, and a caller who could read no
+    document could add one.
+
+    THE GRANT IS PART OF THE FIX. Refusing the anonymous upload alone would
+    have left every authenticated upload an orphan too - `document_role_access`
+    is written by `admin.grant()` and nothing else, and no ingestion path
+    assigns a discipline. A route that accepts a document nobody can then read
+    has not succeeded, it has failed quietly. `grant_on_upload` is what makes
+    the acceptance real; see its docstring for which roles and why.
+    """
+    _require_identity_to_write(scope)
     try:
         row, job_id, duplicate_of = upload_mod.ingest(file.file, file.filename or "")
     except upload_mod.UploadError as e:
@@ -211,10 +231,26 @@ async def upload_document(file: UploadFile = File(...)):
             status_code=400,
             content={"code": e.code, "message": e.message, "detail": e.detail},
         )
+    # Only a NEW document is granted. A duplicate already has whatever grants
+    # it was given when it was first uploaded, and re-granting here would let
+    # any caller widen access to an existing document by simply uploading a
+    # copy of it - the worse defect, and the one the re-upload test holds.
+    if duplicate_of is None:
+        admin_mod.grant_on_upload(row["id"], scope.user_id)
+    elif not scope.may_read(duplicate_of):
+        # A duplicate of something this caller may not read. `ingest` returned
+        # the EXISTING row, so returning it would disclose the filename, the
+        # status and the page count of a document outside their scope -
+        # suppressing `duplicate_of` alone would have moved the leak into
+        # `document` rather than closing it. Nothing about the corpus is said.
+        # `awaiting_grant` is about their request, not about what exists.
+        return {"document": None, "job_id": "", "duplicate_of": None,
+                "awaiting_grant": True}
     return {
         "document": upload_mod.to_api(row),
         "job_id": job_id or "",
         "duplicate_of": duplicate_of,
+        "awaiting_grant": False,
     }
 
 
