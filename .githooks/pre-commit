@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# Pre-commit guard for saudi-aramco-rag-chatbot
+# Pre-commit guard for the RAG Intelligence System
+#
+# The GitHub repository slug is still `abubakarshahid16/saudi-aramco-rag-chatbot`
+# and this line used to repeat it. Renaming the product did not rename the repo
+# - that is a separate decision recorded in docs/rename-inventory.md section 6,
+# and it remains open. This comment names the PRODUCT so it stops going stale
+# every time the other question is deferred.
 #
 # COMPENSATING CONTROL. GitHub Advanced Security secret scanning is unavailable
 # on this account tier, and branch protection cannot be enforced. See ADR-0004.
@@ -63,15 +69,58 @@ fi
 # ---------------------------------------------------------------------------
 # 3. gitleaks on staged content
 # ---------------------------------------------------------------------------
-GITLEAKS="${GITLEAKS_PATH:-$LOCALAPPDATA/gitleaks/gitleaks.exe}"
-if [ ! -x "$GITLEAKS" ]; then
-  GITLEAKS=$(command -v gitleaks 2>/dev/null || true)
-fi
+# FAILS CLOSED. This block used to print a WARNING and let the commit through
+# when gitleaks was missing, which meant the compensating control ADR-0004
+# describes could be absent with nobody noticing - a fresh clone that skipped
+# scripts/install-git-hooks.sh got a hook that checked file types and nothing
+# else, and said so in yellow text that scrolls past. A secret scan that can
+# be skipped by accident is not a control, so a missing scanner is now a
+# blocked commit.
+#
+# The resolution order also no longer assumes Windows. It read
+# "$LOCALAPPDATA/gitleaks/gitleaks.exe" unguarded under `set -u`, so on Linux,
+# macOS, CI and any Windows shell that does not export LOCALAPPDATA the hook
+# did not fail open - it aborted outright with "LOCALAPPDATA: unbound
+# variable" before reaching the scan. Every candidate below is expansion-safe.
+# Candidates in priority order, one per line: an explicit override first,
+# then whatever is on PATH, then the two locations
+# scripts/install-git-hooks.sh actually installs to, then the usual
+# package-manager prefixes. Every expansion carries ":-" so an unset variable
+# yields an empty candidate that the loop skips, instead of aborting the hook.
+gitleaks_candidates() {
+  printf '%s\n' "${GITLEAKS_PATH:-}"
+  command -v gitleaks 2>/dev/null || true
+  printf '%s\n' "${LOCALAPPDATA:-}/gitleaks/gitleaks.exe"
+  printf '%s\n' "${HOME:-}/.local/bin/gitleaks"
+  printf '%s\n' "/usr/local/bin/gitleaks"
+  printf '%s\n' "/opt/homebrew/bin/gitleaks"
+}
 
-if [ -z "$GITLEAKS" ] || [ ! -x "$GITLEAKS" ]; then
-  echo "${YLW}WARNING: gitleaks not found - staged content was NOT scanned.${NC}"
-  echo "  Run: bash scripts/install-git-hooks.sh"
-  echo "  This is a real gap, not a nuisance. CI will still catch it, after the push."
+GITLEAKS=""
+while IFS= read -r candidate; do
+  # An unset LOCALAPPDATA leaves a bare "/gitleaks/gitleaks.exe" and an unset
+  # GITLEAKS_PATH leaves "". Skip those rather than stat them.
+  case "$candidate" in ""|"/gitleaks/gitleaks.exe") continue ;; esac
+  if [ -x "$candidate" ]; then GITLEAKS="$candidate"; break; fi
+done <<EOF
+$(gitleaks_candidates)
+EOF
+
+if [ -z "$GITLEAKS" ]; then
+  echo "${RED}BLOCKED: gitleaks not found - staged content cannot be scanned.${NC}"
+  echo "  Secret scanning is this repository's compensating control for"
+  echo "  GitHub Advanced Security being unavailable (ADR-0004). It is not"
+  echo "  optional, so a missing scanner blocks rather than warns."
+  echo ""
+  echo "  Install it:"
+  echo "      bash scripts/install-git-hooks.sh"
+  echo "  Or point the hook at an existing binary:"
+  echo "      export GITLEAKS_PATH=/path/to/gitleaks"
+  echo ""
+  echo "  If you must commit without a scan, that is the AUDITED BYPASS and"
+  echo "  it has to be deliberate and recorded:"
+  echo "      git commit --no-verify"
+  fail=1
 else
   if ! "$GITLEAKS" git --staged --redact --no-banner --config .gitleaks.toml; then
     echo "${RED}BLOCKED: gitleaks found a secret in staged content${NC}"
