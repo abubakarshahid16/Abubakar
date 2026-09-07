@@ -35,6 +35,7 @@ from . import analysis as analysis_mod
 from . import market as market_mod
 from . import market_phrase as market_phrase_mod
 from . import market_providers as market_providers_mod
+from . import market_transport as market_transport_mod
 from . import progress as progress_mod
 from . import reports as reports_mod
 from . import schemas
@@ -728,6 +729,53 @@ def market_preview_query(body: schemas.MarketQueryRequest,
     return market_mod.preview_query(body.query, body.country, body.freshness_days)
 
 
+def _record_market_audit(rows, scope: access.AccessScope) -> None:
+    """Persist one `audit_events` row per outbound query.
+
+    THE EXISTING MECHANISM, NOT A SECOND ONE. `audit_events` is the
+    append-only table `admin._audit` and `auth` already write to, and
+    `market_providers.audit_record` builds rows whose keys are its columns -
+    so this inserts them without translating, and a translation layer is where
+    a field quietly stops being recorded.
+
+    IT IS WRITTEN HERE BECAUSE IT CANNOT BE WRITTEN THERE. `market_providers`
+    is forbidden to import `db` - enforced by AST inspection - precisely so
+    the market feature cannot reach the corpus. Importing `db` there to write
+    an audit row would hand the leakiest module in the system a live database
+    handle. So that module builds the row and this route stores it.
+
+    `detail` is the phrase VERBATIM. Safe by the only argument that matters:
+    it is the text already judged fit to hand to a third party, so it is
+    certainly fit for a local table. Not hashed and not summarised, because
+    the single question this row exists to answer is "what exactly left this
+    machine", and a digest cannot answer it.
+
+    NEVER RAISES INTO THE CALLER, the same discipline as `admin._audit`. An
+    unwritable audit row must not fail a request that has already been made -
+    and note the ordering that follows from that: rows are written AFTER the
+    calls, so a crash between the two loses the record of a query that did
+    leave. That is a real gap and the honest fix is a write-ahead record,
+    which is more machinery than a feature nobody has enabled needs. Recorded
+    here rather than discovered later.
+    """
+    actor = "unauthenticated" if scope.user_id is None else scope.user_id
+    try:
+        conn = connect()
+        with conn:
+            for row in rows:
+                conn.execute(
+                    """INSERT INTO audit_events
+                           (at, actor_user_id, actor_username, action,
+                            resource_type, resource_id, outcome, detail)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (row["at"], scope.user_id, actor[:200], row["action"],
+                     row["resource_type"], row["resource_id"], row["outcome"],
+                     row["detail"]),
+                )
+    except Exception:  # noqa: BLE001 - an unwritable audit must not fail the request
+        pass
+
+
 @app.get("/api/market/preview", response_model=schemas.MarketPreview)
 def market_preview(
     phrase: str = Query(..., min_length=1, max_length=2000),
@@ -788,13 +836,16 @@ def market_search(body: schemas.MarketSearchRequest,
     freshness = body.freshness_days
     safe = market_phrase_mod.market_phrase(
         raw, analysis_mod._corpus_filenames(scope))
+    # THE TRANSPORT, AND IT IS None UNLESS BOTH FLAGS ARE TRUE. No client is
+    # constructed with the flags off, so the off state is the ABSENCE of a
+    # transport rather than an unused one - `search_all` then reports "no
+    # transport supplied" rather than appearing to work. This one line is what
+    # makes flipping two flags the entire change on the day egress is
+    # approved: no code lands that day.
     result = market_providers_mod.search_all(
-        safe, country=country, freshness_days=freshness)
-    # NOT PERSISTED YET. `result["audit"]` holds one row per outbound query,
-    # shaped for the existing `audit_events` table. Nothing writes it, because
-    # nothing has left the machine in this build - there is no transport. When
-    # a transport is wired, this is where the rows get written, and that is
-    # the same change that first makes them meaningful.
+        safe, fetch=market_transport_mod.transport(),
+        country=country, freshness_days=freshness)
+    _record_market_audit(result.get("audit") or (), scope)
     return market_providers_mod.to_api(result)
 
 

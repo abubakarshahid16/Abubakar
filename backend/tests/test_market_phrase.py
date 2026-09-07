@@ -489,6 +489,58 @@ def test_with_the_flag_off_no_transport_is_ever_consulted():
     assert result["enabled"] is False
 
 
+@pytest.mark.parametrize("live,egress", [
+    (False, False), (True, False), (False, True), (True, True),
+])
+def test_the_banner_tracks_both_flags_in_both_directions(monkeypatch, live,
+                                                         egress):
+    """THE PRIVACY BANNER MUST NOT BE CORRECT BY COINCIDENCE.
+
+    `egress_state()` returned two hardcoded `False` values. With both flags
+    set, measured:
+
+        egress_state() = {web_search_enabled: False, allow_public_egress: False}
+        live_enabled() = True
+
+    Behaviour followed the flags; the banner did not. An operator who switched
+    egress on got a screen still promising PUBLIC EGRESS BLOCKED while the
+    backend was willing to make outbound calls. It under-promised, which is
+    the safe direction and precisely why nothing caught it - with the flags off
+    the literal happened to be right.
+
+    All FOUR combinations are asserted, not just the two that matter for
+    sending. One flag true and the other false is a real state a reader should
+    be told about: the feature is on and this machine still may not talk to the
+    internet, so nothing will be sent. A single boolean would lose that, and a
+    test that only checked (False, False) and (True, True) would pass on an
+    implementation that read one flag and ignored the other.
+    """
+    monkeypatch.setattr(settings, "market_live_enabled", live)
+    monkeypatch.setattr(settings, "market_allow_public_egress", egress)
+
+    assert market.egress_state() == {
+        "web_search_enabled": live,
+        "allow_public_egress": egress,
+    }
+    # ...and the conjunction that actually gates a call agrees with the banner.
+    assert market_providers.live_enabled() is (live and egress)
+
+
+def test_the_banner_is_not_a_hardcoded_literal():
+    """A guard against the regression rather than the symptom.
+
+    Read from the source: if `egress_state` ever returns a literal `False`
+    again it will pass the parametrised test above only if someone also
+    changes that test, and this fails immediately either way.
+    """
+    import inspect
+
+    body = inspect.getsource(market.egress_state)
+    assert "settings.market_live_enabled" in body, (
+        "egress_state must READ the flag, not restate a literal")
+    assert "settings.market_allow_public_egress" in body, body
+
+
 def test_with_the_flag_off_egress_state_is_unchanged():
     """`market.egress_state()` is what drives the panel's banner. It must read
     exactly as it did before any of this existed."""

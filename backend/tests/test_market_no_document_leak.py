@@ -52,8 +52,24 @@ FORBIDDEN_IMPORTS = frozenset({
     "db", "search", "keyword", "chunker", "passages", "claims", "analysis",
 })
 
-#: The files this promise covers.
+#: The files this promise covers. NONE of these may import an HTTP client and
+#: none may reach the corpus.
 MARKET_MODULES = ("market.py", "market_phrase.py", "market_providers.py")
+
+#: THE TRANSPORT IS THE EXCEPTION, AND ONLY TO ONE HALF OF THE RULE.
+#:
+#: `market_transport.py` exists to open sockets, so forbidding it an HTTP
+#: client would be forbidding it its purpose. It is held to the OTHER half
+#: instead, and more strictly: it must not be able to reach the corpus at all.
+#:
+#: That is the whole shape of the control. The two halves of a leak - being
+#: able to READ document content, and being able to SEND anything - live in
+#: different files, and no file can do both. A module that cannot make a
+#: request cannot leak a document however wrong its logic goes; a module that
+#: cannot read a document has nothing to leak however wrong its network code
+#: goes. Checked by parsing the source, so the day someone adds a convenience
+#: import to either side it fails by name.
+TRANSPORT_MODULE = "market_transport.py"
 
 
 # --------------------------------------------------------------- the corpus
@@ -529,6 +545,33 @@ def test_the_import_guard_would_actually_catch_a_forbidden_import():
     assert "db" in _imported_modules(probe), (
         "the AST import scanner failed to find a known import - the structural "
         "test above would pass vacuously"
+    )
+
+
+def test_the_transport_cannot_reach_the_corpus():
+    """The transport half of the split. It may open sockets; it may not read
+    documents, and it is the module where that matters most - it is the only
+    one holding something that can send."""
+    leaked = FORBIDDEN_IMPORTS & _imported_modules(APP / TRANSPORT_MODULE)
+    assert not leaked, (
+        f"{TRANSPORT_MODULE} imports {sorted(leaked)}, which can reach the "
+        f"corpus. This module holds the HTTP client: giving it corpus access "
+        f"puts both halves of a leak in one file, which is the arrangement "
+        f"the whole split exists to prevent."
+    )
+
+
+def test_the_transport_is_the_only_module_here_with_a_client():
+    """States the split as an assertion rather than a comment: exactly one
+    file in this feature can make a request."""
+    with_client = []
+    for module in (*MARKET_MODULES, TRANSPORT_MODULE):
+        found = {"httpx", "requests", "urllib", "urllib3", "aiohttp", "socket"}
+        if found & _imported_modules(APP / module):
+            with_client.append(module)
+    assert with_client == [TRANSPORT_MODULE], (
+        f"expected only {TRANSPORT_MODULE} to hold an HTTP client, got "
+        f"{with_client}"
     )
 
 
