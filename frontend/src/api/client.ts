@@ -64,6 +64,59 @@ export interface Health {
   ingestion: HealthWorker;
 }
 
+/** The watched folder: a host directory the backend scans on an interval and
+ *  ingests from, so a team can drop PDFs in rather than upload through the app.
+ *
+ *  `folder_name` is the folder's own name, never a path, and is null for a
+ *  non-admin caller. A screen must render nothing in its place rather than a
+ *  placeholder that implies a value was withheld or, worse, that there is none.
+ *
+ *  The feature being OFF is a normal state, not an error: `enabled` false with
+ *  every other field empty. */
+export type WatchOutcome = "ingested" | "duplicate" | "failed";
+
+export interface WatchEvent {
+  filename: string;
+  outcome: WatchOutcome;
+  /** ISO-8601 UTC */
+  at: string;
+  /** why it failed, when it did. null otherwise. */
+  detail: string | null;
+}
+
+export interface WatchStatus {
+  enabled: boolean;
+  /** The watched folder's OWN NAME - its last path segment, never a path.
+   *
+   *  `D:\\project\\data\\watch-inbox` and `\\\\fileserver\\engineering\\inbox` arrive
+   *  here as "watch-inbox" and "inbox". The route used to publish the full
+   *  host path; under AUTH_MODE=disabled every caller reads as unrestricted,
+   *  so the admin gate alone did not hold and the value itself was narrowed.
+   *
+   *  Still null for a non-admin caller, and null when the configured value has
+   *  no final segment. A screen renders nothing in its place - and must not
+   *  word it as though a location were being shown. */
+  folder_name: string | null;
+  /** ISO-8601 UTC, or null when no scan has run. */
+  last_scan_at: string | null;
+  interval_seconds: number | null;
+  /** Did the MOST RECENT scan find the folder readable?
+   *
+   *  null means no scan has completed yet - never false, which would assert a
+   *  failure nobody has observed. Back to null when the feature is turned off.
+   *  A screen must render NOTHING for null: "unknown" is a claim of its own. */
+  reachable: boolean | null;
+  /** A short sentence about the most recent SCAN-LEVEL failure - the folder is
+   *  missing, or unreadable. null when the last scan was fine.
+   *
+   *  A single corrupt PDF is a per-file `failed` event in `recent` and does not
+   *  set this. Built from the exception class, never from OS error text, so it
+   *  carries no host path and is safe to show a non-admin caller. */
+  last_error: string | null;
+  /** the newest ten, newest first */
+  recent: WatchEvent[];
+}
+
 export type Result<T> =
   | { ok: true; data: T }
   | { ok: false; disconnected: true; error: ApiError }
@@ -433,6 +486,10 @@ async function request<T>(
 export const api = {
   health: () => request<Health>("/health"),
   metrics: () => request<Metrics>("/metrics"),
+  /** Whether the watched folder is running, and what it last picked up.
+   *  Guarded like the other list-bearing reads: a body without `recent`
+   *  becomes an ordinary ApiError instead of a crash at the map. */
+  watchStatus: () => request<WatchStatus>("/watch/status", undefined, hasArrayField("recent")),
   documents: () =>
     request<DocumentRecord[]>("/documents", undefined, isArrayBody),
   chunks: (id: string, opts: { limit?: number; offset?: number; retrievable?: string } = {}) => {

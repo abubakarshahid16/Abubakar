@@ -348,6 +348,42 @@ CREATE TABLE IF NOT EXISTS stage_runs (
 
 CREATE INDEX IF NOT EXISTS idx_stage_runs_stage ON stage_runs(stage, id DESC);
 
+-- What the watched drop folder actually did, one row per file per decision.
+--
+-- The folder is the only ingestion path with NO HUMAN AT THE OTHER END. A
+-- manual upload reports its outcome to the person who pressed the button; a
+-- file dropped into a share reports to nobody, so a document that was seen and
+-- refused is indistinguishable from one that was never dropped unless the
+-- refusal is written down. That is what this table is for, and it is why
+-- 'duplicate' and 'failed' are recorded as loudly as 'ingested'.
+--
+-- `outcome` is CHECKed rather than left free text: the three values are the
+-- whole vocabulary, and a fourth spelling invented at a call site would be a
+-- status the status endpoint cannot count.
+--
+-- `document_id` is nullable and carries NO FOREIGN KEY, for two reasons that
+-- point the same way. A 'failed' or 'duplicate'-of-nothing event has no
+-- document to reference, and an event whose document is later deleted must
+-- survive that deletion - a record of what arrived that disappears with what
+-- arrived is not a record. `detail` is response-safe text only, the same rule
+-- audit_events keeps: never document content.
+CREATE TABLE IF NOT EXISTS watch_events (
+    id          INTEGER PRIMARY KEY,
+    filename    TEXT NOT NULL,
+    source_path TEXT NOT NULL,
+    -- The hash the decision was made on. EMPTY STRING means the file could not
+    -- be read far enough to hash it - the one case where NOT NULL and "we do
+    -- not know" collide, and it is spelled out in `detail` on every such row
+    -- rather than left for a reader to infer from a blank column.
+    sha256      TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    outcome     TEXT NOT NULL CHECK(outcome IN ('ingested','duplicate','failed')),
+    document_id TEXT NULL,
+    detail      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_events_observed ON watch_events(observed_at DESC);
+
 CREATE TABLE IF NOT EXISTS conversations (
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL,

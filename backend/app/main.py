@@ -17,6 +17,8 @@ from . import answer as answer_mod
 from . import search as search_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
+from . import watcher as watcher_mod
+from . import watch_api as watch_api_mod
 from .api_utils import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
@@ -51,6 +53,10 @@ async def lifespan(app: FastAPI):
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()
+    # The watched folder is OFF unless WATCH_FOLDER is set in backend/.env.
+    # start_watcher() returns a reason string rather than raising when it does
+    # not start, so a machine with no drop folder boots exactly as before.
+    watcher_mod.start_watcher()
     # Harvest acronym expansions once at startup rather than lazily on the
     # first question. It scans the whole corpus and takes ~2.5s, which is
     # fine here and is not fine added to a 1.3s answer.
@@ -59,6 +65,7 @@ async def lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001 - a missing expansion map is not fatal
         pass
     yield
+    watcher_mod.stop_watcher()
     ingest_mod.stop_worker()
 
 
@@ -79,6 +86,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# The watched-folder status route lives in its own module so this file stays
+# the only place routing is declared, without this file growing a feature.
+app.include_router(watch_api_mod.router)
 
 
 @app.middleware("http")
