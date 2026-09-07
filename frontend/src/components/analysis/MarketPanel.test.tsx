@@ -133,7 +133,11 @@ const REFERENCE_ROW: MarketRow = {
 
 const SAMPLE_ROW: MarketRow = {
   text: "Illustrative: primer prices rose over the quarter.",
-  provider_label: "market search",
+  // Its OWN provenance label, matching what the backend now sends. It used to
+  // borrow "reference - background only", which made the panel print "this row
+  // is not a market finding" over a row that is an illustrative MARKET row -
+  // both sentences true of a sample, and the provenance still wrong.
+  provider_label: "sample - illustrative only",
   publisher: "Example Sample Source",
   published: null,
   retrieved: "2026-09-07T08:00:00Z",
@@ -519,6 +523,30 @@ describe("MarketPanel: failure and empty states", () => {
     expect(within(sample).getByText(/^sample$/i)).toBeInTheDocument();
     // The url that resolves nowhere, kept as sent.
     expect(within(sample).getByText("sample://market/1")).toBeInTheDocument();
+  });
+
+  it("gives a sample row its own provenance, not the reference row's", async () => {
+    // The defect this pins: while samples were labelled
+    // "reference - background only", this row read "Background only. This row
+    // is not a market finding and cannot evidence a market condition." A
+    // sample IS not a market finding, so the sentence was true - and the
+    // provenance was still wrong, because the row is an illustrative MARKET
+    // row and a reader would carry that label away as its source. A wrong
+    // provenance label on a compliance screen is the whole reason this panel
+    // prints one on every row.
+    searchMock.mockResolvedValue(
+      ok(result({ enabled: false, rows: [SAMPLE_ROW], tiers_attempted: [], tiers_answered: [] })),
+    );
+    const user = userEvent.setup();
+    mount(OPEN);
+    await sendSearch(user);
+
+    const sample = row(SAMPLE_ROW.text);
+    expect(within(sample).getByText("sample - illustrative only")).toBeInTheDocument();
+    expect(within(sample).queryByText("reference - background only")).toBeNull();
+    expect(within(sample).queryByText(/not a market finding/i)).toBeNull();
+    // `is_sample` stays the machine-readable carrier; the label is for a reader.
+    expect(within(sample).getByText(/^sample$/i)).toBeInTheDocument();
   });
 });
 

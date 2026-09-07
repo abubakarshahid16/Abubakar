@@ -239,7 +239,16 @@ export const analysis = {
 export type MarketProviderLabel =
   | "market search"
   | "published literature"
-  | "reference - background only";
+  | "reference - background only"
+  /** The labelled fixtures served while live egress is off. It is a provider
+   *  label of its own rather than a borrowed one: the backend previously
+   *  labelled samples "reference - background only", which made the panel
+   *  print "this row is not a market finding" over rows that are illustrative
+   *  MARKET rows. Both statements were true of a sample and the provenance
+   *  was still wrong, and a wrong provenance label on a compliance screen is
+   *  the defect this whole union exists to prevent. Paired with `is_sample`,
+   *  which remains the machine-readable carrier. */
+  | "sample - illustrative only";
 
 /** What WOULD be sent, as the backend itself would send it.
  *
