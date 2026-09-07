@@ -243,88 +243,6 @@ export function relativeTime(iso: string | null, now: number = Date.now()): stri
   return `${plural(Math.round(seconds / 86400), "day")} ago`;
 }
 
-/** How many events the API keeps in `recent` - "the newest ten". A group that
- *  fills the whole list may have been bigger than the list can show. */
-const RECENT_CAP = 10;
-
-/** Whole seconds since the epoch, or null for a timestamp the clock cannot
- *  read. Second granularity is deliberate: one scan's events share their
- *  timestamp TO THE SECOND, which is the only handle on grouping we have. */
-function atSecond(iso: string | null): number | null {
-  if (!iso) return null;
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return null;
-  return Math.floor(ms / 1000);
-}
-
-/** One line answering the question this panel could not answer before: was the
- *  folder actually looked at, and what did that look find. A reader who drops a
- *  PDF in, opens this screen and sees three rows reading `duplicate` has been
- *  told a history and nothing about now; twice that reader concluded the
- *  feature was broken when it was merely between scans.
- *
- *  The count is DERIVED, not reported. The API states no scan id and no
- *  per-scan totals; all it gives is that the events of a single scan carry the
- *  same `at` to the second. So "the newest same-second group" is an INFERENCE
- *  about which decisions belong to the latest scan, and it can be wrong in
- *  exactly one direction:
- *
- *   - a scan whose writes straddle a second boundary is split, and only the
- *     later part of it is grouped here;
- *   - a group that fills all ten kept events may have been larger, and by how
- *     much is not knowable from this payload.
- *
- *  Both failure modes make the figure a LOWER BOUND and never an
- *  overstatement, so the wording says "at least" rather than dressing an
- *  inference as a count. The ten-event case says additionally that the list
- *  itself is the limit, because there "at least" understates by an unknown
- *  amount rather than by one boundary's worth, and a bare "10" would read as
- *  the total. Showing an exact number and hoping the grouping held is the
- *  quiet overclaim this line exists to remove.
- *
- *  Null when there is nothing true to say - no scan recorded and no event ever
- *  seen - which renders as nothing, like every other unknown on this screen. */
-export function scanSummary(status: WatchStatus): string | null {
-  const scanAt = atSecond(status.last_scan_at);
-  const events = status.recent;
-  // A scan ran and decided nothing at all. This is the ordinary steady state,
-  // and it is the case the reader needed most: the folder WAS looked at.
-  const quiet = "the last check found nothing new in the folder.";
-
-  if (events.length === 0) return scanAt == null ? null : quiet;
-
-  let newest: number | null = null;
-  for (const event of events) {
-    const at = atSecond(event.at);
-    if (at != null && (newest == null || at > newest)) newest = at;
-  }
-  // Every event timestamp is unreadable, so which of them shared a scan cannot
-  // be worked out. No count is asserted from data this shape.
-  if (newest == null) return scanAt == null ? null : quiet;
-
-  // The folder has been checked since the newest decision was made, so the
-  // latest check produced no events of its own. Describing the older group
-  // here would present a past scan as the current one - the precise untruth
-  // the panel already committed by showing only rows.
-  //
-  // The comparison is strict and unpadded, which errs toward this branch: a
-  // scan slow enough that its own last_scan_at lands a second after its events
-  // is reported as having found nothing, with its rows visible and timestamped
-  // directly below. That understates a real scan rather than attributing
-  // decisions to a check that may not have made them.
-  if (scanAt != null && scanAt > newest) return quiet;
-
-  const group = events.filter((event) => atSecond(event.at) === newest);
-  const added = group.filter((event) => event.outcome === "ingested").length;
-  const newPart = added === 0 ? "none of them new" : `including ${plural(added, "new file")}`;
-  const line = `the last check saw at least ${plural(group.length, "file")}, ${newPart}.`;
-  // The group is the whole window, so the window - not the scan - set the size.
-  if (group.length === events.length && events.length >= RECENT_CAP) {
-    return `${line} Only the newest ${RECENT_CAP} decisions are kept here, so it may have seen more.`;
-  }
-  return line;
-}
-
 /** Colour is never the only signal: every outcome carries its own WORD, and a
  *  glyph beside it, so the three are told apart with the colour removed. */
 function outcomeStyle(outcome: string): { glyph: string; word: string; tone: string } {
@@ -410,7 +328,6 @@ function WatchedFolderPanel() {
 
   const interval = intervalWords(status.interval_seconds);
   const lastScan = relativeTime(status.last_scan_at);
-  const scanLine = scanSummary(status);
 
   return (
     <Section
@@ -463,11 +380,6 @@ function WatchedFolderPanel() {
             )}
           </p>
         )}
-
-        {/* Derived from the events, and worded as derived - see scanSummary.
-            It sits above the rows because the rows are a history and this is
-            the sentence about now. Null renders as nothing. */}
-        {scanLine && <p className="mt-1 text-xs text-slateish-300">{scanLine}</p>}
 
         {status.recent.length === 0 ? (
           <p className="mt-2 text-sm text-slateish-300">
