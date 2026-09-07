@@ -125,7 +125,7 @@ reaches the network again except your own Ollama on localhost.
 | **Node** | 24.x (built on 24.18.0) | `npm ci` installs from the committed lockfile. |
 | **Ollama** | running, with `qwen3.5:4b` pulled | **The one prerequisite `fetch_models.py` cannot get for you** — see below. Needed only for Tier 2 ("Explain") answers; Tier 1 quotations work without it, verified by pointing the backend at a dead port. |
 | **RAM** | ~16 GB | See *If you have less* below. |
-| **Disk** | **768 MB in the clone, plus ~3.4 GB elsewhere** | Measured, not estimated — see below. |
+| **Disk** | **773 MB in the clone, plus ~3.4 GB elsewhere** | Measured on the clean clone of 2026-09-07, not estimated — see below. |
 | **Internet** | for setup only | See above. |
 
 #### Ollama, in full
@@ -150,7 +150,7 @@ defaults to `qwen3.5:4b`. If Ollama is not running, Tier 1 quotations still
 work and the "Explain" button reports `model_unavailable` rather than failing
 silently.
 
-#### What 768 MB covers, and what it does not
+#### What 773 MB covers, and what it does not
 
 Measured on a completed clean clone, so a reader can size a disk honestly:
 
