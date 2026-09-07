@@ -95,6 +95,16 @@ on a machine with none of this project's state. Where a step failed, the fix is
 in the repository and the step here is the corrected one. A setup guide that has
 not been run from a clean clone is a guess.
 
+**Last verified end to end on 2026-09-07**, from a fresh clone of
+`feat/phase-1-ui-reaches-backend` at 5baf18e. What that run produced, so you
+can tell whether yours is going right: models staged 179 MB; backend suite
+**1,170 passed, 3 skipped, 17 xfailed in 5m56s**; frontend **496 passed across
+42 files**; `npx tsc -b` clean; the API answering 200 on `/api/health`,
+`/api/documents` (`[]`, no corpus in the clone) and `/api/metrics`. Two things
+that run found and this guide now fixes: `backend/.env` is never created by
+anything (step 4), and `py -3.12` does not exist on every Windows machine
+(step 1).
+
 ### Offline at run time. Online ONCE at setup time.
 
 Say this plainly, because the product is described as fully offline and that is
@@ -146,11 +156,11 @@ Measured on a completed clean clone, so a reader can size a disk honestly:
 
 | | Size |
 |---|---|
-| `.venv` | 527 MB |
+| `.venv` | 528 MB |
 | `backend/models` (staged weights) | 159 MB |
-| `frontend/node_modules` | 80 MB |
-| `.git` | 1 MB |
-| **Total inside the clone** | **768 MB** |
+| `frontend/node_modules` | 78 MB |
+| `.git` | 3 MB |
+| **Total inside the clone** | **773 MB** |
 
 **The Ollama model is NOT in that figure.** It lives outside the repository —
 `~/.ollama/models` — and `qwen3.5:4b` is a further **~3.4 GB**. Budget
@@ -211,7 +221,39 @@ npm run test      # 496 tests across 42 files, ~1 minute
 cd ..
 ```
 
-**4. Backend tests.** Run from `backend/`, which is where `pytest.ini` lives:
+**4. Configuration. `backend/.env` is NOT in the clone, and nothing creates it.**
+
+```bash
+cp backend/.env.example backend/.env      # Windows: copy backend\.env.example backend\.env
+```
+
+The application runs **without** this file - it did, on the clean clone this
+guide was verified against - so it is easy to skip and then wonder why access
+control does nothing. With no `.env`, `AUTH_MODE` defaults to `disabled` and
+the server says so at startup, in these words:
+
+```text
+WARNING:  AUTH_MODE=disabled - every request sees every document, and no login
+is required. Set AUTH_MODE=demo_required in backend/.env to enforce access
+control.
+```
+
+That warning names a file the clone does not contain, which is why this step
+exists. `.env.example` carries every key with a safe default; the two that
+decide behaviour are `AUTH_MODE` (`disabled` or `demo_required`) and
+`AUTH_SECRET`, which is **empty in the example and must be at least 32
+characters before `AUTH_MODE=demo_required` will start at all**:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+A short or absent secret is refused at **startup**, not at first login -
+deliberately, because a system that boots and then rejects everyone looks like
+a broken deployment, while one that boots with a guessable key looks like a
+working one. No key in `.env.example` is a real credential.
+
+**5. Backend tests.** Run from `backend/`, which is where `pytest.ini` lives:
 
 ```bash
 cd backend
@@ -222,7 +264,7 @@ Run it from `backend/`, not from the repository root. `pytest.ini` lives there,
 and so does `.env` - which the application reads for `AUTH_MODE`. The suite pins
 the authentication mode itself (`tests/conftest.py`) so its result does not
 depend on whether you have a local `.env`, but the same is not true of the
-server: see step 5.
+server: see step 6.
 
 Slow tests that build a real ONNX session are marked `slow` and deselected by
 default. Run them with `python -m pytest -m slow`.
@@ -230,7 +272,7 @@ default. Run them with `python -m pytest -m slow`.
 If the models are not staged, the suite **stops immediately** with the command
 that fixes it, rather than producing ninety failures with one cause.
 
-**5. Run it.** Two terminals:
+**6. Run it.** Two terminals:
 
 **Start the API from `backend/`, not from the repository root.** `python
 backend/run.py` starts and appears to work, but `backend/.env` is read relative

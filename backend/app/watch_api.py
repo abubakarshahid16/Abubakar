@@ -69,7 +69,7 @@ _UNC = re.compile(r"^[\\\\/]{2}")
 
 
 def folder_name(configured: str) -> str | None:
-    """The LAST SEGMENT of the configured path, or None.
+    r"""The LAST SEGMENT of the configured path, or None.
 
     THE PATH ITSELF NEVER LEAVES THIS PROCESS. `test_no_internal_leaks.py::
     test_every_get_route_is_scanned_for_leaks_on_hostile_input` asserts a flat
