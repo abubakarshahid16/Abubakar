@@ -328,6 +328,105 @@ class Settings(BaseSettings):
     quality_max_unbroken_run: int = 45
     quality_max_control_chars: int = 3      # only the top/bottom N lines of a page
 
+    # ------------------------------------------- live public-market egress
+    #: THE MASTER SWITCH, and it is OFF. With this false the product behaves
+    #: EXACTLY as it did before any of the market provider code existed:
+    #: `market.findings()` returns the labelled samples, `market.egress_state()`
+    #: reports both flags false, and no provider is constructed. That identity
+    #: is asserted by a test rather than asserted here, because "behaves the
+    #: same" is a claim about behaviour and belongs in something that runs.
+    #:
+    #: It is a separate flag from `allow_public_egress` on purpose. This one
+    #: says "the feature is built and wired"; that one says "this deployment
+    #: permits traffic to leave". Both must be true for anything to be sent,
+    #: so switching the feature on in a build cannot by itself open egress on
+    #: a client machine.
+    #:
+    #: FROM `.env` AND FROM NOWHERE ELSE, for the same reason as
+    #: `watch_owner_email`: a request that could set this could turn on
+    #: outbound network access for the process holding the client's corpus.
+    #: That is an operator decision, never a caller's.
+    market_live_enabled: bool = False
+
+    #: The second half of the switch: does this DEPLOYMENT permit egress.
+    #: Kept distinct so the two questions - "is the feature finished" and "is
+    #: this machine allowed to talk to the internet" - cannot be answered by
+    #: one careless edit.
+    market_allow_public_egress: bool = False
+
+    #: THE ONE HOST ALLOWLIST. Every outbound URL any tier builds is checked
+    #: against this and refused if its host is not here. One list, in one
+    #: place, so "where can this talk to" has a single answer that can be read
+    #: without grepping three provider modules.
+    #:
+    #: CODE-LEVEL ALLOWLISTING IS DEFENCE IN DEPTH AND NOT THE CONTROL. A
+    #: process that can open a socket can reach any host it likes; this list
+    #: only stops the code in THIS repository from doing so by accident or
+    #: through a mistaken config value. The real control is an OS-level
+    #: firewall rule (or an egress proxy) restricting the backend process to
+    #: these hosts, applied outside the application, where the application
+    #: cannot edit it. This list is what makes an accident loud; the firewall
+    #: is what makes a deliberate exfiltration hard.
+    #:
+    #: No tier-1 host is listed by default because no tier-1 vendor is chosen.
+    market_allowed_hosts: tuple[str, ...] = (
+        "api.openalex.org",
+        "en.wikipedia.org",
+    )
+
+    #: Tier 1, general web search. GENERIC NAME, not a vendor's.
+    #:
+    #: The vendor originally suggested has started asking for a billing
+    #: address, so the choice is unsettled. A setting called
+    #: `tavily_api_key` would have to be renamed the day that changes, and
+    #: renaming an environment variable on a client's machine is a silent
+    #: breakage: the old name keeps being read from their `.env`, resolves to
+    #: nothing, and the tier reports itself unconfigured while the operator
+    #: believes they configured it. The vendor is named by
+    #: `market_search_provider` and the credential is generic, so swapping
+    #: vendors is a value change rather than a rename.
+    #:
+    #: EMPTY IS A NORMAL STATE, not an error. Tier 1 unconfigured means tier 1
+    #: is not attempted, which is reported in `tiers_attempted`, and tiers 2
+    #: and 3 still answer.
+    market_search_api_key: str = ""
+    #: Which tier-1 adapter to use. Empty means no tier-1 provider at all.
+    #: Named separately from the key so a key can be present while the vendor
+    #: is switched off, which is what you want while testing a migration.
+    market_search_provider: str = ""
+    #: The tier-1 endpoint, config-driven so a vendor swap needs no code
+    #: change. Its host is still checked against `market_allowed_hosts`, so
+    #: setting this alone cannot open a new destination.
+    market_search_endpoint: str = ""
+
+    #: Tier 2, OpenAlex. THE OPERATOR'S ADDRESS, NEVER THE CLIENT'S, and
+    #: EMPTY BY DEFAULT.
+    #:
+    #: OpenAlex asks for a contact address to put a caller in its "polite
+    #: pool" - better rate limits in exchange for being identifiable. That is
+    #: a reasonable trade for whoever RUNS this software and an unreasonable
+    #: one to make on the client's behalf: their address in an outbound query
+    #: string tells OpenAlex which organisation is researching which
+    #: standards, which is exactly the kind of inference this product exists
+    #: to prevent. So it defaults to empty, the tier works without it on the
+    #: common pool, and if it is set it must be the address of the operator
+    #: deploying the system.
+    market_openalex_contact_email: str = ""
+
+    #: PER-TIER TIMEOUT. An offline-first product must not hang because
+    #: somebody's network is slow. These are deliberately short: the feature
+    #: is advisory background context, and a reader waiting on a spinner for a
+    #: "reference - background only" row is worse served than one told the
+    #: tier did not answer.
+    market_tier_timeout_seconds: float = 6.0
+
+    #: PER-TIER RATE LIMIT, as a minimum interval between outbound calls to
+    #: the same tier. Not a quota: a floor on spacing, which is the shape that
+    #: protects a free public API from a user holding down a button. Tier 2
+    #: and tier 3 are donated public infrastructure and being a bad citizen on
+    #: them is both rude and a fast route to being blocked.
+    market_tier_min_interval_seconds: float = 1.0
+
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.upload_dir, self.lance_dir.parent):
             d.mkdir(parents=True, exist_ok=True)
