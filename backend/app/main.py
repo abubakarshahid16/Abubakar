@@ -728,7 +728,7 @@ def market_preview_query(body: schemas.MarketQueryRequest,
     return market_mod.preview_query(body.query, body.country, body.freshness_days)
 
 
-@app.get("/api/market/preview")
+@app.get("/api/market/preview", response_model=schemas.MarketPreview)
 def market_preview(
     phrase: str = Query(..., min_length=1, max_length=2000),
     country: str | None = Query(None, max_length=8),
@@ -760,8 +760,8 @@ def market_preview(
         safe, country=country, freshness_days=freshness_days)
 
 
-@app.post("/api/market/search")
-def market_search(body: dict,
+@app.post("/api/market/search", response_model=schemas.MarketSearchResult)
+def market_search(body: schemas.MarketSearchRequest,
                   scope: access.AccessScope = Depends(access.current_scope)):
     """Run the configured tiers, or return the labelled samples with the flag
     off. NO TRANSPORT IS CONSTRUCTED HERE.
@@ -780,10 +780,12 @@ def market_search(body: dict,
     `audit` is stripped by `market_providers.to_api`. The rows it holds are for
     the persistence call site, not for a browser - shipping them would put a
     record of every outbound query into any page that calls this endpoint.
+    `response_model` is the second, independent guard on that: even if a
+    caller bypassed `to_api`, an undeclared field cannot be serialised.
     """
-    raw = str(body.get("phrase") or "")
-    country = body.get("country")
-    freshness = body.get("freshness_days")
+    raw = body.phrase or ""
+    country = body.country
+    freshness = body.freshness_days
     safe = market_phrase_mod.market_phrase(
         raw, analysis_mod._corpus_filenames(scope))
     result = market_providers_mod.search_all(

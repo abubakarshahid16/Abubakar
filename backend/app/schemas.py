@@ -718,6 +718,131 @@ class MarketQueryPreview(BaseModel):
     reason: str
 
 
+# ------------------------------------------- live public-market intelligence
+#
+# These describe the two routes the market panel is built against. They are
+# declared for the reason tests/test_no_internal_leaks.py exists: an untyped
+# 200 documents itself as `string`, so every frontend type written against it
+# is a guess. Wiring these routes without response models left that test red,
+# which is the codebase correctly refusing an undeclared body.
+#
+# A response_model also FILTERS. `market_providers.search_all` returns an
+# `audit` list for the persistence call site, and `to_api` strips it - but a
+# declared model means that even if `to_api` were bypassed, the audit rows
+# could not reach a browser. Two independent guards on the same leak, which is
+# the right number for the one field here that must never be served.
+
+
+class MarketOutboundPayload(BaseModel):
+    """THE OBJECT THAT WOULD LEAVE, for one tier.
+
+    A CLOSED shape, and the closure is the point: everything here is sent, so a
+    field added to this model is a field added to what leaves this machine.
+    There is deliberately nothing that could carry a passage - no `context`,
+    no `evidence`, no `surrounding_text`. See
+    tests/test_market_no_document_leak.py, which asserts the field NAMES as
+    well as the values.
+    """
+
+    phrase: str = Field(description="the scrubbed phrase, and the ONLY free "
+                                    "text that leaves this machine")
+    tier: str
+    provider_label: str
+    country: str | None
+    freshness_days: int | None
+
+
+class MarketPreviewPayload(BaseModel):
+    """One tier's payload, named so the reader knows which tier it belongs to."""
+
+    tier: str
+    provider_label: str
+    payload: MarketOutboundPayload
+
+
+class MarketPreview(BaseModel):
+    """What WOULD be sent, per tier. This route performs NO egress.
+
+    `payloads` IS A LIST, one entry per CONFIGURED tier, in attempt order. A
+    single payload could not be honest: a search builds one per tier, so
+    showing one meant the user approved an object that was never sent while up
+    to three others were - the defect this shape was rewritten to close.
+
+    `phrase` null means nothing safe survived and NO SEARCH IS POSSIBLE. Not
+    "send the raw text instead": a caller that falls back to the typed string
+    has broken the only guarantee that matters.
+    """
+
+    phrase: str | None
+    payloads: list[MarketPreviewPayload]
+    tiers_configured: list[str] = Field(
+        description="tiers this build could attempt, in order. Empty is real")
+    tiers_unconfigured: list[str] = Field(
+        description="tiers that cannot run here. Reported SEPARATELY from "
+                    "attempted, because nothing is ever sent to them")
+    tier_labels: dict[str, str] = Field(
+        description="tier id -> label. Sent so a caller never needs its own "
+                    "copy of this mapping, which would drift")
+
+
+class MarketRow(BaseModel):
+    """One public finding, or one labelled sample.
+
+    `published` is nullable and a null must render as NOTHING - not a dash, not
+    "N/A", and never today's date, which would date an undated page.
+    `retrieved` is when this machine fetched it and is always present.
+    """
+
+    text: str
+    provider_label: str = Field(
+        description="which tier produced this row, in its own words - or "
+                    "'sample - illustrative only' for a fixture, which no "
+                    "tier produced")
+    publisher: str
+    published: str | None
+    retrieved: str = Field(description="ISO-8601 UTC")
+    url: str
+    verification: str
+    is_sample: bool
+
+
+class MarketSearchRequest(BaseModel):
+    phrase: str
+    country: str | None = None
+    freshness_days: int | None = None
+
+
+class MarketSearchResult(BaseModel):
+    """The outcome of a search. FOUR states, and they mean different things.
+
+      * `enabled` false with a `phrase`: the feature is off and `rows` are the
+        labelled samples.
+      * `enabled` true with `phrase` null: nothing safe survived the scrub, so
+        no search was attempted. NOT a failure - the same state the preview
+        reports, so both screens can use one form of words.
+      * `failure` non-null: tiers were attempted and EVERY ONE failed. `rows`
+        is empty and samples are never substituted - a fixture served after a
+        failed live search is the one behaviour that turns this feature into a
+        liability.
+      * otherwise `rows` are real, and an empty `rows` is a real answer.
+
+    `tiers_attempted` against `tiers_answered` is what makes a dropped tier
+    visible. Unconfigured tiers are in neither: nothing was sent to them.
+    """
+
+    enabled: bool
+    phrase: str | None
+    rows: list[MarketRow]
+    tiers_attempted: list[str] = Field(
+        description="tiers actually CONTACTED. Never includes an unconfigured "
+                    "tier, so 'tried and did not answer' stays true")
+    tiers_answered: list[str]
+    tiers_unconfigured: list[str]
+    tier_labels: dict[str, str]
+    failure: str | None = Field(
+        None, description="set ONLY when every attempted tier failed")
+
+
 class ReportDocumentRow(BaseModel):
     document_id: str
     filename: str = Field(description="as it was named when the report was generated")
