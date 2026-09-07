@@ -249,7 +249,13 @@ describe("claim rows: an identical row is one row", () => {
     expect(out[0].rows).toHaveLength(1);
   });
 
-  it("keeps two rows that differ in page", () => {
+  // SUPERSEDED. This test used to assert that two rows differing only in page
+  // stayed two rows. That was wrong for the case that turned up next: a
+  // sentence or a running heading across a page break gives byte-identical
+  // text on p.267 and p.268, and showing it twice tells the reader nothing.
+  // The page is no longer part of the key; see toClaimClusters, and
+  // AnalysisModeScreen.emptyrow-dedup.test.tsx for the full rule.
+  it("collapses two rows that differ ONLY in page, keeping the first", () => {
     const out = toClaimClusters(
       [
         {
@@ -260,7 +266,8 @@ describe("claim rows: an identical row is one row", () => {
       ],
       located,
     );
-    expect(out[0].rows).toHaveLength(2);
+    expect(out[0].rows).toHaveLength(1);
+    expect(out[0].rows[0].page_start).toBe(267);
   });
 
   it("keeps two rows that differ in text", () => {

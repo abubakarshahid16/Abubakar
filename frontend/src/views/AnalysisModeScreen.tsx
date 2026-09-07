@@ -289,18 +289,29 @@ export function toClaimClusters(
       ? (c.facet as unknown[]).filter((f): f is string => typeof f === "string").join(" · ")
       : (str(c.facet) ?? "");
     const rawRows: Record<string, unknown>[] = Array.isArray(c.rows) ? c.rows : [];
-    // Retrieval can hand back the same passage twice - overlapping chunks over
-    // one page - and the table then shows one piece of evidence as two. A
-    // reader counts rows, so an IDENTICAL row (same document, same page, same
-    // words) is kept once. Two different passages from the same page differ in
-    // their words and stay two rows; nothing is merged on document and page
-    // alone.
+    // Retrieval can hand back the same passage twice - overlapping chunks, or
+    // one chunk per page where a sentence or a running heading crosses the page
+    // break - and the table then shows one piece of evidence as two rows a
+    // reader cannot tell apart. The key WAS (document, page, words), which let
+    // byte-identical text on p.267 and p.268 of the same file through as two
+    // rows; the page is now out of the key, so identical words from the same
+    // document are one row. The FIRST occurrence survives, with its own page.
+    //
+    // What is deliberately NOT collapsed:
+    //  - identical words in DIFFERENT documents stay two rows. Two documents
+    //    saying the same thing is the finding a comparison exists to report,
+    //    and merging it would delete it.
+    //  - near-identical is not identical. The words are compared as sent -
+    //    byte for byte, no trimming, no case folding, no whitespace or
+    //    punctuation normalisation - so one differing character is two rows.
+    //  - the key is per cluster, as before: the same passage cited under two
+    //    facets is two comparisons, not one duplicated row.
     const rows: ClaimRow[] = [];
     const seenRows = new Set<string>();
     for (const r of rawRows) {
       const row = toClaimRow(r, located);
       if (row === null) continue;
-      const key = JSON.stringify([row.filename, row.page_start, row.exact_span]);
+      const key = JSON.stringify([row.filename, row.exact_span]);
       if (seenRows.has(key)) continue;
       seenRows.add(key);
       rows.push(row);

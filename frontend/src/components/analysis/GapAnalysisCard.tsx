@@ -148,6 +148,52 @@ function hasBaselineSpan(item: GapItem): boolean {
   return typeof item.baseline_span === "string" && item.baseline_span.trim() !== "";
 }
 
+/** The backend's note, if it sent one with words in it. An empty string is not
+ *  a note, and rendering it produces a blank paragraph - a null rendering as
+ *  something. */
+function noteOf(item: GapItem): string | null {
+  return typeof item.note === "string" && item.note.trim() !== "" ? item.note : null;
+}
+
+/** The facet marker is a LABEL - the word "Facet" is this component's own.
+ *  Printed over an empty string it is the "Baseline, quoted verbatim" defect
+ *  again, so the whole marker is withheld when the payload sent no facet. */
+function hasFacet(item: GapItem): boolean {
+  return typeof item.facet === "string" && item.facet.trim() !== "";
+}
+
+/**
+ * Does this row have anything of its own to put in front of a reader?
+ *
+ * A bullet that renders to nothing but its status is a count over nothing:
+ * the collapsed summary already says "N facets not applicable", and the tally
+ * line already says how many rows carry each status, so a row whose facet,
+ * passage, evidence and note are all absent repeats a number the reader has
+ * and adds not one word to it. Such a row is NOT rendered as a bullet; it is
+ * disclosed in one line instead (see `withheldLine`), the same way the
+ * summary's dropped sentences are.
+ *
+ * The caption counts as content because it is a sentence the reader gets
+ * nowhere else on the row. Everything else here is the payload's.
+ */
+function hasRenderableBody(item: GapItem): boolean {
+  return (
+    hasFacet(item) ||
+    hasBaselineSpan(item) ||
+    item.project_citation_ids.length > 0 ||
+    noteOf(item) !== null ||
+    captionFor(item.status, item.project_citation_ids.length) !== null
+  );
+}
+
+/** What was withheld and why, in the payload's terms, never invented. Mirrors
+ *  the wording already used for the summary's dropped sentences. */
+function withheldLine(n: number): string {
+  return n === 1
+    ? "One of them was reported with no facet, no passage, no evidence and no note, so it is not shown here."
+    : `${n} of them were reported with no facet, no passage, no evidence and no note, so they are not shown here.`;
+}
+
 /**
  * Rows in the order a reader should meet them: by status rank, and within a
  * status the rows that cite project evidence before the rows that cite none.
@@ -286,18 +332,23 @@ function ItemRow({
   const evidenceCount = item.project_citation_ids.length;
   const caption = captionFor(item.status, evidenceCount);
   const withSpan = hasBaselineSpan(item);
+  const note = noteOf(item);
   return (
     <li className="border-t border-ink-700/60 py-3 first:border-t-0">
       {/* The status leads the row; the facet trails it as a marker. See the
-          note on FACET_LABEL for why the facet is not the heading. */}
+          note on FACET_LABEL for why the facet is not the heading. The marker
+          is withheld entirely when there is no facet: the word "Facet" over an
+          empty string is a label over nothing. */}
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <StatusMark status={item.status} />
-        <span className="text-[11px] text-slateish-500">
-          {FACET_LABEL}{" "}
-          <span data-facet="" className="font-mono text-slateish-400">
-            {item.facet}
+        {hasFacet(item) && (
+          <span className="text-[11px] text-slateish-500">
+            {FACET_LABEL}{" "}
+            <span data-facet="" className="font-mono text-slateish-400">
+              {item.facet}
+            </span>
           </span>
-        </span>
+        )}
       </div>
 
       {withSpan && (
@@ -340,7 +391,7 @@ function ItemRow({
         )}
       </div>
 
-      {item.note !== null && <p className="mt-2 text-sm text-slateish-300">{item.note}</p>}
+      {note !== null && <p className="mt-2 text-sm text-slateish-300">{note}</p>}
       {caption !== null && <p className={["mt-1.5 text-xs", s.tone].join(" ")}>{caption}</p>}
     </li>
   );
@@ -487,8 +538,14 @@ export function GapAnalysisCard({
 
   const baselineIsStated = gaps.baseline?.kind === "stated_requirement";
   const sorted = orderedItems(gaps.items);
-  const ordered = sorted.filter((it) => it.status !== "not_applicable");
-  const notApplicable = sorted.filter((it) => it.status === "not_applicable");
+  const orderedAll = sorted.filter((it) => it.status !== "not_applicable");
+  const notApplicableAll = sorted.filter((it) => it.status === "not_applicable");
+  // A row with nothing of its own to show is not rendered as a bullet; it is
+  // counted, and then said out loud. See `hasRenderableBody`.
+  const ordered = orderedAll.filter(hasRenderableBody);
+  const notApplicable = notApplicableAll.filter(hasRenderableBody);
+  const orderedWithheld = orderedAll.length - ordered.length;
+  const notApplicableWithheld = notApplicableAll.length - notApplicable.length;
 
   return (
     <section aria-label="Gap analysis" className="rounded-lg border border-ink-600 bg-ink-850 p-4">
@@ -507,23 +564,37 @@ export function GapAnalysisCard({
               ))}
             </ul>
           )}
-          {notApplicable.length > 0 && (
+          {orderedWithheld > 0 && (
+            <p className="mt-2 text-xs text-slateish-500">{withheldLine(orderedWithheld)}</p>
+          )}
+          {notApplicableAll.length > 0 && (
             /* Collapsed, never hidden: the count is in the summary, so it is
                readable without expanding, and every row is one click away. */
             <details className="mt-2 rounded border border-ink-700 bg-ink-850 px-3 py-2">
+              {/* The count is of what the payload reported, not of what this
+                  list could render - the honest number is the number that came
+                  back. Where the two differ, `withheldLine` says so. */}
               <summary className="cursor-pointer text-xs text-slateish-400">
-                {notApplicable.length} {notApplicable.length === 1 ? "facet" : "facets"} not applicable
+                {notApplicableAll.length} {notApplicableAll.length === 1 ? "facet" : "facets"} not
+                applicable
               </summary>
-              <ul className="mt-1">
-                {notApplicable.map((it, i) => (
-                  <ItemRow
-                    key={`na-${it.facet}-${i}`}
-                    item={it}
-                    onCite={onCite}
-                    baselineIsStated={baselineIsStated}
-                  />
-                ))}
-              </ul>
+              {notApplicable.length > 0 && (
+                <ul className="mt-1">
+                  {notApplicable.map((it, i) => (
+                    <ItemRow
+                      key={`na-${it.facet}-${i}`}
+                      item={it}
+                      onCite={onCite}
+                      baselineIsStated={baselineIsStated}
+                    />
+                  ))}
+                </ul>
+              )}
+              {notApplicableWithheld > 0 && (
+                <p className="mt-2 text-xs text-slateish-500">
+                  {withheldLine(notApplicableWithheld)}
+                </p>
+              )}
             </details>
           )}
         </>
