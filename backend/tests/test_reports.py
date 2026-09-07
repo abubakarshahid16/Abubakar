@@ -167,6 +167,11 @@ def test_the_watermark_and_page_number_are_on_every_page():
     ingest()
     rec = reports.generate(answered_message()["id"], access.unrestricted_scope())
     doc = pdf_of(rec)
+    # A zero-page report would satisfy every assertion inside the loop below by
+    # never running one. The furniture claim is "on EVERY page", which is only
+    # a claim if there is at least one page.
+    assert doc.page_count, "the report has no pages: the loop below asserts nothing"
+    assert rec["page_count"] == doc.page_count
     for page in doc:
         text = N(page.get_text())
         assert "NOT FOR CONSTRUCTION" in text, f"page {page.number + 1} unwatermarked"
@@ -345,25 +350,111 @@ def test_nothing_is_clipped_and_the_full_hash_survives():
     sha = db.connect().execute("SELECT sha256 FROM documents").fetchone()["sha256"]
     joined = "".join(all_text(doc).split())
     assert sha in joined, "the 64-character hash did not survive the table cell"
+    # Same shape as the watermark test: nothing below is asserted about a
+    # zero-page document, or about a page that yielded no blocks. Count what was
+    # actually measured and require it to be non-zero, so "nothing is clipped"
+    # cannot be satisfied by "nothing was looked at".
+    assert doc.page_count, "the report has no pages: the geometry loop asserts nothing"
+    measured = 0
     for page in doc:
         for b in page.get_text("blocks"):
             r = fitz.Rect(b[:4])
+            measured += 1
             assert r.x1 <= page.rect.x1 + 2 and r.y1 <= page.rect.y1 + 2, (
                 f"block past the page edge on page {page.number + 1}: {r}")
+    assert measured, "no text blocks were measured, so nothing was checked for clipping"
+
+
+PAYLOAD = "<script>alert(1)</script>"
+MARKUP = "<b>bold</b>"
 
 
 def test_document_text_is_html_escaped():
-    """A passage containing markup must render as text, not as markup."""
+    """Document text goes through a REAL HTML layer, and must survive it as text.
+
+    THE OLD ASSERTION WAS `"<script>" in text or "&lt;script&gt;" not in text`,
+    which is TRUE when the text contains NEITHER form - i.e. when the passage
+    never reached the PDF at all. An escaping test that passes on absent content
+    is how an escaping bug ships. Entry 4 of docs/status-honesty-audit.md is the
+    same shape.
+
+    THE PREMISE WAS CORRECT, and it was worth checking: `reports.to_html` really
+    does build an HTML document, `_esc` really is `html.escape`, and
+    `fitz.Story` really parses that HTML - measured below at both layers, so the
+    escaping is load-bearing rather than decorative.
+
+    WHAT IS ASSERTED, POSITIVELY, at each of the two layers:
+
+      * HTML SOURCE - the entity form `&lt;script&gt;` IS in `to_html` output
+        and the raw tag is NOT. This is the escape actually happening.
+      * RENDERED PDF - the payload comes back as LITERAL CHARACTERS,
+        `<script>alert(1)</script>`, and no entity form (`&lt;`, `&gt;`,
+        `&amp;`) is visible to a reader: the reader sees what the document said,
+        not entities and not markup.
+
+        MEASURED LIMIT OF THIS SECOND CHECK: Story's HTML parser decodes
+        entities RECURSIVELY. Double-escaping `_esc` (`html.escape` applied
+        twice) produces a PDF whose extracted text is byte-identical to the
+        correct one, so no PDF-text assertion can tell single from double
+        escaping. The HTML-source assertion above is the one that catches it -
+        it was mutated and does. This check catches the opposite failure: a
+        renderer that stops decoding and shows a reader `&lt;script&gt;`.
+      * NOT INTERPRETED - the span carrying "bold" still carries the literal
+        `<b>` characters. If Story had consumed `<b>` as an element the tag
+        characters would be gone and the word alone would remain, styled.
+
+    POSITIVE CONTROL: every assertion here requires the dangerous string to be
+    PRESENT. Absence fails, at the HTML layer and again in the PDF.
+    """
     ingest("evil.pdf", [[
         "9.9 Evil Clause",
-        "The limit is <b>bold</b> and <script>alert(1)</script> shall not apply",
+        f"The limit is {MARKUP} and {PAYLOAD} shall not apply",
         "to any centrifugal pump in hydrocarbon service under this specification.",
     ]])
-    rec = reports.generate(answered_message("what does the evil clause say about the limit")["id"],
-                           access.unrestricted_scope())
-    text = all_text(pdf_of(rec))
-    assert "<script>" in text or "&lt;script&gt;" not in text
-    assert "alert(1)" in text  # rendered as literal text, not executed or dropped
+    m = answered_message("what does the evil clause say about the limit")
+
+    # POSITIVE CONTROL 0 - the payload survived the fixture, ingestion and the
+    # persisted answer. Without this, everything below could be measuring a
+    # passage that lost its markup upstream of the renderer.
+    assert PAYLOAD in (m.get("text") or ""), (
+        "the payload never reached the persisted answer, so this test would be "
+        f"measuring nothing: {m.get('text')!r}")
+
+    # LAYER 1 - the HTML the renderer hands to Story. The escape, asserted
+    # positively: the entity form present, the live tag absent.
+    snapshot = reports.build_snapshot(m["id"], access.unrestricted_scope())
+    html_src = reports.to_html(snapshot)
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html_src, (
+        "document text reached the HTML layer unescaped or not at all")
+    assert "<script>" not in html_src, "a live <script> tag is in the report HTML"
+
+    # LAYER 2 - the rendered PDF, read back as text.
+    rec = reports.generate(m["id"], access.unrestricted_scope())
+    doc = pdf_of(rec)
+    assert doc.page_count, "the report has no pages"
+    text = all_text(doc)
+    assert PAYLOAD in text, (
+        "the payload did not reach the rendered PDF as literal text - absence "
+        "must not be mistaken for escaping")
+    assert MARKUP in text, "the markup passage did not reach the rendered PDF"
+    # Escaped once, decoded once. An entity visible to the reader means the
+    # text was escaped twice and the report now misquotes the document.
+    for entity in ("&lt;", "&gt;", "&amp;", "&lt;script&gt;"):
+        assert entity not in text, (
+            f"{entity!r} is visible in the PDF: the document text was escaped "
+            "twice and the quotation no longer matches the document")
+
+    # NOT INTERPRETED - the tag characters are still in the span that carries
+    # the word, so Story rendered them as text rather than consuming them.
+    spans = [N(s["text"]) for page in doc
+             for b in page.get_text("dict")["blocks"]
+             for line in b.get("lines", [])
+             for s in line["spans"]
+             if "bold" in N(s["text"]).lower()]
+    assert spans, "the word 'bold' was not found in any span"
+    assert any("<b>" in s for s in spans), (
+        f"the <b> tag characters were consumed as markup, not drawn: {spans}")
+    assert rec["page_count"] == doc.page_count
 
 
 # ------------------------------------------------------------ the snapshot
@@ -380,9 +471,14 @@ def test_the_renderer_reads_only_the_snapshot(monkeypatch):
     with conn:
         conn.execute("UPDATE documents SET filename = 'renamed.pdf', indexed_at = '2099-01-01T00:00:00'")
 
+    # POSITIVE CONTROL: the body does render the filename, so "renamed.pdf is
+    # absent" is a statement about the rename and not about a body that never
+    # names any file.
+    assert "spec.pdf" in before, "the report body does not render the filename at all"
     # Same snapshot in, same body out - the renderer never looked at the table.
     assert reports.to_html(snapshot) == before
     assert "renamed.pdf" not in before
+    assert "renamed.pdf" not in reports.to_html(snapshot)
 
 
 def test_evidence_drift_is_reported_not_silently_used():
@@ -564,11 +660,52 @@ def test_body_text_never_goes_through_the_unshaped_text_apis():
     confined to ASCII furniture."""
     import inspect
 
+    FURNITURE = "def _draw_furniture"
+    RENDER = "def render"
+
     src = inspect.getsource(reports)
-    # drop the module docstring, which names the forbidden APIs in order to forbid them
-    src = src.split('"""', 2)[2]
-    body = src.split("def _draw_furniture", 1)[0] + src.split("def render", 1)[1]
-    assert "insert_text" not in body
+
+    # Drop the module docstring, which names the forbidden APIs in order to
+    # forbid them. POSITIVE CONTROL on the split: the docstring half must be the
+    # half that mentions them, or the split did not land where we think.
+    parts = src.split('"""', 2)
+    assert len(parts) == 3, "the module docstring is not where this test expects it"
+    docstring, src = parts[1], parts[2]
+    assert "insert_text" in docstring, (
+        "the text dropped as 'the module docstring' does not mention insert_text, "
+        "so the docstring split landed somewhere else")
+
+    # LOUD ANCHORS. The old version derived `body` by splitting on these two
+    # function names with no check that either matched. Rename `_draw_furniture`
+    # or `render` and `body` silently shrank to a fragment - or the second split
+    # raised IndexError - and `insert_text not in body` became vacuously true.
+    # A missing or duplicated anchor must FAIL and name itself.
+    for anchor in (FURNITURE, RENDER):
+        assert src.count(anchor) == 1, (
+            f"{anchor!r} appears {src.count(anchor)} time(s) in app/reports.py; "
+            "this test slices the module on that name and cannot slice it "
+            "correctly. If the function was renamed, rename it here too - do "
+            "not let the search silently narrow")
+    assert src.index(FURNITURE) < src.index(RENDER), (
+        f"{FURNITURE!r} no longer precedes {RENDER!r}; the slice below would "
+        "not separate the furniture from the body")
+
+    head, furniture_and_render = src.split(FURNITURE, 1)
+    furniture, render_onward = furniture_and_render.split(RENDER, 1)
+    body = head + render_onward
+
+    # POSITIVE CONTROL on the exclusion: the unshaped API must actually BE in
+    # the half deliberately cut out. This is what proves the slice landed where
+    # the test believes it landed - without it, "not in body" is satisfied by a
+    # module that never calls insert_text anywhere, or by a body that is empty.
+    assert "insert_text" in furniture, (
+        f"insert_text is not in the {FURNITURE!r} half that this test excludes, "
+        "so the exclusion proves nothing about the body")
+    assert body.strip(), "the body half of the split came out empty"
+
+    assert "insert_text" not in body, (
+        "body text goes through an API that performs no Arabic shaping; "
+        "insert_text/insert_textbox are confined to ASCII furniture")
     assert "TextWriter" not in src
 
 
