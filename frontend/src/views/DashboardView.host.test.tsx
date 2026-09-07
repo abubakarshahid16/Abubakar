@@ -178,7 +178,14 @@ describe("the dashboard for a reader who may not see the machine", () => {
         warnings: [
           {
             code: "low_memory_for_answer_model",
-            severity: "warn",
+            // "warning", not "warn": metrics.py emits only info | warning |
+            // error, so a "warn" fixture described a response the backend
+            // cannot produce.
+            severity: "warning",
+            // Always sent, null where no document is implicated - the field is
+            // required in both schemas.MetricWarning and the contract, so
+            // omitting it described an impossible response too.
+            document_id: null,
             message:
               "This machine is low on memory for the answer model. Tier 2 " +
               "(Explain) may be slow or fail. Quoted answers are unaffected. " +

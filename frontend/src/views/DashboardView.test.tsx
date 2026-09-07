@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
 import type { Health } from "../api/client";
 import type { Metrics ,
+  SystemMetrics,
   WorkerStatus,
 } from "../types/api";
 
@@ -40,6 +41,32 @@ const health: Health = {
     stalled: false,
     busy: false,
   },
+};
+
+/** The admin host block, named so a test can override ONE field of it.
+ *
+ *  `Metrics.system` is optional AND nullable, because a non-admin is served
+ *  `"system": null` (see contracts/types.ts). Spreading
+ *  `...makeMetrics().system` therefore spread a `SystemMetrics | null |
+ *  undefined`, which makes every property optional and no longer satisfies
+ *  `SystemMetrics` - that was the type error here. Spreading this instead
+ *  keeps the override fully typed, so a renamed or dropped field is still
+ *  caught rather than silently becoming absent. */
+const HOST: SystemMetrics = {
+  cpu_percent_since_last_call: 31.5,
+  cpu_window_seconds: 15,
+  cpu_logical_cores: 12,
+  cpu_physical_cores: 10,
+  ram_total_bytes: 16_000_000_000,
+  ram_used_bytes: 9_600_000_000,
+  ram_free_bytes: 6_400_000_000,
+  ram_percent: 60,
+  process_rss_bytes: 512_000_000,
+  disk_total_bytes: 500_000_000_000,
+  disk_used_bytes: 250_000_000_000,
+  disk_free_bytes: 250_000_000_000,
+  disk_percent: 50,
+  data_dir_bytes: 1_200_000_000,
 };
 
 function makeMetrics(over: Partial<Metrics> = {}): Metrics {
@@ -85,22 +112,7 @@ function makeMetrics(over: Partial<Metrics> = {}): Metrics {
       embed: null,
     },
     retrieval: { unit: "ms", samples: 24, p50: 1363, p95: 1429, worst: 2787 },
-    system: {
-      cpu_percent_since_last_call: 31.5,
-      cpu_window_seconds: 15,
-      cpu_logical_cores: 12,
-      cpu_physical_cores: 10,
-      ram_total_bytes: 16_000_000_000,
-      ram_used_bytes: 9_600_000_000,
-      ram_free_bytes: 6_400_000_000,
-      ram_percent: 60,
-      process_rss_bytes: 512_000_000,
-      disk_total_bytes: 500_000_000_000,
-      disk_used_bytes: 250_000_000_000,
-      disk_free_bytes: 250_000_000_000,
-      disk_percent: 50,
-      data_dir_bytes: 1_200_000_000,
-    },
+    system: { ...HOST },
     models: {
       embed_model: "e5-small",
       embed_model_present: true,
@@ -468,7 +480,7 @@ describe("the first CPU reading", () => {
     mockApi(
       makeMetrics({
         system: {
-          ...makeMetrics().system,
+          ...HOST,
           cpu_percent_since_last_call: null,
           cpu_window_seconds: null,
         },

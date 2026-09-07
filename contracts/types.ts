@@ -972,13 +972,28 @@ export interface Metrics {
   throughput: Record<string, StageThroughput | null>;
   /** null until a question has actually been asked */
   retrieval: RetrievalLatency | null;
-  /** The machine's own CPU, memory and disk. ABSENT - the key is not present
-   *  at all - for any caller without the admin capability (#77). Host
-   *  specifications are not a document, so document scoping could never have
-   *  removed them. Render the block only when it is present; NEVER substitute
-   *  zeros for an absent block, which would state measurements that are
+  /** The machine's own CPU, memory and disk. WITHHELD from any caller without
+   *  the admin capability (#77) - host specifications are not a document, so
+   *  document scoping could never have removed them.
+   *
+   *  `null`, not merely absent, and that is measured rather than assumed. The
+   *  route declares `system: SystemMetrics | None` and sets no
+   *  `response_model_exclude_none`, so Pydantic serialises `"system": null`
+   *  even where the handler's dict omits the key - see the comment in
+   *  backend/tests/test_metrics_host_telemetry.py, which explains why buying
+   *  true key-absence was rejected: it would also strip `retrieval`,
+   *  `cpu_percent_since_last_call`, `disk_percent` and `ollama_error`, every
+   *  one of which the dashboard reads with an explicit null check and renders
+   *  as "not measured yet".
+   *
+   *  This type said `SystemMetrics | undefined` and so could not describe the
+   *  response the backend actually sends. Optional AND nullable: absent and
+   *  null both mean withheld, and the renderer must treat them alike.
+   *
+   *  Render the block only when it is present and non-null; NEVER substitute
+   *  zeros for a withheld block, which would state measurements that are
    *  false. */
-  system?: SystemMetrics;
+  system?: SystemMetrics | null;
   models: ModelStatus;
   worker: WorkerStatus;
   warnings: MetricWarning[];
