@@ -1,7 +1,7 @@
 /**
  * Composes the analysis cards into one readable column.
  *
- * Display order is mandated by NABAA-SUNDAY-POC-EXECUTION.md section 7.2:
+ * Display order is mandated by RAG-INTELLIGENCE-POC-EXECUTION.md section 7.2:
  *   Summary -> AI Recommendation -> Gap Analysis -> Market -> Claim comparison
  *   -> Coverage ledger / Sources.
  * The recommendation is COMPUTED last (after gaps and market) but DISPLAYED
