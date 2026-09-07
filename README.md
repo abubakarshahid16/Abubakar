@@ -100,7 +100,11 @@ not been run from a clean clone is a guess.
 can tell whether yours is going right: models staged 179 MB; backend suite
 **1,170 passed, 3 skipped, 17 xfailed in 5m56s**; frontend **496 passed across
 42 files**; `npx tsc -b` clean; the API answering 200 on `/api/health`,
-`/api/documents` (`[]`, no corpus in the clone) and `/api/metrics`. Two things
+`/api/documents` (`[]`, no corpus in the clone) and `/api/metrics`. The backend
+figure is four lower than step 5 because it was taken at 5baf18e, before
+cd72bac added four tests - the commit is named here rather than the number
+being quietly refreshed, so the two can be reconciled instead of looking like
+a contradiction. Two things
 that run found and this guide now fixes: `backend/.env` is never created by
 anything (step 4), and `py -3.12` does not exist on every Windows machine
 (step 1).
@@ -257,7 +261,7 @@ working one. No key in `.env.example` is a real credential.
 
 ```bash
 cd backend
-python -m pytest -q      # 1170 passed, 3 skipped, 17 xfailed; ~6 minutes
+python -m pytest -q      # 1174 passed, 3 skipped, 17 xfailed; ~5 minutes in CI
 ```
 
 Run it from `backend/`, not from the repository root. `pytest.ini` lives there,
