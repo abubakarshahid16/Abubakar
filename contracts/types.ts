@@ -678,6 +678,142 @@ export interface MarketQueryPreview {
   reason: string;
 }
 
+// ------------------------------- live public-market intelligence (flag off)
+//
+// THESE LIVE HERE, not in api/client.ts, and the reason is a defect that
+// already happened. They were declared inside the frontend client, so there
+// was no single source of truth for this contract - and when the backend
+// renamed `payload` to `payloads`, `tsc` passed, all 23 panel tests passed,
+// and the confirmation dialog rendered `undefined` where the outbound payload
+// must appear. The tests mocked the backend using the frontend's own
+// interface, so they proved the panel agreed with itself.
+//
+// The authority is backend/app/schemas.py: MarketPreview, MarketSearchResult,
+// MarketRow, MarketPreviewPayload, MarketOutboundPayload. Change one, change
+// both, in the same commit.
+
+/** Which kind of source a row came from.
+ *
+ *  A CLOSED set, and the row's own words - never derived from the url, the
+ *  publisher or anything else the UI can see. A reference row that reached a
+ *  compliance screen wearing a market-search label is the defect this type
+ *  exists to make impossible, so there is no fallback member and no optional
+ *  marker: a row without one does not type-check. */
+export type MarketProviderLabel =
+  | "market search"
+  | "published literature"
+  | "reference - background only"
+  /** The labelled fixtures served while live egress is off. Its OWN label
+   *  rather than a borrowed one: samples were once labelled
+   *  "reference - background only", which made the panel print "this row is
+   *  not a market finding" over rows that are illustrative MARKET rows. Both
+   *  sentences were true of a sample and the provenance was still wrong -
+   *  no tier produced these, which is the point of them. */
+  | "sample - illustrative only";
+
+/** THE OBJECT THAT WOULD LEAVE THIS MACHINE, for one tier.
+ *
+ *  A CLOSED shape whose closure is load-bearing rather than tidy: everything
+ *  in it is sent, so a field added here is a field added to what leaves.
+ *  There is deliberately nothing that could carry a passage - no `context`,
+ *  no `evidence`, no `surrounding_text`. */
+export interface MarketOutboundPayload {
+  /** The scrubbed phrase, and the ONLY free text that leaves the machine. */
+  phrase: string;
+  tier: string;
+  provider_label: string;
+  country: string | null;
+  freshness_days: number | null;
+}
+
+export interface MarketPreviewPayload {
+  tier: string;
+  provider_label: string;
+  payload: MarketOutboundPayload;
+}
+
+/** What WOULD be sent, per tier. This route performs NO egress and is safe to
+ *  call on every keystroke.
+ *
+ *  `payloads` IS A LIST, one entry per CONFIGURED tier, in attempt order,
+ *  BECAUSE THAT IS WHAT ACTUALLY LEAVES. A single payload could not be
+ *  honest: a search builds one per tier, so showing one meant the user
+ *  approved an object that was never sent while up to three others were.
+ *  Render every entry, or the dialog is back to implying that one of them is
+ *  the whole request.
+ *
+ *  `phrase` null means nothing safe survived and NO SEARCH IS POSSIBLE - not
+ *  "send the raw text instead". A UI that falls back to the typed string here
+ *  has broken the only guarantee that matters. */
+export interface MarketPreview {
+  phrase: string | null;
+  payloads: MarketPreviewPayload[];
+  /** Tiers this build could attempt, in order. Empty is a real state. */
+  tiers_configured: string[];
+  /** Tiers that cannot run here. Reported SEPARATELY from configured and from
+   *  `tiers_attempted`, because nothing is ever sent to them - so a UI must
+   *  not say one was "tried". */
+  tiers_unconfigured: string[];
+  /** tier id -> label. Sent so the UI never keeps its own copy of this
+   *  mapping, which is how a reader ends up seeing "web" on one line and
+   *  "market search" on the next. */
+  tier_labels: Record<string, string>;
+}
+
+export interface MarketSearchRequest {
+  phrase: string;
+  country?: string | null;
+  freshness_days?: number | null;
+}
+
+/** One public finding, or one labelled sample.
+ *
+ *  `published` is nullable and a null must render as NOTHING - not a dash, not
+ *  "N/A", and never today's date, which would date an undated page.
+ *  `retrieved` is when this machine fetched it and is always present. */
+export interface MarketRow {
+  text: string;
+  provider_label: MarketProviderLabel;
+  publisher: string;
+  published: string | null;
+  retrieved: string;
+  url: string;
+  /** The backend's own word for whether the page behind the row was read.
+   *  Render as sent when it is not a word this build knows. */
+  verification: string;
+  /** true for the labelled fixtures served when the feature is off. */
+  is_sample: boolean;
+}
+
+/** The outcome of a search. FOUR states, and they mean different things.
+ *
+ *   - `enabled` false with a `phrase`: the feature is off and `rows` are the
+ *     labelled samples;
+ *   - `enabled` true with `phrase` null: nothing safe survived the scrub, so
+ *     no search was attempted. NOT a failure - the same state the preview
+ *     reports, so both screens can use one form of words;
+ *   - `failure` non-null: tiers were attempted and EVERY ONE failed. `rows` is
+ *     empty and samples are never substituted - a fixture served after a
+ *     failed live search is the one behaviour that turns this feature into a
+ *     liability;
+ *   - otherwise `rows` are real, and an empty `rows` is a real answer.
+ *
+ *  `tiers_attempted` against `tiers_answered` is what makes a dropped tier
+ *  visible. Unconfigured tiers are in NEITHER: nothing was sent to them. */
+export interface MarketSearchResult {
+  enabled: boolean;
+  phrase: string | null;
+  rows: MarketRow[];
+  /** Tiers actually CONTACTED. Never includes an unconfigured tier, so
+   *  "tried and did not answer" stays a true sentence. */
+  tiers_attempted: string[];
+  tiers_answered: string[];
+  tiers_unconfigured: string[];
+  tier_labels: Record<string, string>;
+  /** Set ONLY when every attempted tier failed. */
+  failure: string | null;
+}
+
 // ------------------------------------------------------------------ reports
 
 export interface ReportDocumentRow {

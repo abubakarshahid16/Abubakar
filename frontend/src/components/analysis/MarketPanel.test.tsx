@@ -84,10 +84,43 @@ const QUERY: PublicMarketQuery = { query: "sea water pump alloy price", country:
 const TYPED = "zinc epoxy primer price for the Statfjord tie-in";
 const SCRUBBED = "zinc epoxy primer price";
 
-/** The backend's payload, deliberately NOT `JSON.stringify(the form)`: a
- *  client-side reconstruction passing this test would prove nothing about what
- *  actually leaves the machine. The extra key is what makes them differ. */
-const PAYLOAD = { q: SCRUBBED, tier: "web", redactions_applied: 2 };
+/** The backend's payloads, deliberately NOT `JSON.stringify(the form)`.
+ *
+ *  A client-side reconstruction passing these assertions would prove nothing
+ *  about what actually leaves the machine, so the values are ones the form
+ *  cannot produce: `country: "SE"` and `freshness_days: 7` appear nowhere in
+ *  the form or in QUERY. Render the panel's own guess and these tests fail.
+ *
+ *  (The previous fixture achieved the same thing with an extra key. It cannot
+ *  now: `MarketOutboundPayload` is closed at five fields, because everything
+ *  in it is sent. Distinguishing VALUES rather than an extra field keeps the
+ *  guard without weakening the type.) */
+
+/** ONE PAYLOAD PER TIER, which is what the backend sends and what leaves.
+ *
+ *  These fixtures previously held a single `payload`, and that is how the
+ *  integration broke silently: the backend renamed the field to `payloads`
+ *  and returned a list, `tsc` passed, all 23 tests here passed, and the
+ *  dialog rendered `undefined` in the one place the panel exists to fill -
+ *  because these mocks were built from the frontend's own interface rather
+ *  than the contract. The types now live in contracts/types.ts, so the same
+ *  drift is a compile error. */
+const PAYLOADS = [
+  { tier: "literature", provider_label: "published literature",
+    payload: { phrase: SCRUBBED, tier: "literature",
+               provider_label: "published literature",
+               country: "SE", freshness_days: 7 } },
+  { tier: "reference", provider_label: "reference - background only",
+    payload: { phrase: SCRUBBED, tier: "reference",
+               provider_label: "reference - background only",
+               country: "SE", freshness_days: 7 } },
+];
+
+const TIER_LABELS: Record<string, string> = {
+  web: "market search",
+  literature: "published literature",
+  reference: "reference - background only",
+};
 
 /** The tier lists carry TIER IDS, which are not the provider labels a row
  *  wears: market_providers.py attempts "web", "literature", "reference" and
@@ -100,12 +133,24 @@ const TIERS = ["web", "literature", "reference"];
 
 /** The payload block is a <pre> and keeps its newlines. getByText collapses
  *  whitespace by default, which would never match a multi-line string - so the
- *  comparison is made against the text exactly as it is rendered. */
-const PAYLOAD_TEXT = JSON.stringify(PAYLOAD, null, 2);
+ *  comparison is made against the text exactly as it is rendered.
+ *
+ *  One per tier now. Both are asserted where it matters, so a dialog that
+ *  rendered only the first would fail - showing one payload while three leave
+ *  is the defect this whole shape exists to prevent. */
+const PAYLOAD_TEXTS = PAYLOADS.map((e) => JSON.stringify(e.payload, null, 2));
+const PAYLOAD_TEXT = PAYLOAD_TEXTS[0];
 const VERBATIM = { collapseWhitespace: false } as const;
 
 function preview(over: Partial<MarketPreview> = {}): MarketPreview {
-  return { phrase: SCRUBBED, payload: PAYLOAD, tiers_configured: TIERS, ...over };
+  return {
+    phrase: SCRUBBED,
+    payloads: PAYLOADS,
+    tiers_configured: ["literature", "reference"],
+    tiers_unconfigured: ["web"],
+    tier_labels: TIER_LABELS,
+    ...over,
+  };
 }
 
 const MARKET_ROW: MarketRow = {
@@ -149,9 +194,14 @@ const SAMPLE_ROW: MarketRow = {
 function result(over: Partial<MarketSearchResult> = {}): MarketSearchResult {
   return {
     enabled: true,
+    // Echoed by the backend. `phrase: null` is its own state - nothing safe
+    // survived, no search attempted - and is NOT the same as `failure`.
+    phrase: SCRUBBED,
     rows: [MARKET_ROW, REFERENCE_ROW],
     tiers_attempted: TIERS,
     tiers_answered: TIERS,
+    tiers_unconfigured: [],
+    tier_labels: TIER_LABELS,
     failure: null,
     ...over,
   };
@@ -262,6 +312,49 @@ describe("MarketPanel: nothing leaves the machine without a click", () => {
 // ------------------------------------------------------------- the payload
 
 describe("MarketPanel: the exact payload is shown before anything is sent", () => {
+  it("renders EVERY tier's payload, not just the first", async () => {
+    /** THE ASSERTION THIS SHAPE EXISTS FOR.
+     *
+     *  A search builds one payload per configured tier and sends all of them.
+     *  A dialog that rendered only `payloads[0]` would pass every other test
+     *  in this block while the reader approved one object and three left - the
+     *  same defect as the single `payload` field it replaced, just harder to
+     *  see. So each one is asserted by its own text, and the tier it belongs
+     *  to is named beside it.
+     */
+    const user = userEvent.setup();
+    mount();
+    const dialog = await openPreview(user);
+
+    for (const text of PAYLOAD_TEXTS) {
+      expect(await within(dialog).findByText(text, VERBATIM)).toBeInTheDocument();
+    }
+    expect(PAYLOAD_TEXTS.length).toBeGreaterThan(1);
+
+    // Each block says which provider it would go to, or two <pre> elements
+    // side by side tell the reader nothing about which is which.
+    expect(within(dialog).getByText(/To published literature:/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/To reference - background only:/),
+    ).toBeInTheDocument();
+  });
+
+  it("names the tiers that are NOT configured, and does not call them attempted", async () => {
+    /** `tiers_unconfigured` is reported separately by the backend because
+     *  nothing is ever sent to those tiers. The dialog says so in those words:
+     *  "not contacted" rather than anything that reads as "tried". */
+    const user = userEvent.setup();
+    previewMock.mockResolvedValue(ok(preview()));
+    mount();
+    const dialog = await openPreview(user);
+
+    const line = await within(dialog).findByText(/Not configured here, and not contacted/);
+    // Rendered through `tier_labels`, so the reader sees "market search" and
+    // never the raw id "web".
+    expect(line).toHaveTextContent("market search");
+    expect(line.textContent).not.toContain("web");
+  });
+
   it("renders the typed phrase, the scrubbed phrase and the backend's payload verbatim", async () => {
     const user = userEvent.setup();
     mount();
@@ -622,6 +715,11 @@ describe("MarketPanel: the offline sample presentation", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(within(dialog).getByText(QUERY.query)).toBeInTheDocument();
-    await waitFor(() => expect(previewMock).toHaveBeenCalledWith(QUERY.query));
+    await waitFor(() =>
+      expect(previewMock).toHaveBeenCalledWith(QUERY.query, {
+        country: QUERY.country,
+        freshness_days: QUERY.freshness_days,
+      }),
+    );
   });
 });

@@ -26,7 +26,10 @@ import type {
   AnalysisSummaryResult,
   LoginResult,
   MarketFindings,
+  MarketPreview,
   MarketQueryPreview,
+  MarketSearchRequest,
+  MarketSearchResult,
   Progress,
   MarketQueryRequest,
   Metrics,
@@ -229,93 +232,21 @@ export const analysis = {
     }),
 };
 
-/** Which kind of source a market row came from.
- *
- *  A CLOSED set, and the row's own words - never derived from the url, the
- *  publisher or anything else the UI can see. A reference row that reached a
- *  compliance screen wearing a market-search label is the defect this type
- *  exists to make impossible, so there is no fallback member and no optional
- *  marker: a row without one does not type-check. */
-export type MarketProviderLabel =
-  | "market search"
-  | "published literature"
-  | "reference - background only"
-  /** The labelled fixtures served while live egress is off. It is a provider
-   *  label of its own rather than a borrowed one: the backend previously
-   *  labelled samples "reference - background only", which made the panel
-   *  print "this row is not a market finding" over rows that are illustrative
-   *  MARKET rows. Both statements were true of a sample and the provenance
-   *  was still wrong, and a wrong provenance label on a compliance screen is
-   *  the defect this whole union exists to prevent. Paired with `is_sample`,
-   *  which remains the machine-readable carrier. */
-  | "sample - illustrative only";
-
-/** What WOULD be sent, as the backend itself would send it.
- *
- *  This route performs NO egress and is safe to call on every preview. Two
- *  fields carry the promise the client was given:
- *
- *  `phrase` is what survived scrubbing. NULL means nothing safe survived and
- *  NO SEARCH IS POSSIBLE - not "send the raw text instead". A UI that falls
- *  back to the typed string here has broken the only guarantee that matters.
- *
- *  `payload` is the exact outbound object, serialised and shown verbatim
- *  before anything can be sent. It is the backend's, not the client's: a
- *  client-side reconstruction is a GUESS at what leaves the machine, and a
- *  guess that drifts from the real request is a lie told with confidence. */
-export interface MarketPreview {
-  phrase: string | null;
-  payload: object;
-  /** The tiers this build could attempt, in order. Empty is a real state. */
-  tiers_configured: string[];
-}
-
-export interface MarketSearchRequest {
-  phrase: string;
-  country?: string | null;
-  freshness_days?: number | null;
-}
-
-/** One public finding.
- *
- *  `published` is nullable and a null must render as NOTHING - not a dash,
- *  not "N/A", and never today's date, which would date an undated page.
- *  `retrieved` is when this machine fetched it and is always present.
- *
- *  `verification` is the backend's own word for whether the page behind the
- *  row was read. Rendered as sent when it is not a word this build knows. */
-export interface MarketRow {
-  text: string;
-  provider_label: MarketProviderLabel;
-  publisher: string;
-  published: string | null;
-  retrieved: string;
-  url: string;
-  verification: string;
-  /** true for the labelled fixtures served when the feature is off. */
-  is_sample: boolean;
-}
-
-/** The outcome of a real search.
- *
- *  Three states, and they must not be confused with one another:
- *   - `enabled` false: the feature is off, `rows` are the labelled samples
- *     and `failure` is null;
- *   - `failure` non-null: every tier failed, `rows` is EMPTY, and samples are
- *     never substituted - a fixture presented after a failed live search is
- *     the one behaviour that turns this feature into a liability;
- *   - otherwise `rows` are real, and an empty `rows` is a real answer.
- *
- *  `tiers_attempted` against `tiers_answered` is what makes the fallback
- *  visible: a reader must be able to see that tier 1 was tried and did not
- *  answer, rather than meeting tier-3 background rows as market findings. */
-export interface MarketSearchResult {
-  enabled: boolean;
-  rows: MarketRow[];
-  tiers_attempted: string[];
-  tiers_answered: string[];
-  failure: string | null;
-}
+// The market preview/search contract now lives in contracts/types.ts, which
+// this file's own header calls the single source of truth. It was declared
+// HERE, and that is exactly how the drift happened: the backend renamed
+// `payload` to `payloads`, `tsc` passed, all 23 panel tests passed, and the
+// confirmation dialog rendered `undefined` in the one place the whole panel
+// exists to fill. Re-exported so existing imports keep working.
+export type {
+  MarketProviderLabel,
+  MarketOutboundPayload,
+  MarketPreviewPayload,
+  MarketPreview,
+  MarketRow,
+  MarketSearchRequest,
+  MarketSearchResult,
+} from "../types/api";
 
 export const market = {
   findings: () => request<MarketFindings>("/market/findings"),
@@ -326,9 +257,23 @@ export const market = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
-  /** The exact outbound payload, and the scrubbed phrase. NO egress. */
-  preview: (phrase: string) =>
-    request<MarketPreview>(`/market/preview?phrase=${encodeURIComponent(phrase)}`),
+  /** The exact outbound payloads, one per tier, and the scrubbed phrase. NO
+   *  egress, so this is safe to call on every preview.
+   *
+   *  THE SCOPE FIELDS ARE PASSED, and they have to be. `country` and
+   *  `freshness_days` appear in every payload a search sends, so a preview
+   *  called without them returns payloads that differ from what would leave -
+   *  which is how the panel ended up disclosing them on a separate line
+   *  attributed to itself. Sent here, the backend's own payloads carry them
+   *  and the dialog needs no footnote. */
+  preview: (phrase: string, scope?: { country?: string | null; freshness_days?: number | null }) => {
+    const params = new URLSearchParams({ phrase });
+    if (scope?.country != null) params.set("country", scope.country);
+    if (scope?.freshness_days != null) {
+      params.set("freshness_days", String(scope.freshness_days));
+    }
+    return request<MarketPreview>(`/market/preview?${params.toString()}`);
+  },
   /** THE ONLY CALL IN THIS MODULE THAT CAN LEAVE THE MACHINE. It must be
    *  reachable from an explicit click and from nothing else - no debounce, no
    *  submit-on-enter, no blur handler.

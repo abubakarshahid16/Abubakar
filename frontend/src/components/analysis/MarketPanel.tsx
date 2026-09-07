@@ -14,11 +14,27 @@
  * read on this machine's own backend, performs no egress, and is the only
  * thing typing or submitting can reach.
  *
- * AND IT DOES NOT SEND WHAT IT CANNOT SHOW. The payload in the dialog is the
- * BACKEND'S (`preview.payload`), not a client-side re-serialisation of the
- * form: a reconstruction is a guess at what leaves the machine, and a guess
- * that has drifted is a lie told with confidence. So when the preview has not
- * arrived, Confirm sends nothing at all and the panel says so. The button is
+ * AND IT DOES NOT SEND WHAT IT CANNOT SHOW. The payloads in the dialog are
+ * the BACKEND'S (`preview.payloads`), not a client-side re-serialisation of
+ * the form: a reconstruction is a guess at what leaves the machine, and a
+ * guess that has drifted is a lie told with confidence. So when the preview
+ * has not arrived, Confirm sends nothing at all and the panel says so.
+ *
+ * ONE PAYLOAD PER TIER, ALL OF THEM RENDERED. A search builds one payload per
+ * configured tier and sends every one, so a dialog showing a single object
+ * would have the reader approve one request while three left. This is not
+ * hypothetical: the backend once returned a single `payload` for the
+ * reference tier with no country and no freshness while a search sent one per
+ * tier carrying both - and because these types lived in api/client.ts rather
+ * than contracts/types.ts, the rename to `payloads` compiled, all tests
+ * passed, and this dialog rendered `undefined` in the one place it exists to
+ * fill. The types now live in the contract, so that drift is a compile error.
+ *
+ * THE SCOPE IS IN THE PAYLOADS, not in a footnote. `country` and
+ * `freshness_days` are passed to /api/market/preview and come back inside
+ * each payload, stated by the backend. This panel used to list them itself
+ * and attribute them to itself, which asked the reader to trust the panel
+ * about what the request contained. The button is
  * left live in that state rather than disabled on purpose - the reader gets a
  * sentence explaining that nothing was sent, which is more use than a dead
  * control with no explanation. When the preview arrives and its phrase is
@@ -378,19 +394,6 @@ type PreviewState =
   | { s: "unreachable" }
   | { s: "error"; message: string };
 
-/** The two scope values this PANEL adds to the phrase, said out loud.
- *
- *  /api/market/preview takes the phrase alone, so `preview.payload` cannot
- *  attest to them. Rather than let the dialog imply that the payload is the
- *  whole request, they are listed separately and attributed to this panel.
- *  Withheld entirely when neither is set - there is nothing to disclose. */
-function scopeLine(q: PublicMarketQuery): string | null {
-  const parts: string[] = [];
-  if (q.country !== null) parts.push(`country ${q.country}`);
-  if (q.freshness_days !== null) parts.push(`freshness ${q.freshness_days} days`);
-  return parts.length === 0 ? null : parts.join(", ");
-}
-
 function ConfirmDialog({
   query,
   egress,
@@ -452,8 +455,6 @@ function ConfirmDialog({
     targets[next].focus();
   }
 
-  const scope = scopeLine(query);
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/80 p-4">
       <div
@@ -498,20 +499,46 @@ function ConfirmDialog({
               The phrase that would be sent
             </p>
             <p className="mt-1 break-words text-sm text-slateish-100">{preview.data.phrase}</p>
+            {/* ONE BLOCK PER TIER, because that is what actually leaves. A
+                search builds one payload per configured tier, so a single
+                block meant the reader approved one object while up to three
+                others went - and this dialog is the approval. Each is
+                labelled with the tier it belongs to, so "would be asked of"
+                and "here is what it would be asked" are the same list. */}
             <p className="mt-3 text-[11px] uppercase tracking-wider text-slateish-500">
-              The exact outbound payload, as the backend states it
+              {preview.data.payloads.length === 1
+                ? "The exact outbound payload, as the backend states it"
+                : `The exact outbound payloads, as the backend states them (${preview.data.payloads.length})`}
             </p>
-            <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded border border-ink-600 bg-ink-900 p-3 font-mono text-xs text-slateish-100">
-              {JSON.stringify(preview.data.payload, null, 2)}
-            </pre>
-            {scope !== null && (
-              <p className="mt-2 text-xs text-slateish-400">
-                Sent with it by this panel: {scope}.
+            {preview.data.payloads.map((entry) => (
+              <div key={entry.tier} className="mt-2">
+                <p className="text-xs text-slateish-400">
+                  To {entry.provider_label}:
+                </p>
+                <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded border border-ink-600 bg-ink-900 p-3 font-mono text-xs text-slateish-100">
+                  {JSON.stringify(entry.payload, null, 2)}
+                </pre>
+              </div>
+            ))}
+            {/* NO SEPARATE SCOPE LINE. `country` and `freshness_days` are
+                inside each payload above, stated by the backend, because
+                /api/market/preview now takes them. The panel used to list
+                them itself and attribute them to itself - a workaround for
+                the preview not carrying them, and one that asked the reader
+                to trust the panel about what the request contained. */}
+            {preview.data.payloads.length === 0 && (
+              <p className="mt-2 text-xs text-warn-500">
+                No tier is configured in this build, so there is nothing to
+                send and nothing would be sent.
               </p>
             )}
-            {preview.data.tiers_configured.length > 0 && (
+            {preview.data.tiers_unconfigured.length > 0 && (
               <p className="mt-2 text-xs text-slateish-400">
-                Would be asked of: {preview.data.tiers_configured.join(", ")}.
+                Not configured here, and not contacted:{" "}
+                {preview.data.tiers_unconfigured
+                  .map((t) => preview.data.tier_labels[t] ?? t)
+                  .join(", ")}
+                .
               </p>
             )}
           </>
@@ -658,12 +685,20 @@ export function MarketPanel({
 
   const pending = pendingLocal ?? pendingQuery ?? null;
   const phrase = pending === null ? null : pending.query;
+  // Hoisted out of the effect so they can be DEPENDENCIES of it. Read inside
+  // the effect body instead, they would go stale: the effect keyed on the
+  // phrase alone, so changing the country and reopening on the same phrase
+  // would have previewed the old scope and then sent the new one - the
+  // preview-is-not-the-payload defect again, in the panel this time.
+  const pendingCountry = pending?.country ?? null;
+  const pendingFreshness = pending?.freshness_days ?? null;
 
   // The preview is a read on this machine's own backend and performs no
   // egress, so it is safe to run the moment the dialog opens. It is keyed on
-  // the phrase alone: reopening the dialog on the same phrase re-reads it
-  // rather than trusting a value the scrubber may since have been
-  // reconfigured for.
+  // the phrase AND both scope fields: reopening on the same phrase re-reads
+  // it rather than trusting a value the scrubber may since have been
+  // reconfigured for, and a changed country re-reads it because the country
+  // is inside the payload being approved.
   useEffect(() => {
     if (phrase === null) {
       setPreview(null);
@@ -671,7 +706,12 @@ export function MarketPanel({
     }
     let live = true;
     setPreview({ s: "loading" });
-    void marketApi.preview(phrase).then((r) => {
+    // THE SCOPE GOES WITH IT. Both fields end up inside every payload the
+    // backend returns, so the dialog shows the real request rather than the
+    // phrase plus a footnote from this panel about what else was attached.
+    void marketApi
+      .preview(phrase, { country: pendingCountry, freshness_days: pendingFreshness })
+      .then((r) => {
       if (!live) return;
       if (r.ok) {
         setPreview({ s: "ready", data: r.data });
@@ -684,7 +724,7 @@ export function MarketPanel({
     return () => {
       live = false;
     };
-  }, [phrase]);
+  }, [phrase, pendingCountry, pendingFreshness]);
 
   const close = useCallback(() => {
     setPendingLocal(null);
