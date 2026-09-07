@@ -230,6 +230,29 @@ def narrow_to_named(
 #: smaller; this widens the field where there is a field to widen.)
 ANALYSIS_OVERFETCH = 3
 
+#: The screen sends `limit`: 8 for Quick, 24 for Comprehensive
+#: (AnalysisModeScreen.tsx). Until now both ran the same single generation, and
+#: the larger number bought the reader LESS.
+#:
+#: MEASURED, live: "do your deep analysis find all structural models from all
+#: documents" in Comprehensive returned "the model reported the sources do not
+#: support a summary", and the AI recommendation then correctly stayed silent
+#: because it is gated on cited summary sentences. The SAME question had
+#: answered minutes earlier on 9 passages. Qwen3.5:4b at num_ctx 4096 on a 15 W
+#: CPU DECLINES rather than crashing when the prompt is too large, so the
+#: failure arrives looking like a judgement about the evidence.
+#:
+#: `synthesis._fit` reserves prompt budget for the header of every source it is
+#: handed - ~52 tokens each, because the tokenizer charges digits one at a time
+#: - including the sources it is about to drop. Twenty-four headers reserve
+#: ~1,250 tokens of a 3,846 token budget for passages the model never sees.
+#:
+#: So the modes are made to mean what they say. Quick is one pass over the top
+#: QUICK_PASSAGES. Comprehensive is a map-reduce: every document that has a
+#: passage gets its own summary, and the final call runs over those. No
+#: frontend change - `limit` already carries the distinction.
+QUICK_PASSAGES = 8
+
 #: One document may supply at most a third of the candidate passages.
 #:
 #: MEASURED: "compare design submittal percentages in doc13.pdf and
@@ -260,6 +283,11 @@ MIN_PER_DOCUMENT = 2
 def per_document_cap(limit: int) -> int:
     """The most passages any one document may supply at this limit."""
     return max(MIN_PER_DOCUMENT, math.ceil(max(limit, 1) / PER_DOCUMENT_SHARE))
+
+
+def is_comprehensive(limit: int) -> bool:
+    """Whether this request asked for more than one pass can honestly carry."""
+    return limit > QUICK_PASSAGES
 
 
 def contributing_documents(hits: list[dict]) -> int:
@@ -648,15 +676,35 @@ def _generate_or_refuse(fn, *args, **kwargs):
         raise ModelUnavailable(type(exc).__name__) from exc
 
 
+def _synthesise(question: str, evidence: list[dict], limit: int,
+                generate) -> synthesis.Summary:
+    """The one place the mode is decided, so the summary route and the
+    recommendation route cannot drift into running different engines over the
+    same question."""
+    model = generate or ollama_generate
+    if is_comprehensive(limit):
+        return _generate_or_refuse(synthesis.map_reduce, question, evidence, model)
+    # Quick is a PREFIX of the same ranked list, cut here rather than at
+    # retrieval, so the evidence ledger the reader is shown and the passages
+    # the model saw come from one gather.
+    return _generate_or_refuse(
+        synthesis.summarise, question, evidence[:QUICK_PASSAGES], model)
+
+
 # ------------------------------------------------------------------ stage 3
 
 
 def summary(question: str, scope: access.AccessScope, *, limit: int = 8,
             generate=None) -> dict:
-    """Generated prose over the retrieved evidence, every sentence cited."""
+    """Generated prose over the retrieved evidence, every sentence cited.
+
+    Quick is ONE pass over the top `QUICK_PASSAGES`. Comprehensive is a
+    map-reduce over every document that has a passage. See QUICK_PASSAGES for
+    why the single pass could not be made to mean "more documents" simply by
+    handing it more passages.
+    """
     evidence, _ = gather(question, scope, limit=limit)
-    result = _generate_or_refuse(
-        synthesis.summarise, question, evidence, generate or ollama_generate)
+    result = _synthesise(question, evidence, limit, generate)
     return {
         "question": question,
         "evidence_ledger": evidence,
@@ -829,6 +877,76 @@ def _gap_items(clusters, baseline_document_id: str | None,
     return items
 
 
+# ------------------------------------------------------- the advisory gate
+
+#: The document layer produced nothing to advise on. Prefixed to the summary's
+#: OWN refusal so the reader is told which of them happened - the model
+#: declined, the model returned nothing, the evidence did not fit - rather than
+#: being handed a second sentence that means "something went wrong".
+REFUSAL_NO_DOCUMENT_LAYER = (
+    "no recommendation: the document layer produced no cited sentence"
+)
+
+#: What the advice rests on when the summary produced nothing but the gap
+#: analysis did. Rendered as the FIRST sentence of the recommendation and
+#: carrying its citations, because advice built on a different footing than
+#: last time, presented identically, is the reader being misled by omission.
+#:
+#: No digits in it, deliberately: a numeral here would be measured against the
+#: cited spans by the same gate that measures the model's.
+GAP_EVIDENCE_PREFACE = (
+    "This advice rests on the gap analysis evidence cited here rather than on a "
+    "documented summary, because no summary sentence survived the citation check."
+)
+
+#: A facet nothing could be compared against is not evidence that something is
+#: there. Every other status - conflict, possible gap, met, insufficient
+#: evidence - was reached because a document SPOKE, and the passage it spoke in
+#: is cited on the item.
+NOT_APPLICABLE = "not_applicable"
+
+#: The generation ran and produced nothing that could be cited. Not the same
+#: fact as "the document layer was silent", so not the same sentence.
+REFUSAL_NO_ADVICE = (
+    "no recommendation: the advisory generation produced no sentence a "
+    "supplied source supported"
+)
+
+
+def advisory_refusal(summarised: synthesis.Summary) -> str | None:
+    """Why the advisory layer has nothing to stand on, or None.
+
+    The gate is on the SENTENCES, not on the refusal string: a summary with no
+    finding has nothing cited in it whatever it says about itself, and a new
+    refusal reason added to synthesis.py is gated on the day it is written
+    rather than on the day someone remembers to add it to a list here.
+    """
+    if summarised.findings:
+        return None
+    why = summarised.refusal or "the summary produced no cited sentence"
+    return f"{REFUSAL_NO_DOCUMENT_LAYER} ({why})"
+
+
+def gap_evidence_ids(gap: dict) -> list[str]:
+    """Evidence ids cited by gap items that found something, in item order.
+
+    `not_applicable` means "there is no baseline to measure this against", so
+    the facet is not a finding and its citations are not a footing for advice.
+    Everything else on the list was reached because a document said something,
+    and what it said is cited - so it is evidence a recommendation may rest on
+    even when the summary generation produced nothing.
+    """
+    ids: list[str] = []
+    for item in gap.get("gaps", {}).get("items", []):
+        if item.get("status") == NOT_APPLICABLE:
+            continue
+        for eid in (item.get("baseline_citation_id"),
+                    *item.get("project_citation_ids", [])):
+            if eid and eid not in ids:
+                ids.append(eid)
+    return ids
+
+
 # ------------------------------------------------------------------ stage 4
 
 
@@ -845,8 +963,7 @@ def recommendation(question: str, scope: access.AccessScope, *, limit: int = 8,
     evidence, _raw = gather(question, scope, limit=limit)
     gap = gaps(question, scope, limit=limit,
                baseline_document_id=baseline_document_id)
-    summarised = _generate_or_refuse(
-        synthesis.summarise, question, evidence, generate or ollama_generate)
+    summarised = _synthesise(question, evidence, limit, generate)
 
     checks = synthesis.confidence_checks(
         gaps_applicability=gap["gaps"]["applicability"],
@@ -859,13 +976,50 @@ def recommendation(question: str, scope: access.AccessScope, *, limit: int = 8,
         summary_truncated=summarised.truncated,
         evidence_was_removed=bool(summarised.evidence_removed),
     )
+    # THE GATE (#90), partially opened. Advice used to require cited summary
+    # sentences and nothing else, so a summary the model declined took the
+    # recommendation down with it even when the mechanical comparison - which
+    # needs no model at all - had found conflicts and cited them. Two footings
+    # are now allowed and they are not interchangeable:
+    #
+    #   * the summary stood: advise over the whole evidence ledger, as before;
+    #   * the summary produced nothing but gap facets did: advise over THOSE
+    #     facets' evidence only, and say so in the first sentence.
+    #
+    # What has NOT been weakened: with no cited summary sentence AND no gap
+    # facet, nothing cited exists, the model is not called, and the reader is
+    # told the document layer was silent and why.
+    why = advisory_refusal(summarised)
+    preface = None
+    if why is None:
+        rec_evidence = evidence
+    else:
+        cited = set(gap_evidence_ids(gap))
+        rec_evidence = [e for e in evidence if e["evidence_id"] in cited]
+        preface = GAP_EVIDENCE_PREFACE
+    if not rec_evidence:
+        return {
+            "question": question,
+            "evidence_ledger": evidence,
+            "recommendation": None,
+            "recommendation_refusal": why or REFUSAL_NO_DOCUMENT_LAYER,
+            "public_market_findings": market.findings()["findings"],
+            "not_implemented_sections": list(NOT_IMPLEMENTED),
+        }
+
     rec = _generate_or_refuse(
-        synthesis.recommend, question, evidence, generate or ollama_generate,
-        checks=checks, basis="documents_only")
+        synthesis.recommend, question, rec_evidence, generate or ollama_generate,
+        checks=checks, basis="documents_only", preface=preface)
     return {
         "question": question,
         "evidence_ledger": evidence,
         "recommendation": synthesis.recommendation_to_api(rec),
+        # Null recommendation, named reason. A card that renders nothing and a
+        # card that was refused look identical, and mean opposite things.
+        "recommendation_refusal": (
+            None if rec is not None
+            else why or REFUSAL_NO_ADVICE
+        ),
         "public_market_findings": market.findings()["findings"],
         "not_implemented_sections": list(NOT_IMPLEMENTED),
     }
