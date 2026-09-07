@@ -549,8 +549,180 @@ def _sub_runs(runs: list[tuple[str, ...]]) -> set[tuple[str, ...]]:
     return out
 
 
+#: A conservative singular/plural fold, applied to BOTH sides of a word
+#: comparison so a question that wrote "structural model" can still recognise
+#: "STRUCTURAL MODELS" in a claim.
+#:
+#: MEASURED, and this is the whole reason the phrase naming looked dead. On the
+#: live question "compare structural model requirements in doc16.pdf and
+#: doc15.pdf" the facet keyed {model, structural} was named "structural"
+#: although its claim reads "6.3.1 STRUCTURAL MODELS The Structural systems
+#: models may vary ...". `_term_runs` matched only the word "model" - the lone
+#: singular, in "within a model", eleven words away from "structural" - because
+#: the adjacent pair spells its second word "MODELS", and "models" is not the
+#: term the question supplied. The run was there in the text and invisible to
+#: the matcher. Nothing about the majority rule was involved.
+#:
+#: The fold is deliberately small: -ies -> -y, -ses/-xes/-zes/-ches/-shes ->
+#: drop -es, otherwise a trailing -s that is not -ss. It never rewrites a word
+#: shorter than five characters, so "gas", "bus" and "class" are untouched, and
+#: because both the term and the claim's word go through it, a fold that is
+#: linguistically wrong ("analysis" -> "analysi") still matches only itself. It
+#: is a comparison key, never displayed.
+_PLURAL_ES = ("ses", "xes", "zes", "ches", "shes")
+
+
+def _canon_word(word: str) -> str:
+    """The comparison key for one word. Never shown to a reader."""
+    w = word.lower()
+    if len(w) < 5:
+        return w
+    if w.endswith("ies"):
+        return w[:-3] + "y"
+    if w.endswith(_PLURAL_ES):
+        return w[:-2]
+    if w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
+def _canon_terms(terms: frozenset[str]) -> dict[str, str]:
+    """canon -> the term spelling that produced it, for the terms that are one
+    word. A multi-word term (an acronym expansion the corpus defines) can never
+    equal a single word of running text and is left out, as it always was.
+
+    Ties are broken by the sorted term spelling, so the map does not depend on
+    the iteration order of the frozenset.
+    """
+    out: dict[str, str] = {}
+    for term in sorted(terms):
+        if " " in term or not _is_subject_term(term):
+            continue
+        out.setdefault(_canon_word(term), term)
+    return out
+
+
+def _phrase_runs(text: str, canon: dict[str, str]) -> list[tuple[tuple[str, str], ...]]:
+    """As `_term_runs`, but each word is carried as (canon, surface) and the
+    membership test is on the canon. Adjacency is unchanged: only whitespace or
+    a hyphen may sit between two words of a run."""
+    runs: list[tuple[tuple[str, str], ...]] = []
+    current: list[tuple[str, str]] = []
+    prev_end: int | None = None
+    for m in _PHRASE_WORD.finditer(text):
+        word = m.group(0).lower().rstrip(".")
+        gap = text[prev_end:m.start()] if prev_end is not None else ""
+        prev_end = m.end()
+        key = _canon_word(word)
+        if key in canon:
+            if current and gap.strip(" \t\r\n") not in ("", "-"):
+                runs.append(tuple(current))
+                current = []
+            current.append((key, word))
+        elif current:
+            runs.append(tuple(current))
+            current = []
+    if current:
+        runs.append(tuple(current))
+    return runs
+
+
+def _facet_phrase(rows: tuple[Claim, ...] | list[Claim], terms: frozenset[str]) -> str:
+    """The noun phrase to PRINT for a facet, taken from the claims' own words.
+
+    THE SUPPORT RULE, stated so it can be disagreed with. Every run of adjacent
+    facet terms occurring in a claim is a candidate, counted once per ROW. A
+    candidate is eligible when at least two rows contain it - one row, when the
+    cluster has only one. Among the eligible candidates the LONGEST wins; ties
+    in length go to the one more rows support, then to the longer spelling,
+    then alphabetically.
+
+    WHY TWO ROWS RATHER THAN A MAJORITY. A majority is the wrong shape for this
+    data and it was measured to be: the facet keyed {model, structural} whose
+    four claims include two spelling "STRUCTURAL MODELS" verbatim needs three
+    of four under a majority and got named "structural". Two rows is the
+    smallest number that still means "the documents share this phrase" rather
+    than "one sentence happened to contain it", which matters because a facet
+    exists to compare documents - a phrase only one row uses names that row,
+    not the comparison.
+
+    WHEN THE CLAIMS GENUINELY DISAGREE about the subject - two rows reading
+    "structural models" and three reading "design documents" - length is
+    decided first and both are two words, so the tie-break puts the phrase with
+    MORE rows behind it first: "design documents". The minority phrase does not
+    get to name the cluster. With equal support the alphabetically first
+    spelling wins, which is arbitrary but stated, repeatable, and never depends
+    on dict or set ordering.
+
+    THE FALLBACK IS A BARE WORD, NEVER AN INVENTION. When nothing reaches the
+    support floor this returns the best-supported SINGLE term, and when no term
+    appears in any claim at all it returns "" and `_facet_string` falls back to
+    the sorted terms as before. A wrong noun phrase reads as a finding; a bare
+    word only reads as a word.
+
+    The spelling shown is the one the CLAIMS use, chosen by row count then
+    alphabetically - "structural models", not the question's "structural
+    model" - because the reader is being shown what the documents say.
+    """
+    rows = tuple(rows)
+    canon = _canon_terms(terms)
+    if not rows or not canon:
+        return ""
+    # support: canon run -> rows containing it; spellings: canon run -> surface -> rows
+    support: dict[tuple[str, ...], int] = {}
+    spellings: dict[tuple[str, ...], dict[tuple[str, ...], int]] = {}
+    for row in rows:
+        seen: set[tuple[str, ...]] = set()
+        surfaces: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
+        for run in _phrase_runs(row.exact_span.lower(), canon):
+            for i in range(len(run)):
+                for j in range(i + 1, len(run) + 1):
+                    piece = run[i:j]
+                    key = tuple(w[0] for w in piece)
+                    seen.add(key)
+                    surfaces.setdefault(key, set()).add(tuple(w[1] for w in piece))
+        for key in seen:
+            support[key] = support.get(key, 0) + 1
+            bucket = spellings.setdefault(key, {})
+            for surface in surfaces.get(key, ()):
+                bucket[surface] = bucket.get(surface, 0) + 1
+    if not support:
+        return ""
+    floor = 2 if len(rows) >= 2 else 1
+    eligible = [run for run, n in support.items() if n >= floor and len(run) > 1]
+    if not eligible:
+        # No shared phrase. Name it after the best-supported single term - the
+        # current behaviour, and honest: the rows share a word, not a phrase.
+        eligible = [run for run in support if len(run) == 1]
+        if not eligible:
+            return ""
+    def display(run: tuple[str, ...]) -> str:
+        """The spelling to show for one candidate: the one most rows use,
+        alphabetically on a tie."""
+        return " ".join(sorted(
+            spellings[run].items(), key=lambda kv: (-kv[1], " ".join(kv[0]))
+        )[0][0])
+
+    # The order is over the DISPLAYED spelling, not the canonical stem. Ranking
+    # by the stem let the plural fold decide a tie between two unrelated words:
+    # "documents" folds to "document" (8) and "submitted" does not fold (9), so
+    # a facet whose rows share both was renamed "submitted" - a length
+    # comparison between a stem and a word, which compares nothing.
+    chosen = sorted(
+        eligible,
+        key=lambda r: (-len(r), -support[r], -len(display(r)), display(r)),
+    )[0]
+    return display(chosen)
+
+
 def _shared_phrase(rows: tuple[Claim, ...] | list[Claim], terms: frozenset[str]) -> str:
-    """The noun phrase the CLAIMS use, not the words the question used.
+    """The phrase basis for MERGE DECISIONS (`_head_term`, `_can_merge`).
+
+    Not used for facet names any more - `_facet_phrase` does that, with a
+    plural-tolerant match and a two-row support floor. This one is kept exactly
+    as it was, on purpose: `_can_merge` decides which claims are compared
+    together, and relaxing that on the strength of a change to how a facet is
+    SPELLED would let a cosmetic fix reshape a gap analysis.
 
     Sorting the key's terms produced "models structural" and "analysis
     documents" - a bag of query words in alphabetical order, which no reader
@@ -613,9 +785,19 @@ def _facet_string(key: frozenset[str], rows: tuple[Claim, ...] | list[Claim] = (
     gap analysis cannot tell what is being compared. Sorting the terms instead
     was no better: it produced "models structural".
 
-    The subject is the phrase the CLAIMS share (`_shared_phrase`); the unit
-    goes in brackets where a unit belongs. Both are deterministic - two runs
-    over the same corpus produce the same facet string.
+    The subject is the phrase the CLAIMS share (`_facet_phrase`); the unit goes
+    in brackets where a unit belongs. Both are deterministic - two runs over
+    the same corpus produce the same facet string.
+
+    NAMING AND MERGING ARE DELIBERATELY SEPARATE FUNCTIONS. `_facet_phrase`
+    names; `_shared_phrase` decides head nouns and equal-phrase merges and is
+    left exactly as it was. They differ - `_facet_phrase` folds plurals and
+    needs two rows rather than a majority - and that difference is the point: a
+    naming change must not silently move a claim from one comparison to
+    another. Feeding the looser rule into `_can_merge` was tried and measured
+    (it folds {model} into {model, structural} on the live corpus); it changes
+    WHICH claims are compared, which is a different decision from what the
+    comparison is called, and is not made here.
     """
     terms = subject_terms(key)
     designators = sorted(k.split(":", 1)[1] for k in key if k.startswith("designator:"))
@@ -624,7 +806,7 @@ def _facet_string(key: frozenset[str], rows: tuple[Claim, ...] | list[Claim] = (
         for u in (_DIMENSION_UNIT[k.split(":", 1)[1]] for k in key if k.startswith("dim:"))
     )
 
-    subject = _shared_phrase(rows, terms) or " ".join(sorted(terms)) or ", ".join(designators)
+    subject = _facet_phrase(rows, terms) or " ".join(sorted(terms)) or ", ".join(designators)
     if terms and designators:
         subject = f"{subject} ({', '.join(designators)})"
     if not subject:

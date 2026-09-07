@@ -299,3 +299,152 @@ def test_the_live_ten_facet_question_collapses_to_its_subjects():
     for bad in ("analysis (%)", "documents (%)", "models (%)", "models structural",
                 "analysis documents", "section 5", "section 7"):
         assert bad not in names, f"{bad!r} is still being emitted"
+
+
+# --------------------------------------------- a facet name is a noun phrase
+
+
+#: The four claims of one facet, written the way the corpus writes them. Two
+#: spell the pair "structural models" verbatim; two mention both words with
+#: something else in between. That 2-of-4 shape is the measured one: on the
+#: live corpus the facet keyed {model, structural} had four rows and exactly
+#: two spelling "STRUCTURAL MODELS", which a MAJORITY rule rejects.
+_STRUCTURAL_MODEL_QUESTION = "compare structural model requirements across the projects"
+_STRUCTURAL_MODEL_EVIDENCE = [
+    ("e1", "The structural models shall be complete per ISO 19650, and each model is checked.", "a.pdf"),
+    ("e2", "Structural models for the interim submittal follow ISO 19650, with one model per zone.", "b.pdf"),
+    ("e3", "The structural chapter of ISO 19650 lists the model deliverables.", "c.pdf"),
+    ("e4", "The model register is structural in scope per ISO 19650.", "d.pdf"),
+]
+
+
+def _structural_model_evidence() -> list[dict]:
+    return [_evidence(i, t, f) for i, t, f in _STRUCTURAL_MODEL_EVIDENCE]
+
+
+def test_a_facet_is_named_the_phrase_its_claims_share_not_one_of_its_words():
+    """"structural models", not "models" and not "structural".
+
+    MEASURED, and this is why the earlier fix did not deliver the phrase names
+    it predicted. Two things were in the way and this case exercises both:
+
+      * INFLECTION. The question writes "structural model"; the documents write
+        "STRUCTURAL MODELS". The run matcher tested the claim's word against
+        the question's spelling, so the adjacent pair was invisible and the
+        only "model" it could see was a lone singular eleven words away. The
+        live facet came out as "structural".
+      * SUPPORT. Two of these four rows contain the pair. A majority needs
+        three, so even with the inflection fixed the phrase loses to the bare
+        word every one of the four contains.
+
+    And the spelling shown is the DOCUMENTS' - "models", plural - because the
+    reader is being told what the documents say, not what the question asked.
+    """
+    out = _clusters(_STRUCTURAL_MODEL_QUESTION, _structural_model_evidence())
+    assert len(out) == 1, [c.facet for c in out]
+    (facet,) = out
+    assert {r.evidence_id for r in facet.rows} == {"e1", "e2", "e3", "e4"}
+    assert facet.facet == "structural models", facet.facet
+    assert facet.label in VALID_LABELS
+
+
+def test_a_facet_with_no_shared_phrase_keeps_a_single_word_and_invents_nothing():
+    """A wrong noun phrase reads as a finding; a bare word only reads as a word.
+
+    These two claims share both facet terms and put them ADJACENT nowhere -
+    "design analysis ... other documents" and "Documents supporting the design
+    analysis". There is no phrase to report, so the facet keeps one word. It
+    must not assemble "analysis documents" out of the key, which is exactly
+    the bag-of-query-words name this whole file exists to prevent.
+    """
+    out = _clusters(
+        "do your deep analysis find all documents",
+        [
+            _evidence("e1", "The design analysis shall list any other documents per ISO 19650."),
+            _evidence("e2", "Documents supporting the design analysis are indexed per ISO 19650.", "b.pdf"),
+        ],
+    )
+    assert len(out) == 1, [c.facet for c in out]
+    (facet,) = out
+    assert claims.subject_terms(facet.key) == {"analysis", "documents"}, sorted(facet.key)
+    assert " " not in facet.facet, f"a phrase was invented: {facet.facet!r}"
+    assert facet.facet in {"analysis", "documents"}, facet.facet
+    # Deterministically the longer canonical stem wins the tie: "analysis"
+    # folds to "analysi" (7), "documents" to "document" (8).
+    assert facet.facet == "documents", facet.facet
+
+
+def test_the_facet_name_is_the_same_on_every_run_and_in_any_input_order():
+    """Determinism, and not by accident of dict or set ordering.
+
+    The candidate phrases are accumulated in dicts and enumerated from sets,
+    both of which iterate by hash - and str hashing is randomised per process.
+    The choice is therefore made by an explicit total order (length, then rows
+    supporting it, then spelling length, then alphabetically), so repeating the
+    run and reversing the evidence must give the same name.
+    """
+    forward = [c.facet for c in _clusters(_STRUCTURAL_MODEL_QUESTION, _structural_model_evidence())]
+    again = [c.facet for c in _clusters(_STRUCTURAL_MODEL_QUESTION, _structural_model_evidence())]
+    reversed_in = [c.facet for c in _clusters(
+        _STRUCTURAL_MODEL_QUESTION, list(reversed(_structural_model_evidence())))]
+    assert forward == again == reversed_in == ["structural models"], (forward, again, reversed_in)
+
+    # The tie-broken case too: a name settled by the tie-break is the one most
+    # likely to move with hash ordering.
+    tied = [
+        _evidence("e1", "The design analysis shall list any other documents per ISO 19650."),
+        _evidence("e2", "Documents supporting the design analysis are indexed per ISO 19650.", "b.pdf"),
+    ]
+    q = "do your deep analysis find all documents"
+    assert ([c.facet for c in _clusters(q, tied)]
+            == [c.facet for c in _clusters(q, list(reversed(tied)))]
+            == ["documents"])
+
+
+def test_renaming_a_facet_cannot_change_which_claims_are_compared(monkeypatch):
+    """RECALL. A naming change may only change what a cluster is CALLED.
+
+    Asserted structurally rather than by remembering last month's output: the
+    facet name is produced by `_facet_phrase`, so replacing that function
+    outright must leave every grouping, key, label and note untouched. If a
+    future edit routes the naming rule back into `_can_merge` or `_head_term` -
+    which was tried, and does fold {model} into {model, structural} on the live
+    corpus - this test goes red, because the groupings would then follow the
+    name.
+
+    The corpus carries a real possible_conflict (125 µm against 280 µm) so the
+    thing at risk is the thing being guarded: a disagreement must not move
+    facet, be relabelled, or lose its note because a word changed.
+    """
+    evidence = [
+        _evidence("e1", "The coating thickness shall be 125 um."),
+        _evidence("e2", "The primer coating thickness shall be 280 um.", "b.pdf"),
+        _evidence("e3", "The structural models shall be complete per ISO 19650.", "c.pdf"),
+        _evidence("e4", "Structural models are listed in the coating register per ISO 19650.", "d.pdf"),
+    ]
+    question = "what primer coating thickness applies to the structural models"
+
+    def signature(clusters):
+        return sorted(
+            (
+                tuple(sorted(claims.subject_terms(c.key))),
+                tuple(sorted(k for k in c.key if k.startswith(("dim:", "designator:")))),
+                c.label,
+                c.note,
+                tuple(sorted(r.evidence_id for r in c.rows)),
+            )
+            for c in clusters
+        )
+
+    before = _clusters(question, evidence)
+    assert any(c.label == "possible_conflict" for c in before), [
+        (c.facet, c.label) for c in before
+    ]
+
+    monkeypatch.setattr(claims, "_facet_phrase", lambda rows, terms: "renamed subject")
+    after = _clusters(question, evidence)
+
+    assert signature(before) == signature(after), (signature(before), signature(after))
+    assert {c.facet for c in after} == {"renamed subject (\u00b5m)", "renamed subject"} or all(
+        c.facet.startswith("renamed subject") for c in after
+    ), [c.facet for c in after]
