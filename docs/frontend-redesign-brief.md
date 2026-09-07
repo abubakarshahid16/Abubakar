@@ -167,7 +167,7 @@ seven rows reading "what does NDFT stand for" is noise, not a list.
 seconds. The backend reports real stages, so the screen shows what is actually
 happening:
 
-```
+```text
 Searching 12 documents  →  Ranking 16 of 53 candidates
   →  Reading 3 passages  →  Writing the answer
 ```

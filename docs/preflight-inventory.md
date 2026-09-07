@@ -148,7 +148,7 @@ an existing convention to extend.
 
 `contracts/types.ts` line 1:
 
-```
+```text
 // Shared API types. Hand-written, source of truth for the UI.
 // Backend mirrors these in Pydantic models.
 ```

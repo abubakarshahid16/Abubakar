@@ -3,9 +3,12 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Fourteen separate times something in this system
-has claimed what was not so - a status field, a count, a measurement, and twice
-now a design document about the code it was written against:
+**Why this document exists.** Twenty-four separate times something in this
+system has claimed what was not so - a status field, a count, a measurement,
+twice a design document about the code it was written against, once a type that
+could not describe its own API, once an evaluation harness measuring a different
+layer than the one it was cited for, and once the secret-scanning hook that the
+privacy ADR depends on:
 
 | # | The claim | The reality |
 |---|---|---|
@@ -24,6 +27,15 @@ now a design document about the code it was written against:
 | 7 | A passing ordering test over a document that had `failed` | The test asserted the statuses it OBSERVED at every OCR invocation and never asserted where the document FINISHED. `partially_searchable -> chunking` was an illegal transition; the raise was swallowed by the broad handler in `process()`; every scanned document on a fresh machine landed at `failed`, green suite and all |
 | 6 | "Quoted verbatim from the document" over OCR text | `AnswerCard.tsx:277` rendered the label unconditionally. 92 recognised chunks were retrievable, so a passage OCR had guessed off a page image could be cited as the document's own words, beside "quoted directly, no AI rewriting" |
 | 15 | `current_document` and `last_error` were moved OFF `/api/health` "to the scoped `/api/metrics`" | **`/api/metrics` was not scoped.** It resolved an `AccessScope` via `Depends` and never passed it on. The fields moved from one unscoped route to another, and a comment recording a false reason is what made the move look like hardening |
+| 16 | README: `npm run test` — **"279 tests"** | **496**, across 42 files. Understated by 217. Nobody re-measured it after the redesign and the auth work added whole test files |
+| 17 | README: `python -m pytest -q` — **"887 tests, ~5 minutes"** | **1,170 passed / 3 skipped / 17 xfailed / 1 deselected** in **5m44s**, measured on this laptop with `--ignore` for the two parked test files. The count was understated by 283. The "~5 minutes" was close but low; a contended run with the dev server and Ollama up took over 11 minutes. Both figures were written once and never re-run |
+| 18 | README stack table: the answer model runs at **`num_ctx`~1536** and **60-100 output tokens** | `backend/app/config.py` sets `num_ctx = 4096` and `max_output_tokens = 250`. The 1,536 figure is real but historical - it survives in `context_budget.py` as the value a past measurement was taken at, and the README kept quoting it as current configuration |
+| 19 | README scope cuts: **"System view — four views"** | **Six** built views plus an Administration section, per `Shell.tsx`. Analysis and Reports were built after the line was written; a scope cut that stopped being a cut still read as one |
+| 20 | README title and setup steps named **Nabaa**, and `git clone <repo-url> nabaa` | The product is the RAG Intelligence System. The `cd nabaa` was worse than a stale name: a reader following the README landed in a directory that the next command did not expect |
+| 21 | `contracts/types.ts`: `Metrics.system?: SystemMetrics` | The type could not express the response the server sends. `/api/metrics` serialises `"system": null` for a non-admin, so every consumer typed against this contract was typed against a shape the backend never produces |
+| 22 | `eval/score_analysis_gold.py`, run to confirm the analysis accuracy fixes | **It cannot confirm them.** It imports `app.keyword` and calls `search()` directly, so it measures the RAW retrieval layer, before the analysis-layer scoping, per-document cap and percentage recall. Its output still shows doc16 taking 18 of 24 slots and hiding its own p.18 answer - the defect a288653 fixed - because that layer really does still do that. A green run of it would have said nothing about the fix. `eval/verify_analysis_accuracy.py` was added to measure the layer that was actually changed |
+| 23 | `test_recommendation_gate.py`: **"all 27 are expected to fail"** | **Eleven now pass.** The advisory-gate half of #90 was implemented; the docstring still described the whole module as unimplemented specification. `strict=True` is what caught it - the eleven went red on completion exactly as designed - but the prose had to be corrected by hand |
+| 24 | `.githooks/pre-commit`, the compensating control ADR-0004 rests on | It failed OPEN two ways: a missing gitleaks printed a WARNING and exited 0, and before that an unguarded `$LOCALAPPDATA` under `set -u` aborted the hook entirely on any machine not exporting it. A control whose absence is invisible is not a control |
 
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what

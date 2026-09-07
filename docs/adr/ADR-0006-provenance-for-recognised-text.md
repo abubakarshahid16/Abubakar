@@ -132,13 +132,13 @@ This is the decision that matters most, so here is the exact replacement.
 
 **Today, for `answer_type == "extract"`:**
 
-```
+```text
 [ Quoted verbatim from the document ]        1.2 s · quoted directly, no AI rewriting
 ```
 
 **Proposed, when `chunk.text_source == 'recognised'`:**
 
-```
+```text
 [ Read by OCR from a scanned page ]     1.2 s · not the document's own text — check it against the page below
 ```
 
@@ -180,7 +180,7 @@ Considered and rejected:
 the exclusion ledger** under its own rule, with the measured confidence and the
 threshold both in the reason text:
 
-```
+```text
 rule   = 'ocr_confidence_below_threshold'
 reason = 'recognised at mean confidence 0.62, below the 0.__ threshold'
 ```
@@ -205,7 +205,7 @@ Cheap, model-independent, and it earns its place under either engine choice.
 script is a recognition failure, not a curiosity.** The guard counts them,
 flags the page, and surfaces the count.
 
-```
+```text
 rule   = 'ocr_alphabet_violation'
 reason = 'recognised text contains 3 characters outside the expected script: 凤 日 ≦'
 ```

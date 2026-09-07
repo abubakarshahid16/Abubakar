@@ -10,7 +10,7 @@
 - It is owned by a personal account on GitHub **free tier**.
 - EXECUTION.md §9 requires protected branches, required status checks, and secret scanning. Probing showed these are unavailable:
 
-```
+```text
 GET  /repos/.../rulesets  -> HTTP 403  "Upgrade to GitHub Pro or make this repository public"
 PATCH /repos/... secret_scanning -> HTTP 422  "Secret scanning is not available for this repository"
 ```

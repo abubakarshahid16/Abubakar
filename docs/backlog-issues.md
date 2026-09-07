@@ -320,7 +320,7 @@ not return an answer about system 2 in either mode.
 **The evidence.** Measured over 8 constructed genuine follow-ups. With the
 prior turn *"what is the MDFT for coating system no. 1"*:
 
-```
+```text
 follow-up : "what about system 2"
 carried   : ['mdft', 'coating']          <- topic words only, NO designator
 result    : extract, and it does not mention system 2

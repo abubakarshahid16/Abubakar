@@ -1,3 +1,9 @@
+# Demo readiness — phrasing sensitivity
+
+Each fact asked three ways: as originally phrased, in the document's own
+wording, and as a user would type it. The `outcome` column records what the
+product actually returned, not what it was expected to return.
+
 | fact | phrasing | cited page | clause | outcome |
 |---|---|---|---|---|
 | NDFT stands for nominal dry film thickness | original: `what does NDFT stand for` | [7] | 3.2 | OK |

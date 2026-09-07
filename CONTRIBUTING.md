@@ -12,7 +12,7 @@ does not work for you, that is a bug in the README and worth an issue.
 
 ## Branches
 
-```
+```text
 <type>/<issue-number>-<area>-<short-description>
 ```
 
@@ -29,13 +29,13 @@ convention that silently stops is worth knowing about.
 
 Conventional commits, with the subject saying what changed and why it matters:
 
-```
+```text
 fix(search): the reranker was judging long chunks on a fragment of themselves
 ```
 
 not
 
-```
+```text
 fix search bug
 ```
 

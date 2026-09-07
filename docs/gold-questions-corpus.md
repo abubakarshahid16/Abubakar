@@ -229,7 +229,7 @@ construction, and it is worth measuring before a client asks a broad question.
 Ask each question through the API, not the harness, so the measurement is of
 the product:
 
-```
+```text
 POST /api/conversations           -> conversation id
 POST /api/conversations/{id}/ask  {"question": "...", "tier": "extract"}
 ```

@@ -53,7 +53,7 @@ document is ~13 s and recognition would put minutes in front of it.
 
 ## Staging models on a fresh machine
 
-```
+```bash
 python scripts/fetch_models.py              # stages all three families
 python scripts/fetch_models.py --verify-only  # checks presence AND SHA-256
 ```

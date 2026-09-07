@@ -120,7 +120,7 @@ Open **Dashboard.**
 
 **Precondition, and check it before the client is in the room:**
 
-```
+```bash
 python scripts/seed_access.py --verify-only
 ```
 

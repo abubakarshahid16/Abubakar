@@ -4,7 +4,10 @@
 **Commit audited:** `9f3f6dbc682071d03b29b3008d5f95553b60cf3e` (`feat/frontend: gap rows that do not contradict themselves, ordered and counted`, 2026-09-06 21:54:10 +0500)
 **Working tree at audit time:** one untracked file, `backend/tests/test_metrics_host_telemetry.py`. It is **not** part of the audited commit and is treated separately (see §10).
 **Plan audited:** `RAG-INTELLIGENCE-POC-EXECUTION.md` (audited under its former
-filename `NABAA-SUNDAY-POC-EXECUTION.md`), Revision 4, 2026-09-05, 2,150 lines / 132,932 bytes.
+filename at the time of this audit: `NABAA-SUNDAY-POC-EXECUTION.md`; renamed to
+`RAG-INTELLIGENCE-POC-EXECUTION.md` in 80042b1, and the old name is kept here
+because this record states what was audited), Revision 4, 2026-09-05, 2,150
+lines / 132,932 bytes.
 **Auditor:** read-only pass. No repository file was modified, created or deleted except this document.
 
 ---

@@ -91,7 +91,7 @@ it from a stack trace.
 
 ## B. Module layout
 
-```
+```text
 access.py   exists — WHAT a request may see
 auth.py     new    — WHO the request is
 main.py     every route, including the two new ones
@@ -155,7 +155,7 @@ the UI rather than letting the user discover it.**
 with invocations, `argparse` in `main()`, module-level data constants, a
 `--verify-only` mode mirroring `fetch_models.py:206-210`, `raise SystemExit(main())`.
 
-```
+```bash
 python scripts/seed_access.py --roles
 python scripts/seed_access.py --user ali@x --role engineer
 python scripts/seed_access.py --grant <role> --document <id>

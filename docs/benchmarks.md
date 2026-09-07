@@ -141,7 +141,7 @@ These rows stay empty until measured. Do not fill them with estimates.
 
 `intfloat/multilingual-e5-small`, staged to `backend/models/e5-small/` (git-ignored):
 
-```
+```text
 DD476DD0C2514E9B9BE83AEB3853FAC0763E0BDF4A71645407587D77C48A2D88  onnx/model_qint8_avx512_vnni.onnx  112.86 MB
 4654C156F3E4171ABC9C716CDB771BF9116455D15AC1AAB364AEEEDE0E3205B0  onnx/model_O4.onnx                 224.16 MB
 0B44A9D7B51C3C62626640CDA0E2C2F70FDACDC25BBBD68038369D14EBDF4C39  tokenizer.json                      16.29 MB

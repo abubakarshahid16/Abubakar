@@ -1,9 +1,10 @@
-# Nabaa — Private Document Intelligence Prototype
+# RAG Intelligence System — Private Document Intelligence Prototype
 
 Local hybrid-RAG prototype for petroleum engineering documentation.
 Ask questions against your own PDFs and get answers that cite the exact page they came from — or an honest "insufficient indexed evidence" when they can't.
 
-> **Status: in development.** Nothing in this README is a measured performance claim.
+> **Status: in development.** Every number in this README is measured, and each says
+> where it was measured; a figure nobody has run is not written here.
 > Benchmarks are recorded in `docs/benchmarks.md` only after they are actually run on this hardware.
 
 ---
@@ -28,7 +29,7 @@ This is **not** an air-gapped system. It is a **locally-inferencing** system on 
 
 ## Architecture
 
-```
+```text
 PDF ──▶ stream + SHA-256 ──▶ page batches ──▶ PyMuPDF text ──▶ structure-aware chunks
                                      │                                    │
                                      │                                    ├──▶ ONNX int8 E5 ──▶ LanceDB (brute-force)
@@ -59,7 +60,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 | Keyword search | SQLite FTS5 |
 | Fusion | Reciprocal Rank Fusion |
 | Reranking | Small local CPU cross-encoder — **mandatory**, not optional |
-| Answer model | Local Qwen via Ollama (`qwen3.5:4b` default, configurable), `think=false`, `num_thread=12`, `num_batch=2048`, `num_ctx`~1536, 60-100 output tokens |
+| Answer model | Local Qwen via Ollama (`qwen3.5:4b` default, configurable), `think=false`, `num_thread=12`, `num_batch=2048`, `num_ctx=4096`, up to 250 output tokens (`backend/app/config.py`) |
 | Metadata / jobs / history | SQLite (WAL) |
 
 ## Non-negotiable behaviours
@@ -81,7 +82,7 @@ Deliberately excluded from the prototype to protect the deadline:
 - ~~**OCR**~~ — **no longer cut.** Scanned pages are recognised offline (RapidOCR / PP-OCRv6, in a subprocess), and recognised text is labelled as such rather than presented as a quotation. Coverage across the corpus rose 94.0% → 96.3%. See `docs/adr/ADR-0005` and `ADR-0006`.
 - **ANN index** — brute-force vector search is faster *and* exact at prototype scale
 - **Retrieval profiles** — one profile (Balanced)
-- **System view** — four views: Documents, Chat, Ingestion, Dashboard (History folded into Chat)
+- ~~**System view**~~ — **no longer four.** Six built views (Dashboard, Documents, Chat, Analysis, Reports, Ingestion) plus an Administration section, per the navigation in `frontend/src/components/Shell.tsx`. History is still folded into Chat.
 - **Playwright** — acceptance testing is manual and evidenced
 - **Offline installer packaging** — the machine has internet; a normal install guide replaces air-gap staging
 
@@ -167,8 +168,8 @@ Measured on a completed clean clone, so a reader can size a disk honestly:
 ### Steps
 
 ```bash
-git clone <repo-url> nabaa
-cd nabaa
+git clone <repo-url> rag-intelligence
+cd rag-intelligence
 ```
 
 **1. Python environment.** Create it with 3.12 specifically:
@@ -206,7 +207,7 @@ runs.
 cd frontend
 npm ci
 npx tsc -b        # typecheck
-npm run test      # 279 tests
+npm run test      # 496 tests across 42 files, ~1 minute
 cd ..
 ```
 
@@ -214,7 +215,7 @@ cd ..
 
 ```bash
 cd backend
-python -m pytest -q      # 887 tests, ~5 minutes
+python -m pytest -q      # 1170 passed, 3 skipped, 17 xfailed; ~6 minutes
 ```
 
 Run it from `backend/`, not from the repository root. `pytest.ini` lives there,
