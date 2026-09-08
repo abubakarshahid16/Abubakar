@@ -321,8 +321,18 @@ export const market = {
 export const classification = {
   /** The filter vocabulary. `types` comes from the register, so a component
    *  MUST render this list rather than a hardcoded three. */
+  /** GUARDED ON `types`, like every other list-bearing read in this file. A
+   *  body without it used to reach the screen intact: `useTypeVocabulary`
+   *  handed back `types: undefined`, and `vocabulary.types.length` took the
+   *  Documents view - the app's first screen - down with it. 101 of 108
+   *  frontend failures were that one crash. A malformed body is now an
+   *  ordinary ApiError, so the filter is simply not offered. */
   vocabulary: () =>
-    request<ClassificationVocabulary>("/classification/vocabulary"),
+    request<ClassificationVocabulary>(
+      "/classification/vocabulary",
+      undefined,
+      hasArrayField("types"),
+    ),
   /** Counts per axis, scoped. This is how a screen gets per-type counts
    *  WITHOUT asking each document its type: one request, no N+1. */
   coverage: () => request<ClassificationCoverage>("/classification/coverage"),

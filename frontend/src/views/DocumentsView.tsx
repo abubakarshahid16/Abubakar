@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef } from "react";
 
 import { usePoll } from "../hooks/usePoll";
 
@@ -195,6 +195,12 @@ export function DocumentsView({
   const documentIds = load.state === "ready" ? load.documents.map((d) => d.id) : [];
   const { byId: classifications, setOne: setOneClassification } =
     useDocumentClassifications(documentIds);
+  // READ THROUGH A REF in `confirmType`. Depending on `classifications`
+  // directly would rebuild the callback on every confirm - the same reason the
+  // hook keeps its own ref - and a stale closure here would carry forward a
+  // classification from before the last edit.
+  const classificationsRef = useRef(classifications);
+  classificationsRef.current = classifications;
 
   const toggleType = useCallback((type: string) => {
     setSelectedTypes((prev) =>
@@ -205,7 +211,30 @@ export function DocumentsView({
 
   const confirmType = useCallback(
     async (doc: DocumentRecord, docType: string) => {
-      const result = await classification.confirm(doc.id, { doc_type: docType });
+      // THE ROUTE IS A FULL REPLACE, NOT A PATCH. `classification_mod.confirm`
+      // writes all four fields, so any field this call omits is written NULL
+      // and an empty `subject_ids` DELETES the document_subjects rows. Sending
+      // `{doc_type}` alone therefore destroyed the discipline, the class and
+      // every subject the register had matched - on a routine Confirm click,
+      // and the card reported success. Every field is now carried forward
+      // explicitly; only `doc_type` changes.
+      const current = classificationsRef.current[doc.id];
+      if (!current) {
+        // REFUSE RATHER THAN GUESS. Without the current row there is nothing
+        // to carry forward, and writing nulls would be the same data loss by
+        // another route. A classification we cannot preserve is one we must
+        // not overwrite.
+        setNotice(
+          `Cannot confirm ${doc.filename} yet - its current classification has not loaded. Try again in a moment.`,
+        );
+        return;
+      }
+      const result = await classification.confirm(doc.id, {
+        doc_type: docType,
+        discipline: current.discipline,
+        doc_class: current.doc_class,
+        subject_ids: current.subjects.map((subject) => subject.id),
+      });
       if (result.ok) {
         setOneClassification(doc.id, result.data);
         setNotice(`Confirmed ${doc.filename} as ${docType}`);

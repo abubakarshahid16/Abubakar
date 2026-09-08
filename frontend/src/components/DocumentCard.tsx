@@ -10,7 +10,7 @@
  */
 import { useState } from "react";
 
-import type { DocumentClassification, DocumentRecord } from "../types/api";
+import type { ClassificationSource, DocumentClassification, DocumentRecord } from "../types/api";
 import {
   LOW_RETRIEVABLE_THRESHOLD,
   embedProgress,
@@ -113,7 +113,7 @@ export function DocumentCard({
                   className="rounded border border-warn-500/40 bg-warn-500/10 px-2 py-0.5 text-[11px] text-warn-500"
                   title={`Suggested by ${classification.suggested_by}, not yet confirmed.`}
                 >
-                  {classification.doc_type}? · guessed from {sourceLabel(classification.suggested_by)}
+                  {`${classification.doc_type}? \u00b7 guessed from ${sourceLabel(classification.suggested_by)}`}
                 </span>
               ))}
             {/* THE CATEGORY. It is the access grant - plan line 1010 makes
@@ -403,16 +403,19 @@ export function DocumentCard({
 
 /** What a machine-suggested classification is guessed FROM, in the reader's
  *  words rather than the wire value. `register` never reaches here - it is
- *  the one client-authoritative tier and is confirmed on arrival - but the
- *  fallback keeps an unrecognised value honest rather than silently blank. */
-function sourceLabel(source: string): string {
+ *  the one client-authoritative tier and is confirmed on arrival. Exhaustive
+ *  over `ClassificationSource` so a rename on the backend (`pattern` was
+ *  `filename`/`content` on the wire until the contract was corrected to match
+ *  it) fails the build here instead of silently falling through to the raw
+ *  wire word. */
+function sourceLabel(source: ClassificationSource): string {
   switch (source) {
-    case "filename":
-      return "the title";
-    case "content":
-      return "the content";
-    default:
-      return source;
+    case "pattern":
+      return "the filename and content";
+    case "register":
+      return "the register";
+    case "none":
+      return "nothing";
   }
 }
 

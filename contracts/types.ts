@@ -1237,11 +1237,14 @@ export interface DocumentSubject {
   confirmed_by: string | null;
 }
 
-/** How a classification got there. `register` is a title match against the
- *  client's own register and is the only tier that is client-authoritative;
- *  `filename` and `content` are guesses and must render AS guesses until a
- *  person confirms them. `none` means nothing suggested anything. */
-export type ClassificationSource = "register" | "filename" | "content" | "none";
+/** How a classification got there. These names are copied from the Python
+ *  (`SOURCE_REGISTER` / `SOURCE_PATTERN` / `SOURCE_NONE`, `classification.py`),
+ *  not invented here, so a rename on either side must break the build.
+ *  `register` is a title match against the client's own register and is the
+ *  only tier that is client-authoritative; `pattern` is a filename/content
+ *  guess and must render AS a guess until a person confirms it. `none` means
+ *  nothing suggested anything. */
+export type ClassificationSource = "register" | "pattern" | "none";
 
 export interface DocumentClassification {
   document_id: string;
@@ -1252,7 +1255,7 @@ export interface DocumentClassification {
   discipline: string | null;
   doc_class: string | null;
   register_id: string | null;
-  suggested_by: ClassificationSource | string;
+  suggested_by: ClassificationSource;
   confirmed_by: string | null;
   confirmed_at: string | null;
   /** THE ONLY FIELD THAT LICENSES A PLAIN CHIP. False means a human has not

@@ -660,7 +660,7 @@ describe("documents grouped by classification type", () => {
             document_id: "d1",
             doc_type: "Drawing",
             confirmed: false,
-            suggested_by: "filename",
+            suggested_by: "pattern",
           }),
           d2: classificationFor({ document_id: "d2", doc_type: "Document", confirmed: true }),
         },
@@ -669,7 +669,7 @@ describe("documents grouped by classification type", () => {
     renderDocuments();
 
     await screen.findByText("guessed.pdf");
-    const guessChip = screen.getByText(/Drawing\? · guessed from the title/i);
+    const guessChip = screen.getByText("Drawing? \u00b7 guessed from the filename and content");
     expect(guessChip).toBeInTheDocument();
     expect(guessChip.className).toMatch(/warn-500/);
 
@@ -689,7 +689,7 @@ describe("documents grouped by classification type", () => {
           document_id: "d1",
           doc_type: "Drawing",
           confirmed: false,
-          suggested_by: "filename",
+          suggested_by: "pattern",
         }),
       },
     });
@@ -711,7 +711,7 @@ describe("documents grouped by classification type", () => {
           document_id: "d1",
           doc_type: "Drawing",
           confirmed: false,
-          suggested_by: "filename",
+          suggested_by: "pattern",
         }),
       },
     });
@@ -724,7 +724,7 @@ describe("documents grouped by classification type", () => {
 
     // The strip disappears and the chip goes plain once confirmed is true.
     await waitFor(() =>
-      expect(screen.queryByText(/guessed from the title/i)).not.toBeInTheDocument(),
+      expect(screen.queryByText(/guessed from the filename and content/i)).not.toBeInTheDocument(),
     );
     expect(screen.getByText("Drawing", { selector: "[data-testid=type-chip]" })).toBeInTheDocument();
   });
@@ -738,7 +738,7 @@ describe("documents grouped by classification type", () => {
           document_id: "d1",
           doc_type: "Drawing",
           confirmed: false,
-          suggested_by: "filename",
+          suggested_by: "pattern",
         }),
       },
       confirmStatus: 404,
