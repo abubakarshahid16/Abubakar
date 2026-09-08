@@ -691,6 +691,58 @@ def test_a_second_capability_is_not_offered_as_a_discipline(client, world):
     assert "auditor" not in doc["disciplines"]
 
 
+def test_an_anonymous_caller_cannot_deactivate_the_last_admin(client, world, monkeypatch):
+    """The refusal is a property of the CORPUS, so having no identity does not
+    skip it.
+
+    THIS FILE PINS `demo_required` (see `temp_storage`), which is exactly why
+    the defect survived review: under that mode `current_admin` 404s an
+    anonymous caller and no test here could reach the guard at all. The
+    SHIPPED DEFAULT is `disabled`, and under it `current_admin` admits a
+    caller with no `Authorization` header by design, so `deactivate_user` ran
+    with `actor = None` and `if actor is not None and ...` skipped the
+    self-check entirely.
+
+    The consequence was total: deactivate every admin, then switch to
+    `demo_required` - the documented hardening step - and `/api/admin/*` is
+    unreachable by anyone. The only remaining door is `seed_access.py` at a
+    terminal. That is verbatim the outcome the self-check's own comment says
+    it prevents.
+
+    MUTATION-PROVEN. Delete the `_is_last_active_admin` branch and this
+    returns 200 and the admin is deactivated.
+    """
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+
+    # No Authorization header at all. Under the default mode this is admitted.
+    response = client.delete(f"/api/admin/users/{world['admin']}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "cannot_deactivate_last_admin"
+
+    still_active = db.connect().execute(
+        "SELECT is_active FROM users WHERE id = ?", (world["admin"],)).fetchone()
+    assert still_active["is_active"] == 1
+
+
+def test_an_admin_can_be_deactivated_once_another_one_exists(client, world):
+    """The guard protects the CAPABILITY, not any particular person. With a
+    second active admin the same call succeeds, so the refusal is not a
+    constant dressed up as a check - and an ordinary user is never caught by
+    it.
+    """
+    second = make_user("deputy@example.com", ("admin",))
+
+    ok = call(client, "DELETE", f"/api/admin/users/{world['admin']}", None,
+              auth_headers(second))
+    assert ok.status_code == 200
+
+    # And an ordinary account, which holds no capability, is unaffected.
+    plain = call(client, "DELETE", f"/api/admin/users/{world['plain']}", None,
+                 auth_headers(second))
+    assert plain.status_code == 200
+
+
 def test_a_discipline_with_no_documents_is_warned_about(client, world):
     body = client.get("/api/admin/disciplines",
                       headers=auth_headers(world["admin"])).json()

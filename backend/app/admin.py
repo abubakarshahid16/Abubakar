@@ -67,11 +67,15 @@ EMAIL_IN_USE = "email_in_use"
 UNKNOWN_DISCIPLINE = "unknown_discipline"
 INVALID_EMAIL = "invalid_email"
 CANNOT_DEACTIVATE_SELF = "cannot_deactivate_self"
+#: The target is the only active holder of the admin capability. A property of
+#: the CORPUS, not of the caller, which is the whole point: the self-check it
+#: sits beside could be skipped by having no identity at all.
+CANNOT_DEACTIVATE_LAST_ADMIN = "cannot_deactivate_last_admin"
 UNKNOWN_DOCUMENT = "unknown_document"
 
 ADMIN_ERROR_CODES = frozenset(
     {EMAIL_IN_USE, UNKNOWN_DISCIPLINE, INVALID_EMAIL,
-     CANNOT_DEACTIVATE_SELF, UNKNOWN_DOCUMENT}
+     CANNOT_DEACTIVATE_SELF, CANNOT_DEACTIVATE_LAST_ADMIN, UNKNOWN_DOCUMENT}
 )
 errors.CLIENT_ERROR_CODES = errors.CLIENT_ERROR_CODES | ADMIN_ERROR_CODES
 errors.ALL_CODES = errors.ALL_CODES | ADMIN_ERROR_CODES
@@ -476,6 +480,26 @@ def create_user(body: CreateUserRequest, actor: dict | None) -> dict:
     }
 
 
+def _is_last_active_admin(user_id: str) -> bool:
+    """Whether deactivating this user would leave no active administrator.
+
+    False for a user who does not hold the capability at all, so an ordinary
+    account is never protected by it. `is_active = 1` is part of the count
+    because an already-deactivated admin is not a door back in.
+    """
+    conn = connect()
+    if not is_admin(user_id):
+        return False
+    remaining = conn.execute(
+        """SELECT COUNT(*) AS n FROM users u
+           JOIN user_roles ur ON ur.user_id = u.id
+           JOIN roles r ON r.id = ur.role_id
+           WHERE r.kind = 'capability' AND r.name = ?
+             AND u.is_active = 1 AND u.id != ?""",
+        (ADMIN_ROLE, user_id)).fetchone()["n"]
+    return remaining == 0
+
+
 def deactivate_user(user_id: str, actor: dict | None) -> dict:
     """Deactivate. NEVER delete.
 
@@ -491,6 +515,25 @@ def deactivate_user(user_id: str, actor: dict | None) -> dict:
         # themselves, out of a system whose only other door is a terminal.
         raise _fail(409, CANNOT_DEACTIVATE_SELF,
                     "an admin cannot deactivate their own account")
+
+    # AND THE SAME REFUSAL AS A PROPERTY OF THE CORPUS. The check above is
+    # keyed on WHO IS ASKING, and `actor is not None` disables it entirely for
+    # a caller with no identity - which under `AUTH_MODE=disabled`, the shipped
+    # default, `current_admin` admits by design. So an anonymous
+    # `DELETE /api/admin/users/<id>` with no Authorization header reached this
+    # function with `actor = None`, skipped the guard, and could deactivate
+    # every account holding the admin capability. Switch to `demo_required`
+    # afterwards - the documented hardening step - and `/api/admin/*` is
+    # unreachable by anyone: verbatim the outcome the comment above says is
+    # prevented. The concession at `current_admin` is argued for READS; it
+    # never covered a destructive write whose effect outlives the mode.
+    #
+    # Asking "would an active admin remain?" cannot be skipped by having no
+    # identity, because it does not mention the caller.
+    if _is_last_active_admin(user_id):
+        raise _fail(409, CANNOT_DEACTIVATE_LAST_ADMIN,
+                    "this is the only active administrator; grant the admin "
+                    "capability to another account first")
 
     conn = connect()
     if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is None:
