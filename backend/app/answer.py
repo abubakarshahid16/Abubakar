@@ -197,7 +197,10 @@ GATE_CANDIDATES = 5
 
 
 def _assess_candidates(
-    question: str, hits: list[dict], document_id: str | None
+    question: str,
+    hits: list[dict],
+    document_id: str | None,
+    allowed_document_ids: frozenset[str],
 ) -> tuple[dict, int]:
     """The best lexical verdict across the top candidates, and whose it was.
 
@@ -213,7 +216,9 @@ def _assess_candidates(
 
     best, best_index = None, 0
     for i, hit in enumerate(hits[:GATE_CANDIDATES]):
-        verdict = lexical.assess(question, _searchable_text(hit), document_id)
+        verdict = lexical.assess(
+            question, _searchable_text(hit), document_id,
+            allowed_document_ids=allowed_document_ids)
         if verdict["ok"]:
             return verdict, i
         if best is None or (verdict["coverage"] or 0) > (best["coverage"] or 0):
@@ -283,7 +288,11 @@ def _is_semantically_credible(hit: dict) -> bool:
 
 
 def _second_passage(
-    question: str, hits: list[dict], first: dict, document_id: str | None
+    question: str,
+    hits: list[dict],
+    first: dict,
+    document_id: str | None,
+    allowed_document_ids: frozenset[str],
 ) -> dict | None:
     """A second passage, when one passage cannot answer the whole question.
 
@@ -301,7 +310,8 @@ def _second_passage(
     # answer for no reason.
     missing = {
         t.lower() for t in lexical.distinguishing_uncovered_terms(
-            question, first["text"], document_id
+            question, first["text"], document_id,
+            allowed_document_ids=allowed_document_ids,
         )
     }
     if not missing:
@@ -358,7 +368,9 @@ def _second_passage(
         if wants_designator and not hit.get("heading_declares"):
             continue
 
-        if not lexical.assess(question, hit["text"], document_id)["ok"]:
+        if not lexical.assess(
+                question, hit["text"], document_id,
+                allowed_document_ids=allowed_document_ids)["ok"]:
             continue
         if any(term in hit["text"].lower() for term in missing):
             return hit
@@ -512,7 +524,8 @@ def answer(
     # It still refuses when NO candidate covers the question, which is what the
     # refusal record rests on. Every gold question had its answer at rank 1, so
     # the harness structurally could not see this.
-    lexical_verdict, gate_index = _assess_candidates(question, hits, document_id)
+    lexical_verdict, gate_index = _assess_candidates(
+        question, hits, document_id, allowed_document_ids)
     base["lexical"] = {
         k: lexical_verdict[k]
         for k in ("coverage", "terms", "covered", "absent_from_corpus")
@@ -541,7 +554,8 @@ def answer(
     if tier == "extract":
         primary = _passage_payload(lead, question)
         answers = [primary]
-        second = _second_passage(question, hits, lead, document_id)
+        second = _second_passage(
+            question, hits, lead, document_id, allowed_document_ids)
         if second is not None:
             answers.append(_passage_payload(second, question))
         used = {p["chunk_id"] for p in answers}

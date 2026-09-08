@@ -73,7 +73,7 @@ MAX_EXPANSION_WORDS = 8
 
 #: Rebuilt when the number of indexed chunks changes. Harvesting scans the
 #: whole corpus, so it is done once rather than per question.
-_cache: dict[tuple[str | None, int], dict[str, set[str]]] = {}
+_cache: dict[tuple[str | None, int, frozenset[str]], dict[str, set[str]]] = {}
 
 
 def looks_like_acronym(term: str) -> bool:
@@ -136,10 +136,25 @@ def _add(found: dict[str, set[str]], acronym: str, expansion: str) -> None:
     found.setdefault(acronym.upper(), set()).add(expansion)
 
 
-def harvest(document_id: str | None = None) -> dict[str, set[str]]:
-    """Acronym -> expansions, built from the retrievable text of the corpus."""
-    indexed = keyword.indexed_count(document_id)
-    key = (document_id, indexed)
+def harvest(
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> dict[str, set[str]]:
+    """Acronym -> expansions, built from the retrievable text the caller may read.
+
+    Scoped because `lexical.assess` expands every question term through this
+    map before asking whether it occurs: an unscoped map let a document the
+    caller cannot read supply the expansion that decided their verdict, and
+    the expansions themselves are phrases lifted from that document's text.
+    """
+    if not allowed_document_ids:
+        return {}
+    indexed = keyword.indexed_count(
+        document_id, allowed_document_ids=allowed_document_ids)
+    # The scope is part of the cache key. Without it one caller's map was
+    # served to the next.
+    key = (document_id, indexed, allowed_document_ids)
     if key in _cache:
         return _cache[key]
 
@@ -149,6 +164,8 @@ def harvest(document_id: str | None = None) -> dict[str, set[str]]:
     if document_id:
         where += " AND document_id = ?"
         params.append(document_id)
+    where += " AND document_id IN (%s)" % ",".join("?" * len(allowed_document_ids))
+    params.extend(sorted(allowed_document_ids))
     rows = conn.execute(f"SELECT text FROM chunks WHERE {where}", params).fetchall()
 
     found: dict[str, set[str]] = {}
@@ -166,16 +183,26 @@ def harvest(document_id: str | None = None) -> dict[str, set[str]]:
     return found
 
 
-def reverse_map(document_id: str | None = None) -> dict[str, set[str]]:
+def reverse_map(
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> dict[str, set[str]]:
     """Expansion -> acronyms, so a question can be asked either way round."""
     out: dict[str, set[str]] = {}
-    for acronym, expansions in harvest(document_id).items():
+    for acronym, expansions in harvest(
+            document_id, allowed_document_ids=allowed_document_ids).items():
         for expansion in expansions:
             out.setdefault(expansion, set()).add(acronym)
     return out
 
 
-def equivalents(term: str, document_id: str | None = None) -> list[str]:
+def equivalents(
+    term: str,
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> list[str]:
     """Other ways this corpus writes the same thing, `term` excluded.
 
     Bidirectional: an acronym returns its expansions, an expansion returns its
@@ -187,18 +214,26 @@ def equivalents(term: str, document_id: str | None = None) -> list[str]:
     term_norm = normalise_expansion(term)
     out: list[str] = []
 
-    for expansion in sorted(harvest(document_id).get(term.upper(), ())):
+    for expansion in sorted(harvest(
+            document_id,
+            allowed_document_ids=allowed_document_ids).get(term.upper(), ())):
         if expansion != term_norm:
             out.append(expansion)
 
-    for acronym in sorted(reverse_map(document_id).get(term_norm, ())):
+    for acronym in sorted(reverse_map(
+            document_id,
+            allowed_document_ids=allowed_document_ids).get(term_norm, ())):
         if acronym.lower() != term_norm:
             out.append(acronym)
 
     return out
 
 
-def known_expansions(document_id: str | None = None) -> list[str]:
+def known_expansions(
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> list[str]:
     """Multi-word expansions this corpus defines, longest first.
 
     Needed because a question is tokenised into single words, so the PHRASE
@@ -208,7 +243,8 @@ def known_expansions(document_id: str | None = None) -> list[str]:
     """
     phrases = {
         expansion
-        for expansions in harvest(document_id).values()
+        for expansions in harvest(
+            document_id, allowed_document_ids=allowed_document_ids).values()
         for expansion in expansions
         if " " in expansion
     }

@@ -155,18 +155,24 @@ def test_distinctive_terms_are_never_asked_for_per_document(monkeypatch):
 
     real = lexical.distinctive_terms
 
-    def spy(question, document_id=None):
+    def spy(question, document_id=None, *, allowed_document_ids):
         seen.append(document_id)
-        return real(question, document_id)
+        return real(question, document_id,
+                    allowed_document_ids=allowed_document_ids)
 
     # The index has to be non-empty or distinguishing_terms returns early and
     # the spy is never called - which would make this test pass vacuously,
     # asserting nothing. `seen and ...` below is what catches that.
-    monkeypatch.setattr(keyword, "indexed_count", lambda document_id=None: 400)
-    monkeypatch.setattr(keyword, "term_occurrences", lambda term, document_id=None: 3)
+    monkeypatch.setattr(
+        keyword, "indexed_count",
+        lambda document_id=None, *, allowed_document_ids: 400)
+    monkeypatch.setattr(
+        keyword, "term_occurrences",
+        lambda term, document_id=None, *, allowed_document_ids: 3)
     monkeypatch.setattr(lexical, "distinctive_terms", spy)
 
-    terms = coverage.distinguishing_terms("what is the coating thickness")
+    terms = coverage.distinguishing_terms(
+        "what is the coating thickness", allowed_document_ids=_scope())
     assert terms, "the fixture produced no terms, so nothing was measured"
     assert seen and all(d is None for d in seen), f"got document ids {seen}"
 
@@ -334,3 +340,16 @@ def test_coverage_survives_reopening_a_conversation():
     from app import chat
 
     assert "coverage" in chat._PAYLOAD_KEYS
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    The lexical presence gate now REQUIRES an access scope with no default, so
+    a test has to name the documents it is allowed to see. These want all of
+    them, and saying so out loud is the point: each of these is a line
+    somebody changes on purpose rather than a default that quietly kept
+    meaning "everything".
+    """
+    from app.search import every_document_id
+    return every_document_id()

@@ -287,6 +287,7 @@ def test_a_passage_sharing_only_common_words_is_not_an_answer():
     verdict = lexical.assess(
         "what is the design pressure of the subsea manifold",
         "The materials for metal spraying shall be in accordance with the following.",
+        allowed_document_ids=_scope(),
     )
     assert verdict["ok"] is False
     assert verdict["reason"]
@@ -303,7 +304,8 @@ def test_the_lexical_verdict_is_reported_so_a_refusal_can_be_audited():
 
 def test_a_question_with_no_distinctive_terms_falls_through_to_the_semantic_score():
     """The lexical gate must not become a second refusal path of its own."""
-    verdict = lexical.assess("what is it", "any text at all")
+    verdict = lexical.assess("what is it", "any text at all",
+                           allowed_document_ids=_scope())
     assert verdict["ok"] is True
 
 

@@ -135,19 +135,19 @@ def test_a_single_letter_is_not_an_abbreviation():
 def test_a_parenthetical_definition_is_harvested():
     client = TestClient(app)
     upload(client, [PARENTHETICAL])
-    assert "nominal dry film thickness" in acronyms.harvest()["NDFT"]
+    assert "nominal dry film thickness" in acronyms.harvest(allowed_document_ids=_scope())["NDFT"]
 
 
 def test_an_inverse_parenthetical_definition_is_harvested():
     client = TestClient(app)
     upload(client, [INVERSE])
-    assert "maximum allowable working pressure" in acronyms.harvest()["MAWP"]
+    assert "maximum allowable working pressure" in acronyms.harvest(allowed_document_ids=_scope())["MAWP"]
 
 
 def test_a_glossary_row_is_harvested():
     client = TestClient(app)
     upload(client, [GLOSSARY])
-    harvested = acronyms.harvest()
+    harvested = acronyms.harvest(allowed_document_ids=_scope())
     assert "coating procedure specification" in harvested["CPS"]
     assert "post weld heat treatment" in harvested["PWHT"]
     # The last row bounds the one before it, so it has to harvest too - and its
@@ -164,30 +164,30 @@ def test_a_capitalised_glossary_expansion_is_harvested():
     client = TestClient(app)
     upload(client, [GLOSSARY])
     assert any(
-        e.startswith("national association") for e in acronyms.harvest().get("NACE", ())
+        e.startswith("national association") for e in acronyms.harvest(allowed_document_ids=_scope()).get("NACE", ())
     )
 
 
 def test_the_map_is_bidirectional():
     client = TestClient(app)
     upload(client, [PARENTHETICAL])
-    assert acronyms.equivalents("NDFT") == ["nominal dry film thickness"]
-    assert acronyms.equivalents("nominal dry film thickness") == ["NDFT"]
+    assert acronyms.equivalents("NDFT", allowed_document_ids=_scope()) == ["nominal dry film thickness"]
+    assert acronyms.equivalents("nominal dry film thickness", allowed_document_ids=_scope()) == ["NDFT"]
 
 
 def test_a_term_the_corpus_never_defines_has_no_equivalents():
     client = TestClient(app)
     upload(client, [PARENTHETICAL])
-    assert acronyms.equivalents("Inconel") == []
-    assert acronyms.equivalents("SSPC") == []
+    assert acronyms.equivalents("Inconel", allowed_document_ids=_scope()) == []
+    assert acronyms.equivalents("SSPC", allowed_document_ids=_scope()) == []
 
 
 def test_the_map_is_rebuilt_when_the_corpus_changes():
     client = TestClient(app)
     upload(client, [PARENTHETICAL])
-    assert "NDFT" in acronyms.harvest()
+    assert "NDFT" in acronyms.harvest(allowed_document_ids=_scope())
     upload(client, [GLOSSARY], name="glossary.pdf")
-    both = acronyms.harvest()
+    both = acronyms.harvest(allowed_document_ids=_scope())
     assert "NDFT" in both and "CPS" in both
 
 
@@ -210,6 +210,7 @@ def test_a_question_using_the_full_term_matches_a_chunk_that_only_writes_the_acr
     verdict = lexical.assess(
         "what is the nominal dry film thickness for the submerged zone",
         "The NDFT for the submerged zone shall not be less than 350 um.",
+        allowed_document_ids=_scope(),
     )
     assert verdict["ok"] is True
     assert "nominal" not in verdict["absent_from_corpus"]
@@ -246,7 +247,7 @@ def test_the_expansion_map_never_invents_an_equivalence():
     about one thing match a passage about another, with a citation."""
     client = TestClient(app)
     upload(client, [PARENTHETICAL, GLOSSARY, INVERSE])
-    for acronym, expansions in acronyms.harvest().items():
+    for acronym, expansions in acronyms.harvest(allowed_document_ids=_scope()).items():
         for expansion in expansions:
             assert acronyms.initials_match(acronym, expansion), (acronym, expansion)
 
