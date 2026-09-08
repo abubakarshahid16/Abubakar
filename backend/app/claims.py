@@ -411,16 +411,30 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
     return tuple(found)
 
 
-def claim_terms(sentence: str) -> frozenset[str]:
-    return frozenset(t.lower() for t in lexical.distinctive_terms(sentence))
+def claim_terms(
+    sentence: str, *, allowed_document_ids: frozenset[str]
+) -> frozenset[str]:
+    return frozenset(t.lower() for t in lexical.distinctive_terms(
+        sentence, allowed_document_ids=allowed_document_ids))
 
 
-def question_terms(question: str) -> frozenset[str]:
-    """The question's distinctive terms, lowercased, as a facet_key input."""
-    return frozenset(t.lower() for t in lexical.distinctive_terms(question))
+def question_terms(
+    question: str, *, allowed_document_ids: frozenset[str]
+) -> frozenset[str]:
+    """The question's distinctive terms, lowercased, as a facet_key input.
+
+    Scoped because `distinctive_terms` consults the corpus: it folds in the
+    multi-word expansions the documents themselves define, so an unreadable
+    document could otherwise decide how a caller's question was split into
+    terms - and those terms become `facet_key` inputs the reader sees.
+    """
+    return frozenset(t.lower() for t in lexical.distinctive_terms(
+        question, allowed_document_ids=allowed_document_ids))
 
 
-def extract_claims(evidence: list[dict]) -> list[Claim]:
+def extract_claims(
+    evidence: list[dict], *, allowed_document_ids: frozenset[str]
+) -> list[Claim]:
     """One Claim per sentence carrying a measurement, identifier or designator.
     Sentences with none are not claims. The sentence is carried verbatim."""
     claims: list[Claim] = []
@@ -443,7 +457,10 @@ def extract_claims(evidence: list[dict]) -> list[Claim]:
                     identifiers=identifiers,
                     designators=designators,
                     measurements=measurements,
-                    terms=claim_terms(sentence) - frozenset(dropped),
+                    terms=claim_terms(
+                        sentence,
+                        allowed_document_ids=allowed_document_ids,
+                    ) - frozenset(dropped),
                 )
             )
     return claims

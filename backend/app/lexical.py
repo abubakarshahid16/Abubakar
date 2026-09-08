@@ -310,13 +310,17 @@ def assess(
     }
 
 
-def uncovered_terms(question: str, passage_text: str) -> list[str]:
+def uncovered_terms(
+    question: str, passage_text: str, *, allowed_document_ids: frozenset[str]
+) -> list[str]:
     """Distinctive terms the question asks about that this passage does not
     mention. Used to decide whether a SECOND passage is needed: a question
     asking for a check frequency and a humidity limit is answered by one
     passage only if that passage covers both."""
     body = passage_text.lower()
-    return [t for t in distinctive_terms(question) if t.lower() not in body]
+    return [t for t in distinctive_terms(
+        question, allowed_document_ids=allowed_document_ids)
+        if t.lower() not in body]
 
 
 def distinguishing_uncovered_terms(

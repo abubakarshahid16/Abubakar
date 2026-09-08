@@ -383,8 +383,8 @@ BURIAL = _spans(
 def _items(question, evidence):
     from app import claims as claims_mod
 
-    rows = claims_mod.extract_claims(evidence)
-    clusters = claims_mod.cluster(rows, claims_mod.question_terms(question))
+    rows = claims_mod.extract_claims(evidence, allowed_document_ids=_scope())
+    clusters = claims_mod.cluster(rows, claims_mod.question_terms(question, allowed_document_ids=_scope()))
     return analysis._gap_items(clusters, None,
                                {e["evidence_id"]: "doc_1" for e in evidence})
 
@@ -471,8 +471,8 @@ def _items_with_baseline(question, evidence, baseline_ids, doc_of=None):
     """Gap items WITH a baseline named, which is when met/possible_gap apply."""
     from app import claims as claims_mod
 
-    rows = claims_mod.extract_claims(evidence)
-    clusters = claims_mod.cluster(rows, claims_mod.question_terms(question))
+    rows = claims_mod.extract_claims(evidence, allowed_document_ids=_scope())
+    clusters = claims_mod.cluster(rows, claims_mod.question_terms(question, allowed_document_ids=_scope()))
     document_of = doc_of or {
         e["evidence_id"]: ("doc_base" if e["evidence_id"] in baseline_ids else "doc_other")
         for e in evidence
@@ -536,8 +536,8 @@ def test_an_unnormalisable_unit_is_insufficient_evidence_not_a_gap():
     `insufficient_evidence` says precisely that."""
     from app import claims as claims_mod
 
-    rows = claims_mod.extract_claims(_spans("Torque shall be 40 klbf-ft at the flange."))
-    clusters = claims_mod.cluster(rows, claims_mod.question_terms("torque"))
+    rows = claims_mod.extract_claims(_spans("Torque shall be 40 klbf-ft at the flange."), allowed_document_ids=_scope())
+    clusters = claims_mod.cluster(rows, claims_mod.question_terms("torque", allowed_document_ids=_scope()))
     unresolved = [c for c in clusters if c.label == "unresolved"]
     if not unresolved:
         pytest.skip("this corpus fixture produced no unresolvable unit; "
@@ -560,3 +560,13 @@ def test_the_label_to_status_mapping_is_exhaustive_and_honest():
         "addition": "met",
         "unresolved": "insufficient_evidence",
     }
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    `extract_claims` and `question_terms` reach `lexical.distinctive_terms`,
+    which consults the corpus and now REQUIRES a scope with no default.
+    """
+    from app.search import every_document_id
+    return every_document_id()

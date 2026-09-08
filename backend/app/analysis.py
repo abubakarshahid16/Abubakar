@@ -744,8 +744,10 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
     comparison without being told which side is right.
     """
     evidence, _ = gather(question, scope, limit=limit)
-    rows = claims.extract_claims(evidence)
-    clusters = claims.cluster(rows, claims.question_terms(question))
+    rows = claims.extract_claims(
+        evidence, allowed_document_ids=scope.allowed_document_ids)
+    clusters = claims.cluster(rows, claims.question_terms(
+        question, allowed_document_ids=scope.allowed_document_ids))
     applicability = "applicable" if baseline_document_id else "not_applicable"
     baseline = None
     if baseline_document_id:

@@ -252,6 +252,47 @@ def test_the_expansion_map_never_invents_an_equivalence():
             assert acronyms.initials_match(acronym, expansion), (acronym, expansion)
 
 
+# --------------------------------------- the gaps route's own scope path
+
+
+def test_an_unreadable_document_cannot_shape_a_callers_question_terms():
+    """The third path into the lexical layer, which the review did not name.
+
+    `claims.question_terms` and `claims.claim_terms` reach
+    `lexical.distinctive_terms`, which folds in the multi-word expansions the
+    CORPUS defines. Unscoped, a document the caller has no grant on decided
+    how their question was split into terms - and those terms become
+    `facet_key` inputs the gap analysis shows the reader.
+
+    Here only `defs.pdf` defines NDFT. A caller granted just `use.pdf` must
+    not have the phrase collapsed into the single term the other document's
+    glossary would produce.
+
+    MUTATION-PROVEN. Drop the scope from `claims.question_terms` and the
+    restricted caller's term set becomes the corpus-wide one.
+    """
+    from app import claims as claims_mod
+
+    client = TestClient(app)
+    defs_doc = upload(client, [PARENTHETICAL], name="defs.pdf")
+    use_doc = upload(client, [ACRONYM_ONLY], name="use.pdf")
+
+    question = "what is the nominal dry film thickness for the submerged zone"
+    everything = claims_mod.question_terms(
+        question, allowed_document_ids=_scope())
+    mine = claims_mod.question_terms(
+        question, allowed_document_ids=frozenset({use_doc}))
+
+    # Corpus-wide, the phrase IS a known expansion, so it survives as one
+    # multi-word term. That is the precondition: without it this test would
+    # compare two identical sets and assert nothing.
+    assert "nominal dry film thickness" in everything, everything
+    assert "nominal dry film thickness" not in mine, (
+        "an unreadable document's glossary shaped the caller's question terms")
+    assert mine != everything
+    assert defs_doc  # the document that defines it is real, and unreadable here
+
+
 def _scope():
     """Corpus-wide scope, stated explicitly.
 
