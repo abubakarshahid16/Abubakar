@@ -184,14 +184,39 @@ def _not_found() -> HTTPException:
     return _fail(404, errors.NOT_FOUND, "not found")
 
 
-def _role_names_of(user_id: str) -> list[str]:
-    return [r["name"] for r in connect().execute(
-        """SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id = r.id
+def _roles_of(user_id: str) -> list[dict]:
+    """This user's roles, WITH their kind.
+
+    The kind is selected because callers need it: whether a role is the admin
+    capability is a fact about `roles.kind`, and a caller that reads only the
+    name has to guess. `list_users` used to.
+    """
+    return [dict(r) for r in connect().execute(
+        """SELECT r.name, r.kind FROM roles r JOIN user_roles ur ON ur.role_id = r.id
            WHERE ur.user_id = ? ORDER BY r.name""", (user_id,))]
 
 
 def is_admin(user_id: str) -> bool:
-    return ADMIN_ROLE in _role_names_of(user_id)
+    """Whether this user holds the admin CAPABILITY.
+
+    ON `roles.kind`, NOT ON `roles.name`. `db.py:267` says the column exists to
+    say precisely this, and `access.scope_for_user` already derives
+    `AccessScope.capabilities` from `kind = 'capability'`. Reading the name
+    here made the highest-privilege surface in the API answer a different
+    question from the enforcement layer: a `roles` row named `admin` with
+    `kind = 'discipline'` - hand-written, left by a partial `seed_access.py`
+    run, or simply surviving between restarts - was a full administrator to
+    every `/api/admin/*` route and an ordinary engineer to `AccessScope`.
+
+    `init_db`'s corrective `UPDATE roles SET kind = 'capability' WHERE name =
+    'admin'` is not a guarantee: it runs at startup only, and `main.py:185-192`
+    already named that gap and closed it for `/api/metrics` alone. This is the
+    same predicate `grant_on_upload` uses below.
+    """
+    return connect().execute(
+        """SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+           WHERE ur.user_id = ? AND r.kind = 'capability' AND r.name = ?""",
+        (user_id, ADMIN_ROLE)).fetchone() is not None
 
 
 def current_admin(request: Request) -> dict | None:
@@ -309,13 +334,19 @@ def list_users() -> dict:
     for row in conn.execute(
             "SELECT id, email, is_active, created_at, last_login_at "
             "FROM users ORDER BY email"):
-        roles = _role_names_of(row["id"])
-        disciplines = [r for r in roles if r != ADMIN_ROLE]
+        roles = _roles_of(row["id"])
+        disciplines = [r["name"] for r in roles if r["name"] != ADMIN_ROLE]
         users.append({
             "user_id": row["id"],
             "email": row["email"],
             "disciplines": disciplines,
-            "is_admin": ADMIN_ROLE in roles,
+            # THE SAME PREDICATE `is_admin` USES. Reading the name here
+            # made this screen report "is_admin": true for a holder of a role
+            # merely NAMED admin, whom every enforcement path treats as an
+            # ordinary engineer - the listing asserting a capability the
+            # system does not grant.
+            "is_admin": any(r["name"] == ADMIN_ROLE and r["kind"] == "capability"
+                            for r in roles),
             "active": bool(row["is_active"]),
             "created_at": _iso(row["created_at"]),
             "last_login_at": _iso(row["last_login_at"]),
@@ -369,8 +400,15 @@ def create_user(body: CreateUserRequest, actor: dict | None) -> dict:
 
     roles = [_resolve_discipline(name) for name in body.disciplines]
     if body.is_admin:
-        row = conn.execute("SELECT id, name FROM roles WHERE name = ?",
-                           (ADMIN_ROLE,)).fetchone()
+        # `kind = 'capability'` here too. Attaching whatever row is NAMED
+        # admin let this route mint a user that `list_users` reports as
+        # `"is_admin": true` while the enforcement layer treats them as an
+        # ordinary engineer - the admin screen making a false statement about
+        # who holds the capability, through the API, with no hand-edited
+        # database needed.
+        row = conn.execute(
+            "SELECT id, name FROM roles WHERE kind = 'capability' AND name = ?",
+            (ADMIN_ROLE,)).fetchone()
         if row is None:
             # The capability has no row to grant. Refused rather than created
             # here: this screen assigns roles, `seed_access.py --roles` makes

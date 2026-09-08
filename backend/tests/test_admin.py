@@ -81,12 +81,23 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def make_role(name: str) -> str:
+def make_role(name: str, kind: str = "discipline") -> str:
+    """A role row, WITH ITS KIND WRITTEN EXPLICITLY.
+
+    `kind` used to be omitted, so every role this fixture made carried the
+    column default `'discipline'` - including the one named `admin`. That is
+    not cosmetic: `temp_storage` runs `db.init_db()` BEFORE `world` inserts
+    these rows, so `init_db`'s corrective `UPDATE roles SET kind = 'capability'
+    WHERE name = 'admin'` never saw them. Every test in this file therefore ran
+    against a database in which admin was NOT a capability, and satisfied the
+    name predicate alone. Dropping `roles.kind` from the schema entirely would
+    have left them all green.
+    """
     role_id = f"role_{secrets.token_hex(6)}"
     conn = db.connect()
     with conn:
-        conn.execute("INSERT INTO roles (id, name, description, created_at) "
-                     "VALUES (?, ?, '', ?)", (role_id, name, _now()))
+        conn.execute("INSERT INTO roles (id, name, description, kind, created_at) "
+                     "VALUES (?, ?, '', ?, ?)", (role_id, name, kind, _now()))
     return role_id
 
 
@@ -142,8 +153,9 @@ def call(client: TestClient, method: str, path: str, body, headers: dict):
 @pytest.fixture
 def world():
     """Roles, an admin, a non-admin, a document, and a live grant."""
-    for name in ("admin",) + DISCIPLINES:
-        make_role(name)
+    make_role("admin", kind="capability")
+    for name in DISCIPLINES:
+        make_role(name, kind="discipline")
     admin_id = make_user("boss@example.com", ("admin",))
     plain_id = make_user("worker@example.com", ("Mechanical",))
     doc = make_document("doc_1")
@@ -562,6 +574,76 @@ def test_the_admin_capability_is_not_a_discipline(client, world):
     disciplines = client.get("/api/admin/disciplines",
                              headers=auth_headers(world["admin"])).json()
     assert "admin" not in [d["name"] for d in disciplines["disciplines"]]
+
+
+@pytest.mark.parametrize("method,path,body", ROUTES)
+def test_a_role_merely_named_admin_reaches_no_admin_route(client, world, method, path, body):
+    """THE TEST THAT WOULD HAVE CAUGHT IT.
+
+    `roles.kind` is what makes admin a capability (`db.py:267`). A row NAMED
+    admin with `kind = 'discipline'` is the state `init_db`'s startup-only
+    correction cannot reach - written by hand, or left by a partial
+    `seed_access.py --roles` run. Until this was fixed, its holder was a full
+    administrator to every route in `ROUTES`: create further admins, grant and
+    revoke any document to any discipline, deactivate any user - while
+    `AccessScope.is_admin` for the very same request was False.
+
+    EVERY RESOURCE THESE ROUTES NAME EXISTS. `world` supplies `doc_1` and
+    `Mechanical`, and the user route targets a real account, so a 404 here can
+    only have come from the gate. Without that, three of the seven
+    parametrisations returned 404 because the resource was missing and passed
+    under the mutation below for the wrong reason - a test that agrees with
+    the fix by coincidence is the vacuity this file exists to avoid.
+
+    MUTATION-PROVEN. Revert `admin.is_admin` to the name predicate and all
+    SEVEN go red. `test_the_admin_capability_is_not_a_discipline` does not
+    fail under that mutation, which is why it was never evidence.
+
+    `test_metrics_host_telemetry.py:419` is the model: build the state,
+    assert the refusal.
+    """
+    # `roles.name` is UNIQUE, so the state is reached by downgrading the row
+    # rather than adding a second - which is how it arises in life too.
+    conn = db.connect()
+    with conn:
+        conn.execute("UPDATE roles SET kind = 'discipline' WHERE name = 'admin'")
+
+    # A real account to deactivate, so the users route cannot 404 on absence.
+    if path.endswith("/usr_00000000"):
+        path = f"/api/admin/users/{world['plain']}"
+
+    response = call(client, method, path, body, auth_headers(world["admin"]))
+
+    # 404, never 403: the admin surface says nothing about its own existence
+    # to a caller who may not use it.
+    assert response.status_code == 404, (
+        f"{method} {path} admitted a role named admin whose kind is "
+        f"'discipline'; got {response.status_code}"
+    )
+
+
+def test_the_listing_does_not_call_a_named_role_an_admin(client, world):
+    """`is_admin` in the listing is the same fact as the gate, so it must be
+    the same predicate. It was not: it read the name, so this screen reported
+    `is_admin: true` for a user every enforcement path treats as an ordinary
+    engineer - the third home of the claim finding 1 names two homes of.
+
+    MUTATION-PROVEN. Restore `"is_admin": ADMIN_ROLE in roles` and this fails.
+
+    `roles.name` is UNIQUE, so the state is reached by downgrading the row
+    rather than inserting a second one - which is also how it arises in life:
+    the row already exists and its kind is wrong.
+    """
+    conn = db.connect()
+    with conn:
+        conn.execute("UPDATE roles SET kind = 'discipline' WHERE name = 'admin'")
+
+    # Read the listing as a caller who is genuinely privileged. Identity is
+    # not the point here; what the listing SAYS about the downgraded role is.
+    listed = admin.list_users()
+    row = next(u for u in listed["users"] if u["user_id"] == world["admin"])
+
+    assert row["is_admin"] is False
 
 
 def test_a_discipline_with_no_documents_is_warned_about(client, world):
