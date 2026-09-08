@@ -388,10 +388,15 @@ def warnings(allowed: Allowed = None, host: bool = True) -> list[dict]:
     #
     # An alert only when work is OUTSTANDING. Pages that have been recognised
     # are not a warning; they are the feature working.
+    # SCOPED, like every other count on this endpoint. These three summed the
+    # whole `documents` table with no WHERE at all, and were shipped beside
+    # `"corpus_wide": false` - so a caller with four grants was told how many
+    # scanned pages were outstanding across documents they cannot read, and
+    # the number contradicted the Documents screen for the same person.
     row = conn.execute(
         """SELECT COALESCE(SUM(needs_ocr_pages), 0) AS flagged,
                   COALESCE(SUM(recognised_pages), 0) AS recognised
-           FROM documents"""
+           FROM documents""" + id_where, id_args
     ).fetchone()
     flagged, recognised = row["flagged"], row["recognised"]
     awaiting = max(flagged - recognised, 0)
@@ -419,7 +424,8 @@ def warnings(allowed: Allowed = None, host: bool = True) -> list[dict]:
         })
 
     equations = conn.execute(
-        "SELECT COALESCE(SUM(equation_pages), 0) FROM documents"
+        "SELECT COALESCE(SUM(equation_pages), 0) FROM documents" + id_where,
+        id_args,
     ).fetchone()[0]
     if equations:
         out.append({

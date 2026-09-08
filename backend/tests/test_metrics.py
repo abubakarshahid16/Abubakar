@@ -265,6 +265,52 @@ def test_undetected_ocr_is_stated_rather_than_implied():
     assert "not been read yet" in warning["message"]
 
 
+def test_the_ocr_and_equation_warnings_count_only_readable_documents():
+    """Three aggregates summed the whole `documents` table with no WHERE.
+
+    `needs_ocr_pages`, `recognised_pages` and `equation_pages` were shipped
+    beside `"corpus_wide": false`, so a caller with one grant was told how many
+    scanned pages and equation pages were outstanding across documents they
+    cannot read - and the number contradicted the Documents screen for that
+    same person.
+
+    MUTATION-PROVEN. Remove `+ id_where, id_args` from either query and the
+    scoped counts jump to the corpus-wide ones.
+    """
+    client = TestClient(app)
+    mine = upload(client, name="mine.pdf")
+    theirs = upload(client, name="theirs.pdf")
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "UPDATE documents SET needs_ocr_pages = 3, equation_pages = 5"
+            " WHERE id = ?", (mine,))
+        conn.execute(
+            "UPDATE documents SET needs_ocr_pages = 40, equation_pages = 70"
+            " WHERE id = ?", (theirs,))
+
+    def counts(allowed):
+        got = {}
+        for w in metrics.warnings(allowed, host=False):
+            if w["code"] == "needs_ocr":
+                got["ocr"] = w["message"]
+            if w["code"] == "equation_pages":
+                got["eq"] = w["message"]
+        return got
+
+    # Corpus-wide really does see both, so this is about SCOPE rather than
+    # about the numbers being absent.
+    everything = counts(None)
+    assert "43 scanned page(s)" in everything["ocr"], everything
+    assert "75" in everything["eq"], everything
+
+    scoped = counts([mine])
+    assert "3 scanned page(s)" in scoped["ocr"], scoped
+    assert "43" not in scoped["ocr"], (
+        "the OCR backlog counted documents the caller may not read")
+    assert "5" in scoped["eq"] and "75" not in scoped["eq"], scoped
+
+
 #: Warnings about the MACHINE rather than the corpus. Real, and correct to
 #: raise, but not something a clean corpus can clear.
 MACHINE_WARNINGS = {"low_memory_for_answer_model"}
