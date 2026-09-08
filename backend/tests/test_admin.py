@@ -646,6 +646,51 @@ def test_the_listing_does_not_call_a_named_role_an_admin(client, world):
     assert row["is_admin"] is False
 
 
+def test_a_second_capability_is_not_offered_as_a_discipline(client, world):
+    """A discipline is a role whose KIND says so, not one whose name is not
+    `admin`.
+
+    `admin.py:562` and `db.py` both anticipate a second capability. Until this
+    was fixed, adding one - here `auditor` - put it in
+    `GET /api/admin/disciplines` with a user count and a document count, let
+    `PUT /api/admin/grants` accept it, and listed it under a document's
+    `disciplines[]`, while the Documents screen (fed by
+    `access.disciplines_for`, which reads `r.kind`) did not show it. The same
+    document reported two different sets of "who may read this" on two
+    screens.
+
+    MUTATION-PROVEN. Restore `WHERE name != ?` in `_discipline_rows` and the
+    first assertion fails; restore `AND r.name != ?` in `list_grants` and the
+    third does.
+    """
+    make_role("auditor", kind="capability")
+    auditor_id = db.connect().execute(
+        "SELECT id FROM roles WHERE name = 'auditor'").fetchone()["id"]
+    holder = make_user("auditor@example.com", ("auditor",))
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO document_role_access (document_id, role_id, granted_at) "
+            "VALUES (?, ?, ?)", (world["document"], auditor_id, _now()))
+
+    listed = client.get("/api/admin/disciplines",
+                        headers=auth_headers(world["admin"])).json()
+    assert "auditor" not in [d["name"] for d in listed["disciplines"]]
+
+    # Nor is its holder described as working in it.
+    users = client.get("/api/admin/users",
+                       headers=auth_headers(world["admin"])).json()
+    row = next(u for u in users["users"] if u["user_id"] == holder)
+    assert row["disciplines"] == []
+
+    # Nor does a real grant to it appear as a discipline that may read the
+    # document - the grant is real, but it is not a discipline.
+    grants = client.get("/api/admin/grants",
+                        headers=auth_headers(world["admin"])).json()
+    doc = next(d for d in grants["documents"] if d["document_id"] == world["document"])
+    assert "auditor" not in doc["disciplines"]
+
+
 def test_a_discipline_with_no_documents_is_warned_about(client, world):
     body = client.get("/api/admin/disciplines",
                       headers=auth_headers(world["admin"])).json()

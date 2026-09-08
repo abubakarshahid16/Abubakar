@@ -273,7 +273,7 @@ class GrantRequest(BaseModel):
 
 
 def _discipline_rows() -> list[dict]:
-    """Every role that is not the admin capability.
+    """Every role whose KIND is discipline.
 
     DERIVED, not a constant. A hard-coded list of four names here would be a
     second source of truth about what a discipline is, disagreeing with the
@@ -282,9 +282,16 @@ def _discipline_rows() -> list[dict]:
     Roles are created by `scripts/seed_access.py --roles`; this screen assigns
     them and does not duplicate their creation.
     """
+    # ON THE KIND, NOT ON "NOT NAMED ADMIN". This function's own docstring
+    # argues against a second source of truth about what a discipline is, and
+    # then was one: `access.disciplines_for` reads `r.kind = 'discipline'`, so
+    # the moment a SECOND capability exists - `auditor`, which admin.py:562
+    # and db.py both anticipate - this screen offered it as a discipline with
+    # user and document counts, `PUT /api/admin/grants` accepted it, and the
+    # Documents screen did not show it. One document, two different answers to
+    # "who may read this", on two screens.
     return [dict(r) for r in connect().execute(
-        "SELECT id, name FROM roles WHERE name != ? ORDER BY name",
-        (ADMIN_ROLE,))]
+        "SELECT id, name FROM roles WHERE kind = 'discipline' ORDER BY name")]
 
 
 def _resolve_discipline(name: str) -> dict:
@@ -335,7 +342,9 @@ def list_users() -> dict:
             "SELECT id, email, is_active, created_at, last_login_at "
             "FROM users ORDER BY email"):
         roles = _roles_of(row["id"])
-        disciplines = [r["name"] for r in roles if r["name"] != ADMIN_ROLE]
+        # Third home of the same claim. A user holding a second capability
+        # would otherwise have been listed as working in it.
+        disciplines = [r["name"] for r in roles if r["kind"] == "discipline"]
         users.append({
             "user_id": row["id"],
             "email": row["email"],
@@ -506,8 +515,8 @@ def list_grants() -> dict:
             """SELECT r.name FROM roles r
                JOIN document_role_access dra ON dra.role_id = r.id
                WHERE dra.document_id = ? AND dra.permission = 'read'
-                 AND r.name != ?
-               ORDER BY r.name""", (row["id"], ADMIN_ROLE))]
+                 AND r.kind = 'discipline'
+               ORDER BY r.name""", (row["id"],))]
         documents.append({
             "document_id": row["id"],
             "filename": row["filename"],
