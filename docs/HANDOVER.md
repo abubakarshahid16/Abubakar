@@ -42,56 +42,90 @@ the laptop).
 
 ---
 
-## 2. Current state of the working tree — READ BEFORE ANY COMMIT
+## 2. Current state of the working tree
+
+**As of 2026-09-08, after the second pass: the tree is CLEAN, and the three
+newest commits are NOT yet pushed.** Branch `feat/phase-1-ui-reaches-backend`.
+Draft PR: https://github.com/abubakarshahid16/saudi-aramco-rag-chatbot/pull/70
+
+Read the second table below before the first: the first records the save pass
+(pushed, HEAD was `26e54ce`), the second records what happened after it.
 
 ```
-git status --porcelain      # re-check; the list below is from 2026-09-08
+git --no-optional-locks status --porcelain     # re-check
 ```
 
-**Modified (uncommitted):**
-`contracts/types.ts`, `frontend/package.json`, `frontend/package-lock.json`,
-`frontend/src/App.tsx`, `frontend/src/api/client.ts`,
-`frontend/src/components/DocumentCard.tsx`, `components/PageImageViewer.tsx`,
-`components/chat/EvidencePanel.tsx`, `views/AnalysisModeScreen.tsx` (+ its
-`.run.test.tsx`), `views/DashboardView.tsx` (+ test), `views/DocumentsView.tsx`
-(+ test).
+Five commits were made:
 
-**Untracked (uncommitted):**
-`.claude/` (the `/review` command), `backend/tests/test_relevance_floor.py`,
-`backend/tests/test_typo_tolerance.py` (both parked from an earlier stash — do
-not delete, do not commit without review), `docs/architecture.md`,
-`docs/code-review/` (10 files), `docs/review-command.md` (stray duplicate —
-delete), `frontend/dash-body.txt` (scratch — delete),
-`frontend/src/components/classification/` (TypeFilter.tsx by Cowork,
-useDocumentClassifications.ts by VS Code), `frontend/src/components/useAuthedImage.ts`,
-`frontend/src/views/AnalysisModeScreen.typeFilter.test.tsx`.
+| Commit | What |
+|---|---|
+| `75cc6fc` | `docs:` review register, architecture, handover, CLAUDE.md, NEW-MACHINE-SETUP, /review command |
+| `64c992c` | `feat(classification):` frontend type filter, grouping, admin confirm — **WIP, do not merge**, known defects named in the message |
+| `29366b8` | `fix(analysis):` recommendation runs after summary resolves (+14/−5) |
+| `9484e5f` | `fix(frontend):` page images fetched with the bearer header — **no tests yet** |
+| `26e54ce` | `test(parked):` relevance floor + typo tolerance, module-level skip (both were red at fixture setup on a function that lives only in the stash) |
 
-**What this uncommitted work is:**
-1. **Document-type classification frontend** — type filter ("Search in") on
-   Documents/Analysis/Dashboard, grouping by type, Confirm/Change for admins.
-   VS Code built most of it; Cowork added `contracts/types.ts` classification
-   types, `client.ts` `classification` module, `TypeFilter.tsx`, and the
-   `isAdmin={canAdmin}` prop in `App.tsx` (without it the Confirm control never
-   rendered).
-2. **Analysis sequencing fix** — recommendation now runs AFTER summary resolves
-   (`summaryJob.then(...)`) instead of concurrently, because both trigger a
-   model synthesis and the 4B CPU model returned no cited sentence when asked
-   twice at once. Backend still double-synthesises (review P3 #33).
-3. **Page images under auth** — `useAuthedImage` fetches with the bearer header
-   and hands the browser a blob URL; used in `PageImageViewer` and
-   `EvidencePanel`. Before, `<img src>` got a 401 under `AUTH_MODE=demo_required`
-   and showed a broken image. Token never in the URL. **No tests yet.**
-4. `package.json` gained `lightningcss-win32-x64-msvc@1.32.0` as a direct
-   dependency (emergency fix during a demo). **Revert this from package.json —
-   it is a platform binary, not a dependency.** Reinstall properly instead.
+**MEASURED test state at that point** (this replaces the earlier estimate,
+which was wrong):
 
-**BLOCKERS before committing:** the review found two critical defects in this
-uncommitted frontend (see §4 P0). Also `DashboardView.test.tsx` has 24 failing
-tests and `DocumentsView.test.tsx` has 15 — root cause is P0 #2 (the mock
-routes coverage but not vocabulary; the component throws on `types.length`).
-**Do not commit until these are fixed and the frontend suite is green.**
-Nothing is unpushed (`git log origin/<branch>..HEAD` → 0) — every risk is in the
-working tree.
+- **Frontend: 108 failed, 434 passed of 542.** **101 of the 108 are ONE crash**
+  at `DocumentsView.tsx:298` reading `types.length` on a vocabulary body that
+  has none. Files that never touch classification fail only because they render
+  the app, whose first view is Documents.
+- **Backend: 8 failed, 1428 passed.** All 8 are environmental: this machine's
+  `.env` has both market flags ON while those tests assert flags-off behaviour.
+  No backend code changed in the save pass.
+
+**Committed 2026-09-08, second pass.** Everything described above as
+uncommitted is now IN. Three commits, all authored by Cowork and committed by
+VS Code, which verified them but did not write them:
+
+| Commit | What |
+|---|---|
+| `3ae8499` | `fix(privacy):` the answer model's socket is checked, not assumed — review P1 #4 |
+| `a90677a` | `fix(classification):` both P0 frontend defects and the `ClassificationSource` wire drift |
+| this one | `docs:` this section, corrected |
+
+**P1 #4 is CLOSED.** `settings.ollama_url` was an unvalidated `.env` string
+that four call sites formatted their own URL from, and the body carries
+retrieved passage text verbatim. There is now a `model_transport.py` — the only
+module besides `market_transport.py` allowed to open a socket — and
+`config.check_model_url`, which parses with `urllib` rather than string
+splitting, refuses a non-loopback host, and runs both at startup and again
+immediately before every request. A remote host needs two settings and writes
+an audit row. `test_socket_containment.py` globs the whole `app/` package, so a
+new module that opens a socket is red without anyone maintaining a list.
+Retraction 25 is recorded.
+
+**MEASURED after those two commits** (one full run each, not estimated):
+
+- **Frontend: 14 failed, 528 passed of 542.** Down from 108. The P0 #2 fix
+  cleared 94, because 101 of the 108 were the single `types.length` crash
+  inherited by every file that renders `<App>`.
+- **Backend: `test_socket_containment.py` 38 passed.** The full backend suite
+  has NOT been re-run since these commits.
+
+**Still to fix before this branch can leave draft:**
+1. **11 of 18 `DocumentsView.test.tsx` tests are red and NOT triaged.** Five are
+   `Unable to find role="dialog"` (chunk inspector, excluded viewer, page image
+   viewer); four are classification grouping and confirm; two are delete and
+   excluded pages. Some of these are the flaky ones VS Code saw flipping in
+   both directions between identical runs — that has not been separated from
+   the genuine failures.
+2. **2 `ChatView.test.tsx` failures are collateral from `9484e5f`** (authed page
+   images). Both assert an `<img>` src CONTAINS the API path; it is now a
+   `blob:` URL. The tests encode the pre-fix behaviour and need rewriting. The
+   fix itself is right and still has NO tests of its own.
+3. 1 `AnalysisModeScreen.markers.test.tsx` failure, pre-existing.
+4. The 8 backend market failures depend on the developer's `.env`. That is the
+   "passes only on this machine" defect class this project has had before
+   (audit #10, and eight tests in `test_facet_identity.py`). The tests should
+   set the flags they assert, not inherit them. **New finding — add to the
+   register.**
+5. P1 findings 2-10 from the access-control and privacy set (admin gate reading
+   `roles.name`, unscoped `recent_events`, unscoped `term_occurrences` and
+   `example_questions`, the anonymous admin deactivation, the zero-length
+   signing key, and the rest) are UNTOUCHED. See `docs/code-review/`.
 
 ---
 
@@ -198,6 +232,15 @@ LanceDB in README stack table but not in the system; stale test counts
 - Same finding labelled ✕ Conflict in gap panel and ▲ Possible conflict in claim table.
 - Tier 2 explanation lists a citation number with no sentence using it.
 - Page images broken under auth (fixed, untested — see §2).
+- `frontend/dash-body.txt` is NOT stray scratch: `DashboardView.host.test.tsx:139`
+  writes it into the repo on every suite run, so it reappears after each run. A
+  test writing into the working tree is a defect in its own right. **New finding.**
+- The 8 backend test failures are inherited from the developer's `.env` rather
+  than set by the tests. **New finding**, same class as audit #10.
+- The P0 #2 crash was in the exported `useTypeVocabulary` hook returning a
+  non-array `types`, not in `DocumentsView`. The review located the symptom
+  correctly and the cause one file away — worth remembering when reading the
+  register: it names the line that threw, not always the line to change.
 
 **Second pattern identified by the review** (beyond the audit's "derived from
 something adjacent to the truth"): *a defect fixed in one of its two homes.*
