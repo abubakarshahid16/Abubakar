@@ -1,5 +1,149 @@
+from __future__ import annotations
+
+import ipaddress
 from pathlib import Path
+from urllib.parse import urlsplit
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ModelHostRefused(RuntimeError):
+    """A model endpoint this system will not talk to.
+
+    Deliberately NOT an `httpx` error. An HTTP error means the request
+    happened and failed; this means it never happened, and the two must not be
+    collapsed - `analysis._generate_or_refuse` turns an `httpx.HTTPError` into
+    a polite "the model is unavailable", which is exactly the wrong answer for
+    a misconfigured destination. A refusal has to be loud.
+    """
+
+
+#: Host names that mean "this machine" without being an IP literal.
+#: `localhost` only. NOT any name a resolver happens to point at 127.0.0.1: a
+#: DNS name is somebody else's to change, and a check that trusts resolution
+#: is a check whose answer can be edited from outside the machine.
+LOOPBACK_NAMES = frozenset({"localhost"})
+
+
+def model_host_of(url: str) -> str:
+    """The host a request to `url` would actually be sent to, parsed properly.
+
+    PARSED, NEVER SPLIT. `market_providers._host_of` extracts a host with
+    `split("://")` / `split("@")` / `split(":")`, and that is a live bypass
+    bug: `https://evil.test?@api.openalex.org/` has the authority
+    `evil.test` (the `?` starts the query, so the `@` is inside it), while the
+    hand-parser reads everything after the last `@` and reports
+    `api.openalex.org`. It approves one host and requests another. This
+    function asks `urllib.parse` - the same parser httpx uses to decide where
+    to connect - so the string that is checked and the string that is dialled
+    cannot disagree.
+
+    Returns the lowercased host, or "" when the URL names none.
+    """
+    return (urlsplit(url).hostname or "").lower()
+
+
+def check_model_url(
+    url: str,
+    *,
+    allow_remote: bool = False,
+    allowed_hosts: tuple[str, ...] = (),
+) -> tuple[str, str | None]:
+    """Validate the answer-model endpoint. Returns `(base_url, remote_host)`.
+
+    `remote_host` is None for the normal loopback case and the host name when
+    a deliberately permitted non-loopback host was accepted - the caller uses
+    it to decide whether an audit row is owed. Anything else raises
+    `ModelHostRefused`.
+
+    THE PROMISE THIS ENFORCES. README:14 and ADR-0002 say client document
+    content never leaves this machine. The prompt posted to this endpoint
+    carries retrieved passages verbatim (`answer._build_prompt`,
+    `synthesis.build_prompt`), so this URL is the largest outbound lane in the
+    system and it was an unvalidated `.env` string with a loopback *default*
+    and no check of any kind. One wrong `OLLAMA_URL` sent document text to an
+    arbitrary host, silently. See docs/status-honesty-audit.md entry 25.
+
+    WHY NON-LOOPBACK IS REFUSED BY DEFAULT AND NOT MERELY WARNED ABOUT. A
+    model on another host - however private the network - is the ADR's
+    forbidden "hosted inference API" as far as the client's documents are
+    concerned: the passages leave this machine, and no wording of "private
+    subnet" changes what left. So loopback-only is the default and the
+    refusal is total. A deployment that genuinely runs the model on another
+    box must say so TWICE, on the market lane's two-flag precedent:
+    `answer_model_allow_remote_host` (this deployment permits it at all) and
+    `answer_model_allowed_hosts` (this exact destination). One careless edit
+    cannot open the lane, and using it writes an audit row.
+
+    Errors name the HOST and never the whole URL: a URL can carry credentials
+    or a key in a query string, and these strings reach logs and API
+    responses. Same rule as `market_transport._fetch`.
+    """
+    parts = urlsplit(url.strip())
+
+    if parts.scheme not in ("http", "https"):
+        raise ModelHostRefused(
+            f"answer model URL has scheme {parts.scheme!r}; only http and "
+            f"https are usable, and a missing scheme means the value is not a "
+            f"URL at all"
+        )
+
+    host = (parts.hostname or "").lower()
+    if not host:
+        raise ModelHostRefused(
+            "answer model URL names no host; refusing to guess one")
+
+    # Credentials in the URL are refused rather than stripped. A value shaped
+    # like `http://user:pass@host` is either an accident or a proxy nobody
+    # documented; sending a prompt built from client documents through it is
+    # not something to do on a silent guess. Checked BEFORE the loopback test
+    # so `http://user:pass@127.0.0.1` is refused too.
+    if parts.username or parts.password:
+        raise ModelHostRefused(
+            f"answer model URL for host {host!r} carries embedded "
+            f"credentials; refused (the value is not echoed, it may hold a "
+            f"secret)"
+        )
+
+    # A base URL is a scheme, a host and a port. A path, query or fragment
+    # here means the value is not what this setting is for - and it is also
+    # the shape the `?@` bypass hides in, so refusing it closes that family
+    # of value twice over, independently of the parse.
+    if parts.path.strip("/") or parts.query or parts.fragment:
+        raise ModelHostRefused(
+            f"answer model URL for host {host!r} carries a path, query or "
+            f"fragment; this setting is a base URL (scheme, host, port) and "
+            f"the request path is appended by the transport"
+        )
+
+    loopback = host in LOOPBACK_NAMES
+    if not loopback:
+        try:
+            loopback = ipaddress.ip_address(host.strip("[]")).is_loopback
+        except ValueError:
+            loopback = False   # a name that is not `localhost`: not loopback
+
+    base = f"{parts.scheme}://{parts.netloc}"
+    if loopback:
+        return base, None
+
+    if not allow_remote:
+        raise ModelHostRefused(
+            f"answer model host {host!r} is not loopback. The prompt sent to "
+            f"this host contains retrieved document passages, and ADR-0002 "
+            f"says client document content never leaves this machine. Set "
+            f"answer_model_allow_remote_host=true AND list the host in "
+            f"answer_model_allowed_hosts to override deliberately; the "
+            f"override is audited."
+        )
+    if host not in tuple(h.lower() for h in allowed_hosts):
+        raise ModelHostRefused(
+            f"answer model host {host!r} is not in answer_model_allowed_hosts. "
+            f"Permitting remote inference is not permitting every host: the "
+            f"flag says this deployment may, the list says which."
+        )
+    return base, host
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 PROJECT_DIR = BACKEND_DIR.parent
@@ -103,7 +247,22 @@ class Settings(BaseSettings):
     #: failure, not a curiosity. Counted and flagged, never deleted.
     ocr_expected_script: str = "latin"
 
+    #: THE ANSWER MODEL'S ADDRESS, AND THE ONE OUTBOUND URL ON THE QUERY PATH
+    #: THAT CARRIES DOCUMENT TEXT. Validated by `check_model_url`, at startup
+    #: (below) and again immediately before every request
+    #: (`model_transport`). The default has always been loopback; what was
+    #: missing was anything that made the default a rule.
     ollama_url: str = "http://127.0.0.1:11434"
+    #: Does this DEPLOYMENT permit the answer model to live on another host.
+    #: False, and false means refused rather than warned about: the passages in
+    #: the prompt would leave this machine. Two settings on the
+    #: `market_live_enabled` / `market_allow_public_egress` precedent, so
+    #: opening this lane cannot be one careless edit.
+    answer_model_allow_remote_host: bool = False
+    #: WHICH host, if the flag above is set. Empty by default, so the flag
+    #: alone still refuses everything. Checked with a real URL parser, never a
+    #: string split - see `model_host_of`.
+    answer_model_allowed_hosts: tuple[str, ...] = ()
     answer_model: str = "qwen3.5:4b"
     #: Resident size of the answer model. Used to warn BEFORE someone presses
     #: Explain: with 14.7 GB of 16 GB already in use, Tier 2 will swap hard or
@@ -426,6 +585,31 @@ class Settings(BaseSettings):
     #: and tier 3 are donated public infrastructure and being a bad citizen on
     #: them is both rude and a fast route to being blocked.
     market_tier_min_interval_seconds: float = 1.0
+
+    @model_validator(mode="after")
+    def _refuse_a_non_local_answer_model(self) -> "Settings":
+        """The process refuses to start on a misconfigured model host.
+
+        FAILING CLOSED, AT THE EARLIEST POSSIBLE MOMENT. Audit entry 24 - the
+        pre-commit hook that warned and exited 0 - is the reason this raises:
+        a control whose absence is invisible is not a control, so a bad
+        `OLLAMA_URL` stops the backend rather than logging something nobody
+        reads and then posting the client's passages anyway.
+
+        This is NOT the only gate, and deliberately so. `settings` is a live
+        object: a test or a plugin can assign `settings.ollama_url` after
+        import and pydantic does not revalidate on assignment. So
+        `model_transport` checks again with the same function immediately
+        before the socket - the market lane's gate-1/gate-2 arrangement, for
+        the same reason: the early check can be bypassed, and the late one
+        cannot be bypassed by anything short of editing that file.
+        """
+        check_model_url(
+            self.ollama_url,
+            allow_remote=self.answer_model_allow_remote_host,
+            allowed_hosts=self.answer_model_allowed_hosts,
+        )
+        return self
 
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.upload_dir, self.lance_dir.parent):

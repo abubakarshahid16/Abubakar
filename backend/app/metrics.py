@@ -14,10 +14,9 @@ import shutil
 import time
 from datetime import datetime, timezone
 
-import httpx
 import psutil
 
-from . import states, telemetry
+from . import model_transport, states, telemetry
 from .config import settings
 from .db import connect
 
@@ -267,22 +266,36 @@ def models() -> dict:
         "ollama_error": None,
     }
     try:
-        with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-            tags = client.get(f"{settings.ollama_url}/api/tags")
-            tags.raise_for_status()
-            available = [m.get("name", "") for m in tags.json().get("models", [])]
-            info["answer_model_reachable"] = True
-            info["answer_model_installed"] = any(
+        # THROUGH THE ONE TRANSPORT, even though neither probe sends document
+        # content. They talk to the same operator-settable host as the answer
+        # path, and exempting "harmless" requests from the host check is how a
+        # second unchecked call site gets written.
+        tags = model_transport.get_json("/api/tags", timeout=OLLAMA_TIMEOUT)
+        available = [m.get("name", "") for m in (tags or {}).get("models", [])]
+        info["answer_model_reachable"] = True
+        info["answer_model_installed"] = any(
+            n == settings.answer_model or n.startswith(settings.answer_model)
+            for n in available
+        )
+        # `required=False`: a non-200 from /api/ps means Ollama is up and told
+        # us nothing about loaded models, which is a different state from
+        # Ollama being absent. Preserved exactly as it was.
+        running = model_transport.get_json(
+            "/api/ps", timeout=OLLAMA_TIMEOUT, required=False)
+        if running is not None:
+            loaded = [m.get("name", "") for m in running.get("models", [])]
+            info["answer_model_loaded"] = any(
                 n == settings.answer_model or n.startswith(settings.answer_model)
-                for n in available
+                for n in loaded
             )
-            running = client.get(f"{settings.ollama_url}/api/ps")
-            if running.status_code == 200:
-                loaded = [m.get("name", "") for m in running.json().get("models", [])]
-                info["answer_model_loaded"] = any(
-                    n == settings.answer_model or n.startswith(settings.answer_model)
-                    for n in loaded
-                )
+    except model_transport.ModelHostRefused:
+        # NOT swallowed into `ollama_error`. Every other failure here is a
+        # state of the world (Ollama stopped, port dead) and belongs in a
+        # dashboard field; a refused host is a misconfigured privacy boundary
+        # and belongs in the operator's face. A dashboard that renders it as
+        # "ollama_error: ModelHostRefused" beside a green tick is audit entry
+        # 24 again - a control whose absence is invisible.
+        raise
     except Exception as exc:  # noqa: BLE001 - a stopped Ollama is a state, not a crash
         info["ollama_error"] = type(exc).__name__
     return info

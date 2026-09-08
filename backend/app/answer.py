@@ -19,14 +19,13 @@ from __future__ import annotations
 
 import re
 
-import httpx
-
 from . import intent as intent_mod
 from . import keyword
 from . import context_budget
 from . import coverage
 from . import progress
 from . import lexical
+from . import model_transport
 from . import passages as passages_mod
 from . import telemetry
 from . import search as search_mod
@@ -400,10 +399,13 @@ def _call_model(prompt: str, timeout: float = 180.0) -> dict:
         # once rather than on every question
         "keep_alive": "30m",
     }
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(f"{settings.ollama_url}/api/generate", json=body)
-        response.raise_for_status()
-        return response.json()
+    # THROUGH THE ONE TRANSPORT, never a URL formatted here. `body["prompt"]`
+    # is `_build_prompt`'s output - retrieved passage text, verbatim - so this
+    # is the largest outbound lane in the system, and it used to be an
+    # unvalidated `.env` string with no host check of any kind.
+    # `model_transport` re-validates the configured model URL immediately
+    # before the socket, so a value assigned after startup cannot get past it.
+    return model_transport.post_json("/api/generate", body, timeout=timeout)
 
 
 def strip_half_citation(text: str) -> str:
@@ -624,6 +626,14 @@ def answer(
     t = Timer()
     try:
         raw = _call_model(prompt)
+    except model_transport.ModelHostRefused:
+        # NOT caught by the handler below, and this clause exists only to say
+        # so. A refused host is a misconfiguration of the privacy boundary,
+        # not an unreachable model: reporting it as "the model could not be
+        # reached" would turn the loudest failure in the system into a mild
+        # status field, which is the shape audit entry 24 exists to warn
+        # about. It propagates.
+        raise
     except Exception as exc:  # noqa: BLE001 - the model being down is not a crash
         return {
             **base,

@@ -3,12 +3,12 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Twenty-four separate times something in this
+**Why this document exists.** Twenty-five separate times something in this
 system has claimed what was not so - a status field, a count, a measurement,
 twice a design document about the code it was written against, once a type that
 could not describe its own API, once an evaluation harness measuring a different
-layer than the one it was cited for, and once the secret-scanning hook that the
-privacy ADR depends on:
+layer than the one it was cited for, once the secret-scanning hook that the
+privacy ADR depends on, and once the product's headline promise itself:
 
 | # | The claim | The reality |
 |---|---|---|
@@ -36,6 +36,7 @@ privacy ADR depends on:
 | 22 | `eval/score_analysis_gold.py`, run to confirm the analysis accuracy fixes | **It cannot confirm them.** It imports `app.keyword` and calls `search()` directly, so it measures the RAW retrieval layer, before the analysis-layer scoping, per-document cap and percentage recall. Its output still shows doc16 taking 18 of 24 slots and hiding its own p.18 answer - the defect a288653 fixed - because that layer really does still do that. A green run of it would have said nothing about the fix. `eval/verify_analysis_accuracy.py` was added to measure the layer that was actually changed |
 | 23 | `test_recommendation_gate.py`: **"all 27 are expected to fail"** | **Eleven now pass.** The advisory-gate half of #90 was implemented; the docstring still described the whole module as unimplemented specification. `strict=True` is what caught it - the eleven went red on completion exactly as designed - but the prose had to be corrected by hand |
 | 24 | `.githooks/pre-commit`, the compensating control ADR-0004 rests on | It failed OPEN two ways: a missing gitleaks printed a WARNING and exited 0, and before that an unguarded `$LOCALAPPDATA` under `set -u` aborted the hook entirely on any machine not exporting it. A control whose absence is invisible is not a control |
+| 25 | README:14 and ADR-0002's Enforcement section: **"Client document content never leaves this machine"** | **The one rule had no enforcement point on the answer path's own socket.** `ollama_url` was an ordinary `.env` string (`config.py:106`) with a loopback DEFAULT and no validation, and four call sites - `answer.py:404`, `analysis.py:667`, `metrics.py:271,279` - each formatted their own URL from it and POSTed. The body carries `_build_prompt` / `synthesis.build_prompt` output, which is retrieved passage text verbatim, so `OLLAMA_URL=http://collector.example.net:11434` in `backend/.env` sent client document content to that host with no allowlist, no flag, no audit row and no log line. The four Enforcement controls do not touch it: the binding rule is INBOUND and the offline flags govern HuggingFace. Nothing had leaked - Ollama is on localhost in every deployment - but the promise rested on a default rather than a rule, and the socket-containment test could not see it: `test_market_no_document_leak.py:57` iterates a hand-written tuple of three market filenames, so the largest outbound lane in the system sat outside every guard. Now: `config.check_model_url` parses with `urllib` (never string splits - `market_providers._host_of`'s `?@` bypass is a test case), refuses a non-loopback host, embedded credentials and anything that is not a base URL, and runs TWICE - at startup, so a misconfigured machine does not boot, and again in `model_transport` immediately before every request, because `settings` can be reassigned after startup. A non-loopback host needs two explicit settings and writes an audit row. `test_socket_containment.py` asserts all of it over the WHOLE `app/` package by globbing, so the next module that opens a socket is red without anyone remembering to list it |
 
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what

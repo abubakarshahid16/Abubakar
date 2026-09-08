@@ -31,9 +31,13 @@ import math
 import re
 import sqlite3
 
+# Imported for its EXCEPTION TYPES only - `_generate_or_refuse` below turns an
+# httpx error into `ModelUnavailable`. This module no longer constructs a
+# client or formats a model URL; both live in `model_transport`, which is the
+# only module in `app/` allowed to (tests/test_socket_containment.py).
 import httpx
 
-from . import access, claims, market, search as search_mod, synthesis
+from . import access, claims, market, model_transport, search as search_mod, synthesis
 from .config import settings
 from .db import connect
 
@@ -663,10 +667,14 @@ def ollama_generate(system: str, prompt: str) -> synthesis.Generation:
         },
         "keep_alive": "30m",
     }
-    with httpx.Client(timeout=180.0) as client:
-        response = client.post(f"{settings.ollama_url}/api/generate", json=body)
-        response.raise_for_status()
-        return synthesis.Generation.from_ollama(response.json())
+    # THROUGH THE ONE TRANSPORT. `prompt` comes from `synthesis.build_prompt`
+    # over the evidence, so this request carries document passages verbatim.
+    # The destination is re-validated immediately before the socket rather
+    # than trusted because the model URL setting merely DEFAULTED to loopback:
+    # `OLLAMA_URL` in `backend/.env` used to redirect this POST anywhere with
+    # no check, no flag and no audit row.
+    return synthesis.Generation.from_ollama(
+        model_transport.post_json("/api/generate", body, timeout=180.0))
 
 
 class ModelUnavailable(Exception):
@@ -677,6 +685,10 @@ def _generate_or_refuse(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
     except httpx.HTTPError as exc:
+        # httpx errors ONLY. `model_transport.ModelHostRefused` is not an
+        # httpx error on purpose and is not caught here: a refused destination
+        # is a privacy-boundary misconfiguration, and downgrading it to "the
+        # model is unavailable" would hide the one failure that must be loud.
         raise ModelUnavailable(type(exc).__name__) from exc
 
 
