@@ -789,9 +789,18 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
 
   const jobs: Promise<void>[] = [];
 
+  // THE RECOMMENDATION WAITS FOR THE SUMMARY. `/api/analysis/recommendations`
+  // synthesises its own summary before advising, so firing it alongside
+  // `/api/analysis/summary` asked the one CPU-bound model for two syntheses at
+  // once. The second regularly came back with no cited sentence, and the card
+  // then said "the document layer produced no cited sentence" directly under
+  // a Summary panel full of citations - one screen, two contradictory
+  // answers to the same question. Sequencing removes the contention; the
+  // proper fix (reuse the summary's findings server-side) is tracked.
+  let summaryJob: Promise<void> = Promise.resolve();
+
   if (engines.summary) {
-    jobs.push(
-      analysisApi.summary(body).then((r) => {
+    summaryJob = analysisApi.summary(body).then((r) => {
         if (!mineStill()) return;
         if (r.ok) applyServerScope(r.data);
         patch({
@@ -820,8 +829,8 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
             };
           }),
         });
-      }),
-    );
+      });
+    jobs.push(summaryJob);
   }
 
   if (engines.gaps) {
@@ -848,7 +857,7 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
 
   if (engines.recommendation) {
     jobs.push(
-      analysisApi.recommendations(body).then((r) => {
+      summaryJob.then(() => analysisApi.recommendations(body)).then((r) => {
         if (!mineStill()) return;
         if (r.ok) applyServerScope(r.data);
         patch({
