@@ -440,6 +440,26 @@ export function filenameFromContentDisposition(header: string | null): string | 
   return clean;
 }
 
+/** Fetches a page-image route WITH the bearer header and returns an object
+ *  URL for an `<img>`. A bare `<img src>` cannot carry Authorization, so under
+ *  any auth mode that requires a token it is a guaranteed 401 and a broken
+ *  image - which is exactly what shipped once AUTH_MODE left `disabled`. The
+ *  token stays in the header; the URL is built from ids alone and is never
+ *  given the token as a query parameter. The caller owns the returned URL and
+ *  must revoke it. Null on any failure, so the caller renders "could not
+ *  render" rather than the browser's broken-image glyph. */
+export async function fetchImageObjectUrl(url: string): Promise<string | null> {
+  try {
+    const headers = new Headers();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch(url, { headers });
+    if (!response.ok) return null;
+    return URL.createObjectURL(await response.blob());
+  } catch {
+    return null;
+  }
+}
+
 async function downloadReport(path: string, fallback: string): Promise<DownloadResult> {
   let response: Response;
   try {

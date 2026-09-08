@@ -6,12 +6,12 @@
  * extracted text loses equation operators and flattens table columns, so the
  * only way to verify a citation for certain is to look at the real page.
  */
-import { useEffect, useState } from "react";
 
 import { api } from "../../api/client";
 import { clauseLabel, OcrConfidence, ProvenanceMark } from "./Provenance";
 import type { AnswerPassage } from "../../types/api";
 import { Spinner } from "../states";
+import { useAuthedImage } from "../useAuthedImage";
 
 /** Exported because the answer card needs it too.
  *
@@ -139,14 +139,24 @@ export function EvidencePanel({
   /** The question, so the answering sentence can be boxed on the page. */
   question?: string;
 }) {
-  const [imageLoading, setImageLoading] = useState(true);
   const passage = passages[selected];
-
-  useEffect(() => setImageLoading(true), [selected, question]);
 
   // The box is only requested when there IS an answering span to box, so an
   // unboxed page never leaves the reader wondering whether the answer is on it.
   const boxed = Boolean(question && passage?.highlight);
+  // Fetched with the bearer header, never as a bare <img src>: see useAuthedImage.
+  const image = useAuthedImage(
+    passage
+      ? boxed
+        ? api.pageImageWithAnswerUrl(
+            passage.document_id,
+            passage.page_start,
+            passage.chunk_id,
+            question!,
+          )
+        : api.pageImageUrl(passage.document_id, passage.page_start)
+      : null,
+  );
 
   if (!passage) return null;
 
@@ -230,28 +240,25 @@ export function EvidencePanel({
           </p>
         )}
         <div className="mt-2 overflow-auto rounded border border-ink-700 bg-ink-950 p-2">
-          {imageLoading && <Spinner label={`Rendering page ${passage.page_start}`} />}
-          <img
-            key={`${passage.document_id}-${passage.page_start}-${boxed ? "boxed" : "plain"}`}
-            src={
-              boxed
-                ? api.pageImageWithAnswerUrl(
-                    passage.document_id,
-                    passage.page_start,
-                    passage.chunk_id,
-                    question!,
-                  )
-                : api.pageImageUrl(passage.document_id, passage.page_start)
-            }
-            alt={
-              boxed
-                ? `Page ${passage.page_start} of ${passage.filename}, with the answer outlined`
-                : `Page ${passage.page_start} of ${passage.filename}`
-            }
-            onLoad={() => setImageLoading(false)}
-            onError={() => setImageLoading(false)}
-            className="block w-full rounded bg-white"
-          />
+          {image.loading && <Spinner label={`Rendering page ${passage.page_start}`} />}
+          {image.failed && (
+            <p className="text-xs text-warn-500">
+              The page image could not be rendered. The passage text above is what
+              was cited.
+            </p>
+          )}
+          {image.src && (
+            <img
+              key={`${passage.document_id}-${passage.page_start}-${boxed ? "boxed" : "plain"}`}
+              src={image.src}
+              alt={
+                boxed
+                  ? `Page ${passage.page_start} of ${passage.filename}, with the answer outlined`
+                  : `Page ${passage.page_start} of ${passage.filename}`
+              }
+              className="block w-full rounded bg-white"
+            />
+          )}
         </div>
       </div>
     </aside>
