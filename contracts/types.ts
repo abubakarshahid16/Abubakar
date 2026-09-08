@@ -621,6 +621,12 @@ export interface AnalysisRequest {
   /** The caller's choice of authoritative document. Never chosen by the
    *  system. */
   baseline_document_id?: string | null;
+  /** OPTIONAL, AND MAY ONLY NARROW. Absent or empty, every analysis route
+   *  behaves exactly as it did before classification existed. Present, the
+   *  caller's access scope is INTERSECTED with the matching documents, so a
+   *  filter naming a type whose documents they may not read returns nothing
+   *  rather than leaking one. `backend/app/main.py::_analysis_scope`. */
+  scope?: ClassificationScope | null;
 }
 
 // ------------------------------------------------------------------- market
@@ -1180,3 +1186,142 @@ export type Loadable<T> =
   | { state: "error"; error: ApiError }
   | { state: "disconnected" }
   | { state: "ready"; data: T };
+
+
+/* ============================================================ classification
+ *
+ * THREE TYPES, ONE DISCIPLINE AXIS, AND A FILTER THAT CAN ONLY NARROW.
+ *
+ * Mirrors `backend/app/schemas.py` field for field. The market panel taught
+ * this file's lesson the expensive way: the backend renamed `payload` to
+ * `payloads`, tsc passed, 23 tests passed, and the one dialog the feature
+ * exists for rendered `undefined`. So these names are copied from the Python,
+ * not invented here, and a rename on either side must break the build.
+ *
+ * CLASSIFICATION IS NOT ACCESS CONTROL. `DocumentClassification.discipline`
+ * says what a document IS ABOUT. The grants in `Document.disciplines` say who
+ * MAY READ IT. They are different tables and the second one is the only one
+ * that decides anything. See `backend/app/classification.py`.
+ */
+
+/** A subject row from the register. Carried because the backend sends it;
+ *  the current screens deliberately do not surface subjects. */
+export interface SubjectRow {
+  id: string;
+  name: string;
+  kind: "system" | "facility" | "project_wide";
+}
+
+export interface ClassificationVocabulary {
+  /** Null when no register has been loaded. NOT a version number to display
+   *  as "v1" - it is whatever revision string the register carried. */
+  register_revision: string | null;
+  /** The three document types, in the register's own order. NEVER hardcode
+   *  this list in a component: a register with different types must not
+   *  render a filter for types that do not exist. */
+  types: string[];
+  disciplines: string[];
+  subjects: SubjectRow[];
+  /** Documents this caller can read that have no confirmed classification.
+   *  SCOPED - it is a statement about documents. The vocabulary above is not
+   *  scoped, because a discipline name is project structure, not evidence
+   *  that a document exists. */
+  needs_classification: number;
+}
+
+export interface DocumentSubject {
+  id: string;
+  name: string;
+  kind: string;
+  suggested_by: string;
+  confirmed_by: string | null;
+}
+
+/** How a classification got there. `register` is a title match against the
+ *  client's own register and is the only tier that is client-authoritative;
+ *  `filename` and `content` are guesses and must render AS guesses until a
+ *  person confirms them. `none` means nothing suggested anything. */
+export type ClassificationSource = "register" | "filename" | "content" | "none";
+
+export interface DocumentClassification {
+  document_id: string;
+  /** NULL IS AN ANSWER, not a missing value: "nothing has classified this
+   *  document". It renders as "awaiting a type", never as a guessed type and
+   *  never as an empty chip. */
+  doc_type: string | null;
+  discipline: string | null;
+  doc_class: string | null;
+  register_id: string | null;
+  suggested_by: ClassificationSource | string;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  /** THE ONLY FIELD THAT LICENSES A PLAIN CHIP. False means a human has not
+   *  agreed with the machine yet. */
+  confirmed: boolean;
+  subjects: DocumentSubject[];
+}
+
+export interface ClassificationUpdate {
+  doc_type?: string | null;
+  discipline?: string | null;
+  doc_class?: string | null;
+  subject_ids?: string[];
+}
+
+export interface CoverageByType {
+  type: string;
+  /** NULL when no register is loaded. Null renders as nothing - never as 0,
+   *  which would read as "the register says none exist". */
+  in_register: number | null;
+  uploaded: number;
+  unconfirmed: number;
+}
+
+export interface CoverageByDiscipline {
+  discipline: string;
+  in_register: number | null;
+  uploaded: number;
+  unconfirmed: number;
+}
+
+export interface CoverageBySubject {
+  subject: string;
+  kind: string;
+  uploaded: number;
+  disciplines_spanned: number;
+}
+
+export interface ClassificationCoverage {
+  register_loaded: boolean;
+  register_revision: string | null;
+  by_type: CoverageByType[];
+  by_discipline: CoverageByDiscipline[];
+  by_subject: CoverageBySubject[];
+  needs_classification: number;
+  /** True only for a caller holding the admin capability. When true the
+   *  counts cover every document; when false they cover this caller's
+   *  grants. A count with no stated boundary reads as total, so the screen
+   *  showing these MUST say which it is. */
+  corpus_wide: boolean;
+}
+
+/** What the caller asks to be narrowed to. EMPTY ARRAYS MEAN "DO NOT FILTER"
+ *  on that axis - not "match nothing". */
+export interface ClassificationScope {
+  types?: string[];
+  disciplines?: string[];
+  subject_ids?: string[];
+}
+
+/** What the backend actually applied, echoed back. The screen renders the
+ *  count from HERE and never from its own arithmetic: the frontend does not
+ *  know the intersection with the caller's grants, and a locally computed
+ *  "62 of 96" was wrong in exactly the direction that hides a missing
+ *  document. */
+export interface AppliedScope {
+  applied: boolean;
+  types: string[];
+  disciplines: string[];
+  subject_ids: string[];
+  documents_in_scope: number;
+}

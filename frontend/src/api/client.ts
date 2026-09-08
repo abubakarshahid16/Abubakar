@@ -37,6 +37,10 @@ import type {
   ReportRecord,
   ReportVerification,
   PagesResponse,
+  ClassificationVocabulary,
+  ClassificationCoverage,
+  ClassificationUpdate,
+  DocumentClassification,
 } from "../types/api";
 
 /** The unauthenticated route, and the only one. It answers "is the service up"
@@ -239,6 +243,18 @@ export const analysis = {
 // confirmation dialog rendered `undefined` in the one place the whole panel
 // exists to fill. Re-exported so existing imports keep working.
 export type {
+  ClassificationVocabulary,
+  ClassificationCoverage,
+  ClassificationScope,
+  ClassificationSource,
+  ClassificationUpdate,
+  DocumentClassification,
+  AppliedScope,
+  CoverageByType,
+  SubjectRow,
+} from "../types/api";
+
+export type {
   MarketProviderLabel,
   MarketOutboundPayload,
   MarketPreviewPayload,
@@ -291,6 +307,42 @@ export const market = {
         body: JSON.stringify(body),
       },
       hasArrayField("rows"),
+    ),
+};
+
+/* ------------------------------------------------------------ classification
+ *
+ * Four calls. Two reads that every screen shares, one read per document, and
+ * the one write - which the backend gates on the ADMIN capability and answers
+ * 404, not 403, to anyone else. A wrong type misroutes searches for everyone,
+ * not just for the person who set it, so it needs a role that answers for
+ * everyone. `backend/app/main.py::put_document_classification`.
+ */
+export const classification = {
+  /** The filter vocabulary. `types` comes from the register, so a component
+   *  MUST render this list rather than a hardcoded three. */
+  vocabulary: () =>
+    request<ClassificationVocabulary>("/classification/vocabulary"),
+  /** Counts per axis, scoped. This is how a screen gets per-type counts
+   *  WITHOUT asking each document its type: one request, no N+1. */
+  coverage: () => request<ClassificationCoverage>("/classification/coverage"),
+  /** One document's classification. In scope but never classified is a 200
+   *  with every field null - not a 404. Null means "awaiting a type". */
+  ofDocument: (id: string) =>
+    request<DocumentClassification>(
+      `/documents/${encodeURIComponent(id)}/classification`,
+    ),
+  /** CONFIRM or CHANGE. Admin only; a non-admin gets a 404 that says nothing
+   *  about whether the document exists. Callers must therefore treat 404
+   *  here as "you may not do this", not as "gone". */
+  confirm: (id: string, body: ClassificationUpdate) =>
+    request<DocumentClassification>(
+      `/documents/${encodeURIComponent(id)}/classification`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
     ),
 };
 

@@ -4,7 +4,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
 import type { Health } from "../api/client";
-import type { ChunkRecord, DocumentRecord, ExclusionsResponse } from "../types/api";
+import type { Connection } from "../components/Shell";
+import { DocumentsView } from "./DocumentsView";
+import type {
+  ChunkRecord,
+  ClassificationCoverage,
+  ClassificationVocabulary,
+  DocumentClassification,
+  DocumentRecord,
+  ExclusionsResponse,
+} from "../types/api";
 
 const fullWorker = {
   alive: true,
@@ -103,49 +112,126 @@ const exclusions: ExclusionsResponse = {
   ],
 };
 
+// -------------------------------------------------------- classification
+
+/** The vocabulary every test gets unless it overrides one. One type is
+ *  enough for the pre-existing tests, which never look at grouping. */
+const defaultVocabulary: ClassificationVocabulary = {
+  register_revision: "r1",
+  types: ["Document"],
+  disciplines: ["Civil"],
+  subjects: [],
+  needs_classification: 0,
+};
+
+const defaultCoverage: ClassificationCoverage = {
+  register_loaded: true,
+  register_revision: "r1",
+  by_type: [{ type: "Document", in_register: 1, uploaded: 1, unconfirmed: 0 }],
+  by_discipline: [],
+  by_subject: [],
+  needs_classification: 0,
+  corpus_wide: false,
+};
+
+/** What `/documents/{id}/classification` answers when a test does not care:
+ *  a confirmed "Document", so the default corpus renders one plain chip
+ *  rather than every test having to think about classification at all. */
+function defaultClassification(id: string): DocumentClassification {
+  return {
+    document_id: id,
+    doc_type: "Document",
+    discipline: null,
+    doc_class: null,
+    register_id: null,
+    suggested_by: "register",
+    confirmed_by: "admin@example.com",
+    confirmed_at: "2026-09-01T00:00:00Z",
+    confirmed: true,
+    subjects: [],
+  };
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return Promise.resolve(
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+}
+
 function mockApi(docs: DocumentRecord[], over: Record<string, unknown> = {}) {
-  const spy = vi.fn((input: RequestInfo | URL) => {
+  const spy = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    const body = (() => {
-      if (url.includes("/health")) return over.health ?? health;
-      // The worker DETAIL now comes from the scoped metrics route, not from
-      // health - so a test about the worker has to mock metrics.
-      if (url.includes("/metrics")) return over.metrics ?? { worker: fullWorker };
-      if (url.includes("/excluded")) return over.excluded ?? exclusions;
-      if (url.includes("/chunks")) {
-        const wantExcluded = url.includes("retrievable=false");
-        return {
-          total_matching: 1,
-          limit: 25,
-          offset: 0,
-          chunks: [wantExcluded ? excludedChunk : chunk],
-        };
+    const method = init?.method ?? "GET";
+
+    if (url.includes("/health")) return jsonResponse(over.health ?? health);
+    // The worker DETAIL now comes from the scoped metrics route, not from
+    // health - so a test about the worker has to mock metrics.
+    if (url.includes("/metrics")) return jsonResponse(over.metrics ?? { worker: fullWorker });
+    if (url.includes("/excluded")) return jsonResponse(over.excluded ?? exclusions);
+    if (url.includes("/chunks")) {
+      const wantExcluded = url.includes("retrievable=false");
+      return jsonResponse({
+        total_matching: 1,
+        limit: 25,
+        offset: 0,
+        chunks: [wantExcluded ? excludedChunk : chunk],
+      });
+    }
+    if (url.includes("/pages")) {
+      return jsonResponse({
+        total: 1,
+        limit: 100,
+        offset: 0,
+        pages: [
+          {
+            page_no: 1,
+            char_count: 1200,
+            needs_ocr: false,
+            equation_heavy: false,
+            batch_no: 0,
+            preview: "…",
+          },
+        ],
+      });
+    }
+
+    if (url.includes("/classification/vocabulary")) {
+      return jsonResponse(over.vocabulary ?? defaultVocabulary);
+    }
+    if (url.includes("/classification/coverage")) {
+      return jsonResponse(over.coverage ?? defaultCoverage);
+    }
+    const perDocMatch = url.match(/\/documents\/([^/]+)\/classification/);
+    if (perDocMatch) {
+      const id = decodeURIComponent(perDocMatch[1]);
+      const byId = over.classificationById as Record<string, DocumentClassification> | undefined;
+      if (method === "PUT") {
+        // over.confirmStatus, when set, forces the write to fail with that
+        // status - used to test the "you may not do this" 404 path.
+        const forcedStatus = over.confirmStatus as number | undefined;
+        if (forcedStatus && forcedStatus !== 200) {
+          return jsonResponse(
+            { detail: { code: "not_found", message: "Not found." } },
+            forcedStatus,
+          );
+        }
+        const posted = init?.body ? JSON.parse(init.body as string) : {};
+        const base = byId?.[id] ?? defaultClassification(id);
+        return jsonResponse({
+          ...base,
+          doc_type: posted.doc_type ?? base.doc_type,
+          confirmed: true,
+          confirmed_by: "tester@example.com",
+          confirmed_at: "2026-09-07T00:00:00Z",
+        } satisfies DocumentClassification);
       }
-      if (url.includes("/pages")) {
-        return {
-          total: 1,
-          limit: 100,
-          offset: 0,
-          pages: [
-            {
-              page_no: 1,
-              char_count: 1200,
-              needs_ocr: false,
-              equation_heavy: false,
-              batch_no: 0,
-              preview: "…",
-            },
-          ],
-        };
-      }
-      return docs;
-    })();
-    return Promise.resolve(
-      new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+      return jsonResponse(byId?.[id] ?? defaultClassification(id));
+    }
+
+    return jsonResponse(docs);
   });
   vi.stubGlobal("fetch", spy);
   return spy;
@@ -452,5 +538,270 @@ describe("a malformed response is an error card, never a white screen", () => {
     expect(
       await screen.findByText(/could not read|That did not work/i),
     ).toBeInTheDocument();
+  });
+});
+
+// -------------------------------------------------- classification grouping
+//
+// App.tsx does not yet pass `isAdmin` through to DocumentsView (that plumbing
+// is one line outside this file's ownership - see the final report), so the
+// admin-only assertions render DocumentsView directly rather than through
+// <App/>, which always gets the safe `isAdmin` default of false.
+
+const onlineConnection: Connection = { state: "online", health, at: Date.now() };
+
+function renderDocuments(isAdmin = false) {
+  render(
+    <DocumentsView connection={onlineConnection} onRetryConnection={() => {}} isAdmin={isAdmin} />,
+  );
+}
+
+const threeTypeVocabulary: ClassificationVocabulary = {
+  register_revision: "r1",
+  types: ["Document", "Drawing", "Licensor BEP"],
+  disciplines: ["Civil"],
+  subjects: [],
+  needs_classification: 1,
+};
+
+function threeTypeCoverage(over: Partial<Record<string, number>> = {}): ClassificationCoverage {
+  return {
+    register_loaded: true,
+    register_revision: "r1",
+    by_type: [
+      { type: "Document", in_register: 10, uploaded: over.Document ?? 1, unconfirmed: 0 },
+      { type: "Drawing", in_register: 5, uploaded: over.Drawing ?? 1, unconfirmed: 1 },
+      { type: "Licensor BEP", in_register: 2, uploaded: over["Licensor BEP"] ?? 0, unconfirmed: 0 },
+    ],
+    by_discipline: [],
+    by_subject: [],
+    needs_classification: over.needs_classification ?? 1,
+    corpus_wide: false,
+  };
+}
+
+function classificationFor(over: Partial<DocumentClassification>): DocumentClassification {
+  return { ...defaultClassification(over.document_id ?? "doc"), ...over };
+}
+
+describe("documents grouped by classification type", () => {
+  it("groups documents under a heading per register type", async () => {
+    mockApi(
+      [
+        makeDoc({ id: "d1", filename: "spec-one.pdf" }),
+        makeDoc({ id: "d2", filename: "drawing-one.pdf" }),
+      ],
+      {
+        vocabulary: threeTypeVocabulary,
+        coverage: threeTypeCoverage({ needs_classification: 0 }),
+        classificationById: {
+          d1: classificationFor({ document_id: "d1", doc_type: "Document" }),
+          d2: classificationFor({ document_id: "d2", doc_type: "Drawing" }),
+        },
+      },
+    );
+    renderDocuments();
+
+    const documentHeading = await screen.findByRole("heading", { name: /^Document\s/ });
+    expect(within(documentHeading).getByText("1")).toBeInTheDocument();
+    const drawingHeading = screen.getByRole("heading", { name: /^Drawing\s/ });
+    expect(within(drawingHeading).getByText("1")).toBeInTheDocument();
+
+    expect(screen.getByText("spec-one.pdf")).toBeInTheDocument();
+    expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
+  });
+
+  it("renders a type the register lists but this caller has none of as an honest empty line", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "spec-one.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage({ needs_classification: 0 }),
+      classificationById: { d1: classificationFor({ document_id: "d1", doc_type: "Document" }) },
+    });
+    renderDocuments();
+
+    await screen.findByText("spec-one.pdf");
+    // A group that vanished for having no documents would be indistinguishable
+    // from a group nobody built - this line is the proof the empty group was
+    // still generated.
+    expect(
+      screen.getByText(/None of the documents you can open is a Licensor BEP\./i),
+    ).toBeInTheDocument();
+  });
+
+  it("puts a document with no classification yet in its own awaiting group, never as a guessed type", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "unclassified.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage(),
+      classificationById: {
+        d1: classificationFor({ document_id: "d1", doc_type: null, confirmed: false, suggested_by: "none" }),
+      },
+    });
+    renderDocuments();
+
+    const heading = await screen.findByRole("heading", { name: /Awaiting a type/i });
+    expect(within(heading).getByText("1")).toBeInTheDocument();
+    expect(screen.getByText("unclassified.pdf")).toBeInTheDocument();
+    // Never a guessed type, never "Unknown", never a blank chip.
+    expect(screen.queryByText(/^unknown$/i)).toBeNull();
+    expect(screen.getByText(/Awaiting a type/i)).toBeInTheDocument();
+  });
+
+  it("renders an unconfirmed guess in amber, distinct from a confirmed type", async () => {
+    mockApi(
+      [
+        makeDoc({ id: "d1", filename: "guessed.pdf" }),
+        makeDoc({ id: "d2", filename: "confirmed.pdf" }),
+      ],
+      {
+        vocabulary: threeTypeVocabulary,
+        coverage: threeTypeCoverage(),
+        classificationById: {
+          d1: classificationFor({
+            document_id: "d1",
+            doc_type: "Drawing",
+            confirmed: false,
+            suggested_by: "filename",
+          }),
+          d2: classificationFor({ document_id: "d2", doc_type: "Document", confirmed: true }),
+        },
+      },
+    );
+    renderDocuments();
+
+    await screen.findByText("guessed.pdf");
+    const guessChip = screen.getByText(/Drawing\? · guessed from the title/i);
+    expect(guessChip).toBeInTheDocument();
+    expect(guessChip.className).toMatch(/warn-500/);
+
+    // The confirmed document's chip carries NEITHER the amber classes nor a
+    // question mark - the two things that mark a guess.
+    const plainChip = screen.getByText("Document", { selector: "[data-testid=type-chip]" });
+    expect(plainChip.className).not.toMatch(/warn-500/);
+    expect(plainChip.textContent).not.toMatch(/\?/);
+  });
+
+  it("shows no confirm control for a non-admin, only a note that an administrator must act", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "guessed.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage(),
+      classificationById: {
+        d1: classificationFor({
+          document_id: "d1",
+          doc_type: "Drawing",
+          confirmed: false,
+          suggested_by: "filename",
+        }),
+      },
+    });
+    renderDocuments(false);
+
+    await screen.findByText("guessed.pdf");
+    expect(
+      screen.getByText(/Awaiting confirmation by an administrator/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Confirm$/ })).toBeNull();
+  });
+
+  it("lets an admin confirm a guessed type, updating the card in place", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "guessed.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage(),
+      classificationById: {
+        d1: classificationFor({
+          document_id: "d1",
+          doc_type: "Drawing",
+          confirmed: false,
+          suggested_by: "filename",
+        }),
+      },
+    });
+    const user = userEvent.setup();
+    renderDocuments(true);
+
+    await screen.findByText("guessed.pdf");
+    expect(screen.getByRole("button", { name: /^Confirm$/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Confirm$/ }));
+
+    // The strip disappears and the chip goes plain once confirmed is true.
+    await waitFor(() =>
+      expect(screen.queryByText(/guessed from the title/i)).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Drawing", { selector: "[data-testid=type-chip]" })).toBeInTheDocument();
+  });
+
+  it("treats a 404 on confirm as a permission refusal, never as the document being gone", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "guessed.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage(),
+      classificationById: {
+        d1: classificationFor({
+          document_id: "d1",
+          doc_type: "Drawing",
+          confirmed: false,
+          suggested_by: "filename",
+        }),
+      },
+      confirmStatus: 404,
+    });
+    const user = userEvent.setup();
+    renderDocuments(true);
+
+    await screen.findByText("guessed.pdf");
+    await user.click(screen.getByRole("button", { name: /^Confirm$/ }));
+
+    expect(
+      await screen.findByText(/do not have permission to confirm/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/does not exist|not found|gone/i)).toBeNull();
+  });
+
+  it("narrows the list to the ticked type and clears back to everything", async () => {
+    mockApi(
+      [
+        makeDoc({ id: "d1", filename: "spec-one.pdf" }),
+        makeDoc({ id: "d2", filename: "drawing-one.pdf" }),
+      ],
+      {
+        vocabulary: threeTypeVocabulary,
+        coverage: threeTypeCoverage({ needs_classification: 0 }),
+        classificationById: {
+          d1: classificationFor({ document_id: "d1", doc_type: "Document" }),
+          d2: classificationFor({ document_id: "d2", doc_type: "Drawing" }),
+        },
+      },
+    );
+    const user = userEvent.setup();
+    renderDocuments();
+
+    await screen.findByText("spec-one.pdf");
+    expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: /^Drawing/ }));
+    expect(screen.queryByText("spec-one.pdf")).toBeNull();
+    expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
+
+    // Nothing ticked = no filter = show everything again.
+    await user.click(screen.getByRole("checkbox", { name: /^All$/ }));
+    expect(screen.getByText("spec-one.pdf")).toBeInTheDocument();
+    expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
+  });
+
+  it("shows the coverage endpoint's own counts on the filter chips, not a locally counted total", async () => {
+    // ONE document of type Drawing is loaded, but coverage claims 37 - a
+    // number that could only have come from the server. If this component
+    // ever starts counting the documents it fetched instead of trusting
+    // coverage, this assertion is the one that catches it.
+    mockApi([makeDoc({ id: "d1", filename: "drawing-one.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage({ Drawing: 37, needs_classification: 0 }),
+      classificationById: {
+        d1: classificationFor({ document_id: "d1", doc_type: "Drawing" }),
+      },
+    });
+    renderDocuments();
+
+    const drawingChip = await screen.findByRole("checkbox", { name: /^Drawing/ });
+    expect(within(drawingChip).getByText("37")).toBeInTheDocument();
+    expect(within(drawingChip).queryByText("1")).toBeNull();
   });
 });

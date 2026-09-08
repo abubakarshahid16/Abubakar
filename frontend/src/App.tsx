@@ -235,7 +235,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
       ) : (
         <>
           {view === "documents" && (
-            <DocumentsView connection={connection} onRetryConnection={recheck} />
+            <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin} />
           )}
           {view === "chat" && (
             <ChatView connection={connection} onRetryConnection={recheck} />

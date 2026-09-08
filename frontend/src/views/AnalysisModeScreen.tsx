@@ -92,6 +92,8 @@ import {
   analysis as analysisApi,
   isSignedIn,
   market as marketApi,
+  type AppliedScope,
+  type ClassificationScope,
   type Result,
 } from "../api/client";
 import { ClaimTable } from "../components/analysis/ClaimTable";
@@ -105,6 +107,11 @@ import {
 import { RecommendationCard } from "../components/analysis/RecommendationCard";
 import { SummaryCard } from "../components/analysis/SummaryCard";
 import { DisconnectedState, EmptyState, ErrorState, Spinner } from "../components/states";
+import {
+  TypeFilter,
+  pendingFilterNotice,
+  useTypeVocabulary,
+} from "../components/classification/TypeFilter";
 import type {
   AnalysisGapsResult,
   AnalysisRecommendationResult,
@@ -558,6 +565,15 @@ interface ScreenState {
   baselineDocumentId: string | null;
   baselineRefusal: string | null;
   selected: string | null;
+  /** The "Search in" ticks. Empty means no filter - the same thing the
+   *  backend means by an empty `scope`, and the reason `runAnalysis` sends no
+   *  `scope` key at all when this is empty (see there). */
+  selectedTypes: string[];
+  /** The server's echo from the last run, or null before the first run under
+   *  the CURRENT ticks. Cleared the moment the ticks change (see
+   *  `setSelectedTypes`), so a reader who reticks after a run sees the pending
+   *  notice, never the previous run's stale count. */
+  appliedScope: AppliedScope | null;
   summarySlot: Slot<SummarySlotData>;
   gapsSlot: Slot<GapsSlotData>;
   recSlot: Slot<RecommendationSlotData>;
@@ -580,6 +596,8 @@ function freshState(): ScreenState {
     baselineDocumentId: null,
     baselineRefusal: null,
     selected: null,
+    selectedTypes: [],
+    appliedScope: null,
     summarySlot: { s: "idle" },
     gapsSlot: { s: "idle" },
     recSlot: { s: "idle" },
@@ -660,6 +678,10 @@ function supersede() {
     marketSlot: { s: "idle" },
     selected: null,
     baselineRefusal: null,
+    // A mode or toggle change discards the results the count described, so
+    // the count goes with them rather than surviving under a run that has not
+    // happened yet.
+    appliedScope: null,
   });
 }
 
@@ -679,6 +701,46 @@ function changeToggle(k: keyof AnalysisToggles, v: boolean) {
 
 function setSelected(selected: string | null) {
   patch({ selected });
+}
+
+/** Changing the ticks invalidates the last run's count immediately - not on
+ *  the next run. `appliedScope` describes what a PAST response searched, and
+ *  the moment the ticks move it no longer describes what a fresh run would
+ *  do. Clearing it here is what makes `pendingFilterNotice` show instead of a
+ *  now-stale "N documents in scope" line. */
+function setSelectedTypes(types: string[]) {
+  patch({ selectedTypes: types, appliedScope: null });
+}
+
+function toggleType(type: string) {
+  const next = state.selectedTypes.includes(type)
+    ? state.selectedTypes.filter((t) => t !== type)
+    : [...state.selectedTypes, type];
+  setSelectedTypes(next);
+}
+
+function clearTypes() {
+  setSelectedTypes([]);
+}
+
+/**
+ * `applied_scope` on the three analysis responses. `contracts/types.ts` does
+ * not (yet) declare this field on `AnalysisSummaryResult`,
+ * `AnalysisGapsResult` or `AnalysisRecommendationResult` even though the
+ * backend routes echo it - see the note left in this screen's report. Read
+ * defensively rather than widening those interfaces here: they are not this
+ * screen's file to edit.
+ */
+/** Every response that carries a scope echo updates the SAME field, because
+ *  every request was sent the SAME scope (see `runAnalysis`). A response with
+ *  no `applied_scope` at all - the field missing from the contract, or a
+ *  build that predates it - leaves the count exactly where RULE 3 wants an
+ *  unknown count: absent. Read via `unknown` rather than widening the
+ *  response interfaces (`contracts/types.ts` is not this screen's file). */
+function applyServerScope(d: unknown): void {
+  if (d === null || typeof d !== "object" || !("applied_scope" in d)) return;
+  const scope = (d as { applied_scope?: AppliedScope | null }).applied_scope;
+  if (scope) patch({ appliedScope: scope });
 }
 
 /** Run the selected engines for the current question. Exported so the
@@ -703,7 +765,18 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
   // this build; the batch-by-batch run it describes is not implemented and
   // the screen says so rather than pretending.
   const limit = mode === "comprehensive" ? 24 : 8;
-  const body = { question: asked, limit, baseline_document_id: baseline };
+  // NO `scope` KEY WHEN NOTHING IS TICKED. Not `scope: null` - an absent key,
+  // so a caller who ticks nothing sends a body byte-for-byte identical to the
+  // one this screen sent before the type filter existed. The SAME scope goes
+  // to every engine that runs below: two panels on one screen answering about
+  // different slices of the corpus is the defect the backend's shared
+  // narrowing function exists to prevent, and building three different bodies
+  // here would undo that from the frontend.
+  const scope: ClassificationScope | null =
+    state.selectedTypes.length > 0 ? { types: state.selectedTypes } : null;
+  const body = scope
+    ? { question: asked, limit, baseline_document_id: baseline, scope }
+    : { question: asked, limit, baseline_document_id: baseline };
 
   patch({
     selected: null,
@@ -720,6 +793,7 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
     jobs.push(
       analysisApi.summary(body).then((r) => {
         if (!mineStill()) return;
+        if (r.ok) applyServerScope(r.data);
         patch({
           summarySlot: slotFrom(r, (d) => {
             const located = locate(d.evidence_ledger);
@@ -754,6 +828,7 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
     jobs.push(
       analysisApi.gaps(body).then((r) => {
         if (!mineStill()) return;
+        if (r.ok) applyServerScope(r.data);
         patch({
           gapsSlot: slotFrom(r, (d: AnalysisGapsResult) => {
             const located = locate(d.evidence_ledger);
@@ -775,6 +850,7 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
     jobs.push(
       analysisApi.recommendations(body).then((r) => {
         if (!mineStill()) return;
+        if (r.ok) applyServerScope(r.data);
         patch({
           recSlot: slotFrom(r, (d) => {
             const located = locate(d.evidence_ledger);
@@ -1049,8 +1125,13 @@ const NOT_RENDERED_HERE =
 export function AnalysisModeScreen() {
   const questionId = useId();
   const s = useSyncExternalStore(subscribe, getSnapshot);
-  const { question, mode, toggles, baselineRefusal, selected } = s;
+  const { question, mode, toggles, baselineRefusal, selected, selectedTypes, appliedScope } = s;
   const { summarySlot, gapsSlot, recSlot, marketSlot } = s;
+  // RULE 1 (TypeFilter's own doc comment): the vocabulary comes from the
+  // register. Null while loading or on failure, in which case the filter
+  // renders nothing at all rather than a guess - see useTypeVocabulary.
+  const typeVocabulary = useTypeVocabulary();
+  const filtering = selectedTypes.length > 0;
 
   // The mount-time half of the sign-out rule. Before paint, so a remount after
   // a sign-out never shows the previous session's results for even one frame.
@@ -1169,6 +1250,18 @@ export function AnalysisModeScreen() {
   const canRun = question.trim() !== "" && !running;
   const waitingOn = stillWaitingOn(s);
 
+  // An empty slot under an active filter is a different fact from an empty
+  // slot with no filter on: the filter narrowed WHAT WAS SEARCHED, and an
+  // empty result says nothing about whether the full corpus would have
+  // answered. Conflating the two is how a reader ends up believing the
+  // documents are silent on something the filter simply excluded.
+  const filteredEmptyHint = (base: string): string =>
+    filtering
+      ? "The type filter narrowed the search, and nothing in scope matched this question. " +
+        "That is not the same as the documents having nothing to say - clear or change the " +
+        "filter to search the rest of the corpus."
+      : base;
+
   const notImplemented =
     summarySlot.s === "ready"
       ? summarySlot.data.result.not_implemented_sections
@@ -1231,6 +1324,31 @@ export function AnalysisModeScreen() {
                 placeholder="Example: What does PID mean in this control section?"
                 className="mt-2 w-full resize-y rounded border border-ink-600 bg-ink-900 px-3 py-2 text-base text-slateish-100 placeholder:text-slateish-500"
               />
+            </div>
+
+            {/* Narrows what the run searches, never what may be read - see the
+                doc comment on TypeFilter. Rendered here (nothing, if the
+                vocabulary has not loaded) rather than hard-coding a type list:
+                a register with different types must not show a filter for
+                types it does not have. */}
+            <div aria-label="Search in">
+              <TypeFilter
+                vocabulary={typeVocabulary}
+                selected={selectedTypes}
+                onToggle={toggleType}
+                onClear={clearTypes}
+                applied={appliedScope}
+                layout="column"
+              />
+              {/* RULE 3, the other half: no server echo yet under the CURRENT
+                  ticks (before the first run, or after a retick) means no
+                  count - the pending sentence stands in for it instead of a
+                  stale or invented number. */}
+              {appliedScope === null && pendingFilterNotice(selectedTypes) !== null && (
+                <p className="mt-1 text-xs text-slateish-400">
+                  {pendingFilterNotice(selectedTypes)}
+                </p>
+              )}
             </div>
 
             <ModeSelector mode={mode} onChange={changeMode} toggles={toggles} onToggle={changeToggle} />
@@ -1315,7 +1433,9 @@ export function AnalysisModeScreen() {
                 slot={summarySlot}
                 loadingLabel="Generating the summary"
                 emptyTitle="No summary was produced for this question."
-                emptyHint="Nothing the retrieval found could be summarised with a citation behind every sentence."
+                emptyHint={filteredEmptyHint(
+                  "Nothing the retrieval found could be summarised with a citation behind every sentence.",
+                )}
                 onRetry={retry}
               >
                 {(d) => (
@@ -1342,7 +1462,9 @@ export function AnalysisModeScreen() {
                 slot={recSlot}
                 loadingLabel="Computing the recommendation"
                 emptyTitle="No recommendation was generated."
-                emptyHint="Nothing was produced that carried a citation, so there is nothing to advise on."
+                emptyHint={filteredEmptyHint(
+                  "Nothing was produced that carried a citation, so there is nothing to advise on.",
+                )}
                 onRetry={retry}
               >
                 {(d) => (
@@ -1376,7 +1498,9 @@ export function AnalysisModeScreen() {
                 slot={gapsSlot}
                 loadingLabel="Comparing claims across documents"
                 emptyTitle="No comparable claims were found."
-                emptyHint="Retrieval found nothing carrying a measurable claim with a page behind it. That is not proof the documents say nothing."
+                emptyHint={filteredEmptyHint(
+                  "Retrieval found nothing carrying a measurable claim with a page behind it. That is not proof the documents say nothing.",
+                )}
                 onRetry={retry}
               >
                 {(d) => (

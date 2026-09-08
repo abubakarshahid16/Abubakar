@@ -10,7 +10,7 @@
  */
 import { useState } from "react";
 
-import type { DocumentRecord } from "../types/api";
+import type { DocumentClassification, DocumentRecord } from "../types/api";
 import {
   LOW_RETRIEVABLE_THRESHOLD,
   embedProgress,
@@ -45,12 +45,31 @@ export interface DocumentActions {
 export function DocumentCard({
   doc,
   actions,
+  classification,
+  types,
+  isAdmin = false,
+  onConfirmType,
 }: {
   doc: DocumentRecord;
   actions: DocumentActions;
+  /** This document's classification. Absent (not `null`) while it has not
+   *  answered yet - see `useDocumentClassifications`, which is the only
+   *  thing that ever supplies this prop. */
+  classification?: DocumentClassification;
+  /** The register's type names, for the "change type" picker. Never a
+   *  hardcoded list - see `TypeFilter.tsx` for why. */
+  types?: string[];
+  /** Whether the confirm control may appear at all. The control must never
+   *  render for a caller who cannot use it: `classification.confirm` 404s a
+   *  non-admin, and a button that always 404s is worse than no button. */
+  isAdmin?: boolean;
+  /** Confirms (or changes) this document's type. Absent classification or no
+   *  admin means this is never called - see the render logic below. */
+  onConfirmType?: (doc: DocumentRecord, docType: string) => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showStages, setShowStages] = useState(false);
+  const [changingType, setChangingType] = useState(false);
   const status = presentStatus(doc);
   const ratio = retrievableRatio(doc);
   const excluded = excludedCount(doc);
@@ -66,6 +85,37 @@ export function DocumentCard({
             <span className={`rounded px-2 py-0.5 text-[11px] ${TONE[status.tone]}`}>
               {status.label}
             </span>
+            {/* THE REGISTER TYPE. NEUTRAL only when `confirmed` is true - a
+                human has agreed with it. Everything else, including a
+                document with no suggested type at all, is amber or muted:
+                `confirmed: false` means a machine guessed and nobody has
+                signed off, and that must be visible on the card itself, not
+                buried in a drawer. Absent `classification` (still loading)
+                renders nothing here rather than a placeholder chip. */}
+            {classification &&
+              (classification.doc_type === null ? (
+                <span
+                  data-testid="type-chip"
+                  className="rounded border border-ink-600 px-2 py-0.5 text-[11px] text-slateish-400"
+                >
+                  Awaiting a type
+                </span>
+              ) : classification.confirmed ? (
+                <span
+                  data-testid="type-chip"
+                  className="rounded bg-ink-700 px-2 py-0.5 text-[11px] text-slateish-300"
+                >
+                  {classification.doc_type}
+                </span>
+              ) : (
+                <span
+                  data-testid="type-chip"
+                  className="rounded border border-warn-500/40 bg-warn-500/10 px-2 py-0.5 text-[11px] text-warn-500"
+                  title={`Suggested by ${classification.suggested_by}, not yet confirmed.`}
+                >
+                  {classification.doc_type}? · guessed from {sourceLabel(classification.suggested_by)}
+                </span>
+              ))}
             {/* THE CATEGORY. It is the access grant - plan line 1010 makes
                 discipline the grant rather than a tag - so this reads the
                 grant tables through the API and never infers from the
@@ -194,6 +244,59 @@ export function DocumentCard({
         </div>
       </div>
 
+      {/* THE CONFIRM STRIP. Only for a classification that has not been
+          confirmed - a plain neutral chip above needs no action here. The
+          control itself only ever appears for an admin: `classification.
+          confirm` answers a non-admin with a 404 that says nothing about
+          whether the document exists, so a button that always fails is
+          strictly worse than the sentence below it. */}
+      {classification && !classification.confirmed && (
+        <div className="border-t border-warn-500/20 bg-warn-500/5 px-4 py-2.5 text-xs">
+          {isAdmin ? (
+            changingType || classification.doc_type === null ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-slateish-400">
+                  {classification.doc_type === null ? "Set the type:" : "Change to:"}
+                </span>
+                {(types ?? []).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => {
+                      setChangingType(false);
+                      onConfirmType?.(doc, t);
+                    }}
+                    className="rounded border border-ink-600 px-2 py-1 text-slateish-300 hover:bg-ink-700"
+                  >
+                    {t}
+                  </button>
+                ))}
+                {classification.doc_type !== null && (
+                  <button
+                    type="button"
+                    onClick={() => setChangingType(false)}
+                    className="text-slateish-500 hover:text-slateish-300"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Action
+                  label="Confirm"
+                  onClick={() => onConfirmType?.(doc, classification.doc_type as string)}
+                  primary
+                />
+                <Action label="Change" onClick={() => setChangingType(true)} />
+              </div>
+            )
+          ) : (
+            <p className="text-slateish-400">Awaiting confirmation by an administrator.</p>
+          )}
+        </div>
+      )}
+
       {status.tone === "warning" && doc.error && (
         <div role="alert" className="border-t border-warn-500/30 bg-warn-500/10 px-4 py-3 text-sm">
           <p className="font-medium text-warn-500">Nothing on this document is searchable</p>
@@ -296,6 +399,21 @@ export function DocumentCard({
       )}
     </li>
   );
+}
+
+/** What a machine-suggested classification is guessed FROM, in the reader's
+ *  words rather than the wire value. `register` never reaches here - it is
+ *  the one client-authoritative tier and is confirmed on arrival - but the
+ *  fallback keeps an unrecognised value honest rather than silently blank. */
+function sourceLabel(source: string): string {
+  switch (source) {
+    case "filename":
+      return "the title";
+    case "content":
+      return "the content";
+    default:
+      return source;
+  }
 }
 
 function Action({

@@ -14,7 +14,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api } from "../api/client";
+import { api, classification } from "../api/client";
+import type { ClassificationCoverage } from "../api/client";
 import type { Connection } from "../components/Shell";
 import { DisconnectedState, ErrorState, Spinner } from "../components/states";
 import { humaniseReason } from "../components/WorkerPanel";
@@ -112,12 +113,18 @@ function Headline({
   unit,
   note,
   tone = "normal",
+  children,
 }: {
   label: string;
   value: string | null;
   unit?: string;
-  note: string;
+  note: React.ReactNode;
   tone?: "normal" | "warn" | "danger" | "good";
+  /** Rendered between the big value and `note`. Used sparingly - today only
+   *  by the Documents tile, for the per-type counts - because a headline
+   *  tile earns its size by answering one question at a glance, and every
+   *  extra line spends a little of that. */
+  children?: React.ReactNode;
 }) {
   const toneClass =
     tone === "warn"
@@ -140,6 +147,7 @@ function Headline({
           {unit && <span className="ml-1.5 text-lg text-slateish-500">{unit}</span>}
         </p>
       )}
+      {children}
       <p className="mt-3 text-sm leading-relaxed text-slateish-300">{note}</p>
     </div>
   );
@@ -269,6 +277,27 @@ function ReadinessPanel({ metrics }: { metrics: Metrics }) {
   );
 }
 
+/**
+ * The per-type upload counts inside the Documents headline tile.
+ *
+ * Renders WHATEVER `by_type` returns, in the order the register gave it -
+ * never a hardcoded list of type names. A register with two types, or five,
+ * or none loaded at all, must not make this component invent or drop a row.
+ */
+function TypeCounts({ byType }: { byType: ClassificationCoverage["by_type"] }) {
+  if (byType.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+      {byType.map((t) => (
+        <span key={t.type} className="font-mono text-xs leading-tight">
+          <span className="text-slateish-500">{t.type}</span>{" "}
+          <span className="text-slateish-200">{nf.format(t.uploaded)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function Throughput({ stage, data }: { stage: string; data: StageThroughput | null }) {
   const label = STAGE_LABELS[stage] ?? stage;
   if (!data) {
@@ -299,6 +328,12 @@ export function DashboardView({
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState<{ error: ApiError; disconnected: boolean } | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+  // null covers BOTH "has not answered yet" and "the request failed" -
+  // deliberately one state, not two, because both cases render the same way:
+  // the Documents tile with no per-type counts, exactly as it looked before
+  // classification coverage existed. There is no error state for this one
+  // add-on; the rest of the dashboard does not depend on it.
+  const [coverage, setCoverage] = useState<ClassificationCoverage | null>(null);
   const first = useRef(true);
 
   const load = useCallback(async () => {
@@ -316,10 +351,21 @@ export function DashboardView({
     first.current = false;
   }, []);
 
+  const loadCoverage = useCallback(async () => {
+    const r = await classification.coverage();
+    // Success or failure, this is the whole handler: on failure fall back to
+    // null rather than keeping a previous answer, for the same reason
+    // `load` above drops metrics rather than leaving them looking live.
+    setCoverage(r.ok ? r.data : null);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const tick = () => {
-      if (!cancelled) void load();
+      if (!cancelled) {
+        void load();
+        void loadCoverage();
+      }
     };
     tick();
     const timer = window.setInterval(tick, 15000);
@@ -327,7 +373,7 @@ export function DashboardView({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [load]);
+  }, [load, loadCoverage]);
 
   // The shell already knows the backend is gone, so say so at once rather
   // than waiting for this screen's own fetch to time out.
@@ -342,6 +388,16 @@ export function DashboardView({
 
   const { corpus, system, models, worker, jobs, retrieval, throughput } = metrics;
   const noSearchable = corpus.by_status["no_searchable_content"] ?? 0;
+
+  // Coverage is scoped exactly like every other count on this screen: shown
+  // to a caller only when the register's own boundary claim matches the
+  // dashboard's stated one. THIS SCREEN ALREADY SHIPPED THE OPPOSITE BUG ONCE
+  // (see the boundary comment above, on `metrics.corpus_wide`) - a count that
+  // is arithmetically fine but describes a different set of documents than
+  // the sentence above it claims. Showing nothing is safer than showing
+  // per-type counts under the wrong boundary.
+  const coverageInScope = coverage != null && coverage.corpus_wide === metrics.corpus_wide;
+  const byType = coverageInScope ? coverage!.by_type : [];
 
   return (
     <div>
@@ -456,15 +512,31 @@ export function DashboardView({
           value={String(corpus.documents)}
           tone={corpus.documents > 0 ? "normal" : "warn"}
           note={
-            corpus.documents === 0
-              ? "Upload a PDF on the Documents screen to begin."
-              : `${nf.format(corpus.pages_extracted)} pages read. ${
+            corpus.documents === 0 ? (
+              "Upload a PDF on the Documents screen to begin."
+            ) : (
+              <>
+                {`${nf.format(corpus.pages_extracted)} pages read. ${
                   Object.entries(corpus.by_status)
                     .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
                     .join(", ") || "no status recorded"
-                }.`
+                }.`}
+                {/* SCOPED to a caller who can see the register at all - see
+                    `coverageInScope` above - and shown only when it is
+                    actually non-zero, never as "0 awaiting a type", which
+                    would claim a measurement nobody made for a caller with
+                    no coverage answer at all. */}
+                {coverageInScope && coverage!.needs_classification > 0 && (
+                  <span className="ml-1 text-warn-500">
+                    · {nf.format(coverage!.needs_classification)} awaiting a type
+                  </span>
+                )}
+              </>
+            )
           }
-        />
+        >
+          {corpus.documents > 0 && <TypeCounts byType={byType} />}
+        </Headline>
         <Headline
           label="Needs attention"
           value={String(metrics.warnings.length)}

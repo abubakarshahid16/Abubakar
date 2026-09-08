@@ -214,7 +214,13 @@ describe("AnalysisModeScreen: results survive the component unmounting", () => {
     await user.type(screen.getByLabelText("Question"), "what is the pressure floor");
     await user.click(runButton());
     await screen.findByText(/Discharge pressure floor is 250 kPa/);
-    const callsAfterRun = fetch.mock.calls.length;
+    // Only the analysis routes matter here - the "Search in" control's
+    // vocabulary lookup is component-scoped by design (TypeFilter.tsx) and
+    // legitimately re-fires on every mount; that is a different fact from the
+    // 3.5-minute engines being re-run, which is what this test guards.
+    const analysisCallsAfterRun = fetch.mock.calls.filter(([input]) =>
+      String(input).includes("/analysis/"),
+    ).length;
 
     // The reader clicks Documents. App.tsx renders the view conditionally,
     // so this is exactly what happens to the component.
@@ -227,7 +233,10 @@ describe("AnalysisModeScreen: results survive the component unmounting", () => {
     expect(screen.getByRole("radio", { name: /Comprehensive/ })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /gap analysis/i })).toBeChecked();
     // Restored from memory, not re-run: a re-run would be another 3.5 minutes.
-    expect(fetch.mock.calls.length).toBe(callsAfterRun);
+    const analysisCallsAfterRemount = fetch.mock.calls.filter(([input]) =>
+      String(input).includes("/analysis/"),
+    ).length;
+    expect(analysisCallsAfterRemount).toBe(analysisCallsAfterRun);
   });
 
   it("lands a result that arrives while the reader is on another view", async () => {
