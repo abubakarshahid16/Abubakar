@@ -30,6 +30,14 @@ looks, when it last looked, and what it decided. An engineer wondering why the
 specification they dropped this morning has not appeared needs all of that and
 none of the path.
 
+THAT SENTENCE USED TO BE FALSE, and the way it was false is worth keeping.
+"What it decided" is a list of `filename`s - real client documents - and it
+went to every caller unscoped while this docstring counted it among the
+harmless fields and reasoned only about the path. `recent_events` is now given
+the caller's scope and filters on `document_id`; a drop that never became a
+document names a file nobody has a grant on, so it sits behind the same
+capability gate as the folder name.
+
 BEING OFF IS NOT AN ERROR. No watch folder configured is the DEFAULT state of
 this system. The endpoint answers 200 with `enabled: false` and nulls, because
 a 404 or a 503 would make a deliberately unconfigured feature look broken and
@@ -195,8 +203,26 @@ class WatchStatus(BaseModel):
 RECENT_LIMIT = 10
 
 
-def recent_events(limit: int = RECENT_LIMIT) -> list[dict]:
-    """The newest events, newest first.
+def recent_events(scope: access.AccessScope, may_see_host_paths: bool,
+                  limit: int = RECENT_LIMIT) -> list[dict]:
+    """The newest events the caller may see, newest first.
+
+    SCOPED, AND THE SCOPE IS REQUIRED. This function used to take no scope and
+    its query had no predicate, so the last ten watched-folder decisions went
+    back byte-identically to every caller - including one with zero grants, in
+    the same second that `GET /api/documents` correctly returned `[]` for them.
+    A `filename` here names a real client document, and `duplicate`
+    additionally asserts that a document with that content is already in the
+    corpus. That is the disclosure `/api/health` was stripped for.
+
+    The docstring below used to reason only about `source_path` and conclude
+    that returning it "would move the leak rather than close it". It was
+    inspecting the path while the filename beside it was the leak.
+
+    A row whose `document_id` is NULL is a drop that never became a document -
+    a `failed` PDF - so no grant can ever cover it, and it is still the name of
+    a file in the client's inbox. Those rows sit behind `may_see_host_paths`,
+    the same gate as the folder name itself.
 
     Ordered by `id DESC` rather than by `observed_at DESC`, deliberately.
     Timestamps are truncated to the second, so several files handled inside
@@ -212,6 +238,28 @@ def recent_events(limit: int = RECENT_LIMIT) -> list[dict]:
     it - which is precisely how /api/health's disclosures ended up on
     /api/metrics.
     """
+    conn = connect()
+    if scope.unrestricted:
+        # No predicate at all - the same rows as before, for the mode in which
+        # every caller may read every document anyway.
+        where, params = "", []
+    elif may_see_host_paths:
+        # An admin under a real auth mode: granted documents, plus the
+        # never-ingested drops, which belong to no document and so can only be
+        # gated on this flag.
+        where = " WHERE document_id IS NULL OR document_id IN (%s)" % (
+            ",".join("?" * len(scope.allowed_document_ids)) or "NULL")
+        params = list(scope.allowed_document_ids)
+    elif not scope.allowed_document_ids:
+        # Zero grants. `WHERE 1 = 0` rather than skipping the query, so this
+        # returns [] by the same path as every other answer and cannot be a
+        # code branch that forgot to filter.
+        where, params = " WHERE 1 = 0", []
+    else:
+        where = " WHERE document_id IN (%s)" % ",".join(
+            "?" * len(scope.allowed_document_ids))
+        params = list(scope.allowed_document_ids)
+
     return [
         {
             "filename": r["filename"],
@@ -222,10 +270,10 @@ def recent_events(limit: int = RECENT_LIMIT) -> list[dict]:
             # that was given and was blank.
             "detail": r["detail"],
         }
-        for r in connect().execute(
+        for r in conn.execute(
             "SELECT filename, outcome, observed_at, detail FROM watch_events"
-            " ORDER BY id DESC LIMIT ?",
-            (limit,),
+            + where + " ORDER BY id DESC LIMIT ?",
+            (*params, limit),
         )
     ]
 
@@ -301,5 +349,5 @@ def watch_status(request: Request,
         "last_error": watcher_mod.last_error(),
         "last_scan_at": watcher_mod.last_scan_at(),
         "interval_seconds": settings.watch_interval_seconds,
-        "recent": recent_events(),
+        "recent": recent_events(scope, may_see_host_paths),
     }

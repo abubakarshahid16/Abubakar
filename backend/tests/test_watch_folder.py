@@ -532,6 +532,101 @@ def test_the_folder_path_is_admin_information_and_an_engineer_never_sees_it(
     assert anonymous["folder_name"] is None
 
 
+def test_the_recent_window_is_scoped_to_what_the_caller_may_read(
+        drop_folder, monkeypatch):
+    """Ten real document filenames used to go to every caller.
+
+    `/api/watch/status` resolved an `AccessScope` and spent it on ONE field,
+    `folder_name`. `recent_events()` took no scope and its query had no
+    predicate, so a caller with zero grants received the last ten decisions -
+    each naming a real file in the client's inbox - in the same second that
+    `GET /api/documents` correctly returned `[]` for them. `duplicate`
+    additionally asserts that a document with that content is already in the
+    corpus. This is the disclosure `/api/health` was stripped for.
+
+    MUTATION-PROVEN. Drop the `where` clause from `recent_events` and the
+    ungranted caller sees `spec.pdf` again.
+    """
+    _user("admin_user", "admin", "capability")
+    _user("engineer", "Civil-Engineering", "discipline")
+    # The owner works in a DIFFERENT discipline, so the auto-granted document
+    # is one the engineer genuinely has no grant on. An owner is required:
+    # without one the drop fails and never becomes a document at all.
+    _user("owner", "Mechanical", "discipline")
+    monkeypatch.setattr(settings, "watch_owner_email", "owner@example.test")
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_REQUIRED)
+    access.set_user_resolver(lambda req: req.headers.get("x-test-user") or None)
+
+    (drop_folder / "spec.pdf").write_bytes(pdf_bytes())
+    # Twice: a file must be seen unchanged across two scans before it is
+    # ingested, which is what makes the drop stable.
+    watcher_mod.scan_once()
+    watcher_mod.scan_once()
+    assert [e["filename"] for e in events()] == ["spec.pdf"], "precondition"
+
+    client = _client()
+
+    # An engineer with no grant on the ingested document.
+    engineer = client.get("/api/watch/status",
+                          headers={"x-test-user": "engineer"}).json()
+    assert engineer["recent"] == [], (
+        "a caller with no grant received a real document filename")
+
+    # And an unauthenticated caller under a real auth mode.
+    anonymous = client.get("/api/watch/status").json()
+    assert anonymous["recent"] == []
+    assert "spec.pdf" not in client.get("/api/watch/status").text
+
+    # NOT VACUOUS: grant the engineer's discipline the document and the very
+    # same request now shows it. Without this the assertions above would pass
+    # against a `recent` that was hardcoded empty.
+    row = events()[0]
+    document_id = row["document_id"]
+    assert document_id is not None, (
+        f"precondition: the drop became a document; outcome={row['outcome']!r} "
+        f"detail={row['detail']!r}")
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO document_role_access"
+            " (document_id, role_id, granted_at) VALUES (?,?,?)",
+            (document_id, "role_Civil-Engineering", NOW))
+
+    granted = client.get("/api/watch/status",
+                         headers={"x-test-user": "engineer"}).json()
+    assert [r["filename"] for r in granted["recent"]] == ["spec.pdf"]
+
+
+def test_a_failed_drop_that_never_became_a_document_stays_behind_the_admin_gate(
+        drop_folder, monkeypatch):
+    """A `failed` row has `document_id = NULL`, so no grant can ever cover it -
+    but it is still the name of a file in the client's inbox. It is gated on
+    the capability, like the folder name itself.
+
+    MUTATION-PROVEN. Let NULL rows through for everyone and the engineer sees
+    `corrupt.pdf`.
+    """
+    _user("admin_user", "admin", "capability")
+    _user("engineer", "Civil-Engineering", "discipline")
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_REQUIRED)
+    access.set_user_resolver(lambda req: req.headers.get("x-test-user") or None)
+
+    (drop_folder / "corrupt.pdf").write_bytes(b"not a pdf at all")
+    watcher_mod.scan_once()
+    watcher_mod.scan_once()
+    assert events()[0]["document_id"] is None, "precondition"
+
+    client = _client()
+    engineer = client.get("/api/watch/status",
+                          headers={"x-test-user": "engineer"}).json()
+    assert engineer["recent"] == []
+
+    admin = client.get("/api/watch/status",
+                       headers={"x-test-user": "admin_user"}).json()
+    assert [r["filename"] for r in admin["recent"]] == ["corrupt.pdf"], (
+        "the administrator must still be told why a drop was refused - "
+        "withholding it from them would make the feature unusable")
+
+
 def test_the_status_reports_the_newest_events_newest_first(drop_folder, monkeypatch):
     """`recent` is the answer to "why has my document not appeared", so it has
     to hold the refusals, in the order they happened."""
