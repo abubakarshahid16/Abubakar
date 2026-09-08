@@ -209,25 +209,43 @@ def _clean_title(section: str) -> str:
     return title
 
 
-def example_questions(limit: int = 3) -> list[str]:
-    """Questions drawn from the documents that are actually loaded.
+def example_questions(
+    limit: int = 3, *, allowed_document_ids: frozenset[str]
+) -> list[str]:
+    """Questions drawn from the documents this caller may actually read.
 
     Suggesting "what is the NDFT for coating system no. 1" to someone whose
     corpus is two textbooks would be a worse first impression than suggesting
     nothing. Every example here is built from a real clause heading in a
     document that can currently answer, so every one of them works.
+
+    `allowed_document_ids` is REQUIRED and keyword-only. Every example embeds
+    a real FILENAME and a real CLAUSE HEADING, and this ran unscoped: typing
+    "hi" - or "thanks" - returned the filenames and section titles of
+    documents the caller has no grant on, inside the answer text, and
+    `answer()` persists that text to the conversation transcript. A greeting
+    was the cheapest way to enumerate the corpus, and the disclosure outlived
+    the request.
+
+    An empty scope offers no examples, which is the same answer an empty
+    corpus gets and the right one: there is nothing this caller can be shown.
     """
+    if not allowed_document_ids:
+        return []
+    marks = ",".join("?" * len(allowed_document_ids))
     try:
         rows = connect().execute(
-            """SELECT c.filename, c.section, COUNT(*) AS n
+            f"""SELECT c.filename, c.section, COUNT(*) AS n
                FROM chunks c JOIN documents d ON d.id = c.document_id
                WHERE c.retrievable = 1 AND c.section IS NOT NULL
                  AND d.status IN ('ready', 'partially_searchable')
+                 AND c.document_id IN ({marks})
                GROUP BY c.document_id, c.section
                -- substantial sections first: a clause with more chunks makes a
                -- better example than a one-line heading. No minimum, or a
                -- small corpus would offer nothing at all.
-               ORDER BY c.document_id, n DESC"""
+               ORDER BY c.document_id, n DESC""",
+            sorted(allowed_document_ids),
         ).fetchall()
     except Exception:  # noqa: BLE001 - a suggestion is never worth an error
         return []

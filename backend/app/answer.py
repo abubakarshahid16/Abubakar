@@ -468,7 +468,8 @@ def answer(
     # both. Nothing is searched, so there is nothing to show as considered.
     kind = intent_mod.classify(question)
     if kind != intent_mod.DOCUMENT_QUESTION:
-        examples = intent_mod.example_questions()
+        examples = intent_mod.example_questions(
+            allowed_document_ids=allowed_document_ids)
         return {
             "question": question,
             "retrieval_mode": "not_searched",

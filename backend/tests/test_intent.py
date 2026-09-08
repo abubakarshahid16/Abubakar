@@ -45,8 +45,11 @@ def temp_storage(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-def upload(client, blocks=(SPEC, SYSTEM_ONE)) -> str:
-    path = settings.data_dir / "spec.pdf"
+def upload(client, blocks=(SPEC, SYSTEM_ONE), name="spec.pdf") -> str:
+    # `name` so a test can upload a SECOND, differently named document. The
+    # examples embed the filename, so two documents called spec.pdf could not
+    # tell a scoped answer from an unscoped one.
+    path = settings.data_dir / name
     doc = fitz.open()
     for block in blocks:
         page = doc.new_page()
@@ -56,7 +59,7 @@ def upload(client, blocks=(SPEC, SYSTEM_ONE)) -> str:
     doc.close()
     with open(path, "rb") as fh:
         doc_id = client.post(
-            "/api/documents", files={"file": ("spec.pdf", fh, "application/pdf")}
+            "/api/documents", files={"file": (name, fh, "application/pdf")}
         ).json()["document"]["id"]
     IngestionWorker().process(doc_id)
     return doc_id
@@ -185,7 +188,7 @@ def test_the_examples_are_answerable():
     suggesting nothing."""
     client = TestClient(app)
     upload(client)
-    examples = intent.example_questions()
+    examples = intent.example_questions(allowed_document_ids=_scope())
     assert examples
     for question in examples:
         from app import answer as answer_mod
@@ -194,7 +197,7 @@ def test_the_examples_are_answerable():
 
 
 def test_an_empty_corpus_offers_no_examples_rather_than_inventing_them():
-    assert intent.example_questions() == []
+    assert intent.example_questions(allowed_document_ids=_scope()) == []
     from app import answer as answer_mod
 
     result = answer_mod.answer("hi", allowed_document_ids=_scope())
@@ -368,6 +371,51 @@ def test_the_definitional_answer_survives_a_conversation():
     ).json()
     assert body["carried_terms"] == []
     assert body["passage"]["section"] == "3.2 Abbreviations"
+
+
+def test_a_greeting_never_names_a_document_the_caller_cannot_read():
+    """"hi" was the cheapest way to enumerate the corpus.
+
+    Every example embeds a real FILENAME and a real CLAUSE HEADING, and
+    `example_questions` ran unscoped. Typing a greeting returned the filenames
+    and section titles of documents the caller has no grant on, inside the
+    answer text - and `answer()` persists that text to the conversation
+    transcript, so the disclosure outlived the request.
+
+    MUTATION-PROVEN. Remove the `document_id IN (...)` predicate and the
+    restricted caller is offered "What does secret.pdf say about ...".
+    """
+    from app import answer as answer_mod
+
+    client = TestClient(app)
+    readable = upload(client)
+    secret = upload(client, name="secret.pdf")
+
+    mine = frozenset({readable})
+
+    # Corpus-wide the other document really is suggestible, so this is about
+    # SCOPE rather than about there being nothing to suggest.
+    everything = intent.example_questions(allowed_document_ids=_scope())
+    assert any("secret.pdf" in q for q in everything), "precondition"
+
+    mine_only = intent.example_questions(allowed_document_ids=mine)
+    assert mine_only, "the readable document must still produce examples"
+    assert not any("secret.pdf" in q for q in mine_only), (
+        "a greeting named a document the caller may not read")
+
+    # And through the route that actually shows them, including the answer
+    # text that gets persisted.
+    result = answer_mod.answer("hi", allowed_document_ids=mine)
+    assert "secret.pdf" not in result["answer"]
+    assert not any("secret.pdf" in q for q in result.get("examples") or [])
+
+
+def test_a_caller_with_no_grants_is_offered_no_examples():
+    """An empty scope is the same answer as an empty corpus: there is nothing
+    this caller can be shown, and inventing one would name a document."""
+    client = TestClient(app)
+    upload(client)
+    assert intent.example_questions(allowed_document_ids=frozenset()) == []
 
 
 def _scope():
