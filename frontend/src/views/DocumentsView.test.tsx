@@ -449,14 +449,21 @@ describe("B4 excluded viewer", () => {
 
 describe("B5 page image viewer", () => {
   it("shows the rendered page and offers zoom", async () => {
-    mockApi([makeDoc()]);
+    const fetchSpy = mockApi([makeDoc()]);
     renderDocuments();
 
     fireEvent.click(await screen.findByRole("button", { name: "Pages" }));
     const dialog = await screen.findByRole("dialog");
 
     const img = within(dialog).getByRole("img", { name: /Page 1 of/i });
-    expect(img).toHaveAttribute("src", "/api/documents/doc_book1/pages/1/image");
+    // Authenticated images are fetched with the session headers and rendered
+    // through an object URL; a raw API URL in <img src> would omit auth.
+    expect(img.getAttribute("src")).toMatch(/^blob:/);
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        input.toString().includes("/api/documents/doc_book1/pages/1/image"),
+      ),
+    ).toBe(true);
     expect(within(dialog).getByRole("group", { name: /zoom/i })).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "200%" }));

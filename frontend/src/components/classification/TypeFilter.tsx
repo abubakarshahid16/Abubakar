@@ -60,10 +60,17 @@ export interface TypeVocabulary {
  * `TypeVocabulary`. The two requests are independent, so a coverage failure
  * still yields a usable filter with no counts rather than no filter at all.
  */
-export function useTypeVocabulary(): TypeVocabulary | null {
+export interface TypeVocabularyLoad {
+  vocabulary: TypeVocabulary | null;
+  /** True after the vocabulary request has answered, including failure. */
+  settled: boolean;
+}
+
+export function useTypeVocabularyLoad(): TypeVocabularyLoad {
   const [vocab, setVocab] = useState<ClassificationVocabulary | null>(null);
   const [coverage, setCoverage] = useState<ClassificationCoverage | null>(null);
   const [failed, setFailed] = useState(false);
+  const [settled, setSettled] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +83,7 @@ export function useTypeVocabulary(): TypeVocabulary | null {
       if (v.ok) setVocab(v.data);
       else setFailed(true);
       if (c.ok) setCoverage(c.data);
+      setSettled(true);
     })();
     return () => {
       cancelled = true;
@@ -88,7 +96,9 @@ export function useTypeVocabulary(): TypeVocabulary | null {
   // throws in every consumer that reads `.length` - which is exactly what
   // happened. The client now shape-checks this route as well; this stays
   // because the hook is exported and must be safe on its own.
-  if (failed || !vocab || !Array.isArray(vocab.types)) return null;
+  if (failed || !vocab || !Array.isArray(vocab.types)) {
+    return { vocabulary: null, settled };
+  }
 
   const countByType: Record<string, number> = {};
   const unconfirmedByType: Record<string, number> = {};
@@ -97,13 +107,20 @@ export function useTypeVocabulary(): TypeVocabulary | null {
     unconfirmedByType[row.type] = row.unconfirmed;
   }
   return {
-    types: vocab.types,
-    countByType,
-    unconfirmedByType,
-    needsClassification: vocab.needs_classification,
-    corpusWide: coverage?.corpus_wide ?? false,
-    registerLoaded: coverage?.register_loaded ?? false,
+    settled,
+    vocabulary: {
+      types: vocab.types,
+      countByType,
+      unconfirmedByType,
+      needsClassification: vocab.needs_classification,
+      corpusWide: coverage?.corpus_wide ?? false,
+      registerLoaded: coverage?.register_loaded ?? false,
+    },
   };
+}
+
+export function useTypeVocabulary(): TypeVocabulary | null {
+  return useTypeVocabularyLoad().vocabulary;
 }
 
 /** Selected types, and the scope object to send. Held by the screen so that

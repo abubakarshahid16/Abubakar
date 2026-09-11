@@ -11,7 +11,7 @@ import type { Connection } from "../components/Shell";
 import { Uploader } from "../components/Uploader";
 import { WorkerPanel } from "../components/WorkerPanel";
 import { useDocumentClassifications } from "../components/classification/useDocumentClassifications";
-import { useTypeVocabulary } from "../components/classification/TypeFilter";
+import { useTypeVocabularyLoad } from "../components/classification/TypeFilter";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
 import type { ApiError, DocumentClassification, DocumentRecord, WorkerStatus } from "../types/api";
 
@@ -162,7 +162,7 @@ export function DocumentsView({
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
 
-  const vocabulary = useTypeVocabulary();
+  const { vocabulary, settled: vocabularySettled } = useTypeVocabularyLoad();
 
   const refresh = useCallback(async () => {
     // These reads are independent. Start both before yielding so a slow
@@ -198,8 +198,13 @@ export function DocumentsView({
   usePoll(refresh, working, polling);
 
   const documentIds = load.state === "ready" ? load.documents.map((d) => d.id) : [];
-  const { byId: classifications, setOne: setOneClassification } =
+  const {
+    byId: classifications,
+    setOne: setOneClassification,
+    settled: classificationsSettled,
+  } =
     useDocumentClassifications(documentIds);
+  const classificationsReady = vocabularySettled && classificationsSettled;
   // READ THROUGH A REF in `confirmType`. Depending on `classifications`
   // directly would rebuild the callback on every confirm - the same reason the
   // hook keeps its own ref - and a stale closure here would carry forward a
@@ -400,7 +405,11 @@ export function DocumentsView({
           />
         )}
 
-        {load.state === "ready" && load.documents.length > 0 && (
+        {load.state === "ready" &&
+          load.documents.length > 0 &&
+          !classificationsReady && <Spinner label="Loading document classifications" />}
+
+        {load.state === "ready" && load.documents.length > 0 && classificationsReady && (
           <div className="space-y-6">
             {(() => {
               const filtered = load.documents.filter(passesFilter);
