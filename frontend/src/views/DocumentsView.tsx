@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+
+import { usePoll } from "../hooks/usePoll";
 
 import { api } from "../api/client";
 import { ChunkInspector } from "../components/ChunkInspector";
@@ -22,7 +24,8 @@ type Drawer =
   | { kind: "excluded"; doc: DocumentRecord }
   | { kind: "pages"; doc: DocumentRecord };
 
-const REFRESH_MS = 3000;
+/** A document in any of these is finished; the row will not change again. */
+const SETTLED = new Set(["ready", "failed", "no_searchable_content"]);
 
 export function DocumentsView({
   connection,
@@ -53,19 +56,21 @@ export function DocumentsView({
     }
   }, []);
 
-  // Poll so ingestion progress is live without the operator refreshing.
-  useEffect(() => {
-    let cancelled = false;
-    const tick = () => {
-      if (!cancelled) void refresh();
-    };
-    tick();
-    const timer = window.setInterval(tick, REFRESH_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [refresh]);
+  // Poll so ingestion progress is live without the operator refreshing - but
+  // only FAST while there is progress to be live about. On an idle corpus the
+  // old fixed 3 s was 20 requests a minute, forever, against a 15 W CPU that
+  // is also answering questions.
+  //
+  // The signal is the list this screen already has: a document that is not
+  // settled is still being worked on. That needs no extra request, and it
+  // cannot disagree with the rows on screen the way a separate worker flag
+  // could. `busy` - an upload or a retry in flight - forces fast immediately
+  // so an action does not wait out the idle interval.
+  const working =
+    busy !== null ||
+    (load.state === "ready" && load.documents.some((d) => !SETTLED.has(d.status)));
+
+  usePoll(refresh, working);
 
   const run = useCallback(
     async (doc: DocumentRecord, label: string, call: () => Promise<{ ok: boolean }>) => {
