@@ -1,5 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
@@ -162,10 +161,13 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function mockApi(docs: DocumentRecord[], over: Record<string, unknown> = {}) {
-  const spy = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
 
+    if (url.includes("/auth/me")) {
+      return jsonResponse({ required: false, user: null });
+    }
     if (url.includes("/health")) return jsonResponse(over.health ?? health);
     // The worker DETAIL now comes from the scoped metrics route, not from
     // health - so a test about the worker has to mock metrics.
@@ -233,11 +235,13 @@ function mockApi(docs: DocumentRecord[], over: Record<string, unknown> = {}) {
 
     return jsonResponse(docs);
   });
-  vi.stubGlobal("fetch", spy);
   return spy;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("B2 documents list", () => {
   it("shows the live ingestion progress line and does not say ready mid-embed", async () => {
@@ -253,7 +257,7 @@ describe("B2 documents list", () => {
         indexed_at: null,
       }),
     ]);
-    render(<App />);
+    renderDocuments();
 
     const line = await screen.findByText(/1,204 pages/);
     expect(line).toHaveTextContent("2,831 passages");
@@ -281,7 +285,7 @@ describe("B2 documents list", () => {
         },
       }),
     ]);
-    render(<App />);
+    renderDocuments();
 
     expect(await screen.findByText("no searchable content")).toBeInTheDocument();
     const alert = screen.getByRole("alert");
@@ -291,7 +295,7 @@ describe("B2 documents list", () => {
 
   it("warns prominently when the retrievable ratio is under 60%", async () => {
     mockApi([makeDoc({ chunk_count: 400, chunk_count_total: 1000, embedded_count: 400 })]);
-    render(<App />);
+    renderDocuments();
 
     expect(await screen.findByText(/Only 40% of this document is searchable/i)).toBeInTheDocument();
     expect(screen.getByText(/quality gate may be over-rejecting/i)).toBeInTheDocument();
@@ -300,14 +304,14 @@ describe("B2 documents list", () => {
 
   it("does not warn when the ratio is healthy", async () => {
     mockApi([makeDoc()]);
-    render(<App />);
+    renderDocuments();
     await screen.findByText(/book1-professionalpractices/);
     expect(screen.queryByText(/of this document is searchable/i)).not.toBeInTheDocument();
   });
 
   it("warns only about scanned pages recognition has NOT yet read", async () => {
     mockApi([makeDoc({ needs_ocr_pages: 12, recognised_pages: 0, equation_pages: 11 })]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText("12 awaiting OCR")).toBeInTheDocument();
     expect(screen.getByText("11 equation-heavy")).toBeInTheDocument();
   });
@@ -320,7 +324,7 @@ describe("B2 documents list", () => {
     mockApi([
       makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 12 }),
     ]);
-    render(<App />);
+    renderDocuments();
     expect(
       await screen.findByText(/12 of 546 pages\s+read by OCR/),
     ).toBeInTheDocument();
@@ -333,33 +337,36 @@ describe("B2 documents list", () => {
     mockApi([
       makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 5 }),
     ]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText("7 awaiting OCR")).toBeInTheDocument();
     expect(screen.getByText(/5 of 546 pages\s+read by OCR/)).toBeInTheDocument();
   });
 
   it("requires a second click to delete", async () => {
     mockApi([makeDoc()]);
-    const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
-    await user.click(await screen.findByRole("button", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     expect(screen.getByRole("button", { name: /confirm delete/i })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /cancel/i }));
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
     expect(screen.queryByRole("button", { name: /confirm delete/i })).not.toBeInTheDocument();
   });
 
   it("shows an empty state rather than a blank screen", async () => {
     mockApi([]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText(/No documents yet/i)).toBeInTheDocument();
   });
 });
 
 describe("worker panel", () => {
   it("shows a stalled worker with its reasons", async () => {
+    const stalledHealth: Health = {
+      ...health,
+      ingestion: { ...health.ingestion, stalled: true },
+    };
     mockApi([makeDoc()], {
-      health: { ...health, ingestion: { ...health.ingestion, stalled: true } },
+      health: stalledHealth,
       metrics: {
         worker: {
           ...fullWorker,
@@ -370,7 +377,7 @@ describe("worker panel", () => {
         },
       },
     });
-    render(<App />);
+    renderDocuments({ health: stalledHealth });
 
     // The reason code is now a sentence, and the alarm names the situation
     // rather than shouting an internal flag.
@@ -387,7 +394,7 @@ describe("worker panel", () => {
         worker: { ...fullWorker, pending_count: 3, oldest_pending_age_seconds: 42 },
       },
     });
-    render(<App />);
+    renderDocuments();
     await screen.findByText(/Ingestion worker/);
     expect(screen.getByText("3")).toBeInTheDocument();
   });
@@ -396,10 +403,9 @@ describe("worker panel", () => {
 describe("B3 chunk inspector", () => {
   it("opens, shows full chunk detail, and can filter to excluded chunks", async () => {
     mockApi([makeDoc()]);
-    const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
-    await user.click(await screen.findByRole("button", { name: /passages/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /passages/i }));
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByText("1.1 The Pace of Change")).toBeInTheDocument();
@@ -408,7 +414,7 @@ describe("B3 chunk inspector", () => {
     expect(within(dialog).getByText(/experimental cars drive themselves/)).toBeInTheDocument();
     expect(within(dialog).getByText(chunk.id)).toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: "Excluded" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Excluded" }));
     await waitFor(() =>
       expect(within(dialog).getByText(/no_clause\(longest=1<6\)/)).toBeInTheDocument(),
     );
@@ -421,10 +427,9 @@ describe("B3 chunk inspector", () => {
 describe("B4 excluded viewer", () => {
   it("groups by rule so a bulk exclusion is visible at a glance", async () => {
     mockApi([makeDoc()]);
-    const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
-    await user.click(await screen.findByRole("button", { name: "Excluded" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Excluded" }));
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getAllByText("content_quality_gate").length).toBeGreaterThan(0);
@@ -435,28 +440,33 @@ describe("B4 excluded viewer", () => {
 
   it("is reachable in one click from the low-ratio warning", async () => {
     mockApi([makeDoc({ chunk_count: 400, chunk_count_total: 1000 })]);
-    const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
-    await user.click(await screen.findByRole("button", { name: /see what was excluded/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /see what was excluded/i }));
     expect(await screen.findByRole("dialog")).toHaveAccessibleName(/Excluded from search/i);
   });
 });
 
 describe("B5 page image viewer", () => {
   it("shows the rendered page and offers zoom", async () => {
-    mockApi([makeDoc()]);
-    const user = userEvent.setup();
-    render(<App />);
+    const fetchSpy = mockApi([makeDoc()]);
+    renderDocuments();
 
-    await user.click(await screen.findByRole("button", { name: "Pages" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Pages" }));
     const dialog = await screen.findByRole("dialog");
 
     const img = within(dialog).getByRole("img", { name: /Page 1 of/i });
-    expect(img).toHaveAttribute("src", "/api/documents/doc_book1/pages/1/image");
+    // Authenticated images are fetched with the session headers and rendered
+    // through an object URL; a raw API URL in <img src> would omit auth.
+    expect(img.getAttribute("src")).toMatch(/^blob:/);
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        input.toString().includes("/api/documents/doc_book1/pages/1/image"),
+      ),
+    ).toBe(true);
     expect(within(dialog).getByRole("group", { name: /zoom/i })).toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: "200%" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "200%" }));
     expect(within(dialog).getByRole("button", { name: "200%" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -465,11 +475,10 @@ describe("B5 page image viewer", () => {
 
   it("closes on Escape", async () => {
     mockApi([makeDoc()]);
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Pages" }));
+    renderDocuments();
+    fireEvent.click(await screen.findByRole("button", { name: "Pages" }));
     await screen.findByRole("dialog");
-    await user.keyboard("{Escape}");
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
@@ -490,7 +499,7 @@ describe("excluded pages are impossible to miss", () => {
         pages_excluded_with_clause_headings: 0,
       }),
     ]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText(/3 pages left out of search/i)).toBeInTheDocument();
     expect(screen.getByText(/No numbered clause was among them/i)).toBeInTheDocument();
     expect(
@@ -508,7 +517,7 @@ describe("excluded pages are impossible to miss", () => {
         pages_excluded_with_clause_headings: 1,
       }),
     ]);
-    render(<App />);
+    renderDocuments();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/contains? numbered clause headings/i);
     expect(alert).toHaveTextContent(/Real content has almost certainly been dropped/i);
@@ -518,7 +527,7 @@ describe("excluded pages are impossible to miss", () => {
 
   it("says nothing when no page was excluded", async () => {
     mockApi([makeDoc({ pages_excluded: 0, pages_excluded_with_clause_headings: 0 })]);
-    render(<App />);
+    renderDocuments();
     await screen.findByText("book1-professionalpractices.pdf");
     expect(screen.queryByText(/excluded from search/i)).toBeNull();
   });
@@ -543,16 +552,29 @@ describe("a malformed response is an error card, never a white screen", () => {
 
 // -------------------------------------------------- classification grouping
 //
-// App.tsx does not yet pass `isAdmin` through to DocumentsView (that plumbing
-// is one line outside this file's ownership - see the final report), so the
-// admin-only assertions render DocumentsView directly rather than through
-// <App/>, which always gets the safe `isAdmin` default of false.
+// App.tsx passes `isAdmin` through to DocumentsView; the admin-only assertions
+// render DocumentsView directly so they can explicitly select that capability.
 
 const onlineConnection: Connection = { state: "online", health, at: Date.now() };
 
-function renderDocuments(isAdmin = false) {
+/** `connection.health` is a PROP, not something DocumentsView fetches for
+ *  itself - WorkerPanel reads `connection.health.ingestion` straight off it.
+ *  A test that only overrides `over.health` in `mockApi` and calls
+ *  `renderDocuments()` with no argument changes nothing WorkerPanel can see;
+ *  the override has to reach here too. */
+function renderDocuments(opts: boolean | { isAdmin?: boolean; health?: Health } = {}) {
+  const { isAdmin = false, health: healthOverride } = typeof opts === "boolean" ? { isAdmin: opts } : opts;
   render(
-    <DocumentsView connection={onlineConnection} onRetryConnection={() => {}} isAdmin={isAdmin} />,
+    <DocumentsView
+      connection={
+        healthOverride
+          ? { state: "online", health: healthOverride, at: Date.now() }
+          : onlineConnection
+      }
+      onRetryConnection={() => {}}
+      isAdmin={isAdmin}
+      polling={false}
+    />,
   );
 }
 
@@ -602,10 +624,19 @@ describe("documents grouped by classification type", () => {
     );
     renderDocuments();
 
-    const documentHeading = await screen.findByRole("heading", { name: /^Document\s/ });
-    expect(within(documentHeading).getByText("1")).toBeInTheDocument();
-    const drawingHeading = screen.getByRole("heading", { name: /^Drawing\s/ });
-    expect(within(drawingHeading).getByText("1")).toBeInTheDocument();
+    // NOT /^Document\s/ - the sr-only "Document list" section heading
+    // matches that too ("Document" + a space), and screen.findByRole
+    // returns whichever heading it hits first. The group heading's
+    // aria-label is "Document, N document(s)" - a comma, not a space.
+    // The heading itself renders as soon as the vocabulary answers; its
+    // count comes from the per-document classification fetch, which answers
+    // separately and later. findByRole only waits for the heading to exist,
+    // so the count needs its own wait rather than a synchronous getByText
+    // right after - otherwise this reads the "0" it renders with initially.
+    const documentHeading = await screen.findByRole("heading", { name: /^Document,/ });
+    expect(await within(documentHeading).findByText("1")).toBeInTheDocument();
+    const drawingHeading = await screen.findByRole("heading", { name: /^Drawing,/ });
+    expect(await within(drawingHeading).findByText("1")).toBeInTheDocument();
 
     expect(screen.getByText("spec-one.pdf")).toBeInTheDocument();
     expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
@@ -641,9 +672,11 @@ describe("documents grouped by classification type", () => {
     const heading = await screen.findByRole("heading", { name: /Awaiting a type/i });
     expect(within(heading).getByText("1")).toBeInTheDocument();
     expect(screen.getByText("unclassified.pdf")).toBeInTheDocument();
-    // Never a guessed type, never "Unknown", never a blank chip.
+    // Never a guessed type, never "Unknown", never a blank chip. "Awaiting a
+    // type" is not unique on the page - the group heading and its filter
+    // chip say it too - so this checks the card's OWN chip, by testid.
     expect(screen.queryByText(/^unknown$/i)).toBeNull();
-    expect(screen.getByText(/Awaiting a type/i)).toBeInTheDocument();
+    expect(await screen.findByTestId("type-chip")).toHaveTextContent(/Awaiting a type/i);
   });
 
   it("renders an unconfirmed guess in amber, distinct from a confirmed type", async () => {
@@ -715,12 +748,11 @@ describe("documents grouped by classification type", () => {
         }),
       },
     });
-    const user = userEvent.setup();
     renderDocuments(true);
 
     await screen.findByText("guessed.pdf");
     expect(screen.getByRole("button", { name: /^Confirm$/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
     // The strip disappears and the chip goes plain once confirmed is true.
     await waitFor(() =>
@@ -743,11 +775,10 @@ describe("documents grouped by classification type", () => {
       },
       confirmStatus: 404,
     });
-    const user = userEvent.setup();
     renderDocuments(true);
 
     await screen.findByText("guessed.pdf");
-    await user.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
     expect(
       await screen.findByText(/do not have permission to confirm/i),
@@ -770,18 +801,17 @@ describe("documents grouped by classification type", () => {
         },
       },
     );
-    const user = userEvent.setup();
     renderDocuments();
 
     await screen.findByText("spec-one.pdf");
     expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("checkbox", { name: /^Drawing/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /^Drawing/ }));
     expect(screen.queryByText("spec-one.pdf")).toBeNull();
     expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
 
     // Nothing ticked = no filter = show everything again.
-    await user.click(screen.getByRole("checkbox", { name: /^All$/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /^All$/ }));
     expect(screen.getByText("spec-one.pdf")).toBeInTheDocument();
     expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
   });

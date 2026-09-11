@@ -37,15 +37,22 @@ export interface DocumentClassifications {
    *  returns - so the card updates instantly rather than waiting for the
    *  next poll to re-fetch it. */
   setOne: (id: string, next: DocumentClassification) => void;
+  /** True once every requested document has either returned a classification
+   *  or completed with an error. Callers can use this to avoid mounting a
+   *  card in one group and immediately remounting it in another. */
+  settled: boolean;
 }
 
 export function useDocumentClassifications(ids: string[]): DocumentClassifications {
   const [byId, setById] = useState<Record<string, DocumentClassification>>({});
+  const [settledIds, setSettledIds] = useState<Set<string>>(() => new Set());
   // Read inside the effect without making the effect depend on the object
   // identity of `byId`, which changes on every confirm and would otherwise
   // re-trigger the fetch loop for ids that already have an answer.
   const byIdRef = useRef(byId);
   byIdRef.current = byId;
+  const settledIdsRef = useRef(settledIds);
+  settledIdsRef.current = settledIds;
 
   // Stable across renders that pass an equivalent but newly-allocated array -
   // the dependency below is this string, not `ids` itself.
@@ -53,7 +60,9 @@ export function useDocumentClassifications(ids: string[]): DocumentClassificatio
 
   useEffect(() => {
     let cancelled = false;
-    const pending = ids.filter((id) => !(id in byIdRef.current));
+    const pending = ids.filter(
+      (id) => !(id in byIdRef.current) && !settledIdsRef.current.has(id),
+    );
     if (pending.length === 0) return;
 
     void (async () => {
@@ -68,6 +77,11 @@ export function useDocumentClassifications(ids: string[]): DocumentClassificatio
           if (result.ok) {
             setById((prev) => ({ ...prev, [id]: result.data }));
           }
+          setSettledIds((prev) => {
+            const next = new Set(prev);
+            next.add(id);
+            return next;
+          });
           // A failed per-document fetch leaves that document simply
           // unanswered - the same "no filter/no chip is better than a wrong
           // one" rule the vocabulary hook follows - rather than surfacing a
@@ -86,7 +100,12 @@ export function useDocumentClassifications(ids: string[]): DocumentClassificatio
 
   const setOne = useCallback((id: string, next: DocumentClassification) => {
     setById((prev) => ({ ...prev, [id]: next }));
+    setSettledIds((prev) => {
+      const updated = new Set(prev);
+      updated.add(id);
+      return updated;
+    });
   }, []);
 
-  return { byId, setOne };
+  return { byId, setOne, settled: ids.every((id) => settledIds.has(id)) };
 }

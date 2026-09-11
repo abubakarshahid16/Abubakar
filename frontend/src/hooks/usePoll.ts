@@ -49,7 +49,24 @@ export function usePoll(tick: () => void, busy: boolean): void {
     latest.current = tick;
   }, [tick]);
 
+  // `repeat=false` (tests and static previews) must run the tick exactly
+  // ONCE, on mount, and never again - not even if `busy` changes after that
+  // first call resolves. `busy` used to sit in this effect's own dependency
+  // array unconditionally, so a caller whose "busy" signal is derived from
+  // the tick's own result (Documents: not-yet-settled documents) flipped it
+  // after the first fetch came back, tore the effect down, and reran it -
+  // a second, unwanted fetch a test never asked for and could race against.
+  // Splitting the two concerns into separate effects, keyed on `repeat`
+  // itself rather than folded into one shared dependency array, is what
+  // keeps the run-once path un-triggerable by anything but a real remount.
   useEffect(() => {
+    if (repeat) return;
+    latest.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repeat]);
+
+  useEffect(() => {
+    if (!repeat) return;
     let cancelled = false;
     const run = () => {
       if (!cancelled) latest.current();

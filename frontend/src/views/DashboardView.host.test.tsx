@@ -134,10 +134,7 @@ describe("the dashboard for a reader who may not see the machine", () => {
 
     // Proof the dashboard MOUNTED rather than that a throw was swallowed:
     // a scoped corpus figure the same payload carries.
-    await screen.findByText("Machine-probe-never-matches").catch(() => {});
-    const fs = await import("node:fs");
-    fs.writeFileSync("dash-body.txt", document.body.textContent ?? "");
-    expect(true).toBe(true);
+    expect(await screen.findByText(/1 document loaded, 480 passages/)).toBeInTheDocument();
   });
 
   it("shows no host measurements at all rather than zeros", async () => {
