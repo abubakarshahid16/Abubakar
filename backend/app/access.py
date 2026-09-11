@@ -30,6 +30,7 @@ see a document is a `document_role_access` row reachable through `user_roles`.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from fastapi import Request
 
@@ -122,6 +123,37 @@ def empty_scope(user_id: str | None = None) -> AccessScope:
     """Sees nothing. The correct answer for an unidentified caller when
     AUTH_MODE requires identity - not an error, and not everything."""
     return AccessScope(user_id=user_id, allowed_document_ids=frozenset())
+
+
+def upload_admin_role(user_id: str) -> tuple[str, bool]:
+    """Return the admin role and whether ``user_id`` holds it.
+
+    This preflight runs before bytes are accepted, preventing an incomplete
+    access configuration from creating a document that nobody can manage.
+    """
+    conn = connect()
+    role = conn.execute("SELECT id FROM roles WHERE name = 'admin'").fetchone()
+    if role is None:
+        raise RuntimeError("the admin role is not configured")
+    held = conn.execute(
+        "SELECT 1 FROM user_roles WHERE user_id = ? AND role_id = ?",
+        (user_id, role["id"]),
+    ).fetchone()
+    return str(role["id"]), held is not None
+
+
+def grant_uploaded_document_to_admin(
+    document_id: str, admin_role_id: str, actor_user_id: str
+) -> None:
+    """Make a new upload admin-only until its access is deliberately granted."""
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    with connect() as conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO document_role_access
+                   (document_id, role_id, permission, granted_at, granted_by)
+               VALUES (?, ?, 'read', ?, ?)""",
+            (document_id, admin_role_id, now, actor_user_id),
+        )
 
 
 # --------------------------------------------------------------- the hook

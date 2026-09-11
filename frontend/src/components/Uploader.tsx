@@ -9,7 +9,12 @@ import { useCallback, useRef, useState } from "react";
 
 export type UploadState =
   | { phase: "uploading"; percent: number }
-  | { phase: "done"; documentId: string; duplicateOf: string | null }
+  | {
+      phase: "done";
+      documentId: string;
+      duplicateOf: string | null;
+      awaitingGrant: boolean;
+    }
   | { phase: "error"; code: string; message: string };
 
 export interface UploadItem {
@@ -51,6 +56,7 @@ function uploadOne(
           phase: "done",
           documentId: doc?.id ?? "",
           duplicateOf: (body.duplicate_of as string | null) ?? null,
+          awaitingGrant: body.awaiting_grant === true,
         });
       } else {
         const detail = (body.detail ?? body) as { code?: string; message?: string };
@@ -161,10 +167,13 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
                   {item.state.phase === "uploading" && (
                     <span className="text-slateish-400">{item.state.percent}%</span>
                   )}
-                  {item.state.phase === "done" && item.state.duplicateOf && (
+                  {item.state.phase === "done" && item.state.awaitingGrant && (
+                    <span className="text-warn-500">awaiting administrator review</span>
+                  )}
+                  {item.state.phase === "done" && !item.state.awaitingGrant && item.state.duplicateOf && (
                     <span className="text-warn-500">already uploaded</span>
                   )}
-                  {item.state.phase === "done" && !item.state.duplicateOf && (
+                  {item.state.phase === "done" && !item.state.awaitingGrant && !item.state.duplicateOf && (
                     <span className="text-signal-400">queued for processing</span>
                   )}
                   {item.state.phase === "error" && (
@@ -191,7 +200,12 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
               {item.state.phase === "error" && (
                 <p className="mt-1 text-xs text-slateish-400">{item.state.message}</p>
               )}
-              {item.state.phase === "done" && item.state.duplicateOf && (
+              {item.state.phase === "done" && item.state.awaitingGrant && (
+                <p className="mt-1 text-xs text-slateish-400">
+                  Uploaded securely. An administrator must grant access before it appears in Documents.
+                </p>
+              )}
+              {item.state.phase === "done" && !item.state.awaitingGrant && item.state.duplicateOf && (
                 <p className="mt-1 text-xs text-slateish-400">
                   Identical content already exists — no second copy was stored.
                 </p>
