@@ -69,8 +69,10 @@ class Settings(BaseSettings):
     #: Bounded explicitly. Never -1: that takes all 12 logical cores and
     #: allocates a per-thread arena each, which is how the reranker came to
     #: reserve 829 MB for a 22 MB model.
-    ocr_threads: int = 2
-    ocr_rec_batch: int = 4
+    # Laptop-safe defaults: OCR is CPU-heavy and a second worker competes with
+    # the local answer model for all cores and memory.
+    ocr_threads: int = 1
+    ocr_rec_batch: int = 2
     ocr_max_side_len: int = 2000
     #: Memory-bound, not CPU-bound, and ONE - corrected by measuring the real
     #: stage rather than one worker in isolation. Isolated workers peaked at
@@ -94,8 +96,10 @@ class Settings(BaseSettings):
     answer_model_ram_bytes: int = 3_400_000_000
 
     # Measured on the target CPU - see docs/benchmarks.md
-    num_thread: int = 12
-    num_batch: int = 2048
+    # Keep the local Ollama process responsive on a 16 GB laptop. These can be
+    # raised in a workstation-specific .env when more parallelism is desired.
+    num_thread: int = 6
+    num_batch: int = 1024
     num_ctx: int = 1536
     #: Raised from 100 after measuring what the gold questions actually need.
     #: At 100, 5 of 12 Tier 2 generations stopped mid-sentence and one stopped
@@ -129,8 +133,8 @@ class Settings(BaseSettings):
     #: anything.
     max_upload_mb: int = 512
     page_batch_size: int = 32
-    extract_processes: int = 2
-    embed_batch_size: int = 32
+    extract_processes: int = 1
+    embed_batch_size: int = 16
 
     # Chunking. e5-small has a hard 512-token limit; stay below it so the
     # model never silently truncates a chunk.
@@ -177,7 +181,7 @@ class Settings(BaseSettings):
     #:   512 tokens  1182 ms
     #: +213 ms against 256, which keeps Tier 1 inside its 1-2 second target.
     rerank_max_tokens: int = 480
-    rerank_batch: int = 32
+    rerank_batch: int = 16
 
     #: ONNX Runtime's CPU arena allocator reserves large per-thread blocks
     #: and never returns them. Measured on this machine (16 GB, 12 threads):
