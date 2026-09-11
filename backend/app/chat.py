@@ -254,16 +254,27 @@ def resolve_followup(
 # ------------------------------------------------------------- conversations
 
 
-def create_conversation(title: str = "New conversation", document_id: str | None = None) -> dict:
+def create_conversation(title: str = "New conversation", document_id: str | None = None,
+                        owner_user_id: str | None = None) -> dict:
+    """Start a conversation, recording who started it.
+
+    `owner_user_id` is what every later read is checked against. It was a
+    column for weeks before anything wrote it - 0 of 81 rows populated on the
+    demo database - and the existence of the column made the table LOOK owned
+    while every read path ignored it. Under `disabled` there is no identity and
+    the owner is NULL; under `demo_required` the route refuses to create a
+    conversation with no owner, because a conversation nobody owns is one
+    nobody can ever read again.
+    """
     conn = connect()
     now = _now()
     cid = f"conv_{uuid.uuid4().hex[:12]}"
     with conn:
         conn.execute(
             """INSERT INTO conversations (id, title, document_id, message_count,
-                                          created_at, updated_at)
-               VALUES (?, ?, ?, 0, ?, ?)""",
-            (cid, title[:TITLE_MAX], document_id, now, now),
+                                          created_at, updated_at, owner_user_id)
+               VALUES (?, ?, ?, 0, ?, ?, ?)""",
+            (cid, title[:TITLE_MAX], document_id, now, now, owner_user_id),
         )
     return get_conversation(cid)
 
@@ -277,19 +288,53 @@ def get_conversation(conversation_id: str) -> dict:
     return dict(row)
 
 
-def list_conversations(limit: int = 20, offset: int = 0) -> dict:
+#: `list_conversations(owner=EVERYONE)` means the unrestricted scope - auth is
+#: off and there is no identity to filter by. It is a distinct sentinel and not
+#: None, because None is the OWNER VALUE of every legacy row, and a caller that
+#: passed None meaning "no filter" would be handed exactly the conversations
+#: the plan says nobody may read. The two must not be confusable.
+EVERYONE = object()
+
+
+def list_conversations(limit: int = 20, offset: int = 0,
+                       owner: str | None | object = EVERYONE,
+                       include_unowned: bool = False) -> dict:
+    """Recent conversations, most recently used first.
+
+    Filtered IN THE QUERY on `owner_user_id`, for the reason /api/documents
+    already gives: dropping rows in Python works while there is no LIMIT and
+    turns into a leak the day there is one. Both the page and `total` are
+    filtered, so the count never admits to rows the page will never show.
+
+    An owner of None (an unauthenticated caller under demo_required) matches
+    NOTHING - `owner_user_id = NULL` is false in SQL for every row, including
+    the legacy rows whose owner is NULL. That is the behaviour plan line 1017
+    requires and it falls out of the comparison rather than from a branch.
+
+    `include_unowned` adds the NULL-owner rows to `owner`'s own. The route
+    passes it for the admin capability only - the decision for the legacy rows
+    - and it is a separate flag rather than a magic owner value so that a
+    caller passing owner=None can never receive them by accident.
+    """
     conn = connect()
+    if owner is EVERYONE:
+        where, args = "", []
+    elif include_unowned:
+        where, args = " WHERE (c.owner_user_id = ? OR c.owner_user_id IS NULL)", [owner]
+    else:
+        where, args = " WHERE c.owner_user_id = ?", [owner]
     rows = conn.execute(
-        """SELECT c.*,
+        f"""SELECT c.*,
                   (SELECT text FROM messages m
                     WHERE m.conversation_id = c.id AND m.role = 'user'
                     ORDER BY m.ordinal LIMIT 1) AS first_question
-           FROM conversations c
+           FROM conversations c{where}
            ORDER BY c.updated_at DESC, c.created_at DESC
            LIMIT ? OFFSET ?""",
-        (limit, offset),
+        [*args, limit, offset],
     ).fetchall()
-    total = conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+    total = conn.execute(
+        "SELECT COUNT(*) FROM conversations c" + where, args).fetchone()[0]
     return {
         "total": total,
         "limit": limit,

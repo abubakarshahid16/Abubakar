@@ -43,7 +43,6 @@ from .db import connect
 AUTH_DISABLED = "disabled"
 AUTH_REQUIRED = "demo_required"
 
-
 @dataclass(frozen=True, slots=True)
 class AccessScope:
     """What one request is allowed to see. Immutable, and never global.
@@ -60,9 +59,28 @@ class AccessScope:
     #: or a test can assert which kind of scope it is holding rather than
     #: inferring it from the size of the id set.
     unrestricted: bool = False
-
     def may_read(self, document_id: str) -> bool:
         return document_id in self.allowed_document_ids
+
+    def owns_conversation(self, owner_user_id: str | None) -> bool:
+        """Whether this caller may use a conversation on any route.
+
+        Auth-disabled development remains unrestricted. In required mode an
+        identified user owns only rows stamped with that exact identity.
+        Legacy NULL-owner rows fail closed until an explicit migration assigns
+        them; an unidentified caller owns nothing.
+        """
+        if self.unrestricted:
+            return True
+        if self.user_id is None:
+            return False
+        return owner_user_id == self.user_id
+
+    def conversation_filter(self) -> tuple[str | None, bool] | None:
+        """Return the SQL-list equivalent of :meth:`owns_conversation`."""
+        if self.unrestricted:
+            return None
+        return (self.user_id, False)
 
 
 def unrestricted_scope() -> AccessScope:
@@ -86,9 +104,10 @@ def scope_for_user(user_id: str) -> AccessScope:
     returned nothing, try X" - is where a deny-by-default schema turns into an
     allow-by-accident system.
     """
+    conn = connect()
     ids = frozenset(
         r["document_id"]
-        for r in connect().execute(
+        for r in conn.execute(
             """SELECT DISTINCT dra.document_id
                FROM user_roles ur
                JOIN document_role_access dra ON dra.role_id = ur.role_id
