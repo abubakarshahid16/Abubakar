@@ -204,10 +204,46 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
     }
 
 
+#: Where each status sits when the list is ordered. A conflict is the thing a
+#: reader most needs to see; "nothing to compare" is the thing they least need
+#: and it was arriving first.
+_STATUS_RANK = {
+    "conflict": 0,
+    "possible_gap": 1,
+    "met": 2,
+    "insufficient_evidence": 3,
+    "not_applicable": 4,
+}
+
+
 def _gap_items(clusters, baseline_document_id: str | None,
                document_of: dict[str, str]) -> list[dict]:
+    """Gap items, with the measured facets first and the singletons collapsed.
+
+    THE FINDING WAS BURIED. "Minimum coating thickness shall be 125 µm" - the
+    answer - arrived below nine items reading `insufficient_evidence`, each of
+    them a facet only one document mentions and therefore nothing to compare.
+    Nine rows of "nothing to compare" ahead of the answer is a list that
+    hides its own conclusion.
+
+    So: single-row clusters collapse into ONE entry, facets that carry a
+    measurement sort above ones that do not, and citation ids are deduplicated
+    (7a86abdc251ea774 appeared five times in a single item, which reads as
+    five sources and is one).
+    """
     items: list[dict] = []
+    singletons: list = []
     for c in clusters:
+        # A facet only one row speaks to cannot be COMPARED with anything -
+        # but if that row carries a measurement it is still a FINDING, and
+        # "Minimum coating thickness shall be 125 um" is the answer to the
+        # question whether or not a second document repeats it. So only
+        # unmeasured singletons collapse; measured ones sort to the top with
+        # everything else.
+        if (len(c.rows) == 1 and not baseline_document_id
+                and not any(r.measurements for r in c.rows)):
+            singletons.append(c)
+            continue
         rows = list(c.rows)
         baseline_row = next(
             (r for r in rows
@@ -215,7 +251,17 @@ def _gap_items(clusters, baseline_document_id: str | None,
         ) if baseline_document_id else None
         others = [r for r in rows if r is not baseline_row]
         if baseline_row is None:
-            status = "insufficient_evidence"
+            # NO BASELINE. "met" and "possible_gap" both mean "measured
+            # against the authority", and there is no authority, so neither
+            # can be assessed - `not_applicable` says that, and the flat
+            # `insufficient_evidence` this used to emit said something else
+            # and said it about every single row.
+            #
+            # A DISAGREEMENT is knowable without a baseline: two documents
+            # stating different values contradict each other whoever is
+            # right. That one keeps its status so it can lead the list.
+            status = ("conflict" if c.label == "possible_conflict"
+                      else "not_applicable")
         elif c.label == "possible_conflict":
             status = "conflict"
         elif c.label == "agreement":
@@ -227,8 +273,48 @@ def _gap_items(clusters, baseline_document_id: str | None,
             "status": status,
             "baseline_citation_id": baseline_row.evidence_id if baseline_row else None,
             "baseline_span": baseline_row.exact_span if baseline_row else "",
-            "project_citation_ids": [r.evidence_id for r in others],
+            # dict.fromkeys, not set: the same evidence id appeared five times
+            # in one item, which reads as five sources and is one - and the
+            # ORDER is the rank order retrieval produced, so it is kept.
+            "project_citation_ids": list(dict.fromkeys(r.evidence_id for r in others)),
             "note": c.note,
+            "_measured": any(r.measurements for r in c.rows),
+            # How much of the QUESTION this facet is about. facet_key is
+            # already (question terms ∩ claim terms), so this is the question's
+            # own words rather than a similarity score invented here.
+            "_shared": len([k for k in c.key
+                            if not k.startswith(("dim:", "designator:"))]),
+        })
+
+    # Measured facets first; then the ones the question actually asked about;
+    # then by how much the reader needs to see them.
+    #
+    # Alphabetical order put "coating (%)" above "coating thickness (µm)" on a
+    # question about coating thickness - the answer arriving sixth in a list
+    # of fourteen, which is the burial this ordering exists to prevent.
+    items.sort(key=lambda i: (not i.pop("_measured"),
+                              -i.pop("_shared"),
+                              _STATUS_RANK.get(i["status"], 9),
+                              i["facet"]))
+
+    if singletons:
+        # ONE entry for all of them, naming what they are rather than
+        # repeating "insufficient_evidence" once per facet.
+        facets = sorted({c.facet for c in singletons if c.facet})
+        cited = list(dict.fromkeys(
+            r.evidence_id for c in singletons for r in c.rows))
+        items.append({
+            "facet": f"stated once, nothing to compare ({len(singletons)})",
+            "status": "insufficient_evidence",
+            "baseline_citation_id": None,
+            "baseline_span": "",
+            "project_citation_ids": cited,
+            "note": (
+                "Only one document speaks to each of these, so there is "
+                "nothing to compare them against: "
+                + "; ".join(facets[:8])
+                + ("; and others" if len(facets) > 8 else "")
+            ),
         })
     return items
 
