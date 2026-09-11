@@ -166,6 +166,9 @@ function mockApi(docs: DocumentRecord[], over: Record<string, unknown> = {}) {
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
 
+    if (url.includes("/auth/me")) {
+      return jsonResponse({ required: false, user: null });
+    }
     if (url.includes("/health")) return jsonResponse(over.health ?? health);
     // The worker DETAIL now comes from the scoped metrics route, not from
     // health - so a test about the worker has to mock metrics.
