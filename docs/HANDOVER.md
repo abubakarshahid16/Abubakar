@@ -106,12 +106,26 @@ Retraction 25 is recorded.
   has NOT been re-run since these commits.
 
 **Still to fix before this branch can leave draft:**
-1. **11 of 18 `DocumentsView.test.tsx` tests are red and NOT triaged.** Five are
-   `Unable to find role="dialog"` (chunk inspector, excluded viewer, page image
-   viewer); four are classification grouping and confirm; two are delete and
-   excluded pages. Some of these are the flaky ones VS Code saw flipping in
-   both directions between identical runs — that has not been separated from
-   the genuine failures.
+1. **UPDATE, 2026-09-11 (commits `6a4b5fa`, `593d5e1`), everything below this
+   paragraph in §2 is now stale.** `DocumentsView.test.tsx` had four real,
+   root-caused defects, all fixed: `await user.click(...)` never resolved for
+   buttons in this tree (`fireEvent.click`/`fireEvent.keyDown` do — swapped
+   throughout the file); `renderDocuments()` always passed the static
+   `onlineConnection`, so a test overriding `mockApi`'s `health` changed
+   nothing WorkerPanel could see (the stalled-worker test asserted against
+   health nothing rendered from); two heading-name regexes didn't match this
+   screen's own aria-label shape (comma, not `\s`) and one silently bound to
+   the wrong heading; `getByText(/Awaiting a type/i)` was ambiguous (group
+   heading, filter chip and card chip all say it). **A genuine cross-test
+   race remains, NOT fixed**: the identical suite run twice back to back
+   fails a different, overlapping subset each time, in tests whose
+   assertions follow a `renderDocuments()` that fires several concurrent
+   fetches (metrics+documents, vocabulary+coverage, per-document
+   classification). Full frontend suite is 42 of 43 files fully green and
+   stable across repeated runs; this one file still varies. Next step: find
+   what's actually racing (leading suspects: the per-document classification
+   hook's N concurrent fetches, or effect-cleanup timing on unmount) rather
+   than patching individual tests further.
 2. **2 `ChatView.test.tsx` failures are collateral from `9484e5f`** (authed page
    images). Both assert an `<img>` src CONTAINS the API path; it is now a
    `blob:` URL. The tests encode the pre-fix behaviour and need rewriting. The
