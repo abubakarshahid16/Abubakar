@@ -394,7 +394,7 @@ describe("citations", () => {
   });
 
   it("opens the evidence panel with the passage and the rendered page", async () => {
-    mockApi();
+    const calls = mockApi();
     await openChat();
     await userEvent.type(screen.getByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
@@ -405,9 +405,10 @@ describe("citations", () => {
     // The passage carries a highlight and the question is known, so the panel
     // asks for the page with the answer BOXED rather than the plain render.
     const img = within(panel).getByRole("img", { name: /Page 17 of NORSOKM501Rev5\.pdf/ });
-    expect(img.getAttribute("src") ?? "").toContain(
+    expect(img.getAttribute("src") ?? "").toMatch(/^blob:/);
+    expect(calls.some((call) => call.url.includes(
       "/api/documents/doc_norsok/pages/17/image?",
-    );
+    ))).toBe(true);
     expect(within(panel).getByText(/Page 17 as printed/i)).toBeInTheDocument();
   });
 
@@ -974,13 +975,14 @@ describe("the answer outlined on the rendered page", () => {
     });
 
   it("requests the boxed render, passing the chunk and the question", async () => {
-    withQuestion();
+    const calls = withQuestion();
     await openChat();
     await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
     await userEvent.click(await screen.findByRole("button", { name: "Show source 1" }));
 
     const img = await screen.findByRole("img", { name: /with the answer outlined/i });
-    const src = img.getAttribute("src") ?? "";
+    expect(img.getAttribute("src") ?? "").toMatch(/^blob:/);
+    const src = calls.find((call) => call.url.includes("/pages/17/image?"))?.url ?? "";
     expect(src).toContain("/pages/17/image?");
     expect(src).toContain(`chunk_id=${encodeURIComponent(A1.chunk_id)}`);
     expect(src).toContain("q=what+is+the+NDFT");

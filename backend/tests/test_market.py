@@ -31,6 +31,8 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
+    monkeypatch.setattr(settings, "market_live_enabled", False)
+    monkeypatch.setattr(settings, "market_allow_public_egress", False)
     db.reset_connection()
     db.init_db()
     keyword.ensure_schema()

@@ -645,6 +645,15 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PasswordResetRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=256)
+    password: str = Field(min_length=12, max_length=1024)
+
+
+class PasswordResetResult(BaseModel):
+    reset: Literal[True] = True
+
+
 class Me(BaseModel):
     """What a client may know about itself.
 

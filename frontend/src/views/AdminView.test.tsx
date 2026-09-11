@@ -75,6 +75,7 @@ function props(over: Partial<AdminViewProps> = {}): AdminViewProps {
     onCreateUser: vi.fn(),
     onDismissCreated: vi.fn(),
     onDeactivateUser: vi.fn(),
+    onResetPassword: vi.fn(),
     onGrant: vi.fn(),
     onRevoke: vi.fn(),
     onRetry: vi.fn(),
@@ -82,6 +83,16 @@ function props(over: Partial<AdminViewProps> = {}): AdminViewProps {
     ...over,
   };
 }
+
+describe("password reset", () => {
+  it("lets an administrator issue a reset token for an active user", async () => {
+    const onResetPassword = vi.fn();
+    const user = userEvent.setup();
+    render(<AdminView {...props({ users: [neverSignedIn], onResetPassword })} />);
+    await user.click(screen.getByRole("button", { name: "Reset password" }));
+    expect(onResetPassword).toHaveBeenCalledWith(neverSignedIn.user_id);
+  });
+});
 
 describe("null renders as nothing", () => {
   it("shows no dash, zero or 'never' for a user who has never signed in", () => {

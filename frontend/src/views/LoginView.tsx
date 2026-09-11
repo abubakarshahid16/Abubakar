@@ -21,6 +21,8 @@ export type LoginOutcome =
   | { ok: true }
   | { ok: false; kind?: "credentials" | "rate_limited" | "offline"; message?: string };
 
+export type ResetOutcome = { ok: true } | { ok: false; message: string };
+
 // The ONE string. Never branch on which half was wrong.
 const CREDENTIALS_MESSAGE = "That email and password did not match an account.";
 const RATE_LIMITED_MESSAGE =
@@ -30,18 +32,25 @@ const OFFLINE_MESSAGE =
 
 export function LoginView({
   onLogin,
+  onResetPassword = async () => ({ ok: false, message: "Password reset is not available." }),
   connected,
 }: {
   /** Resolves with ok:false and an optional kind. A `message` on a
    *  credentials failure is deliberately IGNORED so a backend that
    *  distinguishes unknown-email from wrong-password cannot leak it here. */
   onLogin: (req: LoginRequest) => Promise<LoginOutcome>;
+  onResetPassword?: (token: string, password: string) => Promise<ResetOutcome>;
   connected: boolean;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetToken, setResetToken] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
   const emailId = useId();
   const passwordId = useId();
   const errorId = useId();
@@ -161,6 +170,59 @@ export function LoginView({
           {submitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
+          <button
+            type="button"
+            onClick={() => { setResetOpen((open) => !open); setResetMessage(null); }}
+            className="mt-3 w-full text-center text-sm text-signal-300 underline underline-offset-4"
+          >
+            {resetOpen ? "Back to sign in" : "Set or reset password"}
+          </button>
+          {resetOpen && (
+            <form
+              className="mt-4 space-y-3 border-t border-ink-600 pt-4"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setResetMessage(null);
+                if (newPassword !== confirmPassword) {
+                  setResetMessage("The two passwords do not match.");
+                  return;
+                }
+                const result = await onResetPassword(resetToken.trim(), newPassword);
+                if (result.ok) {
+                  setResetToken("");
+                  setNewPassword("");
+                  setConfirmPassword("");
+                  setResetMessage("Password saved. You can now sign in.");
+                } else setResetMessage(result.message);
+              }}
+            >
+              <p className="text-xs text-slateish-400">
+                Enter the one-time token provided by an administrator. It expires after 24 hours.
+              </p>
+              <label className="block text-xs font-medium text-slateish-300">
+                One-time reset token
+                <input required value={resetToken} onChange={(e) => setResetToken(e.target.value)}
+                  autoComplete="one-time-code"
+                  className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200" />
+              </label>
+              <label className="block text-xs font-medium text-slateish-300">
+                New password
+                <input required minLength={12} type="password" value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password"
+                  className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200" />
+              </label>
+              <label className="block text-xs font-medium text-slateish-300">
+                Confirm new password
+                <input required minLength={12} type="password" value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password"
+                  className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200" />
+              </label>
+              {resetMessage && <p role="status" className="text-sm text-slateish-300">{resetMessage}</p>}
+              <button type="submit" className="w-full rounded bg-signal-500/20 px-4 py-2 text-sm font-medium text-signal-300 ring-1 ring-signal-500/50">
+                Save new password
+              </button>
+            </form>
+          )}
         </div>
 
         {/* Outside the card, quieter: these are properties of the deployment,

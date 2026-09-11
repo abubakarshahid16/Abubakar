@@ -87,8 +87,7 @@ errors.ALL_CODES = errors.ALL_CODES | ADMIN_ERROR_CODES
 #: exactly the point somebody wanted both.
 ADMIN_ROLE = "admin"
 
-#: 24 hours, from the contract. Single-use is enforced by `redeemed_at`; the
-#: redemption ROUTE is deliberately not built here - see the report's gaps.
+#: 24 hours, from the contract. Single-use is enforced by `redeemed_at`.
 SETUP_TOKEN_TTL_SECONDS = 24 * 60 * 60
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$")
@@ -478,6 +477,86 @@ def create_user(body: CreateUserRequest, actor: dict | None) -> dict:
         # to consult a document to learn it.
         "shown_once": True,
     }
+
+
+def issue_password_reset(user_id: str, actor: dict | None) -> dict:
+    """Replace any earlier setup/reset token with a new shown-once token."""
+    ensure_schema()
+    conn = connect()
+    row = conn.execute(
+        "SELECT id, email FROM users WHERE id = ? AND is_active = 1", (user_id,)
+    ).fetchone()
+    if row is None:
+        raise _not_found()
+
+    token = secrets.token_urlsafe(32)
+    now = _now()
+    expires = (datetime.now(timezone.utc)
+               + timedelta(seconds=SETUP_TOKEN_TTL_SECONDS))
+    with conn:
+        conn.execute(
+            """INSERT INTO user_setup_tokens
+                   (user_id, token_sha256, created_at, expires_at, redeemed_at)
+               VALUES (?, ?, ?, ?, NULL)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   token_sha256 = excluded.token_sha256,
+                   created_at = excluded.created_at,
+                   expires_at = excluded.expires_at,
+                   redeemed_at = NULL""",
+            (user_id, hashlib.sha256(token.encode("utf-8")).hexdigest(),
+             now, expires.isoformat(timespec="seconds")),
+        )
+    _audit("admin_password_reset_issued", actor, "user", user_id)
+    return {
+        "user_id": user_id,
+        "email": row["email"],
+        "setup_token": token,
+        "setup_token_expires_at": _iso(expires.isoformat(timespec="seconds")),
+        "shown_once": True,
+    }
+
+
+def redeem_password_token(token: str, password: str) -> dict:
+    """Consume a valid setup/reset token and install a new Argon2 hash."""
+    ensure_schema()
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    conn = connect()
+    row = conn.execute(
+        """SELECT t.user_id, t.expires_at, t.redeemed_at, u.email, u.is_active
+             FROM user_setup_tokens t
+             JOIN users u ON u.id = t.user_id
+            WHERE t.token_sha256 = ?""",
+        (token_hash,),
+    ).fetchone()
+    now = datetime.now(timezone.utc)
+    if (row is None or row["redeemed_at"] is not None or not row["is_active"]):
+        raise auth_mod.AuthError(
+            errors.INVALID_RESET_TOKEN, "That reset token is invalid or has expired.")
+    expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+    if expires <= now:
+        raise auth_mod.AuthError(
+            errors.INVALID_RESET_TOKEN, "That reset token is invalid or has expired.")
+
+    problems = auth_mod.password_problems(password, row["email"])
+    if problems:
+        raise auth_mod.AuthError(errors.WEAK_PASSWORD, "; ".join(problems))
+
+    password_hash = auth_mod._hasher.hash(password)
+    redeemed_at = now.isoformat(timespec="seconds")
+    with conn:
+        consumed = conn.execute(
+            """UPDATE user_setup_tokens SET redeemed_at = ?
+                WHERE user_id = ? AND token_sha256 = ? AND redeemed_at IS NULL""",
+            (redeemed_at, row["user_id"], token_hash),
+        )
+        if consumed.rowcount != 1:
+            raise auth_mod.AuthError(
+                errors.INVALID_RESET_TOKEN, "That reset token is invalid or has expired.")
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?",
+                     (password_hash, row["user_id"]))
+    _audit("password_reset", {"id": row["user_id"], "email": row["email"]},
+           "session", None)
+    return {"reset": True}
 
 
 def _is_last_active_admin(user_id: str) -> bool:

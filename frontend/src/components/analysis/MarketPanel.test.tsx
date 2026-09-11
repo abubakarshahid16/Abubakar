@@ -74,6 +74,11 @@ const FINDINGS: MarketFinding[] = [
 
 const OFFLINE: EgressState = { web_search_enabled: false, allow_public_egress: false };
 const OPEN: EgressState = { web_search_enabled: true, allow_public_egress: true };
+/** The two MIXED states. They are the ones the panel used to get wrong: it
+ *  read one flag and the backend gates on both, so exactly these two were
+ *  rendered as though they were `OPEN`. */
+const WEB_OFF: EgressState = { web_search_enabled: false, allow_public_egress: true };
+const EGRESS_OFF: EgressState = { web_search_enabled: true, allow_public_egress: false };
 
 const QUERY: PublicMarketQuery = { query: "sea water pump alloy price", country: "NO", freshness_days: 90 };
 
@@ -609,8 +614,8 @@ describe("MarketPanel: failure and empty states", () => {
     const p = panel();
     expect(await within(p).findByText(SAMPLE_ROW.text)).toBeInTheDocument();
     expect(within(p).getByRole("note")).toHaveTextContent(
-      "SAMPLE DATA — NOT LIVE. This machine is offline. Every row below is an illustrative " +
-        "sample and must not be described as live market data.",
+      "SAMPLE DATA — NOT LIVE. The backend reported that public search is off in this build. " +
+        "Every row below is an illustrative sample and must not be described as live market data.",
     );
     const sample = row(SAMPLE_ROW.text);
     expect(within(sample).getByText(/^sample$/i)).toBeInTheDocument();
@@ -668,6 +673,94 @@ describe("MarketPanel: the offline sample presentation", () => {
     ).toBeInTheDocument();
   });
 
+  // ------------------------------------------------ the banner tracks the flags
+  //
+  // The defect these pin: every sentence below used to be one hardcoded
+  // literal that opened "This machine is offline." It said so with both flags
+  // ON and a live lane behind it - a false security claim about the one
+  // property the product is sold on, which ADR-0002 forbids by name. A
+  // literal cannot be wrong in only some states, so a test that asserted it
+  // passed in all of them.
+
+  it("does not claim the machine is offline, in any egress state", () => {
+    for (const egress of [OPEN, OFFLINE, WEB_OFF, EGRESS_OFF]) {
+      const { container, unmount } = render(
+        <MarketPanel findings={FINDINGS} egress={egress} />,
+      );
+      expect(container.textContent).not.toMatch(/offline/i);
+      expect(container.textContent).not.toMatch(/air.?gapped/i);
+      unmount();
+    }
+  });
+
+  it("says only that no search has run when both flags are on", () => {
+    render(<MarketPanel findings={FINDINGS} egress={OPEN} />);
+    const note = within(panel()).getByRole("note");
+    expect(note).toHaveTextContent("No search has been run yet.");
+    // The posture claims belong to the states that carry them, not this one.
+    expect(note).not.toHaveTextContent(/blocked|off in this build/i);
+  });
+
+  it("names the flag that is actually off, each on its own", () => {
+    const { unmount } = render(<MarketPanel findings={FINDINGS} egress={WEB_OFF} />);
+    expect(within(panel()).getByRole("note")).toHaveTextContent(
+      "Web search is off in this build.",
+    );
+    unmount();
+
+    render(<MarketPanel findings={FINDINGS} egress={EGRESS_OFF} />);
+    expect(within(panel()).getByRole("note")).toHaveTextContent(
+      "Public egress is blocked in this build.",
+    );
+  });
+
+  // ------------------------------------- Confirm is gated on BOTH flags
+  //
+  // The defect this pins: `blocked` read `allow_public_egress` alone, while
+  // `market_transport.transport()` returns None unless BOTH flags are true.
+  // In this exact state the dialog rendered Confirm as live and sendable, sent
+  // nothing, and showed fixtures as the outcome of pressing it.
+
+  it("disables Confirm when web search is off even though egress is allowed", async () => {
+    expect(WEB_OFF.allow_public_egress).toBe(true);
+    expect(WEB_OFF.web_search_enabled).toBe(false);
+    const user = userEvent.setup();
+    render(<MarketPanel findings={[]} egress={WEB_OFF} />);
+    const dialog = await openPreview(user);
+
+    expect(within(dialog).getByRole("button", { name: "Confirm and send" })).toBeDisabled();
+    expect(
+      within(dialog).getByText(
+        "Web search is off in this build. Nothing can be sent until it is on.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
+    expect(searchMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves Confirm enabled when both flags are on", async () => {
+    const user = userEvent.setup();
+    render(<MarketPanel findings={[]} egress={OPEN} />);
+    const dialog = await openPreview(user);
+    // THE POSITIVE CONTROL. Without it, a `blocked` that was always true
+    // would satisfy every assertion above.
+    expect(
+      within(dialog).getByRole("button", { name: "Confirm and send" }),
+    ).not.toBeDisabled();
+  });
+
+  // ------------------------------------------------------------- null dates
+
+  it("renders no published row at all when a sample carries no date", () => {
+    const undated = { ...FINDINGS[0], published_at: null };
+    render(<MarketPanel findings={[undated]} egress={OPEN} />);
+    const p = panel();
+    // Rule 1: a dash reads as "reported and withheld", which is a measurement
+    // claim over a value that was never reported.
+    expect(within(p).queryByText("—")).toBeNull();
+    expect(within(p).queryByText("published")).toBeNull();
+  });
+
   it("disables Confirm and states the reason when public egress is blocked", async () => {
     expect(OFFLINE.allow_public_egress).toBe(false);
     const user = userEvent.setup();
@@ -676,7 +769,9 @@ describe("MarketPanel: the offline sample presentation", () => {
 
     expect(within(dialog).getByRole("button", { name: "Confirm and send" })).toBeDisabled();
     expect(
-      within(dialog).getByText("Public egress is blocked in this build."),
+      within(dialog).getByText(
+        "Web search and public egress are both off in this build. Nothing can be sent until it is on.",
+      ),
     ).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
     expect(searchMock).not.toHaveBeenCalled();

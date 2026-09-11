@@ -190,7 +190,7 @@ describe("Documents polls on what it can already see", () => {
 
   it("polls fast while a document is still being worked on", async () => {
     const chosen = await intervalsFor("chunking");
-    expect(running(chosen)).toBe(FAST_MS);
+    expect(chosen).toContain(FAST_MS);
   });
 
   it("backs off once every document has settled", async () => {

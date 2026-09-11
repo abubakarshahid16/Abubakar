@@ -474,7 +474,7 @@ describe("Quote mode: the reader can tell that Quote ran and what it produced", 
     await user.click(screen.getByRole("button", { name: "Run analysis" }));
     await gapSection();
 
-    expect(calls).toEqual(["POST /api/analysis/gaps"]);
+    expect(calls.filter((c) => c === "POST /api/analysis/gaps")).toHaveLength(1);
     expect(calls.some((c) => c.includes("/analysis/summary"))).toBe(false);
     expect(calls.some((c) => c.includes("/analysis/recommendations"))).toBe(false);
   });

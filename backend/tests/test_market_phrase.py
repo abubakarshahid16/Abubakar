@@ -26,6 +26,14 @@ CORPUS = (
 )
 
 
+@pytest.fixture(autouse=True)
+def market_off_by_default(monkeypatch):
+    """These tests state their egress posture instead of inheriting .env."""
+    monkeypatch.setattr(settings, "market_live_enabled", False)
+    monkeypatch.setattr(settings, "market_allow_public_egress", False)
+    market_providers.reset_rate_limits()
+
+
 # ------------------------------------------------------------ what is removed
 
 

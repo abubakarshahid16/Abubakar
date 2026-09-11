@@ -294,7 +294,7 @@ describe("sources panel: selecting a citation brings the panel into view", () =>
 
 // ------------------------------------------- DEFECT 3: focus returns to the trigger
 
-const EGRESS_OPEN: EgressState = { web_search_enabled: false, allow_public_egress: true };
+const EGRESS_OPEN: EgressState = { web_search_enabled: true, allow_public_egress: true };
 const EGRESS_BLOCKED: EgressState = { web_search_enabled: false, allow_public_egress: false };
 const FINDINGS: MarketFinding[] = [];
 

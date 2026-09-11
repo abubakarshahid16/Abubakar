@@ -87,6 +87,35 @@ describe("LoginView: submission", () => {
   });
 });
 
+describe("LoginView: password reset", () => {
+  it("submits the one-time token and matching new password", async () => {
+    const onResetPassword = vi.fn(async () => ({ ok: true as const }));
+    const user = userEvent.setup();
+    render(<LoginView onLogin={vi.fn()} onResetPassword={onResetPassword} connected />);
+    await user.click(screen.getByRole("button", { name: "Set or reset password" }));
+    await user.type(screen.getByLabelText("One-time reset token"), "t".repeat(43));
+    await user.type(screen.getByLabelText("New password"), "Cedar#Orbit-42-Glass");
+    await user.type(screen.getByLabelText("Confirm new password"), "Cedar#Orbit-42-Glass");
+    await user.click(screen.getByRole("button", { name: "Save new password" }));
+    await waitFor(() => expect(onResetPassword).toHaveBeenCalledWith(
+      "t".repeat(43), "Cedar#Orbit-42-Glass"));
+    expect(screen.getByText("Password saved. You can now sign in.")).toBeInTheDocument();
+  });
+
+  it("does not submit passwords that do not match", async () => {
+    const onResetPassword = vi.fn();
+    const user = userEvent.setup();
+    render(<LoginView onLogin={vi.fn()} onResetPassword={onResetPassword} connected />);
+    await user.click(screen.getByRole("button", { name: "Set or reset password" }));
+    await user.type(screen.getByLabelText("One-time reset token"), "t".repeat(43));
+    await user.type(screen.getByLabelText("New password"), "Cedar#Orbit-42-Glass");
+    await user.type(screen.getByLabelText("Confirm new password"), "Different#Orbit-42");
+    await user.click(screen.getByRole("button", { name: "Save new password" }));
+    expect(onResetPassword).not.toHaveBeenCalled();
+    expect(screen.getByText("The two passwords do not match.")).toBeInTheDocument();
+  });
+});
+
 describe("RoleBadge", () => {
   it("me: null says authentication is disabled and invents no name", () => {
     const me: Me | null = null;

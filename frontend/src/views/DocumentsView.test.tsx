@@ -543,10 +543,8 @@ describe("a malformed response is an error card, never a white screen", () => {
 
 // -------------------------------------------------- classification grouping
 //
-// App.tsx does not yet pass `isAdmin` through to DocumentsView (that plumbing
-// is one line outside this file's ownership - see the final report), so the
-// admin-only assertions render DocumentsView directly rather than through
-// <App/>, which always gets the safe `isAdmin` default of false.
+// App.tsx passes `isAdmin` through to DocumentsView; the admin-only assertions
+// render DocumentsView directly so they can explicitly select that capability.
 
 const onlineConnection: Connection = { state: "online", health, at: Date.now() };
 

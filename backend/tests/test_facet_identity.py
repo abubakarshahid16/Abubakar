@@ -71,7 +71,13 @@ def _evidence(evidence_id: str, text: str, filename: str = "a.pdf", page: int = 
 
 
 def _clusters(question: str, evidence: list[dict]):
-    return cluster(extract_claims(evidence), question_terms(question))
+    allowed = frozenset(
+        e.get("document_id", e["filename"]) for e in evidence
+    )
+    return cluster(
+        extract_claims(evidence, allowed_document_ids=allowed),
+        question_terms(question, allowed_document_ids=allowed),
+    )
 
 
 # --------------------------------------------- one subject, two levels of detail

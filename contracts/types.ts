@@ -454,6 +454,15 @@ export interface LoginResult {
   expires_in_seconds: number;
 }
 
+export interface PasswordResetRequest {
+  token: string;
+  password: string;
+}
+
+export interface PasswordResetResult {
+  reset: true;
+}
+
 // ---------------------------------------------------------------- progress
 
 export interface ProgressStep {
@@ -636,7 +645,7 @@ export interface AnalysisRequest {
  *  can only ever produce the last one. */
 export type MarketVerification = "source_read" | "snippet_only" | "source_not_verified";
 
-/** An ILLUSTRATIVE row. There is no provider and this machine is offline.
+/** An ILLUSTRATIVE row: a bundled fixture, never a retrieved result.
  *
  *  `is_sample` is always true and is neither optional nor defaulted. A row
  *  that could omit it could be mistaken for a real finding, and the UI must

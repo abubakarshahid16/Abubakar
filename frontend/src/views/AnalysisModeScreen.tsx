@@ -1540,7 +1540,7 @@ export function AnalysisModeScreen() {
                 slot={marketSlot}
                 loadingLabel="Loading the market sample"
                 emptyTitle="No market sample is loaded."
-                emptyHint="This machine is offline and there is no provider; there is nothing to show, sample or otherwise."
+                emptyHint="No market sample is loaded and no search has returned rows, so there is nothing to show, sample or otherwise."
                 onRetry={retry}
               >
                 {(d) => (

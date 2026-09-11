@@ -13,7 +13,7 @@
  *  - Revoke and deactivate are destructive: quiet until hovered, danger
  *    coloured then, and they confirm before acting. A revoke that looks like
  *    a neutral button gets clicked like one.
- *  - The setup token is shown ONCE, beside a sentence saying so. It is never
+ *  - A setup/reset token is shown ONCE, beside a sentence saying so. It is never
  *    re-rendered, never stored and never logged.
  *  - "The backend is not running" and "that request failed" never look alike.
  *
@@ -328,6 +328,7 @@ export interface AdminViewProps {
   onDismissCreated: () => void;
 
   onDeactivateUser: (userId: string) => void;
+  onResetPassword?: (userId: string) => void;
   onGrant: (body: GrantRequest) => void;
   onRevoke: (body: GrantRequest) => void;
   onRetry: () => void;
@@ -349,6 +350,7 @@ export function AdminView(props: AdminViewProps) {
     onCreateUser,
     onDismissCreated,
     onDeactivateUser,
+    onResetPassword = () => undefined,
     onGrant,
     onRevoke,
     onRetry,
@@ -452,13 +454,21 @@ export function AdminView(props: AdminViewProps) {
                     </td>
                     <td className="px-3 py-2 text-right">
                       {u.active && (
-                        <DangerAction
-                          label="Deactivate"
-                          confirmLabel="Deactivate"
-                          question={`Deactivate ${u.email}?`}
-                          busy={busyKey === `user:${u.user_id}`}
-                          onConfirm={() => onDeactivateUser(u.user_id)}
-                        />
+                        <div className="flex justify-end gap-2">
+                          <button type="button"
+                            disabled={busyKey === `reset:${u.user_id}`}
+                            onClick={() => onResetPassword(u.user_id)}
+                            className="rounded border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700 disabled:opacity-50">
+                            Reset password
+                          </button>
+                          <DangerAction
+                            label="Deactivate"
+                            confirmLabel="Deactivate"
+                            question={`Deactivate ${u.email}?`}
+                            busy={busyKey === `user:${u.user_id}`}
+                            onConfirm={() => onDeactivateUser(u.user_id)}
+                          />
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -582,8 +592,7 @@ export function AdminView(props: AdminViewProps) {
       </section>
 
       <p className="text-xs text-slateish-400">
-        Password reset is not built here. It needs a redemption route and rate limiting
-        of its own, and is named as a gap rather than half-built.
+        Reset tokens are shown once and expire after 24 hours. The user enters the token on the sign-in screen.
       </p>
     </div>
   );

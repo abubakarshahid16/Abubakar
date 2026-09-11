@@ -331,6 +331,50 @@ def test_two_users_get_different_setup_tokens(client, world):
     assert len(one) >= 32
 
 
+def test_setup_token_sets_password_once(client, world):
+    created = client.post(
+        "/api/admin/users",
+        json={"email": "reset@example.com", "disciplines": ["Mechanical"]},
+        headers=auth_headers(world["admin"]),
+    ).json()
+    body = {"token": created["setup_token"],
+            "password": "Cedar#Orbit-42-Glass"}
+
+    first = client.post("/api/auth/password/reset", json=body)
+    assert first.status_code == 200
+    assert first.json() == {"reset": True}
+    assert client.post("/api/auth/login", json={
+        "email": "reset@example.com", "password": body["password"]
+    }).status_code == 200
+
+    replay = client.post("/api/auth/password/reset", json=body)
+    assert replay.status_code == 401
+
+
+def test_admin_can_issue_a_replacement_reset_token(client, world):
+    response = client.post(
+        f"/api/admin/users/{world['plain']}/password-reset",
+        headers=auth_headers(world["admin"]),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["user_id"] == world["plain"]
+    assert payload["setup_token"]
+    assert payload["shown_once"] is True
+
+
+def test_reset_refuses_a_weak_password(client, world):
+    token = client.post(
+        f"/api/admin/users/{world['plain']}/password-reset",
+        headers=auth_headers(world["admin"]),
+    ).json()["setup_token"]
+    response = client.post("/api/auth/password/reset", json={
+        "token": token, "password": "password1234"
+    })
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "weak_password"
+
+
 # ------------------------------------------------------------------ rule 4
 
 

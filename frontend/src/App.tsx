@@ -138,6 +138,13 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     setSession({ s: "required", me: null });
   }, []);
 
+  const resetPassword = useCallback(async (resetToken: string, password: string) => {
+    const result = await auth.resetPassword(resetToken, password);
+    if (result.ok) return { ok: true as const };
+    if (result.disconnected) return { ok: false as const, message: "The backend is not running." };
+    return { ok: false as const, message: result.error.message };
+  }, []);
+
   // NOT a blank screen while the check is in flight. A blank page is
   // indistinguishable from a crash, and this one resolves in milliseconds on
   // loopback. The app renders, claims no identity, and swaps to the login
@@ -202,7 +209,8 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   const canAdmin = hasAdminCapability(authStatus);
 
   if (session.s === "required" && session.me === null) {
-    return <LoginView onLogin={signIn} connected={connection.state !== "offline"} />;
+    return <LoginView onLogin={signIn} onResetPassword={resetPassword}
+      connected={connection.state !== "offline"} />;
   }
 
   return (

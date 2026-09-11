@@ -90,11 +90,51 @@ function verificationWords(v: string): string {
 // one is a named constant: it is asserted by name in the tests, and a reader
 // changing one has to look at what it promises.
 
-/** Preserved verbatim. It is the caption the offline build shipped with, and
- *  it is what an `enabled: false` search means too - the feature is off and
- *  every row is a fixture. */
+/** The half of the sample caption that is true in every state: these rows are
+ *  fixtures. The REASON they are fixtures is not - it depends on the two
+ *  egress flags - so it is computed by `sampleReason` and prepended.
+ *
+ *  This constant used to open with a claim that the machine had no network. It
+ *  was a literal, so it kept making that claim with both flags on and a live
+ *  lane behind it. ADR-0002 forbids the sentence outright: this is a
+ *  locally-inferencing system on a NETWORKED machine, and calling it
+ *  air-gapped is a false security claim about the one property the product is
+ *  sold on. The claim is gone from this file; the egress flags are the only
+ *  thing that may say what the posture is. */
 const SAMPLE_BANNER_TAIL =
-  "This machine is offline. Every row below is an illustrative sample and must not be described as live market data.";
+  "Every row below is an illustrative sample and must not be described as live market data.";
+
+/** Why the rows on screen are samples, in the reader's terms, from the same
+ *  two flags the backend gates the request on. Never asserts a posture the
+ *  flags do not carry - with both flags on and nothing searched yet, the
+ *  honest answer is that no search has been run, not a claim about the
+ *  network. */
+const NO_SEARCH_YET = "No search has been run yet.";
+
+function sampleReason(egress: EgressState): string {
+  const webOff = egress.web_search_enabled === false;
+  const egressOff = egress.allow_public_egress === false;
+  if (webOff && egressOff) return "Web search and public egress are both off in this build.";
+  if (webOff) return "Web search is off in this build.";
+  if (egressOff) return "Public egress is blocked in this build.";
+  return NO_SEARCH_YET;
+}
+
+/** The same question, asked about a search that HAS run and came back
+ *  `enabled: false`.
+ *
+ *  The two can disagree: the flags this screen was handed say live and the
+ *  response says the feature is off. That is a real state - the screen reads
+ *  `/api/analysis/...`'s egress block while the request is gated inside
+ *  `market_transport` - and the honest thing is to report what the backend
+ *  said rather than to print "no search has been run" over a search that was
+ *  run, or to assert a posture from flags the request did not obey. */
+function searchDisabledReason(egress: EgressState): string {
+  const reason = sampleReason(egress);
+  return reason === NO_SEARCH_YET
+    ? "The backend reported that public search is off in this build."
+    : reason;
+}
 
 /** The honest limit of the whole feature. Preserved verbatim. */
 const PUBLIC_LIMIT =
@@ -196,8 +236,15 @@ function FindingRow({ f }: { f: MarketFinding }) {
       <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
         <dt className="text-slateish-500">publisher</dt>
         <dd className="text-slateish-300">{f.publisher}</dd>
-        <dt className="text-slateish-500">published</dt>
-        <dd className="text-slateish-300">{f.published_at ?? "—"}</dd>
+        {/* RULE 1: null renders as NOTHING. A dash reads like a measurement -
+            "reported and withheld" rather than "no date". `SearchRow` already
+            withholds the pair; this row printed the dash. */}
+        {f.published_at !== null && (
+          <>
+            <dt className="text-slateish-500">published</dt>
+            <dd className="text-slateish-300">{f.published_at}</dd>
+          </>
+        )}
         <dt className="text-slateish-500">retrieved</dt>
         <dd className="text-slateish-300">{f.retrieved_at}</dd>
         <dt className="text-slateish-500">verification</dt>
@@ -205,7 +252,7 @@ function FindingRow({ f }: { f: MarketFinding }) {
         <dt className="text-slateish-500">url</dt>
         <dd>
           <code
-            title="offline build; link not followed"
+            title="sample row; this link was not followed"
             className="break-all font-mono text-[11px] text-slateish-400"
           >
             {f.url}
@@ -407,7 +454,19 @@ function ConfirmDialog({
   onSend: () => void;
   onCancel?: () => void;
 }) {
-  const blocked = egress.allow_public_egress === false;
+  // BOTH FLAGS, because the backend gates the request on both:
+  // `market_transport.transport()` returns None unless
+  // `market_live_enabled AND market_allow_public_egress`. Reading only
+  // `allow_public_egress` here left a real state - web search off, egress
+  // allowed - in which Confirm rendered live and titled as sendable, sent,
+  // and came back `enabled: false` with fixtures. Offering a send that cannot
+  // happen and then showing samples as its outcome is the panel answering for
+  // the backend and getting it wrong.
+  const blocked =
+    egress.allow_public_egress === false || egress.web_search_enabled === false;
+  /** Which flag blocked it, so the notice names the one the operator must
+   *  flip rather than the one this component happened to check first. */
+  const blockedReason = sampleReason(egress);
   const noSafePhrase = preview.s === "ready" && preview.data.phrase === null;
   const titleId = useId();
   const descId = useId();
@@ -547,7 +606,7 @@ function ConfirmDialog({
 
         {blocked && (
           <p role="status" className="mt-2 text-xs text-warn-500">
-            Public egress is blocked in this build.
+            {blockedReason} Nothing can be sent until it is on.
           </p>
         )}
 
@@ -570,7 +629,7 @@ function ConfirmDialog({
             aria-disabled={blocked || noSafePhrase}
             title={
               blocked
-                ? "Public egress is blocked in this build."
+                ? blockedReason
                 : noSafePhrase
                   ? NO_SAFE_PHRASE
                   : undefined
@@ -595,10 +654,11 @@ type SearchState =
   | { s: "error"; message: string }
   | { s: "not_sent" };
 
-function SampleBanner() {
+function SampleBanner({ reason }: { reason: string }) {
   return (
     <div role="note" className="mt-3 rounded border-2 border-warn-500/70 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">
-      <span className="font-semibold">SAMPLE DATA &mdash; NOT LIVE.</span> {SAMPLE_BANNER_TAIL}
+      <span className="font-semibold">SAMPLE DATA &mdash; NOT LIVE.</span>{" "}
+      {reason} {SAMPLE_BANNER_TAIL}
     </div>
   );
 }
@@ -611,7 +671,7 @@ function SampleBanner() {
  * arrangement of the payload in which a failure and a row appear together -
  * including the arrangement where `rows` still carries the samples.
  */
-function SearchOutcome({ result }: { result: MarketSearchResult }) {
+function SearchOutcome({ result, egress }: { result: MarketSearchResult; egress: EgressState }) {
   if (result.failure !== null) {
     return (
       <div className="mt-3">
@@ -625,7 +685,7 @@ function SearchOutcome({ result }: { result: MarketSearchResult }) {
   if (result.enabled === false) {
     return (
       <div className="mt-1">
-        <SampleBanner />
+        <SampleBanner reason={searchDisabledReason(egress)} />
         {result.rows.length > 0 && (
           <ul className="mt-3">
             {result.rows.map((row, i) => (
@@ -788,7 +848,7 @@ export function MarketPanel({
       <div aria-live="polite">
         {search.s === "idle" && (
           <>
-            <SampleBanner />
+            <SampleBanner reason={sampleReason(egress)} />
             {findings.length === 0 ? (
               <p className="mt-3 text-sm text-slateish-500">No market sample loaded.</p>
             ) : (
@@ -815,7 +875,7 @@ export function MarketPanel({
 
         {search.s === "error" && <p className="mt-3 text-sm text-danger-500">{search.message}</p>}
 
-        {search.s === "ready" && <SearchOutcome result={search.data} />}
+        {search.s === "ready" && <SearchOutcome result={search.data} egress={egress} />}
       </div>
 
       <p className="mt-3 border-t border-ink-700 pt-2 text-xs text-slateish-500">{PUBLIC_LIMIT}</p>

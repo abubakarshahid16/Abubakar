@@ -385,7 +385,7 @@ it silently truncates the evidence the answer is grounded in.
     3. **Upload is unscoped, and its deduplication is an oracle** — anyone may upload, and the "already indexed" response tells an unauthorised caller that a document with that hash exists.
     4. **`/api/metrics` declares a scope and discards it** — it returns filenames across the whole corpus.
     5. **`DELETE /api/conversations/{id}` takes no scope at all** — any caller may delete any conversation by id.
-  - Also absent, and unchanged: **SSO, high availability, disaster recovery, enterprise key management, and password reset** (deliberately out of scope — see `docs/design-admin-screen.md`).
+  - Also absent: **SSO, high availability, disaster recovery, and enterprise key management**. Password setup/reset is available through administrator-issued, 24-hour, one-time tokens; there is no email delivery service.
   - Fine for a demo on a machine you control. **Not fine on a client's machine.**
 - **No domain fine-tuning**, and no production accuracy claim.
 - **Full corpus not ingested.** ~45 GB free disk does not accommodate ~1.2 M pages.

@@ -332,6 +332,190 @@ def test_one_users_exhausted_budget_does_not_lock_out_another():
     assert ok.status_code == 200
 
 
+def _audit_rows(outcome=None):
+    rows = [dict(r) for r in db.connect().execute(
+        "SELECT action, outcome, actor_username FROM audit_events"
+        " WHERE action = 'login_failed'")]
+    return [r for r in rows if outcome is None or r["outcome"] == outcome]
+
+
+def test_the_locked_out_branch_stops_writing_a_row_per_request():
+    """The refusal path was the cheapest way to make this API write.
+
+    `login` wrote an `audit_events` row on EVERY rate-limited refusal, so once
+    a bucket was full an unauthenticated caller could drive one INSERT per
+    request at request rate, with no Argon2 work at all, against the same
+    SQLite file ingestion writes to. `_Limiter`'s own docstring says the class
+    exists to avoid exactly that. Each row also carried up to 200 bytes of
+    caller-chosen text in `actor_username`.
+
+    The lockout must still be on the durable record - so: one row per bucket
+    FILL, not one per refusal.
+
+    MUTATION-PROVEN. Restore the `_audit(...)` call on the refusal branch and
+    the count climbs with every extra request.
+    """
+    make_user("a@x.test", PASSWORD_A)
+    client = TestClient(app)
+
+    for _ in range(settings.auth_max_attempts):
+        client.post("/api/auth/login",
+                    json={"email": "a@x.test", "password": "wrong"})
+
+    after_fill = len(_audit_rows("rate_limited"))
+    assert after_fill == 1, (
+        f"the lockout must be recorded exactly once when the bucket fills; "
+        f"got {after_fill}")
+
+    # Twenty more refusals must add nothing.
+    for _ in range(20):
+        blocked = client.post("/api/auth/login",
+                              json={"email": "a@x.test", "password": "wrong"})
+        assert blocked.status_code == 429
+
+    assert len(_audit_rows("rate_limited")) == after_fill, (
+        "a refusal wrote an audit row, so the locked-out branch is still an "
+        "unauthenticated writer at request rate")
+
+
+def test_a_fresh_email_per_request_no_longer_dodges_the_budget():
+    """The email bucket is keyed on a value the caller chooses.
+
+    So on its own it bounded nothing: a new address each time met an empty
+    bucket and every request reached a 64 MiB Argon2 verify (argon2-cffi's
+    RFC_9106_LOW_MEMORY profile). The host bucket is what actually bounds the
+    work.
+
+    MUTATION-PROVEN. Remove the host bucket from `login` and every one of
+    these requests returns 401 rather than eventually 429.
+    """
+    client = TestClient(app)
+    budget = settings.auth_max_attempts * auth._Limiter.HOST_MULTIPLIER
+
+    codes = []
+    for i in range(budget + 5):
+        r = client.post("/api/auth/login",
+                        json={"email": f"nobody{i}@x.test", "password": "no"})
+        codes.append(r.status_code)
+
+    assert 429 in codes, (
+        "a caller cycling a fresh address per request was never refused, so "
+        "every request reached the password hash")
+    # The budget is real, not one-strike: a handful of distinct addresses is
+    # ordinary use and must still be allowed through to a 401.
+    assert codes[0] == 401 and codes[1] == 401
+
+
+def test_a_successful_login_frees_the_host_budget_for_the_next_person():
+    """The host bucket must not lock out a colleague behind the same address
+    after one person mistypes. A test that only checked the refusal would pass
+    with the budget set to zero."""
+    make_user("a@x.test", PASSWORD_A)
+    make_user("b@x.test", PASSWORD_B)
+    client = TestClient(app)
+
+    for _ in range(settings.auth_max_attempts - 1):
+        client.post("/api/auth/login",
+                    json={"email": "a@x.test", "password": "wrong"})
+
+    ok = client.post("/api/auth/login",
+                     json={"email": "a@x.test", "password": PASSWORD_A})
+    assert ok.status_code == 200
+
+    still_fine = client.post("/api/auth/login",
+                             json={"email": "b@x.test", "password": PASSWORD_B})
+    assert still_fine.status_code == 200
+
+
+def test_concurrent_password_checks_are_bounded_and_released():
+    limiter = auth._Limiter()
+    host = "127.0.0.1"
+    for _ in range(limiter.MAX_IN_FLIGHT_PER_HOST):
+        assert limiter.reserve_work(host) is True
+    assert limiter.reserve_work(host) is False
+
+    limiter.release_work(host)
+    assert limiter.reserve_work(host) is True
+
+    # Drain every reservation; an extra defensive release must not create a
+    # negative count or prevent the next real request from reserving a slot.
+    for _ in range(limiter.MAX_IN_FLIGHT_PER_HOST + 1):
+        limiter.release_work(host)
+    assert limiter.reserve_work(host) is True
+
+
+def test_a_full_in_flight_gate_refuses_before_argon2(monkeypatch):
+    """The route must consume the reservation, not merely expose a helper."""
+    for _ in range(auth._Limiter.MAX_IN_FLIGHT_PER_HOST):
+        assert auth._limiter.reserve_work("testclient") is True
+
+    def must_not_hash(*_args, **_kwargs):
+        raise AssertionError("Argon2 ran after the in-flight ceiling was full")
+
+    monkeypatch.setattr(auth.PasswordHasher, "verify", must_not_hash)
+    response = TestClient(app).post(
+        "/api/auth/login", json={"email": "nobody@example.com", "password": "wrong"}
+    )
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == str(auth._Limiter.GRANULARITY)
+
+# ------------------------------------------------- the zero-length key
+
+
+def test_a_token_is_never_signed_with_an_empty_key(monkeypatch):
+    """HMAC-SHA256 accepts a zero-length key without complaint.
+
+    Under the SHIPPED DEFAULT (`auth_mode=disabled`, `auth_secret=""`)
+    `check_secret_or_refuse` returns early, so nothing refused - and anybody
+    who knows the key is empty can compute the same signature over any payload
+    they like.
+
+    MUTATION-PROVEN. Delete the `MIN_SECRET_BYTES` guard in `issue_token` and
+    this signs happily.
+    """
+    monkeypatch.setattr(settings, "auth_secret", "")
+    with pytest.raises(auth.WeakSigningKey, match="AUTH_SECRET"):
+        auth.issue_token("usr_anything")
+
+
+def test_a_token_forged_against_an_empty_key_is_not_accepted(monkeypatch):
+    """The half that decides access.
+
+    A forged Bearer token naming any user id - including one holding the admin
+    capability - verified against an empty key, and that id became `actor` in
+    every admin audit row it touched. `read_token` returns None rather than
+    raising, because its contract is that it never raises: None lands the
+    request on `empty_scope()`.
+
+    MUTATION-PROVEN. Delete the guard in `read_token` and the forged token
+    resolves to the user id it names.
+    """
+    import hashlib
+    import hmac
+    import json
+    import time as _time
+
+    user_id = "usr_impostor"
+    body = json.dumps(
+        {"u": user_id, "v": auth.TOKEN_VERSION,
+         "x": int(_time.time() + 3600)},
+        separators=(",", ":"), sort_keys=True,
+    ).encode("utf-8")
+    # Forged with the empty key, exactly as any caller could.
+    signature = hmac.new(b"", body, hashlib.sha256).digest()
+    forged = f"{auth._b64(body)}.{auth._b64(signature)}"
+
+    monkeypatch.setattr(settings, "auth_secret", "")
+    assert auth.read_token(forged) is None, (
+        "a token signed with an empty key was accepted, so any caller could "
+        "name any user id")
+
+    # NOT VACUOUS: with a real key, a properly signed token still works.
+    monkeypatch.setattr(settings, "auth_secret", "k" * 48)
+    good = auth.issue_token(user_id)
+    assert auth.read_token(good) == user_id
+
+
 # -------------------------------------------------------------- the secret
 
 

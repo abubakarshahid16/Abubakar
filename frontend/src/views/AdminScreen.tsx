@@ -103,6 +103,8 @@ export function makeAdminClient(token: () => string | null): AdminClient {
     createUser: (body) => adminRequest("/admin/users", token(), { method: "POST", ...json(body) }),
     deactivateUser: (id) =>
       adminRequest(`/admin/users/${encodeURIComponent(id)}`, token(), { method: "DELETE" }),
+    issuePasswordReset: (id) =>
+      adminRequest(`/admin/users/${encodeURIComponent(id)}/password-reset`, token(), { method: "POST" }),
     disciplines: () => adminRequest("/admin/disciplines", token()),
     grants: () => adminRequest("/admin/grants", token()),
     // PUT and DELETE on a grant are idempotent by contract, so a retried click
@@ -220,6 +222,18 @@ export function AdminScreen({
     [api, load],
   );
 
+  const issuePasswordReset = useCallback(async (userId: string) => {
+    setBusyKey(`reset:${userId}`);
+    setCreateError(null);
+    const result = api.issuePasswordReset
+      ? await api.issuePasswordReset(userId)
+      : { ok: false as const, disconnected: false as const,
+          error: { code: "not_found", message: "Password reset is not available." } };
+    setBusyKey(null);
+    if (result.ok) setCreated(result.data);
+    else setCreateError(explain(result, "so no reset token was issued"));
+  }, [api]);
+
   const changeGrant = useCallback(
     async (body: GrantRequest, grant: boolean) => {
       setBusyKey(`grant:${body.document_id}:${body.discipline}`);
@@ -250,6 +264,7 @@ export function AdminScreen({
       onCreateUser={(body) => void createUser(body)}
       onDismissCreated={() => setCreated(null)}
       onDeactivateUser={(id) => void deactivateUser(id)}
+      onResetPassword={(id) => void issuePasswordReset(id)}
       onGrant={(body) => void changeGrant(body, true)}
       onRevoke={(body) => void changeGrant(body, false)}
       onRetry={() => void load()}

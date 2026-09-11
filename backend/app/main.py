@@ -595,7 +595,7 @@ def _require_identity_to_write(scope: access.AccessScope) -> None:
 
 @app.post("/api/auth/login", response_model=schemas.LoginResult,
           responses={**schemas.ERRORS_422})
-def login(body: schemas.LoginRequest):
+def login(body: schemas.LoginRequest, request: Request):
     """Exchange credentials for a bearer token.
 
     Unauthenticated by construction - it is how a caller becomes
@@ -604,7 +604,15 @@ def login(body: schemas.LoginRequest):
     which is why the rate limiter is in memory rather than a table.
     """
     try:
-        return auth_mod.login(body.email, body.password)
+        # The client host bounds the Argon2 work. Without it the only budget
+        # was keyed on the email in the body, which the caller picks per
+        # request - so a fresh address each time met an empty bucket and every
+        # request paid a 64 MiB verify. `request.client` is None for some
+        # transports (a raw ASGI test call), and None simply means the email
+        # bucket alone applies.
+        client_host = request.client.host if request.client else None
+        return auth_mod.login(body.email, body.password,
+                              client_host=client_host)
     except auth_mod.AuthError as exc:
         headers = ({"Retry-After": str(exc.retry_after)}
                    if exc.retry_after else None)
@@ -612,6 +620,19 @@ def login(body: schemas.LoginRequest):
             status_code=429 if exc.code == errors.RATE_LIMITED else 401,
             detail=errors.safe_error(exc.code, exc.message),
             headers=headers,
+        )
+
+
+@app.post("/api/auth/password/reset", response_model=schemas.PasswordResetResult,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_422})
+def reset_password(body: schemas.PasswordResetRequest):
+    """Redeem a shown-once setup/reset token for a new password."""
+    try:
+        return admin_mod.redeem_password_token(body.token, body.password)
+    except auth_mod.AuthError as exc:
+        raise HTTPException(
+            status_code=422 if exc.code == errors.WEAK_PASSWORD else 401,
+            detail=errors.safe_error(exc.code, exc.message),
         )
 
 
@@ -1413,7 +1434,7 @@ def document_excluded(
 # ------------------------------------------------------------------ admin
 #
 # The administration screen: users, disciplines and document grants, replacing
-# `scripts/seed_access.py` for everything except setting a password. Implements
+# `scripts/seed_access.py`, including one-time password setup and reset. Implements
 # `docs/design-admin-screen.md`, which was written before these routes existed.
 #
 # EVERY ROUTE HERE DEPENDS ON `admin.current_admin`, AND A NON-ADMIN GETS 404.
@@ -1468,6 +1489,16 @@ def admin_deactivate_user(user_id: str,
     can lock everyone out of a system whose only other door is a terminal.
     """
     return admin_mod.deactivate_user(user_id, actor)
+
+
+@app.post("/api/admin/users/{user_id}/password-reset",
+          response_model=schemas.AdminUserCreated,
+          responses={**schemas.ERRORS_404})
+def admin_issue_password_reset(
+        user_id: str,
+        actor: dict | None = Depends(admin_mod.current_admin)):
+    """Issue a replacement shown-once token; never accept a password here."""
+    return admin_mod.issue_password_reset(user_id, actor)
 
 
 @app.get("/api/admin/disciplines", response_model=schemas.AdminDisciplineList,

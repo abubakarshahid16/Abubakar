@@ -135,6 +135,7 @@ export interface AdminClient {
   users(): Promise<AdminResult<AdminUserList>>;
   createUser(body: CreateUserRequest): Promise<AdminResult<CreatedUser>>;
   deactivateUser(userId: string): Promise<AdminResult<DeactivatedUser>>;
+  issuePasswordReset?(userId: string): Promise<AdminResult<CreatedUser>>;
   disciplines(): Promise<AdminResult<AdminDisciplineList>>;
   grants(): Promise<AdminResult<AdminGrantList>>;
   grant(body: GrantRequest): Promise<AdminResult<GrantResult>>;

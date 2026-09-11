@@ -25,6 +25,7 @@ import type {
   AnalysisRequest,
   AnalysisSummaryResult,
   LoginResult,
+  PasswordResetResult,
   MarketFindings,
   MarketPreview,
   MarketQueryPreview,
@@ -545,6 +546,12 @@ export const auth = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => request<AuthStatus>("/auth/me"),
+  resetPassword: (token: string, password: string) =>
+    request<PasswordResetResult>("/auth/password/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, password }),
+    }),
 };
 
 async function request<T>(
