@@ -150,9 +150,20 @@ def metrics(request: Request,
 
 
 @app.post("/api/documents", response_model=schemas.UploadAccepted,
-          responses=schemas.ERRORS_400)
-async def upload_document(file: UploadFile = File(...)):
-    """Stream a PDF to disk. Returns the document record and a job id."""
+          responses={**schemas.ERRORS_400, **schemas.ERRORS_401})
+async def upload_document(
+    file: UploadFile = File(...),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Accept an identified upload and place it in admin-only review."""
+    _require_identity_to_write(scope)
+    admin_role: str | None = None
+    uploader_is_admin = scope.unrestricted
+    if scope.user_id is not None:
+        try:
+            admin_role, uploader_is_admin = access.upload_admin_role(scope.user_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
         row, job_id, duplicate_of = upload_mod.ingest(file.file, file.filename or "")
     except upload_mod.UploadError as e:
@@ -160,10 +171,20 @@ async def upload_document(file: UploadFile = File(...)):
             status_code=400,
             content={"code": e.code, "message": e.message, "detail": e.detail},
         )
+    if duplicate_of is None and admin_role is not None and scope.user_id is not None:
+        access.grant_uploaded_document_to_admin(row["id"], admin_role, scope.user_id)
+    elif duplicate_of is not None and not scope.may_read(duplicate_of):
+        return {
+            "document": None,
+            "job_id": "",
+            "duplicate_of": None,
+            "awaiting_grant": True,
+        }
     return {
         "document": upload_mod.to_api(row),
         "job_id": job_id or "",
         "duplicate_of": duplicate_of,
+        "awaiting_grant": not uploader_is_admin,
     }
 
 

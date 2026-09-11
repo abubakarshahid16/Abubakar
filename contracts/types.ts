@@ -60,9 +60,10 @@ export interface DocumentRecord {
 }
 
 export interface UploadAccepted {
-  document: DocumentRecord;
+  document: DocumentRecord | null;
   job_id: string;
   duplicate_of: string | null; // set when sha256 already exists; no job started
+  awaiting_grant: boolean;
 }
 
 /** DELETE /api/documents/{id}

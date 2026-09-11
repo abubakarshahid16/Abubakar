@@ -85,9 +85,13 @@ class Document(BaseModel):
 
 
 class UploadAccepted(BaseModel):
-    document: Document
+    document: Document | None = None
     job_id: str = Field(description="empty when the upload was a duplicate")
     duplicate_of: str | None = None
+    awaiting_grant: bool = Field(
+        False,
+        description="true when an administrator must grant the caller access",
+    )
 
 
 class WorkerStatus(BaseModel):
