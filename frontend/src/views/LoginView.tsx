@@ -32,7 +32,7 @@ const OFFLINE_MESSAGE =
 
 export function LoginView({
   onLogin,
-  onResetPassword = async () => ({ ok: false, message: "Password reset is not available." }),
+  onResetPassword = async () => ({ ok: false, message: "Password reset could not be completed." }),
   connected,
 }: {
   /** Resolves with ok:false and an optional kind. A `message` on a

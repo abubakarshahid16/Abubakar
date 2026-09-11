@@ -228,7 +228,7 @@ export function AdminScreen({
     const result = api.issuePasswordReset
       ? await api.issuePasswordReset(userId)
       : { ok: false as const, disconnected: false as const,
-          error: { code: "not_found", message: "Password reset is not available." } };
+          error: { code: "not_found", message: "Password reset could not be completed." } };
     setBusyKey(null);
     if (result.ok) setCreated(result.data);
     else setCreateError(explain(result, "so no reset token was issued"));

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -162,7 +162,7 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function mockApi(docs: DocumentRecord[], over: Record<string, unknown> = {}) {
-  const spy = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
 
@@ -236,11 +236,13 @@ function mockApi(docs: DocumentRecord[], over: Record<string, unknown> = {}) {
 
     return jsonResponse(docs);
   });
-  vi.stubGlobal("fetch", spy);
   return spy;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("B2 documents list", () => {
   it("shows the live ingestion progress line and does not say ready mid-embed", async () => {
@@ -256,7 +258,7 @@ describe("B2 documents list", () => {
         indexed_at: null,
       }),
     ]);
-    render(<App />);
+    renderDocuments();
 
     const line = await screen.findByText(/1,204 pages/);
     expect(line).toHaveTextContent("2,831 passages");
@@ -284,7 +286,7 @@ describe("B2 documents list", () => {
         },
       }),
     ]);
-    render(<App />);
+    renderDocuments();
 
     expect(await screen.findByText("no searchable content")).toBeInTheDocument();
     const alert = screen.getByRole("alert");
@@ -294,7 +296,7 @@ describe("B2 documents list", () => {
 
   it("warns prominently when the retrievable ratio is under 60%", async () => {
     mockApi([makeDoc({ chunk_count: 400, chunk_count_total: 1000, embedded_count: 400 })]);
-    render(<App />);
+    renderDocuments();
 
     expect(await screen.findByText(/Only 40% of this document is searchable/i)).toBeInTheDocument();
     expect(screen.getByText(/quality gate may be over-rejecting/i)).toBeInTheDocument();
@@ -303,14 +305,14 @@ describe("B2 documents list", () => {
 
   it("does not warn when the ratio is healthy", async () => {
     mockApi([makeDoc()]);
-    render(<App />);
+    renderDocuments();
     await screen.findByText(/book1-professionalpractices/);
     expect(screen.queryByText(/of this document is searchable/i)).not.toBeInTheDocument();
   });
 
   it("warns only about scanned pages recognition has NOT yet read", async () => {
     mockApi([makeDoc({ needs_ocr_pages: 12, recognised_pages: 0, equation_pages: 11 })]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText("12 awaiting OCR")).toBeInTheDocument();
     expect(screen.getByText("11 equation-heavy")).toBeInTheDocument();
   });
@@ -323,7 +325,7 @@ describe("B2 documents list", () => {
     mockApi([
       makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 12 }),
     ]);
-    render(<App />);
+    renderDocuments();
     expect(
       await screen.findByText(/12 of 546 pages\s+read by OCR/),
     ).toBeInTheDocument();
@@ -336,7 +338,7 @@ describe("B2 documents list", () => {
     mockApi([
       makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 5 }),
     ]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText("7 awaiting OCR")).toBeInTheDocument();
     expect(screen.getByText(/5 of 546 pages\s+read by OCR/)).toBeInTheDocument();
   });
@@ -344,7 +346,7 @@ describe("B2 documents list", () => {
   it("requires a second click to delete", async () => {
     mockApi([makeDoc()]);
     const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
     await user.click(await screen.findByRole("button", { name: "Delete" }));
     expect(screen.getByRole("button", { name: /confirm delete/i })).toBeInTheDocument();
@@ -354,7 +356,7 @@ describe("B2 documents list", () => {
 
   it("shows an empty state rather than a blank screen", async () => {
     mockApi([]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText(/No documents yet/i)).toBeInTheDocument();
   });
 });
@@ -373,7 +375,7 @@ describe("worker panel", () => {
         },
       },
     });
-    render(<App />);
+    renderDocuments();
 
     // The reason code is now a sentence, and the alarm names the situation
     // rather than shouting an internal flag.
@@ -390,7 +392,7 @@ describe("worker panel", () => {
         worker: { ...fullWorker, pending_count: 3, oldest_pending_age_seconds: 42 },
       },
     });
-    render(<App />);
+    renderDocuments();
     await screen.findByText(/Ingestion worker/);
     expect(screen.getByText("3")).toBeInTheDocument();
   });
@@ -400,7 +402,7 @@ describe("B3 chunk inspector", () => {
   it("opens, shows full chunk detail, and can filter to excluded chunks", async () => {
     mockApi([makeDoc()]);
     const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
     await user.click(await screen.findByRole("button", { name: /passages/i }));
     const dialog = await screen.findByRole("dialog");
@@ -425,7 +427,7 @@ describe("B4 excluded viewer", () => {
   it("groups by rule so a bulk exclusion is visible at a glance", async () => {
     mockApi([makeDoc()]);
     const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
     await user.click(await screen.findByRole("button", { name: "Excluded" }));
     const dialog = await screen.findByRole("dialog");
@@ -439,7 +441,7 @@ describe("B4 excluded viewer", () => {
   it("is reachable in one click from the low-ratio warning", async () => {
     mockApi([makeDoc({ chunk_count: 400, chunk_count_total: 1000 })]);
     const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
     await user.click(await screen.findByRole("button", { name: /see what was excluded/i }));
     expect(await screen.findByRole("dialog")).toHaveAccessibleName(/Excluded from search/i);
@@ -450,7 +452,7 @@ describe("B5 page image viewer", () => {
   it("shows the rendered page and offers zoom", async () => {
     mockApi([makeDoc()]);
     const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
     await user.click(await screen.findByRole("button", { name: "Pages" }));
     const dialog = await screen.findByRole("dialog");
@@ -469,7 +471,7 @@ describe("B5 page image viewer", () => {
   it("closes on Escape", async () => {
     mockApi([makeDoc()]);
     const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
     await user.click(await screen.findByRole("button", { name: "Pages" }));
     await screen.findByRole("dialog");
     await user.keyboard("{Escape}");
@@ -493,7 +495,7 @@ describe("excluded pages are impossible to miss", () => {
         pages_excluded_with_clause_headings: 0,
       }),
     ]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText(/3 pages left out of search/i)).toBeInTheDocument();
     expect(screen.getByText(/No numbered clause was among them/i)).toBeInTheDocument();
     expect(
@@ -511,7 +513,7 @@ describe("excluded pages are impossible to miss", () => {
         pages_excluded_with_clause_headings: 1,
       }),
     ]);
-    render(<App />);
+    renderDocuments();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/contains? numbered clause headings/i);
     expect(alert).toHaveTextContent(/Real content has almost certainly been dropped/i);
@@ -521,7 +523,7 @@ describe("excluded pages are impossible to miss", () => {
 
   it("says nothing when no page was excluded", async () => {
     mockApi([makeDoc({ pages_excluded: 0, pages_excluded_with_clause_headings: 0 })]);
-    render(<App />);
+    renderDocuments();
     await screen.findByText("book1-professionalpractices.pdf");
     expect(screen.queryByText(/excluded from search/i)).toBeNull();
   });
@@ -553,7 +555,12 @@ const onlineConnection: Connection = { state: "online", health, at: Date.now() }
 
 function renderDocuments(isAdmin = false) {
   render(
-    <DocumentsView connection={onlineConnection} onRetryConnection={() => {}} isAdmin={isAdmin} />,
+    <DocumentsView
+      connection={onlineConnection}
+      onRetryConnection={() => {}}
+      isAdmin={isAdmin}
+      polling={false}
+    />,
   );
 }
 
