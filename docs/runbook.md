@@ -113,7 +113,7 @@ Then, in the clone:
 
 | Finding | Status |
 |---|---|
-| A default `git clone` lands on `main`, which is behind and whose README has no "Getting started" | **Open — closes when the branch merges** |
+| A default `git clone` lands on `main` | **Verified — `main` is the release branch and contains the current README and tests** |
 | README named Ollama as a prerequisite without an install source or `ollama pull` command | Fixed |
 | README claimed ~2 GB disk; measured 768 MB, and the 3.4 GB Ollama model was unmentioned | Fixed |
 | `py -3.12` does not exist on this machine | Not a defect — the README warns about it and its fallback worked |
