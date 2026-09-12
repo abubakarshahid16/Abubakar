@@ -102,8 +102,14 @@ def _never_the_developers_database(tmp_path_factory):
        `temp_storage` override this per test and are unaffected.
     """
     from app import db
+    from app import access
 
     session_dir = tmp_path_factory.mktemp("nabaa-session")
+    # Tests must exercise the documented safe defaults, never a developer's
+    # local backend/.env. Individual tests explicitly opt into auth-required
+    # mode when they cover authenticated behavior.
+    settings.auth_mode = access.AUTH_DISABLED
+    settings.auth_secret = ""
     settings.data_dir = session_dir
     settings.upload_dir = session_dir / "uploads"
     settings.db_path = session_dir / "session.sqlite"
