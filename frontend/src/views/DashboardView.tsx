@@ -329,7 +329,7 @@ export function DashboardView({
           note={
             corpus.documents === 0
               ? "Upload a PDF on the Documents screen to begin."
-              : `${nf.format(corpus.documents)} document${corpus.documents === 1 ? "" : "s"} loaded, ${nf.format(corpus.chunks_total)} passages. ${nf.format(corpus.pages_extracted)} pages read. ${
+              : `${nf.format(corpus.documents)} document${corpus.documents === 1 ? "" : "s"} loaded, ${nf.format(corpus.chunks_retrievable)} passages. ${nf.format(corpus.pages_extracted)} pages read. ${
                   Object.entries(corpus.by_status)
                     .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
                     .join(", ") || "no status recorded"
