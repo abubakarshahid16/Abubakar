@@ -31,9 +31,8 @@ REVOCATION, three cases, cheapest first:
                 frozenset(). Already true, no code here.
   deactivated   `is_active` is re-read on EVERY request, so a deactivation
                 takes effect on the next call rather than at token expiry.
-  forced logout NOT BUILT. It needs `users.token_epoch`, and the design names
-                it as the first thing to drop. Deletion and deactivation cover
-                the cases that matter.
+  forced logout increments `users.token_epoch`; every token carries the epoch
+  it was issued against and is rejected after that increment.
 
 Revocation is therefore next-request, not instant. Said plainly rather than
 implied.
@@ -138,8 +137,10 @@ def issue_token(user_id: str, now: float | None = None) -> str:
     a login screen appearing mid-demo.
     """
     now = time.time() if now is None else now
+    row = connect().execute("SELECT token_epoch FROM users WHERE id = ?", (user_id,)).fetchone()
+    epoch = int(row["token_epoch"]) if row else 0
     body = json.dumps(
-        {"u": user_id, "v": TOKEN_VERSION,
+        {"u": user_id, "e": epoch, "v": TOKEN_VERSION,
          "x": int(now + settings.auth_token_seconds)},
         separators=(",", ":"), sort_keys=True,
     ).encode("utf-8")
@@ -376,9 +377,27 @@ def resolve_user_id(request: Request) -> str | None:
     if not user_id:
         return None
     row = connect().execute(
-        "SELECT id FROM users WHERE id = ? AND is_active = 1", (user_id,)
+        "SELECT id FROM users WHERE id = ? AND is_active = 1 AND token_epoch = ?",
+        (user_id, _token_epoch(token.strip())),
     ).fetchone()
     return row["id"] if row else None
+
+
+def _token_epoch(token: str) -> int:
+    try:
+        body_b64, _ = token.split(".", 1)
+        claims = json.loads(_unb64(body_b64))
+        return int(claims.get("e", 0))
+    except Exception:
+        return -1
+
+
+def revoke_user_tokens(user_id: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute(
+            "UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?", (user_id,)
+        )
+        return cur.rowcount > 0
 
 
 def install() -> None:

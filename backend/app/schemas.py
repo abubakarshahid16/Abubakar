@@ -667,6 +667,11 @@ class LoginResult(BaseModel):
     expires_in_seconds: int
 
 
+class TokenRevocationResult(BaseModel):
+    user_id: str
+    revoked: bool
+
+
 class ProgressStep(BaseModel):
     stage: str
     at_seconds: float
