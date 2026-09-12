@@ -1485,6 +1485,17 @@ export function AnalysisModeScreen() {
                 {(d) => (
                   <div className="space-y-3">
                     <RecommendationCard recommendation={d.recommendation} onCite={onCite} />
+                    {d.findings.length > 0 && (
+                      <section aria-label="Public market information" className="space-y-2">
+                        <h3 className="text-sm font-semibold text-slateish-100">Public market information</h3>
+                        {d.findings.map((row) => (
+                          <div key={`${row.url}-${row.claim}`} className="rounded border border-ink-600 p-3">
+                            <span className="mr-2 rounded bg-warn-500/15 px-1.5 py-0.5 text-xs text-warn-500">Sample</span>
+                            <span>{row.claim}</span>
+                          </div>
+                        ))}
+                      </section>
+                    )}
                   </div>
                 )}
               </SlotBody>
@@ -1541,7 +1552,7 @@ export function AnalysisModeScreen() {
           )}
 
           {engines.market && hasBody(marketSlot) && (
-            <Section title="Public market intelligence" eyebrow="isolated egress">
+            <Section title="Public market sample" eyebrow="isolated egress">
               <SlotBody
                 slot={marketSlot}
                 loadingLabel="Loading the market sample"
