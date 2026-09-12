@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS roles (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'general',
     created_at  TEXT NOT NULL
 );
 
@@ -540,6 +541,9 @@ def connect() -> sqlite3.Connection:
 def _migrate(conn: sqlite3.Connection) -> None:
     """Additive column migrations for databases created by an earlier build."""
     have = {r["name"] for r in conn.execute("PRAGMA table_info(chunks)")}
+    roles = {r["name"] for r in conn.execute("PRAGMA table_info(roles)")}
+    if roles and "kind" not in roles:
+        conn.execute("ALTER TABLE roles ADD COLUMN kind TEXT NOT NULL DEFAULT 'general'")
     if have and "retrievable" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN retrievable INTEGER NOT NULL DEFAULT 1")
     if have and "quality_flags" not in have:
