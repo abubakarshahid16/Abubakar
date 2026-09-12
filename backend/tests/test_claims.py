@@ -201,7 +201,7 @@ def test_same_value_two_spellings_two_documents_is_agreement():
     out = cluster(extract_claims(ev), frozenset({"adhesion"}))
     assert len(out) == 1
     assert out[0].label == "agreement"
-    assert out[0].facet == "adhesion · MPa"
+    assert out[0].facet == "adhesion (MPa)"
     assert {r.filename for r in out[0].rows} == {"norsok.pdf", "iso.pdf"}
 
 
