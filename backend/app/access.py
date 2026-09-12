@@ -63,7 +63,15 @@ class AccessScope:
     @property
     def capabilities(self) -> frozenset[str]:
         """Compatibility view used by older callers; document grants remain authoritative."""
-        return frozenset({"admin"}) if self.unrestricted else frozenset()
+        if self.unrestricted:
+            return frozenset({"admin"})
+        if not self.user_id:
+            return frozenset()
+        row = connect().execute(
+            """SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id
+               WHERE ur.user_id = ?""", (self.user_id,)
+        ).fetchall()
+        return frozenset(str(r["name"]) for r in row)
     def may_read(self, document_id: str) -> bool:
         return document_id in self.allowed_document_ids
 
