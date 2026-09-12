@@ -1147,6 +1147,10 @@ export function AnalysisModeScreen() {
   // The mount-time half of the sign-out rule. Before paint, so a remount after
   // a sign-out never shows the previous session's results for even one frame.
   useLayoutEffect(() => {
+    // A screen remount starts a fresh analysis session. This also prevents an
+    // abandoned request from a previous view instance leaving the new Run
+    // button disabled.
+    resetAnalysisScreen();
     clearIfSignedOut();
   }, []);
 
