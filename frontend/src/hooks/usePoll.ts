@@ -77,5 +77,5 @@ export function usePoll(tick: () => void, busy: boolean, repeat = true): void {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [busy]);
+  }, [busy, repeat]);
 }
