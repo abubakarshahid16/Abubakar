@@ -53,6 +53,15 @@ front of them is the audience.
 - CI must be green: backend tests, frontend tests and typecheck, secret
   scanning, and the client-data guard.
 
+## Repository governance
+
+This private GitHub Free repository cannot currently enforce protected `main`,
+required reviews, or required checks. Treat direct pushes as prohibited by
+process, use the pull-request template, and do not merge with a red or pending
+check. CODEOWNERS and Dependabot are enabled now; branch protection should be
+activated when the repository plan supports it. See ADR-0006 for the exact
+activation checklist and the controls that are currently enforceable.
+
 ## Tests
 
 ```bash
