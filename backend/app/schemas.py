@@ -1211,7 +1211,7 @@ class Metrics(BaseModel):
     retrieval: RetrievalLatency | None = Field(
         None, description="null until a question has actually been asked"
     )
-    system: SystemMetrics
+    system: SystemMetrics | None = None
     models: ModelStatus
     worker: WorkerStatus
     warnings: list[MetricWarning]

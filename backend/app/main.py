@@ -155,7 +155,10 @@ def metrics(request: Request,
     recorded; retrieval latency comes from questions actually asked.
     """
     reject_unknown_params(request, set())
-    return metrics_mod.snapshot(ingest_mod.get_worker().status())
+    return metrics_mod.snapshot(
+        ingest_mod.get_worker().status(),
+        host=scope.unrestricted or access.is_admin(scope.user_id),
+    )
 
 
 # --------------------------------------------------------------- documents

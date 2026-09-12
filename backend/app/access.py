@@ -142,6 +142,17 @@ def upload_admin_role(user_id: str) -> tuple[str, bool]:
     return str(role["id"]), held is not None
 
 
+def is_admin(user_id: str | None) -> bool:
+    if not user_id:
+        return False
+    with connect() as conn:
+        return conn.execute(
+            """SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+               WHERE ur.user_id = ? AND r.name = 'admin' LIMIT 1""",
+            (user_id,),
+        ).fetchone() is not None
+
+
 def grant_uploaded_document_to_admin(
     document_id: str, admin_role_id: str, actor_user_id: str
 ) -> None:
