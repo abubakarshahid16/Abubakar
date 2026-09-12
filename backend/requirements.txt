@@ -17,7 +17,7 @@ PyMuPDF==1.28.2
 # Embeddings - local ONNX int8, no torch
 onnxruntime==1.24.1
 tokenizers==0.22.1
-numpy==2.3.4
+numpy==2.5.3
 
 # Vector store
 lancedb==0.38.0
