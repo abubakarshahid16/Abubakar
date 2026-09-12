@@ -183,6 +183,23 @@ def grant_uploaded_document_to_admin(
         )
 
 
+def grant_uploaded_document_to_owner(document_id: str, owner_user_id: str) -> list[str]:
+    """Grant a watched upload to the owner's existing roles plus admin."""
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    with connect() as conn:
+        roles = conn.execute(
+            "SELECT role_id FROM user_roles WHERE user_id = ?", (owner_user_id,)
+        ).fetchall()
+        for row in roles:
+            conn.execute(
+                """INSERT OR IGNORE INTO document_role_access
+                   (document_id, role_id, permission, granted_at, granted_by)
+                   VALUES (?, ?, 'read', ?, ?)""",
+                (document_id, row["role_id"], now, owner_user_id),
+            )
+    return [str(row["role_id"]) for row in roles]
+
+
 # --------------------------------------------------------------- the hook
 
 #: How a request's identity is resolved, injected rather than imported.

@@ -584,10 +584,7 @@ class FolderWatcher:
         # dressed as a convenience.
         granted = []
         if owner_id:
-            role_id, held = access.upload_admin_role(owner_id)
-            if held:
-                access.grant_uploaded_document_to_admin(row["id"], role_id, owner_id)
-                granted.append("admin")
+            granted = access.grant_uploaded_document_to_owner(row["id"], owner_id)
         record_event(
             path.name, source, sha256, INGESTED, document_id=row["id"],
             detail=(f"queued as job {job_id}" if job_id else "queued")

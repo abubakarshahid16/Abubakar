@@ -304,5 +304,5 @@ def test_classification_writes_touch_no_access_table(corpus):
                 f"classification executed SQL naming {table!r}: {sql}")
         # `roles` as a whole word, so `user_roles` above is not double-counted
         # and `document_role_access` does not false-positive on the substring.
-        assert not re.search(r"roles", sql), (
+        assert not re.search(r"\broles\b", sql), (
             f"classification executed SQL naming the roles table: {sql}")
