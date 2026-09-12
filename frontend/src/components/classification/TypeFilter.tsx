@@ -82,13 +82,7 @@ export function useTypeVocabulary(): TypeVocabulary | null {
     };
   }, []);
 
-  // BOTH CONDITIONS ARE LOAD-BEARING. `!vocab` is "the answer has not
-  // arrived"; the Array check is "the answer arrived malformed". Returning a
-  // TypeVocabulary whose `types` is not an array satisfies the type system and
-  // throws in every consumer that reads `.length` - which is exactly what
-  // happened. The client now shape-checks this route as well; this stays
-  // because the hook is exported and must be safe on its own.
-  if (failed || !vocab || !Array.isArray(vocab.types)) return null;
+  if (failed || !vocab) return null;
 
   const countByType: Record<string, number> = {};
   const unconfirmedByType: Record<string, number> = {};

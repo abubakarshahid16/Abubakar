@@ -26,7 +26,10 @@ import type {
   AnalysisSummaryResult,
   LoginResult,
   MarketFindings,
+  MarketPreview,
   MarketQueryPreview,
+  MarketSearchRequest,
+  MarketSearchResult,
   Progress,
   MarketQueryRequest,
   Metrics,
@@ -34,6 +37,10 @@ import type {
   ReportRecord,
   ReportVerification,
   PagesResponse,
+  ClassificationVocabulary,
+  ClassificationCoverage,
+  ClassificationUpdate,
+  DocumentClassification,
 } from "../types/api";
 
 /** The unauthenticated route, and the only one. It answers "is the service up"
@@ -62,6 +69,59 @@ export interface Health {
   /** whether an answer model is configured, NOT which one */
   answer_model_present: boolean;
   ingestion: HealthWorker;
+}
+
+/** The watched folder: a host directory the backend scans on an interval and
+ *  ingests from, so a team can drop PDFs in rather than upload through the app.
+ *
+ *  `folder_name` is the folder's own name, never a path, and is null for a
+ *  non-admin caller. A screen must render nothing in its place rather than a
+ *  placeholder that implies a value was withheld or, worse, that there is none.
+ *
+ *  The feature being OFF is a normal state, not an error: `enabled` false with
+ *  every other field empty. */
+export type WatchOutcome = "ingested" | "duplicate" | "failed";
+
+export interface WatchEvent {
+  filename: string;
+  outcome: WatchOutcome;
+  /** ISO-8601 UTC */
+  at: string;
+  /** why it failed, when it did. null otherwise. */
+  detail: string | null;
+}
+
+export interface WatchStatus {
+  enabled: boolean;
+  /** The watched folder's OWN NAME - its last path segment, never a path.
+   *
+   *  `D:\\project\\data\\watch-inbox` and `\\\\fileserver\\engineering\\inbox` arrive
+   *  here as "watch-inbox" and "inbox". The route used to publish the full
+   *  host path; under AUTH_MODE=disabled every caller reads as unrestricted,
+   *  so the admin gate alone did not hold and the value itself was narrowed.
+   *
+   *  Still null for a non-admin caller, and null when the configured value has
+   *  no final segment. A screen renders nothing in its place - and must not
+   *  word it as though a location were being shown. */
+  folder_name: string | null;
+  /** ISO-8601 UTC, or null when no scan has run. */
+  last_scan_at: string | null;
+  interval_seconds: number | null;
+  /** Did the MOST RECENT scan find the folder readable?
+   *
+   *  null means no scan has completed yet - never false, which would assert a
+   *  failure nobody has observed. Back to null when the feature is turned off.
+   *  A screen must render NOTHING for null: "unknown" is a claim of its own. */
+  reachable: boolean | null;
+  /** A short sentence about the most recent SCAN-LEVEL failure - the folder is
+   *  missing, or unreadable. null when the last scan was fine.
+   *
+   *  A single corrupt PDF is a per-file `failed` event in `recent` and does not
+   *  set this. Built from the exception class, never from OS error text, so it
+   *  carries no host path and is safe to show a non-admin caller. */
+  last_error: string | null;
+  /** the newest ten, newest first */
+  recent: WatchEvent[];
 }
 
 export type Result<T> =
@@ -176,6 +236,34 @@ export const analysis = {
     }),
 };
 
+// The market preview/search contract now lives in contracts/types.ts, which
+// this file's own header calls the single source of truth. It was declared
+// HERE, and that is exactly how the drift happened: the backend renamed
+// `payload` to `payloads`, `tsc` passed, all 23 panel tests passed, and the
+// confirmation dialog rendered `undefined` in the one place the whole panel
+// exists to fill. Re-exported so existing imports keep working.
+export type {
+  ClassificationVocabulary,
+  ClassificationCoverage,
+  ClassificationScope,
+  ClassificationSource,
+  ClassificationUpdate,
+  DocumentClassification,
+  AppliedScope,
+  CoverageByType,
+  SubjectRow,
+} from "../types/api";
+
+export type {
+  MarketProviderLabel,
+  MarketOutboundPayload,
+  MarketPreviewPayload,
+  MarketPreview,
+  MarketRow,
+  MarketSearchRequest,
+  MarketSearchResult,
+} from "../types/api";
+
 export const market = {
   findings: () => request<MarketFindings>("/market/findings"),
   /** Builds the object that WOULD be sent. Nothing is sent. */
@@ -185,6 +273,77 @@ export const market = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  /** The exact outbound payloads, one per tier, and the scrubbed phrase. NO
+   *  egress, so this is safe to call on every preview.
+   *
+   *  THE SCOPE FIELDS ARE PASSED, and they have to be. `country` and
+   *  `freshness_days` appear in every payload a search sends, so a preview
+   *  called without them returns payloads that differ from what would leave -
+   *  which is how the panel ended up disclosing them on a separate line
+   *  attributed to itself. Sent here, the backend's own payloads carry them
+   *  and the dialog needs no footnote. */
+  preview: (phrase: string, scope?: { country?: string | null; freshness_days?: number | null }) => {
+    const params = new URLSearchParams({ phrase });
+    if (scope?.country != null) params.set("country", scope.country);
+    if (scope?.freshness_days != null) {
+      params.set("freshness_days", String(scope.freshness_days));
+    }
+    return request<MarketPreview>(`/market/preview?${params.toString()}`);
+  },
+  /** THE ONLY CALL IN THIS MODULE THAT CAN LEAVE THE MACHINE. It must be
+   *  reachable from an explicit click and from nothing else - no debounce, no
+   *  submit-on-enter, no blur handler.
+   *
+   *  Guarded on `rows` like the other list-bearing reads: a body without it
+   *  becomes an ordinary ApiError, so the panel renders its own failure state
+   *  rather than crashing at the map or, worse, rendering nothing and leaving
+   *  stale rows on screen. */
+  search: (body: MarketSearchRequest) =>
+    request<MarketSearchResult>(
+      "/market/search",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      hasArrayField("rows"),
+    ),
+};
+
+/* ------------------------------------------------------------ classification
+ *
+ * Four calls. Two reads that every screen shares, one read per document, and
+ * the one write - which the backend gates on the ADMIN capability and answers
+ * 404, not 403, to anyone else. A wrong type misroutes searches for everyone,
+ * not just for the person who set it, so it needs a role that answers for
+ * everyone. `backend/app/main.py::put_document_classification`.
+ */
+export const classification = {
+  /** The filter vocabulary. `types` comes from the register, so a component
+   *  MUST render this list rather than a hardcoded three. */
+  vocabulary: () =>
+    request<ClassificationVocabulary>("/classification/vocabulary"),
+  /** Counts per axis, scoped. This is how a screen gets per-type counts
+   *  WITHOUT asking each document its type: one request, no N+1. */
+  coverage: () => request<ClassificationCoverage>("/classification/coverage"),
+  /** One document's classification. In scope but never classified is a 200
+   *  with every field null - not a 404. Null means "awaiting a type". */
+  ofDocument: (id: string) =>
+    request<DocumentClassification>(
+      `/documents/${encodeURIComponent(id)}/classification`,
+    ),
+  /** CONFIRM or CHANGE. Admin only; a non-admin gets a 404 that says nothing
+   *  about whether the document exists. Callers must therefore treat 404
+   *  here as "you may not do this", not as "gone". */
+  confirm: (id: string, body: ClassificationUpdate) =>
+    request<DocumentClassification>(
+      `/documents/${encodeURIComponent(id)}/classification`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    ),
 };
 
 export const reports = {
@@ -208,13 +367,14 @@ export const reports = {
    *
    *  The token stays in the Authorization header and is NEVER placed in the
    *  URL. A URL reaches browser history, proxy and server access logs and
-   *  Referer headers; NABAA rule 6 forbids secrets in logs.
+   *  Referer headers; RAG-INTELLIGENCE-POC-EXECUTION.md rule 6 (line 43)
+ *  forbids secrets in logs.
    *
    *  Returns bytes, never a file: writing the file is the caller's job, and
    *  a failure returns no bytes at all so no empty or truncated PDF can be
    *  handed to the reader. */
   download: (id: string): Promise<DownloadResult> =>
-    downloadReport(`/reports/${encodeURIComponent(id)}/download`, `nabaa-report-${id}.pdf`),
+    downloadReport(`/reports/${encodeURIComponent(id)}/download`, `rag-intelligence-report-${id}.pdf`),
 };
 
 /** The outcome of a binary download.
@@ -433,6 +593,10 @@ async function request<T>(
 export const api = {
   health: () => request<Health>("/health"),
   metrics: () => request<Metrics>("/metrics"),
+  /** Whether the watched folder is running, and what it last picked up.
+   *  Guarded like the other list-bearing reads: a body without `recent`
+   *  becomes an ordinary ApiError instead of a crash at the map. */
+  watchStatus: () => request<WatchStatus>("/watch/status", undefined, hasArrayField("recent")),
   documents: () =>
     request<DocumentRecord[]>("/documents", undefined, isArrayBody),
   chunks: (id: string, opts: { limit?: number; offset?: number; retrievable?: string } = {}) => {
