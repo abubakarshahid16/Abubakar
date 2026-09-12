@@ -72,6 +72,10 @@ class AccessScope:
                WHERE ur.user_id = ?""", (self.user_id,)
         ).fetchall()
         return frozenset(str(r["name"]) for r in row)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.unrestricted or "admin" in self.capabilities
     def may_read(self, document_id: str) -> bool:
         return document_id in self.allowed_document_ids
 
