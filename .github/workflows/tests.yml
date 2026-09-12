@@ -53,7 +53,7 @@ jobs:
       # dependency bump re-fetches and an unchanged tree does not.
       - name: Cache models
         id: models
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: backend/models
           key: models-${{ hashFiles('scripts/fetch_models.py') }}
