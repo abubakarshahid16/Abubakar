@@ -21,7 +21,7 @@ numpy==2.3.4
 
 # Vector store
 lancedb==0.38.0
-pyarrow>=21.0.0
+pyarrow>=25.0.1
 
 # System metrics for the dashboard
 psutil==7.1.3
