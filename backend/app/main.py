@@ -29,6 +29,7 @@ from .api_utils import (
     validate_retrievable,
 )
 from . import access
+from . import admin as admin_mod
 from . import auth as auth_mod
 from . import errors
 from . import analysis as analysis_mod
