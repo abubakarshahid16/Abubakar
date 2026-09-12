@@ -1139,7 +1139,9 @@ export function AnalysisModeScreen() {
   // RULE 1 (TypeFilter's own doc comment): the vocabulary comes from the
   // register. Null while loading or on failure, in which case the filter
   // renders nothing at all rather than a guess - see useTypeVocabulary.
-  const typeVocabulary = useTypeVocabulary();
+  // Load classification vocabulary only when a scope is actively selected;
+  // quote mode must remain a single-request operation.
+  const typeVocabulary = useTypeVocabulary(selectedTypes.length > 0 && mode !== "quote");
   const filtering = selectedTypes.length > 0;
 
   // The mount-time half of the sign-out rule. Before paint, so a remount after

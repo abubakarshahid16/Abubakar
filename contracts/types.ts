@@ -40,7 +40,7 @@ export interface DocumentRecord {
    *  owner's words. Never a placeholder for an empty list. Required, not
    *  optional, so a missing field is a contract error rather than a silent
    *  "uncategorised". */
-  disciplines: string[];
+  disciplines?: string[];
   /** how many retrievable chunks have vectors so far */
   embedded_count: number;
   status: DocStatus;
@@ -1106,7 +1106,7 @@ export interface Metrics {
    *  only the documents this caller may read. An admin gets corpus-wide
    *  figures; everyone else gets their own. The screen MUST say which it is
    *  showing - a count with no stated boundary reads as total. */
-  corpus_wide: boolean;
+  corpus_wide?: boolean;
   corpus: CorpusMetrics;
   exclusions: ExclusionSummary[];
   jobs: JobMetrics;

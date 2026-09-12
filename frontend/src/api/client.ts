@@ -374,7 +374,7 @@ export const reports = {
    *  a failure returns no bytes at all so no empty or truncated PDF can be
    *  handed to the reader. */
   download: (id: string): Promise<DownloadResult> =>
-    downloadReport(`/reports/${encodeURIComponent(id)}/download`, `rag-intelligence-report-${id}.pdf`),
+    downloadReport(`/reports/${encodeURIComponent(id)}/download`, `nabaa-report-${id}.pdf`),
 };
 
 /** The outcome of a binary download.

@@ -83,9 +83,11 @@ function Row({ row, onCite }: { row: ClaimRow; onCite: (evidenceId: string) => v
 export function ClaimTable({
   clusters,
   onCite,
+  selectedEvidenceId: _selectedEvidenceId,
 }: {
   clusters: ClaimCluster[];
   onCite: (evidenceId: string) => void;
+  selectedEvidenceId?: string | null;
 }) {
   return (
     <section aria-label="Claim comparison" className="rounded-lg border border-ink-600 bg-ink-850 p-4">

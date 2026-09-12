@@ -64,7 +64,7 @@ export type DocumentGroup = { name: string; documents: DocumentRecord[] };
 export function groupByDiscipline(documents: DocumentRecord[]): DocumentGroup[] {
   const byName = new Map<string, DocumentRecord[]>();
   for (const doc of documents) {
-    const names = doc.disciplines.length > 0 ? doc.disciplines : [UNCATEGORISED_GROUP];
+    const names = (doc.disciplines ?? []).length > 0 ? doc.disciplines ?? [] : [UNCATEGORISED_GROUP];
     for (const name of names) {
       const bucket = byName.get(name);
       if (bucket) bucket.push(doc);
@@ -142,6 +142,7 @@ export function DocumentsView({
   connection,
   onRetryConnection,
   isAdmin = false,
+  polling: _polling,
 }: {
   connection: Connection;
   onRetryConnection: () => void;
@@ -150,6 +151,7 @@ export function DocumentsView({
    *  caller this prop has not been taught about must never see the button.
    *  Comes from `hasAdminCapability(auth)` in `Shell.tsx`. */
   isAdmin?: boolean;
+  polling?: boolean;
 }) {
   const [load, setLoad] = useState<Load>({ state: "loading" });
   // Worker DETAIL from the scoped metrics route, never from health.

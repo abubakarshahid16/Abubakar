@@ -39,7 +39,7 @@ export function pollInterval(busy: boolean): number {
  * Changing `busy` restarts the interval, so going busy polls again within
  * milliseconds rather than after the remaining idle wait.
  */
-export function usePoll(tick: () => void, busy: boolean): void {
+export function usePoll(tick: () => void, busy: boolean, repeat = true): void {
   // The callback is held in a ref so a new function identity on every render
   // does not restart the timer - only `busy` does. Without this the interval
   // would be torn down and rebuilt on every state update, which polls far

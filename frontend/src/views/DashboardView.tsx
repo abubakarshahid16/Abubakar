@@ -329,7 +329,7 @@ export function DashboardView({
           note={
             corpus.documents === 0
               ? "Upload a PDF on the Documents screen to begin."
-              : `${nf.format(corpus.pages_extracted)} pages read. ${
+              : `${nf.format(corpus.documents)} document${corpus.documents === 1 ? "" : "s"} loaded, ${nf.format(corpus.chunks_total)} passages. ${nf.format(corpus.pages_extracted)} pages read. ${
                   Object.entries(corpus.by_status)
                     .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
                     .join(", ") || "no status recorded"
@@ -584,7 +584,7 @@ export function DashboardView({
         </div>
       </Section>
 
-      <Section title="Machine" hint="Everything runs here. No document or question leaves this computer.">
+      {system ? <Section title="Machine" hint="Everything runs here. No document or question leaves this computer.">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
             <p className="text-[11px] uppercase tracking-wide text-slateish-500">CPU</p>
@@ -645,7 +645,7 @@ export function DashboardView({
             </p>
           </div>
         </div>
-      </Section>
+      </Section> : null}
 
       {metrics.exclusions.length > 0 && (
         <Section

@@ -261,10 +261,12 @@ function EvidenceChip({
   n,
   evidenceId,
   onCite,
+  selectedEvidenceId: _selectedEvidenceId,
 }: {
   n: number;
   evidenceId: string;
   onCite: (evidenceId: string) => void;
+  selectedEvidenceId?: string | null;
 }) {
   return (
     <button
