@@ -513,6 +513,7 @@ AnswerType = Literal[
     "model_unavailable",
     # the input was never a document question - a greeting, thanks, chitchat
     "guidance",
+    "metadata",
 ]
 
 

@@ -266,8 +266,10 @@ export type AnswerType =
   | "insufficient_evidence"
   | "model_unavailable"
   /** the input was never a document question - a greeting, thanks, chitchat.
-   *  Nothing was searched, so there is nothing to show as considered. */
-  | "guidance";
+ *  Nothing was searched, so there is nothing to show as considered. */
+  | "guidance"
+  /** a non-sensitive aggregate from application metadata, not document text */
+  | "metadata";
 
 export interface AnswerPassage {
   chunk_id: string;

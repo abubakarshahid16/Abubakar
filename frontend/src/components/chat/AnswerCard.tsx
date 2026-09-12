@@ -245,6 +245,16 @@ export function AnswerCard({
     );
   }
 
+  if (view.answer_type === "metadata") {
+    return (
+      <div className="rounded-lg border border-signal-500/40 bg-signal-500/10 p-4">
+        <p className="text-xs uppercase tracking-wide text-signal-400">Application statistic</p>
+        <p className="mt-1 text-sm text-slateish-200">{view.answer}</p>
+        <p className="mt-2 text-xs text-slateish-500">This count comes from accessible system metadata, not document text.</p>
+      </div>
+    );
+  }
+
   // ---------------------------------------------------------- no answer
   if (view.answer_type === "insufficient_evidence") {
     return (
