@@ -455,3 +455,31 @@ def test_auth_me_names_the_caller_and_their_roles_but_never_their_documents():
     # Roles, never grants: handing the client its document list gives it
     # something to check its guesses against.
     assert "doc_aaa" not in r.text
+
+
+def test_admin_can_force_logout_and_old_token_is_rejected():
+    user_id, _ = make_user("a@x.test", PASSWORD_A)
+    admin_id, _ = make_user("admin@x.test", PASSWORD_A, role="admin")
+    client = TestClient(app)
+    user_token = auth.issue_token(user_id)
+    admin_token = auth.issue_token(admin_id)
+
+    revoked = client.post(
+        f"/api/auth/revoke/{user_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert revoked.status_code == 200
+    assert revoked.json() == {"user_id": user_id, "revoked": True}
+    old = client.get("/api/auth/me",
+                     headers={"Authorization": f"Bearer {user_token}"})
+    assert old.status_code == 401
+
+
+def test_non_admin_cannot_force_logout():
+    user_id, _ = make_user("a@x.test", PASSWORD_A)
+    token = auth.issue_token(user_id)
+    response = TestClient(app).post(
+        f"/api/auth/revoke/{user_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 404

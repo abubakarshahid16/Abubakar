@@ -590,6 +590,22 @@ def me(request: Request,
     return {"required": True, "user": described}
 
 
+@app.post("/api/auth/revoke/{user_id}", response_model=schemas.TokenRevocationResult,
+          responses={**schemas.ERRORS_404})
+def revoke_user_tokens(user_id: str,
+                       _actor: dict | None = Depends(admin_mod.current_admin)):
+    """Invalidate every currently issued token for a user.
+
+    Only administrators can force a logout. The token epoch is incremented
+    atomically, so existing bearer tokens fail on their next request while a
+    subsequent login receives the new epoch.
+    """
+    if not auth_mod.revoke_user_tokens(user_id):
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no such user"))
+    return {"user_id": user_id, "revoked": True}
+
+
 @app.get("/api/progress/{progress_id}", response_model=schemas.Progress,
          responses={**schemas.ERRORS_404})
 def read_progress(progress_id: str):
