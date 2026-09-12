@@ -60,6 +60,10 @@ class AccessScope:
     #: or a test can assert which kind of scope it is holding rather than
     #: inferring it from the size of the id set.
     unrestricted: bool = False
+    @property
+    def capabilities(self) -> frozenset[str]:
+        """Compatibility view used by older callers; document grants remain authoritative."""
+        return frozenset({"admin"}) if self.unrestricted else frozenset()
     def may_read(self, document_id: str) -> bool:
         return document_id in self.allowed_document_ids
 
