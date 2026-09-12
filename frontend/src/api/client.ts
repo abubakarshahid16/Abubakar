@@ -26,7 +26,10 @@ import type {
   AnalysisSummaryResult,
   LoginResult,
   MarketFindings,
+  MarketPreview,
   MarketQueryPreview,
+  MarketSearchRequest,
+  MarketSearchResult,
   Progress,
   MarketQueryRequest,
   Metrics,
@@ -34,6 +37,10 @@ import type {
   ReportRecord,
   ReportVerification,
   PagesResponse,
+  ClassificationVocabulary,
+  ClassificationCoverage,
+  ClassificationUpdate,
+  DocumentClassification,
 } from "../types/api";
 
 /** The unauthenticated route, and the only one. It answers "is the service up"
@@ -62,6 +69,59 @@ export interface Health {
   /** whether an answer model is configured, NOT which one */
   answer_model_present: boolean;
   ingestion: HealthWorker;
+}
+
+/** The watched folder: a host directory the backend scans on an interval and
+ *  ingests from, so a team can drop PDFs in rather than upload through the app.
+ *
+ *  `folder_name` is the folder's own name, never a path, and is null for a
+ *  non-admin caller. A screen must render nothing in its place rather than a
+ *  placeholder that implies a value was withheld or, worse, that there is none.
+ *
+ *  The feature being OFF is a normal state, not an error: `enabled` false with
+ *  every other field empty. */
+export type WatchOutcome = "ingested" | "duplicate" | "failed";
+
+export interface WatchEvent {
+  filename: string;
+  outcome: WatchOutcome;
+  /** ISO-8601 UTC */
+  at: string;
+  /** why it failed, when it did. null otherwise. */
+  detail: string | null;
+}
+
+export interface WatchStatus {
+  enabled: boolean;
+  /** The watched folder's OWN NAME - its last path segment, never a path.
+   *
+   *  `D:\\project\\data\\watch-inbox` and `\\\\fileserver\\engineering\\inbox` arrive
+   *  here as "watch-inbox" and "inbox". The route used to publish the full
+   *  host path; under AUTH_MODE=disabled every caller reads as unrestricted,
+   *  so the admin gate alone did not hold and the value itself was narrowed.
+   *
+   *  Still null for a non-admin caller, and null when the configured value has
+   *  no final segment. A screen renders nothing in its place - and must not
+   *  word it as though a location were being shown. */
+  folder_name: string | null;
+  /** ISO-8601 UTC, or null when no scan has run. */
+  last_scan_at: string | null;
+  interval_seconds: number | null;
+  /** Did the MOST RECENT scan find the folder readable?
+   *
+   *  null means no scan has completed yet - never false, which would assert a
+   *  failure nobody has observed. Back to null when the feature is turned off.
+   *  A screen must render NOTHING for null: "unknown" is a claim of its own. */
+  reachable: boolean | null;
+  /** A short sentence about the most recent SCAN-LEVEL failure - the folder is
+   *  missing, or unreadable. null when the last scan was fine.
+   *
+   *  A single corrupt PDF is a per-file `failed` event in `recent` and does not
+   *  set this. Built from the exception class, never from OS error text, so it
+   *  carries no host path and is safe to show a non-admin caller. */
+  last_error: string | null;
+  /** the newest ten, newest first */
+  recent: WatchEvent[];
 }
 
 export type Result<T> =
@@ -176,6 +236,34 @@ export const analysis = {
     }),
 };
 
+// The market preview/search contract now lives in contracts/types.ts, which
+// this file's own header calls the single source of truth. It was declared
+// HERE, and that is exactly how the drift happened: the backend renamed
+// `payload` to `payloads`, `tsc` passed, all 23 panel tests passed, and the
+// confirmation dialog rendered `undefined` in the one place the whole panel
+// exists to fill. Re-exported so existing imports keep working.
+export type {
+  ClassificationVocabulary,
+  ClassificationCoverage,
+  ClassificationScope,
+  ClassificationSource,
+  ClassificationUpdate,
+  DocumentClassification,
+  AppliedScope,
+  CoverageByType,
+  SubjectRow,
+} from "../types/api";
+
+export type {
+  MarketProviderLabel,
+  MarketOutboundPayload,
+  MarketPreviewPayload,
+  MarketPreview,
+  MarketRow,
+  MarketSearchRequest,
+  MarketSearchResult,
+} from "../types/api";
+
 export const market = {
   findings: () => request<MarketFindings>("/market/findings"),
   /** Builds the object that WOULD be sent. Nothing is sent. */
@@ -185,6 +273,77 @@ export const market = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  /** The exact outbound payloads, one per tier, and the scrubbed phrase. NO
+   *  egress, so this is safe to call on every preview.
+   *
+   *  THE SCOPE FIELDS ARE PASSED, and they have to be. `country` and
+   *  `freshness_days` appear in every payload a search sends, so a preview
+   *  called without them returns payloads that differ from what would leave -
+   *  which is how the panel ended up disclosing them on a separate line
+   *  attributed to itself. Sent here, the backend's own payloads carry them
+   *  and the dialog needs no footnote. */
+  preview: (phrase: string, scope?: { country?: string | null; freshness_days?: number | null }) => {
+    const params = new URLSearchParams({ phrase });
+    if (scope?.country != null) params.set("country", scope.country);
+    if (scope?.freshness_days != null) {
+      params.set("freshness_days", String(scope.freshness_days));
+    }
+    return request<MarketPreview>(`/market/preview?${params.toString()}`);
+  },
+  /** THE ONLY CALL IN THIS MODULE THAT CAN LEAVE THE MACHINE. It must be
+   *  reachable from an explicit click and from nothing else - no debounce, no
+   *  submit-on-enter, no blur handler.
+   *
+   *  Guarded on `rows` like the other list-bearing reads: a body without it
+   *  becomes an ordinary ApiError, so the panel renders its own failure state
+   *  rather than crashing at the map or, worse, rendering nothing and leaving
+   *  stale rows on screen. */
+  search: (body: MarketSearchRequest) =>
+    request<MarketSearchResult>(
+      "/market/search",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      hasArrayField("rows"),
+    ),
+};
+
+/* ------------------------------------------------------------ classification
+ *
+ * Four calls. Two reads that every screen shares, one read per document, and
+ * the one write - which the backend gates on the ADMIN capability and answers
+ * 404, not 403, to anyone else. A wrong type misroutes searches for everyone,
+ * not just for the person who set it, so it needs a role that answers for
+ * everyone. `backend/app/main.py::put_document_classification`.
+ */
+export const classification = {
+  /** The filter vocabulary. `types` comes from the register, so a component
+   *  MUST render this list rather than a hardcoded three. */
+  vocabulary: () =>
+    request<ClassificationVocabulary>("/classification/vocabulary"),
+  /** Counts per axis, scoped. This is how a screen gets per-type counts
+   *  WITHOUT asking each document its type: one request, no N+1. */
+  coverage: () => request<ClassificationCoverage>("/classification/coverage"),
+  /** One document's classification. In scope but never classified is a 200
+   *  with every field null - not a 404. Null means "awaiting a type". */
+  ofDocument: (id: string) =>
+    request<DocumentClassification>(
+      `/documents/${encodeURIComponent(id)}/classification`,
+    ),
+  /** CONFIRM or CHANGE. Admin only; a non-admin gets a 404 that says nothing
+   *  about whether the document exists. Callers must therefore treat 404
+   *  here as "you may not do this", not as "gone". */
+  confirm: (id: string, body: ClassificationUpdate) =>
+    request<DocumentClassification>(
+      `/documents/${encodeURIComponent(id)}/classification`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    ),
 };
 
 export const reports = {
@@ -197,12 +356,156 @@ export const reports = {
     }),
   verify: (id: string) =>
     request<ReportVerification>(`/reports/${encodeURIComponent(id)}/verify`),
-  /** The download is a navigation, not a fetch: the browser saves the file
-   *  under the server-assigned name. The bearer token cannot ride on a plain
-   *  navigation, so this is only reachable under auth_mode=disabled today;
-   *  under demo_required it needs a blob fetch, which stage 2 does not build. */
-  downloadUrl: (id: string) => `${BASE}/reports/${encodeURIComponent(id)}/download`,
+  /** Fetch the report PDF as bytes, with the bearer token on the request.
+   *
+   *  This replaces a `window.open(downloadUrl(id))` navigation. A navigation
+   *  carries no Authorization header, and the token is in memory only (see
+   *  the note on `token`), so under auth_mode=demo_required the download
+   *  resolved to an empty scope and the backend answered 404 - telling the
+   *  reader that a report listed on that same screen did not exist. The old
+   *  comment here conceded the path only worked while auth was disabled.
+   *
+   *  The token stays in the Authorization header and is NEVER placed in the
+   *  URL. A URL reaches browser history, proxy and server access logs and
+   *  Referer headers; RAG-INTELLIGENCE-POC-EXECUTION.md rule 6 (line 43)
+ *  forbids secrets in logs.
+   *
+   *  Returns bytes, never a file: writing the file is the caller's job, and
+   *  a failure returns no bytes at all so no empty or truncated PDF can be
+   *  handed to the reader. */
+  download: (id: string): Promise<DownloadResult> =>
+    downloadReport(`/reports/${encodeURIComponent(id)}/download`, `nabaa-report-${id}.pdf`),
 };
+
+/** The outcome of a binary download.
+ *
+ *  Failure is a KIND, not a server-authored sentence. The backend answers 404
+ *  with `{"code":"not_found","message":"no report with that id"}` for a report
+ *  that is merely out of the caller's scope; rendering that message asserts a
+ *  falsehood about the reader's own artefact. The UI branches on the kind and
+ *  writes its own words, and `unavailable` deliberately covers "removed" and
+ *  "not in your scope" together so the screen cannot leak which one it is. */
+export type DownloadFailure =
+  | { kind: "network"; detail: string }
+  | { kind: "unauthenticated" }
+  | { kind: "forbidden" }
+  | { kind: "unavailable" }
+  | { kind: "server"; message: string };
+
+export type DownloadResult =
+  | {
+      ok: true;
+      blob: Blob;
+      /** The name to save under. */
+      filename: string;
+      /** true when the name came from Content-Disposition, false when the
+       *  server sent no usable one and the caller's fallback is in use. */
+      filenameFromServer: boolean;
+    }
+  | { ok: false; failure: DownloadFailure };
+
+/** Pull a filename out of a Content-Disposition header.
+ *
+ *  Handles `filename*=UTF-8''...` (RFC 5987, preferred when present), quoted
+ *  `filename="..."` and bare `filename=...`. Exported for its own test.
+ *
+ *  The result is reduced to a bare name: a server-supplied string reaches an
+ *  anchor's `download` attribute, and path separators there are a directory
+ *  the reader did not choose. */
+export function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const extended = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(header);
+  const quoted = /filename\s*=\s*"([^"]*)"/.exec(header);
+  const bare = /filename\s*=\s*([^;"]+)/.exec(header);
+
+  let raw: string | null = null;
+  if (extended) {
+    try {
+      raw = decodeURIComponent(extended[1]);
+    } catch {
+      raw = null; // a malformed percent-escape is no filename at all
+    }
+  }
+  if (raw === null && quoted) raw = quoted[1];
+  if (raw === null && bare) raw = bare[1];
+  if (raw === null) return null;
+
+  // Basename only, and no control characters.
+  const base = raw.trim().split(/[\\/]/).pop() ?? "";
+  // Control characters and path punctuation cannot survive into a
+  // `download` attribute; anything outside letters, digits and a small
+  // safe set becomes an underscore.
+  const clean = base.trim().replace(/[^\p{L}\p{N}. _()+@-]/gu, "_").trim();
+  if (clean === "" || clean === "." || clean === "..") return null;
+  return clean;
+}
+
+async function downloadReport(path: string, fallback: string): Promise<DownloadResult> {
+  let response: Response;
+  try {
+    const headers = new Headers();
+    // The one place a token is attached on this path - the header, never the
+    // URL. `${BASE}${path}` below is built from the id alone.
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    response = await fetch(`${BASE}${path}`, { headers });
+  } catch (e) {
+    return {
+      ok: false,
+      failure: {
+        kind: "network",
+        detail: e instanceof Error ? e.message : "Network request failed.",
+      },
+    };
+  }
+
+  if (!response.ok) {
+    // A gateway status means nothing served the request - the same condition
+    // as a network failure, and it must read as one. Kept in step with the
+    // JSON path above deliberately.
+    if (GATEWAY_STATUSES.has(response.status)) {
+      return { ok: false, failure: { kind: "network", detail: "Nothing answered on the API port." } };
+    }
+    if (response.status === 401) {
+      // Same side effects as the JSON path: drop the dead token and tell the
+      // app once. No retry - there is no refresh token by design.
+      token = null;
+      onUnauthenticated?.();
+      return { ok: false, failure: { kind: "unauthenticated" } };
+    }
+    if (response.status === 403) return { ok: false, failure: { kind: "forbidden" } };
+    if (response.status === 404) {
+      // The body's message is discarded on purpose. See DownloadFailure.
+      return { ok: false, failure: { kind: "unavailable" } };
+    }
+    return { ok: false, failure: { kind: "server", message: humanMessage(response.status) } };
+  }
+
+  // Reading the body is its own failure point: the status line arrives before
+  // the bytes do, so a connection dropped mid-PDF throws HERE, on a response
+  // that already said 200. Unguarded that becomes a rejected promise and the
+  // reader gets a dead button; guarded it is the same "nothing was saved"
+  // message as any other network failure. A partial read is never returned.
+  let blob: Blob;
+  try {
+    blob = await response.blob();
+  } catch (e) {
+    return {
+      ok: false,
+      failure: {
+        kind: "network",
+        detail: e instanceof Error ? e.message : "The response body could not be read.",
+      },
+    };
+  }
+
+  const served = filenameFromContentDisposition(response.headers.get("Content-Disposition"));
+  return {
+    ok: true,
+    blob,
+    filename: served ?? fallback,
+    filenameFromServer: served !== null,
+  };
+}
 
 export const auth = {
   login: (email: string, password: string) =>
@@ -290,9 +593,12 @@ async function request<T>(
 export const api = {
   health: () => request<Health>("/health"),
   metrics: () => request<Metrics>("/metrics"),
+  /** Whether the watched folder is running, and what it last picked up.
+   *  Guarded like the other list-bearing reads: a body without `recent`
+   *  becomes an ordinary ApiError instead of a crash at the map. */
+  watchStatus: () => request<WatchStatus>("/watch/status", undefined, hasArrayField("recent")),
   documents: () =>
     request<DocumentRecord[]>("/documents", undefined, isArrayBody),
-  document: (id: string) => request<DocumentRecord>(`/documents/${encodeURIComponent(id)}`),
   chunks: (id: string, opts: { limit?: number; offset?: number; retrievable?: string } = {}) => {
     const q = new URLSearchParams();
     if (opts.limit != null) q.set("limit", String(opts.limit));

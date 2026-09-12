@@ -19,15 +19,62 @@ import type { AnalysisResult, DocumentedFinding } from "../../types/analysis";
 
 const CITATION = /\[S(\d+)\]/g;
 
-function chipClass(): string {
-  return "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 align-baseline font-mono text-[11px] leading-none bg-ink-700 text-slateish-300 hover:bg-ink-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400";
+/**
+ * WHY THE MARKER READS "S4" AND NOT "4".
+ *
+ * `[S4]` used to render as a pill containing the bare digit `4`. That was
+ * survivable while the model put its markers at the END of a sentence - the
+ * digit sat after a full stop and nothing followed it. It stopped being
+ * survivable the day the model began writing the marker FIRST:
+ *
+ *   "[S4] mandates that all contract drawings be developed using CADD"
+ *
+ * rendered as "4 mandates that all contract drawings...". The pill was still
+ * there, still a button, still clickable - but a small number pressed against
+ * prose is read as a quantity, not as a citation, and the summary looked like
+ * broken text. It also copies and reads aloud that way: the accessible name
+ * carried "Show source 4" but the TEXT of the run was "4 mandates".
+ *
+ * The renderer was never position-dependent (the regex below has always matched
+ * anywhere in the string), so the position was not the bug. The bug was that
+ * the marker's own glyphs were a number and nothing else. They now carry the
+ * source letter, so no marker can be mistaken for a quantity at any position,
+ * and the pill carries a ring so it is a marked object rather than tinted text.
+ * "30 percent" is prose and stays prose: only a literal `[S<digits>]` becomes a
+ * marker, and a number the model merely wrote is never touched.
+ */
+function markerLabel(n: number): string {
+  return `S${n}`;
 }
 
-/** A citation marker whose index has an evidence id behind it. */
-function Chip({ n, onClick }: { n: number; onClick: () => void }) {
+function chipClass(): string {
+  return "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 align-baseline font-mono text-[11px] leading-none bg-ink-700 text-slateish-300 ring-1 ring-ink-500 hover:bg-ink-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400";
+}
+
+/**
+ * A citation marker whose index has an evidence id behind it.
+ *
+ * `label` exists because the two callers count in DIFFERENT vocabularies and
+ * must not borrow each other's. In generated prose `n` IS the model's own
+ * source number, so the marker reads "S4" and means [S4]. In a documented
+ * finding `n` is a position within THAT finding's `citation_ids` - finding 2's
+ * first citation is "1" and has nothing to do with the summary's [S1] - so it
+ * reads "source 1". Labelling the finding's chips "S1" would assert a number
+ * the API never gave them, next to claim text that may itself contain a real
+ * "[S4]". Neither is ever a bare digit: a lone number pressed against prose is
+ * read as a quantity, which is the defect this file was rewritten for.
+ */
+function Chip({ n, label, onClick }: { n: number; label: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} aria-label={`Show source ${n}`} className={chipClass()}>
-      {n}
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Show source ${n}`}
+      title={`Source ${n}`}
+      data-citation-marker={n}
+      className={chipClass()}
+    >
+      {label}
     </button>
   );
 }
@@ -42,9 +89,10 @@ function DeadChip({ n }: { n: number }) {
     <span
       title="citation not among supplied sources"
       aria-label={`Citation ${n} is not among the supplied sources`}
+      data-citation-marker={n}
       className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 align-baseline font-mono text-[11px] leading-none line-through bg-danger-500/10 text-danger-500 ring-1 ring-danger-500/40"
     >
-      {n}
+      {markerLabel(n)}
     </span>
   );
 }
@@ -69,7 +117,7 @@ export function CitedText({
     const id = evidenceIds[n - 1];
     parts.push(
       id ? (
-        <Chip key={`${match.index}-${n}`} n={n} onClick={() => onCite(id)} />
+        <Chip key={`${match.index}-${n}`} n={n} label={markerLabel(n)} onClick={() => onCite(id)} />
       ) : (
         <DeadChip key={`${match.index}-${n}`} n={n} />
       ),
@@ -94,7 +142,7 @@ function Finding({
       {finding.citation_ids.length > 0 && (
         <span className="ml-1 inline-flex flex-wrap items-baseline">
           {finding.citation_ids.map((id, i) => (
-            <Chip key={id} n={i + 1} onClick={() => onCite(id)} />
+            <Chip key={id} n={i + 1} label={`source ${i + 1}`} onClick={() => onCite(id)} />
           ))}
         </span>
       )}

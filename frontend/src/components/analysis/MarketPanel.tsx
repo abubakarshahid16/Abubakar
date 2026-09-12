@@ -6,7 +6,7 @@
  * WEB_SEARCH_ENABLED=false and ALLOW_PUBLIC_EGRESS=false - so every finding is a
  * sample and says so on every row, and the banner says so above them all.
  *
- * The outbound query (NABAA-SUNDAY-POC-EXECUTION.md section 3, control 9 and
+ * The outbound query (RAG-INTELLIGENCE-POC-EXECUTION.md section 3, control 9 and
  * 16) is built ONLY from the public-market form. Nothing from the documents is
  * used to form it. Before anything could be sent, the EXACT string is shown in
  * a modal and the user confirms - and in this build Confirm is disabled,

@@ -22,6 +22,7 @@ import { useCallback, useState } from "react";
 import { usePoll } from "../hooks/usePoll";
 
 import { api } from "../api/client";
+import type { WatchEvent, WatchStatus } from "../api/client";
 import type { Connection } from "../components/Shell";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
 import { formatAge, presentStatus } from "../components/documentStatus";
@@ -200,6 +201,202 @@ function DocumentProgress({ doc }: { doc: DocumentRecord }) {
   );
 }
 
+/* ── Watched folder ────────────────────────────────────────────────────────
+   The client's team drops PDFs into a folder and the system ingests them.
+   This panel answers one question: is that working, and what did it last do.
+
+   Every value here is optional at the source, and the rule is the same one the
+   rest of this screen obeys - a value the API did not send renders as NOTHING.
+   Not a zero, not a dash, not "N/A". `folder_name` in particular is null for
+   a non-admin caller, and a dash in its place would tell that reader there is
+   no folder when there is one they may not see.                             */
+
+function plural(n: number, word: string): string {
+  return n === 1 ? `1 ${word}` : `${n} ${word}s`;
+}
+
+/** "checks every 5 minutes". Null when the interval is absent or nonsensical,
+ *  because a scan interval of zero is not a fact worth asserting. */
+export function intervalWords(seconds: number | null): string | null {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return null;
+  const say = (n: number, unit: string) =>
+    n === 1 ? `checks every ${unit}` : `checks every ${n} ${unit}s`;
+  if (seconds % 3600 === 0) return say(seconds / 3600, "hour");
+  if (seconds % 60 === 0) return say(seconds / 60, "minute");
+  return say(Math.round(seconds), "second");
+}
+
+/** "2 minutes ago". Null for an absent or unparseable timestamp - a string the
+ *  clock cannot read is not turned into a confident phrase. */
+export function relativeTime(iso: string | null, now: number = Date.now()): string | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return null;
+  const seconds = (now - at) / 1000;
+  // A future timestamp means the two clocks disagree, not that a scan is due.
+  if (seconds < 10) return "just now";
+  if (seconds < 90) return `${Math.round(seconds)} seconds ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 90) return `${plural(minutes, "minute")} ago`;
+  const hours = Math.round(seconds / 3600);
+  if (hours < 36) return `${plural(hours, "hour")} ago`;
+  return `${plural(Math.round(seconds / 86400), "day")} ago`;
+}
+
+/** Colour is never the only signal: every outcome carries its own WORD, and a
+ *  glyph beside it, so the three are told apart with the colour removed. */
+function outcomeStyle(outcome: string): { glyph: string; word: string; tone: string } {
+  if (outcome === "ingested") return { glyph: "+", word: "ingested", tone: "text-signal-400" };
+  if (outcome === "duplicate") return { glyph: "=", word: "duplicate", tone: "text-slateish-300" };
+  if (outcome === "failed") return { glyph: "x", word: "failed", tone: "text-danger-500" };
+  // An outcome this build does not know is reported as it arrived rather than
+  // being folded into one of the three it does.
+  return { glyph: "·", word: outcome, tone: "text-slateish-300" };
+}
+
+function WatchRow({ event }: { event: WatchEvent }) {
+  const style = outcomeStyle(event.outcome);
+  const when = relativeTime(event.at);
+  return (
+    <li className="flex flex-wrap items-baseline gap-2 rounded border border-ink-700 bg-ink-800 px-2 py-1.5 text-xs">
+      <span aria-hidden className={`font-mono ${style.tone}`}>
+        {style.glyph}
+      </span>
+      <span className="font-medium text-slateish-200">{event.filename}</span>
+      <span className={style.tone}>{style.word}</span>
+      {when && (
+        <span className="ml-auto font-mono text-[11px] text-slateish-300" title={event.at}>
+          {when}
+        </span>
+      )}
+      {event.outcome === "failed" && event.detail && (
+        <span className="w-full text-slateish-300">{event.detail}</span>
+      )}
+    </li>
+  );
+}
+
+type WatchState =
+  | { kind: "loading" }
+  | { kind: "ok"; status: WatchStatus }
+  | { kind: "unknown" };
+
+function WatchedFolderPanel() {
+  const [state, setState] = useState<WatchState>({ kind: "loading" });
+
+  const load = useCallback(async () => {
+    const result = await api.watchStatus();
+    // A failed read drops whatever was here. Stale rows presented as current
+    // are the same untruth as an unmeasured number shown as zero.
+    setState(result.ok ? { kind: "ok", status: result.data } : { kind: "unknown" });
+  }, []);
+
+  // The same hook the rest of the app polls with, at its idle cadence: the
+  // folder is scanned once every few minutes, so asking three times a second
+  // while the worker is busy would buy nothing and cost a request each time.
+  usePoll(
+    useCallback(() => {
+      void load();
+    }, [load]),
+    false,
+  );
+
+  // Nothing is known yet, so nothing is said - a heading over an empty box
+  // would imply the panel has an answer it does not have.
+  if (state.kind === "loading") return null;
+
+  if (state.kind === "unknown") {
+    return (
+      <Section title="Watched folder">
+        <p className="text-sm text-slateish-300">
+          The watched folder could not be read, so its status is unknown.
+        </p>
+      </Section>
+    );
+  }
+
+  const status = state.status;
+
+  // Off is a normal state, not a fault. No warning colour, no error card.
+  if (!status.enabled) {
+    return (
+      <Section title="Watched folder">
+        <p className="text-sm text-slateish-300">The watched folder is not configured.</p>
+      </Section>
+    );
+  }
+
+  const interval = intervalWords(status.interval_seconds);
+  const lastScan = relativeTime(status.last_scan_at);
+
+  return (
+    <Section
+      title="Watched folder"
+      hint="Documents dropped into this folder are ingested without anyone uploading them."
+    >
+      <div className="rounded-lg border border-ink-700 bg-ink-850 p-3">
+        {/* Reachability is rendered in ONE direction only.
+            false is the state that matters at a client site - a share
+            unmounted, a VPN dropped, permissions revoked - and it is written
+            in the present tense so it cannot be read as one more past event
+            in the list below. true says nothing at all: a panel that reports
+            OK on every poll is a panel people stop reading, and silence is
+            the honest rendering of normal. null says nothing either - no scan
+            has finished, and the interval already tells the reader one is
+            coming. `last_error` appears only inside this branch, so it can
+            never be shown without the framing that explains it. */}
+        {status.reachable === false && (
+          <p
+            role="alert"
+            className="mb-2 rounded border border-danger-500/50 bg-danger-500/10 px-2 py-1.5 text-xs"
+          >
+            <span className="font-medium text-danger-500">
+              The folder is not being read right now.
+            </span>
+            {status.last_error && (
+              <span className="ml-1 text-slateish-300">{status.last_error}</span>
+            )}
+          </p>
+        )}
+
+        {/* The NAME of the folder, which is all the API has: the host path was
+            removed from the route, not merely gated. So the line names the
+            folder rather than saying where it is - "watch-inbox" beside a
+            label reading like a path would have the reader believe they are
+            being shown a truncated one. No title or aria-label carries a path
+            either; there is none to carry. */}
+        {status.folder_name ? (
+          <p className="text-xs text-slateish-300">
+            watching a folder named{" "}
+            <span className="break-all font-mono text-slateish-200">{status.folder_name}</span>
+          </p>
+        ) : null}
+
+        {(interval || lastScan) && (
+          <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slateish-300">
+            {interval && <span>{interval}</span>}
+            {lastScan && (
+              <span title={status.last_scan_at ?? undefined}>last checked {lastScan}</span>
+            )}
+          </p>
+        )}
+
+        {status.recent.length === 0 ? (
+          <p className="mt-2 text-sm text-slateish-300">
+            Nothing has arrived in the folder yet.
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-1">
+            {status.recent.map((event, i) => (
+              <WatchRow key={`${event.at}-${event.filename}-${i}`} event={event} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 const STAGE_LABELS: Record<string, string> = {
   extract: "Reading pages",
   chunk: "Splitting into passages",
@@ -324,6 +521,8 @@ export function IngestionView({
           />
         </div>
       </Section>
+
+      <WatchedFolderPanel />
 
       {inProgress.length > 0 && (
         <Section

@@ -317,6 +317,175 @@ class Passage(BaseModel):
     ocr_alphabet_sample: str | None = None
 
 
+# ----------------------------------------------------- classification
+#
+# WHAT A DOCUMENT IS. Not who may read it - `disciplines` and
+# `document_role_access` decide that, and nothing here touches them.
+#
+# Typed because tests/test_no_internal_leaks.py requires every 2xx to declare
+# a schema: an untyped 200 documents itself as `string`, and every frontend
+# type written against it is then a guess.
+
+
+class SubjectRow(BaseModel):
+    id: str
+    name: str
+    kind: Literal["system", "facility", "project_wide"] = Field(
+        description="'project_wide' is a KIND, not a system that happens to "
+                    "be called Project-wide: 18% of the register applies to "
+                    "everything, and those are the documents gap analysis "
+                    "holds as baselines")
+
+
+class ClassificationVocabulary(BaseModel):
+    """The filter vocabulary. NOT SCOPED - the COUNTS are.
+
+    A discipline the caller cannot read stays VISIBLE here. Discipline names
+    are project structure, effectively the client's org chart, and not
+    evidence that any document exists. Hiding one teaches a user the system is
+    broken rather than that they need access; showing it beside a zero count
+    tells them the truth.
+    """
+
+    register_revision: str | None = Field(
+        None, description="null when no register has been imported. The "
+                          "frontend must not compute a percentage against a "
+                          "denominator it was not handed")
+    types: list[str]
+    disciplines: list[str]
+    subjects: list[SubjectRow]
+    needs_classification: int = Field(
+        description="documents IN THIS CALLER'S SCOPE awaiting confirmation. "
+                    "Scoped, unlike the vocabulary: a count is a statement "
+                    "about documents")
+
+
+class DocumentSubject(BaseModel):
+    id: str
+    name: str
+    kind: str
+    suggested_by: str
+    confirmed_by: str | None
+
+
+class DocumentClassification(BaseModel):
+    """One document's classification. EVERY FIELD NULLABLE, and NULLs are real.
+
+    `doc_type`/`discipline` null means nothing matched and nothing was
+    guessed. `confirmed_by` null means SUGGESTED, NOT CONFIRMED - which is
+    the state the needs-classification queue is built from.
+    """
+
+    document_id: str
+    doc_type: str | None
+    discipline: str | None
+    doc_class: str | None = Field(
+        None, description="P&ID, DATASHEET, SLD... A CHIP ONLY. Measured: 88% "
+                          "derivable and nobody searches by it, so it is "
+                          "deliberately not a filter axis")
+    register_id: str | None = Field(
+        None, description="the register row this document IS, or null when it "
+                          "is not in the register at all")
+    suggested_by: str = Field(
+        description="'register' | 'pattern' | 'none' - WHICH TIER produced "
+                    "the value. Kept after confirmation: an admin confirming "
+                    "what the register already said is a different fact from "
+                    "an admin confirming a guess")
+    confirmed_by: str | None
+    confirmed_at: str | None
+    confirmed: bool
+    subjects: list[DocumentSubject]
+
+
+class ClassificationUpdate(BaseModel):
+    """An administrator's decision. THE ADMIN CAPABILITY IS REQUIRED.
+
+    A wrong classification misroutes searches for EVERYONE, not only for the
+    person who set it, so it needs a role that answers for everyone.
+
+    `subject_ids` REPLACES the set rather than merging: an administrator
+    removing a subject must be able to remove it, and merging would leave a
+    document permanently attached to a comparison it does not belong in.
+    """
+
+    doc_type: str | None = None
+    discipline: str | None = None
+    doc_class: str | None = None
+    subject_ids: list[str] = Field(default_factory=list)
+
+
+class CoverageByType(BaseModel):
+    type: str
+    in_register: int | None = Field(
+        None, description="NULL when no register is loaded. A zero "
+                          "denominator invites a percentage; a null cannot be "
+                          "divided by")
+    uploaded: int
+    unconfirmed: int
+
+
+class CoverageByDiscipline(BaseModel):
+    discipline: str
+    in_register: int | None
+    uploaded: int
+    unconfirmed: int
+
+
+class CoverageBySubject(BaseModel):
+    subject: str
+    kind: str
+    uploaded: int
+    disciplines_spanned: int = Field(
+        description="the measurement that made subject the comparison axis - "
+                    "5.5 on average across the register - reported per "
+                    "subject so a reader sees it on their own corpus")
+
+
+class ClassificationCoverage(BaseModel):
+    register_loaded: bool
+    register_revision: str | None
+    by_type: list[CoverageByType]
+    by_discipline: list[CoverageByDiscipline]
+    by_subject: list[CoverageBySubject]
+    needs_classification: int
+    corpus_wide: bool = Field(
+        description="whether these counts are the WHOLE corpus or only what "
+                    "this caller may read. The screen must say which")
+
+
+class ClassificationScope(BaseModel):
+    """An OPTIONAL classification filter. Absent means today's behaviour.
+
+    IT MAY ONLY EVER NARROW. Applied by intersecting with the caller's
+    `allowed_document_ids` before retrieval runs, so a filter naming a subject
+    whose documents the caller may not read yields nothing rather than a leak -
+    and yields it without saying whether any such document exists.
+    """
+
+    types: list[str] = Field(default_factory=list)
+    disciplines: list[str] = Field(default_factory=list)
+    subject_ids: list[str] = Field(default_factory=list)
+
+
+class AppliedScope(BaseModel):
+    """The filter that WAS applied, echoed on every response.
+
+    Echoed rather than assumed, so the frontend can print "Searched: ..." on
+    an answer and a report can print the same line. A reader who cannot see
+    which slice of the corpus was searched cannot judge an absence: "no
+    evidence" and "no evidence in the three documents you filtered to" are
+    different findings.
+    """
+
+    applied: bool
+    types: list[str] = Field(default_factory=list)
+    disciplines: list[str] = Field(default_factory=list)
+    subject_ids: list[str] = Field(default_factory=list)
+    documents_in_scope: int = Field(
+        description="how many documents the search could actually reach after "
+                    "the filter and the caller's own grants were intersected")
+
+
 class SearchResult(BaseModel):
     query: str
     mode: Literal["hybrid", "keyword_only"] = Field(
@@ -329,6 +498,12 @@ class SearchResult(BaseModel):
     seconds: float
     timings: dict[str, float]
     hits: list[Passage]
+    #: THE FILTER THAT WAS APPLIED, echoed so a reader can judge an absence.
+    #: "no evidence" and "no evidence in the slice you filtered to" are
+    #: different findings, and a screen that cannot tell them apart will show
+    #: the first when it means the second. Optional so a response predating
+    #: the filter still validates.
+    applied_scope: AppliedScope | None = None
 
 
 AnswerType = Literal[
@@ -571,6 +746,10 @@ class AnalysisSummary(BaseModel):
         description="sentences removed from the prose, with why. A sentence "
         "carrying a number no cited span contains is DROPPED, not flagged")
     not_implemented_sections: list[str]
+    #: THE FILTER THAT WAS APPLIED. Echoed so a reader can judge an
+    #: absence and a report can print the same line: "no gap" and "no
+    #: gap among the documents you filtered to" are different findings.
+    applied_scope: AppliedScope | None = None
 
 
 class ClaimClusterOut(BaseModel):
@@ -615,6 +794,10 @@ class AnalysisGaps(BaseModel):
     claim_clusters: list[ClaimClusterOut]
     gaps: GapAnalysisOut
     not_implemented_sections: list[str]
+    #: THE FILTER THAT WAS APPLIED. Echoed so a reader can judge an
+    #: absence and a report can print the same line: "no gap" and "no
+    #: gap among the documents you filtered to" are different findings.
+    applied_scope: AppliedScope | None = None
 
 
 class ConfidenceCheckOut(BaseModel):
@@ -639,6 +822,10 @@ class AnalysisRecommendation(BaseModel):
         None, description="null is not an empty recommendation")
     public_market_findings: list[MarketFinding]
     not_implemented_sections: list[str]
+    #: THE FILTER THAT WAS APPLIED. Echoed so a reader can judge an
+    #: absence and a report can print the same line: "no gap" and "no
+    #: gap among the documents you filtered to" are different findings.
+    applied_scope: AppliedScope | None = None
 
 
 class AnalysisRequest(BaseModel):
@@ -647,6 +834,12 @@ class AnalysisRequest(BaseModel):
     baseline_document_id: str | None = Field(
         None, description="the caller's choice of authoritative document. "
         "Never chosen by the system")
+    #: OPTIONAL. Absent means today's behaviour, byte for byte. Present, it is
+    #: intersected with the caller's own grants BEFORE retrieval, so it can
+    #: only ever narrow. An object here rather than repeated query params
+    #: because these are POST bodies and an object is the natural shape;
+    #: `/api/search` is a GET and uses repeated params instead.
+    scope: ClassificationScope | None = None
 
 
 class MarketFinding(BaseModel):
@@ -1018,7 +1211,7 @@ class Metrics(BaseModel):
     retrieval: RetrievalLatency | None = Field(
         None, description="null until a question has actually been asked"
     )
-    system: SystemMetrics
+    system: SystemMetrics | None = None
     models: ModelStatus
     worker: WorkerStatus
     warnings: list[MetricWarning]

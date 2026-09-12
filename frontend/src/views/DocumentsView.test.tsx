@@ -1,10 +1,18 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
 import type { Health } from "../api/client";
-import type { ChunkRecord, DocumentRecord, ExclusionsResponse } from "../types/api";
+import type { Connection } from "../components/Shell";
+import { DocumentsView } from "./DocumentsView";
+import type {
+  ChunkRecord,
+  ClassificationCoverage,
+  ClassificationVocabulary,
+  DocumentClassification,
+  DocumentRecord,
+  ExclusionsResponse,
+} from "../types/api";
 
 const fullWorker = {
   alive: true,
@@ -42,6 +50,7 @@ function makeDoc(over: Partial<DocumentRecord> = {}): DocumentRecord {
     pages_done: 546,
     chunk_count: 1096,
     chunk_count_total: 1110,
+    disciplines: [],
     embedded_count: 1096,
     status: "ready",
     needs_ocr_pages: 12,
@@ -102,55 +111,137 @@ const exclusions: ExclusionsResponse = {
   ],
 };
 
+// -------------------------------------------------------- classification
+
+/** The vocabulary every test gets unless it overrides one. One type is
+ *  enough for the pre-existing tests, which never look at grouping. */
+const defaultVocabulary: ClassificationVocabulary = {
+  register_revision: "r1",
+  types: ["Document"],
+  disciplines: ["Civil"],
+  subjects: [],
+  needs_classification: 0,
+};
+
+const defaultCoverage: ClassificationCoverage = {
+  register_loaded: true,
+  register_revision: "r1",
+  by_type: [{ type: "Document", in_register: 1, uploaded: 1, unconfirmed: 0 }],
+  by_discipline: [],
+  by_subject: [],
+  needs_classification: 0,
+  corpus_wide: false,
+};
+
+/** What `/documents/{id}/classification` answers when a test does not care:
+ *  a confirmed "Document", so the default corpus renders one plain chip
+ *  rather than every test having to think about classification at all. */
+function defaultClassification(id: string): DocumentClassification {
+  return {
+    document_id: id,
+    doc_type: "Document",
+    discipline: null,
+    doc_class: null,
+    register_id: null,
+    suggested_by: "register",
+    confirmed_by: "admin@example.com",
+    confirmed_at: "2026-09-01T00:00:00Z",
+    confirmed: true,
+    subjects: [],
+  };
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return Promise.resolve(
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+}
+
 function mockApi(docs: DocumentRecord[], over: Record<string, unknown> = {}) {
-  const spy = vi.fn((input: RequestInfo | URL) => {
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    const body = (() => {
-      if (url.includes("/health")) return over.health ?? health;
-      // The worker DETAIL now comes from the scoped metrics route, not from
-      // health - so a test about the worker has to mock metrics.
-      if (url.includes("/metrics")) return over.metrics ?? { worker: fullWorker };
-      if (url.includes("/excluded")) return over.excluded ?? exclusions;
-      if (url.includes("/chunks")) {
-        const wantExcluded = url.includes("retrievable=false");
-        return {
-          total_matching: 1,
-          limit: 25,
-          offset: 0,
-          chunks: [wantExcluded ? excludedChunk : chunk],
-        };
+    const method = init?.method ?? "GET";
+
+    if (url.includes("/auth/me")) {
+      return jsonResponse({ required: false, user: null });
+    }
+    if (url.includes("/health")) return jsonResponse(over.health ?? health);
+    // The worker DETAIL now comes from the scoped metrics route, not from
+    // health - so a test about the worker has to mock metrics.
+    if (url.includes("/metrics")) return jsonResponse(over.metrics ?? { worker: fullWorker });
+    if (url.includes("/excluded")) return jsonResponse(over.excluded ?? exclusions);
+    if (url.includes("/chunks")) {
+      const wantExcluded = url.includes("retrievable=false");
+      return jsonResponse({
+        total_matching: 1,
+        limit: 25,
+        offset: 0,
+        chunks: [wantExcluded ? excludedChunk : chunk],
+      });
+    }
+    if (url.includes("/pages")) {
+      return jsonResponse({
+        total: 1,
+        limit: 100,
+        offset: 0,
+        pages: [
+          {
+            page_no: 1,
+            char_count: 1200,
+            needs_ocr: false,
+            equation_heavy: false,
+            batch_no: 0,
+            preview: "…",
+          },
+        ],
+      });
+    }
+
+    if (url.includes("/classification/vocabulary")) {
+      return jsonResponse(over.vocabulary ?? defaultVocabulary);
+    }
+    if (url.includes("/classification/coverage")) {
+      return jsonResponse(over.coverage ?? defaultCoverage);
+    }
+    const perDocMatch = url.match(/\/documents\/([^/]+)\/classification/);
+    if (perDocMatch) {
+      const id = decodeURIComponent(perDocMatch[1]);
+      const byId = over.classificationById as Record<string, DocumentClassification> | undefined;
+      if (method === "PUT") {
+        // over.confirmStatus, when set, forces the write to fail with that
+        // status - used to test the "you may not do this" 404 path.
+        const forcedStatus = over.confirmStatus as number | undefined;
+        if (forcedStatus && forcedStatus !== 200) {
+          return jsonResponse(
+            { detail: { code: "not_found", message: "Not found." } },
+            forcedStatus,
+          );
+        }
+        const posted = init?.body ? JSON.parse(init.body as string) : {};
+        const base = byId?.[id] ?? defaultClassification(id);
+        return jsonResponse({
+          ...base,
+          doc_type: posted.doc_type ?? base.doc_type,
+          confirmed: true,
+          confirmed_by: "tester@example.com",
+          confirmed_at: "2026-09-07T00:00:00Z",
+        } satisfies DocumentClassification);
       }
-      if (url.includes("/pages")) {
-        return {
-          total: 1,
-          limit: 100,
-          offset: 0,
-          pages: [
-            {
-              page_no: 1,
-              char_count: 1200,
-              needs_ocr: false,
-              equation_heavy: false,
-              batch_no: 0,
-              preview: "…",
-            },
-          ],
-        };
-      }
-      return docs;
-    })();
-    return Promise.resolve(
-      new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+      return jsonResponse(byId?.[id] ?? defaultClassification(id));
+    }
+
+    return jsonResponse(docs);
   });
-  vi.stubGlobal("fetch", spy);
   return spy;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("B2 documents list", () => {
   it("shows the live ingestion progress line and does not say ready mid-embed", async () => {
@@ -160,12 +251,13 @@ describe("B2 documents list", () => {
         page_count: 1204,
         chunk_count: 2831,
         chunk_count_total: 2900,
+        disciplines: [],
         embedded_count: 340,
         status: "partially_searchable",
         indexed_at: null,
       }),
     ]);
-    render(<App />);
+    renderDocuments();
 
     const line = await screen.findByText(/1,204 pages/);
     expect(line).toHaveTextContent("2,831 passages");
@@ -184,6 +276,7 @@ describe("B2 documents list", () => {
         needs_ocr_pages: 3,
         chunk_count: 0,
         chunk_count_total: 0,
+        disciplines: [],
         embedded_count: 0,
         status: "no_searchable_content",
         error: {
@@ -192,7 +285,7 @@ describe("B2 documents list", () => {
         },
       }),
     ]);
-    render(<App />);
+    renderDocuments();
 
     expect(await screen.findByText("no searchable content")).toBeInTheDocument();
     const alert = screen.getByRole("alert");
@@ -202,7 +295,7 @@ describe("B2 documents list", () => {
 
   it("warns prominently when the retrievable ratio is under 60%", async () => {
     mockApi([makeDoc({ chunk_count: 400, chunk_count_total: 1000, embedded_count: 400 })]);
-    render(<App />);
+    renderDocuments();
 
     expect(await screen.findByText(/Only 40% of this document is searchable/i)).toBeInTheDocument();
     expect(screen.getByText(/quality gate may be over-rejecting/i)).toBeInTheDocument();
@@ -211,14 +304,14 @@ describe("B2 documents list", () => {
 
   it("does not warn when the ratio is healthy", async () => {
     mockApi([makeDoc()]);
-    render(<App />);
+    renderDocuments();
     await screen.findByText(/book1-professionalpractices/);
     expect(screen.queryByText(/of this document is searchable/i)).not.toBeInTheDocument();
   });
 
   it("warns only about scanned pages recognition has NOT yet read", async () => {
     mockApi([makeDoc({ needs_ocr_pages: 12, recognised_pages: 0, equation_pages: 11 })]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText("12 awaiting OCR")).toBeInTheDocument();
     expect(screen.getByText("11 equation-heavy")).toBeInTheDocument();
   });
@@ -231,7 +324,7 @@ describe("B2 documents list", () => {
     mockApi([
       makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 12 }),
     ]);
-    render(<App />);
+    renderDocuments();
     expect(
       await screen.findByText(/12 of 546 pages\s+read by OCR/),
     ).toBeInTheDocument();
@@ -244,33 +337,36 @@ describe("B2 documents list", () => {
     mockApi([
       makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 5 }),
     ]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText("7 awaiting OCR")).toBeInTheDocument();
     expect(screen.getByText(/5 of 546 pages\s+read by OCR/)).toBeInTheDocument();
   });
 
   it("requires a second click to delete", async () => {
     mockApi([makeDoc()]);
-    const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
-    await user.click(await screen.findByRole("button", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     expect(screen.getByRole("button", { name: /confirm delete/i })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /cancel/i }));
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
     expect(screen.queryByRole("button", { name: /confirm delete/i })).not.toBeInTheDocument();
   });
 
   it("shows an empty state rather than a blank screen", async () => {
     mockApi([]);
-    render(<App />);
+    renderDocuments();
     expect(await screen.findByText(/No documents yet/i)).toBeInTheDocument();
   });
 });
 
 describe("worker panel", () => {
   it("shows a stalled worker with its reasons", async () => {
+    const stalledHealth: Health = {
+      ...health,
+      ingestion: { ...health.ingestion, stalled: true },
+    };
     mockApi([makeDoc()], {
-      health: { ...health, ingestion: { ...health.ingestion, stalled: true } },
+      health: stalledHealth,
       metrics: {
         worker: {
           ...fullWorker,
@@ -281,7 +377,7 @@ describe("worker panel", () => {
         },
       },
     });
-    render(<App />);
+    renderDocuments({ health: stalledHealth });
 
     // The reason code is now a sentence, and the alarm names the situation
     // rather than shouting an internal flag.
@@ -298,7 +394,7 @@ describe("worker panel", () => {
         worker: { ...fullWorker, pending_count: 3, oldest_pending_age_seconds: 42 },
       },
     });
-    render(<App />);
+    renderDocuments();
     await screen.findByText(/Ingestion worker/);
     expect(screen.getByText("3")).toBeInTheDocument();
   });
@@ -307,10 +403,9 @@ describe("worker panel", () => {
 describe("B3 chunk inspector", () => {
   it("opens, shows full chunk detail, and can filter to excluded chunks", async () => {
     mockApi([makeDoc()]);
-    const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
-    await user.click(await screen.findByRole("button", { name: /passages/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /passages/i }));
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByText("1.1 The Pace of Change")).toBeInTheDocument();
@@ -319,7 +414,7 @@ describe("B3 chunk inspector", () => {
     expect(within(dialog).getByText(/experimental cars drive themselves/)).toBeInTheDocument();
     expect(within(dialog).getByText(chunk.id)).toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: "Excluded" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Excluded" }));
     await waitFor(() =>
       expect(within(dialog).getByText(/no_clause\(longest=1<6\)/)).toBeInTheDocument(),
     );
@@ -332,10 +427,9 @@ describe("B3 chunk inspector", () => {
 describe("B4 excluded viewer", () => {
   it("groups by rule so a bulk exclusion is visible at a glance", async () => {
     mockApi([makeDoc()]);
-    const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
-    await user.click(await screen.findByRole("button", { name: "Excluded" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Excluded" }));
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getAllByText("content_quality_gate").length).toBeGreaterThan(0);
@@ -346,28 +440,33 @@ describe("B4 excluded viewer", () => {
 
   it("is reachable in one click from the low-ratio warning", async () => {
     mockApi([makeDoc({ chunk_count: 400, chunk_count_total: 1000 })]);
-    const user = userEvent.setup();
-    render(<App />);
+    renderDocuments();
 
-    await user.click(await screen.findByRole("button", { name: /see what was excluded/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /see what was excluded/i }));
     expect(await screen.findByRole("dialog")).toHaveAccessibleName(/Excluded from search/i);
   });
 });
 
 describe("B5 page image viewer", () => {
   it("shows the rendered page and offers zoom", async () => {
-    mockApi([makeDoc()]);
-    const user = userEvent.setup();
-    render(<App />);
+    const fetchSpy = mockApi([makeDoc()]);
+    renderDocuments();
 
-    await user.click(await screen.findByRole("button", { name: "Pages" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Pages" }));
     const dialog = await screen.findByRole("dialog");
 
     const img = within(dialog).getByRole("img", { name: /Page 1 of/i });
-    expect(img).toHaveAttribute("src", "/api/documents/doc_book1/pages/1/image");
+    // Authenticated images are fetched with the session headers and rendered
+    // through an object URL; a raw API URL in <img src> would omit auth.
+    expect(img.getAttribute("src")).toMatch(/^blob:/);
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        input.toString().includes("/api/documents/doc_book1/pages/1/image"),
+      ),
+    ).toBe(true);
     expect(within(dialog).getByRole("group", { name: /zoom/i })).toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: "200%" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "200%" }));
     expect(within(dialog).getByRole("button", { name: "200%" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -376,11 +475,10 @@ describe("B5 page image viewer", () => {
 
   it("closes on Escape", async () => {
     mockApi([makeDoc()]);
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Pages" }));
+    renderDocuments();
+    fireEvent.click(await screen.findByRole("button", { name: "Pages" }));
     await screen.findByRole("dialog");
-    await user.keyboard("{Escape}");
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
@@ -388,7 +486,12 @@ describe("B5 page image viewer", () => {
 // ------------------------------------------------- excluded pages (FIX 1b)
 
 describe("excluded pages are impossible to miss", () => {
-  it("warns about excluded pages rather than showing a quiet count", async () => {
+  it("states excluded pages in words, with a way to see which, rather than a quiet count", async () => {
+    // Routine exclusions - contents pages, front matter - are stated plainly
+    // and QUIETLY. They used to be wrapped in the same amber block as a
+    // dropped clause, on twelve of thirteen cards, so the one card that
+    // actually mattered looked like all the others. Visible, not alarming;
+    // the alarm is reserved for the test below.
     mockApi([
       makeDoc({
         pages_excluded: 3,
@@ -396,12 +499,14 @@ describe("excluded pages are impossible to miss", () => {
         pages_excluded_with_clause_headings: 0,
       }),
     ]);
-    render(<App />);
-    expect(await screen.findByText(/3 pages excluded from search/i)).toBeInTheDocument();
-    expect(screen.getByText(/9,585 characters are not searchable/i)).toBeInTheDocument();
+    renderDocuments();
+    expect(await screen.findByText(/3 pages left out of search/i)).toBeInTheDocument();
+    expect(screen.getByText(/No numbered clause was among them/i)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /See which pages, and why/i }),
     ).toBeInTheDocument();
+    // And it is NOT an alert: that role is reserved for a dropped clause.
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("escalates to an ALERT when a dropped page carried clause headings", async () => {
@@ -412,7 +517,7 @@ describe("excluded pages are impossible to miss", () => {
         pages_excluded_with_clause_headings: 1,
       }),
     ]);
-    render(<App />);
+    renderDocuments();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/contains? numbered clause headings/i);
     expect(alert).toHaveTextContent(/Real content has almost certainly been dropped/i);
@@ -422,7 +527,7 @@ describe("excluded pages are impossible to miss", () => {
 
   it("says nothing when no page was excluded", async () => {
     mockApi([makeDoc({ pages_excluded: 0, pages_excluded_with_clause_headings: 0 })]);
-    render(<App />);
+    renderDocuments();
     await screen.findByText("book1-professionalpractices.pdf");
     expect(screen.queryByText(/excluded from search/i)).toBeNull();
   });
@@ -442,5 +547,291 @@ describe("a malformed response is an error card, never a white screen", () => {
     expect(
       await screen.findByText(/could not read|That did not work/i),
     ).toBeInTheDocument();
+  });
+});
+
+// -------------------------------------------------- classification grouping
+//
+// App.tsx passes `isAdmin` through to DocumentsView; the admin-only assertions
+// render DocumentsView directly so they can explicitly select that capability.
+
+const onlineConnection: Connection = { state: "online", health, at: Date.now() };
+
+/** `connection.health` is a PROP, not something DocumentsView fetches for
+ *  itself - WorkerPanel reads `connection.health.ingestion` straight off it.
+ *  A test that only overrides `over.health` in `mockApi` and calls
+ *  `renderDocuments()` with no argument changes nothing WorkerPanel can see;
+ *  the override has to reach here too. */
+function renderDocuments(opts: boolean | { isAdmin?: boolean; health?: Health } = {}) {
+  const { isAdmin = false, health: healthOverride } = typeof opts === "boolean" ? { isAdmin: opts } : opts;
+  render(
+    <DocumentsView
+      connection={
+        healthOverride
+          ? { state: "online", health: healthOverride, at: Date.now() }
+          : onlineConnection
+      }
+      onRetryConnection={() => {}}
+      isAdmin={isAdmin}
+      polling={false}
+    />,
+  );
+}
+
+const threeTypeVocabulary: ClassificationVocabulary = {
+  register_revision: "r1",
+  types: ["Document", "Drawing", "Licensor BEP"],
+  disciplines: ["Civil"],
+  subjects: [],
+  needs_classification: 1,
+};
+
+function threeTypeCoverage(over: Partial<Record<string, number>> = {}): ClassificationCoverage {
+  return {
+    register_loaded: true,
+    register_revision: "r1",
+    by_type: [
+      { type: "Document", in_register: 10, uploaded: over.Document ?? 1, unconfirmed: 0 },
+      { type: "Drawing", in_register: 5, uploaded: over.Drawing ?? 1, unconfirmed: 1 },
+      { type: "Licensor BEP", in_register: 2, uploaded: over["Licensor BEP"] ?? 0, unconfirmed: 0 },
+    ],
+    by_discipline: [],
+    by_subject: [],
+    needs_classification: over.needs_classification ?? 1,
+    corpus_wide: false,
+  };
+}
+
+function classificationFor(over: Partial<DocumentClassification>): DocumentClassification {
+  return { ...defaultClassification(over.document_id ?? "doc"), ...over };
+}
+
+describe("documents grouped by classification type", () => {
+  it("groups documents under a heading per register type", async () => {
+    mockApi(
+      [
+        makeDoc({ id: "d1", filename: "spec-one.pdf" }),
+        makeDoc({ id: "d2", filename: "drawing-one.pdf" }),
+      ],
+      {
+        vocabulary: threeTypeVocabulary,
+        coverage: threeTypeCoverage({ needs_classification: 0 }),
+        classificationById: {
+          d1: classificationFor({ document_id: "d1", doc_type: "Document" }),
+          d2: classificationFor({ document_id: "d2", doc_type: "Drawing" }),
+        },
+      },
+    );
+    renderDocuments();
+
+    // NOT /^Document\s/ - the sr-only "Document list" section heading
+    // matches that too ("Document" + a space), and screen.findByRole
+    // returns whichever heading it hits first. The group heading's
+    // aria-label is "Document, N document(s)" - a comma, not a space.
+    // The heading itself renders as soon as the vocabulary answers; its
+    // count comes from the per-document classification fetch, which answers
+    // separately and later. findByRole only waits for the heading to exist,
+    // so the count needs its own wait rather than a synchronous getByText
+    // right after - otherwise this reads the "0" it renders with initially.
+    const documentHeading = await screen.findByRole("heading", { name: /^Document,/ });
+    expect(await within(documentHeading).findByText("1")).toBeInTheDocument();
+    const drawingHeading = await screen.findByRole("heading", { name: /^Drawing,/ });
+    expect(await within(drawingHeading).findByText("1")).toBeInTheDocument();
+
+    expect(screen.getByText("spec-one.pdf")).toBeInTheDocument();
+    expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
+  });
+
+  it("renders a type the register lists but this caller has none of as an honest empty line", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "spec-one.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage({ needs_classification: 0 }),
+      classificationById: { d1: classificationFor({ document_id: "d1", doc_type: "Document" }) },
+    });
+    renderDocuments();
+
+    await screen.findByText("spec-one.pdf");
+    // A group that vanished for having no documents would be indistinguishable
+    // from a group nobody built - this line is the proof the empty group was
+    // still generated.
+    expect(
+      screen.getByText(/None of the documents you can open is a Licensor BEP\./i),
+    ).toBeInTheDocument();
+  });
+
+  it("puts a document with no classification yet in its own awaiting group, never as a guessed type", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "unclassified.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage(),
+      classificationById: {
+        d1: classificationFor({ document_id: "d1", doc_type: null, confirmed: false, suggested_by: "none" }),
+      },
+    });
+    renderDocuments();
+
+    const heading = await screen.findByRole("heading", { name: /Awaiting a type/i });
+    expect(within(heading).getByText("1")).toBeInTheDocument();
+    expect(screen.getByText("unclassified.pdf")).toBeInTheDocument();
+    // Never a guessed type, never "Unknown", never a blank chip. "Awaiting a
+    // type" is not unique on the page - the group heading and its filter
+    // chip say it too - so this checks the card's OWN chip, by testid.
+    expect(screen.queryByText(/^unknown$/i)).toBeNull();
+    expect(await screen.findByTestId("type-chip")).toHaveTextContent(/Awaiting a type/i);
+  });
+
+  it("renders an unconfirmed guess in amber, distinct from a confirmed type", async () => {
+    mockApi(
+      [
+        makeDoc({ id: "d1", filename: "guessed.pdf" }),
+        makeDoc({ id: "d2", filename: "confirmed.pdf" }),
+      ],
+      {
+        vocabulary: threeTypeVocabulary,
+        coverage: threeTypeCoverage(),
+        classificationById: {
+          d1: classificationFor({
+            document_id: "d1",
+            doc_type: "Drawing",
+            confirmed: false,
+            suggested_by: "pattern",
+          }),
+          d2: classificationFor({ document_id: "d2", doc_type: "Document", confirmed: true }),
+        },
+      },
+    );
+    renderDocuments();
+
+    await screen.findByText("guessed.pdf");
+    const guessChip = screen.getByText("Drawing? \u00b7 guessed from the filename and content");
+    expect(guessChip).toBeInTheDocument();
+    expect(guessChip.className).toMatch(/warn-500/);
+
+    // The confirmed document's chip carries NEITHER the amber classes nor a
+    // question mark - the two things that mark a guess.
+    const plainChip = screen.getByText("Document", { selector: "[data-testid=type-chip]" });
+    expect(plainChip.className).not.toMatch(/warn-500/);
+    expect(plainChip.textContent).not.toMatch(/\?/);
+  });
+
+  it("shows no confirm control for a non-admin, only a note that an administrator must act", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "guessed.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage(),
+      classificationById: {
+        d1: classificationFor({
+          document_id: "d1",
+          doc_type: "Drawing",
+          confirmed: false,
+          suggested_by: "pattern",
+        }),
+      },
+    });
+    renderDocuments(false);
+
+    await screen.findByText("guessed.pdf");
+    expect(
+      screen.getByText(/Awaiting confirmation by an administrator/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Confirm$/ })).toBeNull();
+  });
+
+  it("lets an admin confirm a guessed type, updating the card in place", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "guessed.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage(),
+      classificationById: {
+        d1: classificationFor({
+          document_id: "d1",
+          doc_type: "Drawing",
+          confirmed: false,
+          suggested_by: "pattern",
+        }),
+      },
+    });
+    renderDocuments(true);
+
+    await screen.findByText("guessed.pdf");
+    expect(screen.getByRole("button", { name: /^Confirm$/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+
+    // The strip disappears and the chip goes plain once confirmed is true.
+    await waitFor(() =>
+      expect(screen.queryByText(/guessed from the filename and content/i)).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Drawing", { selector: "[data-testid=type-chip]" })).toBeInTheDocument();
+  });
+
+  it("treats a 404 on confirm as a permission refusal, never as the document being gone", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "guessed.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage(),
+      classificationById: {
+        d1: classificationFor({
+          document_id: "d1",
+          doc_type: "Drawing",
+          confirmed: false,
+          suggested_by: "pattern",
+        }),
+      },
+      confirmStatus: 404,
+    });
+    renderDocuments(true);
+
+    await screen.findByText("guessed.pdf");
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+
+    expect(
+      await screen.findByText(/do not have permission to confirm/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/does not exist|not found|gone/i)).toBeNull();
+  });
+
+  it("narrows the list to the ticked type and clears back to everything", async () => {
+    mockApi(
+      [
+        makeDoc({ id: "d1", filename: "spec-one.pdf" }),
+        makeDoc({ id: "d2", filename: "drawing-one.pdf" }),
+      ],
+      {
+        vocabulary: threeTypeVocabulary,
+        coverage: threeTypeCoverage({ needs_classification: 0 }),
+        classificationById: {
+          d1: classificationFor({ document_id: "d1", doc_type: "Document" }),
+          d2: classificationFor({ document_id: "d2", doc_type: "Drawing" }),
+        },
+      },
+    );
+    renderDocuments();
+
+    await screen.findByText("spec-one.pdf");
+    expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /^Drawing/ }));
+    expect(screen.queryByText("spec-one.pdf")).toBeNull();
+    expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
+
+    // Nothing ticked = no filter = show everything again.
+    fireEvent.click(screen.getByRole("checkbox", { name: /^All$/ }));
+    expect(screen.getByText("spec-one.pdf")).toBeInTheDocument();
+    expect(screen.getByText("drawing-one.pdf")).toBeInTheDocument();
+  });
+
+  it("shows the coverage endpoint's own counts on the filter chips, not a locally counted total", async () => {
+    // ONE document of type Drawing is loaded, but coverage claims 37 - a
+    // number that could only have come from the server. If this component
+    // ever starts counting the documents it fetched instead of trusting
+    // coverage, this assertion is the one that catches it.
+    mockApi([makeDoc({ id: "d1", filename: "drawing-one.pdf" })], {
+      vocabulary: threeTypeVocabulary,
+      coverage: threeTypeCoverage({ Drawing: 37, needs_classification: 0 }),
+      classificationById: {
+        d1: classificationFor({ document_id: "d1", doc_type: "Drawing" }),
+      },
+    });
+    renderDocuments();
+
+    const drawingChip = await screen.findByRole("checkbox", { name: /^Drawing/ });
+    expect(within(drawingChip).getByText("37")).toBeInTheDocument();
+    expect(within(drawingChip).queryByText("1")).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import chat as chat_mod
+from . import classification as classification_mod
 from . import chunker as chunk_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
@@ -17,6 +18,8 @@ from . import answer as answer_mod
 from . import search as search_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
+from . import watcher as watcher_mod
+from . import watch_api as watch_api_mod
 from .api_utils import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
@@ -26,6 +29,7 @@ from .api_utils import (
     validate_retrievable,
 )
 from . import access
+from . import admin as admin_mod
 from . import auth as auth_mod
 from . import errors
 from . import analysis as analysis_mod
@@ -50,6 +54,10 @@ async def lifespan(app: FastAPI):
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()
+    # The watched folder is OFF unless WATCH_FOLDER is set in backend/.env.
+    # start_watcher() returns a reason string rather than raising when it does
+    # not start, so a machine with no drop folder boots exactly as before.
+    watcher_mod.start_watcher()
     # Harvest acronym expansions once at startup rather than lazily on the
     # first question. It scans the whole corpus and takes ~2.5s, which is
     # fine here and is not fine added to a 1.3s answer.
@@ -58,6 +66,7 @@ async def lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001 - a missing expansion map is not fatal
         pass
     yield
+    watcher_mod.stop_watcher()
     ingest_mod.stop_worker()
 
 
@@ -78,6 +87,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# The watched-folder status route lives in its own module so this file stays
+# the only place routing is declared, without this file growing a feature.
+app.include_router(watch_api_mod.router)
 
 
 @app.middleware("http")
@@ -143,7 +156,10 @@ def metrics(request: Request,
     recorded; retrieval latency comes from questions actually asked.
     """
     reject_unknown_params(request, set())
-    return metrics_mod.snapshot(ingest_mod.get_worker().status())
+    return metrics_mod.snapshot(
+        ingest_mod.get_worker().status(),
+        host=scope.unrestricted or access.is_admin(scope.user_id),
+    )
 
 
 # --------------------------------------------------------------- documents
@@ -376,6 +392,9 @@ def search(
     document_id: str | None = Query(None),
     rerank: bool = Query(True),
     mode: str = Query("hybrid"),
+    types: list[str] = Query(default_factory=list),
+    disciplines: list[str] = Query(default_factory=list),
+    subject_ids: list[str] = Query(default_factory=list),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Hybrid retrieval: FTS5 + dense vectors fused with RRF, then reranked.
@@ -383,8 +402,23 @@ def search(
     Works keyword-only before any embedding exists and upgrades to hybrid
     automatically as vectors arrive - `mode` in the response says which was
     actually used, rather than the caller having to guess.
+
+    THE CLASSIFICATION FILTER IS OPTIONAL AND MAY ONLY NARROW. Absent, this
+    behaves byte for byte as it did before classification existed. Present,
+    the caller's scope is intersected with the matching documents BEFORE
+    retrieval runs, so a filter naming a subject whose documents they may not
+    read yields nothing rather than a leak.
+
+    REPEATABLE QUERY PARAMS rather than a `scope` object, and this is the one
+    place the shape differs from the analysis routes. `/api/search` is a GET
+    with no request body to put an object in; encoding one into a query
+    string would mean the frontend building JSON into a URL, which is a
+    source of encoding bugs and unreadable logs. `?subject_ids=a&subject_ids=b`
+    is the idiomatic form and stays cacheable.
     """
-    reject_unknown_params(request, {"q", "limit", "document_id", "rerank", "mode"})
+    reject_unknown_params(request, {"q", "limit", "document_id", "rerank",
+                                    "mode", "types", "disciplines",
+                                    "subject_ids"})
     if document_id:
         require_document(document_id, scope)
     if mode not in ("hybrid", "keyword"):
@@ -393,14 +427,18 @@ def search(
             content={"detail": errors.safe_error(
                 errors.INVALID_PARAMETER, "mode must be hybrid or keyword")},
         )
-    return search_mod.search(
+    wanted = _scope_filter(types, disciplines, subject_ids)
+    narrowed, applied = classification_mod.restrict(scope, wanted)
+    result = search_mod.search(
         q,
         limit=limit,
         document_id=document_id,
         rerank=rerank,
         dense=(mode == "hybrid"),
-        allowed_document_ids=scope.allowed_document_ids,
+        # THE INTERSECTION, and the only id set that reaches retrieval.
+        allowed_document_ids=narrowed.allowed_document_ids,
     )
+    return {**result, "applied_scope": _applied(wanted, applied, narrowed)}
 
 
 @app.get("/api/answer", response_model=schemas.AnswerResult,
@@ -579,6 +617,20 @@ def read_progress(progress_id: str):
 # a model being up.
 
 
+def _analysis_scope(body, scope: access.AccessScope):
+    """`(narrowed scope, applied echo)`. The one place analysis narrows.
+
+    Written once and used by all three engines, so a filter cannot apply to
+    the summary and silently not to the gap analysis - which would put two
+    panels on one screen answering about different slices of the corpus.
+    """
+    wanted = _scope_filter(
+        getattr(body.scope, "types", None), getattr(body.scope, "disciplines", None),
+        getattr(body.scope, "subject_ids", None))
+    narrowed, applied = classification_mod.restrict(scope, wanted)
+    return narrowed, _applied(wanted, applied, narrowed)
+
+
 def _analysis_or_503(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
@@ -601,8 +653,10 @@ def analysis_summary(body: schemas.AnalysisRequest,
     cites, is DROPPED and reported in `dropped_sentences` - never rendered with
     a warning beside it, because the number would still be on screen.
     """
-    return _analysis_or_503(analysis_mod.summary, body.question, scope,
-                            limit=body.limit)
+    narrowed, echo = _analysis_scope(body, scope)
+    result = _analysis_or_503(analysis_mod.summary, body.question, narrowed,
+                              limit=body.limit)
+    return {**result, "applied_scope": echo}
 
 
 @app.post("/api/analysis/recommendations",
@@ -612,9 +666,11 @@ def analysis_recommendations(
         body: schemas.AnalysisRequest,
         scope: access.AccessScope = Depends(access.current_scope)):
     """One advisory recommendation and the checks behind its confidence."""
-    return _analysis_or_503(
-        analysis_mod.recommendation, body.question, scope, limit=body.limit,
+    narrowed, echo = _analysis_scope(body, scope)
+    result = _analysis_or_503(
+        analysis_mod.recommendation, body.question, narrowed, limit=body.limit,
         baseline_document_id=body.baseline_document_id)
+    return {**result, "applied_scope": echo}
 
 
 @app.post("/api/analysis/gaps", response_model=schemas.AnalysisGaps,
@@ -631,8 +687,132 @@ def analysis_gaps(body: schemas.AnalysisRequest,
         # Through require_document, so an id the caller may not read is 404 and
         # is indistinguishable from one that does not exist.
         require_document(body.baseline_document_id, scope)
-    return analysis_mod.gaps(body.question, scope, limit=body.limit,
-                             baseline_document_id=body.baseline_document_id)
+    # THE BASELINE IS CHECKED AGAINST THE CALLER'S OWN SCOPE, above, and not
+    # against the narrowed one. A caller may nominate a baseline they may read
+    # and then filter the comparison to a subject that baseline is not in;
+    # refusing that would make the filter silently reject a legitimate
+    # baseline, which reads as the baseline being wrong.
+    narrowed, echo = _analysis_scope(body, scope)
+    result = analysis_mod.gaps(body.question, narrowed, limit=body.limit,
+                               baseline_document_id=body.baseline_document_id)
+    return {**result, "applied_scope": echo}
+
+
+# ------------------------------------------------------- classification
+#
+# WHAT A DOCUMENT IS. Not who may read it. Every route here is scoped like
+# every other, and the classification tables are never joined to the access
+# tables - see classification.py and
+# tests/test_classification_independence.py.
+#
+# WHO MAY DO WHAT, and the split is deliberate:
+#   * use the filter, see the vocabulary, see scoped counts - EVERY user. The
+#     Process engineer filtering IS the feature.
+#   * suggest at upload - whoever uploads.
+#   * CONFIRM or CHANGE - the admin capability, because a wrong
+#     classification misroutes searches for everyone rather than only for the
+#     person who set it.
+
+
+def _scope_filter(types, disciplines, subject_ids) -> classification_mod.ScopeFilter:
+    return classification_mod.ScopeFilter(
+        types=tuple(types or ()), disciplines=tuple(disciplines or ()),
+        subject_ids=tuple(subject_ids or ()))
+
+
+def _applied(wanted: classification_mod.ScopeFilter, applied: bool,
+             narrowed: access.AccessScope) -> dict:
+    """The echo. Says what was applied and how much was reachable after it."""
+    return {
+        "applied": applied,
+        **wanted.as_api(),
+        "documents_in_scope": len(narrowed.allowed_document_ids),
+    }
+
+
+@app.get("/api/classification/vocabulary",
+         response_model=schemas.ClassificationVocabulary)
+def classification_vocabulary(
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The filter vocabulary, plus this caller's needs-classification count.
+
+    THE VOCABULARY IS NOT SCOPED AND THE COUNT IS. A discipline the caller
+    cannot read stays listed: discipline names are project structure, not
+    evidence that a document exists, and hiding one teaches a user the system
+    is broken rather than that they need access. The count is a statement
+    about documents, so it is bounded by what they may read.
+    """
+    reject_unknown_params(request, set())
+    return {**classification_mod.vocabulary(),
+            "needs_classification":
+                classification_mod.needs_classification(scope)}
+
+
+@app.get("/api/classification/coverage",
+         response_model=schemas.ClassificationCoverage)
+def classification_coverage(
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Counts per axis, scoped, with `in_register` NULL when none is loaded."""
+    reject_unknown_params(request, set())
+    return classification_mod.coverage(scope)
+
+
+@app.get("/api/documents/{document_id}/classification",
+         response_model=schemas.DocumentClassification,
+         responses={**schemas.ERRORS_404})
+def get_document_classification(
+    document_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """404 outside the caller's scope - the same answer every read path gives,
+    and the reason they are 404 rather than 403: a 403 confirms the document
+    exists."""
+    require_document(document_id, scope)
+    row = classification_mod.of_document(document_id)
+    if row is None:
+        # In scope but never classified. An empty, honest record rather than a
+        # 404: the document exists and the caller may read it, and "not
+        # classified yet" is the answer.
+        return {"document_id": document_id, "doc_type": None,
+                "discipline": None, "doc_class": None, "register_id": None,
+                "suggested_by": classification_mod.SOURCE_NONE,
+                "confirmed_by": None, "confirmed_at": None,
+                "confirmed": False, "subjects": []}
+    return {**row, "document_id": document_id}
+
+
+@app.put("/api/documents/{document_id}/classification",
+         response_model=schemas.DocumentClassification,
+         responses={**schemas.ERRORS_404})
+def put_document_classification(
+    document_id: str,
+    body: schemas.ClassificationUpdate,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """CONFIRM or CHANGE a classification. THE ADMIN CAPABILITY IS REQUIRED.
+
+    A wrong classification misroutes searches for EVERYONE, not only for the
+    person who set it, so this needs a role that answers for everyone.
+    `admin_mod.current_admin` is the same gate the admin surface uses and
+    answers 404 rather than 403 to a non-admin - saying nothing about whether
+    the document exists.
+
+    The document must ALSO be in the caller's scope. An administrator holds
+    every grant in practice, but the check is not skipped on that basis: the
+    two questions are separate and this route asks both.
+    """
+    require_document(document_id, scope)
+    classification_mod.confirm(
+        document_id, doc_type=body.doc_type, discipline=body.discipline,
+        doc_class=body.doc_class, subject_ids=body.subject_ids,
+        confirmed_by=(actor or {}).get("id"))
+    row = classification_mod.of_document(document_id) or {}
+    return {**row, "document_id": document_id}
 
 
 # ----------------------------------------------------------------- market

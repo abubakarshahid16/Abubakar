@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
+from . import classification
 from .config import settings
 from .db import connect
 from .errors import redact
@@ -134,6 +135,24 @@ def ingest(src: BinaryIO, raw_filename: str) -> tuple[sqlite3.Row, str | None, s
         )
 
     row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    # Classification is a synchronous metadata suggestion. It never confirms
+    # a type; it only seeds the review queue while extraction runs separately.
+    try:
+        import fitz
+        reader = fitz.open(str(final_path))
+        first_page = reader[0].get_text() if reader.page_count else ""
+        reader.close()
+        revision = classification.register_revision()
+        suggestion = classification.suggest(filename, first_page or "", revision)
+        classification.write_suggestion(
+            doc_id,
+            suggestion,
+            suggested_by=next(iter(suggestion.source.values()), classification.SOURCE_NONE),
+        )
+    except Exception:
+        # A malformed or scanned PDF still enters the queue; classification is
+        # advisory and must never make an otherwise valid upload disappear.
+        pass
     return row, job_id, None
 
 

@@ -353,7 +353,7 @@ def warnings() -> list[dict]:
     return out
 
 
-def snapshot(worker_status: dict) -> dict:
+def snapshot(worker_status: dict, *, host: bool = True) -> dict:
     return {
         "at": _now(),
         "refresh_seconds": 15,
@@ -362,7 +362,7 @@ def snapshot(worker_status: dict) -> dict:
         "jobs": jobs(),
         "throughput": telemetry.throughput(),
         "retrieval": telemetry.retrieval_latency(),
-        "system": system(),
+        "system": system() if host else None,
         "models": models(),
         "worker": worker_status,
         "warnings": warnings(),

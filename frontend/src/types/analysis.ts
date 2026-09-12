@@ -5,7 +5,7 @@
  * matching interface into contracts/types.ts and delete it here; a field that
  * exists in one place and not the other is silently invisible to the UI.
  *
- * Shapes follow NABAA-SUNDAY-POC-EXECUTION.md section 7.2 and the design docs
+ * Shapes follow RAG-INTELLIGENCE-POC-EXECUTION.md section 7.2 and the design docs
  * in docs/design-*.md. Where the two disagree, the design docs win, because they
  * were written against the code: e.g. confidence is never "high", complete is
  * never true, and counts are null when unmeasured rather than 0.

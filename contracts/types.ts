@@ -33,6 +33,14 @@ export interface DocumentRecord {
   chunk_count: number;
   /** every chunk row, including ones kept only for inspection */
   chunk_count_total: number;
+  /** The disciplines this document is granted to - its CATEGORY, as the
+   *  access model defines it (plan line 1010: discipline IS the grant). An
+   *  empty list is meaningful and must render as such: the document is held by
+   *  no discipline and only an administrator can read it - "general", in the
+   *  owner's words. Never a placeholder for an empty list. Required, not
+   *  optional, so a missing field is a contract error rather than a silent
+   *  "uncategorised". */
+  disciplines?: string[];
   /** how many retrievable chunks have vectors so far */
   embedded_count: number;
   status: DocStatus;
@@ -60,10 +68,24 @@ export interface DocumentRecord {
 }
 
 export interface UploadAccepted {
-  document: DocumentRecord | null;
+  /** ABSENT when the bytes duplicate a document this caller may not read
+   *  (#79). `ingest` dedupes by sha256 and returns the EXISTING row, so
+   *  returning it would disclose that document's filename, status and page
+   *  count to someone with no grant for it - and suppressing `duplicate_of`
+   *  alone would move the leak here rather than close it. Render the
+   *  `awaiting_grant` message when this is missing; never a placeholder
+   *  record. */
+  document?: DocumentRecord;
   job_id: string;
-  duplicate_of: string | null; // set when sha256 already exists; no job started
-  awaiting_grant: boolean;
+  /** Set when sha256 already exists and no job started - and null when the
+   *  caller may not read that document. The id is derived from the content
+   *  hash, so stating it would confirm the content as well as the existence. */
+  duplicate_of: string | null;
+  /** The upload was accepted and there is nothing for this caller to see
+   *  until an administrator grants it. About the CALLER's request, never
+   *  about the corpus: it does not distinguish a duplicate from anything
+   *  else, so it is not an existence oracle. */
+  awaiting_grant?: boolean;
 }
 
 /** DELETE /api/documents/{id}
@@ -599,6 +621,12 @@ export interface AnalysisRequest {
   /** The caller's choice of authoritative document. Never chosen by the
    *  system. */
   baseline_document_id?: string | null;
+  /** OPTIONAL, AND MAY ONLY NARROW. Absent or empty, every analysis route
+   *  behaves exactly as it did before classification existed. Present, the
+   *  caller's access scope is INTERSECTED with the matching documents, so a
+   *  filter naming a type whose documents they may not read returns nothing
+   *  rather than leaking one. `backend/app/main.py::_analysis_scope`. */
+  scope?: ClassificationScope | null;
 }
 
 // ------------------------------------------------------------------- market
@@ -654,6 +682,142 @@ export interface MarketQueryPreview {
   would_be_sent_to: null;
   sent: false;
   reason: string;
+}
+
+// ------------------------------- live public-market intelligence (flag off)
+//
+// THESE LIVE HERE, not in api/client.ts, and the reason is a defect that
+// already happened. They were declared inside the frontend client, so there
+// was no single source of truth for this contract - and when the backend
+// renamed `payload` to `payloads`, `tsc` passed, all 23 panel tests passed,
+// and the confirmation dialog rendered `undefined` where the outbound payload
+// must appear. The tests mocked the backend using the frontend's own
+// interface, so they proved the panel agreed with itself.
+//
+// The authority is backend/app/schemas.py: MarketPreview, MarketSearchResult,
+// MarketRow, MarketPreviewPayload, MarketOutboundPayload. Change one, change
+// both, in the same commit.
+
+/** Which kind of source a row came from.
+ *
+ *  A CLOSED set, and the row's own words - never derived from the url, the
+ *  publisher or anything else the UI can see. A reference row that reached a
+ *  compliance screen wearing a market-search label is the defect this type
+ *  exists to make impossible, so there is no fallback member and no optional
+ *  marker: a row without one does not type-check. */
+export type MarketProviderLabel =
+  | "market search"
+  | "published literature"
+  | "reference - background only"
+  /** The labelled fixtures served while live egress is off. Its OWN label
+   *  rather than a borrowed one: samples were once labelled
+   *  "reference - background only", which made the panel print "this row is
+   *  not a market finding" over rows that are illustrative MARKET rows. Both
+   *  sentences were true of a sample and the provenance was still wrong -
+   *  no tier produced these, which is the point of them. */
+  | "sample - illustrative only";
+
+/** THE OBJECT THAT WOULD LEAVE THIS MACHINE, for one tier.
+ *
+ *  A CLOSED shape whose closure is load-bearing rather than tidy: everything
+ *  in it is sent, so a field added here is a field added to what leaves.
+ *  There is deliberately nothing that could carry a passage - no `context`,
+ *  no `evidence`, no `surrounding_text`. */
+export interface MarketOutboundPayload {
+  /** The scrubbed phrase, and the ONLY free text that leaves the machine. */
+  phrase: string;
+  tier: string;
+  provider_label: string;
+  country: string | null;
+  freshness_days: number | null;
+}
+
+export interface MarketPreviewPayload {
+  tier: string;
+  provider_label: string;
+  payload: MarketOutboundPayload;
+}
+
+/** What WOULD be sent, per tier. This route performs NO egress and is safe to
+ *  call on every keystroke.
+ *
+ *  `payloads` IS A LIST, one entry per CONFIGURED tier, in attempt order,
+ *  BECAUSE THAT IS WHAT ACTUALLY LEAVES. A single payload could not be
+ *  honest: a search builds one per tier, so showing one meant the user
+ *  approved an object that was never sent while up to three others were.
+ *  Render every entry, or the dialog is back to implying that one of them is
+ *  the whole request.
+ *
+ *  `phrase` null means nothing safe survived and NO SEARCH IS POSSIBLE - not
+ *  "send the raw text instead". A UI that falls back to the typed string here
+ *  has broken the only guarantee that matters. */
+export interface MarketPreview {
+  phrase: string | null;
+  payloads: MarketPreviewPayload[];
+  /** Tiers this build could attempt, in order. Empty is a real state. */
+  tiers_configured: string[];
+  /** Tiers that cannot run here. Reported SEPARATELY from configured and from
+   *  `tiers_attempted`, because nothing is ever sent to them - so a UI must
+   *  not say one was "tried". */
+  tiers_unconfigured: string[];
+  /** tier id -> label. Sent so the UI never keeps its own copy of this
+   *  mapping, which is how a reader ends up seeing "web" on one line and
+   *  "market search" on the next. */
+  tier_labels: Record<string, string>;
+}
+
+export interface MarketSearchRequest {
+  phrase: string;
+  country?: string | null;
+  freshness_days?: number | null;
+}
+
+/** One public finding, or one labelled sample.
+ *
+ *  `published` is nullable and a null must render as NOTHING - not a dash, not
+ *  "N/A", and never today's date, which would date an undated page.
+ *  `retrieved` is when this machine fetched it and is always present. */
+export interface MarketRow {
+  text: string;
+  provider_label: MarketProviderLabel;
+  publisher: string;
+  published: string | null;
+  retrieved: string;
+  url: string;
+  /** The backend's own word for whether the page behind the row was read.
+   *  Render as sent when it is not a word this build knows. */
+  verification: string;
+  /** true for the labelled fixtures served when the feature is off. */
+  is_sample: boolean;
+}
+
+/** The outcome of a search. FOUR states, and they mean different things.
+ *
+ *   - `enabled` false with a `phrase`: the feature is off and `rows` are the
+ *     labelled samples;
+ *   - `enabled` true with `phrase` null: nothing safe survived the scrub, so
+ *     no search was attempted. NOT a failure - the same state the preview
+ *     reports, so both screens can use one form of words;
+ *   - `failure` non-null: tiers were attempted and EVERY ONE failed. `rows` is
+ *     empty and samples are never substituted - a fixture served after a
+ *     failed live search is the one behaviour that turns this feature into a
+ *     liability;
+ *   - otherwise `rows` are real, and an empty `rows` is a real answer.
+ *
+ *  `tiers_attempted` against `tiers_answered` is what makes a dropped tier
+ *  visible. Unconfigured tiers are in NEITHER: nothing was sent to them. */
+export interface MarketSearchResult {
+  enabled: boolean;
+  phrase: string | null;
+  rows: MarketRow[];
+  /** Tiers actually CONTACTED. Never includes an unconfigured tier, so
+   *  "tried and did not answer" stays a true sentence. */
+  tiers_attempted: string[];
+  tiers_answered: string[];
+  tiers_unconfigured: string[];
+  tier_labels: Record<string, string>;
+  /** Set ONLY when every attempted tier failed. */
+  failure: string | null;
 }
 
 // ------------------------------------------------------------------ reports
@@ -938,6 +1102,11 @@ export interface MetricWarning {
 export interface Metrics {
   at: string;
   refresh_seconds: number;
+  /** True when `corpus` and `exclusions` count the WHOLE corpus rather than
+   *  only the documents this caller may read. An admin gets corpus-wide
+   *  figures; everyone else gets their own. The screen MUST say which it is
+   *  showing - a count with no stated boundary reads as total. */
+  corpus_wide?: boolean;
   corpus: CorpusMetrics;
   exclusions: ExclusionSummary[];
   jobs: JobMetrics;
@@ -945,7 +1114,28 @@ export interface Metrics {
   throughput: Record<string, StageThroughput | null>;
   /** null until a question has actually been asked */
   retrieval: RetrievalLatency | null;
-  system: SystemMetrics;
+  /** The machine's own CPU, memory and disk. WITHHELD from any caller without
+   *  the admin capability (#77) - host specifications are not a document, so
+   *  document scoping could never have removed them.
+   *
+   *  `null`, not merely absent, and that is measured rather than assumed. The
+   *  route declares `system: SystemMetrics | None` and sets no
+   *  `response_model_exclude_none`, so Pydantic serialises `"system": null`
+   *  even where the handler's dict omits the key - see the comment in
+   *  backend/tests/test_metrics_host_telemetry.py, which explains why buying
+   *  true key-absence was rejected: it would also strip `retrieval`,
+   *  `cpu_percent_since_last_call`, `disk_percent` and `ollama_error`, every
+   *  one of which the dashboard reads with an explicit null check and renders
+   *  as "not measured yet".
+   *
+   *  This type said `SystemMetrics | undefined` and so could not describe the
+   *  response the backend actually sends. Optional AND nullable: absent and
+   *  null both mean withheld, and the renderer must treat them alike.
+   *
+   *  Render the block only when it is present and non-null; NEVER substitute
+   *  zeros for a withheld block, which would state measurements that are
+   *  false. */
+  system?: SystemMetrics | null;
   models: ModelStatus;
   worker: WorkerStatus;
   warnings: MetricWarning[];
@@ -996,3 +1186,145 @@ export type Loadable<T> =
   | { state: "error"; error: ApiError }
   | { state: "disconnected" }
   | { state: "ready"; data: T };
+
+
+/* ============================================================ classification
+ *
+ * THREE TYPES, ONE DISCIPLINE AXIS, AND A FILTER THAT CAN ONLY NARROW.
+ *
+ * Mirrors `backend/app/schemas.py` field for field. The market panel taught
+ * this file's lesson the expensive way: the backend renamed `payload` to
+ * `payloads`, tsc passed, 23 tests passed, and the one dialog the feature
+ * exists for rendered `undefined`. So these names are copied from the Python,
+ * not invented here, and a rename on either side must break the build.
+ *
+ * CLASSIFICATION IS NOT ACCESS CONTROL. `DocumentClassification.discipline`
+ * says what a document IS ABOUT. The grants in `Document.disciplines` say who
+ * MAY READ IT. They are different tables and the second one is the only one
+ * that decides anything. See `backend/app/classification.py`.
+ */
+
+/** A subject row from the register. Carried because the backend sends it;
+ *  the current screens deliberately do not surface subjects. */
+export interface SubjectRow {
+  id: string;
+  name: string;
+  kind: "system" | "facility" | "project_wide";
+}
+
+export interface ClassificationVocabulary {
+  /** Null when no register has been loaded. NOT a version number to display
+   *  as "v1" - it is whatever revision string the register carried. */
+  register_revision: string | null;
+  /** The three document types, in the register's own order. NEVER hardcode
+   *  this list in a component: a register with different types must not
+   *  render a filter for types that do not exist. */
+  types: string[];
+  disciplines: string[];
+  subjects: SubjectRow[];
+  /** Documents this caller can read that have no confirmed classification.
+   *  SCOPED - it is a statement about documents. The vocabulary above is not
+   *  scoped, because a discipline name is project structure, not evidence
+   *  that a document exists. */
+  needs_classification: number;
+}
+
+export interface DocumentSubject {
+  id: string;
+  name: string;
+  kind: string;
+  suggested_by: string;
+  confirmed_by: string | null;
+}
+
+/** How a classification got there. These names are copied from the Python
+ *  (`SOURCE_REGISTER` / `SOURCE_PATTERN` / `SOURCE_NONE`, `classification.py`),
+ *  not invented here, so a rename on either side must break the build.
+ *  `register` is a title match against the client's own register and is the
+ *  only tier that is client-authoritative; `pattern` is a filename/content
+ *  guess and must render AS a guess until a person confirms it. `none` means
+ *  nothing suggested anything. */
+export type ClassificationSource = "register" | "pattern" | "none";
+
+export interface DocumentClassification {
+  document_id: string;
+  /** NULL IS AN ANSWER, not a missing value: "nothing has classified this
+   *  document". It renders as "awaiting a type", never as a guessed type and
+   *  never as an empty chip. */
+  doc_type: string | null;
+  discipline: string | null;
+  doc_class: string | null;
+  register_id: string | null;
+  suggested_by: ClassificationSource;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  /** THE ONLY FIELD THAT LICENSES A PLAIN CHIP. False means a human has not
+   *  agreed with the machine yet. */
+  confirmed: boolean;
+  subjects: DocumentSubject[];
+}
+
+export interface ClassificationUpdate {
+  doc_type?: string | null;
+  discipline?: string | null;
+  doc_class?: string | null;
+  subject_ids?: string[];
+}
+
+export interface CoverageByType {
+  type: string;
+  /** NULL when no register is loaded. Null renders as nothing - never as 0,
+   *  which would read as "the register says none exist". */
+  in_register: number | null;
+  uploaded: number;
+  unconfirmed: number;
+}
+
+export interface CoverageByDiscipline {
+  discipline: string;
+  in_register: number | null;
+  uploaded: number;
+  unconfirmed: number;
+}
+
+export interface CoverageBySubject {
+  subject: string;
+  kind: string;
+  uploaded: number;
+  disciplines_spanned: number;
+}
+
+export interface ClassificationCoverage {
+  register_loaded: boolean;
+  register_revision: string | null;
+  by_type: CoverageByType[];
+  by_discipline: CoverageByDiscipline[];
+  by_subject: CoverageBySubject[];
+  needs_classification: number;
+  /** True only for a caller holding the admin capability. When true the
+   *  counts cover every document; when false they cover this caller's
+   *  grants. A count with no stated boundary reads as total, so the screen
+   *  showing these MUST say which it is. */
+  corpus_wide: boolean;
+}
+
+/** What the caller asks to be narrowed to. EMPTY ARRAYS MEAN "DO NOT FILTER"
+ *  on that axis - not "match nothing". */
+export interface ClassificationScope {
+  types?: string[];
+  disciplines?: string[];
+  subject_ids?: string[];
+}
+
+/** What the backend actually applied, echoed back. The screen renders the
+ *  count from HERE and never from its own arithmetic: the frontend does not
+ *  know the intersection with the caller's grants, and a locally computed
+ *  "62 of 96" was wrong in exactly the direction that hides a missing
+ *  document. */
+export interface AppliedScope {
+  applied: boolean;
+  types: string[];
+  disciplines: string[];
+  subject_ids: string[];
+  documents_in_scope: number;
+}

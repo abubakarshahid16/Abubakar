@@ -60,6 +60,22 @@ class AccessScope:
     #: or a test can assert which kind of scope it is holding rather than
     #: inferring it from the size of the id set.
     unrestricted: bool = False
+    @property
+    def capabilities(self) -> frozenset[str]:
+        """Compatibility view used by older callers; document grants remain authoritative."""
+        if self.unrestricted:
+            return frozenset({"admin"})
+        if not self.user_id:
+            return frozenset()
+        row = connect().execute(
+            """SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id
+               WHERE ur.user_id = ?""", (self.user_id,)
+        ).fetchall()
+        return frozenset(str(r["name"]) for r in row)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.unrestricted or "admin" in self.capabilities
     def may_read(self, document_id: str) -> bool:
         return document_id in self.allowed_document_ids
 
@@ -142,6 +158,17 @@ def upload_admin_role(user_id: str) -> tuple[str, bool]:
     return str(role["id"]), held is not None
 
 
+def is_admin(user_id: str | None) -> bool:
+    if not user_id:
+        return False
+    with connect() as conn:
+        return conn.execute(
+            """SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+               WHERE ur.user_id = ? AND r.name = 'admin' LIMIT 1""",
+            (user_id,),
+        ).fetchone() is not None
+
+
 def grant_uploaded_document_to_admin(
     document_id: str, admin_role_id: str, actor_user_id: str
 ) -> None:
@@ -154,6 +181,27 @@ def grant_uploaded_document_to_admin(
                VALUES (?, ?, 'read', ?, ?)""",
             (document_id, admin_role_id, now, actor_user_id),
         )
+
+
+def grant_uploaded_document_to_owner(document_id: str, owner_user_id: str) -> list[str]:
+    """Grant a watched upload to the owner's existing roles plus admin."""
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    with connect() as conn:
+        roles = conn.execute(
+            "SELECT role_id FROM user_roles WHERE user_id = ?", (owner_user_id,)
+        ).fetchall()
+        admin = conn.execute("SELECT id FROM roles WHERE name = 'admin'").fetchone()
+        role_ids = [r["role_id"] for r in roles]
+        if admin is not None and admin["id"] not in role_ids:
+            role_ids.append(admin["id"])
+        for role_id in role_ids:
+            conn.execute(
+                """INSERT OR IGNORE INTO document_role_access
+                   (document_id, role_id, permission, granted_at, granted_by)
+                   VALUES (?, ?, 'read', ?, ?)""",
+                (document_id, role_id, now, owner_user_id),
+            )
+    return [str(role_id) for role_id in role_ids]
 
 
 # --------------------------------------------------------------- the hook

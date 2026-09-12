@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS roles (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'general',
     created_at  TEXT NOT NULL
 );
 
@@ -317,6 +318,42 @@ CREATE TABLE IF NOT EXISTS stage_runs (
 
 CREATE INDEX IF NOT EXISTS idx_stage_runs_stage ON stage_runs(stage, id DESC);
 
+-- What the watched drop folder actually did, one row per file per decision.
+--
+-- The folder is the only ingestion path with NO HUMAN AT THE OTHER END. A
+-- manual upload reports its outcome to the person who pressed the button; a
+-- file dropped into a share reports to nobody, so a document that was seen and
+-- refused is indistinguishable from one that was never dropped unless the
+-- refusal is written down. That is what this table is for, and it is why
+-- 'duplicate' and 'failed' are recorded as loudly as 'ingested'.
+--
+-- `outcome` is CHECKed rather than left free text: the three values are the
+-- whole vocabulary, and a fourth spelling invented at a call site would be a
+-- status the status endpoint cannot count.
+--
+-- `document_id` is nullable and carries NO FOREIGN KEY, for two reasons that
+-- point the same way. A 'failed' or 'duplicate'-of-nothing event has no
+-- document to reference, and an event whose document is later deleted must
+-- survive that deletion - a record of what arrived that disappears with what
+-- arrived is not a record. `detail` is response-safe text only, the same rule
+-- audit_events keeps: never document content.
+CREATE TABLE IF NOT EXISTS watch_events (
+    id          INTEGER PRIMARY KEY,
+    filename    TEXT NOT NULL,
+    source_path TEXT NOT NULL,
+    -- The hash the decision was made on. EMPTY STRING means the file could not
+    -- be read far enough to hash it - the one case where NOT NULL and "we do
+    -- not know" collide, and it is spelled out in `detail` on every such row
+    -- rather than left for a reader to infer from a blank column.
+    sha256      TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    outcome     TEXT NOT NULL CHECK(outcome IN ('ingested','duplicate','failed')),
+    document_id TEXT NULL,
+    detail      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_events_observed ON watch_events(observed_at DESC);
+
 CREATE TABLE IF NOT EXISTS conversations (
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL,
@@ -346,6 +383,136 @@ CREATE TABLE IF NOT EXISTS messages (
     UNIQUE (conversation_id, ordinal)
 );
 
+-- ==================================================== classification
+--
+-- WHAT A DOCUMENT IS. Not who may read it.
+--
+-- THE SEPARATION IS THE POINT AND IT IS STRUCTURAL. `disciplines` and
+-- `document_role_access` decide WHO MAY READ a document, and nothing in this
+-- section touches them: no foreign key into them, no column added to them, no
+-- shared row. A classification says what a document is ABOUT; an access grant
+-- says who is allowed to see it. They answer different questions and a
+-- filter built on this may only ever NARROW what a caller already may read -
+-- intersection, never union.
+--
+-- The reason to be this explicit is that the two look similar in a schema
+-- diagram. `document_classification.discipline` and a discipline ROLE carry
+-- the same 24 strings, and the temptation to make one a foreign key to the
+-- other is real. It would be wrong: the register's "Process (AXENS)" is a
+-- fact about a deliverable, and the Process role is a permission held by
+-- people. Joining them would mean reclassifying a document silently
+-- regranted it.
+--
+-- WHY subject IS THE COMPARISON AXIS, measured against the client's register:
+-- subject terms cover 82% of 1,354 titles, and a subject spans 5.5
+-- disciplines on average with 18 of 22 systems spanning three or more. A
+-- discipline says who WROTE a document; a subject says what it is ABOUT, and
+-- comparison happens along subject.
+
+-- The client's Engineering Deliverables register, as imported. THE OFFICIAL
+-- LIST, and authoritative for type and discipline: when a title matches a row
+-- here, the classification is the client's own rather than this system's
+-- guess.
+--
+-- Kept per revision rather than replaced, so a re-issued register does not
+-- silently rewrite what earlier documents were classified against.
+CREATE TABLE IF NOT EXISTS deliverables_register (
+    id                TEXT PRIMARY KEY,
+    -- 'Document' | 'Drawing' | 'LicensorFinalBEP'. Not a CHECK constraint:
+    -- the importer refuses a fourth value outright, with a message naming it,
+    -- which is a better error than a constraint violation - and a future
+    -- register revision that legitimately adds a type should fail in the
+    -- importer where a human reads the output, not in SQLite.
+    doc_type          TEXT NOT NULL,
+    -- THE VENDOR STAYS INSIDE THE LABEL, exactly as the register writes it:
+    -- "Process (AXENS)". Measured decision: vendor is not its own axis
+    -- because it is already inside the discipline string, and splitting it
+    -- would create two sources of truth for one field.
+    discipline        TEXT NOT NULL,
+    -- Extracted from the label for display only, never for filtering. NULL
+    -- for the majority of rows, which name no vendor.
+    vendor            TEXT,
+    title             TEXT NOT NULL,
+    register_revision TEXT NOT NULL,
+    imported_at       TEXT NOT NULL,
+    UNIQUE (register_revision, doc_type, discipline, title)
+);
+
+-- The subject vocabulary, DERIVED from the register titles rather than
+-- invented. ~25 systems, 6 facilities, plus one explicit 'project_wide'.
+--
+-- 'project_wide' is a KIND, not a system that happens to be named
+-- "Project-wide". 18% of the register is philosophies, design criteria and
+-- overall block diagrams that apply to everything, and those are exactly the
+-- documents gap analysis should hold as baselines - so the kind is queryable
+-- rather than being a string a caller has to know to match.
+CREATE TABLE IF NOT EXISTS subjects (
+    id                TEXT PRIMARY KEY,
+    name              TEXT NOT NULL,
+    kind              TEXT NOT NULL CHECK (kind IN ('system', 'facility', 'project_wide')),
+    register_revision TEXT NOT NULL,
+    UNIQUE (register_revision, name)
+);
+
+-- One row per classified document. EVERY CLASSIFICATION FIELD IS NULLABLE and
+-- the NULLs are real answers:
+--
+--   * doc_type / discipline NULL -> nothing matched and nothing was guessed.
+--     A discipline inferred from one word in a filename is worse than no
+--     discipline, because it routes searches confidently to the wrong place.
+--   * register_id NULL -> this document is not in the register (an uploaded
+--     working document, a vendor drawing that never made the list).
+--   * confirmed_by NULL -> SUGGESTED, NOT CONFIRMED. This is the state the
+--     needs-classification queue is built from, so it has its own index: the
+--     UI asks "what still needs a human" on every load.
+--
+-- `suggested_by` is 'register' | 'pattern' | 'none' - WHICH TIER produced the
+-- value, kept per row so a reader can tell a client-authoritative
+-- classification from a filename pattern match. A confirmed row keeps it:
+-- knowing an admin confirmed something the register already said is
+-- different from knowing they confirmed a guess.
+CREATE TABLE IF NOT EXISTS document_classification (
+    document_id   TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+    doc_type      TEXT,
+    discipline    TEXT,
+    -- P&ID, DATASHEET, SLD, PHILOSOPHY... A CHIP ONLY. Measured: 88%
+    -- derivable and nobody searches by it, so it is recorded and displayed
+    -- and is deliberately NOT a filter axis.
+    doc_class     TEXT,
+    register_id   TEXT REFERENCES deliverables_register(id) ON DELETE SET NULL,
+    suggested_by  TEXT NOT NULL,
+    confirmed_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+    confirmed_at  TEXT
+);
+
+-- MANY-TO-MANY ON PURPOSE. A firewater layout for the substation has two
+-- subjects, and forcing a single one would lose the link that makes
+-- comparison work: the document would appear under firewater OR under
+-- substation, and a reader comparing either would be handed an incomplete
+-- set without being told.
+CREATE TABLE IF NOT EXISTS document_subjects (
+    document_id  TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    subject_id   TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+    suggested_by TEXT NOT NULL,
+    confirmed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    PRIMARY KEY (document_id, subject_id)
+);
+
+-- The needs-classification queue, which the UI reads on every load, so it is
+-- an index rather than a scan of the whole table.
+CREATE INDEX IF NOT EXISTS idx_classification_unconfirmed
+    ON document_classification(confirmed_by, document_id);
+CREATE INDEX IF NOT EXISTS idx_classification_discipline
+    ON document_classification(discipline);
+CREATE INDEX IF NOT EXISTS idx_classification_type
+    ON document_classification(doc_type);
+CREATE INDEX IF NOT EXISTS idx_document_subjects_subject
+    ON document_subjects(subject_id, document_id);
+CREATE INDEX IF NOT EXISTS idx_register_revision
+    ON deliverables_register(register_revision, discipline);
+CREATE INDEX IF NOT EXISTS idx_subjects_revision
+    ON subjects(register_revision, kind);
+
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
 
@@ -374,6 +541,9 @@ def connect() -> sqlite3.Connection:
 def _migrate(conn: sqlite3.Connection) -> None:
     """Additive column migrations for databases created by an earlier build."""
     have = {r["name"] for r in conn.execute("PRAGMA table_info(chunks)")}
+    roles = {r["name"] for r in conn.execute("PRAGMA table_info(roles)")}
+    if roles and "kind" not in roles:
+        conn.execute("ALTER TABLE roles ADD COLUMN kind TEXT NOT NULL DEFAULT 'general'")
     if have and "retrievable" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN retrievable INTEGER NOT NULL DEFAULT 1")
     if have and "quality_flags" not in have:

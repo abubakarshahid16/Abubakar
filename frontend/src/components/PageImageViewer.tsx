@@ -26,6 +26,7 @@ export function PageImageViewer({
   const [selected, setSelected] = useState(1);
   const [zoom, setZoom] = useState<number>(1);
   const [imageLoading, setImageLoading] = useState(true);
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [state, setState] = useState<
     { s: "loading" } | { s: "error"; error: ApiError; disconnected: boolean } | { s: "ready" }
   >({ s: "loading" });
@@ -46,6 +47,22 @@ export function PageImageViewer({
   }, [load]);
 
   useEffect(() => setImageLoading(true), [selected, zoom]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const url = api.pageImageUrl(doc.id, selected);
+    setImageSrc(null);
+    void fetch(url, { credentials: "include" })
+      .then((r) => {
+        if (!r.ok) throw new Error("image request failed");
+        return r.blob();
+      })
+      .then((blob) => {
+        if (!cancelled) setImageSrc(URL.createObjectURL(blob));
+      })
+      .catch(() => { if (!cancelled) setImageSrc(null); });
+    return () => { cancelled = true; };
+  }, [doc.id, selected]);
 
   const current = pages.find((p) => p.page_no === selected);
   const total = doc.page_count ?? pages.length;
@@ -142,7 +159,7 @@ export function PageImageViewer({
             {imageLoading && <Spinner label={`Rendering page ${selected}`} />}
             <img
               key={`${doc.id}-${selected}`}
-              src={api.pageImageUrl(doc.id, selected)}
+              src={imageSrc ?? ""}
               alt={`Page ${selected} of ${doc.filename}`}
               onLoad={() => setImageLoading(false)}
               onError={() => setImageLoading(false)}
