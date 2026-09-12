@@ -30,6 +30,7 @@ from . import passages as passages_mod
 from . import telemetry
 from . import search as search_mod
 from .config import settings
+from .db import connect
 from .rates import Timer
 
 #: System prompt variant B, measured at 122 net tokens. Kept short because at
@@ -97,6 +98,11 @@ _CITATION = re.compile(r"\[S(\d+)\]")
 #: at the very end of the text. Anchored to the end on purpose - a bare "["
 #: mid-sentence is ordinary prose and must survive.
 _HALF_CITATION = re.compile(r"\s*\[S?\d*$")
+_DOCUMENT_COUNT = re.compile(
+    r"\b(?:how many|number of|count of)\s+(?:documents?|files?)\b|"
+    r"\b(?:documents?|files?)\s+(?:are|were)\s+(?:uploaded|loaded|in the corpus)\b",
+    re.IGNORECASE,
+)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -462,6 +468,33 @@ def answer(
     for why a call site with no scope has to say so out loud.
     """
     timer = Timer()
+
+    # Aggregate application metadata is not document evidence. Answer this
+    # narrow, non-sensitive statistic directly from the caller's scope rather
+    # than retrieving unrelated passages and refusing a question the system
+    # itself can answer. The scope filter prevents revealing hidden documents.
+    if _DOCUMENT_COUNT.search(question or ""):
+        count = 0
+        if allowed_document_ids:
+            placeholders = ",".join("?" for _ in allowed_document_ids)
+            count = connect().execute(
+                f"SELECT COUNT(*) FROM documents WHERE id IN ({placeholders})",
+                tuple(allowed_document_ids),
+            ).fetchone()[0]
+        return {
+            "question": question,
+            "retrieval_mode": "metadata",
+            "reranked": False,
+            "timings": {},
+            "candidates_considered": 0,
+            "answer_type": "metadata",
+            "answer": f"There are {count} uploaded document{'' if count == 1 else 's'} in your accessible corpus.",
+            "reason": "application statistic, not document evidence",
+            "input_kind": "metadata_statistic",
+            "examples": [],
+            "passages": [],
+            "seconds": timer.seconds(),
+        }
 
     # Classified BEFORE retrieval. A greeting is not a failed question, and
     # answering "hi" with a refusal plus three unrelated passages misrepresents

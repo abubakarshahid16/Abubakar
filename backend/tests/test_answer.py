@@ -78,6 +78,18 @@ def test_no_span_is_invented_when_nothing_matches():
 # ------------------------------------------------------------------ tier 1
 
 
+def test_document_count_is_answered_as_scoped_metadata():
+    client = TestClient(app)
+    first = upload(client)
+    result = answer.answer(
+        "how many documents are uploaded?",
+        allowed_document_ids=frozenset({first}),
+    )
+    assert result["answer_type"] == "metadata"
+    assert result["answer"] == "There are 1 uploaded document in your accessible corpus."
+    assert result["passages"] == []
+
+
 def test_tier_one_quotes_verbatim_and_never_generates():
     client = TestClient(app)
     upload(client)
