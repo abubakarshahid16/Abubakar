@@ -37,7 +37,7 @@ huggingface_hub==1.30.0
 httpx==0.28.1
 
 # Tests
-pytest==8.4.2
+pytest==9.1.1
 pytest-asyncio==1.4.0
 
 # OCR for scanned pages - RapidOCR on the SAME onnxruntime pinned above.
