@@ -347,7 +347,7 @@ export function Shell({
             </div>
             <div className="flex items-baseline justify-between gap-2">
               <dt>Market data</dt>
-              <dd className="text-warn-500">sample only</dd>
+              <dd className="text-warn-500">sample until searched</dd>
             </div>
             <div className="flex items-baseline justify-between gap-2">
               <dt>Reports</dt>
