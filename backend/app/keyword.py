@@ -185,6 +185,55 @@ def _escape(token: str) -> str:
     return '"' + token.replace('"', '""') + '"'
 
 
+# Deliberately small and query-oriented.  Domain words (including short ones
+# such as ``oil`` and ``gas``) do not belong here: removing a useful term is
+# much more damaging than leaving an uncommon conversational word behind.
+STOPWORDS = frozenset({
+    "a", "about", "an", "and", "are", "as", "at", "be", "by", "can",
+    "could", "do", "does", "for", "from", "how", "i", "in", "is", "it",
+    "me", "of", "on", "or", "please", "tell", "that", "the", "this", "to",
+    "us", "was", "what", "when", "where", "which", "who", "why", "with",
+    "would", "you", "your",
+})
+
+_QUERY_TOKEN = re.compile(r"[\w.\-/]{2,}")
+
+
+def content_phrases(question: str) -> list[str]:
+    """Consecutive runs of two or more meaningful query words.
+
+    Identifiers and numbered designators already have stricter handling, so
+    they are blanked before phrase extraction.  Stopwords split a run: this
+    avoids inventing a phrase across words the user actually placed between
+    its terms.
+    """
+    excluded = [m.span() for m in IDENTIFIER.finditer(question)]
+    excluded.extend(m.span() for m in DESIGNATOR.finditer(question))
+    runs: list[list[str]] = []
+    run: list[str] = []
+    for match in _QUERY_TOKEN.finditer(question):
+        if any(start < match.end() and match.start() < end for start, end in excluded):
+            if len(run) >= 2:
+                runs.append(run)
+            run = []
+            continue
+        token = match.group(0)
+        if token.lower() in STOPWORDS:
+            if len(run) >= 2:
+                runs.append(run)
+            run = []
+        else:
+            run.append(token)
+    if len(run) >= 2:
+        runs.append(run)
+    return [" ".join(words) for words in runs]
+
+
+def build_phrase_query(question: str) -> str:
+    """An optional exact-phrase MATCH expression used as a lexical boost."""
+    return " OR ".join(_escape(phrase) for phrase in content_phrases(question))
+
+
 def build_match_query(question: str) -> str:
     """Turn a natural question into an FTS5 MATCH expression.
 
@@ -195,7 +244,14 @@ def build_match_query(question: str) -> str:
     """
     identifiers = IDENTIFIER.findall(question)
     designators = find_designators(question)
-    words = [w for w in re.findall(r"[\w.\-/]{2,}", question) if w not in identifiers]
+    excluded = [m.span() for m in IDENTIFIER.finditer(question)]
+    excluded.extend(m.span() for m in DESIGNATOR.finditer(question))
+    words = [
+        match.group(0)
+        for match in _QUERY_TOKEN.finditer(question)
+        if match.group(0).lower() not in STOPWORDS
+        and not any(start < match.end() and match.start() < end for start, end in excluded)
+    ]
 
     parts: list[str] = []
     if identifiers:
@@ -261,18 +317,36 @@ def search(
     params.extend(sorted(allowed_document_ids))
     params.append(limit)
 
-    try:
-        rows = conn.execute(
+    def run_match(expression: str) -> list[sqlite3.Row]:
+        query_params = [expression, *params[1:]]
+        return conn.execute(
             f"""SELECT chunk_id, document_id, filename, section,
                        bm25(chunks_fts, 4.0, 2.0, 1.0) AS score
                 FROM chunks_fts
                 WHERE {where}
                 ORDER BY score LIMIT ?""",
-            params,
+            query_params,
         ).fetchall()
+
+    try:
+        # Exact consecutive content words are a preference, not a requirement.
+        # Run them separately so a tight glossary phrase is guaranteed entry
+        # to the lexical candidate list, then retain ordinary broad recall.
+        phrase_match = build_phrase_query(question)
+        phrase_rows = run_match(phrase_match) if phrase_match else []
+        broad_rows = run_match(match)
     except sqlite3.OperationalError:
         # a malformed MATCH expression must not 500 the API
         return []
+
+    seen: set[str] = set()
+    rows = []
+    for row in [*phrase_rows, *broad_rows]:
+        if row["chunk_id"] not in seen:
+            seen.add(row["chunk_id"])
+            rows.append(row)
+        if len(rows) == limit:
+            break
 
     return [
         {

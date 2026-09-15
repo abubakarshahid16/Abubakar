@@ -82,6 +82,45 @@ def test_a_question_with_no_usable_tokens_returns_nothing_rather_than_erroring()
     assert keyword.search("?? !!", allowed_document_ids=_scope()) == []
 
 
+def test_conversational_stopwords_do_not_enter_the_match_query():
+    q = keyword.build_match_query("can you tell me about Design team leader")
+    assert q == '("Design" OR "team" OR "leader")'
+
+
+def test_exact_content_phrase_is_built_separately_from_the_recall_query():
+    assert keyword.build_phrase_query(
+        "can you tell me about Design team leader"
+    ) == '"Design team leader"'
+
+
+def test_exact_glossary_phrase_outranks_repeated_scattered_words():
+    conn = db.connect()
+    conn.executemany(
+        """INSERT INTO chunks_fts
+           (text, section, filename, chunk_id, document_id)
+           VALUES (?, ?, 'doc16.pdf', ?, 'doc16')""",
+        [
+            (
+                "The design team will deploy the dataset. Design reviews help "
+                "the team, and design work is shared by team leaders.",
+                "Deployment", "scattered",
+            ),
+            (
+                "Design Team Leader (DTL) - Engineer or Architect responsible "
+                "for coordinating the efforts of all modelers and technicians.",
+                "Glossary", "glossary",
+            ),
+        ],
+    )
+    conn.commit()
+
+    hits = keyword.search(
+        "can you tell me about Design team leader",
+        allowed_document_ids=frozenset({"doc16"}),
+    )
+    assert [hit["chunk_id"] for hit in hits[:2]] == ["glossary", "scattered"]
+
+
 def test_a_malformed_query_does_not_raise():
     # FTS5 treats several characters as syntax; every token is quoted
     assert isinstance(keyword.search('AND OR NOT " ( )', allowed_document_ids=_scope()), list)
