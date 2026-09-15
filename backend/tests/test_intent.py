@@ -266,6 +266,9 @@ def test_a_definitional_question_is_recognised():
     assert search_mod.definitional_term("what does NDFT stand for") == "NDFT"
     assert search_mod.definitional_term("define NDFT") == "NDFT"
     assert search_mod.definitional_term("definition of MDFT") == "MDFT"
+    assert search_mod.definitional_term(
+        "can you tell me about Design team leader ??"
+    ) == "Design team leader"
 
 
 def test_a_question_asking_for_a_VALUE_is_not_definitional():

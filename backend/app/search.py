@@ -77,6 +77,7 @@ class Candidate:
     cosine: float | None = None
     rrf: float = 0.0
     identifier_hits: list[str] = field(default_factory=list)
+    phrase_hits: list[str] = field(default_factory=list)
     #: designators this passage names that the question did NOT ask for
     conflicts: list[str] = field(default_factory=list)
     boost: float = 0.0
@@ -125,6 +126,7 @@ class Candidate:
             "keyword_rank": self.keyword_rank,
             "dense_rank": self.dense_rank,
             "identifier_hits": self.identifier_hits,
+            "phrase_hits": self.phrase_hits,
             "text_source": self.text_source,
             "ocr_min_conf": self.ocr_min_conf,
             "ocr_alphabet_violations": self.ocr_alphabet_violations,
@@ -286,7 +288,8 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
         wanted[designator.lower()] = [
             v.lower() for v in keyword.designator_variants(designator)
         ]
-    if not wanted:
+    phrases = [phrase.lower() for phrase in keyword.content_phrases(question)]
+    if not wanted and not phrases:
         return
 
     top_rrf = max((c.rrf for c in candidates), default=0.0) or 1.0
@@ -304,7 +307,20 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
         )
         if hits:
             c.identifier_hits = hits
-            c.boost = IDENTIFIER_BOOST * top_rrf * (len(hits) / len(wanted))
+        lowered_tokens = [t.lower() for t in _TOKEN.findall(c.searchable_text)]
+        c.phrase_hits = []
+        for phrase in phrases:
+            phrase_tokens = phrase.split()
+            width = len(phrase_tokens)
+            if any(
+                lowered_tokens[start:start + width] == phrase_tokens
+                for start in range(len(lowered_tokens) - width + 1)
+            ):
+                c.phrase_hits.append(phrase)
+        matched = len(hits) + len(c.phrase_hits)
+        wanted_count = len(wanted) + len(phrases)
+        if matched:
+            c.boost = IDENTIFIER_BOOST * top_rrf * (matched / wanted_count)
 
         # Which member does the HEADING declare? In a specification the clause
         # heading is the authoritative scope of the passage; a mention in the
@@ -453,6 +469,11 @@ def _hydrate(chunk_ids: list[str]) -> dict[str, sqlite3.Row]:
 _DEFINITIONAL = (
     re.compile(r"^\s*what\s+(?:is|are|was|were)\s+(?:an?\s+|the\s+)?(.+?)\s*$", re.I),
     re.compile(r"^\s*what\s+do(?:es)?\s+(.+?)\s+(?:mean|stand\s+for)\b", re.I),
+    re.compile(
+        r"^\s*(?:(?:can|could|would)\s+you\s+)?tell\s+me\s+about\s+"
+        r"(?:an?\s+|the\s+)?(.+?)\s*$",
+        re.I,
+    ),
     re.compile(r"^\s*define\s+(?:the\s+)?(.+?)\s*$", re.I),
     re.compile(r"^\s*(?:the\s+)?meaning\s+of\s+(.+?)\s*$", re.I),
     re.compile(r"^\s*(?:what\s+is\s+)?(?:the\s+)?definition\s+of\s+(.+?)\s*$", re.I),

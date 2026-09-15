@@ -154,6 +154,28 @@ def test_no_boost_is_applied_when_the_question_has_no_identifier():
     assert c.boost == 0.0
 
 
+def test_an_exact_multiword_content_phrase_uses_the_existing_lexical_boost():
+    exact = search.Candidate(
+        chunk_id="exact", document_id="d", filename="doc16.pdf", section="Glossary",
+        page_start=14, page_end=14,
+        text="Design Team Leader (DTL) - Engineer responsible for coordinating modelers.",
+        rrf=0.010,
+    )
+    scattered = search.Candidate(
+        chunk_id="scattered", document_id="d", filename="doc16.pdf", section=None,
+        page_start=12, page_end=12,
+        text="The design team deploys data; design reviews involve team leaders.",
+        rrf=0.012,
+    )
+    search.apply_identifier_boost(
+        "can you tell me about Design team leader", [exact, scattered]
+    )
+
+    assert exact.phrase_hits == ["design team leader"]
+    assert scattered.phrase_hits == []
+    assert exact.score > scattered.score
+
+
 # ------------------------------------------------------------ duplicates
 
 
@@ -241,6 +263,26 @@ def test_a_vector_orphaned_by_rechunking_cannot_be_retrieved():
 
 
 # --------------------------------------------------------------- reranker
+
+
+def test_a_short_factual_question_is_sent_to_the_reranker(monkeypatch):
+    client = TestClient(app)
+    doc_id = upload(client)
+    IngestionWorker().process(doc_id)
+    calls = []
+
+    def record(question, pairs):
+        calls.append((question, pairs))
+        return [(chunk_id, 1.0) for chunk_id, _ in pairs]
+
+    monkeypatch.setattr(reranker, "rerank", record)
+    result = search.search(
+        "Vibration limit?", limit=5,
+        allowed_document_ids=frozenset({doc_id}),
+    )
+
+    assert calls, "short factual questions bypassed the cross-encoder"
+    assert result["reranked"] is True
 
 
 @pytest.mark.skipif(not reranker.available(), reason="reranker model not staged")
