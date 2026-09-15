@@ -58,7 +58,7 @@ from . import access, chat
 from .config import config_version, settings
 from .db import connect
 
-TEMPLATE_VERSION = "1"
+TEMPLATE_VERSION = "2"
 RENDERER = f"pymupdf-{fitz.VersionBind}"
 
 #: What a single-answer evidence report does not contain, named on page 1.
