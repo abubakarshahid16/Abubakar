@@ -137,7 +137,9 @@ def test_health_never_exposes_a_traceback(client):
         # /api/health carried no traceback. It now asserts the field is not
         # there at all: free text and a document id do not belong on an
         # unauthenticated route, however carefully the text is sanitised.
-        # The error detail is on the scoped /api/metrics.
+        # The error detail is on /api/metrics. NOTE: this test never called
+        # that route, so the word "scoped" here was an assumption it could
+        # not check - and it was wrong until the commit that scoped it.
         ingestion = r.json()["ingestion"]
         assert "last_error" not in ingestion, ingestion
         assert "stalled_reasons" not in ingestion, ingestion
@@ -146,7 +148,7 @@ def test_health_never_exposes_a_traceback(client):
         assert "doc_abc123" not in r.text, "a document id leaked into health"
 
         # The error detail still exists, with the same no-traceback guarantee,
-        # on the scoped /api/metrics - covered by test_metrics.py against a
+        # on /api/metrics - covered by test_metrics.py against a
         # fixture that has the full schema. This test is about what /api/health
         # does NOT say.
     finally:
@@ -161,7 +163,7 @@ def test_a_worker_failure_is_logged_locally_but_not_returned(client):
         safe = errors.record_failure(exc, document_id="doc_x", stage="process")
 
     assert_clean(str(safe), "record_failure result")
-    log = settings.data_dir / "logs" / "nabaa.log"
+    log = settings.data_dir / "logs" / "rag-intelligence.log"
     assert log.exists(), "the traceback was not written to the local log"
     assert "Traceback" in log.read_text(encoding="utf-8"), "log lost the traceback"
 
@@ -280,25 +282,49 @@ def test_no_searchable_content_is_terminal_but_not_answerable():
 # ---------------------------------------------------- typed OpenAPI contract
 
 
-def test_every_endpoint_declares_a_typed_200_response():
+def test_every_endpoint_declares_a_typed_success_response():
     """Every 200 used to be documented as `string`, so the generated frontend
-    types were guesses."""
+    types were guesses.
+
+    THE STATUS CODE IS NOT ALWAYS 200, and reading only "200" made this test
+    lie in both directions. `POST /api/admin/users` returns 201 with
+    `response_model=AdminUserCreated` - fully typed - and was reported as
+    having no schema, because the typed shape sits under "201" where nothing
+    looked. The mirror of that is worse: any route answering 201 or 202 could
+    have returned an undeclared body for as long as this test has existed and
+    it would have passed, because the test never opened that key.
+
+    So the success response is whichever 2xx the route declares. 204 is the one
+    code allowed to carry no body - that is what it means.
+    """
     spec = app.openapi()
     untyped = []
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
-            ok = op.get("responses", {}).get("200", {})
-            content = ok.get("content", {})
-            # A binary download has no JSON schema, and DECLARING a binary
-            # media type is different from declaring nothing: the first is a
-            # contract, the second is the defect this test exists for. So an
-            # endpoint is exempt only if it says what it returns.
-            if content and "application/json" not in content:
+            responses = op.get("responses", {})
+            success = {code: body for code, body in responses.items()
+                       if code.startswith("2")}
+            if not success:
+                untyped.append(f"{method.upper()} {path} -> declares no 2xx response")
                 continue
-            schema = content.get("application/json", {}).get("schema", {})
-            if not ("$ref" in schema or schema.get("type") == "array"):
-                untyped.append(f"{method.upper()} {path} -> {schema or 'no schema'}")
-    assert not untyped, "untyped 200 responses: " + "; ".join(untyped)
+            for code, ok in success.items():
+                content = ok.get("content", {})
+                # 204 means there is no body. Anything else claiming no content
+                # is the defect this test exists for.
+                if code == "204" and not content:
+                    continue
+                # A binary download has no JSON schema, and DECLARING a binary
+                # media type is different from declaring nothing: the first is a
+                # contract, the second is the defect this test exists for. So an
+                # endpoint is exempt only if it says what it returns.
+                if content and "application/json" not in content:
+                    continue
+                schema = content.get("application/json", {}).get("schema", {})
+                if not ("$ref" in schema or schema.get("type") == "array"):
+                    untyped.append(
+                        f"{method.upper()} {path} [{code}] -> {schema or 'no schema'}"
+                    )
+    assert not untyped, "untyped success responses: " + "; ".join(untyped)
 
 
 def test_error_responses_are_documented_not_undocumented():

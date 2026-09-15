@@ -123,8 +123,8 @@ export function DocumentCard({
                 discipline holds this document and only an administrator can
                 read it. It is labelled as exactly that, never left blank and
                 never given a placeholder. */}
-            {(doc.disciplines ?? []).length > 0 ? (
-              (doc.disciplines ?? []).map((d) => (
+            {doc.disciplines.length > 0 ? (
+              doc.disciplines.map((d) => (
                 <span
                   key={d}
                   data-testid="discipline"

@@ -24,6 +24,7 @@ function doc(over: Partial<DocumentRecord> = {}): DocumentRecord {
     pages_done: 1204,
     chunk_count: 2831,
     chunk_count_total: 2900,
+    disciplines: [],
     embedded_count: 2831,
     status: "ready",
     needs_ocr_pages: 0,

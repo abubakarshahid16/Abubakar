@@ -1,16 +1,54 @@
 /**
- * MarketPanel: every row is sample, no URL is a link, and nothing leaves the
- * machine without the exact string being shown and egress being allowed.
+ * MarketPanel: what leaves the machine, and what every row admits about itself.
+ *
+ * WHY EVERY ASSERTION IS SCOPED WITH within(). The panel is one card among
+ * several on the analysis screen, and the screen around it carries text of the
+ * same shapes: em dashes in the worker tiles, its own role="status" line above
+ * this panel, and a "sample data - not live" badge in the AnalysisView
+ * summary. A negative assertion ("no dash", "no rows") is only a statement
+ * about THIS panel if it is scoped to this panel, and a row-level claim ("this
+ * row says it is background only") is only a claim about that row if it is
+ * scoped to the row - unscoped, a caption printed on every row passes a test
+ * that meant to pin it to one. The same reason IngestionView.watch.test.tsx
+ * scopes its no-placeholder assertions to the watched-folder section.
+ *
+ * The no-separator guarantee in IngestionView.watch.test.tsx does NOT apply
+ * here and is not asserted: that test keeps a HOST FILESYSTEM PATH off the
+ * watched-folder panel, and it forbids "/" and ":" to do it. This panel's job
+ * is to print a public url, publisher and ISO timestamp for every row - all
+ * three of which contain both characters by construction - and it never
+ * receives a host path. Nothing on this screen reads a filesystem.
+ *
+ * `market.preview` and `market.search` are mocked; the panel is rendered
+ * directly, so nothing here depends on a database, a fixture file or the
+ * developer's machine.
  */
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MarketPanel } from "./MarketPanel";
+import { market } from "../../api/client";
+import type { MarketPreview, MarketRow, MarketSearchResult, Result } from "../../api/client";
 import type { EgressState, MarketFinding, PublicMarketQuery } from "../../types/analysis";
+
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/client")>();
+  // Declared inside the factory: vi.mock is hoisted above any top-level const.
+  return {
+    ...actual,
+    market: { ...actual.market, preview: vi.fn(), search: vi.fn() },
+  };
+});
+
+const previewMock = vi.mocked(market.preview);
+const searchMock = vi.mocked(market.search);
+
+// ------------------------------------------------------------------ fixtures
 
 const FINDINGS: MarketFinding[] = [
   {
-    claim: "Zinc-rich epoxy primers list at roughly USD 18–24 per litre in Q2 2026.",
+    claim: "Zinc-rich epoxy primers list at roughly USD 18-24 per litre in Q2 2026.",
     url: "https://example.com/coatings/price-index-2026-q2",
     publisher: "Example Coatings Index",
     published_at: "2026-06-30",
@@ -35,68 +73,748 @@ const FINDINGS: MarketFinding[] = [
 ];
 
 const OFFLINE: EgressState = { web_search_enabled: false, allow_public_egress: false };
+const OPEN: EgressState = { web_search_enabled: true, allow_public_egress: true };
+/** The two MIXED states. They are the ones the panel used to get wrong: it
+ *  read one flag and the backend gates on both, so exactly these two were
+ *  rendered as though they were `OPEN`. */
+const WEB_OFF: EgressState = { web_search_enabled: false, allow_public_egress: true };
+const EGRESS_OFF: EgressState = { web_search_enabled: true, allow_public_egress: false };
 
-const QUERY: PublicMarketQuery = { query: "zinc epoxy primer price", country: "NO", freshness_days: 90 };
+const QUERY: PublicMarketQuery = { query: "sea water pump alloy price", country: "NO", freshness_days: 90 };
 
-describe("MarketPanel: sample data", () => {
-  it("shows the SAMPLE DATA banner", () => {
-    render(<MarketPanel findings={FINDINGS} egress={OFFLINE} />);
-    expect(screen.getByRole("note")).toHaveTextContent(/SAMPLE DATA — NOT LIVE/);
+/** The typed text and the phrase that survives scrubbing are DIFFERENT
+ *  strings, and deliberately so: the project name is exactly the kind of thing
+ *  the backend strips, and two identical strings would let a panel that sends
+ *  the raw text pass every assertion below. */
+const TYPED = "zinc epoxy primer price for the Statfjord tie-in";
+const SCRUBBED = "zinc epoxy primer price";
+
+/** The backend's payloads, deliberately NOT `JSON.stringify(the form)`.
+ *
+ *  A client-side reconstruction passing these assertions would prove nothing
+ *  about what actually leaves the machine, so the values are ones the form
+ *  cannot produce: `country: "SE"` and `freshness_days: 7` appear nowhere in
+ *  the form or in QUERY. Render the panel's own guess and these tests fail.
+ *
+ *  (The previous fixture achieved the same thing with an extra key. It cannot
+ *  now: `MarketOutboundPayload` is closed at five fields, because everything
+ *  in it is sent. Distinguishing VALUES rather than an extra field keeps the
+ *  guard without weakening the type.) */
+
+/** ONE PAYLOAD PER TIER, which is what the backend sends and what leaves.
+ *
+ *  These fixtures previously held a single `payload`, and that is how the
+ *  integration broke silently: the backend renamed the field to `payloads`
+ *  and returned a list, `tsc` passed, all 23 tests here passed, and the
+ *  dialog rendered `undefined` in the one place the panel exists to fill -
+ *  because these mocks were built from the frontend's own interface rather
+ *  than the contract. The types now live in contracts/types.ts, so the same
+ *  drift is a compile error. */
+const PAYLOADS = [
+  { tier: "literature", provider_label: "published literature",
+    payload: { phrase: SCRUBBED, tier: "literature",
+               provider_label: "published literature",
+               country: "SE", freshness_days: 7 } },
+  { tier: "reference", provider_label: "reference - background only",
+    payload: { phrase: SCRUBBED, tier: "reference",
+               provider_label: "reference - background only",
+               country: "SE", freshness_days: 7 } },
+];
+
+const TIER_LABELS: Record<string, string> = {
+  web: "market search",
+  literature: "published literature",
+  reference: "reference - background only",
+};
+
+/** The tier lists carry TIER IDS, which are not the provider labels a row
+ *  wears: market_providers.py attempts "web", "literature", "reference" and
+ *  labels their rows "market search", "published literature" and
+ *  "reference - background only". Two vocabularies, and the API does not say
+ *  which one a tier list holds - so the panel prints them exactly as sent
+ *  rather than translating, and these fixtures use the ids the backend really
+ *  sends. */
+const TIERS = ["web", "literature", "reference"];
+
+/** The payload block is a <pre> and keeps its newlines. getByText collapses
+ *  whitespace by default, which would never match a multi-line string - so the
+ *  comparison is made against the text exactly as it is rendered.
+ *
+ *  One per tier now. Both are asserted where it matters, so a dialog that
+ *  rendered only the first would fail - showing one payload while three leave
+ *  is the defect this whole shape exists to prevent. */
+const PAYLOAD_TEXTS = PAYLOADS.map((e) => JSON.stringify(e.payload, null, 2));
+const PAYLOAD_TEXT = PAYLOAD_TEXTS[0];
+const VERBATIM = { collapseWhitespace: false } as const;
+
+function preview(over: Partial<MarketPreview> = {}): MarketPreview {
+  return {
+    phrase: SCRUBBED,
+    payloads: PAYLOADS,
+    tiers_configured: ["literature", "reference"],
+    tiers_unconfigured: ["web"],
+    tier_labels: TIER_LABELS,
+    ...over,
+  };
+}
+
+const MARKET_ROW: MarketRow = {
+  text: "Zinc-rich primer tenders closed at NOK 210 per litre in June 2026.",
+  provider_label: "market search",
+  publisher: "Nordic Coatings Monitor",
+  published: "2026-06-18",
+  retrieved: "2026-09-07T08:02:00Z",
+  url: "https://example.com/monitor/june-2026",
+  verification: "source_read",
+  is_sample: false,
+};
+
+/** Undated on purpose: `published` null is the case where a UI invents a date. */
+const REFERENCE_ROW: MarketRow = {
+  text: "Zinc-rich primers are anticorrosive coatings containing metallic zinc dust.",
+  provider_label: "reference - background only",
+  publisher: "Example Reference Works",
+  published: null,
+  retrieved: "2026-09-07T08:02:05Z",
+  url: "https://example.org/wiki/zinc-rich-primer",
+  verification: "snippet_only",
+  is_sample: false,
+};
+
+const SAMPLE_ROW: MarketRow = {
+  text: "Illustrative: primer prices rose over the quarter.",
+  // Its OWN provenance label, matching what the backend now sends. It used to
+  // borrow "reference - background only", which made the panel print "this row
+  // is not a market finding" over a row that is an illustrative MARKET row -
+  // both sentences true of a sample, and the provenance still wrong.
+  provider_label: "sample - illustrative only",
+  publisher: "Example Sample Source",
+  published: null,
+  retrieved: "2026-09-07T08:00:00Z",
+  url: "sample://market/1",
+  verification: "source_not_verified",
+  is_sample: true,
+};
+
+function result(over: Partial<MarketSearchResult> = {}): MarketSearchResult {
+  return {
+    enabled: true,
+    // Echoed by the backend. `phrase: null` is its own state - nothing safe
+    // survived, no search attempted - and is NOT the same as `failure`.
+    phrase: SCRUBBED,
+    rows: [MARKET_ROW, REFERENCE_ROW],
+    tiers_attempted: TIERS,
+    tiers_answered: TIERS,
+    tiers_unconfigured: [],
+    tier_labels: TIER_LABELS,
+    failure: null,
+    ...over,
+  };
+}
+
+const ok = <T,>(data: T) => ({ ok: true as const, data });
+const down = (): Result<never> => ({
+  ok: false,
+  disconnected: true,
+  error: { code: "internal", message: "Cannot reach the backend. failed to fetch" },
+});
+
+// ---------------------------------------------------------------- harness
+
+/** The panel, and nothing around it. */
+function panel(): HTMLElement {
+  return screen.getByRole("region", { name: "Public market information" });
+}
+
+function mount(egress: EgressState = OPEN, findings: MarketFinding[] = []) {
+  return render(<MarketPanel findings={findings} egress={egress} />);
+}
+
+async function type(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(within(panel()).getByLabelText("Query"), TYPED);
+}
+
+async function openPreview(user: ReturnType<typeof userEvent.setup>) {
+  await type(user);
+  await user.click(within(panel()).getByRole("button", { name: "Preview exact outbound query" }));
+  return await screen.findByRole("dialog");
+}
+
+/** Open the preview, wait for the payload to actually be on screen, then make
+ *  the one click that can send. */
+async function sendSearch(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = await openPreview(user);
+  await within(dialog).findByText(PAYLOAD_TEXT, VERBATIM);
+  await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
+  await waitFor(() => expect(searchMock).toHaveBeenCalledTimes(1));
+}
+
+/** The row whose text begins with this. Rows are <li>, one per finding. */
+function row(text: string): HTMLElement {
+  const li = within(panel())
+    .getAllByRole("listitem")
+    .find((el) => (el.textContent ?? "").includes(text));
+  if (!li) throw new Error(`no row containing ${text}`);
+  return li;
+}
+
+beforeEach(() => {
+  previewMock.mockReset();
+  searchMock.mockReset();
+  previewMock.mockResolvedValue(ok(preview()));
+  searchMock.mockResolvedValue(ok(result()));
+});
+
+// ------------------------------------------------------- nothing is dispatched
+
+describe("MarketPanel: nothing leaves the machine without a click", () => {
+  it("dispatches no search after typing, after Enter and after blur", async () => {
+    const user = userEvent.setup();
+    mount();
+
+    await type(user);
+    expect(searchMock).not.toHaveBeenCalled();
+    // Typing alone does not even read the preview route.
+    expect(previewMock).not.toHaveBeenCalled();
+
+    // Enter in the field OPENS THE PREVIEW. It is the keyboard path to the
+    // dialog, and it is not a send.
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(searchMock).not.toHaveBeenCalled();
+
+    // Out of the field, into the next control, and out of the dialog.
+    await user.keyboard("{Escape}");
+    await user.tab();
+    await user.tab();
+    expect(searchMock).not.toHaveBeenCalled();
   });
 
-  it("tags every finding row as SAMPLE", () => {
+  it("sends only when Confirm is clicked, and sends the scrubbed phrase", async () => {
+    const user = userEvent.setup();
+    mount();
+    await sendSearch(user);
+    expect(searchMock).toHaveBeenCalledWith({
+      phrase: SCRUBBED,
+      country: null,
+      freshness_days: null,
+    });
+  });
+
+  it("Cancel closes the dialog, sends nothing, and says so", async () => {
+    const user = userEvent.setup();
+    mount();
+    const dialog = await openPreview(user);
+    expect(within(dialog).getByText("Cancel closes this and sends nothing.")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(searchMock).not.toHaveBeenCalled();
+  });
+});
+
+// ------------------------------------------------------------- the payload
+
+describe("MarketPanel: the exact payload is shown before anything is sent", () => {
+  it("renders EVERY tier's payload, not just the first", async () => {
+    /** THE ASSERTION THIS SHAPE EXISTS FOR.
+     *
+     *  A search builds one payload per configured tier and sends all of them.
+     *  A dialog that rendered only `payloads[0]` would pass every other test
+     *  in this block while the reader approved one object and three left - the
+     *  same defect as the single `payload` field it replaced, just harder to
+     *  see. So each one is asserted by its own text, and the tier it belongs
+     *  to is named beside it.
+     */
+    const user = userEvent.setup();
+    mount();
+    const dialog = await openPreview(user);
+
+    for (const text of PAYLOAD_TEXTS) {
+      expect(await within(dialog).findByText(text, VERBATIM)).toBeInTheDocument();
+    }
+    expect(PAYLOAD_TEXTS.length).toBeGreaterThan(1);
+
+    // Each block says which provider it would go to, or two <pre> elements
+    // side by side tell the reader nothing about which is which.
+    expect(within(dialog).getByText(/To published literature:/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/To reference - background only:/),
+    ).toBeInTheDocument();
+  });
+
+  it("names the tiers that are NOT configured, and does not call them attempted", async () => {
+    /** `tiers_unconfigured` is reported separately by the backend because
+     *  nothing is ever sent to those tiers. The dialog says so in those words:
+     *  "not contacted" rather than anything that reads as "tried". */
+    const user = userEvent.setup();
+    previewMock.mockResolvedValue(ok(preview()));
+    mount();
+    const dialog = await openPreview(user);
+
+    const line = await within(dialog).findByText(/Not configured here, and not contacted/);
+    // Rendered through `tier_labels`, so the reader sees "market search" and
+    // never the raw id "web".
+    expect(line).toHaveTextContent("market search");
+    expect(line.textContent).not.toContain("web");
+  });
+
+  it("renders the typed phrase, the scrubbed phrase and the backend's payload verbatim", async () => {
+    const user = userEvent.setup();
+    mount();
+    const dialog = await openPreview(user);
+
+    expect(await within(dialog).findByText(PAYLOAD_TEXT, VERBATIM)).toBeInTheDocument();
+    expect(within(dialog).getByText("What you typed")).toBeInTheDocument();
+    expect(within(dialog).getByText(TYPED)).toBeInTheDocument();
+    expect(within(dialog).getByText("The phrase that would be sent")).toBeInTheDocument();
+    // Shown, and still not sent.
+    expect(searchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when the payload was never shown, and says nothing was sent", async () => {
+    // The preview route is the only way to learn the payload. If it cannot be
+    // read, the panel has nothing to show, so it must not send.
+    previewMock.mockResolvedValue(down());
+    const user = userEvent.setup();
+    mount();
+    const dialog = await openPreview(user);
+    await within(dialog).findByText(
+      "The backend could not be reached, so the exact outbound payload cannot be shown here.",
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(searchMock).not.toHaveBeenCalled();
+    expect(
+      within(panel()).getByText(
+        "Nothing was sent. The exact outbound payload was never shown, and this panel does not send what it cannot show.",
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+// --------------------------------------------------------------- null phrase
+
+describe("MarketPanel: nothing safe survived", () => {
+  it("disables the send control, states the reason, and never offers the raw text", async () => {
+    previewMock.mockResolvedValue(ok(preview({ phrase: null })));
+    const user = userEvent.setup();
+    mount();
+    const dialog = await openPreview(user);
+
+    expect(
+      await within(dialog).findByText(
+        "No safe search phrase could be formed from what you typed, so no search is possible. " +
+          "The text you typed will not be sent in its place, and nothing has been sent.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Confirm and send" })).toBeDisabled();
+
+    // No second control offering the raw string instead.
+    for (const b of within(dialog).getAllByRole("button")) {
+      expect(b.textContent ?? "").not.toMatch(/anyway|as typed|unscrubbed|raw/i);
+    }
+    // No payload block at all: there is no payload.
+    expect(within(dialog).queryByText(PAYLOAD_TEXT, VERBATIM)).toBeNull();
+    expect(within(dialog).queryByText("The phrase that would be sent")).toBeNull();
+
+    await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
+    expect(searchMock).not.toHaveBeenCalled();
+  });
+});
+
+// -------------------------------------------------------------- provenance
+
+describe("MarketPanel: every row wears its provenance", () => {
+  it("distinguishes a reference row from a market row in TEXT, not in colour", async () => {
+    const user = userEvent.setup();
+    mount();
+    await sendSearch(user);
+
+    const reference = row(REFERENCE_ROW.text);
+    const marketRow = row(MARKET_ROW.text);
+
+    expect(within(reference).getByText("reference - background only")).toBeInTheDocument();
+    expect(
+      within(reference).getByText(
+        "Background only. This row is not a market finding and cannot evidence a market condition.",
+      ),
+    ).toBeInTheDocument();
+
+    expect(within(marketRow).getByText("market search")).toBeInTheDocument();
+    // The caption is the reference row's, and only the reference row's.
+    expect(within(marketRow).queryByText(/Background only/)).toBeNull();
+    expect(within(marketRow).queryByText("reference - background only")).toBeNull();
+  });
+
+  it("prints publisher, retrieved, url and verification on every row, and no links", async () => {
+    const user = userEvent.setup();
+    mount();
+    await sendSearch(user);
+
+    const marketRow = row(MARKET_ROW.text);
+    expect(within(marketRow).getByText(MARKET_ROW.publisher)).toBeInTheDocument();
+    expect(within(marketRow).getByText(MARKET_ROW.retrieved)).toBeInTheDocument();
+    expect(within(marketRow).getByText(MARKET_ROW.url)).toBeInTheDocument();
+    expect(within(marketRow).getByText("source read")).toBeInTheDocument();
+
+    expect(panel().querySelectorAll("a")).toHaveLength(0);
+  });
+
+  it("renders a null published date as NOTHING - no dash, no N/A, no today", async () => {
+    const user = userEvent.setup();
+    mount();
+    await sendSearch(user);
+
+    const undated = row(REFERENCE_ROW.text);
+    expect(REFERENCE_ROW.published).toBeNull();
+    // Not the label either: a label over an empty cell asserts a date was
+    // reported and then withheld.
+    expect(within(undated).queryByText("published")).toBeNull();
+    expect(within(undated).queryByText("—")).toBeNull();
+    expect(within(undated).queryByText("-")).toBeNull();
+    expect(within(undated).queryByText(/N\/A/i)).toBeNull();
+    expect(within(undated).queryByText(/unknown/i)).toBeNull();
+    // And no date the panel made up - today's or any other. The ONLY calendar
+    // date on an undated row is the one inside `retrieved`, which the payload
+    // did send. Asserted this way rather than against `new Date()` so the test
+    // cannot pass or fail depending on the day it is run.
+    const dates = (undated.textContent ?? "").match(/\d{4}-\d{2}-\d{2}/g) ?? [];
+    expect(dates).toEqual([REFERENCE_ROW.retrieved.slice(0, 10)]);
+
+    // The row that HAS a date still shows the label and the date, so the
+    // absence above is the null being honoured and not the label being gone.
+    const dated = row(MARKET_ROW.text);
+    expect(within(dated).getByText("published")).toBeInTheDocument();
+    expect(within(dated).getByText("2026-06-18")).toBeInTheDocument();
+  });
+});
+
+// ------------------------------------------------------------ tier fallback
+
+describe("MarketPanel: the fallback is visible", () => {
+  it("states in words that the general web search did not answer", async () => {
+    searchMock.mockResolvedValue(
+      ok(result({
+        rows: [REFERENCE_ROW],
+        tiers_attempted: ["web", "reference"],
+        tiers_answered: ["reference"],
+      })),
+    );
+    const user = userEvent.setup();
+    mount();
+    await sendSearch(user);
+
+    const p = panel();
+    expect(
+      await within(p).findByText("Tiers attempted: web, reference"),
+    ).toBeInTheDocument();
+    expect(within(p).getByText("Tiers that answered: reference")).toBeInTheDocument();
+    expect(within(p).getByText("Tried and did not answer: web")).toBeInTheDocument();
+    expect(
+      within(p).getByText(
+        "The general web search did not answer. The rows below come from reference sources: " +
+          "they are background only and are not market findings.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("does not claim a fallback when every attempted tier answered", async () => {
+    const user = userEvent.setup();
+    mount();
+    await sendSearch(user);
+    expect(within(panel()).queryByText(/did not answer/)).toBeNull();
+  });
+});
+
+// ------------------------------------------------------ failure and empty
+
+describe("MarketPanel: failure and empty states", () => {
+  it("shows the failure and NO rows - not even the samples the payload carried", async () => {
+    // The contract says rows is empty on a failure. This fixture breaks the
+    // contract ON PURPOSE and puts the samples back: the property under test
+    // is that the panel CANNOT render them next to a failure, not that the
+    // backend happened to omit them.
+    searchMock.mockResolvedValue(
+      ok(result({
+        rows: [SAMPLE_ROW, MARKET_ROW],
+        tiers_answered: [],
+        failure: "No public source answered: every provider timed out.",
+      })),
+    );
+    const user = userEvent.setup();
+    mount(OPEN, FINDINGS);
+    await sendSearch(user);
+
+    const p = panel();
+    expect(
+      await within(p).findByText("No public source answered: every provider timed out."),
+    ).toBeInTheDocument();
+    expect(
+      within(p).getByText("No rows are shown, and no sample rows have been put in their place."),
+    ).toBeInTheDocument();
+
+    expect(within(p).queryAllByRole("listitem")).toHaveLength(0);
+    expect(within(p).queryByText(SAMPLE_ROW.text)).toBeNull();
+    expect(within(p).queryByText(MARKET_ROW.text)).toBeNull();
+    // Nor the legacy fixtures this panel was mounted with.
+    expect(within(p).queryByText(FINDINGS[0].claim)).toBeNull();
+    expect(within(p).queryByText(/SAMPLE DATA/)).toBeNull();
+  });
+
+  it("says no results when the search ran and found nothing", async () => {
+    searchMock.mockResolvedValue(ok(result({ rows: [] })));
+    const user = userEvent.setup();
+    mount(OPEN, FINDINGS);
+    await sendSearch(user);
+
+    const p = panel();
+    expect(
+      await within(p).findByText(
+        "The search ran and found nothing. That is the answer: there are no public findings for this phrase.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(p).queryAllByRole("listitem")).toHaveLength(0);
+    expect(within(p).queryByText(/SAMPLE DATA/)).toBeNull();
+  });
+
+  it("says the backend could not be reached, and leaves nothing stale on screen", async () => {
+    const user = userEvent.setup();
+    mount();
+    // A real result first, so there IS something stale to leave behind.
+    await sendSearch(user);
+    expect(within(panel()).getByText(MARKET_ROW.text)).toBeInTheDocument();
+
+    searchMock.mockResolvedValue(down());
+    const dialog = await openPreview(user);
+    await within(dialog).findByText(PAYLOAD_TEXT, VERBATIM);
+    await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
+
+    const p = panel();
+    expect(
+      await within(p).findByText(
+        "The backend could not be reached, so no search was made. Nothing is shown here.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(p).queryByText(MARKET_ROW.text)).toBeNull();
+    expect(within(p).queryAllByRole("listitem")).toHaveLength(0);
+  });
+
+  it("renders the samples WITH the not-live caption when the feature is off", async () => {
+    searchMock.mockResolvedValue(
+      ok(result({ enabled: false, rows: [SAMPLE_ROW], tiers_attempted: [], tiers_answered: [] })),
+    );
+    const user = userEvent.setup();
+    mount(OPEN);
+    await sendSearch(user);
+
+    const p = panel();
+    expect(await within(p).findByText(SAMPLE_ROW.text)).toBeInTheDocument();
+    expect(within(p).getByRole("note")).toHaveTextContent(
+      "SAMPLE DATA — NOT LIVE. The backend reported that public search is off in this build. " +
+        "Every row below is an illustrative sample and must not be described as live market data.",
+    );
+    const sample = row(SAMPLE_ROW.text);
+    expect(within(sample).getByText(/^sample$/i)).toBeInTheDocument();
+    // The url that resolves nowhere, kept as sent.
+    expect(within(sample).getByText("sample://market/1")).toBeInTheDocument();
+  });
+
+  it("gives a sample row its own provenance, not the reference row's", async () => {
+    // The defect this pins: while samples were labelled
+    // "reference - background only", this row read "Background only. This row
+    // is not a market finding and cannot evidence a market condition." A
+    // sample IS not a market finding, so the sentence was true - and the
+    // provenance was still wrong, because the row is an illustrative MARKET
+    // row and a reader would carry that label away as its source. A wrong
+    // provenance label on a compliance screen is the whole reason this panel
+    // prints one on every row.
+    searchMock.mockResolvedValue(
+      ok(result({ enabled: false, rows: [SAMPLE_ROW], tiers_attempted: [], tiers_answered: [] })),
+    );
+    const user = userEvent.setup();
+    mount(OPEN);
+    await sendSearch(user);
+
+    const sample = row(SAMPLE_ROW.text);
+    expect(within(sample).getByText("sample - illustrative only")).toBeInTheDocument();
+    expect(within(sample).queryByText("reference - background only")).toBeNull();
+    expect(within(sample).queryByText(/not a market finding/i)).toBeNull();
+    // `is_sample` stays the machine-readable carrier; the label is for a reader.
+    expect(within(sample).getByText(/^sample$/i)).toBeInTheDocument();
+  });
+});
+
+// ------------------------------------------------- the legacy sample fixture
+
+describe("MarketPanel: the offline sample presentation", () => {
+  it("shows the SAMPLE DATA banner and tags every fixture row", () => {
     expect(FINDINGS.length).toBeGreaterThan(1);
     expect(FINDINGS.every((f) => f.is_sample)).toBe(true);
     render(<MarketPanel findings={FINDINGS} egress={OFFLINE} />);
-    const items = screen.getAllByRole("listitem");
+
+    const p = panel();
+    expect(within(p).getByRole("note")).toHaveTextContent(/SAMPLE DATA — NOT LIVE/);
+    const items = within(p).getAllByRole("listitem");
     expect(items).toHaveLength(FINDINGS.length);
-    for (const li of items) {
-      expect(within(li).getByText(/^sample$/i)).toBeInTheDocument();
+    for (const li of items) expect(within(li).getByText(/^sample$/i)).toBeInTheDocument();
+  });
+
+  it("keeps the caption that public findings cannot prove compliance", () => {
+    render(<MarketPanel findings={FINDINGS} egress={OFFLINE} />);
+    expect(
+      within(panel()).getByText(
+        "Public web findings cannot prove internal project compliance. Snippets are preliminary " +
+          "evidence; the verification column says whether the page was read.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  // ------------------------------------------------ the banner tracks the flags
+  //
+  // The defect these pin: every sentence below used to be one hardcoded
+  // literal that opened "This machine is offline." It said so with both flags
+  // ON and a live lane behind it - a false security claim about the one
+  // property the product is sold on, which ADR-0002 forbids by name. A
+  // literal cannot be wrong in only some states, so a test that asserted it
+  // passed in all of them.
+
+  it("does not claim the machine is offline, in any egress state", () => {
+    for (const egress of [OPEN, OFFLINE, WEB_OFF, EGRESS_OFF]) {
+      const { container, unmount } = render(
+        <MarketPanel findings={FINDINGS} egress={egress} />,
+      );
+      expect(container.textContent).not.toMatch(/offline/i);
+      expect(container.textContent).not.toMatch(/air.?gapped/i);
+      unmount();
     }
+  });
+
+  it("says only that no search has run when both flags are on", () => {
+    render(<MarketPanel findings={FINDINGS} egress={OPEN} />);
+    const note = within(panel()).getByRole("note");
+    expect(note).toHaveTextContent("No search has been run yet.");
+    // The posture claims belong to the states that carry them, not this one.
+    expect(note).not.toHaveTextContent(/blocked|off in this build/i);
+  });
+
+  it("names the flag that is actually off, each on its own", () => {
+    const { unmount } = render(<MarketPanel findings={FINDINGS} egress={WEB_OFF} />);
+    expect(within(panel()).getByRole("note")).toHaveTextContent(
+      "Web search is off in this build.",
+    );
+    unmount();
+
+    render(<MarketPanel findings={FINDINGS} egress={EGRESS_OFF} />);
+    expect(within(panel()).getByRole("note")).toHaveTextContent(
+      "Public egress is blocked in this build.",
+    );
+  });
+
+  // ------------------------------------- Confirm is gated on BOTH flags
+  //
+  // The defect this pins: `blocked` read `allow_public_egress` alone, while
+  // `market_transport.transport()` returns None unless BOTH flags are true.
+  // In this exact state the dialog rendered Confirm as live and sendable, sent
+  // nothing, and showed fixtures as the outcome of pressing it.
+
+  it("disables Confirm when web search is off even though egress is allowed", async () => {
+    expect(WEB_OFF.allow_public_egress).toBe(true);
+    expect(WEB_OFF.web_search_enabled).toBe(false);
+    const user = userEvent.setup();
+    render(<MarketPanel findings={[]} egress={WEB_OFF} />);
+    const dialog = await openPreview(user);
+
+    expect(within(dialog).getByRole("button", { name: "Confirm and send" })).toBeDisabled();
+    expect(
+      within(dialog).getByText(
+        "Web search is off in this build. Nothing can be sent until it is on.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
+    expect(searchMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves Confirm enabled when both flags are on", async () => {
+    const user = userEvent.setup();
+    render(<MarketPanel findings={[]} egress={OPEN} />);
+    const dialog = await openPreview(user);
+    // THE POSITIVE CONTROL. Without it, a `blocked` that was always true
+    // would satisfy every assertion above.
+    expect(
+      within(dialog).getByRole("button", { name: "Confirm and send" }),
+    ).not.toBeDisabled();
+  });
+
+  // ------------------------------------------------------------- null dates
+
+  it("renders no published row at all when a sample carries no date", () => {
+    const undated = { ...FINDINGS[0], published_at: null };
+    render(<MarketPanel findings={[undated]} egress={OPEN} />);
+    const p = panel();
+    // Rule 1: a dash reads as "reported and withheld", which is a measurement
+    // claim over a value that was never reported.
+    expect(within(p).queryByText("—")).toBeNull();
+    expect(within(p).queryByText("published")).toBeNull();
+  });
+
+  it("disables Confirm and states the reason when public egress is blocked", async () => {
+    expect(OFFLINE.allow_public_egress).toBe(false);
+    const user = userEvent.setup();
+    render(<MarketPanel findings={[]} egress={OFFLINE} />);
+    const dialog = await openPreview(user);
+
+    expect(within(dialog).getByRole("button", { name: "Confirm and send" })).toBeDisabled();
+    expect(
+      within(dialog).getByText(
+        "Web search and public egress are both off in this build. Nothing can be sent until it is on.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
+    expect(searchMock).not.toHaveBeenCalled();
   });
 
   it("renders URLs as text with no <a> element anywhere", () => {
     expect(FINDINGS.every((f) => /^https?:\/\//.test(f.url))).toBe(true);
     const { container } = render(<MarketPanel findings={FINDINGS} egress={OFFLINE} />);
     expect(container.querySelectorAll("a")).toHaveLength(0);
-    expect(screen.getByText(FINDINGS[0].url)).toBeInTheDocument();
+    expect(within(panel()).getByText(FINDINGS[0].url)).toBeInTheDocument();
   });
-});
 
-describe("MarketPanel: egress state", () => {
   it("shows both pills when web search and public egress are off", () => {
-    expect(OFFLINE.web_search_enabled).toBe(false);
-    expect(OFFLINE.allow_public_egress).toBe(false);
     render(<MarketPanel findings={[]} egress={OFFLINE} />);
-    expect(screen.getByText(/web search off/i)).toBeInTheDocument();
-    expect(screen.getByText(/public egress blocked/i)).toBeInTheDocument();
+    const p = panel();
+    expect(within(p).getByText(/web search off/i)).toBeInTheDocument();
+    expect(within(p).getByText(/public egress blocked/i)).toBeInTheDocument();
   });
 
-  it("disables Confirm and states the reason when egress is blocked", () => {
-    expect(OFFLINE.allow_public_egress).toBe(false);
+  it("renders no dialog until the preview is opened", () => {
+    render(<MarketPanel findings={[]} egress={OFFLINE} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("still honours a parent-controlled pending query", async () => {
     render(
       <MarketPanel
         findings={[]}
         egress={OFFLINE}
+        onPreviewQuery={vi.fn()}
         pendingQuery={QUERY}
         onConfirmQuery={vi.fn()}
         onCancelQuery={vi.fn()}
       />,
     );
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByRole("button", { name: "Confirm and send" })).toBeDisabled();
-    expect(within(dialog).getByRole("status")).toHaveTextContent("Public egress is blocked in this build.");
-    expect(within(dialog).getByText(JSON.stringify(QUERY))).toBeInTheDocument();
-  });
-
-  it("the confirm dialog is a modal dialog", () => {
-    render(<MarketPanel findings={[]} egress={OFFLINE} pendingQuery={QUERY} />);
-    const dialog = screen.getByRole("dialog");
+    const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveAttribute("aria-modal", "true");
-  });
-
-  it("renders no dialog when there is no pending query", () => {
-    render(<MarketPanel findings={[]} egress={OFFLINE} pendingQuery={null} />);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(within(dialog).getByText(QUERY.query)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(previewMock).toHaveBeenCalledWith(QUERY.query, {
+        country: QUERY.country,
+        freshness_days: QUERY.freshness_days,
+      }),
+    );
   });
 });

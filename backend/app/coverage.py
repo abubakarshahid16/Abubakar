@@ -23,14 +23,22 @@ Two rules that are not negotiable, and each has a test rather than a comment.
    would be a stronger claim than the evidence supports. The field is `False`
    or `None`.
 
-2. This module may call `keyword.term_occurrences(term, doc_id)` and must
-   NEVER call `lexical.assess` with a document_id it derived itself. The
-   absolute presence gate inside `assess` (`lexical.py:233-251`) is already
-   parameterised by document, so one careless loop turns "does not appear
-   anywhere in the indexed documents" into "does not appear in this document" -
-   and that refusal text is user-visible and says *anywhere*. The gate runs
-   exactly once, before any per-document reasoning, on the scope the request
-   already had, and its verdict is final.
+2. This module may call `keyword.term_occurrences(term, doc_id,
+   allowed_document_ids=...)` and must NEVER call `lexical.assess` with a
+   document_id it derived itself. The absolute presence gate inside `assess`
+   is already parameterised by document, so one careless loop turns "does not
+   appear anywhere in the indexed documents" into "does not appear in this
+   document" - and that refusal text is user-visible and says *anywhere*. The
+   gate runs exactly once, before any per-document reasoning, on the scope the
+   request already had, and its verdict is final.
+
+   THE CLAUSE "on the scope the request already had" WAS NOT TRUE WHEN
+   WRITTEN. `term_occurrences` and `indexed_count` took no scope at all until
+   the fix for review finding routes-scope#F3: they counted over the whole
+   `chunks_fts` table, so the gate's verdict - and the refusal sentence a
+   reader is shown - was decided partly by documents the caller has no grant
+   on. Both now require `allowed_document_ids`, keyword-only and with no
+   default, so a call site cannot omit it silently.
 
 It does not scale. Cost is terms x documents FTS COUNT(*) queries: tens of
 milliseconds at twelve documents, off the rerank path. At a thousand it is the
@@ -115,7 +123,9 @@ _REASONS = {
 }
 
 
-def distinguishing_terms(question: str) -> list[str]:
+def distinguishing_terms(
+    question: str, *, allowed_document_ids: frozenset[str]
+) -> list[str]:
     """Question terms specific enough that their absence means something.
 
     The same corpus-frequency rule `lexical.distinguishing_uncovered_terms`
@@ -127,7 +137,7 @@ def distinguishing_terms(question: str) -> list[str]:
     `distinctive_terms` is reused rather than reimplemented so that a
     multi-word expansion the corpus defines keeps counting as one term.
     """
-    indexed = keyword.indexed_count()
+    indexed = keyword.indexed_count(allowed_document_ids=allowed_document_ids)
     if not indexed:
         return []
     cutoff = (
@@ -137,8 +147,10 @@ def distinguishing_terms(question: str) -> list[str]:
         else indexed
     )
     out: list[str] = []
-    for term in distinctive_terms_of(question):
-        occurrences = keyword.term_occurrences(term)
+    for term in distinctive_terms_of(
+            question, allowed_document_ids=allowed_document_ids):
+        occurrences = keyword.term_occurrences(
+            term, allowed_document_ids=allowed_document_ids)
         # -1 is a term FTS cannot parse and tells us nothing either way; it is
         # not the same as 0, and neither is treated as distinguishing.
         if 0 < occurrences <= cutoff:
@@ -146,22 +158,37 @@ def distinguishing_terms(question: str) -> list[str]:
     return out
 
 
-def distinctive_terms_of(question: str) -> list[str]:
+def distinctive_terms_of(
+    question: str, *, allowed_document_ids: frozenset[str]
+) -> list[str]:
     """Indirection with a purpose: no document_id is ever threaded through.
 
     `lexical.distinctive_terms` accepts one, and passing a per-document id here
     would make the term list itself depend on which document was being
     examined. The terms are a property of the question.
     """
-    return lexical.distinctive_terms(question)
+    return lexical.distinctive_terms(
+        question, allowed_document_ids=allowed_document_ids)
 
 
-def _incidence(terms: list[str], document_ids: list[str]) -> dict[str, list[str]]:
-    """Which of these terms appear in each document, memoised per call."""
+def _incidence(
+    terms: list[str],
+    document_ids: list[str],
+    allowed_document_ids: frozenset[str],
+) -> dict[str, list[str]]:
+    """Which of these terms appear in each document, memoised per call.
+
+    `document_ids` already comes from `allowed_document_ids`, so the scope
+    passed on to `term_occurrences` is a belt-and-braces second gate rather
+    than the first one - and it keeps the parameter required at every call
+    site, which is what stops a future one omitting it silently.
+    """
     table: dict[str, list[str]] = {doc_id: [] for doc_id in document_ids}
     for term in terms:
         for doc_id in document_ids:
-            if keyword.term_occurrences(term, doc_id) > 0:
+            if keyword.term_occurrences(
+                    term, doc_id,
+                    allowed_document_ids=allowed_document_ids) > 0:
                 table[doc_id].append(term)
     return table
 
@@ -269,8 +296,10 @@ def document_incidence(
     # document carries "eradicate" is useful to a reader deciding what to open
     # next. It is the aggregate COUNT of "expected" documents that measurement
     # showed to be meaningless, so nothing is computed from it.
-    terms = distinguishing_terms(question)
-    table = _incidence(terms, ids) if terms else {doc_id: [] for doc_id in ids}
+    terms = distinguishing_terms(
+        question, allowed_document_ids=allowed_document_ids)
+    table = (_incidence(terms, ids, allowed_document_ids) if terms
+             else {doc_id: [] for doc_id in ids})
 
     rows: list[dict] = []
     for doc_id in ids:

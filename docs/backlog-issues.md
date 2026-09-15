@@ -240,7 +240,7 @@ are how a correct answer becomes a refusal.
 
 **What fixed looks like.** A curated domain glossary, built from the real
 corpus rather than guessed at, with the *salt → chlorides / NaCl* case as its
-first test. Deliberately deferred until the Aramco documents arrive — building
+first test. Deliberately deferred until the client documents arrive — building
 it against three books and one specification would be fitting to the wrong
 vocabulary.
 
@@ -320,7 +320,7 @@ not return an answer about system 2 in either mode.
 **The evidence.** Measured over 8 constructed genuine follow-ups. With the
 prior turn *"what is the MDFT for coating system no. 1"*:
 
-```
+```text
 follow-up : "what about system 2"
 carried   : ['mdft', 'coating']          <- topic words only, NO designator
 result    : extract, and it does not mention system 2

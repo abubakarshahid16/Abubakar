@@ -25,6 +25,7 @@ import type {
   AnalysisRequest,
   AnalysisSummaryResult,
   LoginResult,
+  PasswordResetResult,
   MarketFindings,
   MarketPreview,
   MarketQueryPreview,
@@ -321,8 +322,18 @@ export const market = {
 export const classification = {
   /** The filter vocabulary. `types` comes from the register, so a component
    *  MUST render this list rather than a hardcoded three. */
+  /** GUARDED ON `types`, like every other list-bearing read in this file. A
+   *  body without it used to reach the screen intact: `useTypeVocabulary`
+   *  handed back `types: undefined`, and `vocabulary.types.length` took the
+   *  Documents view - the app's first screen - down with it. 101 of 108
+   *  frontend failures were that one crash. A malformed body is now an
+   *  ordinary ApiError, so the filter is simply not offered. */
   vocabulary: () =>
-    request<ClassificationVocabulary>("/classification/vocabulary"),
+    request<ClassificationVocabulary>(
+      "/classification/vocabulary",
+      undefined,
+      hasArrayField("types"),
+    ),
   /** Counts per axis, scoped. This is how a screen gets per-type counts
    *  WITHOUT asking each document its type: one request, no N+1. */
   coverage: () => request<ClassificationCoverage>("/classification/coverage"),
@@ -374,7 +385,7 @@ export const reports = {
    *  a failure returns no bytes at all so no empty or truncated PDF can be
    *  handed to the reader. */
   download: (id: string): Promise<DownloadResult> =>
-    downloadReport(`/reports/${encodeURIComponent(id)}/download`, `nabaa-report-${id}.pdf`),
+    downloadReport(`/reports/${encodeURIComponent(id)}/download`, `rag-intelligence-report-${id}.pdf`),
 };
 
 /** The outcome of a binary download.
@@ -438,6 +449,26 @@ export function filenameFromContentDisposition(header: string | null): string | 
   const clean = base.trim().replace(/[^\p{L}\p{N}. _()+@-]/gu, "_").trim();
   if (clean === "" || clean === "." || clean === "..") return null;
   return clean;
+}
+
+/** Fetches a page-image route WITH the bearer header and returns an object
+ *  URL for an `<img>`. A bare `<img src>` cannot carry Authorization, so under
+ *  any auth mode that requires a token it is a guaranteed 401 and a broken
+ *  image - which is exactly what shipped once AUTH_MODE left `disabled`. The
+ *  token stays in the header; the URL is built from ids alone and is never
+ *  given the token as a query parameter. The caller owns the returned URL and
+ *  must revoke it. Null on any failure, so the caller renders "could not
+ *  render" rather than the browser's broken-image glyph. */
+export async function fetchImageObjectUrl(url: string): Promise<string | null> {
+  try {
+    const headers = new Headers();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch(url, { headers });
+    if (!response.ok) return null;
+    return URL.createObjectURL(await response.blob());
+  } catch {
+    return null;
+  }
 }
 
 async function downloadReport(path: string, fallback: string): Promise<DownloadResult> {
@@ -515,6 +546,12 @@ export const auth = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => request<AuthStatus>("/auth/me"),
+  resetPassword: (token: string, password: string) =>
+    request<PasswordResetResult>("/auth/password/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, password }),
+    }),
 };
 
 async function request<T>(

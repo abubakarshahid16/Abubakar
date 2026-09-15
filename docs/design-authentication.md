@@ -91,7 +91,7 @@ it from a stack trace.
 
 ## B. Module layout
 
-```
+```text
 access.py   exists — WHAT a request may see
 auth.py     new    — WHO the request is
 main.py     every route, including the two new ones
@@ -155,7 +155,7 @@ the UI rather than letting the user discover it.**
 with invocations, `argparse` in `main()`, module-level data constants, a
 `--verify-only` mode mirroring `fetch_models.py:206-210`, `raise SystemExit(main())`.
 
-```
+```bash
 python scripts/seed_access.py --roles
 python scripts/seed_access.py --user ali@x --role engineer
 python scripts/seed_access.py --grant <role> --document <id>
@@ -170,7 +170,7 @@ environment variable, never a default.
 
 1. **There is no demo password in the repository to reach production.** No
    constant, no fixture credential, no `--demo` flag. Stronger than any scan.
-2. **Refuse weak input** — minimum length, reject `password`, `demo`, `nabaa`,
+2. **Refuse weak input** — minimum length, reject `password`, `demo`, the product name (current and former),
    `changeme`, the email local-part. Fail loudly and non-zero.
 3. **Refuse to re-seed an existing user under `demo_required` without `--force`.**
    Re-seeding is how a known password quietly replaces a real one.

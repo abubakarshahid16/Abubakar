@@ -15,7 +15,7 @@ Written against the code and against measured hardware numbers from
 
 ### The token budget, computed
 
-```
+```text
 num_ctx                 = 1536
 max_output_tokens       = 250
 generated_context_chars = 1200   per passage
@@ -44,7 +44,7 @@ therefore 3, at every level.
 
 ### What that means for 15 documents
 
-```
+```text
 leaf calls   = ceil(15 docs x 3 passages / 3 per call) = 15
 reduce L1    = ceil(15 / 3) = 5      # 3 x 250-token summaries = 750 < 1044
 reduce L2    = ceil(5 / 3)  = 2
@@ -58,7 +58,7 @@ reduce L3                   = 1
 tokens, 27.9 at 951, 20.3 at 3,767. A full-budget leaf prompt is ~1,190 tokens,
 so ~26 tok/s.
 
-```
+```text
 prompt eval   1190 / 26  = 46 s
 generation    ~110 tok @ 6-9.4 tok/s = 12-18 s
 per leaf call            = 58-64 s
@@ -116,7 +116,7 @@ Citations are positional: `[S1]` is `passages[0]` **of one request**
 `also_supported_by`. `chunk_id` is not a substitute — `chunk_signature` changes
 on re-chunk and `search.py:668-676` already evicts chunks whose row has gone.
 
-```
+```text
 evidence_id = sha256(document_id | page_start | page_end | section | exact_span)[:16]
 ```
 
@@ -218,7 +218,7 @@ supports it.
 
 **Compute it from countable facts:**
 
-```
+```text
 low     default, and the honest floor. Any of:
           gaps.applicability != "applicable"
           any document failed or not_searchable
@@ -400,7 +400,7 @@ tokens, and a table row of ten such values is seventy.
 
 Measured sample, `15.3 WAVE EQUATION`, 1,200 characters, zero non-ASCII:
 
-```
+```text
 0.00 30.0000 30.0000 30.0000 30.0000 30.0000 30.0000 ...
 -> tokens: '0' '.' '0' '0' ' ' '3' '0' '.' '0' '0' '0' '0' ' ' '3' '0' ...
 ```

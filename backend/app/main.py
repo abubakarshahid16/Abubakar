@@ -34,6 +34,9 @@ from . import auth as auth_mod
 from . import errors
 from . import analysis as analysis_mod
 from . import market as market_mod
+from . import market_phrase as market_phrase_mod
+from . import market_providers as market_providers_mod
+from . import market_transport as market_transport_mod
 from . import progress as progress_mod
 from . import reports as reports_mod
 from . import schemas
@@ -71,7 +74,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Nabaa",
+    title="RAG Intelligence System",
     version="0.1.0",
     lifespan=lifespan,
     # A trailing slash previously resolved to the same route via a redirect,
@@ -121,6 +124,11 @@ def health():
     being processed. That is a privacy-boundary problem, not a cosmetic one.
 
     The full worker status still exists, on /api/metrics, which is scoped.
+    THAT SENTENCE WAS FALSE WHEN IT WAS WRITTEN and is true only as of the
+    commit that added this note: /api/metrics resolved an access scope and
+    discarded it, so `current_document` and `last_error` moved from one
+    unscoped route to another. Scoping now happens in `metrics.snapshot`, and
+    `_scoped_worker` is what makes this paragraph's claim real.
     `alive` and `stalled` stay here because a client that cannot reach the
     backend has to distinguish "down" from "up but stuck", and neither is
     about anybody's documents.
@@ -130,7 +138,9 @@ def health():
         "ok": True,
         "embed_model_present": (settings.embed_model_dir / "tokenizer.json").exists(),
         # Whether an answer model is CONFIGURED, not which one. The exact name
-        # and version is fingerprinting material and is on /api/metrics.
+        # and version is fingerprinting material and is on /api/metrics,
+        # which is scoped to the caller's grants as of the commit that
+        # added this note - it was not when the field was moved there.
         "answer_model_present": bool(settings.answer_model),
         "ingestion": {
             "alive": worker["alive"],
@@ -149,17 +159,46 @@ def health():
 def metrics(request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """Everything the dashboard shows.
+    """Everything the dashboard shows, restricted to what the caller may read.
 
     A value that has not been measured is null rather than zero, and the
     screen is required to say so. Throughput comes from stage runs actually
     recorded; retrieval latency comes from questions actually asked.
+
+    THIS ROUTE TOOK `scope` AND DISCARDED IT. Resolved on every request and
+    never passed on, so the corpus block was byte-identical for an admin, a
+    Civil Engineering user with four grants, and a user granted nothing at all
+    - measured, all three reporting 12 documents while /api/documents correctly
+    returned 6, 4 and 0. Five comments elsewhere in this codebase described
+    this endpoint as "the scoped /api/metrics", and that belief is why fields
+    were moved here off /api/health.
+
+    ADMIN SEES CORPUS-WIDE FIGURES, AND THAT IS A NEW CAPABILITY. `access.py`
+    grants an administrator no read bypass - an IT+admin user sees exactly the
+    six documents IT sees - so this is not an existing power being surfaced. It
+    is deliberately narrow: aggregate counts only, never document content, and
+    `corpus_wide` travels in the payload so the screen can say which kind of
+    number it is showing. An admin reading counts for documents they cannot
+    open is only defensible if the screen says so out loud.
     """
     reject_unknown_params(request, set())
+    # ONE PREDICATE, used for both, and it reads the KIND rather than the name.
+    # `admin_mod.is_admin` answers the same question from `roles.name`, and the
+    # two agree only because `init_db` re-asserts kind = 'capability' for the
+    # role called `admin` on every start. That re-assertion is not a guarantee:
+    # a role NAMED admin with kind = 'discipline' is an administrator to the
+    # name predicate and an ordinary engineer to this one. `AccessScope`
+    # already resolved the capability set for this request, so the stronger
+    # predicate is also the cheaper one - no second query, no second answer.
+    corpus_wide = scope.unrestricted or scope.is_admin
+    allowed = None if corpus_wide else sorted(scope.allowed_document_ids)
+    # The machine's own specifications go to an administrator only (#77). Not
+    # a document, so the corpus scoping could never have removed them; and the
+    # same flag governs whether the low-memory warning may state free RAM,
+    # because gating the block while the prose restates the figure would move
+    # the leak rather than close it.
     return metrics_mod.snapshot(
-        ingest_mod.get_worker().status(),
-        host=scope.unrestricted or access.is_admin(scope.user_id),
-    )
+        ingest_mod.get_worker().status(), allowed, corpus_wide, corpus_wide)
 
 
 # --------------------------------------------------------------- documents
@@ -190,12 +229,8 @@ async def upload_document(
     if duplicate_of is None and admin_role is not None and scope.user_id is not None:
         access.grant_uploaded_document_to_admin(row["id"], admin_role, scope.user_id)
     elif duplicate_of is not None and not scope.may_read(duplicate_of):
-        return {
-            "document": None,
-            "job_id": "",
-            "duplicate_of": None,
-            "awaiting_grant": True,
-        }
+        return {"document": None, "job_id": "", "duplicate_of": None,
+                "awaiting_grant": True}
     return {
         "document": upload_mod.to_api(row),
         "job_id": job_id or "",
@@ -541,7 +576,7 @@ def _require_identity_to_write(scope: access.AccessScope) -> None:
 
 @app.post("/api/auth/login", response_model=schemas.LoginResult,
           responses={**schemas.ERRORS_422})
-def login(body: schemas.LoginRequest):
+def login(body: schemas.LoginRequest, request: Request):
     """Exchange credentials for a bearer token.
 
     Unauthenticated by construction - it is how a caller becomes
@@ -550,7 +585,15 @@ def login(body: schemas.LoginRequest):
     which is why the rate limiter is in memory rather than a table.
     """
     try:
-        return auth_mod.login(body.email, body.password)
+        # The client host bounds the Argon2 work. Without it the only budget
+        # was keyed on the email in the body, which the caller picks per
+        # request - so a fresh address each time met an empty bucket and every
+        # request paid a 64 MiB verify. `request.client` is None for some
+        # transports (a raw ASGI test call), and None simply means the email
+        # bucket alone applies.
+        client_host = request.client.host if request.client else None
+        return auth_mod.login(body.email, body.password,
+                              client_host=client_host)
     except auth_mod.AuthError as exc:
         headers = ({"Retry-After": str(exc.retry_after)}
                    if exc.retry_after else None)
@@ -558,6 +601,19 @@ def login(body: schemas.LoginRequest):
             status_code=429 if exc.code == errors.RATE_LIMITED else 401,
             detail=errors.safe_error(exc.code, exc.message),
             headers=headers,
+        )
+
+
+@app.post("/api/auth/password/reset", response_model=schemas.PasswordResetResult,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_422})
+def reset_password(body: schemas.PasswordResetRequest):
+    """Redeem a shown-once setup/reset token for a new password."""
+    try:
+        return admin_mod.redeem_password_token(body.token, body.password)
+    except auth_mod.AuthError as exc:
+        raise HTTPException(
+            status_code=422 if exc.code == errors.WEAK_PASSWORD else 401,
+            detail=errors.safe_error(exc.code, exc.message),
         )
 
 
@@ -856,6 +912,126 @@ def market_preview_query(body: schemas.MarketQueryRequest,
     return market_mod.preview_query(body.query, body.country, body.freshness_days)
 
 
+def _record_market_audit(rows, scope: access.AccessScope) -> None:
+    """Persist one `audit_events` row per outbound query.
+
+    THE EXISTING MECHANISM, NOT A SECOND ONE. `audit_events` is the
+    append-only table `admin._audit` and `auth` already write to, and
+    `market_providers.audit_record` builds rows whose keys are its columns -
+    so this inserts them without translating, and a translation layer is where
+    a field quietly stops being recorded.
+
+    IT IS WRITTEN HERE BECAUSE IT CANNOT BE WRITTEN THERE. `market_providers`
+    is forbidden to import `db` - enforced by AST inspection - precisely so
+    the market feature cannot reach the corpus. Importing `db` there to write
+    an audit row would hand the leakiest module in the system a live database
+    handle. So that module builds the row and this route stores it.
+
+    `detail` is the phrase VERBATIM. Safe by the only argument that matters:
+    it is the text already judged fit to hand to a third party, so it is
+    certainly fit for a local table. Not hashed and not summarised, because
+    the single question this row exists to answer is "what exactly left this
+    machine", and a digest cannot answer it.
+
+    NEVER RAISES INTO THE CALLER, the same discipline as `admin._audit`. An
+    unwritable audit row must not fail a request that has already been made -
+    and note the ordering that follows from that: rows are written AFTER the
+    calls, so a crash between the two loses the record of a query that did
+    leave. That is a real gap and the honest fix is a write-ahead record,
+    which is more machinery than a feature nobody has enabled needs. Recorded
+    here rather than discovered later.
+    """
+    actor = "unauthenticated" if scope.user_id is None else scope.user_id
+    try:
+        conn = connect()
+        with conn:
+            for row in rows:
+                conn.execute(
+                    """INSERT INTO audit_events
+                           (at, actor_user_id, actor_username, action,
+                            resource_type, resource_id, outcome, detail)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (row["at"], scope.user_id, actor[:200], row["action"],
+                     row["resource_type"], row["resource_id"], row["outcome"],
+                     row["detail"]),
+                )
+    except Exception:  # noqa: BLE001 - an unwritable audit must not fail the request
+        pass
+
+
+@app.get("/api/market/preview", response_model=schemas.MarketPreview)
+def market_preview(
+    phrase: str = Query(..., min_length=1, max_length=2000),
+    country: str | None = Query(None, max_length=8),
+    freshness_days: int | None = Query(None, ge=1, le=3650),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """What WOULD leave, per tier, and nothing is sent. Safe to call always.
+
+    THE SCRUBBING HAPPENS HERE, and this is the only place in the request
+    path that knows the corpus filenames. `phrase` arrives as the user's own
+    words - a question, typically - and `market_phrase.market_phrase` reduces
+    it to a whitelisted phrase or to None. `None` is returned as `phrase:
+    null` and means NO SEARCH IS POSSIBLE; a caller that falls back to the raw
+    text has broken the only guarantee that matters.
+
+    THE FILENAMES ARE SCOPE-BOUND. `analysis._corpus_filenames(scope)` returns
+    only names this caller may read, which is the right list for two separate
+    reasons: a name they cannot see is not one they can ask about, and it
+    means the strip list cannot itself become a way to enumerate the corpus.
+
+    `country` and `freshness_days` are accepted and threaded through, because
+    they appear in every payload a search sends. A preview that omitted them
+    showed an object that was never sent - the defect this route was rewritten
+    to close.
+    """
+    safe = market_phrase_mod.market_phrase(
+        phrase, analysis_mod._corpus_filenames(scope))
+    return market_providers_mod.preview(
+        safe, country=country, freshness_days=freshness_days)
+
+
+@app.post("/api/market/search", response_model=schemas.MarketSearchResult)
+def market_search(body: schemas.MarketSearchRequest,
+                  scope: access.AccessScope = Depends(access.current_scope)):
+    """Run the configured tiers, or return the labelled samples with the flag
+    off. NO TRANSPORT IS CONSTRUCTED HERE.
+
+    `fetch` is left unset deliberately, so this route cannot open a socket in
+    this build even with both flags on: `search_all` refuses with "no
+    transport supplied" and reports a failure. Wiring a transport is a
+    separate, reviewable change and is not part of this one.
+
+    THE PHRASE IS RE-SCRUBBED SERVER-SIDE rather than trusted from the client.
+    The browser previewed a scrubbed phrase, but a POST body can carry
+    anything, and "the client already checked" is not a control. Scrubbing
+    again here means the only text that can reach a provider is text this
+    server derived.
+
+    `audit` is stripped by `market_providers.to_api`. The rows it holds are for
+    the persistence call site, not for a browser - shipping them would put a
+    record of every outbound query into any page that calls this endpoint.
+    `response_model` is the second, independent guard on that: even if a
+    caller bypassed `to_api`, an undeclared field cannot be serialised.
+    """
+    raw = body.phrase or ""
+    country = body.country
+    freshness = body.freshness_days
+    safe = market_phrase_mod.market_phrase(
+        raw, analysis_mod._corpus_filenames(scope))
+    # THE TRANSPORT, AND IT IS None UNLESS BOTH FLAGS ARE TRUE. No client is
+    # constructed with the flags off, so the off state is the ABSENCE of a
+    # transport rather than an unused one - `search_all` then reports "no
+    # transport supplied" rather than appearing to work. This one line is what
+    # makes flipping two flags the entire change on the day egress is
+    # approved: no code lands that day.
+    result = market_providers_mod.search_all(
+        safe, fetch=market_transport_mod.transport(),
+        country=country, freshness_days=freshness)
+    _record_market_audit(result.get("audit") or (), scope)
+    return market_providers_mod.to_api(result)
+
+
 # ---------------------------------------------------------------- reports
 #
 # A report IS client document content - it quotes it - so every route takes
@@ -928,7 +1104,7 @@ def download_report(report_id: str,
     # The download name is the server-assigned id, never the question.
     return FileResponse(
         path, media_type="application/pdf",
-        filename=f"nabaa-report-{report_id}.pdf",
+        filename=f"rag-intelligence-report-{report_id}.pdf",
         headers={"Cache-Control": "private, no-store"},
     )
 
@@ -1250,3 +1426,123 @@ def document_excluded(
         "offset": offset,
         "excluded": [dict(r) for r in rows],
     }
+
+
+# ------------------------------------------------------------------ admin
+#
+# The administration screen: users, disciplines and document grants, replacing
+# `scripts/seed_access.py`, including one-time password setup and reset. Implements
+# `docs/design-admin-screen.md`, which was written before these routes existed.
+#
+# EVERY ROUTE HERE DEPENDS ON `admin.current_admin`, AND A NON-ADMIN GETS 404.
+# Not 403. A 403 confirms both that the route exists and that the caller found
+# the thing it guards, and the admin surface is the most interesting one on
+# this API to probe. It is the same rule `require_document` already follows for
+# a document the caller may not read, and it is why these routes take
+# `current_admin` rather than `current_scope`: the question is not which
+# documents this request may see, it is whether this request may be here at
+# all.
+
+
+@app.get("/api/admin/users", response_model=schemas.AdminUserList,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_list_users(request: Request,
+                     actor: dict | None = Depends(admin_mod.current_admin)):
+    """Every user, with disciplines and the "no discipline" warning.
+
+    Carries NO setup token, for any user, ever - only its SHA-256 is stored,
+    so there is no plaintext here to return.
+    """
+    reject_unknown_params(request, set())
+    return admin_mod.list_users()
+
+
+@app.post("/api/admin/users", response_model=schemas.AdminUserCreated,
+          status_code=201,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_409,
+                     **schemas.ERRORS_422})
+def admin_create_user(body: admin_mod.CreateUserRequest,
+                      actor: dict | None = Depends(admin_mod.current_admin)):
+    """Create a user and return a one-time setup token.
+
+    NO PASSWORD IS ACCEPTED OR RETURNED, and there is no parameter for one.
+    The reasons are argued in the contract: `seed_access.py` guarantees that a
+    password can only ever arrive by being typed interactively twice, an admin
+    who types someone's password knows it, and a password in a request body is
+    a password in a log - which this project found in a 422 handler that
+    echoed the submitted body back.
+    """
+    return admin_mod.create_user(body, actor)
+
+
+@app.delete("/api/admin/users/{user_id}",
+            response_model=schemas.AdminUserDeactivated,
+            responses={**schemas.ERRORS_404, **schemas.ERRORS_409})
+def admin_deactivate_user(user_id: str,
+                          actor: dict | None = Depends(admin_mod.current_admin)):
+    """Deactivate a user. Idempotent, and never a delete.
+
+    An admin cannot deactivate themselves: without that rule the last admin
+    can lock everyone out of a system whose only other door is a terminal.
+    """
+    return admin_mod.deactivate_user(user_id, actor)
+
+
+@app.post("/api/admin/users/{user_id}/password-reset",
+          response_model=schemas.AdminUserCreated,
+          responses={**schemas.ERRORS_404})
+def admin_issue_password_reset(
+        user_id: str,
+        actor: dict | None = Depends(admin_mod.current_admin)):
+    """Issue a replacement shown-once token; never accept a password here."""
+    return admin_mod.issue_password_reset(user_id, actor)
+
+
+@app.get("/api/admin/disciplines", response_model=schemas.AdminDisciplineList,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_list_disciplines(request: Request,
+                           actor: dict | None = Depends(admin_mod.current_admin)):
+    """Disciplines with user and document counts.
+
+    A discipline with no documents is flagged, because everyone in it logs in
+    successfully and then sees an empty corpus - which during a demo looks
+    exactly like broken search rather than a missing grant.
+    """
+    reject_unknown_params(request, set())
+    return admin_mod.list_disciplines()
+
+
+@app.get("/api/admin/grants", response_model=schemas.AdminGrantList,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_list_grants(request: Request,
+                      actor: dict | None = Depends(admin_mod.current_admin)):
+    """Documents and the disciplines that can see them.
+
+    A document nobody can see is flagged: it is invisible in every search and
+    looks like a broken upload.
+    """
+    reject_unknown_params(request, set())
+    return admin_mod.list_grants()
+
+
+@app.put("/api/admin/grants", response_model=schemas.AdminGrantResult,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_grant(body: admin_mod.GrantRequest,
+                actor: dict | None = Depends(admin_mod.current_admin)):
+    """Grant a document to a discipline. Idempotent - a retried click cannot
+    double-grant and cannot fail."""
+    return admin_mod.grant(body, actor)
+
+
+@app.delete("/api/admin/grants", response_model=schemas.AdminGrantResult,
+            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_revoke_grant(body: admin_mod.GrantRequest,
+                       actor: dict | None = Depends(admin_mod.current_admin)):
+    """Revoke a document from a discipline. 200 whether or not it was granted.
+
+    The document leaves that discipline's members' search results on their NEXT
+    REQUEST: `access.scope_for_user` re-runs the grant-table join every request
+    and caches nothing, so deleting the row IS the invalidation. See
+    `admin.revoke_grant`, where that is stated at the line it happens.
+    """
+    return admin_mod.revoke_grant(body, actor)

@@ -4,7 +4,7 @@ import fitz
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, keyword, states
+from app import db, keyword, lexical, states
 from app.chunker import chunk_document
 from app.config import settings
 from app.extract import extract_document
@@ -196,7 +196,7 @@ def test_search_never_returns_a_non_retrievable_chunk():
         conn.execute("UPDATE chunks SET retrievable = 0 WHERE document_id = ?", (doc_id,))
     keyword.index_document(doc_id)
 
-    assert keyword.indexed_count(doc_id) == 0
+    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) == 0
     assert keyword.search("vibration limit API 610", allowed_document_ids=_scope()) == []
 
 
@@ -209,7 +209,7 @@ def test_reindexing_replaces_rather_than_duplicates():
     first = keyword.index_document(doc_id)["indexed"]
     keyword.index_document(doc_id)
     keyword.index_document(doc_id)
-    assert keyword.indexed_count(doc_id) == first
+    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) == first
 
 
 def test_rechunking_invalidates_the_index():
@@ -219,20 +219,20 @@ def test_rechunking_invalidates_the_index():
     extract_document(doc_id)
     chunk_document(doc_id)
     keyword.index_document(doc_id)
-    assert keyword.indexed_count(doc_id) > 0
+    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) > 0
 
     chunk_document(doc_id, force=True)
-    assert keyword.indexed_count(doc_id) == 0, "stale index survived a rebuild"
+    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) == 0, "stale index survived a rebuild"
 
 
 def test_deleting_a_document_removes_it_from_the_index():
     client = TestClient(app)
     doc_id = upload(client)
     IngestionWorker().process(doc_id)
-    assert keyword.indexed_count(doc_id) > 0
+    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) > 0
 
     TestClient(app).delete(f"/api/documents/{doc_id}?confirm=true")
-    assert keyword.indexed_count(doc_id) == 0
+    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) == 0
 
 
 # ---------------------------------------------------------------- endpoint
@@ -274,6 +274,83 @@ def test_search_can_be_scoped_to_one_document():
     assert all(h["document_id"] == b for h in r["hits"])
 
     assert client.get("/api/search?q=x&document_id=doc_zzzzzzzzzzzz").status_code == 404
+
+
+# ------------------------------------------------- the presence oracle (F3)
+
+
+SECRET = [
+    "12.1 Inconel Cladding",
+    "Inconel 625 weld overlay shall be applied to the sealing faces of every",
+    "subsea connector supplied under this specification before delivery.",
+]
+
+
+def _index(client, name, blocks) -> str:
+    doc_id = upload(client, name=name, blocks=blocks)
+    extract_document(doc_id)
+    chunk_document(doc_id)
+    keyword.index_document(doc_id)
+    return doc_id
+
+
+def test_a_term_only_in_an_unreadable_document_counts_as_absent():
+    """The lexical gate must not be a presence oracle.
+
+    `term_occurrences` and `indexed_count` took no scope at all: they counted
+    over the whole `chunks_fts` table. So the gate's verdict - and the
+    user-visible refusal "none of the terms in this question appear in the
+    indexed documents" - was decided partly by documents the caller has no
+    grant on. A caller could tell that "Inconel" exists in the corpus by the
+    system declining to say it does not, which is the same disclosure
+    `/api/health` was stripped for.
+
+    MUTATION-PROVEN. Drop the scope predicate from `term_occurrences` and the
+    restricted caller sees a non-zero count for a document they cannot read.
+    """
+    client = TestClient(app)
+    readable = _index(client, "readable.pdf", (SPEC,))
+    _index(client, "secret.pdf", (SECRET,))
+
+    mine = frozenset({readable})
+
+    # Corpus-wide the term really is there, so the assertion below is about
+    # SCOPE, not about the term being missing from the whole corpus.
+    assert keyword.term_occurrences(
+        "Inconel", allowed_document_ids=_scope()) > 0, "precondition"
+
+    assert keyword.term_occurrences("Inconel", allowed_document_ids=mine) == 0, (
+        "a caller learned that a term exists in a document they may not read")
+
+    # The denominator the gate judges commonness against is the caller's
+    # corpus too, not everybody's.
+    assert (keyword.indexed_count(allowed_document_ids=mine)
+            < keyword.indexed_count(allowed_document_ids=_scope()))
+
+    # NOT VACUOUS: a term that IS in the readable document still counts.
+    assert keyword.term_occurrences(
+        "vibration", allowed_document_ids=mine) > 0
+
+
+def test_an_empty_scope_counts_nothing_rather_than_everything():
+    """Zero grants is a real answer and must not fall through to the whole
+    corpus. `indexed_count` returning 0 makes `lexical.assess` abstain, which
+    is the safe direction: it never becomes a claim that a term is absent.
+    """
+    client = TestClient(app)
+    _index(client, "readable.pdf", (SPEC,))
+
+    assert keyword.indexed_count(allowed_document_ids=frozenset()) == 0
+    assert keyword.term_occurrences(
+        "vibration", allowed_document_ids=frozenset()) == 0
+
+    verdict = lexical.assess(
+        "what is the vibration limit", "any text at all",
+        allowed_document_ids=frozenset())
+    assert verdict["ok"] is True, "an empty scope must abstain, not refuse"
+    assert verdict["absent_from_corpus"] == [], (
+        "a caller with no grants was told a term is absent from a corpus they "
+        "cannot see any of")
 
 
 def _scope():

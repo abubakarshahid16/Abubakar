@@ -10,6 +10,69 @@ the day they merged.
 
 ## [Unreleased]
 
+### 2026-09-07 — the false compliance gap, and a folder that ingests itself
+
+User-facing, newest first. Every figure below was measured on this laptop.
+
+**A compliance gap that did not exist is no longer reported.** Asked to
+compare design submittal percentages across two specifications, the product
+reported that only one document set a percentage - a gap. Both documents set
+one: doc13 page 125 requires a 35% preliminary submittal, and doc16 page 18
+asks for "at least a 50% design submission". Only the first was ever retrieved,
+because one document had taken 18 of the 24 available evidence slots and, in
+doing so, buried its own answer. A comparison is now capped so no single
+document can supply more than a third of the evidence, questions that name
+documents no longer pull in unrelated textbooks, and a question about
+percentages gets a second pass for clauses that write the number as digits.
+**This was the most serious defect this system has had**: it did not fail, it
+answered confidently and wrongly, about compliance.
+
+**Drop a PDF in a folder and it ingests itself.** No upload screen, no
+clicking. The folder is watched; new files are picked up, and duplicates are
+recognised by content rather than by filename, so re-dropping the same file
+does not ingest it twice.
+
+**Comprehensive analysis now reads every document separately before
+consolidating.** It used to put everything into one request, which on this
+hardware could quietly exceed what the local model would accept - and the model
+declines rather than erroring, so the reader was told "the sources do not
+support a summary" when the truth was that the request was too big. Each
+document is now summarised on its own and the summaries consolidated.
+**Expect Comprehensive to be slower**: measured at 118s before and 204s after
+on one question, because it makes six model calls where it made one. On that
+particular question the model still declined; the change removes one cause of
+the failure, not all of them.
+
+**Advice no longer disappears when the summary does.** The recommendation was
+gated on the written summary, so if the model declined to summarise, the
+advice vanished too - even where the mechanical document comparison had found
+real conflicts and cited them. Advice can now rest on that comparison instead,
+and says so in its first sentence, so a reader can tell what it was built
+from. With nothing cited from either, it still refuses and names the reason.
+
+**Uploading requires signing in.** Anyone who could reach the port could
+previously add a document, and that document then belonged to nobody - it
+could not be seen by the uploader, by an administrator, or on any screen.
+Uploads now require an identity, and a new document is immediately visible to
+its uploader's discipline and to administrators. Re-uploading a copy of a
+document you cannot see tells you nothing about it.
+
+**The product is now called the RAG Intelligence System.** The former codename
+is gone from the interface and from downloaded report filenames.
+
+**Gap rows no longer contradict the evidence printed beside them**, and the
+Dashboard's machine specifications are visible only to administrators.
+
+#### Known, and not fixed
+
+- Three page-level retrieval misses remain: doc16 pages 23, 24 and 25 are not
+  retrieved for the questions that target them. Right document, wrong page.
+- Search is still literal about spelling: a misspelled query can return
+  nothing rather than correcting itself. The work exists but is not merged,
+  because it touches the retrieval Chat depends on.
+- Comprehensive analysis can still decline on a large corpus, as above.
+
+
 ### Spike — PyMuPDF `Story` as the report renderer (2026-09-05, 10 minutes)
 
 The design made three claims it had not verified. Each was rendered and read

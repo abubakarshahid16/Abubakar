@@ -1,5 +1,5 @@
 # ==============================================================================
-# Nabaa - saudi-aramco-rag-chatbot
+# RAG Intelligence System
 # Source: EXECUTION.md section 9 "Files that must be ignored" (verbatim block),
 # plus platform additions marked below.
 #
@@ -75,3 +75,6 @@ gitleaks-report.json
 # commit" goes stale silently - the same defect class as a field that
 # certifies state it never read. Regenerate rather than track.
 Claude outputs/
+
+# Claude Code per-machine permissions (never shared)
+.claude/settings.local.json

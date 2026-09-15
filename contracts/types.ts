@@ -40,7 +40,7 @@ export interface DocumentRecord {
    *  owner's words. Never a placeholder for an empty list. Required, not
    *  optional, so a missing field is a contract error rather than a silent
    *  "uncategorised". */
-  disciplines?: string[];
+  disciplines: string[];
   /** how many retrievable chunks have vectors so far */
   embedded_count: number;
   status: DocStatus;
@@ -266,8 +266,10 @@ export type AnswerType =
   | "insufficient_evidence"
   | "model_unavailable"
   /** the input was never a document question - a greeting, thanks, chitchat.
-   *  Nothing was searched, so there is nothing to show as considered. */
-  | "guidance";
+ *  Nothing was searched, so there is nothing to show as considered. */
+  | "guidance"
+  /** a non-sensitive aggregate from application metadata, not document text */
+  | "metadata";
 
 export interface AnswerPassage {
   chunk_id: string;
@@ -454,6 +456,15 @@ export interface LoginResult {
   expires_in_seconds: number;
 }
 
+export interface PasswordResetRequest {
+  token: string;
+  password: string;
+}
+
+export interface PasswordResetResult {
+  reset: true;
+}
+
 // ---------------------------------------------------------------- progress
 
 export interface ProgressStep {
@@ -636,7 +647,7 @@ export interface AnalysisRequest {
  *  can only ever produce the last one. */
 export type MarketVerification = "source_read" | "snippet_only" | "source_not_verified";
 
-/** An ILLUSTRATIVE row. There is no provider and this machine is offline.
+/** An ILLUSTRATIVE row: a bundled fixture, never a retrieved result.
  *
  *  `is_sample` is always true and is neither optional nor defaulted. A row
  *  that could omit it could be mistaken for a real finding, and the UI must
@@ -1106,7 +1117,7 @@ export interface Metrics {
    *  only the documents this caller may read. An admin gets corpus-wide
    *  figures; everyone else gets their own. The screen MUST say which it is
    *  showing - a count with no stated boundary reads as total. */
-  corpus_wide?: boolean;
+  corpus_wide: boolean;
   corpus: CorpusMetrics;
   exclusions: ExclusionSummary[];
   jobs: JobMetrics;

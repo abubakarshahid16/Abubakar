@@ -221,7 +221,7 @@ def test_deleting_a_user_keeps_both_the_record_and_the_attribution():
         conn.execute(
             """INSERT INTO audit_events (at, actor_user_id, actor_username,
                                          action, outcome)
-               VALUES (?, 'u1', 'kanwar@nabaa.local', 'document.read', 'ok')""",
+               VALUES (?, 'u1', 'kanwar@ragintel.local', 'document.read', 'ok')""",
             (NOW,))
         conn.execute("DELETE FROM users WHERE id='u1'")
     rows = conn.execute(
@@ -229,7 +229,7 @@ def test_deleting_a_user_keeps_both_the_record_and_the_attribution():
     ).fetchall()
     assert len(rows) == 1, "the audit event was deleted with its actor"
     assert rows[0]["actor_user_id"] is None, "the live link should be severed"
-    assert rows[0]["actor_username"] == "kanwar@nabaa.local", (
+    assert rows[0]["actor_username"] == "kanwar@ragintel.local", (
         "attribution was lost with the account - the row survived but no "
         "longer says who acted")
     assert rows[0]["action"] == "document.read"

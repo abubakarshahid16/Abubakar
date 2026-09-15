@@ -23,10 +23,52 @@ Repository: `abubakarshahid16/saudi-aramco-rag-chatbot` (private)
 | CON-001 | [#8](../../issues/8) | Define API, status, citation, error, and streaming contracts | #7 |
 | DEV-001 | [#9](../../issues/9) | Scaffold reproducible Python and React workspaces with CI | #7 |
 
-## M1–M3
+## M1–M3 (clock-deadline scheme)
 
 Not yet created. Issues are created as their milestone is approached, so that the
 scope cuts recorded in ADR-0003 are reflected rather than the original backlog.
+
+## TWO MILESTONE SCHEMES SHARE THE NUMBERS M2, M3 AND M4
+
+Read this before filing anything against a milestone number.
+
+This file's milestones (below) are **clock deadlines** — M2 is the 3PM prototype
+cut. `RAG-INTELLIGENCE-POC-EXECUTION.md` §12 defines a **different** set under the
+same numbers, named for what they contain: M2 is the authorization boundary.
+They are not the same milestone and they do not contain the same work.
+
+Both now exist on GitHub, because the plan's were never created and the work
+below belongs to them:
+
+| Number | Title on GitHub | Scheme |
+|---|---|---|
+| 3 | `M2 - Full UI` (closed) | clock deadline, this file |
+| 4 | `M3 - Polish & handoff` | clock deadline, this file |
+| 5 | `M4 - Full Corpus Pilot` | clock deadline, this file |
+| 7 | `M2 — Authorization boundary` | plan §12 |
+| 8 | `M3 — Smart analysis` | plan §12 |
+| 9 | `M4 — Market and reporting` | plan §12 |
+
+The plan's titles use an **em dash**, this file's a hyphen. That is the only
+thing distinguishing them at a glance, which is not enough — **name the scheme
+whenever you cite a milestone number.** Consolidating the two is open work; it
+was not done tonight because renaming a closed milestone rewrites the history
+of issues already filed against it.
+
+## Plan §12 milestones — issues filed
+
+Stable IDs continue this file's scheme (`SEC-`, `UI-`, `ANA-`, `REP-`).
+Bugs carry no stable ID; the plan's §12 `ISSUE-0NN` IDs name the parent feature
+issue each of these extends.
+
+| Stable ID | GitHub | Title | Milestone | Parent |
+|---|---|---|---|---|
+| SEC-002 | [#64](../../issues/64) | Add the four engineering disciplines and admin as a capability | M2 — Authorization boundary | ISSUE-004 |
+| UI-002 | [#65](../../issues/65) | Build the admin screen so a client can grant access without a terminal | M2 — Authorization boundary | ISSUE-013 |
+| ANA-002 | [#66](../../issues/66) | Detect compliance assertions a cited span does not make | M3 — Smart analysis | ISSUE-009 |
+| — | [#67](../../issues/67) | bug: a stray punctuation fragment is reported as a removed sentence | M3 — Smart analysis | ISSUE-009 |
+| — | [#68](../../issues/68) | bug: the recommendation panel asserted an egress state it never read | M4 — Market and reporting | ISSUE-011 |
+| REP-002 | [#69](../../issues/69) | Audit every [S#] marker against the evidence frozen in the report | M4 — Market and reporting | ISSUE-012 |
 
 ## Milestones
 

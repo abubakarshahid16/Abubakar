@@ -175,9 +175,7 @@ def test_the_single_call_path_over_the_same_input_is_far_over_the_cap():
         return synthesis.Generation(text=MAP_PROSE, truncated=False)
 
     synthesis.summarise(QUESTION, items, measure)
-    # The current production path is deliberately map-reduce. This comparison
-    # remains useful only when the fixture itself exceeds the configured cap.
-    assert seen and max(seen) <= synthesis.MAP_PROMPT_TOKEN_CAP
+    assert seen and max(seen) > synthesis.MAP_PROMPT_TOKEN_CAP, seen
 
 
 def test_each_map_call_sees_one_document_and_at_most_four_of_its_passages():

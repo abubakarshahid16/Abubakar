@@ -4,7 +4,7 @@ from collections import Counter
 
 from app.chunker import content_quality
 
-c = sqlite3.connect("file:data/nabaa.sqlite?mode=ro", uri=True)
+c = sqlite3.connect("file:data/rag_intelligence.sqlite?mode=ro", uri=True)
 c.row_factory = sqlite3.Row
 
 GOOD = list(c.execute(

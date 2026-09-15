@@ -58,11 +58,14 @@ INTERNAL = "internal"
 UNAUTHENTICATED = "unauthenticated"
 INVALID_CREDENTIALS = "invalid_credentials"
 RATE_LIMITED = "rate_limited"
+INVALID_RESET_TOKEN = "invalid_reset_token"
+WEAK_PASSWORD = "weak_password"
 
 CLIENT_ERROR_CODES = frozenset(
     {NOT_FOUND, INVALID_PARAMETER, UNKNOWN_PARAMETER, CONFIRM_REQUIRED,
      NOT_PDF, ENCRYPTED_PDF, TOO_LARGE, DUPLICATE,
-     UNAUTHENTICATED, INVALID_CREDENTIALS, RATE_LIMITED}
+     UNAUTHENTICATED, INVALID_CREDENTIALS, RATE_LIMITED,
+     INVALID_RESET_TOKEN, WEAK_PASSWORD}
 )
 
 ALL_CODES = CLIENT_ERROR_CODES | {
@@ -84,9 +87,9 @@ def logger() -> logging.Logger:
     location - which is exactly how a test can pass while logging nothing.
     """
     global _logger
-    target = (settings.data_dir / "logs" / "nabaa.log").resolve()
+    target = (settings.data_dir / "logs" / "rag-intelligence.log").resolve()
 
-    lg = logging.getLogger("nabaa")
+    lg = logging.getLogger("rag_intelligence")
     lg.setLevel(logging.INFO)
     current = next(
         (h for h in lg.handlers if isinstance(h, RotatingFileHandler)), None

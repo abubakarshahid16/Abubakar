@@ -1,5 +1,5 @@
 import sqlite3, re
-DB = r"d:\project\Rag_chatbot\backend\data\nabaa.sqlite"
+DB = r"d:\project\Rag_chatbot\backend\data\rag_intelligence.sqlite"
 c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True); c.row_factory = sqlite3.Row
 
 def sample(doc, label, min_page):

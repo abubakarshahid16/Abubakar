@@ -1139,18 +1139,12 @@ export function AnalysisModeScreen() {
   // RULE 1 (TypeFilter's own doc comment): the vocabulary comes from the
   // register. Null while loading or on failure, in which case the filter
   // renders nothing at all rather than a guess - see useTypeVocabulary.
-  // Load classification vocabulary only when a scope is actively selected;
-  // quote mode must remain a single-request operation.
-  const typeVocabulary = useTypeVocabulary(selectedTypes.length > 0 && mode !== "quote");
+  const typeVocabulary = useTypeVocabulary();
   const filtering = selectedTypes.length > 0;
 
   // The mount-time half of the sign-out rule. Before paint, so a remount after
   // a sign-out never shows the previous session's results for even one frame.
   useLayoutEffect(() => {
-    // A screen remount starts a fresh analysis session. This also prevents an
-    // abandoned request from a previous view instance leaving the new Run
-    // button disabled.
-    resetAnalysisScreen();
     clearIfSignedOut();
   }, []);
 
@@ -1485,17 +1479,6 @@ export function AnalysisModeScreen() {
                 {(d) => (
                   <div className="space-y-3">
                     <RecommendationCard recommendation={d.recommendation} onCite={onCite} />
-                    {d.findings.length > 0 && (
-                      <section aria-label="Public market information" className="space-y-2">
-                        <h3 className="text-sm font-semibold text-slateish-100">Public market information</h3>
-                        {d.findings.map((row) => (
-                          <div key={`${row.url}-${row.claim}`} className="rounded border border-ink-600 p-3">
-                            <span className="mr-2 rounded bg-warn-500/15 px-1.5 py-0.5 text-xs text-warn-500">Sample</span>
-                            <span>{row.claim}</span>
-                          </div>
-                        ))}
-                      </section>
-                    )}
                   </div>
                 )}
               </SlotBody>
@@ -1552,12 +1535,12 @@ export function AnalysisModeScreen() {
           )}
 
           {engines.market && hasBody(marketSlot) && (
-            <Section title="Public market sample" eyebrow="isolated egress">
+            <Section title="Public market intelligence" eyebrow="isolated egress">
               <SlotBody
                 slot={marketSlot}
                 loadingLabel="Loading the market sample"
                 emptyTitle="No market sample is loaded."
-                emptyHint="This machine is offline and there is no provider; there is nothing to show, sample or otherwise."
+                emptyHint="No market sample is loaded and no search has returned rows, so there is nothing to show, sample or otherwise."
                 onRetry={retry}
               >
                 {(d) => (

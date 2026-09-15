@@ -16,7 +16,7 @@ def rss_mb() -> float:
 
 
 def load_chunks(limit: int) -> list[str]:
-    c = sqlite3.connect("file:data/nabaa.sqlite?mode=ro", uri=True)
+    c = sqlite3.connect("file:data/rag_intelligence.sqlite?mode=ro", uri=True)
     rows = c.execute(
         "SELECT text FROM chunks WHERE retrievable=1 ORDER BY document_id, ordinal LIMIT ?",
         (limit,),

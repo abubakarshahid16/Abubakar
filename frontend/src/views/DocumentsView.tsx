@@ -64,7 +64,7 @@ export type DocumentGroup = { name: string; documents: DocumentRecord[] };
 export function groupByDiscipline(documents: DocumentRecord[]): DocumentGroup[] {
   const byName = new Map<string, DocumentRecord[]>();
   for (const doc of documents) {
-    const names = (doc.disciplines ?? []).length > 0 ? doc.disciplines ?? [] : [UNCATEGORISED_GROUP];
+    const names = doc.disciplines.length > 0 ? doc.disciplines : [UNCATEGORISED_GROUP];
     for (const name of names) {
       const bucket = byName.get(name);
       if (bucket) bucket.push(doc);
@@ -142,7 +142,7 @@ export function DocumentsView({
   connection,
   onRetryConnection,
   isAdmin = false,
-  polling: _polling,
+  polling = true,
 }: {
   connection: Connection;
   onRetryConnection: () => void;
@@ -151,6 +151,7 @@ export function DocumentsView({
    *  caller this prop has not been taught about must never see the button.
    *  Comes from `hasAdminCapability(auth)` in `Shell.tsx`. */
   isAdmin?: boolean;
+  /** Tests and static previews may request one initial read without intervals. */
   polling?: boolean;
 }) {
   const [load, setLoad] = useState<Load>({ state: "loading" });
@@ -164,9 +165,11 @@ export function DocumentsView({
   const { vocabulary, settled: vocabularySettled } = useTypeVocabularyLoad();
 
   const refresh = useCallback(async () => {
-    const m = await api.metrics();
+    // These reads are independent. Start both before yielding so a slow
+    // metrics snapshot never delays the document list (and teardown cannot
+    // leave a later document request behind after the view is gone).
+    const [m, result] = await Promise.all([api.metrics(), api.documents()]);
     setWorker(m.ok ? m.data.worker : null);
-    const result = await api.documents();
     if (result.ok) {
       setLoad({ state: "ready", documents: result.data });
     } else {
@@ -192,7 +195,7 @@ export function DocumentsView({
     busy !== null ||
     (load.state === "ready" && load.documents.some((d) => !SETTLED.has(d.status)));
 
-  usePoll(refresh, working);
+  usePoll(refresh, working, polling);
 
   const documentIds = load.state === "ready" ? load.documents.map((d) => d.id) : [];
   const {

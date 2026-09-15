@@ -26,6 +26,7 @@ from app.claims import (
     label_cluster,
     normalise,
     normalise_strict,
+    question_terms,
     split_sentences,
     to_api,
 )
@@ -37,7 +38,7 @@ def temp_storage(tmp_path, monkeypatch):
     """`claims` reaches the database through `keyword` and `lexical`.
 
     Without this these tests passed on a development machine - which has a
-    62 MB corpus at backend/data/nabaa.sqlite - and failed in CI with
+    62 MB corpus at backend/data/rag_intelligence.sqlite - and failed in CI with
     `no such table`. The tables must be CREATED, not present by accident.
     """
     monkeypatch.setattr(settings, "data_dir", tmp_path)
@@ -128,14 +129,14 @@ def test_min_max_words_are_comparators():
 
 
 def test_sentence_without_measurement_identifier_or_designator_is_not_a_claim():
-    out = extract_claims([_evidence("e1", "The coating shall be applied by a qualified applicator.")])
+    out = extract_claims([_evidence("e1", "The coating shall be applied by a qualified applicator.")], allowed_document_ids=_scope())
     assert out == []
 
 
 def test_exact_span_is_the_verbatim_sentence():
     s1 = "MDFT of complete coating system: 280 um for the exteriors described."
     s2 = "Cleanliness shall be ISO 8501-1 Sa 2 1/2 before application."
-    out = extract_claims([_evidence("e1", s1 + " " + s2)])
+    out = extract_claims([_evidence("e1", s1 + " " + s2)], allowed_document_ids=_scope())
     spans = [c.exact_span for c in out]
     assert spans == [s1, s2]
     assert all(c.exact_span in (s1 + " " + s2) for c in out)
@@ -143,7 +144,7 @@ def test_exact_span_is_the_verbatim_sentence():
 
 def test_abbreviation_no_does_not_split_a_sentence():
     s = "Coating system no. 1 shall have a MDFT of 280 um."
-    out = extract_claims([_evidence("e1", s)])
+    out = extract_claims([_evidence("e1", s)], allowed_document_ids=_scope())
     assert len(out) == 1
     assert out[0].exact_span == s
     assert out[0].designators == ("system 1",)
@@ -151,7 +152,7 @@ def test_abbreviation_no_does_not_split_a_sentence():
 
 def test_extraction_types_measurement_identifier_designator():
     s = "Coating system no. 1 to NORSOK M-501 shall have a MDFT of 280 um."
-    (c,) = extract_claims([_evidence("e1", s)])
+    (c,) = extract_claims([_evidence("e1", s)], allowed_document_ids=_scope())
     assert "NORSOK M-501" in c.identifiers
     assert c.designators == ("system 1",)
     assert len(c.measurements) == 1
@@ -160,18 +161,18 @@ def test_extraction_types_measurement_identifier_designator():
 
 
 def test_clause_number_is_an_identifier_not_a_measurement():
-    (c,) = extract_claims([_evidence("e1", "See clause 5.3.2 for adhesion requirements.")])
+    (c,) = extract_claims([_evidence("e1", "See clause 5.3.2 for adhesion requirements.")], allowed_document_ids=_scope())
     assert "5.3.2" in c.identifiers
     assert c.measurements == ()
 
 
 def test_evidence_text_key_is_accepted():
-    out = extract_claims([{"evidence_id": "e1", "filename": "a.pdf", "page_start": 2, "section": "4", "text": "Adhesion 9,0 MPa."}])
+    out = extract_claims([{"evidence_id": "e1", "filename": "a.pdf", "page_start": 2, "section": "4", "text": "Adhesion 9,0 MPa."}], allowed_document_ids=_scope())
     assert len(out) == 1 and out[0].page_start == 2 and out[0].section == "4"
 
 
 def test_empty_evidence_gives_empty_clusters():
-    assert extract_claims([]) == []
+    assert extract_claims([], allowed_document_ids=_scope()) == []
     assert cluster([], frozenset({"adhesion"})) == []
     assert to_api([]) == []
 
@@ -181,7 +182,7 @@ def test_empty_evidence_gives_empty_clusters():
 
 def test_facet_key_none_without_shared_term_or_designator_even_if_text_identical():
     text = "Pressure shall be 280 um."
-    a, b = extract_claims([_evidence("e1", text), _evidence("e2", text)])
+    a, b = extract_claims([_evidence("e1", text), _evidence("e2", text)], allowed_document_ids=_scope())
     q = frozenset({"adhesion"})
     assert facet_key(a, q) is None
     assert facet_key(b, q) is None
@@ -189,7 +190,7 @@ def test_facet_key_none_without_shared_term_or_designator_even_if_text_identical
 
 
 def test_facet_key_is_terms_plus_dimension():
-    (c,) = extract_claims([_evidence("e1", "Adhesion shall be 9,0 MPa.")])
+    (c,) = extract_claims([_evidence("e1", "Adhesion shall be 9,0 MPa.")], allowed_document_ids=_scope())
     assert facet_key(c, frozenset({"adhesion", "unrelated"})) == frozenset({"adhesion", "dim:pressure"})
 
 
@@ -198,9 +199,14 @@ def test_same_value_two_spellings_two_documents_is_agreement():
         _evidence("e1", "Adhesion shall be 9,0 MPa.", "norsok.pdf"),
         _evidence("e2", "Adhesion shall be 9.0 MPa.", "iso.pdf"),
     ]
-    out = cluster(extract_claims(ev), frozenset({"adhesion"}))
+    out = cluster(extract_claims(ev, allowed_document_ids=_scope()), frozenset({"adhesion"}))
     assert len(out) == 1
     assert out[0].label == "agreement"
+    # "adhesion (MPa)", not "adhesion · MPa": the subject reads as a phrase
+    # and the unit sits in brackets where a unit belongs. The old form joined
+    # every term, designator and unit with " · " and produced things like
+    # "coating · thickness · A · um", which names four things and therefore
+    # names none of them.
     assert out[0].facet == "adhesion (MPa)"
     assert {r.filename for r in out[0].rows} == {"norsok.pdf", "iso.pdf"}
 
@@ -212,7 +218,7 @@ def test_incompatible_values_same_facet_is_possible_conflict_with_mandated_note(
     ]
     # 280 satisfies "minimum 250" - so make the conflict real: a hard 280 vs a hard 250.
     ev2 = [_evidence("e1", "MDFT 280 um."), _evidence("e2", "MDFT 250 um.", "other.pdf")]
-    out = cluster(extract_claims(ev2), frozenset({"mdft"}))
+    out = cluster(extract_claims(ev2, allowed_document_ids=_scope()), frozenset({"mdft"}))
     assert len(out) == 1
     assert out[0].label == "possible_conflict"
     assert out[0].note == (
@@ -220,14 +226,14 @@ def test_incompatible_values_same_facet_is_possible_conflict_with_mandated_note(
         "documents carry no revision or approval status."
     )
     # And the compatible pair is agreement, not a conflict.
-    (c,) = cluster(extract_claims(ev), frozenset({"mdft"}))
+    (c,) = cluster(extract_claims(ev, allowed_document_ids=_scope()), frozenset({"mdft"}))
     assert c.label == "agreement"
 
 
 def test_ge_250_vs_280_is_agreement_and_le_200_vs_280_is_possible_conflict():
-    ok = cluster(extract_claims([_evidence("e1", "MDFT ≥ 250 um."), _evidence("e2", "MDFT 280 um.")]), frozenset({"mdft"}))
+    ok = cluster(extract_claims([_evidence("e1", "MDFT ≥ 250 um."), _evidence("e2", "MDFT 280 um.")], allowed_document_ids=_scope()), frozenset({"mdft"}))
     assert [c.label for c in ok] == ["agreement"]
-    bad = cluster(extract_claims([_evidence("e1", "MDFT ≤ 200 um."), _evidence("e2", "MDFT 280 um.")]), frozenset({"mdft"}))
+    bad = cluster(extract_claims([_evidence("e1", "MDFT ≤ 200 um."), _evidence("e2", "MDFT 280 um.")], allowed_document_ids=_scope()), frozenset({"mdft"}))
     assert [c.label for c in bad] == ["possible_conflict"]
     assert bad[0].note == claims.POSSIBLE_CONFLICT_NOTE
 
@@ -237,7 +243,7 @@ def test_different_designators_is_unresolved_not_a_conflict():
         _evidence("e1", "Coating system no. 1: MDFT 280 um."),
         _evidence("e2", "Coating system no. 9: MDFT 250 um.", "other.pdf"),
     ]
-    out = cluster(extract_claims(ev), frozenset({"mdft"}))
+    out = cluster(extract_claims(ev, allowed_document_ids=_scope()), frozenset({"mdft"}))
     assert len(out) == 1
     assert out[0].label == "unresolved"
     assert out[0].label != "possible_conflict"
@@ -246,7 +252,7 @@ def test_different_designators_is_unresolved_not_a_conflict():
 
 def test_unnormalisable_unit_makes_cluster_unresolved():
     ev = [_evidence("e1", "Temperature 120 °C."), _evidence("e2", "Temperature 350 °F.", "us.pdf")]
-    out = cluster(extract_claims(ev), frozenset({"temperature"}))
+    out = cluster(extract_claims(ev, allowed_document_ids=_scope()), frozenset({"temperature"}))
     assert len(out) == 1
     assert out[0].label == "unresolved"
     assert "°F" in out[0].note
@@ -254,7 +260,7 @@ def test_unnormalisable_unit_makes_cluster_unresolved():
 
 def test_addition_when_one_row_carries_an_identifier_the_other_lacks():
     ev = [_evidence("e1", "Adhesion 9,0 MPa."), _evidence("e2", "Adhesion 9.0 MPa per ISO 4624.", "b.pdf")]
-    (c,) = cluster(extract_claims(ev), frozenset({"adhesion"}))
+    (c,) = cluster(extract_claims(ev, allowed_document_ids=_scope()), frozenset({"adhesion"}))
     assert c.label == "addition"
 
 
@@ -263,12 +269,12 @@ def test_plain_conflict_is_never_emitted():
     values = ["280 um", "250 um", "≥ 250 um", "≤ 200 um", "350 °F", "0.28 mm", "9,0 MPa", "3 kfurlong"]
     prefixes = ["MDFT ", "Coating system no. 1 MDFT ", "Coating system no. 9 MDFT "]
     for a, b in itertools.product([p + v for p in prefixes for v in values], repeat=2):
-        for c in cluster(extract_claims([_evidence("e1", a + "."), _evidence("e2", b + ".")]), frozenset({"mdft"})):
+        for c in cluster(extract_claims([_evidence("e1", a + "."), _evidence("e2", b + ".")], allowed_document_ids=_scope()), frozenset({"mdft"})):
             assert c.label in {"agreement", "addition", "possible_conflict", "unresolved"}
 
 
 def test_label_cluster_single_row_is_addition():
-    (c,) = extract_claims([_evidence("e1", "Adhesion 9,0 MPa.")])
+    (c,) = extract_claims([_evidence("e1", "Adhesion 9,0 MPa.")], allowed_document_ids=_scope())
     label, note = label_cluster([c])
     assert label == "addition" and note
 
@@ -278,7 +284,7 @@ def test_label_cluster_single_row_is_addition():
 
 def test_to_api_rows_carry_raw_and_normalized_and_round_trip_json():
     ev = [_evidence("e1", "Temperature 120 °C."), _evidence("e2", "Temperature 350 °F.", "us.pdf", 7)]
-    api = to_api(cluster(extract_claims(ev), frozenset({"temperature"})))
+    api = to_api(cluster(extract_claims(ev, allowed_document_ids=_scope()), frozenset({"temperature"})))
     text = json.dumps(api)
     back = json.loads(text)
     assert back == api
@@ -299,7 +305,7 @@ def test_claim_and_measurement_are_frozen():
     m = normalise("1", "MPa")
     with pytest.raises(Exception):
         m.normalized_value = 2.0  # type: ignore[misc]
-    (c,) = extract_claims([_evidence("e1", "Adhesion 1 MPa.")])
+    (c,) = extract_claims([_evidence("e1", "Adhesion 1 MPa.")], allowed_document_ids=_scope())
     with pytest.raises(Exception):
         c.exact_span = "paraphrase"  # type: ignore[misc]
 
@@ -307,12 +313,12 @@ def test_claim_and_measurement_are_frozen():
 def test_identifier_regex_does_not_swallow_a_measurement():
     """keyword.IDENTIFIER matches "MDFT 280" (its API-610 shape) and "9.0" (its
     clause shape). Both must come out as measurements, not codes."""
-    (c,) = extract_claims([_evidence("e1", "MDFT 280 um for adhesion 9.0 MPa.")])
+    (c,) = extract_claims([_evidence("e1", "MDFT 280 um for adhesion 9.0 MPa.")], allowed_document_ids=_scope())
     assert [m.raw_value for m in c.measurements] == ["280", "9.0"]
     assert c.identifiers == ()
     assert "mdft" in c.terms and "mdft 280" not in c.terms
     # A real code keeps its number.
-    (d,) = extract_claims([_evidence("e2", "Pumps shall comply with API 610.")])
+    (d,) = extract_claims([_evidence("e2", "Pumps shall comply with API 610.")], allowed_document_ids=_scope())
     assert d.identifiers == ("API 610",) and d.measurements == ()
 
 
@@ -341,7 +347,7 @@ def test_a_designator_suffix_is_not_a_measurement():
     real values.
     """
     for sentence in NORSOK_P13:
-        for m in extract_claims([_evidence("e1", sentence)])[0].measurements:
+        for m in extract_claims([_evidence("e1", sentence)], allowed_document_ids=_scope())[0].measurements:
             assert m.raw_unit.lower() != "a", (
                 f"{sentence[:40]!r} produced {m.raw_value} {m.raw_unit} - "
                 f"a designator suffix read as amperes"
@@ -350,27 +356,27 @@ def test_a_designator_suffix_is_not_a_measurement():
 
 def test_the_real_measurements_in_those_sentences_survive():
     """The half that makes the fix a fix rather than a mute button."""
-    (first,) = extract_claims([_evidence("e1", NORSOK_P13[0])])
+    (first,) = extract_claims([_evidence("e1", NORSOK_P13[0])], allowed_document_ids=_scope())
     values = {(m.raw_value, m.raw_unit) for m in first.measurements}
     assert ("50", "%") in values
     assert ("2,0", "MPa") in values and ("3,0", "MPa") in values
 
-    (second,) = extract_claims([_evidence("e2", NORSOK_P13[1])])
+    (second,) = extract_claims([_evidence("e2", NORSOK_P13[1])], allowed_document_ids=_scope())
     assert ("6", "mm") in {(m.raw_value, m.raw_unit) for m in second.measurements}
 
 
 def test_a_unit_glued_to_a_number_is_still_a_unit_when_it_is_not_one_letter():
     """125μm and 280um are real. Only the SINGLE-letter suffix is suspect."""
-    (c,) = extract_claims([_evidence("e1", "Minimum coating thickness 125μm.")])
+    (c,) = extract_claims([_evidence("e1", "Minimum coating thickness 125μm.")], allowed_document_ids=_scope())
     assert [(m.raw_value, m.raw_unit) for m in c.measurements] == [("125", "μm")]
-    (d,) = extract_claims([_evidence("e2", "A thickness of 280um applied.")])
+    (d,) = extract_claims([_evidence("e2", "A thickness of 280um applied.")], allowed_document_ids=_scope())
     assert [(m.raw_value, m.raw_unit) for m in d.measurements] == [("280", "um")]
 
 
 def test_a_spaced_single_letter_unit_is_still_a_unit():
     """"5 A" with a space is amperes. The rule is about GLUING, not about the
     letter - an electrical spec must keep its current ratings."""
-    (c,) = extract_claims([_evidence("e1", "Rated at 5 A continuous.")])
+    (c,) = extract_claims([_evidence("e1", "Rated at 5 A continuous.")], allowed_document_ids=_scope())
     assert [(m.raw_value, m.raw_unit) for m in c.measurements] == [("5", "A")]
 
 
@@ -389,7 +395,7 @@ def test_a_number_introduced_as_a_designator_is_not_a_measurement(prefix):
     # first version used "5 m" and passed against a pattern that could never
     # match anything - a shell heredoc had eaten every backslash-b into a backspace,
     # and the lone-lowercase-unit guard was doing all the work.
-    rows = extract_claims([_evidence("e1", f"Applies to {prefix} 5 MPa rating.")])
+    rows = extract_claims([_evidence("e1", f"Applies to {prefix} 5 MPa rating.")], allowed_document_ids=_scope())
     measured = [(m.raw_value, m.raw_unit) for r in rows for m in r.measurements]
     assert measured == [], f"{prefix!r} 5 was read as {measured}"
 
@@ -397,14 +403,14 @@ def test_a_number_introduced_as_a_designator_is_not_a_measurement(prefix):
 def test_the_designator_rule_is_what_saves_that_case():
     """Guard the guard: the same sentence without the designator word IS a
     measurement, so the rule is doing the work and not a side effect."""
-    rows = extract_claims([_evidence("e1", "The strength shall be 5 MPa minimum.")])
+    rows = extract_claims([_evidence("e1", "The strength shall be 5 MPa minimum.")], allowed_document_ids=_scope())
     measured = [(m.raw_value, m.raw_unit) for r in rows for m in r.measurements]
     assert measured == [("5", "MPa")]
 
 
 def test_a_measurement_after_an_ordinary_word_is_untouched():
     """The guard must not swallow every number with a word in front of it."""
-    (c,) = extract_claims([_evidence("e1", "The NDFT shall be 280 um minimum.")])
+    (c,) = extract_claims([_evidence("e1", "The NDFT shall be 280 um minimum.")], allowed_document_ids=_scope())
     assert [(m.raw_value, m.raw_unit) for m in c.measurements] == [("280", "um")]
 
 
@@ -423,5 +429,74 @@ def test_a_run_of_dots_does_not_crash_extraction():
     """
     for text in (". A", ". A coating shall be applied.", ".", ". . ."):
         split_sentences(text)  # must not raise
-    (c,) = extract_claims([_evidence("e1", ". A thickness of 280 um applies.")])
+    (c,) = extract_claims([_evidence("e1", ". A thickness of 280 um applies.")], allowed_document_ids=_scope())
     assert ("280", "um") in {(m.raw_value, m.raw_unit) for m in c.measurements}
+
+
+def test_a_facet_names_one_dimension_a_reader_recognises():
+    """"coating · thickness · A · um" names four things and so names none.
+
+    The subject reads as a phrase; the unit goes in brackets. This is the
+    string a reader scans a gap analysis by, so it has to say what is being
+    compared.
+    """
+    rows = extract_claims([
+        _evidence("e1", "Minimum coating thickness shall be 125 um."),
+        _evidence("e2", "The coating thickness shall be 280 um.", filename="b.pdf"),
+    ], allowed_document_ids=_scope())
+    (c,) = cluster(rows, question_terms("what coating thickness is required", allowed_document_ids=_scope()))
+    assert c.facet == "coating thickness (µm)", c.facet
+    assert " · " not in c.facet
+    assert "um" not in c.facet, "the reader's unit is µm, not the corpus's um"
+
+
+# ------------------------------------- a submittal phase is not a percentage
+
+
+@pytest.mark.parametrize("sentence", [
+    "The model shall be submitted as 100% Design Documents.",
+    "Submit at the 60% Design Submittal stage.",
+    "The 100% Construction Documents phase shall include all drawings.",
+    "Deliverables are due at the 30% Design Development milestone.",
+    "Provide the 90 % Contract Documents for review.",
+])
+def test_a_submittal_phase_name_is_not_a_percentage(sentence):
+    """"100% Design Documents" is the NAME OF A PHASE, not a quantity.
+
+    Measured: it was extracted as the percentage 100, which then formed a facet
+    of its own - the run that prompted this produced "documents (%)" beside
+    "documents", splitting one subject in two on the strength of an invented
+    measurement. A percentage nothing measured is worse than a missing one: it
+    enters a cluster and gets compared against real values.
+    """
+    got = claims.extract_measurements(sentence)
+    assert got == (), f"a submittal phase was read as a measurement: {got}"
+
+
+@pytest.mark.parametrize("sentence,value", [
+    ("Energy use shall be at least 30% below ASHRAE 90.1.", "30"),
+    ("Adhesion shall show maximum 50 % reduction from the original value.", "50"),
+    ("The coating shall cover 95% of the surface.", "95"),
+    ("Humidity shall not exceed 85% during application.", "85"),
+])
+def test_a_real_percentage_is_still_extracted(sentence, value):
+    """THE HALF THAT MATTERS. A rule that suppresses a phase name must not
+    suppress a quantity - a false negative here loses a real requirement, and
+    the gate exists to catch fabricated numbers, not to lose true ones."""
+    got = claims.extract_measurements(sentence)
+    assert [m.raw_value for m in got] == [value], (
+        f"a real percentage was suppressed: {sentence!r} -> {got}")
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    `extract_claims` and `question_terms` reach `lexical.distinctive_terms`,
+    which consults the corpus for the multi-word expansions the documents
+    themselves define - so it now REQUIRES a scope with no default. These
+    tests run against an empty database, so the set is empty and the terms
+    come from the question's own tokens exactly as before; saying so out loud
+    is the point.
+    """
+    from app.search import every_document_id
+    return every_document_id()

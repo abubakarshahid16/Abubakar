@@ -1,5 +1,5 @@
 /**
- * Application shell: sidebar, four views, and the connection banner.
+ * Application shell: sidebar, Sunday POC navigation, and the connection banner.
  *
  * Documents, Chat and Dashboard are built. Ingestion is listed but visibly
  * marked, so the navigation never implies capability that does not exist.
@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type Health } from "../api/client";
+import type { AuthStatus } from "../types/api";
 
 export type ViewId =
   | "documents"
@@ -14,7 +15,10 @@ export type ViewId =
   | "analysis"
   | "ingestion"
   | "dashboard"
-  | "reports";
+  | "reports"
+  | "admin";
+
+export type ThemeMode = "dark" | "light";
 
 interface NavItem {
   id: ViewId;
@@ -24,13 +28,61 @@ interface NavItem {
 }
 
 export const NAV: NavItem[] = [
+  { id: "dashboard", label: "Dashboard", hint: "Metrics, models, readiness", built: true },
   { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
   { id: "chat", label: "Chat", hint: "Ask questions with citations", built: true },
   { id: "analysis", label: "Analysis", hint: "Summary, gaps, advice", built: true },
-  { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
-  { id: "dashboard", label: "Dashboard", hint: "System metrics", built: true },
   { id: "reports", label: "Reports", hint: "Frozen evidence, as PDF", built: true },
+  { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
 ];
+
+/** The one role name that means "may administer". `admin` is a CAPABILITY and
+ *  not a discipline: it is a row in `roles` like any other, which is why
+ *  `Me.roles` can carry both `IT` and `admin` for the same person. The backend
+ *  says the same thing in `backend/app/admin.py` (`ADMIN_ROLE`). */
+export const ADMIN_CAPABILITY = "admin";
+
+/** The admin entry, kept out of NAV so that the six entries every reader gets
+ *  stay a plain constant and the conditional one is impossible to render by
+ *  accident. */
+export const ADMIN_NAV: NavItem = {
+  id: "admin",
+  label: "Administration",
+  hint: "Users, disciplines, access",
+  built: true,
+};
+
+/**
+ * Whether the caller holds the admin capability, ACCORDING TO THE API.
+ *
+ * The only input is the body of `/api/auth/me` - `Me.roles`, which is the one
+ * field in the identity contract that carries this. Nothing here is inferred
+ * from an email address, a display name, or anything else the client could
+ * decide for itself.
+ *
+ * `null` (the answer has not arrived, or the backend could not be reached) is
+ * NOT admin. An unanswered question is not a yes.
+ *
+ * The `required: false` case is a yes, and deliberately so: under
+ * `AUTH_MODE=disabled` the backend's own `admin.current_admin` lets an
+ * unidentified caller through, because under that mode every caller already
+ * reads every document. A UI stricter than the routes it fronts would hide a
+ * screen that the server is willing to serve, which is the exact defect this
+ * change exists to remove. It is still the API's answer, not a guess: the
+ * deployment said authentication is off.
+ */
+export function hasAdminCapability(auth: AuthStatus | null | undefined): boolean {
+  if (!auth) return false;
+  if (!auth.required) return true;
+  return (auth.user?.roles ?? []).includes(ADMIN_CAPABILITY);
+}
+
+/** The navigation this caller gets. The admin entry is APPENDED, never
+ *  disabled and never hidden with a class - a non-admin's DOM does not
+ *  contain it at all, so there is nothing to un-hide with a devtools edit. */
+export function navFor(auth: AuthStatus | null | undefined): NavItem[] {
+  return hasAdminCapability(auth) ? [...NAV, ADMIN_NAV] : NAV;
+}
 
 export type Connection =
   | { state: "connecting" }
@@ -125,6 +177,9 @@ export function Shell({
   onNavigate,
   connection,
   identity,
+  auth,
+  theme,
+  onThemeChange,
   children,
 }: {
   view: ViewId;
@@ -133,9 +188,17 @@ export function Shell({
   /** Who is signed in, or a quiet note that authentication is off. Optional
    *  so every existing test that renders the Shell keeps working unchanged. */
   identity?: React.ReactNode;
+  /** The body of `/api/auth/me`, verbatim. This is what decides whether the
+   *  administration entry exists; see `hasAdminCapability`. Optional and
+   *  defaulting to "not admin", so a caller that has not been taught about it
+   *  gets the six-entry navigation rather than an accidental admin link. */
+  auth?: AuthStatus | null;
+  theme: ThemeMode;
+  onThemeChange: (theme: ThemeMode) => void;
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const items = navFor(auth);
 
   return (
     <div className="flex min-h-screen flex-col bg-ink-900 md:flex-row">
@@ -147,33 +210,68 @@ export function Shell({
       </a>
 
       <header className="flex items-center justify-between border-b border-ink-700 px-4 py-3 md:hidden">
-        <span className="font-semibold tracking-wide text-slateish-200">Nabaa</span>
-        <button
-          type="button"
-          aria-expanded={menuOpen}
-          aria-controls="sidebar-nav"
-          onClick={() => setMenuOpen((o) => !o)}
-          className="rounded border border-ink-600 px-3 py-1 text-sm text-slateish-300"
-        >
-          {menuOpen ? "Close" : "Menu"}
-        </button>
+        <span className="font-semibold tracking-wide text-slateish-200">RAG Intelligence System</span>
+        <div className="flex items-center gap-2">
+          <ThemeToggle theme={theme} onChange={onThemeChange} compact />
+          <button
+            type="button"
+            aria-expanded={menuOpen}
+            aria-controls="sidebar-nav"
+            onClick={() => setMenuOpen((o) => !o)}
+            className="rounded border border-ink-600 px-3 py-1 text-sm text-slateish-300"
+          >
+            {menuOpen ? "Close" : "Menu"}
+          </button>
+        </div>
       </header>
 
       <nav
         id="sidebar-nav"
         aria-label="Main"
-        className={`${menuOpen ? "block" : "hidden"} w-full shrink-0 border-b border-ink-700 bg-ink-850 md:block md:w-64 md:border-b-0 md:border-r`}
+        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 md:flex md:h-screen md:w-64 md:shrink-0 md:border-b-0 md:border-r md:sticky md:top-0`}
       >
-        <div className="hidden items-baseline gap-2 px-5 py-5 md:flex">
-          <span className="text-lg font-semibold tracking-wide text-slateish-200">Nabaa</span>
-          <span className="text-xs text-slateish-400">private document intelligence</span>
+        {/* THE HEADER PAYS FOR ITSELF IN NAV SPACE. At text-lg the product name
+            wrapped to two lines in a 256px rail, and with the tagline and a
+            bordered box beneath it the sidebar spent ~200px before the first
+            nav item. Set on two deliberate lines at text-base it reads as a
+            name rather than a wrap, and the privacy line - which is the
+            product's single best argument and stays - is a sentence rather
+            than a boxed callout. */}
+        <div className="hidden px-4 pb-3 pt-5 md:block">
+          {/* ONE TEXT NODE. A <br/> here set the name on two tidy lines and
+              split it into two nodes, so `getByText("RAG Intelligence System")`
+              stopped finding it - and a screen reader stopped hearing one
+              name. It wraps on its own at this size; the wrap is cosmetic and
+              the string must stay whole. */}
+          <span className="block text-base font-semibold leading-tight tracking-tight text-slateish-100">
+            RAG Intelligence System
+          </span>
+          <span className="mt-1 block text-[11px] leading-snug text-slateish-400">
+            Cited answers from your own documents
+          </span>
+          <p className="mt-3 border-l-2 border-signal-500/40 pl-2.5 text-[11px] leading-relaxed text-slateish-400">
+            <span className="font-medium text-slateish-300">Private by design.</span>{" "}
+            Your documents stay on this machine, and every answer cites its
+            document and page.
+          </p>
         </div>
 
-        <ul className="space-y-1 px-3 pb-4">
-          {NAV.map((item) => {
+        {/* ADMINISTRATION IS A DIFFERENT KIND OF THING and is separated by a
+            rule. In one flat list "Users, disciplines, access" read as a
+            seventh place to do work, when it is the place to decide who may do
+            work anywhere else. A non-admin simply has no seventh entry, so
+            there is no gap where something was removed. */}
+        <ul className="space-y-0.5 px-3 pb-4">
+          {items.map((item, i) => {
             const active = item.id === view;
+            const startsAdmin = item.id === "admin" && i > 0;
+            // A RULE, NOT A HEADING. The first version put an "ADMINISTRATION"
+            // label above an item already labelled "Administration", so the
+            // word appeared twice in a row and read as a rendering fault. The
+            // separator alone carries the meaning - this is a different kind
+            // of destination - and the item names itself.
             return (
-              <li key={item.id}>
+              <li key={item.id} className={startsAdmin ? "mt-3 border-t border-ink-700 pt-3" : ""}>
                 <button
                   type="button"
                   aria-current={active ? "page" : undefined}
@@ -183,19 +281,26 @@ export function Shell({
                     setMenuOpen(false);
                   }}
                   className={[
-                    "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition-colors",
+                    "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-sm transition-colors",
                     active
                       ? "bg-ink-700 text-slateish-200"
                       : "text-slateish-300 hover:bg-ink-800",
                     item.built ? "" : "opacity-70",
                   ].join(" ")}
                 >
-                  <span>
-                    <span className="block">{item.label}</span>
-                    <span className="block text-xs text-slateish-400">{item.hint}</span>
+                  <span className="min-w-0">
+                    <span className="block leading-snug">{item.label}</span>
+                    {/* The hint is orientation, not a label: it teaches the
+                        screen once and is read past forever after. Dimmer and
+                        a size down, so the seven destinations scan as seven
+                        destinations rather than fourteen lines of equal
+                        weight. */}
+                    <span className="block truncate text-[11px] leading-snug text-slateish-500">
+                      {item.hint}
+                    </span>
                   </span>
                   {!item.built && (
-                    <span className="ml-2 shrink-0 rounded border border-ink-500 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-400">
+                    <span className="ml-2 shrink-0 rounded border border-ink-500 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-300">
                       not built
                     </span>
                   )}
@@ -205,7 +310,7 @@ export function Shell({
           })}
         </ul>
 
-        <div className="border-t border-ink-700 px-5 py-4">
+        <div className="mt-auto border-t border-ink-700 px-4 py-4">
           {/* Identity sits ABOVE the connection badge on purpose: "who am I"
               and "is the backend up" are different questions and a reader
               must not have to disentangle one from the other. */}
@@ -215,20 +320,87 @@ export function Shell({
               read from /api/health - which is unauthenticated, so it was
               fingerprinting material available with no login. Health now says
               only WHETHER a model is configured. The name is on the Dashboard,
-              which reads the scoped /api/metrics. */}
+              which reads /api/metrics. That endpoint was described as
+              "scoped" here and in four other places while it was not:
+              it resolved an access scope and discarded it, so every
+              caller saw the whole corpus. Scoped as of the commit that
+              corrected this comment. */}
           {connection.state === "online" && (
-            <p className="mt-2 font-mono text-[11px] text-slateish-400">
+            <p className="mt-1.5 text-[11px] text-slateish-500">
               {connection.health.answer_model_present
-                ? "answer model configured"
-                : "no answer model configured"}
+                ? "Answer model configured"
+                : "No answer model configured"}
             </p>
           )}
+          <div className="mt-4">
+            <ThemeToggle theme={theme} onChange={onThemeChange} />
+          </div>
+          {/* THREE STANDING FACTS ABOUT THE DEPLOYMENT, not live status - which
+              is why they are quieter than the connection badge above and why
+              the amber one is the only coloured word. They earn their place:
+              each is a question a client asks in the first minute, and the
+              middle one is the answer nobody volunteers unprompted. */}
+          <dl className="mt-4 space-y-1 text-[11px] text-slateish-500">
+            <div className="flex items-baseline justify-between gap-2">
+              <dt>Documents</dt>
+              <dd className="text-slateish-400">on this machine</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <dt>Market data</dt>
+              <dd className="text-warn-500">sample only</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <dt>Reports</dt>
+              <dd className="text-slateish-400">frozen PDF</dd>
+            </div>
+          </dl>
         </div>
       </nav>
 
       <main id="main" className="min-w-0 flex-1 px-4 py-6 md:px-8">
         {children}
       </main>
+    </div>
+  );
+}
+
+function ThemeToggle({
+  theme,
+  onChange,
+  compact = false,
+}: {
+  theme: ThemeMode;
+  onChange: (theme: ThemeMode) => void;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Theme mode"
+      className={[
+        "inline-grid grid-cols-2 rounded-md border border-ink-600 bg-ink-900 p-0.5",
+        compact ? "text-[11px]" : "w-full text-xs",
+      ].join(" ")}
+    >
+      {(["dark", "light"] as const).map((mode) => {
+        const active = theme === mode;
+        return (
+          <button
+            key={mode}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(mode)}
+            className={[
+              "rounded px-2 py-1 font-medium capitalize transition-colors",
+              active
+                ? "bg-ink-700 text-slateish-100"
+                : "text-slateish-400 hover:bg-ink-800 hover:text-slateish-200",
+            ].join(" ")}
+          >
+            {mode}
+          </button>
+        );
+      })}
     </div>
   );
 }

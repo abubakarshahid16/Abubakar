@@ -14,7 +14,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api } from "../api/client";
+import { api, classification } from "../api/client";
+import type { ClassificationCoverage } from "../api/client";
 import type { Connection } from "../components/Shell";
 import { DisconnectedState, ErrorState, Spinner } from "../components/states";
 import { humaniseReason } from "../components/WorkerPanel";
@@ -112,12 +113,18 @@ function Headline({
   unit,
   note,
   tone = "normal",
+  children,
 }: {
   label: string;
   value: string | null;
   unit?: string;
-  note: string;
+  note: React.ReactNode;
   tone?: "normal" | "warn" | "danger" | "good";
+  /** Rendered between the big value and `note`. Used sparingly - today only
+   *  by the Documents tile, for the per-type counts - because a headline
+   *  tile earns its size by answering one question at a glance, and every
+   *  extra line spends a little of that. */
+  children?: React.ReactNode;
 }) {
   const toneClass =
     tone === "warn"
@@ -128,19 +135,20 @@ function Headline({
           ? "text-signal-400"
           : "text-slateish-100";
   return (
-    <div className="rounded-lg border border-ink-700 bg-ink-850 px-4 py-3.5">
-      <p className="text-[11px] uppercase tracking-wide text-slateish-500">{label}</p>
+    <div className="rounded-xl border border-ink-700 bg-ink-800 px-5 py-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-slateish-400">{label}</p>
       {value == null ? (
-        <p className="mt-1.5 text-base italic leading-tight text-slateish-500">
+        <p className="mt-2 text-lg italic leading-tight text-slateish-500">
           nothing measured yet
         </p>
       ) : (
-        <p className={`mt-1.5 font-mono text-3xl leading-none ${toneClass}`}>
+        <p className={`mt-2 font-mono text-[2.6rem] leading-none ${toneClass}`}>
           {value}
-          {unit && <span className="ml-1 text-base text-slateish-500">{unit}</span>}
+          {unit && <span className="ml-1.5 text-lg text-slateish-500">{unit}</span>}
         </p>
       )}
-      <p className="mt-2 text-xs leading-relaxed text-slateish-400">{note}</p>
+      {children}
+      <p className="mt-3 text-sm leading-relaxed text-slateish-300">{note}</p>
     </div>
   );
 }
@@ -190,6 +198,106 @@ function Warning({ warning }: { warning: MetricWarning }) {
   );
 }
 
+function ReadinessPanel({ metrics }: { metrics: Metrics }) {
+  const documentsReady = metrics.corpus.documents > 0 && metrics.corpus.chunks_retrievable > 0;
+  const localModelsReady =
+    metrics.models.embed_model_present &&
+    metrics.models.reranker_present &&
+    metrics.models.answer_model_reachable;
+  const workerReady = metrics.worker.alive && !(metrics.worker.stalled && metrics.worker.current_document == null);
+  const gates = [
+    {
+      label: "Your documents",
+      ok: documentsReady,
+      detail: documentsReady
+        ? `${nf.format(metrics.corpus.documents)} document${metrics.corpus.documents === 1 ? "" : "s"} loaded, ${nf.format(metrics.corpus.chunks_retrievable)} passages a question can reach`
+        : "upload at least one PDF with readable text",
+    },
+    {
+      label: "Answering",
+      ok: localModelsReady,
+      detail: localModelsReady
+        ? "search and the answer model are running on this computer"
+        : "a model is missing or not running - answers will be limited",
+    },
+    {
+      label: "Uploads",
+      ok: workerReady,
+      detail: workerReady ? "new documents will be processed as they arrive" : "processing has stopped - new uploads will wait",
+    },
+    {
+      label: "Market data",
+      ok: true,
+      detail: "illustrative sample only - no live market source is connected",
+      tone: "warn" as const,
+    },
+    {
+      label: "PDF reports",
+      ok: false,
+      // "not yet available" is a banned phrase here - it was true of OCR once,
+      // and of the summary once, and each time it stayed on screen after the
+      // thing arrived. Say what exists, not what does not.
+      detail: "one PDF per answer, with its evidence frozen in - reports cover single answers, not a whole analysis",
+      tone: "warn" as const,
+    },
+  ];
+
+  return (
+    <section className="mt-4 rounded-lg border border-ink-700 bg-ink-850 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slateish-200">What this system can do right now</h2>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slateish-400">
+            Green is measured and working on this computer. Amber is a limit you should know
+            about before relying on it.
+          </p>
+        </div>
+        <span className="rounded border border-warn-500/40 bg-warn-500/10 px-2 py-1 font-mono text-[11px] text-warn-500">
+          Prototype
+        </span>
+      </div>
+      <ul className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+        {gates.map((g) => {
+          const tone = g.tone ?? (g.ok ? "good" : "danger");
+          const klass =
+            tone === "good"
+              ? "border-signal-500/35 bg-signal-500/10 text-signal-400"
+              : tone === "warn"
+                ? "border-warn-500/35 bg-warn-500/10 text-warn-500"
+                : "border-danger-500/35 bg-danger-500/10 text-danger-500";
+          return (
+            <li key={g.label} className={`rounded border px-3 py-2 ${klass}`}>
+              <p className="text-xs font-semibold">{g.label}</p>
+              <p className="mt-1 text-xs leading-relaxed text-slateish-300">{g.detail}</p>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * The per-type upload counts inside the Documents headline tile.
+ *
+ * Renders WHATEVER `by_type` returns, in the order the register gave it -
+ * never a hardcoded list of type names. A register with two types, or five,
+ * or none loaded at all, must not make this component invent or drop a row.
+ */
+function TypeCounts({ byType }: { byType: ClassificationCoverage["by_type"] }) {
+  if (byType.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+      {byType.map((t) => (
+        <span key={t.type} className="font-mono text-xs leading-tight">
+          <span className="text-slateish-500">{t.type}</span>{" "}
+          <span className="text-slateish-200">{nf.format(t.uploaded)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function Throughput({ stage, data }: { stage: string; data: StageThroughput | null }) {
   const label = STAGE_LABELS[stage] ?? stage;
   if (!data) {
@@ -220,6 +328,12 @@ export function DashboardView({
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState<{ error: ApiError; disconnected: boolean } | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+  // null covers BOTH "has not answered yet" and "the request failed" -
+  // deliberately one state, not two, because both cases render the same way:
+  // the Documents tile with no per-type counts, exactly as it looked before
+  // classification coverage existed. There is no error state for this one
+  // add-on; the rest of the dashboard does not depend on it.
+  const [coverage, setCoverage] = useState<ClassificationCoverage | null>(null);
   const first = useRef(true);
 
   const load = useCallback(async () => {
@@ -237,10 +351,21 @@ export function DashboardView({
     first.current = false;
   }, []);
 
+  const loadCoverage = useCallback(async () => {
+    const r = await classification.coverage();
+    // Success or failure, this is the whole handler: on failure fall back to
+    // null rather than keeping a previous answer, for the same reason
+    // `load` above drops metrics rather than leaving them looking live.
+    setCoverage(r.ok ? r.data : null);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const tick = () => {
-      if (!cancelled) void load();
+      if (!cancelled) {
+        void load();
+        void loadCoverage();
+      }
     };
     tick();
     const timer = window.setInterval(tick, 15000);
@@ -248,7 +373,7 @@ export function DashboardView({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [load]);
+  }, [load, loadCoverage]);
 
   // The shell already knows the backend is gone, so say so at once rather
   // than waiting for this screen's own fetch to time out.
@@ -264,6 +389,16 @@ export function DashboardView({
   const { corpus, system, models, worker, jobs, retrieval, throughput } = metrics;
   const noSearchable = corpus.by_status["no_searchable_content"] ?? 0;
 
+  // Coverage is scoped exactly like every other count on this screen: shown
+  // to a caller only when the register's own boundary claim matches the
+  // dashboard's stated one. THIS SCREEN ALREADY SHIPPED THE OPPOSITE BUG ONCE
+  // (see the boundary comment above, on `metrics.corpus_wide`) - a count that
+  // is arithmetically fine but describes a different set of documents than
+  // the sentence above it claims. Showing nothing is safer than showing
+  // per-type counts under the wrong boundary.
+  const coverageInScope = coverage != null && coverage.corpus_wide === metrics.corpus_wide;
+  const byType = coverageInScope ? coverage!.by_type : [];
+
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -273,6 +408,33 @@ export function DashboardView({
             Every value is measured. Anything unmeasured says so rather than
             showing a zero.
           </p>
+          {/* THE BOUNDARY, STATED IN BOTH DIRECTIONS. This screen once
+              reported 12 documents to a reader whose Documents screen
+              correctly said "No documents yet", because /api/metrics resolved
+              an access scope and discarded it. The count was arithmetically
+              right and unreadable: a count with no stated boundary reads as
+              total. An admin is now deliberately allowed corpus-wide figures,
+              which is only defensible while the screen says so out loud. */}
+          <p className="mt-1 text-xs text-slateish-400">
+            {metrics.corpus_wide ? (
+              <>
+                <span className="font-semibold text-slateish-300">
+                  Corpus-wide figures.
+                </span>{" "}
+                These counts cover every document in the corpus, including
+                documents you cannot open. You are seeing them because you hold
+                the admin capability.
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-slateish-300">
+                  Your documents only.
+                </span>{" "}
+                These counts cover the documents you have been granted, not the
+                whole corpus.
+              </>
+            )}
+          </p>
         </div>
         <p className="font-mono text-[11px] text-slateish-500">
           refreshed {fetchedAt ? new Date(fetchedAt).toLocaleTimeString() : "—"} · every{" "}
@@ -280,8 +442,31 @@ export function DashboardView({
         </p>
       </div>
 
+      <ReadinessPanel metrics={metrics} />
+
+      {/* THE ONE SENTENCE. Before the numbers, what they add up to - written
+          only from values that were measured, so it never claims readiness
+          the tiles below would contradict. */}
+      <p className="mt-6 text-[1.35rem] leading-snug text-slateish-100">
+        {corpus.documents === 0 ? (
+          <>No documents yet. Upload a PDF to start asking questions.</>
+        ) : metrics.warnings.length > 0 ? (
+          <>
+            Ready to answer questions about{" "}
+            <span className="font-semibold">{nf.format(corpus.documents)} document{corpus.documents === 1 ? "" : "s"}</span>
+            , with <span className="font-semibold text-warn-500">{metrics.warnings.length} thing{metrics.warnings.length === 1 ? "" : "s"} to look at</span>.
+          </>
+        ) : (
+          <>
+            Ready to answer questions about{" "}
+            <span className="font-semibold">{nf.format(corpus.documents)} document{corpus.documents === 1 ? "" : "s"}</span>
+            . Nothing needs attention.
+          </>
+        )}
+      </p>
+
       {/* ---------------------------------------------- the four answers */}
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Headline
           label="Searchable"
           value={
@@ -327,15 +512,31 @@ export function DashboardView({
           value={String(corpus.documents)}
           tone={corpus.documents > 0 ? "normal" : "warn"}
           note={
-            corpus.documents === 0
-              ? "Upload a PDF on the Documents screen to begin."
-              : `${nf.format(corpus.documents)} document${corpus.documents === 1 ? "" : "s"} loaded, ${nf.format(corpus.chunks_retrievable)} passages. ${nf.format(corpus.pages_extracted)} pages read. ${
+            corpus.documents === 0 ? (
+              "Upload a PDF on the Documents screen to begin."
+            ) : (
+              <>
+                {`${nf.format(corpus.pages_extracted)} pages read. ${
                   Object.entries(corpus.by_status)
                     .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
                     .join(", ") || "no status recorded"
-                }.`
+                }.`}
+                {/* SCOPED to a caller who can see the register at all - see
+                    `coverageInScope` above - and shown only when it is
+                    actually non-zero, never as "0 awaiting a type", which
+                    would claim a measurement nobody made for a caller with
+                    no coverage answer at all. */}
+                {coverageInScope && coverage!.needs_classification > 0 && (
+                  <span className="ml-1 text-warn-500">
+                    · {nf.format(coverage!.needs_classification)} awaiting a type
+                  </span>
+                )}
+              </>
+            )
           }
-        />
+        >
+          {corpus.documents > 0 && <TypeCounts byType={byType} />}
+        </Headline>
         <Headline
           label="Needs attention"
           value={String(metrics.warnings.length)}
@@ -356,6 +557,22 @@ export function DashboardView({
         </ul>
       )}
 
+      {/* EVERYTHING BELOW IS STILL HERE - folded, not removed. A client
+          opening this screen was met by thirty near-identical tiles in which
+          "keyword search ready 8,145" and "last heartbeat 0.7 s ago" carried
+          the same weight as "is anything wrong". The four answers above and
+          the warnings are what a reader came for; the rest is the operator's
+          console, one click away, with every number intact. Nothing about
+          the honesty rules changes: an unmeasured value still says so. */}
+      <details className="mt-8 group">
+        <summary className="cursor-pointer select-none rounded-lg border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-300 hover:text-slateish-100 [&::-webkit-details-marker]:hidden">
+          <span className="mr-2 inline-block transition-transform group-open:rotate-90">&#9656;</span>
+          <span className="font-medium">Technical detail</span>
+          <span className="ml-2 text-xs text-slateish-500">
+            corpus counts, processing speed, retrieval latency, jobs, worker, models, machine, exclusion rules
+          </span>
+        </summary>
+        <div className="mt-4 space-y-2">
       <Section
         title="Corpus"
         hint="A passage is a block of text a question can match. Searchable is what a question can actually reach; the rest are kept so you can inspect them."
@@ -584,7 +801,17 @@ export function DashboardView({
         </div>
       </Section>
 
-      {system ? <Section title="Machine" hint="Everything runs here. No document or question leaves this computer.">
+      {/* ABSENT for any reader without the admin capability (#77): the
+          machine's core count, RAM and disk are not anybody's document, so no
+          grant could scope them, and they were being served to every caller
+          of a product whose stated boundary is "nothing leaves this machine".
+          The whole card goes rather than its values, because `bytes(undefined)`
+          and `percent ?? 0` would render "0 B free of 0 B" and a zeroed bar -
+          a stated measurement that is false, which is a worse defect than the
+          leak. An engineer sees no Machine card; the warnings below still
+          reach them, figure-free. */}
+      {system && (
+      <Section title="Machine" hint="Everything runs here. No document or question leaves this computer.">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
             <p className="text-[11px] uppercase tracking-wide text-slateish-500">CPU</p>
@@ -645,7 +872,8 @@ export function DashboardView({
             </p>
           </div>
         </div>
-      </Section> : null}
+      </Section>
+      )}
 
       {metrics.exclusions.length > 0 && (
         <Section
@@ -682,6 +910,8 @@ export function DashboardView({
           </div>
         </Section>
       )}
+        </div>
+      </details>
     </div>
   );
 }

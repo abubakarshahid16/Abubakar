@@ -21,6 +21,8 @@ export type LoginOutcome =
   | { ok: true }
   | { ok: false; kind?: "credentials" | "rate_limited" | "offline"; message?: string };
 
+export type ResetOutcome = { ok: true } | { ok: false; message: string };
+
 // The ONE string. Never branch on which half was wrong.
 const CREDENTIALS_MESSAGE = "That email and password did not match an account.";
 const RATE_LIMITED_MESSAGE =
@@ -30,18 +32,25 @@ const OFFLINE_MESSAGE =
 
 export function LoginView({
   onLogin,
+  onResetPassword = async () => ({ ok: false, message: "Password reset could not be completed." }),
   connected,
 }: {
   /** Resolves with ok:false and an optional kind. A `message` on a
    *  credentials failure is deliberately IGNORED so a backend that
    *  distinguishes unknown-email from wrong-password cannot leak it here. */
   onLogin: (req: LoginRequest) => Promise<LoginOutcome>;
+  onResetPassword?: (token: string, password: string) => Promise<ResetOutcome>;
   connected: boolean;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetToken, setResetToken] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
   const emailId = useId();
   const passwordId = useId();
   const errorId = useId();
@@ -74,16 +83,36 @@ export function LoginView({
   const disabled = submitting;
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-4 py-12">
-      <header className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-slateish-200">Sign in</h1>
-          <p className="mt-1 text-sm text-slateish-400">
-            Local accounts only. Your role decides which documents you can see.
-          </p>
+    /* THE FIRST SCREEN A CLIENT SEES, and it was the weakest in the app: a
+       bare form floating on the page ground with no container, headed "Sign
+       in" and nothing else - a reader arriving cold could not tell what the
+       product was. The form is now on a raised card, under the product's own
+       name, with the two sentences that make this product different (it is
+       local, and your role decides what you see) where they will actually be
+       read.
+
+       The card is `bg-ink-800` on `ink-900`: the same raised-surface step the
+       Dashboard tiles use, so this screen belongs to the same system rather
+       than looking like a login bolted on. */
+    <main className="flex min-h-screen w-full items-center justify-center px-4 py-12">
+      <div className="w-full max-w-md">
+        <div className="mb-5 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight text-slateish-100">
+            RAG Intelligence System
+          </h1>
+          <p className="mt-1 text-sm text-slateish-400">Enterprise FEED intelligence</p>
         </div>
-        <ConnectionLine connected={connected} />
-      </header>
+
+        <div className="rounded-xl border border-ink-700 bg-ink-800 px-6 py-6 shadow-lg shadow-black/20">
+          <header className="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slateish-200">Sign in</h2>
+              <p className="mt-1 text-sm leading-relaxed text-slateish-400">
+                Local accounts only. Your role decides which documents you can see.
+              </p>
+            </div>
+            <ConnectionLine connected={connected} />
+          </header>
 
       <form onSubmit={submit} noValidate className="space-y-4" aria-describedby={errorId}>
         <div>
@@ -141,12 +170,71 @@ export function LoginView({
           {submitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
+          <button
+            type="button"
+            onClick={() => { setResetOpen((open) => !open); setResetMessage(null); }}
+            className="mt-3 w-full text-center text-sm text-signal-300 underline underline-offset-4"
+          >
+            {resetOpen ? "Back to sign in" : "Set or reset password"}
+          </button>
+          {resetOpen && (
+            <form
+              className="mt-4 space-y-3 border-t border-ink-600 pt-4"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setResetMessage(null);
+                if (newPassword !== confirmPassword) {
+                  setResetMessage("The two passwords do not match.");
+                  return;
+                }
+                const result = await onResetPassword(resetToken.trim(), newPassword);
+                if (result.ok) {
+                  setResetToken("");
+                  setNewPassword("");
+                  setConfirmPassword("");
+                  setResetMessage("Password saved. You can now sign in.");
+                } else setResetMessage(result.message);
+              }}
+            >
+              <p className="text-xs text-slateish-400">
+                Enter the one-time token provided by an administrator. It expires after 24 hours.
+              </p>
+              <label className="block text-xs font-medium text-slateish-300">
+                One-time reset token
+                <input required value={resetToken} onChange={(e) => setResetToken(e.target.value)}
+                  autoComplete="one-time-code"
+                  className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200" />
+              </label>
+              <label className="block text-xs font-medium text-slateish-300">
+                New password
+                <input required minLength={12} type="password" value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password"
+                  className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200" />
+              </label>
+              <label className="block text-xs font-medium text-slateish-300">
+                Confirm new password
+                <input required minLength={12} type="password" value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password"
+                  className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200" />
+              </label>
+              {resetMessage && <p role="status" className="text-sm text-slateish-300">{resetMessage}</p>}
+              <button type="submit" className="w-full rounded bg-signal-500/20 px-4 py-2 text-sm font-medium text-signal-300 ring-1 ring-signal-500/50">
+                Save new password
+              </button>
+            </form>
+          )}
+        </div>
 
-      <p className="mt-6 text-xs text-slateish-400">
-        Your session is held in memory only. Reloading or closing this page signs
-        you out. This is deliberate: nothing about your login is written to disk.
-      </p>
-      <p className="mt-2 text-xs text-slateish-500">Nothing you type leaves this machine.</p>
+        {/* Outside the card, quieter: these are properties of the deployment,
+            not instructions for signing in. They stay because they are the two
+            facts a security reviewer checks first, and burying them in a
+            tooltip would be hiding the product's best argument. */}
+        <p className="mt-5 text-xs leading-relaxed text-slateish-400">
+          Your session is held in memory only. Reloading or closing this page signs
+          you out. This is deliberate: nothing about your login is written to disk.
+        </p>
+        <p className="mt-2 text-xs text-slateish-500">Nothing you type leaves this machine.</p>
+      </div>
     </main>
   );
 }
@@ -188,9 +276,15 @@ export function RoleBadge({ me, onLogout }: { me: Me | null; onLogout: () => voi
       </span>
     );
   }
+  /* STACKED, NOT SIDE BY SIDE. In a 256px sidebar the row layout put the name
+     and two role chips in one flex child and "Sign out" in another, so the
+     button was squeezed to its minimum width and broke across two lines - a
+     two-line button reads as a layout fault. The identity gets the full width
+     and the action sits under it, which also puts a destructive control where
+     it will not be hit while reaching for a role chip. */
   return (
-    <div className="flex items-center gap-3 text-xs">
-      <span className="flex flex-wrap items-center gap-1.5">
+    <div className="text-xs">
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <span className="font-medium text-slateish-200">{me.display_name}</span>
         {me.roles.length === 0 ? (
           <span className="text-slateish-500">no roles</span>
@@ -198,17 +292,17 @@ export function RoleBadge({ me, onLogout }: { me: Me | null; onLogout: () => voi
           me.roles.map((r) => (
             <span
               key={r}
-              className="rounded bg-ink-700 px-2 py-0.5 text-[11px] text-slateish-300"
+              className="rounded bg-ink-700 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-300"
             >
               {r}
             </span>
           ))
         )}
-      </span>
+      </div>
       <button
         type="button"
         onClick={onLogout}
-        className="rounded border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 transition-colors hover:bg-ink-700"
+        className="mt-2 w-full rounded border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 transition-colors hover:bg-ink-700"
       >
         Sign out
       </button>

@@ -82,7 +82,7 @@ TARGETS = [
 #: "latest" would let the recogniser change under a passing test suite.
 #:
 #: BOTH candidate configurations are staged, because the engine choice is
-#: open pending one question: whether the Aramco documents contain Arabic.
+#: open pending one question: whether the client documents contain Arabic.
 #:   - multilingual: PP-OCRv6 det_tiny + PP-OCRv6 rec_tiny
 #:   - English-only: PP-OCRv6 det_tiny + PP-OCRv5 en rec_mobile
 #: The detector and the direction classifier are shared by both, so staging

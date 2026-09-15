@@ -229,7 +229,7 @@ username**. A report about *"chloride limits, spec 12-SAMSS-007"* must not name
 itself that on disk — a filename is metadata that leaks past every access check
 into backup indexes, `Referer` headers and browser history.
 
-Download name is the server-assigned id: `nabaa-report-rpt_xxx.pdf`. Never the
+Download name is the server-assigned id: `rag-intelligence-report-rpt_xxx.pdf`. Never the
 question.
 
 `Cache-Control: private, no-store` — **not** the `max-age=86400` page images use.

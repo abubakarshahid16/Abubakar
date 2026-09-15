@@ -521,7 +521,7 @@ def test_a_short_capped_set_is_reported_as_capped_and_is_never_empty():
     """The cap wins over the requested total, so the set comes back short -
     and short is not empty. A false refusal is still the worst outcome."""
     crowded_corpus()
-    evidence, _result = analysis.gather(QUESTION, _scope("d13", "d16"), limit=24)
+    evidence, result = analysis.gather(QUESTION, _scope("d13", "d16"), limit=24)
     assert 0 < len(evidence) < 24, (
         "either the set was emptied, or the cap was topped back up to the limit")
 

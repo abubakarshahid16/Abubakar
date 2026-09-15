@@ -31,10 +31,13 @@ import math
 import re
 import sqlite3
 
+# Imported for its EXCEPTION TYPES only - `_generate_or_refuse` below turns an
+# httpx error into `ModelUnavailable`. This module no longer constructs a
+# client or formats a model URL; both live in `model_transport`, which is the
+# only module in `app/` allowed to (tests/test_socket_containment.py).
 import httpx
 
-from . import access, claims, market, synthesis
-from . import search as search_mod
+from . import access, claims, market, model_transport, search as search_mod, synthesis
 from .config import settings
 from .db import connect
 
@@ -376,7 +379,12 @@ _PERCENTAGE_TERMS = (
 #: purpose: `lexical.distinctive_terms` is the richer notion of this, and it
 #: reads the acronym tables, which is a database dependency this filter does
 #: not need and must not acquire.
-_NOT_A_SUBJECT = frozenset(["about", "across", "also", "and", "any", "are", "been", "between", "both", "but", "compare", "compared", "comparison", "does", "each", "for", "from", "give", "have", "how", "into", "list", "many", "more", "most", "much", "must", "only", "over", "said", "same", "shall", "should", "than", "that", "the", "their", "them", "then", "there", "these", "this", "those", "used", "using", "what", "when", "where", "which", "while", "with", "your"])
+_NOT_A_SUBJECT = frozenset("""
+about across also and any are been between both but compare compared
+comparison does each for from give have how into list many more most much
+must only over said same shall should than that the their them then there
+these this those used using what when where which while with your
+""".split())
 
 
 def percentage_intent(question: str) -> bool:
@@ -659,10 +667,14 @@ def ollama_generate(system: str, prompt: str) -> synthesis.Generation:
         },
         "keep_alive": "30m",
     }
-    with httpx.Client(timeout=180.0) as client:
-        response = client.post(f"{settings.ollama_url}/api/generate", json=body)
-        response.raise_for_status()
-        return synthesis.Generation.from_ollama(response.json())
+    # THROUGH THE ONE TRANSPORT. `prompt` comes from `synthesis.build_prompt`
+    # over the evidence, so this request carries document passages verbatim.
+    # The destination is re-validated immediately before the socket rather
+    # than trusted because the model URL setting merely DEFAULTED to loopback:
+    # `OLLAMA_URL` in `backend/.env` used to redirect this POST anywhere with
+    # no check, no flag and no audit row.
+    return synthesis.Generation.from_ollama(
+        model_transport.post_json("/api/generate", body, timeout=180.0))
 
 
 class ModelUnavailable(Exception):
@@ -673,6 +685,10 @@ def _generate_or_refuse(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
     except httpx.HTTPError as exc:
+        # httpx errors ONLY. `model_transport.ModelHostRefused` is not an
+        # httpx error on purpose and is not caught here: a refused destination
+        # is a privacy-boundary misconfiguration, and downgrading it to "the
+        # model is unavailable" would hide the one failure that must be loud.
         raise ModelUnavailable(type(exc).__name__) from exc
 
 
@@ -728,8 +744,10 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
     comparison without being told which side is right.
     """
     evidence, _ = gather(question, scope, limit=limit)
-    rows = claims.extract_claims(evidence)
-    clusters = claims.cluster(rows, claims.question_terms(question))
+    rows = claims.extract_claims(
+        evidence, allowed_document_ids=scope.allowed_document_ids)
+    clusters = claims.cluster(rows, claims.question_terms(
+        question, allowed_document_ids=scope.allowed_document_ids))
     applicability = "applicable" if baseline_document_id else "not_applicable"
     baseline = None
     if baseline_document_id:
@@ -771,6 +789,43 @@ _STATUS_RANK = {
     "met": 2,
     "insufficient_evidence": 3,
     "not_applicable": 4,
+}
+
+
+#: Every label `claims.label_cluster` can return, and the gap status it earns
+#: WHEN THE PROJECT DOCUMENTS SPOKE. Written as a table rather than an if/else
+#: chain because the chain ended in `else: status = "possible_gap"`, and two
+#: labels fell through it into a status that means the opposite of what they
+#: say:
+#:
+#:   "addition"   one row carries a measurement or identifier the others lack;
+#:                NOTHING IS CONTRADICTED. Measured live, that arrived on screen
+#:                as "Possible gap - Retrieval found nothing addressing this"
+#:                directly above its own note saying nothing is contradicted.
+#:   "unresolved" the unit could not be normalised, so the values could not be
+#:                COMPARED. Retrieval found plenty; it is the comparison that
+#:                failed, which is what `insufficient_evidence` means.
+#:
+#: `addition` maps to `met` rather than to a sixth status, and that is a
+#: deliberate reuse rather than a shortcut. `met` here already means "the
+#: documents address this and nothing contradicts the baseline" - `agreement`
+#: has always mapped to it on exactly that basis, and neither ever claimed a
+#: requirement was formally satisfied. The card's caption for `met`, "Positive
+#: matching evidence was found", is literally true of an addition row: there
+#: are project evidence chips on it. A new status would be more precise by a
+#: hair and would cost a contract change, a sixth concept in a five-concept
+#: UI, and a broken `Record<GapItemStatus, ...>` in a file another agent is
+#: editing right now.
+#:
+#: A label added to claims.py and not added here becomes
+#: `insufficient_evidence` - which overstates nothing - and
+#: test_the_label_to_status_mapping_is_exhaustive_and_honest fails, so the
+#: omission is loud rather than silent.
+STATUS_FOR_LABEL: dict[str, str] = {
+    "possible_conflict": "conflict",
+    "agreement": "met",
+    "addition": "met",
+    "unresolved": "insufficient_evidence",
 }
 
 
@@ -820,12 +875,17 @@ def _gap_items(clusters, baseline_document_id: str | None,
             # right. That one keeps its status so it can lead the list.
             status = ("conflict" if c.label == "possible_conflict"
                       else "not_applicable")
-        elif c.label == "possible_conflict":
-            status = "conflict"
-        elif c.label == "agreement":
-            status = "met"
+        elif others:
+            # THE PROJECT DOCUMENTS SPOKE. Whatever the label says about HOW
+            # they agree, retrieval did not come back empty - so nothing here
+            # may claim it did.
+            status = STATUS_FOR_LABEL.get(c.label, "insufficient_evidence")
         else:
-            status = "possible_gap"
+            # Only the baseline is in this cluster: no project document
+            # addressed the facet at all. That is what `possible_gap` is for,
+            # and it is the finding this panel exists to make - so a conflict
+            # aside, it stands regardless of the label.
+            status = "conflict" if c.label == "possible_conflict" else "possible_gap"
         items.append({
             "facet": c.facet or "(unnamed)",
             "status": status,

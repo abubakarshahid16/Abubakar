@@ -23,6 +23,31 @@ from app import answer
 from app import context_budget as cb
 from app.config import settings
 
+
+#: The window these tests pin themselves to.
+#:
+#: THE OVERFLOW PATH IS THE SUBJECT HERE, and it only exists when the evidence
+#: is too big for the window. Inheriting the deployed `num_ctx` made that a
+#: property of configuration rather than of the code: raising it from 1536 to
+#: 4096 (a deliberate change, see config.py and #82) made three 1,200-character
+#: table passages FIT, so nothing was trimmed, so every assertion about
+#: trimming failed - while the behaviour under test was perfectly intact.
+#:
+#: `test_three_numeric_table_passages_are_budgeted_before_the_call_and_reported`
+#: caught this itself, with the guard "the fixture is not expensive enough to
+#: overflow; this test would be vacuous". That guard is the reason this pin
+#: exists rather than a widened fixture: the honest fix is to state the window
+#: the test needs, not to inflate the data until the default happens to break.
+#:
+#: Same shape as conftest pinning AUTH_MODE. A suite whose result depends on a
+#: deployment setting is not testing the code.
+OVERFLOW_WINDOW = 1536
+
+
+@pytest.fixture(autouse=True)
+def _pin_the_window(monkeypatch):
+    monkeypatch.setattr(settings, "num_ctx", OVERFLOW_WINDOW)
+
 TABLE_ROW = " ".join(["30.0000"] * 10)
 #: ~1,200 characters of numeric table, the shape `book2` is full of.
 TABLE_TEXT = "\n".join([TABLE_ROW] * 15)[:1200]

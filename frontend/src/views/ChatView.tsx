@@ -12,8 +12,14 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api } from "../api/client";
-import { AnswerCard, sourcesOf, viewFromMessage, type AnswerView } from "../components/chat/AnswerCard";
+import { api, reports as reportsApi } from "../api/client";
+import {
+  AnswerCard,
+  sourcesOf,
+  viewFromMessage,
+  type AnswerView,
+  type UpgradeFailure,
+} from "../components/chat/AnswerCard";
 import { EvidencePanel } from "../components/chat/EvidencePanel";
 import { LocalWork } from "../components/chat/LocalWork";
 import type { Connection } from "../components/Shell";
@@ -98,6 +104,10 @@ export function ChatView({
   // says it is doing. `progress` stays null until the first poll returns: the
   // stage is never guessed from the clock in the meantime.
   const [progressId, setProgressId] = useState<string | null>(null);
+  // Which message is being turned into a report, and what the last attempt
+  // said. Keyed by message id so a notice appears on the card it belongs to.
+  const [savingReport, setSavingReport] = useState<string | null>(null);
+  const [reportNotice, setReportNotice] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<Progress | null>(null);
   const [failure, setFailure] = useState<ApiError | null>(null);
 
@@ -321,6 +331,29 @@ export function ChatView({
     [current, explainingId, messages, refreshList],
   );
 
+  const saveReport = useCallback(
+    async (messageId: string) => {
+      setSavingReport(messageId);
+      setReportNotice((n) => ({ ...n, [messageId]: "" }));
+      const r = await reportsApi.generate(messageId);
+      setSavingReport(null);
+      if (r.ok) {
+        setReportNotice((n) => ({
+          ...n,
+          [messageId]:
+            `Saved as ${r.data.id} — ${r.data.page_count} page` +
+            `${r.data.page_count === 1 ? "" : "s"}. Open it on the Reports screen.`,
+        }));
+        return;
+      }
+      // The route refuses a message that cites nothing (NotReportable, 422).
+      // Saying so is the point: a button that silently does nothing is the
+      // defect this replaces.
+      setReportNotice((n) => ({ ...n, [messageId]: r.error.message }));
+    },
+    [],
+  );
+
   const offline = connection.state === "offline";
 
   const evidenceMessage = evidence ? messages.find((m) => m.id === evidence.messageId) : undefined;
@@ -341,12 +374,77 @@ export function ChatView({
     return undefined;
   })();
 
+  /** The question that produced this answer, in the READER'S OWN WORDS: the
+   *  last user turn before it. `resolved_question` is deliberately the
+   *  fallback rather than the preference here — the evidence panel wants what
+   *  retrieval ran, but whether a question ASKS for a comparison is a fact
+   *  about what the reader typed, not about what the resolver made of it. */
+  const questionFor = (messageId: string): string | null => {
+    const index = messages.findIndex((m) => m.id === messageId);
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "user") {
+        return messages[i].text ?? messages[i].resolved_question ?? null;
+      }
+    }
+    return null;
+  };
+
+  /** A Tier 2 upgrade that produced nothing showable.
+   *
+   *  `chat.ask(explain_of=…)` persists the attempt as its own assistant turn,
+   *  whatever the outcome. When `synthesis`/`answer` refuses the generated
+   *  prose — the model cited no supplied source — that turn comes back as
+   *  `insufficient_evidence`, and the transcript rendered it as a PEER of the
+   *  extract it was an upgrade of. The screen then asserted "here is your
+   *  answer, quoted from page 17" and "The documents do not answer this"
+   *  simultaneously, about the same question. The refusal is correct; its
+   *  SCOPE was not. */
+  const isFailedUpgrade = (m: Message) =>
+    Boolean(m.explains_id) &&
+    (m.answer_type === "insufficient_evidence" || m.answer_type === "model_unavailable");
+
+  const present = new Set(messages.map((m) => m.id));
+  /** The latest failed upgrade per answer it was an upgrade OF. */
+  const failedUpgrades = new Map<string, Message>();
+  /** Every failed upgrade being reported on another card, so it is not also
+   *  drawn as one. Only suppressed when the card it attaches to is actually
+   *  on screen — a failure with nowhere to go is still shown, because a
+   *  vanished attempt is the other half of this defect. */
+  const attachedElsewhere = new Set<string>();
+  for (const m of messages) {
+    if (!isFailedUpgrade(m) || !present.has(m.explains_id!)) continue;
+    failedUpgrades.set(m.explains_id!, m);
+    attachedElsewhere.add(m.id);
+  }
+
   /** An assistant turn already followed by its explanation must not offer
    *  Explain again — pressing it twice would spend another ~50 seconds
-   *  reproducing an answer already on screen. */
+   *  reproducing an answer already on screen. A REFUSED upgrade put nothing
+   *  on screen, so it is not one of those: the button stays, now labelled as
+   *  a retry, with the failure reported beneath it. */
   const explainedIds = new Set(
-    messages.map((m) => m.explains_id).filter((x): x is string => Boolean(x)),
+    messages
+      .filter((m) => m.answer_type === "generated")
+      .map((m) => m.explains_id)
+      .filter((x): x is string => Boolean(x)),
   );
+
+  /** The failed upgrade to report on the card for `messageId`, if any.
+   *
+   *  Its passages stay addressed by ITS OWN message id, so opening one puts
+   *  the failed attempt's evidence in the panel rather than silently
+   *  substituting the extract's — the two sets are not the same. */
+  const upgradeFailureFor = (messageId: string): UpgradeFailure | null => {
+    const f = failedUpgrades.get(messageId);
+    if (!f) return null;
+    return {
+      answer_type: f.answer_type ?? "insufficient_evidence",
+      reason: f.reason,
+      considered: sourcesOf(viewFromMessage(f)),
+      activeSource: evidence?.messageId === f.id ? evidence.index : null,
+      onSelectSource: (i: number) => setEvidence({ messageId: f.id, index: i }),
+    };
+  };
 
   return (
     <div className="flex h-[calc(100vh-6rem)] min-h-0 flex-col gap-4 lg:flex-row">
@@ -424,18 +522,29 @@ export function ChatView({
           {messages.map((m) =>
             m.role === "user" ? (
               <UserTurn key={m.id} message={m} />
-            ) : (
+            ) : attachedElsewhere.has(m.id) ? null : (
               <div key={m.id} className="max-w-[52rem]">
                 <AnswerCard
                   view={viewFromMessage(m) as AnswerView}
                   activeSource={evidence?.messageId === m.id ? evidence.index : null}
                   onSelectSource={(i) => setEvidence({ messageId: m.id, index: i })}
                   explainsEarlier={Boolean(m.explains_id)}
+                  question={questionFor(m.id)}
                   onExplain={
                     m.answer_type === "extract" && !explainedIds.has(m.id)
                       ? () => void explain(m.id)
                       : undefined
                   }
+                  onSaveReport={
+                    // Only an ANSWER can be frozen. A refusal has no evidence
+                    // to freeze, and the route would refuse it anyway.
+                    m.answer_type === "extract" || m.answer_type === "generated"
+                      ? () => void saveReport(m.id)
+                      : undefined
+                  }
+                  savingReport={savingReport === m.id}
+                  reportNotice={reportNotice[m.id] || null}
+                  upgradeFailure={upgradeFailureFor(m.id)}
                   explaining={explainingId === m.id}
                   explainSeconds={explainingId === m.id ? elapsed : undefined}
                 />

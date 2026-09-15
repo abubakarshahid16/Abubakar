@@ -8,7 +8,10 @@ Spec: docs/design-analysis-and-synthesis.md, "The claim algorithm" and
     normalized_value None - never a guess, never 0. `normalise_strict` raises
     UnknownUnit instead, the scores.ScaleMismatch discipline.
   * Clustering is by facet key: the question's distinctive terms present in
-    the claim, plus the unit dimension. Never by wording similarity.
+    the claim, plus the unit dimension. Never by wording similarity. A facet
+    names a SUBJECT, so keys that are one subject at two levels of detail are
+    merged afterwards (`_can_merge`), and a unit, a percent sign or a clause
+    number never names one.
   * Labels are arithmetic. `possible_conflict`, never `conflict`: documents
     carry no revision or approval status, so supersession is undecidable.
   * Different designators (system 1 vs system 9) are two different things,
@@ -312,6 +315,33 @@ _WORD_SPACE_NUMBER = re.compile(r"[A-Z]{2,}\s\d+(?:[.,]\d+)?")
 #: number is what says so. Anchored to the end so only the immediately
 #: preceding word counts - "the NDFT for system 1 shall be 280 um" still
 #: yields 280 um.
+#: A percentage that NAMES A SUBMITTAL PHASE rather than measuring anything.
+#: "submitted as 100% Design Documents" is the name of a deliverable stage, and
+#: it was being extracted as the quantity 100 - which then formed a facet of its
+#: own, so one run produced "documents (%)" beside "documents" and split one
+#: subject across two rows on the strength of a number nobody wrote.
+#:
+#: THE RULE IS THE FOLLOWING NOUN, not the value. It fires only when the phrase
+#: after the percent names a phase - Design/Construction/Contract/Schematic
+#: Documents, a Submittal, Design Development - so a percentage followed by
+#: anything else is untouched. "at least 30% below ASHRAE 90.1", "maximum 50 %
+#: reduction", "95% of the surface" and "shall not exceed 85%" all still
+#: extract, and are asserted to.
+#:
+#: A false negative here loses a real requirement, which is why the permitted
+#: nouns are listed rather than inferred: an open-ended "percent followed by a
+#: capitalised word" would have swallowed "30% ASHRAE".
+_PHASE_PERCENT = re.compile(
+    r"\s*(?:"
+    r"(?:design|construction|contract|schematic|conceptual)\s+"
+    r"(?:documents?|submittals?|development|drawings?)"
+    r"|submittals?"
+    r"|design\s+development"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 _DESIGNATOR_LEAD = re.compile(
     r"(?:\bno\.?|\bsystem|\bclass|\btype|\bgrade|\brev\.?|\btable)\s*$",
     re.IGNORECASE,
@@ -371,6 +401,9 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
         # A number introduced as a designator is a name, not a quantity.
         if _DESIGNATOR_LEAD.search(sentence[:start]):
             continue
+        # Nor is a percentage that names a submittal phase - see _PHASE_PERCENT.
+        if unit == "%" and _PHASE_PERCENT.match(sentence[m.end("unit"):]):
+            continue
         prefix = sentence[:start].rstrip()
         cmp_match = re.search(r"(?:" + _COMPARATOR_RE + r")\s*$", prefix, re.IGNORECASE)
         comparator = parse_comparator(cmp_match.group(0)) if cmp_match else None
@@ -378,16 +411,30 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
     return tuple(found)
 
 
-def claim_terms(sentence: str) -> frozenset[str]:
-    return frozenset(t.lower() for t in lexical.distinctive_terms(sentence))
+def claim_terms(
+    sentence: str, *, allowed_document_ids: frozenset[str]
+) -> frozenset[str]:
+    return frozenset(t.lower() for t in lexical.distinctive_terms(
+        sentence, allowed_document_ids=allowed_document_ids))
 
 
-def question_terms(question: str) -> frozenset[str]:
-    """The question's distinctive terms, lowercased, as a facet_key input."""
-    return frozenset(t.lower() for t in lexical.distinctive_terms(question))
+def question_terms(
+    question: str, *, allowed_document_ids: frozenset[str]
+) -> frozenset[str]:
+    """The question's distinctive terms, lowercased, as a facet_key input.
+
+    Scoped because `distinctive_terms` consults the corpus: it folds in the
+    multi-word expansions the documents themselves define, so an unreadable
+    document could otherwise decide how a caller's question was split into
+    terms - and those terms become `facet_key` inputs the reader sees.
+    """
+    return frozenset(t.lower() for t in lexical.distinctive_terms(
+        question, allowed_document_ids=allowed_document_ids))
 
 
-def extract_claims(evidence: list[dict]) -> list[Claim]:
+def extract_claims(
+    evidence: list[dict], *, allowed_document_ids: frozenset[str]
+) -> list[Claim]:
     """One Claim per sentence carrying a measurement, identifier or designator.
     Sentences with none are not claims. The sentence is carried verbatim."""
     claims: list[Claim] = []
@@ -410,7 +457,10 @@ def extract_claims(evidence: list[dict]) -> list[Claim]:
                     identifiers=identifiers,
                     designators=designators,
                     measurements=measurements,
-                    terms=claim_terms(sentence) - frozenset(dropped),
+                    terms=claim_terms(
+                        sentence,
+                        allowed_document_ids=allowed_document_ids,
+                    ) - frozenset(dropped),
                 )
             )
     return claims
@@ -421,13 +471,49 @@ def _dimensions(claim: Claim) -> frozenset[str]:
     return frozenset(m.dimension for m in claim.measurements if m.dimension)
 
 
+#: A dimension that is an ATTRIBUTE of a claim rather than an identity of a
+#: subject. A percentage is dimensionless - "100%" of what is decided by the
+#: words around it, never by the symbol - so letting "dim:percent" into a
+#: facet key split one subject in two: a live run produced "documents (%)"
+#: beside "documents" and "models (%)" beside "models", four facet rows for
+#: two subjects. Percentages are still EXTRACTED, still compared and still
+#: capable of a possible_conflict; they simply do not name a facet, which is
+#: also why no facet key or facet label can contain "%".
+_ATTRIBUTE_DIMENSIONS = frozenset({"percent"})
+
+
+def _is_subject_term(term: str) -> bool:
+    """A subject is named by words. A token with no letter in it - "%", "(%)",
+    "5", "7.1" - is a unit or a number, an attribute of a claim, never the
+    thing the documents are agreeing or disagreeing about."""
+    return any(ch.isalpha() for ch in term)
+
+
+def subject_terms(key: frozenset[str]) -> frozenset[str]:
+    """The naming half of a facet key: no "dim:" and no "designator:"."""
+    return frozenset(k for k in key if not k.startswith(("dim:", "designator:")))
+
+
+def _designator_tokens(key: frozenset[str]) -> frozenset[str]:
+    return frozenset(k for k in key if k.startswith("designator:"))
+
+
 def facet_key(claim: Claim, question_terms: frozenset[str]) -> frozenset[str] | None:
-    """(question_terms ∩ claim.terms) plus "dim:<dimension>" per measurement.
-    None when the intersection is empty and the claim has no designator: such a
-    claim cannot be compared with anything and must not be clustered by wording.
-    With no shared term but a designator, the designator words stand in."""
+    """(question_terms ∩ claim.terms, words only) plus "dim:<dimension>" per
+    identifying measurement. None when the intersection is empty and the claim
+    has no designator: such a claim cannot be compared with anything and must
+    not be clustered by wording. With no shared term but a designator, the
+    designator words stand in.
+
+    This key is an identity of CONVENIENCE, not of subject: two claims about
+    the same thing at different levels of detail get different keys. `cluster`
+    merges those afterwards - see `_can_merge`.
+    """
     shared = frozenset(t.lower() for t in question_terms) & claim.terms
-    dims = frozenset(f"dim:{d}" for d in _dimensions(claim))
+    shared = frozenset(t for t in shared if _is_subject_term(t))
+    dims = frozenset(
+        f"dim:{d}" for d in _dimensions(claim) if d not in _ATTRIBUTE_DIMENSIONS
+    )
     if shared:
         return shared | dims
     if claim.designators:
@@ -437,31 +523,307 @@ def facet_key(claim: Claim, question_terms: frozenset[str]) -> frozenset[str] | 
 
 #: How a unit is written for a person rather than for a parser. "um" is what
 #: the corpus contains and "µm" is what a coatings engineer reads.
-_UNIT_DISPLAY = {"um": "µm", "degC": "°C", "percent": "%"}
+_UNIT_DISPLAY = {"um": "µm", "degC": "°C"}
+
+#: A word of running text, spelled as lexical._TERM spells a term so that a
+#: term found in the question can be recognised again in a claim's sentence.
+_PHRASE_WORD = re.compile(r"[A-Za-z][A-Za-z0-9./-]*")
 
 
-def _facet_string(key: frozenset[str]) -> str:
+def _term_runs(text: str, terms: frozenset[str]) -> list[tuple[str, ...]]:
+    """Maximal runs of ADJACENT words of `text` that are all facet terms.
+
+    Adjacency is textual: only whitespace or a hyphen may sit between two
+    words of a run, so "structural models" is a run and "structural" ...
+    "models" three clauses apart is two runs of one.
+    """
+    runs: list[tuple[str, ...]] = []
+    current: list[str] = []
+    prev_end: int | None = None
+    for m in _PHRASE_WORD.finditer(text):
+        word = m.group(0).lower().rstrip(".")
+        gap = text[prev_end:m.start()] if prev_end is not None else ""
+        prev_end = m.end()
+        if word in terms:
+            if current and gap.strip(" \t\r\n") not in ("", "-"):
+                runs.append(tuple(current))
+                current = []
+            current.append(word)
+        elif current:
+            runs.append(tuple(current))
+            current = []
+    if current:
+        runs.append(tuple(current))
+    return runs
+
+
+def _sub_runs(runs: list[tuple[str, ...]]) -> set[tuple[str, ...]]:
+    out: set[tuple[str, ...]] = set()
+    for run in runs:
+        for i in range(len(run)):
+            for j in range(i + 1, len(run) + 1):
+                out.add(run[i:j])
+    return out
+
+
+#: A conservative singular/plural fold, applied to BOTH sides of a word
+#: comparison so a question that wrote "structural model" can still recognise
+#: "STRUCTURAL MODELS" in a claim.
+#:
+#: MEASURED, and this is the whole reason the phrase naming looked dead. On the
+#: live question "compare structural model requirements in doc16.pdf and
+#: doc15.pdf" the facet keyed {model, structural} was named "structural"
+#: although its claim reads "6.3.1 STRUCTURAL MODELS The Structural systems
+#: models may vary ...". `_term_runs` matched only the word "model" - the lone
+#: singular, in "within a model", eleven words away from "structural" - because
+#: the adjacent pair spells its second word "MODELS", and "models" is not the
+#: term the question supplied. The run was there in the text and invisible to
+#: the matcher. Nothing about the majority rule was involved.
+#:
+#: The fold is deliberately small: -ies -> -y, -ses/-xes/-zes/-ches/-shes ->
+#: drop -es, otherwise a trailing -s that is not -ss. It never rewrites a word
+#: shorter than five characters, so "gas", "bus" and "class" are untouched, and
+#: because both the term and the claim's word go through it, a fold that is
+#: linguistically wrong ("analysis" -> "analysi") still matches only itself. It
+#: is a comparison key, never displayed.
+_PLURAL_ES = ("ses", "xes", "zes", "ches", "shes")
+
+
+def _canon_word(word: str) -> str:
+    """The comparison key for one word. Never shown to a reader."""
+    w = word.lower()
+    if len(w) < 5:
+        return w
+    if w.endswith("ies"):
+        return w[:-3] + "y"
+    if w.endswith(_PLURAL_ES):
+        return w[:-2]
+    if w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
+def _canon_terms(terms: frozenset[str]) -> dict[str, str]:
+    """canon -> the term spelling that produced it, for the terms that are one
+    word. A multi-word term (an acronym expansion the corpus defines) can never
+    equal a single word of running text and is left out, as it always was.
+
+    Ties are broken by the sorted term spelling, so the map does not depend on
+    the iteration order of the frozenset.
+    """
+    out: dict[str, str] = {}
+    for term in sorted(terms):
+        if " " in term or not _is_subject_term(term):
+            continue
+        out.setdefault(_canon_word(term), term)
+    return out
+
+
+def _phrase_runs(text: str, canon: dict[str, str]) -> list[tuple[tuple[str, str], ...]]:
+    """As `_term_runs`, but each word is carried as (canon, surface) and the
+    membership test is on the canon. Adjacency is unchanged: only whitespace or
+    a hyphen may sit between two words of a run."""
+    runs: list[tuple[tuple[str, str], ...]] = []
+    current: list[tuple[str, str]] = []
+    prev_end: int | None = None
+    for m in _PHRASE_WORD.finditer(text):
+        word = m.group(0).lower().rstrip(".")
+        gap = text[prev_end:m.start()] if prev_end is not None else ""
+        prev_end = m.end()
+        key = _canon_word(word)
+        if key in canon:
+            if current and gap.strip(" \t\r\n") not in ("", "-"):
+                runs.append(tuple(current))
+                current = []
+            current.append((key, word))
+        elif current:
+            runs.append(tuple(current))
+            current = []
+    if current:
+        runs.append(tuple(current))
+    return runs
+
+
+def _facet_phrase(rows: tuple[Claim, ...] | list[Claim], terms: frozenset[str]) -> str:
+    """The noun phrase to PRINT for a facet, taken from the claims' own words.
+
+    THE SUPPORT RULE, stated so it can be disagreed with. Every run of adjacent
+    facet terms occurring in a claim is a candidate, counted once per ROW. A
+    candidate is eligible when at least two rows contain it - one row, when the
+    cluster has only one. Among the eligible candidates the LONGEST wins; ties
+    in length go to the one more rows support, then to the longer spelling,
+    then alphabetically.
+
+    WHY TWO ROWS RATHER THAN A MAJORITY. A majority is the wrong shape for this
+    data and it was measured to be: the facet keyed {model, structural} whose
+    four claims include two spelling "STRUCTURAL MODELS" verbatim needs three
+    of four under a majority and got named "structural". Two rows is the
+    smallest number that still means "the documents share this phrase" rather
+    than "one sentence happened to contain it", which matters because a facet
+    exists to compare documents - a phrase only one row uses names that row,
+    not the comparison.
+
+    WHEN THE CLAIMS GENUINELY DISAGREE about the subject - two rows reading
+    "structural models" and three reading "design documents" - length is
+    decided first and both are two words, so the tie-break puts the phrase with
+    MORE rows behind it first: "design documents". The minority phrase does not
+    get to name the cluster. With equal support the alphabetically first
+    spelling wins, which is arbitrary but stated, repeatable, and never depends
+    on dict or set ordering.
+
+    THE FALLBACK IS A BARE WORD, NEVER AN INVENTION. When nothing reaches the
+    support floor this returns the best-supported SINGLE term, and when no term
+    appears in any claim at all it returns "" and `_facet_string` falls back to
+    the sorted terms as before. A wrong noun phrase reads as a finding; a bare
+    word only reads as a word.
+
+    The spelling shown is the one the CLAIMS use, chosen by row count then
+    alphabetically - "structural models", not the question's "structural
+    model" - because the reader is being shown what the documents say.
+    """
+    rows = tuple(rows)
+    canon = _canon_terms(terms)
+    if not rows or not canon:
+        return ""
+    # support: canon run -> rows containing it; spellings: canon run -> surface -> rows
+    support: dict[tuple[str, ...], int] = {}
+    spellings: dict[tuple[str, ...], dict[tuple[str, ...], int]] = {}
+    for row in rows:
+        seen: set[tuple[str, ...]] = set()
+        surfaces: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
+        for run in _phrase_runs(row.exact_span.lower(), canon):
+            for i in range(len(run)):
+                for j in range(i + 1, len(run) + 1):
+                    piece = run[i:j]
+                    key = tuple(w[0] for w in piece)
+                    seen.add(key)
+                    surfaces.setdefault(key, set()).add(tuple(w[1] for w in piece))
+        for key in seen:
+            support[key] = support.get(key, 0) + 1
+            bucket = spellings.setdefault(key, {})
+            for surface in surfaces.get(key, ()):
+                bucket[surface] = bucket.get(surface, 0) + 1
+    if not support:
+        return ""
+    floor = 2 if len(rows) >= 2 else 1
+    eligible = [run for run, n in support.items() if n >= floor and len(run) > 1]
+    if not eligible:
+        # No shared phrase. Name it after the best-supported single term - the
+        # current behaviour, and honest: the rows share a word, not a phrase.
+        eligible = [run for run in support if len(run) == 1]
+        if not eligible:
+            return ""
+    def display(run: tuple[str, ...]) -> str:
+        """The spelling to show for one candidate: the one most rows use,
+        alphabetically on a tie."""
+        return " ".join(sorted(
+            spellings[run].items(), key=lambda kv: (-kv[1], " ".join(kv[0]))
+        )[0][0])
+
+    # The order is over the DISPLAYED spelling, not the canonical stem. Ranking
+    # by the stem let the plural fold decide a tie between two unrelated words:
+    # "documents" folds to "document" (8) and "submitted" does not fold (9), so
+    # a facet whose rows share both was renamed "submitted" - a length
+    # comparison between a stem and a word, which compares nothing.
+    chosen = sorted(
+        eligible,
+        key=lambda r: (-len(r), -support[r], -len(display(r)), display(r)),
+    )[0]
+    return display(chosen)
+
+
+def _shared_phrase(rows: tuple[Claim, ...] | list[Claim], terms: frozenset[str]) -> str:
+    """The phrase basis for MERGE DECISIONS (`_head_term`, `_can_merge`).
+
+    Not used for facet names any more - `_facet_phrase` does that, with a
+    plural-tolerant match and a two-row support floor. This one is kept exactly
+    as it was, on purpose: `_can_merge` decides which claims are compared
+    together, and relaxing that on the strength of a change to how a facet is
+    SPELLED would let a cosmetic fix reshape a gap analysis.
+
+    Sorting the key's terms produced "models structural" and "analysis
+    documents" - a bag of query words in alphabetical order, which no reader
+    recognises as a subject. So: take every run of adjacent facet terms that
+    appears in a claim, and name the facet after the LONGEST run a majority of
+    the clustered claims actually contains. A single term always has the
+    support of every row, so this never comes back empty when the key names
+    anything at all, and it degrades to exactly one word when the rows share
+    only one.
+    """
+    rows = tuple(rows)
+    if not rows or not terms:
+        return ""
+    support: dict[tuple[str, ...], int] = {}
+    for row in rows:
+        for run in _sub_runs(_term_runs(row.exact_span.lower(), terms)):
+            support[run] = support.get(run, 0) + 1
+    if not support:
+        return ""
+    threshold = (len(rows) // 2) + 1
+    eligible = [run for run, n in support.items() if n >= threshold] or list(support)
+    best = sorted(eligible, key=lambda r: (-len(r), -len(" ".join(r)), " ".join(r)))[0]
+    return " ".join(best)
+
+
+def _head_term(rows: tuple[Claim, ...] | list[Claim], terms: frozenset[str]) -> str | None:
+    """The head noun of a facet: the last word of the phrase its claims use.
+
+    "drawing documents" is headed by "documents", so a facet keyed
+    {documents, drawing} is a KIND of the facet keyed {documents}. That is
+    what makes the two mergeable; {drawing} and {documents} are not, because
+    neither is the other's head.
+    """
+    phrase = _shared_phrase(rows, terms)
+    if phrase:
+        return phrase.split()[-1]
+    # No adjacency anywhere: fall back to the term each claim mentions LAST,
+    # by majority. English puts the head of a noun phrase at its end.
+    votes: dict[str, int] = {}
+    for row in rows:
+        low = row.exact_span.lower()
+        last, pos = None, -1
+        for term in terms:
+            i = low.rfind(term)
+            if i > pos:
+                last, pos = term, i
+        if last:
+            votes[last] = votes.get(last, 0) + 1
+    if not votes:
+        return None
+    return sorted(votes.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+
+
+def _facet_string(key: frozenset[str], rows: tuple[Claim, ...] | list[Claim] = ()) -> str:
     """One dimension, named so a reader recognises it: "coating thickness (µm)".
 
     This used to join every term, designator and unit in the key with " · ",
     producing "coating · thickness · A · um" and "coating · % · A · MPa" - a
     facet that names four things names none of them, and a reader scanning a
-    gap analysis cannot tell what is being compared.
+    gap analysis cannot tell what is being compared. Sorting the terms instead
+    was no better: it produced "models structural".
 
-    The subject and the unit are separated: subject words read as a phrase,
-    and the unit goes in brackets where a unit belongs. Terms stay sorted so
-    the string is deterministic - two runs over the same corpus must produce
-    the same facet - which happens to read correctly here ("coating
-    thickness") and is a compromise where it does not.
+    The subject is the phrase the CLAIMS share (`_facet_phrase`); the unit goes
+    in brackets where a unit belongs. Both are deterministic - two runs over
+    the same corpus produce the same facet string.
+
+    NAMING AND MERGING ARE DELIBERATELY SEPARATE FUNCTIONS. `_facet_phrase`
+    names; `_shared_phrase` decides head nouns and equal-phrase merges and is
+    left exactly as it was. They differ - `_facet_phrase` folds plurals and
+    needs two rows rather than a majority - and that difference is the point: a
+    naming change must not silently move a claim from one comparison to
+    another. Feeding the looser rule into `_can_merge` was tried and measured
+    (it folds {model} into {model, structural} on the live corpus); it changes
+    WHICH claims are compared, which is a different decision from what the
+    comparison is called, and is not made here.
     """
-    terms = sorted(k for k in key if not k.startswith(("dim:", "designator:")))
+    terms = subject_terms(key)
     designators = sorted(k.split(":", 1)[1] for k in key if k.startswith("designator:"))
     units = sorted(
         _UNIT_DISPLAY.get(u, u)
         for u in (_DIMENSION_UNIT[k.split(":", 1)[1]] for k in key if k.startswith("dim:"))
     )
 
-    subject = " ".join(terms) or ", ".join(designators)
+    subject = _facet_phrase(rows, terms) or " ".join(sorted(terms)) or ", ".join(designators)
     if terms and designators:
         subject = f"{subject} ({', '.join(designators)})"
     if not subject:
@@ -567,9 +929,109 @@ def label_cluster(rows: tuple[Claim, ...] | list[Claim]) -> tuple[ClaimLabel, st
 
 
 # ------------------------------------------------------------------ clustering
+def _can_merge(small_key: frozenset[str], small_rows: list[Claim],
+               big_key: frozenset[str], big_rows: list[Claim]) -> bool:
+    """Are these two facets the SAME SUBJECT seen at two levels of detail?
+
+    THE MERGE RULE, stated so it can be disagreed with. Two facets merge when
+    all four hold:
+
+      1. Both name a subject in words (a key that is only a dimension, only a
+         unit or only a number names nothing and never merges).
+      2. The smaller subject term set is a subset of the larger. {documents}
+         and {documents, drawing} qualify; {documents} and {drawing} do not.
+      3. The larger facet's HEAD NOUN - the last word of the phrase its own
+         claims use - is one of the smaller facet's terms. "drawing documents"
+         is a kind of "documents", so they merge; "document drawings" is a
+         kind of "drawings", so a {documents} facet does NOT absorb it.
+         Equal term sets (differing only in dimension) skip this: they are
+         already the same words.
+      4. Designators match exactly. System 1 and system 9 are two different
+         things, and no amount of shared vocabulary makes them one.
+
+    Rules 2 and 3 have one alternative: two facets that are NOT in a subset
+    relation merge anyway when the phrase their own claims share is the same
+    non-empty phrase. {analysis, models, structural} and {documents, models,
+    structural} both read "structural models", and emitting that name twice is
+    the same defect under a nicer label.
+
+    Plus the RECALL GUARD below, which refuses any merge that would turn a
+    possible_conflict into something quieter.
+    """
+    sa, sb = subject_terms(small_key), subject_terms(big_key)
+    if not sa or not sb:
+        return False
+    if _designator_tokens(small_key) != _designator_tokens(big_key):
+        return False
+    if sa <= sb:
+        if sa != sb:
+            head = _head_term(big_rows, sb)
+            if head is None or head not in sa:
+                return False
+    else:
+        # NEITHER IS A SUBSET, but both sets of claims call the subject the
+        # same thing: {analysis, models, structural} and {documents, models,
+        # structural} both read "structural models", and two facets with one
+        # name is the bag-of-query-words defect wearing a better label. Equal
+        # phrases are one facet.
+        phrase = _shared_phrase(small_rows, sa)
+        if not phrase or phrase != _shared_phrase(big_rows, sb):
+            return False
+    # RECALL GUARD. A merge may only ever ADD evidence to a disagreement, never
+    # dissolve one: absorbing a conflicting pair into a broader facet whose
+    # other rows carry different designators would relabel it "unresolved" and
+    # the finding would vanish from the report. If either side is a conflict
+    # today and the merged rows are not, the two facets stay apart.
+    merged = tuple(small_rows) + tuple(big_rows)
+    was_conflict = (label_cluster(small_rows)[0] == "possible_conflict"
+                    or label_cluster(big_rows)[0] == "possible_conflict")
+    if was_conflict and label_cluster(merged)[0] != "possible_conflict":
+        return False
+    return True
+
+
+def _merge_facets(groups: dict[frozenset[str], list[Claim]]
+                  ) -> list[tuple[frozenset[str], list[Claim]]]:
+    """Fold narrower facets into the broader facet they are a detail of.
+
+    Applied to a fixpoint and in a deterministic order - fewest terms first,
+    then the sorted key - so the same corpus always produces the same facets.
+    """
+    items: list[list] = [[key, list(rows)] for key, rows in groups.items()]
+    items.sort(key=lambda it: (len(subject_terms(it[0])), sorted(it[0])))
+    changed = True
+    while changed:
+        changed = False
+        for i, small in enumerate(items):
+            target = None
+            for j, big in enumerate(items):
+                if i == j:
+                    continue
+                if j < i:
+                    # Only ever fold EARLIER into LATER in the deterministic
+                    # ordering. A narrower facet always sorts first, so this
+                    # is "detail into subject" - and it makes the fold acyclic,
+                    # which a symmetric rule (equal phrases) otherwise is not.
+                    continue
+                if _can_merge(small[0], small[1], big[0], big[1]):
+                    target = j
+                    break
+            if target is not None:
+                items[target][0] = items[target][0] | small[0]
+                items[target][1] = items[target][1] + small[1]
+                items.pop(i)
+                changed = True
+                break
+    return [(key, rows) for key, rows in items]
+
+
 def cluster(claims: list[Claim], question_terms: frozenset[str]) -> list[Cluster]:
-    """Cluster iff same facet_key. Never by text similarity. Claims whose
-    facet_key is None are dropped: they cannot be compared to anything."""
+    """Cluster iff same facet_key, then merge facets that are the same subject
+    at two levels of detail (`_can_merge`). Never by text similarity. Claims
+    whose facet_key is None are dropped: they cannot be compared to anything,
+    and a facet with no claim on either side is not emitted at all - a question
+    word appearing somewhere is not a finding.
+    """
     groups: dict[frozenset[str], list[Claim]] = {}
     for c in claims:
         key = facet_key(c, question_terms)
@@ -577,9 +1039,12 @@ def cluster(claims: list[Claim], question_terms: frozenset[str]) -> list[Cluster
             continue
         groups.setdefault(key, []).append(c)
     out: list[Cluster] = []
-    for key, rows in groups.items():
+    for key, rows in _merge_facets(groups):
+        if not rows:
+            continue
         label, note = label_cluster(rows)
-        out.append(Cluster(facet=_facet_string(key), label=label, rows=tuple(rows), note=note, key=key))
+        out.append(Cluster(facet=_facet_string(key, rows), label=label,
+                           rows=tuple(rows), note=note, key=key))
     out.sort(key=lambda c: c.facet)
     return out
 

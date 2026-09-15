@@ -58,10 +58,18 @@ def _minimum() -> int:
     """Overridable, so the guard can be PROVEN to fire.
 
     A check nobody has watched fail is not a check - that is the lesson of the
-    whole honesty audit. Setting NABAA_MIN_TESTS absurdly high plants the
+    whole honesty audit. Setting RAGINTEL_MIN_TESTS absurdly high plants the
     defect this guard exists to catch, without editing code.
     """
-    return int(os.environ.get("NABAA_MIN_TESTS", MINIMUM_TESTS))
+    #: The pre-rename name is still accepted. If a shell profile or CI job
+    #: still exports NABAA_MIN_TESTS, dropping it would not error - the
+    #: override would just stop applying and the guard would run at its
+    #: default, which is the failure this variable exists to make visible.
+    return int(
+        os.environ.get(
+            "RAGINTEL_MIN_TESTS", os.environ.get("NABAA_MIN_TESTS", MINIMUM_TESTS)
+        )
+    )
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -82,11 +90,48 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _the_suite_does_not_read_the_developers_env(tmp_path_factory):
+    """Pin the authentication mode so the suite answers the same everywhere.
+
+    5. A TEST SUITE WHOSE RESULT DEPENDS ON AN UNTRACKED FILE.
+       `env_file` was a relative path, so `backend/.env` was read when pytest
+       ran from `backend/` - which is what the README and the PR template both
+       prescribe - and ignored when it ran from the repository root. With
+       AUTH_MODE=demo_required in that file, an unauthenticated TestClient
+       resolves to an EMPTY SCOPE, and the same commit on the same machine in
+       the same second reported:
+
+           from backend/   :  32 failed, 848 passed
+           from repo root  :   0 failed, 880 passed
+
+       Neither number was wrong, which is worse than one of them being wrong:
+       no test report from this project could be read without also knowing the
+       reporter's working directory and the contents of a file that is not in
+       the repository. Anchoring `env_file` (config.py) fixes the application;
+       it makes the suite read a developer's local `.env` on EVERY run, which
+       is the opposite of what a suite should do.
+
+       So the mode is pinned here. The suite tests `disabled` by default, and
+       `demo_required` is tested DELIBERATELY, by fixtures that set it - see
+       test_access_routes.py and test_auth_required_mode.py - rather than by
+       whichever file happens to sit on the machine.
+
+       This pin makes the assertion at test_access_routes.py's
+       `test_auth_disabled_is_the_default_and_changes_nothing` vacuous, since
+       it would then be asserting the value this fixture just set. That test
+       was rewritten to construct a fresh Settings() with no environment, which
+       is the claim it was always trying to make.
+    """
+    settings.auth_mode = "disabled"
+    yield
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _never_the_developers_database(tmp_path_factory):
     """Point the DEFAULT database at a temp file for the whole session.
 
     4. A TEST THAT PASSES ONLY BECAUSE A DATABASE HAPPENS TO EXIST.
-       `backend/data/nabaa.sqlite` is 62 MB on a development machine and absent
+       `backend/data/rag_intelligence.sqlite` is 62 MB on a development machine and absent
        in CI. Two test files had no storage fixture of their own, so here they
        opened the real corpus and passed, and in CI they opened an empty file
        and raised `no such table: chunks` twenty times. The suite reported 756
@@ -104,12 +149,7 @@ def _never_the_developers_database(tmp_path_factory):
     from app import db
     from app import access
 
-    session_dir = tmp_path_factory.mktemp("nabaa-session")
-    # Tests must exercise the documented safe defaults, never a developer's
-    # local backend/.env. Individual tests explicitly opt into auth-required
-    # mode when they cover authenticated behavior.
-    settings.auth_mode = access.AUTH_DISABLED
-    settings.auth_secret = ""
+    session_dir = tmp_path_factory.mktemp("ragintel-session")
     settings.data_dir = session_dir
     settings.upload_dir = session_dir / "uploads"
     settings.db_path = session_dir / "session.sqlite"

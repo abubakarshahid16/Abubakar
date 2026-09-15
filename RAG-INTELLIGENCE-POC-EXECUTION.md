@@ -1,9 +1,9 @@
-# Nabaa Enterprise FEED Intelligence — Definitive Sunday Execution Plan
+# RAG Intelligence System — Enterprise FEED Intelligence, Definitive Sunday Execution Plan
 
 **Audience:** Claude coding agent, project owner, client demonstration team  
-**Client context:** Saudi Aramco petroleum/industrial engineering prototype  
+**Client context:** petroleum/industrial engineering prototype  
 **Delivery type:** one-day proof of concept, not production deployment  
-**Implementation base:** extend the existing Nabaa repository described in `NABAA-CODEBASE.md`  
+**Implementation base:** extend the existing prototype repository described in `RAG-INTELLIGENCE-CODEBASE.md`  
 **Evidence boundary:** the supplied artifact describes the codebase; the repository itself was not attached, so all module names, test counts and measurements are reported until reproduced  
 **Development host:** private Windows laptop, 16 GB RAM, CPU only  
 **Demonstration host:** private Windows computer, 48 GB RAM, CPU only; CPU/SSD must be measured  
@@ -35,9 +35,9 @@ creates the evidence, interfaces and migration path required to build it respons
 
 Claude must treat this document as the implementation contract.
 
-1. Read `NABAA-CODEBASE.md` completely, especially section 10, before editing.
+1. Read `RAG-INTELLIGENCE-CODEBASE.md` completely, especially section 10, before editing.
 2. Inspect the real repository; never assume a path, schema, test fixture, model name, or API shape from this plan when the repository differs.
-3. Preserve all twelve Nabaa invariants. A change that violates an invariant is rejected even if the UI appears to work.
+3. Preserve all twelve prototype invariants. A change that violates an invariant is rejected even if the UI appears to work.
 4. Extend the existing FastAPI, React, SQLite, FTS5, ONNX and Ollama implementation. Do not introduce PostgreSQL, Qdrant, LangChain, LlamaIndex, Docker, Kubernetes, Keycloak or a framework migration for Sunday.
 5. Do not rewrite working retrieval, chunking, OCR, highlighting, state transitions, telemetry or document storage.
 6. Never put client PDFs, extracted text, SQLite files, vectors, generated reports, secrets, user data, prompts or answers in Git, GitHub Actions artifacts, logs, screenshots or issue bodies.
@@ -53,7 +53,7 @@ Claude must treat this document as the implementation contract.
 
 ### Non-negotiable current defects
 
-Before new features, fix the live OCR provenance label described in `NABAA-CODEBASE.md`: recognized text must not be labelled “Quoted verbatim from the document.” Also fix the short-follow-up resolver so a short question on a new topic does not inherit unrelated terms.
+Before new features, fix the live OCR provenance label described in `RAG-INTELLIGENCE-CODEBASE.md`: recognized text must not be labelled “Quoted verbatim from the document.” Also fix the short-follow-up resolver so a short question on a new topic does not inherit unrelated terms.
 
 ### Phase 1 preservation contract
 
@@ -118,7 +118,7 @@ reserve in section 13. The prototype target comprises:
 - Comprehensive multi-document retrieval across every selected document the current user is permitted to read.
 - A concise synthesis of all validated relevant evidence, supported by document, page, clause and evidence-span citations.
 - A detailed evidence ledger listing every relevant document and atomic supported finding, so information omitted from the concise prose through compression remains inspectable.
-- Evidence panels and rendered source pages using existing Nabaa capabilities.
+- Evidence panels and rendered source pages using existing RAG Intelligence System capabilities.
 - Explicit conflicts and an honest insufficient-evidence response.
 - A preliminary structured gap analysis.
 - An AI-generated advisory recommendation separated from documentary facts.
@@ -131,7 +131,7 @@ reserve in section 13. The prototype target comprises:
 
 ### Sunday acceptance statement
 
-> Nabaa demonstrates a private, role-controlled FEED document intelligence workflow. Authorized engineers can comprehensively evaluate selected pre-indexed documents, see exactly which documents supplied evidence or failed, receive evidence-backed consolidated findings, inspect the complete evidence ledger and page-level sources, perform a preliminary gap assessment, obtain clearly labelled advisory recommendations, compare optional public-market evidence, and export an auditable PDF report. Public market research is isolated from private document context.
+> RAG Intelligence System demonstrates a private, role-controlled FEED document intelligence workflow. Authorized engineers can comprehensively evaluate selected pre-indexed documents, see exactly which documents supplied evidence or failed, receive evidence-backed consolidated findings, inspect the complete evidence ledger and page-level sources, perform a preliminary gap assessment, obtain clearly labelled advisory recommendations, compare optional public-market evidence, and export an auditable PDF report. Public market research is isolated from private document context.
 
 ### Universal question contract
 
@@ -152,7 +152,7 @@ The same evidence rules apply to every intent. The system must not invent an ans
 
 ### Not promised Sunday
 
-- Production readiness or Saudi Aramco approval.
+- Production readiness or client approval.
 - Certified engineering, safety, legal or regulatory compliance.
 - Production validation for 1,200 documents or 1.2+ million pages.
 - Reliable interpretation of CAD, P&ID, schematics, dimensions or arbitrary blueprint graphics.
@@ -200,7 +200,7 @@ convert a failed gate into a completed feature.
 
 | Decision | Choice for Sunday | Reason |
 |---|---|---|
-| Application foundation | Extend Nabaa | It already has measured ingestion, hybrid retrieval, citations, OCR, UI, telemetry and 593 reported tests. Rebuilding adds risk without demo value. |
+| Application foundation | Extend the existing prototype | It already has measured ingestion, hybrid retrieval, citations, OCR, UI, telemetry and 593 reported tests. Rebuilding adds risk without demo value. |
 | Backend | Keep FastAPI | Existing 21-route API and strict validation are working; FastAPI also supports dependency-based security and OAuth2/JWT scopes. |
 | Frontend | Keep React/TypeScript | Existing four-screen UI and shared type contract can be extended safely. |
 | Database | Keep SQLite WAL | One local demo host and a one-day deadline do not justify a data migration. PostgreSQL is a post-demo production milestone. |
@@ -230,15 +230,15 @@ convert a failed gate into a completed feature.
 - [Lewis et al., RAG](https://arxiv.org/abs/2005.11401) supports explicit retrieved memory and provenance instead of relying only on model parameters.
 - [Cormack, Clarke and Buettcher, RRF](https://research.google/pubs/reciprocal-rank-fusion-outperforms-condorcet-and-individual-rank-learning-methods/) supports rank-based fusion of multiple retrieval systems.
 - [Self-RAG](https://arxiv.org/abs/2310.11511) and [Corrective RAG](https://arxiv.org/abs/2401.15884) support evaluating retrieved evidence and correcting weak retrieval. Sunday adapts these ideas as deterministic gates rather than claiming to reproduce the trained methods.
-- [Lost in the Middle](https://direct.mit.edu/tacl/article/doi/10.1162/tacl_a_00638/119630/Lost-in-the-Middle-How-Language-Models-Use-Long) shows that longer context can reduce reliable use of information depending on its position; Nabaa should send compact ranked evidence, not complete documents.
+- [Lost in the Middle](https://direct.mit.edu/tacl/article/doi/10.1162/tacl_a_00638/119630/Lost-in-the-Middle-How-Language-Models-Use-Long) shows that longer context can reduce reliable use of information depending on its position; RAG Intelligence System should send compact ranked evidence, not complete documents.
 - [OWASP RAG Security](https://cheatsheetseries.owasp.org/cheatsheets/RAG_Security_Cheat_Sheet.html), [Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html), [SSRF Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html), and [AI Agent Security](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html) motivate deny-by-default authorization, untrusted-source handling, restricted tools and allowlisted egress.
 - [NIST AI 600-1](https://doi.org/10.6028/NIST.AI.600-1) emphasizes governance, provenance and pre-deployment evaluation; the prototype therefore records evidence, versions, limitations and human-review status.
-- [RAGChecker](https://arxiv.org/html/2408.08067v1) separates retriever claim recall/context precision from generator faithfulness/hallucination; Nabaa therefore evaluates discovery and generation independently.
+- [RAGChecker](https://arxiv.org/html/2408.08067v1) separates retriever claim recall/context precision from generator faithfulness/hallucination; RAG Intelligence System therefore evaluates discovery and generation independently.
 - [Sentence Transformers retrieve-and-rerank guidance](https://sbert.net/examples/sentence_transformer/applications/retrieve_rerank/README.html) supports using the cross-encoder only on a bounded first-stage candidate set.
 - [PyMuPDF multiprocessing guidance](https://pymupdf.readthedocs.io/en/latest/recipes-multiprocessing.html) states that PyMuPDF is not thread-safe and recommends page-range multiprocessing; the existing process-based extraction design remains.
 - [SQLite WAL](https://sqlite.org/wal.html) supports simultaneous readers and a writer, while retaining a single-writer model; this is suitable for the single-host prototype, not proof of multi-user production scale.
 - [Qdrant capacity planning](https://qdrant.tech/documentation/capacity-planning/), [filtered indexing](https://qdrant.tech/documentation/manage-data/indexing/) and [on-disk optimization](https://qdrant.tech/documentation/ops-optimization/optimize/) support it as a phase-two candidate after representative measurement.
-- The [multilingual-e5-small model card](https://huggingface.co/intfloat/multilingual-e5-small) documents 384 dimensions and 512-token truncation, matching the existing 480-token chunk maximum. The [Qwen3.5-4B model card](https://huggingface.co/Qwen/Qwen3.5-4B) and [license](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE) verify the model family and Apache-2.0 terms; they do not prove Nabaa's domain accuracy.
+- The [multilingual-e5-small model card](https://huggingface.co/intfloat/multilingual-e5-small) documents 384 dimensions and 512-token truncation, matching the existing 480-token chunk maximum. The [Qwen3.5-4B model card](https://huggingface.co/Qwen/Qwen3.5-4B) and [license](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE) verify the model family and Apache-2.0 terms; they do not prove RAG Intelligence System's domain accuracy.
 - [`uv.lock`](https://docs.astral.sh/uv/concepts/projects/layout/) is cross-platform and supports frozen installs, while [`npm ci`](https://docs.npmjs.com/cli/v11/commands/npm-ci/) fails on lock/manifest mismatch. The clean-clone acceptance test, not the existence of a README, proves portability.
 
 ---
@@ -257,7 +257,7 @@ flowchart TD
     JOB --> REPORT["Local deterministic PDF renderer"]
 ```
 
-The API process stays lightweight and uses one Uvicorn worker in the prototype so model memory is not duplicated. Existing worker/subprocess boundaries handle heavy CPU stages. FastAPI's own documentation recommends larger process/queue tools for heavy computation rather than relying on in-process `BackgroundTasks`; Nabaa already has a durable `jobs` foundation, so reuse it: [FastAPI background-task caveat](https://fastapi.tiangolo.com/tutorial/background-tasks/).
+The API process stays lightweight and uses one Uvicorn worker in the prototype so model memory is not duplicated. Existing worker/subprocess boundaries handle heavy CPU stages. FastAPI's own documentation recommends larger process/queue tools for heavy computation rather than relying on in-process `BackgroundTasks`; RAG Intelligence System already has a durable `jobs` foundation, so reuse it: [FastAPI background-task caveat](https://fastapi.tiangolo.com/tutorial/background-tasks/).
 
 ### Component boundaries
 
@@ -274,14 +274,14 @@ This is a prototype separation, not a formal data-loss-prevention guarantee. For
 
 ## 2B. Final stack and model decision
 
-“Best” means best on Nabaa’s domain evaluation under its hardware, privacy and
+“Best” means best on RAG Intelligence System’s domain evaluation under its hardware, privacy and
 latency constraints—not the model with the largest parameter count or newest model
 card.
 
 | Layer | Sunday decision | Why it is the lowest-risk correct choice | Deferred challenger and promotion gate |
 |---|---|---|---|
 | Python API | FastAPI + one Uvicorn worker | Already integrated, typed and tested; a lightweight request process can delegate CPU-heavy work to the existing durable worker | No framework rewrite. Scale API/workers separately only after a concurrent-load test |
-| RAG orchestration | Typed Nabaa services/state machine | Existing search, scoring, citations, jobs and lifecycle rules are domain-specific | LangChain/LlamaIndex only if a named future feature saves more code than it duplicates and passes regression tests |
+| RAG orchestration | Typed RAG Intelligence System services/state machine | Existing search, scoring, citations, jobs and lifecycle rules are domain-specific | LangChain/LlamaIndex only if a named future feature saves more code than it duplicates and passes regression tests |
 | Parser | Existing PyMuPDF fast-text path; RapidOCR fallback | Preserves measured partial-search latency and provenance | Docling/layout or vision enrichment only for a separate table/drawing benchmark |
 | Chunking | Existing structure-aware 300 target / 480 max / 60 overlap | Fits the current embedder/reranker token boundary and has measured quality gates | Semantic/hierarchical challenger must improve gold claim recall without unacceptable chunk count/latency |
 | Embedding | multilingual-e5-small, ONNX int8, 384 dimensions | Already indexed, multilingual, CPU-feasible and 512-token limited in a way compatible with the current maximum | BGE-M3 is a credible long-context/multilingual challenger, but requires full re-embedding and wins only after hit@k, RAM, disk and ingestion testing |
@@ -308,7 +308,7 @@ documents 384 dimensions and 512-token truncation. [BGE-M3](https://huggingface.
 is a post-demo retrieval challenger with longer input and multiple retrieval modes.
 The [Qwen3.5-4B card](https://huggingface.co/Qwen/Qwen3.5-4B) and
 [license](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE) identify the model
-and Apache-2.0 terms; they do not establish Nabaa’s quality until the above evaluation
+and Apache-2.0 terms; they do not establish RAG Intelligence System’s quality until the above evaluation
 passes.
 
 ### 2B.1 RAG architecture classification
@@ -364,7 +364,7 @@ Forbidden example:
 
 ```json
 {
-  "query": "Find alternatives for material in Aramco Project SECRET-123 based on clause 7.4 and this extracted paragraph..."
+  "query": "Find alternatives for material in Client Project SECRET-123 based on clause 7.4 and this extracted paragraph..."
 }
 ```
 
@@ -405,7 +405,7 @@ Mandatory controls:
 18. For Sunday, fetch only search results/snippets or an approved small page set; do not create a general crawler.
 19. The market adapter process receives no database path, vector index handle, report path or conversation object—only the approved `PublicMarketQuery` schema.
 20. Treat provider snippets as preliminary evidence. Record source URL, publisher, publication/retrieval dates and freshness; state `source_not_verified` when the underlying page was not inspected.
-21. If actual Saudi Aramco information is used, run only on a client-approved device and storage location. Application code alone does not authorize possession or processing of client data.
+21. If actual client information is used, run only on a client-approved device and storage location. Application code alone does not authorize possession or processing of client data.
 
 ### 3.4 Demo privacy proof
 
@@ -462,7 +462,7 @@ Intent and coverage mode are separate. A question may be factual, procedural, co
 5. Classify the answer operation: lookup, procedure, summary, comparison, gap, recommendation, calculation/counting, or unsupported visual/structured operation.
 6. Decompose complex questions into at most three subquestions without narrowing or changing the user’s meaning.
 7. Choose focused or comprehensive coverage. In comprehensive mode, run a bounded retrieval pass independently for every selected authorized document and record a status for each.
-8. Fuse, rerank and deduplicate using existing Nabaa components while retaining document identity and provenance.
+8. Fuse, rerank and deduplicate using existing RAG Intelligence System components while retaining document identity and provenance.
 9. Produce citation-preserving per-document evidence maps, then compare them across documents.
 10. Evaluate evidence sufficiency, coverage, agreements, conflicts, revision differences and missing information.
 11. If weak, reformulate once and retrieve once more. No unbounded loop.
@@ -561,7 +561,7 @@ Otherwise return `INSUFFICIENT_EVIDENCE` with the passages checked and suggestio
 
 ### 4.5A What “do not miss information” means operationally
 
-A prose summary is intentionally compressed and cannot contain every sentence from thousands of pages. Nabaa therefore exposes two products:
+A prose summary is intentionally compressed and cannot contain every sentence from thousands of pages. RAG Intelligence System therefore exposes two products:
 
 1. **Consolidated answer:** a readable synthesis of the question-relevant claims, agreements and conflicts.
 2. **Complete validated evidence ledger:** all retained atomic findings from every relevant document, with page/clause/span citations, document status and inclusion reason. The PDF contains this as a detailed appendix.
@@ -616,7 +616,7 @@ It then produces bounded lexical and semantic variants. Exact identifiers and qu
 
 “No relevant evidence found” is a retrieval result, not proof that a document contains nothing relevant. If a document is not searchable or a retrieval step fails, the final analysis is explicitly incomplete. “All relevant information” is an evaluation target measured with human-labelled claim recall; it is not a guarantee created by prompting.
 
-[RAGChecker](https://arxiv.org/html/2408.08067v1) separates retrieval claim recall/context precision from generator faithfulness and hallucination, which is why Nabaa must measure evidence coverage and generated-answer support independently. Research on sub-question coverage likewise treats completeness as a separate evaluation target rather than assuming a fluent response is comprehensive: [sub-question coverage](https://arxiv.org/html/2410.15531v1).
+[RAGChecker](https://arxiv.org/html/2408.08067v1) separates retrieval claim recall/context precision from generator faithfulness and hallucination, which is why RAG Intelligence System must measure evidence coverage and generated-answer support independently. Research on sub-question coverage likewise treats completeness as a separate evaluation target rather than assuming a fluent response is comprehensive: [sub-question coverage](https://arxiv.org/html/2410.15531v1).
 
 #### Fast comprehensive execution on both CPU-only hosts
 
@@ -746,11 +746,11 @@ No sufficient evidence found in 5 documents
 
 The consolidated answer is based only on the 15 relevant evidence maps. The five no-evidence documents are listed in the coverage panel but are not fed to the generator as if they supported the answer. If any document failed or was not searchable, label the overall result `analysis_incomplete`.
 
-Per-document and centralized synthesis research supports this hierarchical pattern for broad cross-document coverage, but the paper result is not a guarantee for Nabaa; the 20-document acceptance corpus remains decisive: [SPD-RAG](https://arxiv.org/html/2603.08329v1).
+Per-document and centralized synthesis research supports this hierarchical pattern for broad cross-document coverage, but the paper result is not a guarantee for RAG Intelligence System; the 20-document acceptance corpus remains decisive: [SPD-RAG](https://arxiv.org/html/2603.08329v1).
 
 ### 4.6 Blueprint and visually rich document boundary
 
-For Sunday, Nabaa supports text-bearing blueprint/FEED PDFs through existing text extraction, OCR provenance, page rendering and highlights. It can answer questions about titles, notes, callouts, schedules and text that is extracted reliably.
+For Sunday, RAG Intelligence System supports text-bearing blueprint/FEED PDFs through existing text extraction, OCR provenance, page rendering and highlights. It can answer questions about titles, notes, callouts, schedules and text that is extracted reliably.
 
 It must not claim reliable understanding of:
 
@@ -900,7 +900,7 @@ The table is seed data, not a hard-coded application enum. The client may add di
 
 ### 5.1A Document categorization without granting access
 
-Categorization and authorization are separate decisions. At ingestion, Nabaa may
+Categorization and authorization are separate decisions. At ingestion, RAG Intelligence System may
 suggest zero or more disciplines using deterministic metadata/title/section signals
 and, when enabled, a local LLM classification over a small extracted sample. Each
 suggestion must include confidence, evidence page IDs and classifier version. The
@@ -1222,7 +1222,7 @@ CREATE TABLE knowledge_feedback (
 
 ## 6A. Chat memory is not evidence
 
-Nabaa already keeps conversations and messages locally. Extend that behavior with
+RAG Intelligence System already keeps conversations and messages locally. Extend that behavior with
 two deliberately separate memory layers:
 
 | Memory | Purpose | May support an engineering fact? | Retention/control |
@@ -1407,7 +1407,7 @@ PDF pages before release.
 
 ### 8.2 Required contents
 
-- Nabaa prototype title and `PROTOTYPE — NOT FOR CONSTRUCTION` watermark.
+- RAG Intelligence System prototype title and `PROTOTYPE — NOT FOR CONSTRUCTION` watermark.
 - Report ID, generation timestamp and generating user.
 - User role, project and analysis mode.
 - Exact question/requirement.
@@ -1556,7 +1556,7 @@ analysis on every request; possession of an `analysis_id` is not authority.
 ## 10A. Reproducible clone and two-machine handoff
 
 The Git repository carries source and reproducibility metadata. It does **not** carry
-client data, model weights, databases or reports. Moving Nabaa to the 48 GB computer
+client data, model weights, databases or reports. Moving RAG Intelligence System to the 48 GB computer
 is therefore a two-part, hash-verified handoff:
 
 1. Clone the exact private Git commit/tag.
@@ -2068,7 +2068,7 @@ Human-review every gold citation. Record retrieval hit@k, citation correctness, 
 
 ### 15.3 Honest performance wording
 
-> The demonstration corpus is pre-indexed. Nabaa’s earlier benchmark reported a 1,400-page native-text document becoming keyword-searchable through the keyword index in about 13 seconds on the original machine, while semantic vectors completed in the background. The six/seven-document results shown today are measured on this 48 GB host and are not extrapolated to the full 1,200-document production target.
+> The demonstration corpus is pre-indexed. RAG Intelligence System’s earlier benchmark reported a 1,400-page native-text document becoming keyword-searchable through the keyword index in about 13 seconds on the original machine, while semantic vectors completed in the background. The six/seven-document results shown today are measured on this 48 GB host and are not extrapolated to the full 1,200-document production target.
 
 ---
 
@@ -2087,7 +2087,7 @@ Human-review every gold citation. Record retrieval hit@k, citation correctness, 
 - If generated synthesis fails, show Tier 1 verbatim evidence.
 - If web search fails, continue locally and state that public evidence is unavailable.
 - If PDF generation fails, preserve the analysis and offer local HTML for the demo; do not use a cloud converter.
-- If new branch is unstable, return to `v1.0.0-prototype` and demonstrate the original Nabaa system.
+- If new branch is unstable, return to `v1.0.0-prototype` and demonstrate the original prototype system.
 
 ---
 
@@ -2132,7 +2132,7 @@ cutover.
 
 The Sunday branch is done only when:
 
-- Original Nabaa invariants remain enforced.
+- Original prototype invariants remain enforced.
 - Critical OCR and follow-up defects are fixed.
 - Access is denied by default and tested at every resource boundary.
 - Private document context never enters public web queries.

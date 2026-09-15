@@ -25,12 +25,14 @@ def temp_storage(tmp_path, monkeypatch):
     """The market ROUTES resolve an access scope, which reads `documents`.
 
     Without this these tests passed on a development machine - which has a
-    62 MB corpus at backend/data/nabaa.sqlite - and failed in CI with
+    62 MB corpus at backend/data/rag_intelligence.sqlite - and failed in CI with
     `no such table`. The tables must be CREATED, not present by accident.
     """
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
+    monkeypatch.setattr(settings, "market_live_enabled", False)
+    monkeypatch.setattr(settings, "market_allow_public_egress", False)
     db.reset_connection()
     db.init_db()
     keyword.ensure_schema()

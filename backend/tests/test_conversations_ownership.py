@@ -13,11 +13,11 @@ fact ownership protects. The row is unchanged afterwards. And NO field of A's
 conversation reaches the response body: not the id, not the title, not a
 fragment of any message.
 
-LEGACY ROWS (owner NULL, 81 of 83 on the measured demo database) fail closed
-for every identified or unidentified caller while auth is required. Current
-main has no administrator-capability schema, so granting those rows implicitly
-would introduce a second access model. A later explicit migration may assign
-owners without weakening this default.
+LEGACY ROWS (owner NULL, 81 of 83 on the demo database) are ASSIGNED TO THE
+ADMIN CAPABILITY and denied to ordinary users. Plan line 1017 says "deny them
+to ordinary users"; admin is not ordinary and already holds every document
+grant. Recorded here as the decision, so a future change to it has to change
+a test that says so.
 
 Identity is supplied exactly the way test_access_routes.py supplies it: a
 resolver installed through `access.set_user_resolver`, users and roles written
@@ -60,18 +60,23 @@ def temp_storage(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-def _user(user_id: str) -> None:
-    """Create an identified user holding one ordinary role."""
+def _user(user_id: str, *, admin: bool = False) -> None:
+    """A user holding one role. For `admin`, that role IS the admin capability -
+    the same shape `db.init_db` enforces (`roles.kind = 'capability'`, name
+    'admin') and the same thing `admin.is_admin` looks for."""
     conn = connect()
     with conn:
         conn.execute(
             "INSERT OR IGNORE INTO users (id, email, display_name, password_hash,"
             " created_at) VALUES (?,?,?,?,?)",
             (user_id, f"{user_id}@x", user_id, "hash", NOW))
-        rid, name = f"role_{user_id}", f"role_{user_id}"
+        if admin:
+            rid, name, kind = "role_admin", "admin", "capability"
+        else:
+            rid, name, kind = f"role_{user_id}", f"role_{user_id}", "discipline"
         conn.execute(
-            "INSERT OR IGNORE INTO roles (id, name, description, created_at)"
-            " VALUES (?,?,?,?)", (rid, name, name, NOW))
+            "INSERT OR IGNORE INTO roles (id, name, description, kind, created_at)"
+            " VALUES (?,?,?,?,?)", (rid, name, name, kind, NOW))
         conn.execute(
             "INSERT OR IGNORE INTO user_roles (user_id, role_id, granted_at)"
             " VALUES (?,?,?)", (user_id, rid, NOW))
@@ -119,6 +124,7 @@ def owned_by_a():
     fragment appears' is testing against messages that exist."""
     _user("user_a")
     _user("user_b")
+    _user("user_admin", admin=True)
     client = TestClient(app)
     _as("user_a")
     r = client.post("/api/conversations", json={"title": A_TITLE})
@@ -256,7 +262,7 @@ def test_a_new_conversation_records_its_creator_as_owner(owned_by_a):
     assert r.status_code == 401, "a conversation nobody owns was created"
 
 
-# ------------------------------------------------ legacy rows fail closed
+# ---------------------------------------------- legacy rows -> the admin capability
 
 
 @pytest.fixture
@@ -284,14 +290,29 @@ def test_a_legacy_conversation_is_denied_to_ordinary_users(legacy_row, caller):
                              (legacy,)).fetchone()[0] == 1
 
 
-def test_a_legacy_conversation_fails_closed_until_it_is_assigned(legacy_row):
-    """Main has no admin-capability schema yet, so ownerless history is not
-    silently granted to any role. A later migration may assign explicit owners."""
-    client, _, legacy = legacy_row
-    _as("user_a")
-    assert client.get(f"/api/conversations/{legacy}").status_code == 404
-    assert legacy not in client.get("/api/conversations").text
-    assert client.delete(f"/api/conversations/{legacy}?confirm=true").status_code == 404
-    assert connect().execute(
-        "SELECT COUNT(*) FROM conversations WHERE id = ?", (legacy,)
-    ).fetchone()[0] == 1
+def test_a_legacy_conversation_is_assigned_to_the_admin_capability(legacy_row):
+    """DECISION: ownerless rows belong to whoever holds the admin capability.
+    Admin sees them listed, counted in total, readable, and deletable. Admin
+    does NOT thereby see A's conversation - admin inherits the unowned, not
+    the owned."""
+    client, cid, legacy = legacy_row
+    _as("user_admin")
+    r = client.get(f"/api/conversations/{legacy}")
+    assert r.status_code == 200, f"admin was denied a legacy conversation: {r.status_code}"
+    assert r.json()["conversation"]["title"] == LEGACY_TITLE
+    listing = client.get("/api/conversations").json()
+    assert [c["id"] for c in listing["conversations"]] == [legacy]
+    assert listing["total"] == 1
+    # admin is not A: A's conversation stays A's
+    assert client.get(f"/api/conversations/{cid}").status_code == 404
+    _assert_nothing_of_a_leaked(client.get(f"/api/conversations/{cid}"), cid)
+    # and admin may delete a legacy row, as its owner
+    d = client.delete(f"/api/conversations/{legacy}?confirm=true")
+    assert d.status_code == 200, d.text
+    assert d.json()["deleted"] == legacy
+
+
+def test_the_capability_name_access_checks_is_the_one_admin_checks():
+    """Two spellings of 'admin' would be two ownership concepts."""
+    from app import admin as admin_mod
+    assert access.ADMIN_CAPABILITY == admin_mod.ADMIN_ROLE

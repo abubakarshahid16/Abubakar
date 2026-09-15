@@ -1,0 +1,3720 @@
+{
+  "meta": {
+    "count": 113700,
+    "db_response_time_ms": 214,
+    "page": 1,
+    "per_page": 5,
+    "groups_count": null,
+    "x_query": {
+      "oql": "works where full text has (corrosion protection coatings)",
+      "oqo": {
+        "get_rows": "works",
+        "filter_rows": [
+          {
+            "column_id": "fulltext.search",
+            "value": "corrosion protection coatings",
+            "operator": "has"
+          }
+        ]
+      },
+      "url": "/works?filter=fulltext.search:corrosion protection coatings&per_page=5"
+    },
+    "cost_usd": 0.001
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W2056182391",
+      "doi": "https://doi.org/10.1016/j.porgcoat.2008.08.010",
+      "title": "Sol–gel coatings on metals for corrosion protection",
+      "display_name": "Sol–gel coatings on metals for corrosion protection",
+      "relevance_score": 2429.4924,
+      "publication_year": 2008,
+      "publication_date": "2008-09-24",
+      "ids": {
+        "openalex": "https://openalex.org/W2056182391",
+        "doi": "https://doi.org/10.1016/j.porgcoat.2008.08.010",
+        "mag": "2056182391"
+      },
+      "language": "en",
+      "primary_location": {
+        "id": "doi:10.1016/j.porgcoat.2008.08.010",
+        "is_oa": false,
+        "landing_page_url": "https://doi.org/10.1016/j.porgcoat.2008.08.010",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S41155759",
+          "display_name": "Progress in Organic Coatings",
+          "issn_l": "0300-9440",
+          "issn": [
+            "0300-9440",
+            "0033-0655",
+            "1873-331X"
+          ],
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": true,
+          "host_organization": "https://openalex.org/P4310320990",
+          "host_organization_name": "Elsevier BV",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320990"
+          ],
+          "host_organization_lineage_names": [
+            "Elsevier BV"
+          ],
+          "type": "journal"
+        },
+        "license": null,
+        "license_id": null,
+        "version": "publishedVersion",
+        "is_accepted": true,
+        "is_published": true,
+        "raw_source_name": "Progress in Organic Coatings",
+        "raw_type": "journal-article"
+      },
+      "type": "article",
+      "indexed_in": [
+        "crossref"
+      ],
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "id": "https://openalex.org/A5048366263",
+            "display_name": "Duhua Wang",
+            "orcid": null
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I57328836",
+              "display_name": "North Dakota State University",
+              "ror": "https://ror.org/05h1bnb22",
+              "country_code": "US",
+              "type": "education",
+              "lineage": [
+                "https://openalex.org/I57328836"
+              ]
+            }
+          ],
+          "countries": [
+            "US"
+          ],
+          "is_corresponding": false,
+          "raw_author_name": "Duhua Wang",
+          "raw_affiliation_strings": [
+            "Department of Coatings and Polymeric Materials, North Dakota State University, Fargo, ND 58105, USA",
+            "Department of Coatings and Polymeric Materials North Dakota State University  Fargo, ND 58105 USA"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Department of Coatings and Polymeric Materials, North Dakota State University, Fargo, ND 58105, USA",
+              "institution_ids": [
+                "https://openalex.org/I57328836"
+              ]
+            },
+            {
+              "raw_affiliation_string": "Department of Coatings and Polymeric Materials North Dakota State University  Fargo, ND 58105 USA",
+              "institution_ids": [
+                "https://openalex.org/I57328836"
+              ]
+            }
+          ]
+        },
+        {
+          "author_position": "last",
+          "author": {
+            "id": "https://openalex.org/A5044599719",
+            "display_name": "Gordon P. Bierwagen",
+            "orcid": "https://orcid.org/0000-0003-3901-0559"
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I57328836",
+              "display_name": "North Dakota State University",
+              "ror": "https://ror.org/05h1bnb22",
+              "country_code": "US",
+              "type": "education",
+              "lineage": [
+                "https://openalex.org/I57328836"
+              ]
+            }
+          ],
+          "countries": [
+            "US"
+          ],
+          "is_corresponding": true,
+          "raw_author_name": "Gordon. P. Bierwagen",
+          "raw_affiliation_strings": [
+            "Department of Coatings and Polymeric Materials, North Dakota State University, Fargo, ND 58105, USA",
+            "Department of Coatings and Polymeric Materials North Dakota State University  Fargo, ND 58105 USA"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Department of Coatings and Polymeric Materials, North Dakota State University, Fargo, ND 58105, USA",
+              "institution_ids": [
+                "https://openalex.org/I57328836"
+              ]
+            },
+            {
+              "raw_affiliation_string": "Department of Coatings and Polymeric Materials North Dakota State University  Fargo, ND 58105 USA",
+              "institution_ids": [
+                "https://openalex.org/I57328836"
+              ]
+            }
+          ]
+        }
+      ],
+      "institutions": [],
+      "countries_distinct_count": 1,
+      "institutions_distinct_count": 1,
+      "corresponding_author_ids": [
+        "https://openalex.org/A5044599719"
+      ],
+      "corresponding_institution_ids": [
+        "https://openalex.org/I57328836"
+      ],
+      "apc_list": {
+        "value": 4350,
+        "currency": "USD",
+        "value_usd": 4350
+      },
+      "apc_paid": null,
+      "fwci": 9.4833,
+      "has_fulltext": false,
+      "cited_by_count": 1074,
+      "citation_normalized_percentile": {
+        "value": 0.98820844,
+        "is_in_top_1_percent": false,
+        "is_in_top_10_percent": true
+      },
+      "cited_by_percentile_year": {
+        "min": 99,
+        "max": 100
+      },
+      "biblio": {
+        "volume": "64",
+        "issue": "4",
+        "first_page": "327",
+        "last_page": "338"
+      },
+      "is_retracted": false,
+      "is_paratext": false,
+      "is_xpac": false,
+      "primary_topic": {
+        "id": "https://openalex.org/T10310",
+        "display_name": "Corrosion Behavior and Inhibition",
+        "score": 0.9995999932289124,
+        "subfield": {
+          "id": "https://openalex.org/subfields/2505",
+          "display_name": "Materials Chemistry"
+        },
+        "field": {
+          "id": "https://openalex.org/fields/25",
+          "display_name": "Materials Science"
+        },
+        "domain": {
+          "id": "https://openalex.org/domains/3",
+          "display_name": "Physical Sciences"
+        }
+      },
+      "topics": [
+        {
+          "id": "https://openalex.org/T10310",
+          "display_name": "Corrosion Behavior and Inhibition",
+          "score": 0.9995999932289124,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2505",
+            "display_name": "Materials Chemistry"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/25",
+            "display_name": "Materials Science"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        },
+        {
+          "id": "https://openalex.org/T10530",
+          "display_name": "Magnesium Alloys: Properties and Applications",
+          "score": 0.9894999861717224,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2502",
+            "display_name": "Biomaterials"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/25",
+            "display_name": "Materials Science"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        },
+        {
+          "id": "https://openalex.org/T10626",
+          "display_name": "High-Temperature Coating Behaviors",
+          "score": 0.9847999811172485,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2202",
+            "display_name": "Aerospace Engineering"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/22",
+            "display_name": "Engineering"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        }
+      ],
+      "keywords": [
+        {
+          "id": "https://openalex.org/keywords/materials-science",
+          "display_name": "Materials science",
+          "score": 0.8999155163764954
+        },
+        {
+          "id": "https://openalex.org/keywords/corrosion",
+          "display_name": "Corrosion",
+          "score": 0.8902552127838135
+        },
+        {
+          "id": "https://openalex.org/keywords/sol-gel",
+          "display_name": "Sol-gel",
+          "score": 0.6485013365745544
+        },
+        {
+          "id": "https://openalex.org/keywords/metallurgy",
+          "display_name": "Metallurgy",
+          "score": 0.5965520143508911
+        },
+        {
+          "id": "https://openalex.org/keywords/conversion-coating",
+          "display_name": "Conversion coating",
+          "score": 0.5804061889648438
+        },
+        {
+          "id": "https://openalex.org/keywords/aluminium",
+          "display_name": "Aluminium",
+          "score": 0.5648335218429565
+        },
+        {
+          "id": "https://openalex.org/keywords/metal",
+          "display_name": "Metal",
+          "score": 0.5410025119781494
+        },
+        {
+          "id": "https://openalex.org/keywords/copper",
+          "display_name": "Copper",
+          "score": 0.46641314029693604
+        },
+        {
+          "id": "https://openalex.org/keywords/environmentally-friendly",
+          "display_name": "Environmentally friendly",
+          "score": 0.45040708780288696
+        },
+        {
+          "id": "https://openalex.org/keywords/magnesium",
+          "display_name": "Magnesium",
+          "score": 0.4121752083301544
+        },
+        {
+          "id": "https://openalex.org/keywords/nanotechnology",
+          "display_name": "Nanotechnology",
+          "score": 0.17526188492774963
+        }
+      ],
+      "concepts": [
+        {
+          "id": "https://openalex.org/C192562407",
+          "wikidata": "https://www.wikidata.org/wiki/Q228736",
+          "display_name": "Materials science",
+          "level": 0,
+          "score": 0.8999155163764954
+        },
+        {
+          "id": "https://openalex.org/C20625102",
+          "wikidata": "https://www.wikidata.org/wiki/Q137056",
+          "display_name": "Corrosion",
+          "level": 2,
+          "score": 0.8902552127838135
+        },
+        {
+          "id": "https://openalex.org/C38398224",
+          "wikidata": "https://www.wikidata.org/wiki/Q48350",
+          "display_name": "Sol-gel",
+          "level": 2,
+          "score": 0.6485013365745544
+        },
+        {
+          "id": "https://openalex.org/C191897082",
+          "wikidata": "https://www.wikidata.org/wiki/Q11467",
+          "display_name": "Metallurgy",
+          "level": 1,
+          "score": 0.5965520143508911
+        },
+        {
+          "id": "https://openalex.org/C147280077",
+          "wikidata": "https://www.wikidata.org/wiki/Q6142138",
+          "display_name": "Conversion coating",
+          "level": 3,
+          "score": 0.5804061889648438
+        },
+        {
+          "id": "https://openalex.org/C513153333",
+          "wikidata": "https://www.wikidata.org/wiki/Q663",
+          "display_name": "Aluminium",
+          "level": 2,
+          "score": 0.5648335218429565
+        },
+        {
+          "id": "https://openalex.org/C544153396",
+          "wikidata": "https://www.wikidata.org/wiki/Q11426",
+          "display_name": "Metal",
+          "level": 2,
+          "score": 0.5410025119781494
+        },
+        {
+          "id": "https://openalex.org/C544778455",
+          "wikidata": "https://www.wikidata.org/wiki/Q753",
+          "display_name": "Copper",
+          "level": 2,
+          "score": 0.46641314029693604
+        },
+        {
+          "id": "https://openalex.org/C171534860",
+          "wikidata": "https://www.wikidata.org/wiki/Q655870",
+          "display_name": "Environmentally friendly",
+          "level": 2,
+          "score": 0.45040708780288696
+        },
+        {
+          "id": "https://openalex.org/C543218039",
+          "wikidata": "https://www.wikidata.org/wiki/Q660",
+          "display_name": "Magnesium",
+          "level": 2,
+          "score": 0.4121752083301544
+        },
+        {
+          "id": "https://openalex.org/C171250308",
+          "wikidata": "https://www.wikidata.org/wiki/Q11468",
+          "display_name": "Nanotechnology",
+          "level": 1,
+          "score": 0.17526188492774963
+        },
+        {
+          "id": "https://openalex.org/C86803240",
+          "wikidata": "https://www.wikidata.org/wiki/Q420",
+          "display_name": "Biology",
+          "level": 0,
+          "score": 0.0
+        },
+        {
+          "id": "https://openalex.org/C18903297",
+          "wikidata": "https://www.wikidata.org/wiki/Q7150",
+          "display_name": "Ecology",
+          "level": 1,
+          "score": 0.0
+        }
+      ],
+      "mesh": [],
+      "locations_count": 1,
+      "locations": [
+        {
+          "id": "doi:10.1016/j.porgcoat.2008.08.010",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1016/j.porgcoat.2008.08.010",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S41155759",
+            "display_name": "Progress in Organic Coatings",
+            "issn_l": "0300-9440",
+            "issn": [
+              "0300-9440",
+              "0033-0655",
+              "1873-331X"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "host_organization": "https://openalex.org/P4310320990",
+            "host_organization_name": "Elsevier BV",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320990"
+            ],
+            "host_organization_lineage_names": [
+              "Elsevier BV"
+            ],
+            "type": "journal"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "Progress in Organic Coatings",
+          "raw_type": "journal-article"
+        }
+      ],
+      "best_oa_location": null,
+      "sustainable_development_goals": [
+        {
+          "score": 0.4399999976158142,
+          "id": "https://metadata.un.org/sdg/15",
+          "display_name": "Life in Land"
+        }
+      ],
+      "awards": [],
+      "funders": [
+        {
+          "id": "https://openalex.org/F4320338279",
+          "display_name": "Air Force Office of Scientific Research",
+          "ror": "https://ror.org/011e9bt93"
+        }
+      ],
+      "has_content": {
+        "grobid_xml": false,
+        "pdf": false
+      },
+      "content_urls": null,
+      "referenced_works_count": 83,
+      "referenced_works": [
+        "https://openalex.org/W2087668",
+        "https://openalex.org/W11733215",
+        "https://openalex.org/W83585088",
+        "https://openalex.org/W108534962",
+        "https://openalex.org/W174441486",
+        "https://openalex.org/W277334974",
+        "https://openalex.org/W327252421",
+        "https://openalex.org/W586102426",
+        "https://openalex.org/W1488530315",
+        "https://openalex.org/W1506966172",
+        "https://openalex.org/W1510880126",
+        "https://openalex.org/W1606634544",
+        "https://openalex.org/W1964961604",
+        "https://openalex.org/W1967901385",
+        "https://openalex.org/W1971522397",
+        "https://openalex.org/W1971789591",
+        "https://openalex.org/W1971895012",
+        "https://openalex.org/W1972113113",
+        "https://openalex.org/W1972115053",
+        "https://openalex.org/W1974610587",
+        "https://openalex.org/W1975846525",
+        "https://openalex.org/W1977344445",
+        "https://openalex.org/W1981104073",
+        "https://openalex.org/W1982344830",
+        "https://openalex.org/W1982812163",
+        "https://openalex.org/W1986635431",
+        "https://openalex.org/W1991227324",
+        "https://openalex.org/W1992136366",
+        "https://openalex.org/W1994939627",
+        "https://openalex.org/W1996863780",
+        "https://openalex.org/W1998033914",
+        "https://openalex.org/W1998507592",
+        "https://openalex.org/W2002030395",
+        "https://openalex.org/W2002913118",
+        "https://openalex.org/W2005354380",
+        "https://openalex.org/W2005889928",
+        "https://openalex.org/W2010247480",
+        "https://openalex.org/W2010915638",
+        "https://openalex.org/W2016469993",
+        "https://openalex.org/W2018965761",
+        "https://openalex.org/W2022505105",
+        "https://openalex.org/W2028384972",
+        "https://openalex.org/W2029350160",
+        "https://openalex.org/W2029655297",
+        "https://openalex.org/W2033211253",
+        "https://openalex.org/W2035786440",
+        "https://openalex.org/W2036172361",
+        "https://openalex.org/W2036843950",
+        "https://openalex.org/W2037148537",
+        "https://openalex.org/W2041194560",
+        "https://openalex.org/W2041494916",
+        "https://openalex.org/W2044404813",
+        "https://openalex.org/W2045913947",
+        "https://openalex.org/W2050877755",
+        "https://openalex.org/W2052329127",
+        "https://openalex.org/W2053161815",
+        "https://openalex.org/W2053726199",
+        "https://openalex.org/W2055438530",
+        "https://openalex.org/W2057805118",
+        "https://openalex.org/W2063647474",
+        "https://openalex.org/W2067160842",
+        "https://openalex.org/W2068352336",
+        "https://openalex.org/W2070784823",
+        "https://openalex.org/W2072104927",
+        "https://openalex.org/W2074956990",
+        "https://openalex.org/W2079180655",
+        "https://openalex.org/W2079974675",
+        "https://openalex.org/W2083689439",
+        "https://openalex.org/W2085060834",
+        "https://openalex.org/W2087580691",
+        "https://openalex.org/W2089050954",
+        "https://openalex.org/W2093402742",
+        "https://openalex.org/W2095360331",
+        "https://openalex.org/W2115772094",
+        "https://openalex.org/W2118159597",
+        "https://openalex.org/W2137497278",
+        "https://openalex.org/W2150316369",
+        "https://openalex.org/W2150349613",
+        "https://openalex.org/W2364444038",
+        "https://openalex.org/W2940668292",
+        "https://openalex.org/W4242088513",
+        "https://openalex.org/W4248825015",
+        "https://openalex.org/W4254838093"
+      ],
+      "related_works": [
+        "https://openalex.org/W1577087430",
+        "https://openalex.org/W2368072971",
+        "https://openalex.org/W2348242304",
+        "https://openalex.org/W186863808",
+        "https://openalex.org/W105207676",
+        "https://openalex.org/W2352189277",
+        "https://openalex.org/W3170849129",
+        "https://openalex.org/W2057047045",
+        "https://openalex.org/W2370694727",
+        "https://openalex.org/W2258937812"
+      ],
+      "abstract_inverted_index": null,
+      "counts_by_year": [
+        {
+          "year": 2026,
+          "cited_by_count": 24
+        },
+        {
+          "year": 2025,
+          "cited_by_count": 41
+        },
+        {
+          "year": 2024,
+          "cited_by_count": 51
+        },
+        {
+          "year": 2023,
+          "cited_by_count": 70
+        },
+        {
+          "year": 2022,
+          "cited_by_count": 77
+        },
+        {
+          "year": 2021,
+          "cited_by_count": 68
+        },
+        {
+          "year": 2020,
+          "cited_by_count": 85
+        },
+        {
+          "year": 2019,
+          "cited_by_count": 90
+        },
+        {
+          "year": 2018,
+          "cited_by_count": 90
+        },
+        {
+          "year": 2017,
+          "cited_by_count": 90
+        },
+        {
+          "year": 2016,
+          "cited_by_count": 83
+        },
+        {
+          "year": 2015,
+          "cited_by_count": 75
+        },
+        {
+          "year": 2014,
+          "cited_by_count": 75
+        },
+        {
+          "year": 2013,
+          "cited_by_count": 53
+        },
+        {
+          "year": 2012,
+          "cited_by_count": 43
+        }
+      ],
+      "updated_date": "2026-09-06T09:10:53.072986",
+      "created_date": "2025-10-10T00:00:00"
+    },
+    {
+      "id": "https://openalex.org/W2010463032",
+      "doi": "https://doi.org/10.1016/j.surfcoat.2014.06.031",
+      "title": "Functional and smart coatings for corrosion protection: A review of recent advances",
+      "display_name": "Functional and smart coatings for corrosion protection: A review of recent advances",
+      "relevance_score": 2307.2393,
+      "publication_year": 2014,
+      "publication_date": "2014-06-24",
+      "ids": {
+        "openalex": "https://openalex.org/W2010463032",
+        "doi": "https://doi.org/10.1016/j.surfcoat.2014.06.031",
+        "mag": "2010463032"
+      },
+      "language": "en",
+      "primary_location": {
+        "id": "doi:10.1016/j.surfcoat.2014.06.031",
+        "is_oa": false,
+        "landing_page_url": "https://doi.org/10.1016/j.surfcoat.2014.06.031",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S76010543",
+          "display_name": "Surface and Coatings Technology",
+          "issn_l": "0257-8972",
+          "issn": [
+            "0257-8972",
+            "1879-3347"
+          ],
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": true,
+          "host_organization": "https://openalex.org/P4310320990",
+          "host_organization_name": "Elsevier BV",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320990"
+          ],
+          "host_organization_lineage_names": [
+            "Elsevier BV"
+          ],
+          "type": "journal"
+        },
+        "license": null,
+        "license_id": null,
+        "version": "publishedVersion",
+        "is_accepted": true,
+        "is_published": true,
+        "raw_source_name": "Surface and Coatings Technology",
+        "raw_type": "journal-article"
+      },
+      "type": "article",
+      "indexed_in": [
+        "crossref"
+      ],
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "id": "https://openalex.org/A5057478089",
+            "display_name": "M.F. Montemor",
+            "orcid": "https://orcid.org/0000-0001-7835-6814"
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I141596103",
+              "display_name": "University of Lisbon",
+              "ror": "https://ror.org/01c27hj86",
+              "country_code": "PT",
+              "type": "education",
+              "lineage": [
+                "https://openalex.org/I141596103"
+              ]
+            },
+            {
+              "id": "https://openalex.org/I203847022",
+              "display_name": "Instituto Politécnico de Lisboa",
+              "ror": "https://ror.org/04ea70f07",
+              "country_code": "PT",
+              "type": "education",
+              "lineage": [
+                "https://openalex.org/I203847022"
+              ]
+            }
+          ],
+          "countries": [
+            "PT"
+          ],
+          "is_corresponding": true,
+          "raw_author_name": "M.F. Montemor",
+          "raw_affiliation_strings": [
+            "Instituto Superior Técnico, Universidade de Lisboa, Av. Rovisco Pais, 1049-001 Lisboa, Portugal",
+            "Instituto Superior Tecnico, Universidade de Lisboa, Av. Rovisco Pais, 1049-001 Lisboa, Portugal"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Instituto Superior Técnico, Universidade de Lisboa, Av. Rovisco Pais, 1049-001 Lisboa, Portugal",
+              "institution_ids": [
+                "https://openalex.org/I141596103",
+                "https://openalex.org/I203847022"
+              ]
+            },
+            {
+              "raw_affiliation_string": "Instituto Superior Tecnico, Universidade de Lisboa, Av. Rovisco Pais, 1049-001 Lisboa, Portugal",
+              "institution_ids": [
+                "https://openalex.org/I141596103",
+                "https://openalex.org/I203847022"
+              ]
+            }
+          ]
+        }
+      ],
+      "institutions": [],
+      "countries_distinct_count": 1,
+      "institutions_distinct_count": 2,
+      "corresponding_author_ids": [
+        "https://openalex.org/A5057478089"
+      ],
+      "corresponding_institution_ids": [
+        "https://openalex.org/I141596103",
+        "https://openalex.org/I203847022"
+      ],
+      "apc_list": {
+        "value": 3880,
+        "currency": "USD",
+        "value_usd": 3880
+      },
+      "apc_paid": null,
+      "fwci": 25.336,
+      "has_fulltext": false,
+      "cited_by_count": 1131,
+      "citation_normalized_percentile": {
+        "value": 0.99810059,
+        "is_in_top_1_percent": true,
+        "is_in_top_10_percent": true
+      },
+      "cited_by_percentile_year": {
+        "min": 89,
+        "max": 100
+      },
+      "biblio": {
+        "volume": "258",
+        "issue": null,
+        "first_page": "17",
+        "last_page": "37"
+      },
+      "is_retracted": false,
+      "is_paratext": false,
+      "is_xpac": false,
+      "primary_topic": {
+        "id": "https://openalex.org/T10310",
+        "display_name": "Corrosion Behavior and Inhibition",
+        "score": 0.9997000098228455,
+        "subfield": {
+          "id": "https://openalex.org/subfields/2505",
+          "display_name": "Materials Chemistry"
+        },
+        "field": {
+          "id": "https://openalex.org/fields/25",
+          "display_name": "Materials Science"
+        },
+        "domain": {
+          "id": "https://openalex.org/domains/3",
+          "display_name": "Physical Sciences"
+        }
+      },
+      "topics": [
+        {
+          "id": "https://openalex.org/T10310",
+          "display_name": "Corrosion Behavior and Inhibition",
+          "score": 0.9997000098228455,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2505",
+            "display_name": "Materials Chemistry"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/25",
+            "display_name": "Materials Science"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        },
+        {
+          "id": "https://openalex.org/T10859",
+          "display_name": "Polymer Surface Interaction Studies",
+          "score": 0.9957000017166138,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2508",
+            "display_name": "Surfaces, Coatings and Films"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/25",
+            "display_name": "Materials Science"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        },
+        {
+          "id": "https://openalex.org/T10377",
+          "display_name": "Metal and Thin Film Mechanics",
+          "score": 0.9933000206947327,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2211",
+            "display_name": "Mechanics of Materials"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/22",
+            "display_name": "Engineering"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        }
+      ],
+      "keywords": [
+        {
+          "id": "https://openalex.org/keywords/corrosion",
+          "display_name": "Corrosion",
+          "score": 0.8855957388877869
+        },
+        {
+          "id": "https://openalex.org/keywords/materials-science",
+          "display_name": "Materials science",
+          "score": 0.7032536268234253
+        },
+        {
+          "id": "https://openalex.org/keywords/coating",
+          "display_name": "Coating",
+          "score": 0.5465027689933777
+        },
+        {
+          "id": "https://openalex.org/keywords/nanotechnology",
+          "display_name": "Nanotechnology",
+          "score": 0.49621206521987915
+        },
+        {
+          "id": "https://openalex.org/keywords/metallurgy",
+          "display_name": "Metallurgy",
+          "score": 0.2930886447429657
+        }
+      ],
+      "concepts": [
+        {
+          "id": "https://openalex.org/C20625102",
+          "wikidata": "https://www.wikidata.org/wiki/Q137056",
+          "display_name": "Corrosion",
+          "level": 2,
+          "score": 0.8855957388877869
+        },
+        {
+          "id": "https://openalex.org/C192562407",
+          "wikidata": "https://www.wikidata.org/wiki/Q228736",
+          "display_name": "Materials science",
+          "level": 0,
+          "score": 0.7032536268234253
+        },
+        {
+          "id": "https://openalex.org/C2781448156",
+          "wikidata": "https://www.wikidata.org/wiki/Q1570182",
+          "display_name": "Coating",
+          "level": 2,
+          "score": 0.5465027689933777
+        },
+        {
+          "id": "https://openalex.org/C171250308",
+          "wikidata": "https://www.wikidata.org/wiki/Q11468",
+          "display_name": "Nanotechnology",
+          "level": 1,
+          "score": 0.49621206521987915
+        },
+        {
+          "id": "https://openalex.org/C191897082",
+          "wikidata": "https://www.wikidata.org/wiki/Q11467",
+          "display_name": "Metallurgy",
+          "level": 1,
+          "score": 0.2930886447429657
+        }
+      ],
+      "mesh": [],
+      "locations_count": 1,
+      "locations": [
+        {
+          "id": "doi:10.1016/j.surfcoat.2014.06.031",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1016/j.surfcoat.2014.06.031",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S76010543",
+            "display_name": "Surface and Coatings Technology",
+            "issn_l": "0257-8972",
+            "issn": [
+              "0257-8972",
+              "1879-3347"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "host_organization": "https://openalex.org/P4310320990",
+            "host_organization_name": "Elsevier BV",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320990"
+            ],
+            "host_organization_lineage_names": [
+              "Elsevier BV"
+            ],
+            "type": "journal"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "Surface and Coatings Technology",
+          "raw_type": "journal-article"
+        }
+      ],
+      "best_oa_location": null,
+      "sustainable_development_goals": [],
+      "awards": [
+        {
+          "id": "https://openalex.org/G76018425",
+          "display_name": null,
+          "funder_award_id": "NMP3-LA-2008-214261",
+          "funder_id": "https://openalex.org/F4320326107",
+          "funder_display_name": "Mbarara University of Science and Technology"
+        }
+      ],
+      "funders": [
+        {
+          "id": "https://openalex.org/F4320310000",
+          "display_name": "Universidade de Aveiro",
+          "ror": "https://ror.org/00nt41z93"
+        },
+        {
+          "id": "https://openalex.org/F4320324816",
+          "display_name": "Universität Paderborn",
+          "ror": "https://ror.org/058kzsd48"
+        },
+        {
+          "id": "https://openalex.org/F4320326107",
+          "display_name": "Mbarara University of Science and Technology",
+          "ror": "https://ror.org/01bkn5154"
+        }
+      ],
+      "has_content": {
+        "grobid_xml": false,
+        "pdf": false
+      },
+      "content_urls": null,
+      "referenced_works_count": 165,
+      "referenced_works": [
+        "https://openalex.org/W1528863207",
+        "https://openalex.org/W1965891042",
+        "https://openalex.org/W1966730606",
+        "https://openalex.org/W1969202083",
+        "https://openalex.org/W1970832560",
+        "https://openalex.org/W1971797824",
+        "https://openalex.org/W1973789854",
+        "https://openalex.org/W1975121798",
+        "https://openalex.org/W1975141405",
+        "https://openalex.org/W1975666740",
+        "https://openalex.org/W1976176247",
+        "https://openalex.org/W1976492858",
+        "https://openalex.org/W1976565989",
+        "https://openalex.org/W1977321010",
+        "https://openalex.org/W1977406854",
+        "https://openalex.org/W1980471741",
+        "https://openalex.org/W1982656121",
+        "https://openalex.org/W1983976424",
+        "https://openalex.org/W1985074387",
+        "https://openalex.org/W1986269944",
+        "https://openalex.org/W1986549402",
+        "https://openalex.org/W1987116044",
+        "https://openalex.org/W1988791764",
+        "https://openalex.org/W1989283128",
+        "https://openalex.org/W1990838062",
+        "https://openalex.org/W1991297186",
+        "https://openalex.org/W1991806455",
+        "https://openalex.org/W1992066449",
+        "https://openalex.org/W1992403077",
+        "https://openalex.org/W1994114780",
+        "https://openalex.org/W1995465322",
+        "https://openalex.org/W1997388855",
+        "https://openalex.org/W1997750803",
+        "https://openalex.org/W1999212250",
+        "https://openalex.org/W2000104506",
+        "https://openalex.org/W2000131240",
+        "https://openalex.org/W2000664086",
+        "https://openalex.org/W2001679978",
+        "https://openalex.org/W2002324032",
+        "https://openalex.org/W2002897887",
+        "https://openalex.org/W2005407786",
+        "https://openalex.org/W2006437475",
+        "https://openalex.org/W2006733225",
+        "https://openalex.org/W2008388496",
+        "https://openalex.org/W2008419577",
+        "https://openalex.org/W2008489597",
+        "https://openalex.org/W2008580729",
+        "https://openalex.org/W2009943343",
+        "https://openalex.org/W2010281063",
+        "https://openalex.org/W2011953814",
+        "https://openalex.org/W2012508472",
+        "https://openalex.org/W2012819183",
+        "https://openalex.org/W2012966210",
+        "https://openalex.org/W2014555326",
+        "https://openalex.org/W2015074414",
+        "https://openalex.org/W2016351717",
+        "https://openalex.org/W2017272395",
+        "https://openalex.org/W2018471229",
+        "https://openalex.org/W2018605111",
+        "https://openalex.org/W2019749033",
+        "https://openalex.org/W2020816628",
+        "https://openalex.org/W2021112140",
+        "https://openalex.org/W2024114185",
+        "https://openalex.org/W2025467210",
+        "https://openalex.org/W2026577666",
+        "https://openalex.org/W2028034250",
+        "https://openalex.org/W2028049687",
+        "https://openalex.org/W2028488258",
+        "https://openalex.org/W2030405603",
+        "https://openalex.org/W2031310890",
+        "https://openalex.org/W2032661543",
+        "https://openalex.org/W2033227153",
+        "https://openalex.org/W2035555686",
+        "https://openalex.org/W2035739070",
+        "https://openalex.org/W2036269066",
+        "https://openalex.org/W2037530232",
+        "https://openalex.org/W2038737141",
+        "https://openalex.org/W2039537025",
+        "https://openalex.org/W2040235837",
+        "https://openalex.org/W2040748745",
+        "https://openalex.org/W2044078157",
+        "https://openalex.org/W2046497482",
+        "https://openalex.org/W2049579340",
+        "https://openalex.org/W2050962240",
+        "https://openalex.org/W2052032573",
+        "https://openalex.org/W2053478991",
+        "https://openalex.org/W2054519608",
+        "https://openalex.org/W2055248506",
+        "https://openalex.org/W2055833677",
+        "https://openalex.org/W2056777003",
+        "https://openalex.org/W2060163075",
+        "https://openalex.org/W2061713373",
+        "https://openalex.org/W2063601576",
+        "https://openalex.org/W2063991589",
+        "https://openalex.org/W2064025966",
+        "https://openalex.org/W2065069064",
+        "https://openalex.org/W2065615097",
+        "https://openalex.org/W2066559430",
+        "https://openalex.org/W2066919160",
+        "https://openalex.org/W2067535019",
+        "https://openalex.org/W2068416565",
+        "https://openalex.org/W2068836462",
+        "https://openalex.org/W2069468296",
+        "https://openalex.org/W2070148302",
+        "https://openalex.org/W2071279685",
+        "https://openalex.org/W2071408973",
+        "https://openalex.org/W2071850991",
+        "https://openalex.org/W2072111960",
+        "https://openalex.org/W2072868754",
+        "https://openalex.org/W2074729489",
+        "https://openalex.org/W2077089278",
+        "https://openalex.org/W2077792612",
+        "https://openalex.org/W2078140956",
+        "https://openalex.org/W2080110757",
+        "https://openalex.org/W2080199758",
+        "https://openalex.org/W2080961279",
+        "https://openalex.org/W2083007787",
+        "https://openalex.org/W2084896868",
+        "https://openalex.org/W2088188071",
+        "https://openalex.org/W2089088688",
+        "https://openalex.org/W2089246299",
+        "https://openalex.org/W2089730202",
+        "https://openalex.org/W2089961610",
+        "https://openalex.org/W2091466037",
+        "https://openalex.org/W2092381082",
+        "https://openalex.org/W2092961413",
+        "https://openalex.org/W2093156458",
+        "https://openalex.org/W2094335756",
+        "https://openalex.org/W2094525656",
+        "https://openalex.org/W2094825003",
+        "https://openalex.org/W2095210695",
+        "https://openalex.org/W2101686798",
+        "https://openalex.org/W2103606701",
+        "https://openalex.org/W2104253360",
+        "https://openalex.org/W2108004877",
+        "https://openalex.org/W2111406809",
+        "https://openalex.org/W2121850154",
+        "https://openalex.org/W2122956040",
+        "https://openalex.org/W2125899436",
+        "https://openalex.org/W2126209973",
+        "https://openalex.org/W2134228337",
+        "https://openalex.org/W2137254250",
+        "https://openalex.org/W2144730233",
+        "https://openalex.org/W2145857074",
+        "https://openalex.org/W2150314171",
+        "https://openalex.org/W2157951056",
+        "https://openalex.org/W2167141533",
+        "https://openalex.org/W2312860284",
+        "https://openalex.org/W2313189475",
+        "https://openalex.org/W2314136951",
+        "https://openalex.org/W2317669098",
+        "https://openalex.org/W2318601183",
+        "https://openalex.org/W2321279274",
+        "https://openalex.org/W2321760068",
+        "https://openalex.org/W2322673161",
+        "https://openalex.org/W2324848942",
+        "https://openalex.org/W2497773653",
+        "https://openalex.org/W2614430826",
+        "https://openalex.org/W2806054049",
+        "https://openalex.org/W3015760140",
+        "https://openalex.org/W3144920256",
+        "https://openalex.org/W3203204524",
+        "https://openalex.org/W4238136993",
+        "https://openalex.org/W4241093057",
+        "https://openalex.org/W4250352237"
+      ],
+      "related_works": [
+        "https://openalex.org/W2349891746",
+        "https://openalex.org/W2884282816",
+        "https://openalex.org/W2394115446",
+        "https://openalex.org/W1502342084",
+        "https://openalex.org/W4246450666",
+        "https://openalex.org/W2032583453",
+        "https://openalex.org/W4283030797",
+        "https://openalex.org/W2380730024",
+        "https://openalex.org/W2898370298",
+        "https://openalex.org/W3006522350"
+      ],
+      "abstract_inverted_index": null,
+      "counts_by_year": [
+        {
+          "year": 2026,
+          "cited_by_count": 86
+        },
+        {
+          "year": 2025,
+          "cited_by_count": 104
+        },
+        {
+          "year": 2024,
+          "cited_by_count": 98
+        },
+        {
+          "year": 2023,
+          "cited_by_count": 94
+        },
+        {
+          "year": 2022,
+          "cited_by_count": 106
+        },
+        {
+          "year": 2021,
+          "cited_by_count": 116
+        },
+        {
+          "year": 2020,
+          "cited_by_count": 118
+        },
+        {
+          "year": 2019,
+          "cited_by_count": 139
+        },
+        {
+          "year": 2018,
+          "cited_by_count": 85
+        },
+        {
+          "year": 2017,
+          "cited_by_count": 85
+        },
+        {
+          "year": 2016,
+          "cited_by_count": 57
+        },
+        {
+          "year": 2015,
+          "cited_by_count": 38
+        },
+        {
+          "year": 2014,
+          "cited_by_count": 4
+        },
+        {
+          "year": 2012,
+          "cited_by_count": 1
+        }
+      ],
+      "updated_date": "2026-09-06T09:10:53.072986",
+      "created_date": "2025-10-10T00:00:00"
+    },
+    {
+      "id": "https://openalex.org/W2055438530",
+      "doi": "https://doi.org/10.1016/j.tsf.2003.07.016",
+      "title": "Hybrid organo-ceramic corrosion protection coatings with encapsulated organic corrosion inhibitors",
+      "display_name": "Hybrid organo-ceramic corrosion protection coatings with encapsulated organic corrosion inhibitors",
+      "relevance_score": 2118.44,
+      "publication_year": 2004,
+      "publication_date": "2004-01-01",
+      "ids": {
+        "openalex": "https://openalex.org/W2055438530",
+        "doi": "https://doi.org/10.1016/j.tsf.2003.07.016",
+        "mag": "2055438530"
+      },
+      "language": "en",
+      "primary_location": {
+        "id": "doi:10.1016/j.tsf.2003.07.016",
+        "is_oa": false,
+        "landing_page_url": "https://doi.org/10.1016/j.tsf.2003.07.016",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S84339699",
+          "display_name": "Thin Solid Films",
+          "issn_l": "0040-6090",
+          "issn": [
+            "0040-6090",
+            "1879-2731"
+          ],
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": true,
+          "host_organization": "https://openalex.org/P4310320990",
+          "host_organization_name": "Elsevier BV",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320990"
+          ],
+          "host_organization_lineage_names": [
+            "Elsevier BV"
+          ],
+          "type": "journal"
+        },
+        "license": null,
+        "license_id": null,
+        "version": "publishedVersion",
+        "is_accepted": true,
+        "is_published": true,
+        "raw_source_name": "Thin Solid Films",
+        "raw_type": "journal-article"
+      },
+      "type": "article",
+      "indexed_in": [
+        "crossref"
+      ],
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "id": "https://openalex.org/A5029567190",
+            "display_name": "A.N. Khramov",
+            "orcid": "https://orcid.org/0000-0002-7949-663X"
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I2935922141",
+              "display_name": "Universal Technical Institute",
+              "ror": "https://ror.org/019njds38",
+              "country_code": "US",
+              "type": "education",
+              "lineage": [
+                "https://openalex.org/I2935922141"
+              ]
+            },
+            {
+              "id": "https://openalex.org/I4210159399",
+              "display_name": "Universal Technology Corporation (United States)",
+              "ror": "https://ror.org/04bssxt85",
+              "country_code": "US",
+              "type": "company",
+              "lineage": [
+                "https://openalex.org/I4210159399"
+              ]
+            }
+          ],
+          "countries": [
+            "US"
+          ],
+          "is_corresponding": true,
+          "raw_author_name": "A.N. Khramov",
+          "raw_affiliation_strings": [
+            "Universal Technology Corporation, 1270 N. Fairfield Road, Dayton, OH 45432-2600, USA"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Universal Technology Corporation, 1270 N. Fairfield Road, Dayton, OH 45432-2600, USA",
+              "institution_ids": [
+                "https://openalex.org/I2935922141",
+                "https://openalex.org/I4210159399"
+              ]
+            }
+          ]
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "id": "https://openalex.org/A5053556072",
+            "display_name": "N.N. Voevodin",
+            "orcid": null
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I127591826",
+              "display_name": "University of Dayton",
+              "ror": "https://ror.org/021v3qy27",
+              "country_code": "US",
+              "type": "education",
+              "lineage": [
+                "https://openalex.org/I127591826"
+              ]
+            }
+          ],
+          "countries": [
+            "US"
+          ],
+          "is_corresponding": false,
+          "raw_author_name": "N.N. Voevodin",
+          "raw_affiliation_strings": [
+            "University of Dayton Research Institute, 300 College Park, Dayton, OH 45432-2600, USA"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "University of Dayton Research Institute, 300 College Park, Dayton, OH 45432-2600, USA",
+              "institution_ids": [
+                "https://openalex.org/I127591826"
+              ]
+            }
+          ]
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "id": "https://openalex.org/A5069565520",
+            "display_name": "V.N. Balbyshev",
+            "orcid": null
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I2935922141",
+              "display_name": "Universal Technical Institute",
+              "ror": "https://ror.org/019njds38",
+              "country_code": "US",
+              "type": "education",
+              "lineage": [
+                "https://openalex.org/I2935922141"
+              ]
+            },
+            {
+              "id": "https://openalex.org/I4210159399",
+              "display_name": "Universal Technology Corporation (United States)",
+              "ror": "https://ror.org/04bssxt85",
+              "country_code": "US",
+              "type": "company",
+              "lineage": [
+                "https://openalex.org/I4210159399"
+              ]
+            }
+          ],
+          "countries": [
+            "US"
+          ],
+          "is_corresponding": false,
+          "raw_author_name": "V.N. Balbyshev",
+          "raw_affiliation_strings": [
+            "Universal Technology Corporation, 1270 N. Fairfield Road, Dayton, OH 45432-2600, USA"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Universal Technology Corporation, 1270 N. Fairfield Road, Dayton, OH 45432-2600, USA",
+              "institution_ids": [
+                "https://openalex.org/I2935922141",
+                "https://openalex.org/I4210159399"
+              ]
+            }
+          ]
+        },
+        {
+          "author_position": "last",
+          "author": {
+            "id": "https://openalex.org/A5087497185",
+            "display_name": "M.S. Donley",
+            "orcid": null
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I1280414376",
+              "display_name": "United States Air Force Research Laboratory",
+              "ror": "https://ror.org/02e2egq70",
+              "country_code": "US",
+              "type": "facility",
+              "lineage": [
+                "https://openalex.org/I1280414376",
+                "https://openalex.org/I1330347796",
+                "https://openalex.org/I4210102105",
+                "https://openalex.org/I4389425425"
+              ]
+            }
+          ],
+          "countries": [
+            "US"
+          ],
+          "is_corresponding": false,
+          "raw_author_name": "M.S. Donley",
+          "raw_affiliation_strings": [
+            "Air Force Research Laboratory, Materials and Manufacturing Directorate, Nonmetallic Materials Division, Nonstructural Materials Branch, Coatings Research Group, Wright-Patterson AFB, Dayton, OH 45433-7750, USA"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Air Force Research Laboratory, Materials and Manufacturing Directorate, Nonmetallic Materials Division, Nonstructural Materials Branch, Coatings Research Group, Wright-Patterson AFB, Dayton, OH 45433-7750, USA",
+              "institution_ids": [
+                "https://openalex.org/I1280414376"
+              ]
+            }
+          ]
+        }
+      ],
+      "institutions": [],
+      "countries_distinct_count": 1,
+      "institutions_distinct_count": 4,
+      "corresponding_author_ids": [
+        "https://openalex.org/A5029567190"
+      ],
+      "corresponding_institution_ids": [
+        "https://openalex.org/I2935922141",
+        "https://openalex.org/I4210159399"
+      ],
+      "apc_list": {
+        "value": 3120,
+        "currency": "USD",
+        "value_usd": 3120
+      },
+      "apc_paid": null,
+      "fwci": 3.6792,
+      "has_fulltext": false,
+      "cited_by_count": 234,
+      "citation_normalized_percentile": {
+        "value": 0.93723377,
+        "is_in_top_1_percent": false,
+        "is_in_top_10_percent": true
+      },
+      "cited_by_percentile_year": {
+        "min": 97,
+        "max": 100
+      },
+      "biblio": {
+        "volume": "447-448",
+        "issue": null,
+        "first_page": "549",
+        "last_page": "557"
+      },
+      "is_retracted": false,
+      "is_paratext": false,
+      "is_xpac": false,
+      "primary_topic": {
+        "id": "https://openalex.org/T10310",
+        "display_name": "Corrosion Behavior and Inhibition",
+        "score": 0.9998000264167786,
+        "subfield": {
+          "id": "https://openalex.org/subfields/2505",
+          "display_name": "Materials Chemistry"
+        },
+        "field": {
+          "id": "https://openalex.org/fields/25",
+          "display_name": "Materials Science"
+        },
+        "domain": {
+          "id": "https://openalex.org/domains/3",
+          "display_name": "Physical Sciences"
+        }
+      },
+      "topics": [
+        {
+          "id": "https://openalex.org/T10310",
+          "display_name": "Corrosion Behavior and Inhibition",
+          "score": 0.9998000264167786,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2505",
+            "display_name": "Materials Chemistry"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/25",
+            "display_name": "Materials Science"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        },
+        {
+          "id": "https://openalex.org/T10480",
+          "display_name": "Ionic liquids properties and applications",
+          "score": 0.9952999949455261,
+          "subfield": {
+            "id": "https://openalex.org/subfields/1503",
+            "display_name": "Catalysis"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/15",
+            "display_name": "Chemical Engineering"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        },
+        {
+          "id": "https://openalex.org/T11746",
+          "display_name": "Inorganic and Organometallic Chemistry",
+          "score": 0.9941999912261963,
+          "subfield": {
+            "id": "https://openalex.org/subfields/1605",
+            "display_name": "Organic Chemistry"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/16",
+            "display_name": "Chemistry"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        }
+      ],
+      "keywords": [
+        {
+          "id": "https://openalex.org/keywords/corrosion",
+          "display_name": "Corrosion",
+          "score": 0.9256682991981506
+        },
+        {
+          "id": "https://openalex.org/keywords/materials-science",
+          "display_name": "Materials science",
+          "score": 0.727586030960083
+        },
+        {
+          "id": "https://openalex.org/keywords/corrosion-inhibitor",
+          "display_name": "Corrosion inhibitor",
+          "score": 0.6767559051513672
+        },
+        {
+          "id": "https://openalex.org/keywords/coating",
+          "display_name": "Coating",
+          "score": 0.5934765338897705
+        },
+        {
+          "id": "https://openalex.org/keywords/ceramic",
+          "display_name": "Ceramic",
+          "score": 0.5548933148384094
+        },
+        {
+          "id": "https://openalex.org/keywords/aluminium",
+          "display_name": "Aluminium",
+          "score": 0.54411381483078
+        },
+        {
+          "id": "https://openalex.org/keywords/metallurgy",
+          "display_name": "Metallurgy",
+          "score": 0.494773805141449
+        },
+        {
+          "id": "https://openalex.org/keywords/chemical-engineering",
+          "display_name": "Chemical engineering",
+          "score": 0.43703263998031616
+        },
+        {
+          "id": "https://openalex.org/keywords/composite-material",
+          "display_name": "Composite material",
+          "score": 0.32065093517303467
+        }
+      ],
+      "concepts": [
+        {
+          "id": "https://openalex.org/C20625102",
+          "wikidata": "https://www.wikidata.org/wiki/Q137056",
+          "display_name": "Corrosion",
+          "level": 2,
+          "score": 0.9256682991981506
+        },
+        {
+          "id": "https://openalex.org/C192562407",
+          "wikidata": "https://www.wikidata.org/wiki/Q228736",
+          "display_name": "Materials science",
+          "level": 0,
+          "score": 0.727586030960083
+        },
+        {
+          "id": "https://openalex.org/C2777145204",
+          "wikidata": "https://www.wikidata.org/wiki/Q2468815",
+          "display_name": "Corrosion inhibitor",
+          "level": 3,
+          "score": 0.6767559051513672
+        },
+        {
+          "id": "https://openalex.org/C2781448156",
+          "wikidata": "https://www.wikidata.org/wiki/Q1570182",
+          "display_name": "Coating",
+          "level": 2,
+          "score": 0.5934765338897705
+        },
+        {
+          "id": "https://openalex.org/C134132462",
+          "wikidata": "https://www.wikidata.org/wiki/Q45621",
+          "display_name": "Ceramic",
+          "level": 2,
+          "score": 0.5548933148384094
+        },
+        {
+          "id": "https://openalex.org/C513153333",
+          "wikidata": "https://www.wikidata.org/wiki/Q663",
+          "display_name": "Aluminium",
+          "level": 2,
+          "score": 0.54411381483078
+        },
+        {
+          "id": "https://openalex.org/C191897082",
+          "wikidata": "https://www.wikidata.org/wiki/Q11467",
+          "display_name": "Metallurgy",
+          "level": 1,
+          "score": 0.494773805141449
+        },
+        {
+          "id": "https://openalex.org/C42360764",
+          "wikidata": "https://www.wikidata.org/wiki/Q83588",
+          "display_name": "Chemical engineering",
+          "level": 1,
+          "score": 0.43703263998031616
+        },
+        {
+          "id": "https://openalex.org/C159985019",
+          "wikidata": "https://www.wikidata.org/wiki/Q181790",
+          "display_name": "Composite material",
+          "level": 1,
+          "score": 0.32065093517303467
+        },
+        {
+          "id": "https://openalex.org/C127413603",
+          "wikidata": "https://www.wikidata.org/wiki/Q11023",
+          "display_name": "Engineering",
+          "level": 0,
+          "score": 0.0
+        }
+      ],
+      "mesh": [],
+      "locations_count": 1,
+      "locations": [
+        {
+          "id": "doi:10.1016/j.tsf.2003.07.016",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1016/j.tsf.2003.07.016",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S84339699",
+            "display_name": "Thin Solid Films",
+            "issn_l": "0040-6090",
+            "issn": [
+              "0040-6090",
+              "1879-2731"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "host_organization": "https://openalex.org/P4310320990",
+            "host_organization_name": "Elsevier BV",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320990"
+            ],
+            "host_organization_lineage_names": [
+              "Elsevier BV"
+            ],
+            "type": "journal"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "Thin Solid Films",
+          "raw_type": "journal-article"
+        }
+      ],
+      "best_oa_location": null,
+      "sustainable_development_goals": [],
+      "awards": [],
+      "funders": [],
+      "has_content": {
+        "grobid_xml": false,
+        "pdf": false
+      },
+      "content_urls": null,
+      "referenced_works_count": 9,
+      "referenced_works": [
+        "https://openalex.org/W1519627314",
+        "https://openalex.org/W1989157562",
+        "https://openalex.org/W1993489122",
+        "https://openalex.org/W1996481160",
+        "https://openalex.org/W2039104539",
+        "https://openalex.org/W2088323113",
+        "https://openalex.org/W2090728207",
+        "https://openalex.org/W2126239090",
+        "https://openalex.org/W2141941616"
+      ],
+      "related_works": [
+        "https://openalex.org/W2372276314",
+        "https://openalex.org/W2351999864",
+        "https://openalex.org/W2359702816",
+        "https://openalex.org/W2358825782",
+        "https://openalex.org/W2371586547",
+        "https://openalex.org/W3140287080",
+        "https://openalex.org/W2375181357",
+        "https://openalex.org/W2389547652",
+        "https://openalex.org/W2348222591",
+        "https://openalex.org/W2349905123"
+      ],
+      "abstract_inverted_index": null,
+      "counts_by_year": [
+        {
+          "year": 2026,
+          "cited_by_count": 2
+        },
+        {
+          "year": 2025,
+          "cited_by_count": 6
+        },
+        {
+          "year": 2024,
+          "cited_by_count": 5
+        },
+        {
+          "year": 2023,
+          "cited_by_count": 4
+        },
+        {
+          "year": 2022,
+          "cited_by_count": 8
+        },
+        {
+          "year": 2021,
+          "cited_by_count": 15
+        },
+        {
+          "year": 2020,
+          "cited_by_count": 10
+        },
+        {
+          "year": 2019,
+          "cited_by_count": 6
+        },
+        {
+          "year": 2018,
+          "cited_by_count": 20
+        },
+        {
+          "year": 2017,
+          "cited_by_count": 14
+        },
+        {
+          "year": 2016,
+          "cited_by_count": 22
+        },
+        {
+          "year": 2015,
+          "cited_by_count": 19
+        },
+        {
+          "year": 2014,
+          "cited_by_count": 13
+        },
+        {
+          "year": 2013,
+          "cited_by_count": 12
+        },
+        {
+          "year": 2012,
+          "cited_by_count": 13
+        }
+      ],
+      "updated_date": "2026-08-21T09:56:20.448147",
+      "created_date": "2025-10-10T00:00:00"
+    },
+    {
+      "id": "https://openalex.org/W2000131240",
+      "doi": "https://doi.org/10.1021/am200488m",
+      "title": "Conducting Polyaniline Nanoparticles and Their Dispersion for Waterborne Corrosion Protection Coatings",
+      "display_name": "Conducting Polyaniline Nanoparticles and Their Dispersion for Waterborne Corrosion Protection Coatings",
+      "relevance_score": 2039.6626,
+      "publication_year": 2011,
+      "publication_date": "2011-06-23",
+      "ids": {
+        "openalex": "https://openalex.org/W2000131240",
+        "doi": "https://doi.org/10.1021/am200488m",
+        "mag": "2000131240",
+        "pmid": "https://pubmed.ncbi.nlm.nih.gov/21699229"
+      },
+      "language": "en",
+      "primary_location": {
+        "id": "doi:10.1021/am200488m",
+        "is_oa": false,
+        "landing_page_url": "https://doi.org/10.1021/am200488m",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S164001016",
+          "display_name": "ACS Applied Materials & Interfaces",
+          "issn_l": "1944-8244",
+          "issn": [
+            "1944-8244",
+            "1944-8252"
+          ],
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": true,
+          "host_organization": "https://openalex.org/P4310320006",
+          "host_organization_name": "American Chemical Society",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320006"
+          ],
+          "host_organization_lineage_names": [
+            "American Chemical Society"
+          ],
+          "type": "journal"
+        },
+        "license": null,
+        "license_id": null,
+        "version": "publishedVersion",
+        "is_accepted": true,
+        "is_published": true,
+        "raw_source_name": "ACS Applied Materials &amp; Interfaces",
+        "raw_type": "journal-article"
+      },
+      "type": "article",
+      "indexed_in": [
+        "crossref",
+        "pubmed"
+      ],
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "green",
+        "oa_url": "http://202.201.7.4:8080/handle/262010/76161",
+        "any_repository_has_fulltext": true
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "id": "https://openalex.org/A5100405368",
+            "display_name": "Fei Chen",
+            "orcid": "https://orcid.org/0000-0002-0828-9211"
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I76214153",
+              "display_name": "Lanzhou University",
+              "ror": "https://ror.org/01mkqqe32",
+              "country_code": "CN",
+              "type": "education",
+              "lineage": [
+                "https://openalex.org/I76214153"
+              ]
+            }
+          ],
+          "countries": [
+            "CN"
+          ],
+          "is_corresponding": false,
+          "raw_author_name": "Fei Chen",
+          "raw_affiliation_strings": [
+            "Key Laboratory of Nonferrous Metal Chemistry and Resources Utilization of Gansu Province and Institute of Polymer Science and Engineering, Lanzhou University, Lanzhou 730000, China"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Key Laboratory of Nonferrous Metal Chemistry and Resources Utilization of Gansu Province and Institute of Polymer Science and Engineering, Lanzhou University, Lanzhou 730000, China",
+              "institution_ids": [
+                "https://openalex.org/I76214153"
+              ]
+            }
+          ]
+        },
+        {
+          "author_position": "last",
+          "author": {
+            "id": "https://openalex.org/A5100346874",
+            "display_name": "Peng Liu",
+            "orcid": "https://orcid.org/0000-0003-1198-4925"
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I76214153",
+              "display_name": "Lanzhou University",
+              "ror": "https://ror.org/01mkqqe32",
+              "country_code": "CN",
+              "type": "education",
+              "lineage": [
+                "https://openalex.org/I76214153"
+              ]
+            }
+          ],
+          "countries": [
+            "CN"
+          ],
+          "is_corresponding": true,
+          "raw_author_name": "Peng Liu",
+          "raw_affiliation_strings": [
+            "Key Laboratory of Nonferrous Metal Chemistry and Resources Utilization of Gansu Province and Institute of Polymer Science and Engineering, Lanzhou University, Lanzhou 730000, China"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Key Laboratory of Nonferrous Metal Chemistry and Resources Utilization of Gansu Province and Institute of Polymer Science and Engineering, Lanzhou University, Lanzhou 730000, China",
+              "institution_ids": [
+                "https://openalex.org/I76214153"
+              ]
+            }
+          ]
+        }
+      ],
+      "institutions": [],
+      "countries_distinct_count": 1,
+      "institutions_distinct_count": 1,
+      "corresponding_author_ids": [
+        "https://openalex.org/A5100346874"
+      ],
+      "corresponding_institution_ids": [
+        "https://openalex.org/I76214153"
+      ],
+      "apc_list": {
+        "value": 4500,
+        "currency": "USD",
+        "value_usd": 4500
+      },
+      "apc_paid": null,
+      "fwci": 7.8142,
+      "has_fulltext": false,
+      "cited_by_count": 213,
+      "citation_normalized_percentile": {
+        "value": 0.98358907,
+        "is_in_top_1_percent": false,
+        "is_in_top_10_percent": true
+      },
+      "cited_by_percentile_year": {
+        "min": 98,
+        "max": 100
+      },
+      "biblio": {
+        "volume": "3",
+        "issue": "7",
+        "first_page": "2694",
+        "last_page": "2702"
+      },
+      "is_retracted": false,
+      "is_paratext": false,
+      "is_xpac": false,
+      "primary_topic": {
+        "id": "https://openalex.org/T10660",
+        "display_name": "Conducting polymers and applications",
+        "score": 1.0,
+        "subfield": {
+          "id": "https://openalex.org/subfields/2507",
+          "display_name": "Polymers and Plastics"
+        },
+        "field": {
+          "id": "https://openalex.org/fields/25",
+          "display_name": "Materials Science"
+        },
+        "domain": {
+          "id": "https://openalex.org/domains/3",
+          "display_name": "Physical Sciences"
+        }
+      },
+      "topics": [
+        {
+          "id": "https://openalex.org/T10660",
+          "display_name": "Conducting polymers and applications",
+          "score": 1.0,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2507",
+            "display_name": "Polymers and Plastics"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/25",
+            "display_name": "Materials Science"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        },
+        {
+          "id": "https://openalex.org/T11472",
+          "display_name": "Analytical Chemistry and Sensors",
+          "score": 0.9976999759674072,
+          "subfield": {
+            "id": "https://openalex.org/subfields/1502",
+            "display_name": "Bioengineering"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/15",
+            "display_name": "Chemical Engineering"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        },
+        {
+          "id": "https://openalex.org/T10338",
+          "display_name": "Advanced Sensor and Energy Harvesting Materials",
+          "score": 0.9958999752998352,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2204",
+            "display_name": "Biomedical Engineering"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/22",
+            "display_name": "Engineering"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        }
+      ],
+      "keywords": [
+        {
+          "id": "https://openalex.org/keywords/polyaniline",
+          "display_name": "Polyaniline",
+          "score": 0.9317659735679626
+        },
+        {
+          "id": "https://openalex.org/keywords/materials-science",
+          "display_name": "Materials science",
+          "score": 0.8746263384819031
+        },
+        {
+          "id": "https://openalex.org/keywords/vinyl-alcohol",
+          "display_name": "Vinyl alcohol",
+          "score": 0.7068789601325989
+        },
+        {
+          "id": "https://openalex.org/keywords/salt-spray-test",
+          "display_name": "Salt spray test",
+          "score": 0.7019659280776978
+        },
+        {
+          "id": "https://openalex.org/keywords/x-ray-photoelectron-spectroscopy",
+          "display_name": "X-ray photoelectron spectroscopy",
+          "score": 0.6369826793670654
+        },
+        {
+          "id": "https://openalex.org/keywords/dielectric-spectroscopy",
+          "display_name": "Dielectric spectroscopy",
+          "score": 0.630114734172821
+        },
+        {
+          "id": "https://openalex.org/keywords/corrosion",
+          "display_name": "Corrosion",
+          "score": 0.5802728533744812
+        },
+        {
+          "id": "https://openalex.org/keywords/chemical-engineering",
+          "display_name": "Chemical engineering",
+          "score": 0.5302820801734924
+        },
+        {
+          "id": "https://openalex.org/keywords/polymerization",
+          "display_name": "Polymerization",
+          "score": 0.5298005938529968
+        },
+        {
+          "id": "https://openalex.org/keywords/aqueous-solution",
+          "display_name": "Aqueous solution",
+          "score": 0.508529543876648
+        },
+        {
+          "id": "https://openalex.org/keywords/nanoparticle",
+          "display_name": "Nanoparticle",
+          "score": 0.4982185363769531
+        },
+        {
+          "id": "https://openalex.org/keywords/scanning-electron-microscope",
+          "display_name": "Scanning electron microscope",
+          "score": 0.459600031375885
+        },
+        {
+          "id": "https://openalex.org/keywords/polyvinyl-alcohol",
+          "display_name": "Polyvinyl alcohol",
+          "score": 0.4472997188568115
+        },
+        {
+          "id": "https://openalex.org/keywords/conductive-polymer",
+          "display_name": "Conductive polymer",
+          "score": 0.43809276819229126
+        },
+        {
+          "id": "https://openalex.org/keywords/salt",
+          "display_name": "Salt (chemistry)",
+          "score": 0.43619397282600403
+        },
+        {
+          "id": "https://openalex.org/keywords/electrochemistry",
+          "display_name": "Electrochemistry",
+          "score": 0.36596131324768066
+        },
+        {
+          "id": "https://openalex.org/keywords/nuclear-chemistry",
+          "display_name": "Nuclear chemistry",
+          "score": 0.3602123260498047
+        },
+        {
+          "id": "https://openalex.org/keywords/polymer",
+          "display_name": "Polymer",
+          "score": 0.3100352883338928
+        },
+        {
+          "id": "https://openalex.org/keywords/composite-material",
+          "display_name": "Composite material",
+          "score": 0.28401851654052734
+        },
+        {
+          "id": "https://openalex.org/keywords/organic-chemistry",
+          "display_name": "Organic chemistry",
+          "score": 0.11411279439926147
+        },
+        {
+          "id": "https://openalex.org/keywords/nanotechnology",
+          "display_name": "Nanotechnology",
+          "score": 0.09319004416465759
+        },
+        {
+          "id": "https://openalex.org/keywords/chemistry",
+          "display_name": "Chemistry",
+          "score": 0.06141534447669983
+        }
+      ],
+      "concepts": [
+        {
+          "id": "https://openalex.org/C2777580120",
+          "wikidata": "https://www.wikidata.org/wiki/Q417637",
+          "display_name": "Polyaniline",
+          "level": 4,
+          "score": 0.9317659735679626
+        },
+        {
+          "id": "https://openalex.org/C192562407",
+          "wikidata": "https://www.wikidata.org/wiki/Q228736",
+          "display_name": "Materials science",
+          "level": 0,
+          "score": 0.8746263384819031
+        },
+        {
+          "id": "https://openalex.org/C2780666587",
+          "wikidata": "https://www.wikidata.org/wiki/Q409591",
+          "display_name": "Vinyl alcohol",
+          "level": 3,
+          "score": 0.7068789601325989
+        },
+        {
+          "id": "https://openalex.org/C2777514341",
+          "wikidata": "https://www.wikidata.org/wiki/Q1499743",
+          "display_name": "Salt spray test",
+          "level": 3,
+          "score": 0.7019659280776978
+        },
+        {
+          "id": "https://openalex.org/C175708663",
+          "wikidata": "https://www.wikidata.org/wiki/Q899559",
+          "display_name": "X-ray photoelectron spectroscopy",
+          "level": 2,
+          "score": 0.6369826793670654
+        },
+        {
+          "id": "https://openalex.org/C7040849",
+          "wikidata": "https://www.wikidata.org/wiki/Q899580",
+          "display_name": "Dielectric spectroscopy",
+          "level": 4,
+          "score": 0.630114734172821
+        },
+        {
+          "id": "https://openalex.org/C20625102",
+          "wikidata": "https://www.wikidata.org/wiki/Q137056",
+          "display_name": "Corrosion",
+          "level": 2,
+          "score": 0.5802728533744812
+        },
+        {
+          "id": "https://openalex.org/C42360764",
+          "wikidata": "https://www.wikidata.org/wiki/Q83588",
+          "display_name": "Chemical engineering",
+          "level": 1,
+          "score": 0.5302820801734924
+        },
+        {
+          "id": "https://openalex.org/C44228677",
+          "wikidata": "https://www.wikidata.org/wiki/Q181898",
+          "display_name": "Polymerization",
+          "level": 3,
+          "score": 0.5298005938529968
+        },
+        {
+          "id": "https://openalex.org/C184651966",
+          "wikidata": "https://www.wikidata.org/wiki/Q906356",
+          "display_name": "Aqueous solution",
+          "level": 2,
+          "score": 0.508529543876648
+        },
+        {
+          "id": "https://openalex.org/C155672457",
+          "wikidata": "https://www.wikidata.org/wiki/Q61231",
+          "display_name": "Nanoparticle",
+          "level": 2,
+          "score": 0.4982185363769531
+        },
+        {
+          "id": "https://openalex.org/C26771246",
+          "wikidata": "https://www.wikidata.org/wiki/Q321095",
+          "display_name": "Scanning electron microscope",
+          "level": 2,
+          "score": 0.459600031375885
+        },
+        {
+          "id": "https://openalex.org/C2778551929",
+          "wikidata": "https://www.wikidata.org/wiki/Q146339",
+          "display_name": "Polyvinyl alcohol",
+          "level": 2,
+          "score": 0.4472997188568115
+        },
+        {
+          "id": "https://openalex.org/C133495861",
+          "wikidata": "https://www.wikidata.org/wiki/Q412798",
+          "display_name": "Conductive polymer",
+          "level": 3,
+          "score": 0.43809276819229126
+        },
+        {
+          "id": "https://openalex.org/C2776371256",
+          "wikidata": "https://www.wikidata.org/wiki/Q12370",
+          "display_name": "Salt (chemistry)",
+          "level": 2,
+          "score": 0.43619397282600403
+        },
+        {
+          "id": "https://openalex.org/C52859227",
+          "wikidata": "https://www.wikidata.org/wiki/Q7877",
+          "display_name": "Electrochemistry",
+          "level": 3,
+          "score": 0.36596131324768066
+        },
+        {
+          "id": "https://openalex.org/C13965031",
+          "wikidata": "https://www.wikidata.org/wiki/Q243545",
+          "display_name": "Nuclear chemistry",
+          "level": 1,
+          "score": 0.3602123260498047
+        },
+        {
+          "id": "https://openalex.org/C521977710",
+          "wikidata": "https://www.wikidata.org/wiki/Q81163",
+          "display_name": "Polymer",
+          "level": 2,
+          "score": 0.3100352883338928
+        },
+        {
+          "id": "https://openalex.org/C159985019",
+          "wikidata": "https://www.wikidata.org/wiki/Q181790",
+          "display_name": "Composite material",
+          "level": 1,
+          "score": 0.28401851654052734
+        },
+        {
+          "id": "https://openalex.org/C178790620",
+          "wikidata": "https://www.wikidata.org/wiki/Q11351",
+          "display_name": "Organic chemistry",
+          "level": 1,
+          "score": 0.11411279439926147
+        },
+        {
+          "id": "https://openalex.org/C171250308",
+          "wikidata": "https://www.wikidata.org/wiki/Q11468",
+          "display_name": "Nanotechnology",
+          "level": 1,
+          "score": 0.09319004416465759
+        },
+        {
+          "id": "https://openalex.org/C185592680",
+          "wikidata": "https://www.wikidata.org/wiki/Q2329",
+          "display_name": "Chemistry",
+          "level": 0,
+          "score": 0.06141534447669983
+        },
+        {
+          "id": "https://openalex.org/C17525397",
+          "wikidata": "https://www.wikidata.org/wiki/Q176140",
+          "display_name": "Electrode",
+          "level": 2,
+          "score": 0.0
+        },
+        {
+          "id": "https://openalex.org/C147789679",
+          "wikidata": "https://www.wikidata.org/wiki/Q11372",
+          "display_name": "Physical chemistry",
+          "level": 1,
+          "score": 0.0
+        },
+        {
+          "id": "https://openalex.org/C127413603",
+          "wikidata": "https://www.wikidata.org/wiki/Q11023",
+          "display_name": "Engineering",
+          "level": 0,
+          "score": 0.0
+        }
+      ],
+      "mesh": [],
+      "locations_count": 3,
+      "locations": [
+        {
+          "id": "doi:10.1021/am200488m",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1021/am200488m",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S164001016",
+            "display_name": "ACS Applied Materials & Interfaces",
+            "issn_l": "1944-8244",
+            "issn": [
+              "1944-8244",
+              "1944-8252"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "host_organization": "https://openalex.org/P4310320006",
+            "host_organization_name": "American Chemical Society",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320006"
+            ],
+            "host_organization_lineage_names": [
+              "American Chemical Society"
+            ],
+            "type": "journal"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "ACS Applied Materials &amp; Interfaces",
+          "raw_type": "journal-article"
+        },
+        {
+          "id": "pmid:21699229",
+          "is_oa": false,
+          "landing_page_url": "https://pubmed.ncbi.nlm.nih.gov/21699229",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S4306525036",
+            "display_name": "PubMed",
+            "issn_l": null,
+            "issn": null,
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": false,
+            "host_organization": "https://openalex.org/I1299303238",
+            "host_organization_name": "National Institutes of Health",
+            "host_organization_lineage": [
+              "https://openalex.org/I1299303238"
+            ],
+            "host_organization_lineage_names": [],
+            "type": "repository"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "ACS applied materials & interfaces",
+          "raw_type": "Journal Article"
+        },
+        {
+          "id": "pmh:oai:ir.lzu.edu.cn/:262010/76161",
+          "is_oa": true,
+          "landing_page_url": "http://202.201.7.4:8080/handle/262010/76161",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S4406923049",
+            "display_name": "Lanzhou University Institutional Repository",
+            "issn_l": null,
+            "issn": null,
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": false,
+            "host_organization": null,
+            "host_organization_name": null,
+            "host_organization_lineage": [],
+            "host_organization_lineage_names": [],
+            "type": "repository"
+          },
+          "license": "cc-by-nc-nd",
+          "license_id": "https://openalex.org/licenses/cc-by-nc-nd",
+          "version": "submittedVersion",
+          "is_accepted": false,
+          "is_published": false,
+          "raw_source_name": "",
+          "raw_type": "Article"
+        }
+      ],
+      "best_oa_location": {
+        "id": "pmh:oai:ir.lzu.edu.cn/:262010/76161",
+        "is_oa": true,
+        "landing_page_url": "http://202.201.7.4:8080/handle/262010/76161",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S4406923049",
+          "display_name": "Lanzhou University Institutional Repository",
+          "issn_l": null,
+          "issn": null,
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": false,
+          "host_organization": null,
+          "host_organization_name": null,
+          "host_organization_lineage": [],
+          "host_organization_lineage_names": [],
+          "type": "repository"
+        },
+        "license": "cc-by-nc-nd",
+        "license_id": "https://openalex.org/licenses/cc-by-nc-nd",
+        "version": "submittedVersion",
+        "is_accepted": false,
+        "is_published": false,
+        "raw_source_name": "",
+        "raw_type": "Article"
+      },
+      "sustainable_development_goals": [
+        {
+          "score": 0.800000011920929,
+          "id": "https://metadata.un.org/sdg/6",
+          "display_name": "Clean water and sanitation"
+        }
+      ],
+      "awards": [],
+      "funders": [],
+      "has_content": {
+        "grobid_xml": false,
+        "pdf": false
+      },
+      "content_urls": null,
+      "referenced_works_count": 39,
+      "referenced_works": [
+        "https://openalex.org/W1491994879",
+        "https://openalex.org/W1584818398",
+        "https://openalex.org/W1971742006",
+        "https://openalex.org/W1974568286",
+        "https://openalex.org/W1986331619",
+        "https://openalex.org/W1986549402",
+        "https://openalex.org/W1992403077",
+        "https://openalex.org/W1993589026",
+        "https://openalex.org/W1994654177",
+        "https://openalex.org/W1997004780",
+        "https://openalex.org/W1997025857",
+        "https://openalex.org/W2006268474",
+        "https://openalex.org/W2008304374",
+        "https://openalex.org/W2013500937",
+        "https://openalex.org/W2014800529",
+        "https://openalex.org/W2015330874",
+        "https://openalex.org/W2028283957",
+        "https://openalex.org/W2033869170",
+        "https://openalex.org/W2037325925",
+        "https://openalex.org/W2045583943",
+        "https://openalex.org/W2049073824",
+        "https://openalex.org/W2049194716",
+        "https://openalex.org/W2055641447",
+        "https://openalex.org/W2057128411",
+        "https://openalex.org/W2057754289",
+        "https://openalex.org/W2058486122",
+        "https://openalex.org/W2062754930",
+        "https://openalex.org/W2068638322",
+        "https://openalex.org/W2070478971",
+        "https://openalex.org/W2071240608",
+        "https://openalex.org/W2071447861",
+        "https://openalex.org/W2077726860",
+        "https://openalex.org/W2082143202",
+        "https://openalex.org/W2085762968",
+        "https://openalex.org/W2089951511",
+        "https://openalex.org/W2094335756",
+        "https://openalex.org/W2161093362",
+        "https://openalex.org/W2171697409",
+        "https://openalex.org/W2334906916"
+      ],
+      "related_works": [
+        "https://openalex.org/W2316182848",
+        "https://openalex.org/W4388778533",
+        "https://openalex.org/W3114471086",
+        "https://openalex.org/W2003041741",
+        "https://openalex.org/W4254115631",
+        "https://openalex.org/W2357232842",
+        "https://openalex.org/W2385571564",
+        "https://openalex.org/W2004913908",
+        "https://openalex.org/W2289475821",
+        "https://openalex.org/W2033869170"
+      ],
+      "abstract_inverted_index": {
+        "A": [
+          0
+        ],
+        "novel": [
+          1
+        ],
+        "approach": [
+          2
+        ],
+        "for": [
+          3
+        ],
+        "preparing": [
+          4
+        ],
+        "waterborne": [
+          5,
+          55,
+          95,
+          136
+        ],
+        "corrosion": [
+          6,
+          62
+        ],
+        "protection": [
+          7,
+          63,
+          106,
+          150
+        ],
+        "polyaniline": [
+          8
+        ],
+        "(PANI)-containing": [
+          9
+        ],
+        "coatings": [
+          10,
+          46,
+          67,
+          97,
+          137
+        ],
+        "was": [
+          11,
+          71,
+          152
+        ],
+        "developed.": [
+          12
+        ],
+        "First,": [
+          13
+        ],
+        "conducting": [
+          14
+        ],
+        "polyaniline/partially": [
+          15
+        ],
+        "phosphorylated": [
+          16,
+          40
+        ],
+        "poly(vinyl": [
+          17,
+          41
+        ],
+        "alcohol)": [
+          18,
+          42
+        ],
+        "(PANI/P-PVA)": [
+          19
+        ],
+        "spherical": [
+          20
+        ],
+        "nanoparticles": [
+          21,
+          140
+        ],
+        "with": [
+          22,
+          47,
+          132,
+          155
+        ],
+        "significant": [
+          23
+        ],
+        "dispersibility": [
+          24
+        ],
+        "in": [
+          25,
+          36,
+          83,
+          141
+        ],
+        "aqueous": [
+          26,
+          88
+        ],
+        "media": [
+          27
+        ],
+        "were": [
+          28,
+          51,
+          130
+        ],
+        "prepared": [
+          29
+        ],
+        "by": [
+          30,
+          73
+        ],
+        "the": [
+          31,
+          59,
+          94,
+          108,
+          128,
+          135,
+          142,
+          149,
+          156
+        ],
+        "chemical": [
+          32
+        ],
+        "oxidative": [
+          33
+        ],
+        "dispersion": [
+          34
+        ],
+        "polymerization": [
+          35
+        ],
+        "presence": [
+          37
+        ],
+        "of": [
+          38,
+          65,
+          123,
+          134,
+          158
+        ],
+        "partially": [
+          39
+        ],
+        "(P-PVA).": [
+          43
+        ],
+        "The": [
+          44,
+          61,
+          90
+        ],
+        "PANI/P-PVA-containing": [
+          45,
+          66,
+          96
+        ],
+        "different": [
+          48
+        ],
+        "PANI/P-PVA": [
+          49
+        ],
+        "contents": [
+          50
+        ],
+        "then": [
+          52
+        ],
+        "prepared,": [
+          53
+        ],
+        "employing": [
+          54
+        ],
+        "epoxy": [
+          56
+        ],
+        "resin": [
+          57
+        ],
+        "as": [
+          58
+        ],
+        "matrix.": [
+          60
+        ],
+        "property": [
+          64
+        ],
+        "on": [
+          68
+        ],
+        "mild": [
+          69
+        ],
+        "steel": [
+          70
+        ],
+        "investigated": [
+          72
+        ],
+        "salt": [
+          74,
+          124,
+          144
+        ],
+        "spray": [
+          75,
+          125
+        ],
+        "test": [
+          76
+        ],
+        "and": [
+          77,
+          148,
+          163
+        ],
+        "electrochemical": [
+          78
+        ],
+        "impedance": [
+          79,
+          109
+        ],
+        "spectroscopy": [
+          80
+        ],
+        "(EIS)": [
+          81
+        ],
+        "technique": [
+          82
+        ],
+        "3.0": [
+          84
+        ],
+        "wt": [
+          85,
+          101
+        ],
+        "%": [
+          86
+        ],
+        "NaCl": [
+          87
+        ],
+        "solution.": [
+          89
+        ],
+        "results": [
+          91,
+          129
+        ],
+        "indicated": [
+          92
+        ],
+        "that": [
+          93
+        ],
+        "(PANI/P-PVA": [
+          98
+        ],
+        "content,": [
+          99
+        ],
+        "2.5": [
+          100
+        ],
+        "%)": [
+          102
+        ],
+        "could": [
+          103
+        ],
+        "offer": [
+          104
+        ],
+        "high": [
+          105
+        ],
+        "because": [
+          107
+        ],
+        "values": [
+          110
+        ],
+        "remained": [
+          111
+        ],
+        "at": [
+          112
+        ],
+        "higher": [
+          113
+        ],
+        "than": [
+          114
+        ],
+        "1": [
+          115
+        ],
+        "×": [
+          116
+        ],
+        "10(7)": [
+          117
+        ],
+        "Ω": [
+          118
+        ],
+        "cm(2)": [
+          119
+        ],
+        "after": [
+          120
+        ],
+        "30": [
+          121
+        ],
+        "days": [
+          122
+        ],
+        "tests.": [
+          126
+        ],
+        "All": [
+          127
+        ],
+        "compared": [
+          131
+        ],
+        "these": [
+          133
+        ],
+        "containing": [
+          138
+        ],
+        "PANI": [
+          139
+        ],
+        "emeraldine": [
+          143
+        ],
+        "form": [
+          145
+        ],
+        "(PANI": [
+          146
+        ],
+        "ES),": [
+          147
+        ],
+        "mechanism": [
+          151
+        ],
+        "also": [
+          153
+        ],
+        "proposed": [
+          154
+        ],
+        "evidence": [
+          157
+        ],
+        "scanning": [
+          159
+        ],
+        "electron": [
+          160
+        ],
+        "microscope": [
+          161
+        ],
+        "(SEM)": [
+          162
+        ],
+        "X-ray": [
+          164
+        ],
+        "photoelectron": [
+          165
+        ],
+        "spectrometry": [
+          166
+        ],
+        "(XPS).": [
+          167
+        ]
+      },
+      "counts_by_year": [
+        {
+          "year": 2026,
+          "cited_by_count": 3
+        },
+        {
+          "year": 2025,
+          "cited_by_count": 7
+        },
+        {
+          "year": 2024,
+          "cited_by_count": 18
+        },
+        {
+          "year": 2023,
+          "cited_by_count": 17
+        },
+        {
+          "year": 2022,
+          "cited_by_count": 16
+        },
+        {
+          "year": 2021,
+          "cited_by_count": 16
+        },
+        {
+          "year": 2020,
+          "cited_by_count": 17
+        },
+        {
+          "year": 2019,
+          "cited_by_count": 24
+        },
+        {
+          "year": 2018,
+          "cited_by_count": 19
+        },
+        {
+          "year": 2017,
+          "cited_by_count": 17
+        },
+        {
+          "year": 2016,
+          "cited_by_count": 12
+        },
+        {
+          "year": 2015,
+          "cited_by_count": 14
+        },
+        {
+          "year": 2014,
+          "cited_by_count": 15
+        },
+        {
+          "year": 2013,
+          "cited_by_count": 12
+        },
+        {
+          "year": 2012,
+          "cited_by_count": 6
+        }
+      ],
+      "updated_date": "2026-08-31T07:19:18.363097",
+      "created_date": "2025-10-10T00:00:00"
+    },
+    {
+      "id": "https://openalex.org/W2050560680",
+      "doi": "https://doi.org/10.1016/j.electacta.2006.08.022",
+      "title": "A new corrosion protection coating with polyaniline–TiO2 composite for steel",
+      "display_name": "A new corrosion protection coating with polyaniline–TiO2 composite for steel",
+      "relevance_score": 1945.6014,
+      "publication_year": 2006,
+      "publication_date": "2006-09-21",
+      "ids": {
+        "openalex": "https://openalex.org/W2050560680",
+        "doi": "https://doi.org/10.1016/j.electacta.2006.08.022",
+        "mag": "2050560680"
+      },
+      "language": "en",
+      "primary_location": {
+        "id": "doi:10.1016/j.electacta.2006.08.022",
+        "is_oa": false,
+        "landing_page_url": "https://doi.org/10.1016/j.electacta.2006.08.022",
+        "pdf_url": null,
+        "source": {
+          "id": "https://openalex.org/S198339081",
+          "display_name": "Electrochimica Acta",
+          "issn_l": "0013-4686",
+          "issn": [
+            "0013-4686",
+            "1873-3859"
+          ],
+          "is_oa": false,
+          "is_in_doaj": false,
+          "is_core": true,
+          "host_organization": "https://openalex.org/P4310320990",
+          "host_organization_name": "Elsevier BV",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320990"
+          ],
+          "host_organization_lineage_names": [
+            "Elsevier BV"
+          ],
+          "type": "journal"
+        },
+        "license": null,
+        "license_id": null,
+        "version": "publishedVersion",
+        "is_accepted": true,
+        "is_published": true,
+        "raw_source_name": "Electrochimica Acta",
+        "raw_type": "journal-article"
+      },
+      "type": "article",
+      "indexed_in": [
+        "crossref"
+      ],
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "id": "https://openalex.org/A5108216786",
+            "display_name": "S. Sathiyanarayanan",
+            "orcid": null
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I106349282",
+              "display_name": "Central Electrochemical Research Institute",
+              "ror": "https://ror.org/01qek3q18",
+              "country_code": "IN",
+              "type": "facility",
+              "lineage": [
+                "https://openalex.org/I106349282",
+                "https://openalex.org/I2799351866",
+                "https://openalex.org/I4210134808",
+                "https://openalex.org/I66760702"
+              ]
+            }
+          ],
+          "countries": [
+            "IN"
+          ],
+          "is_corresponding": false,
+          "raw_author_name": "S. Sathiyanarayanan",
+          "raw_affiliation_strings": [
+            "Central Electrochemical Research Institute, Karaikudi 630006, India"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Central Electrochemical Research Institute, Karaikudi 630006, India",
+              "institution_ids": [
+                "https://openalex.org/I106349282"
+              ]
+            }
+          ]
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "id": "https://openalex.org/A5049530977",
+            "display_name": "S. Syed Azim",
+            "orcid": null
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I106349282",
+              "display_name": "Central Electrochemical Research Institute",
+              "ror": "https://ror.org/01qek3q18",
+              "country_code": "IN",
+              "type": "facility",
+              "lineage": [
+                "https://openalex.org/I106349282",
+                "https://openalex.org/I2799351866",
+                "https://openalex.org/I4210134808",
+                "https://openalex.org/I66760702"
+              ]
+            }
+          ],
+          "countries": [
+            "IN"
+          ],
+          "is_corresponding": false,
+          "raw_author_name": "S. Syed Azim",
+          "raw_affiliation_strings": [
+            "Central Electrochemical Research Institute, Karaikudi 630006, India"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Central Electrochemical Research Institute, Karaikudi 630006, India",
+              "institution_ids": [
+                "https://openalex.org/I106349282"
+              ]
+            }
+          ]
+        },
+        {
+          "author_position": "last",
+          "author": {
+            "id": "https://openalex.org/A5052083156",
+            "display_name": "G. Venkatachari",
+            "orcid": null
+          },
+          "institutions": [
+            {
+              "id": "https://openalex.org/I106349282",
+              "display_name": "Central Electrochemical Research Institute",
+              "ror": "https://ror.org/01qek3q18",
+              "country_code": "IN",
+              "type": "facility",
+              "lineage": [
+                "https://openalex.org/I106349282",
+                "https://openalex.org/I2799351866",
+                "https://openalex.org/I4210134808",
+                "https://openalex.org/I66760702"
+              ]
+            }
+          ],
+          "countries": [
+            "IN"
+          ],
+          "is_corresponding": true,
+          "raw_author_name": "G. Venkatachari",
+          "raw_affiliation_strings": [
+            "Central Electrochemical Research Institute, Karaikudi 630006, India"
+          ],
+          "raw_orcid": null,
+          "affiliations": [
+            {
+              "raw_affiliation_string": "Central Electrochemical Research Institute, Karaikudi 630006, India",
+              "institution_ids": [
+                "https://openalex.org/I106349282"
+              ]
+            }
+          ]
+        }
+      ],
+      "institutions": [],
+      "countries_distinct_count": 1,
+      "institutions_distinct_count": 1,
+      "corresponding_author_ids": [
+        "https://openalex.org/A5052083156"
+      ],
+      "corresponding_institution_ids": [
+        "https://openalex.org/I106349282"
+      ],
+      "apc_list": {
+        "value": 3790,
+        "currency": "USD",
+        "value_usd": 3790
+      },
+      "apc_paid": null,
+      "fwci": 4.8054,
+      "has_fulltext": false,
+      "cited_by_count": 192,
+      "citation_normalized_percentile": {
+        "value": 0.95203852,
+        "is_in_top_1_percent": false,
+        "is_in_top_10_percent": true
+      },
+      "cited_by_percentile_year": {
+        "min": 98,
+        "max": 100
+      },
+      "biblio": {
+        "volume": "52",
+        "issue": "5",
+        "first_page": "2068",
+        "last_page": "2074"
+      },
+      "is_retracted": false,
+      "is_paratext": false,
+      "is_xpac": false,
+      "primary_topic": {
+        "id": "https://openalex.org/T10660",
+        "display_name": "Conducting polymers and applications",
+        "score": 1.0,
+        "subfield": {
+          "id": "https://openalex.org/subfields/2507",
+          "display_name": "Polymers and Plastics"
+        },
+        "field": {
+          "id": "https://openalex.org/fields/25",
+          "display_name": "Materials Science"
+        },
+        "domain": {
+          "id": "https://openalex.org/domains/3",
+          "display_name": "Physical Sciences"
+        }
+      },
+      "topics": [
+        {
+          "id": "https://openalex.org/T10660",
+          "display_name": "Conducting polymers and applications",
+          "score": 1.0,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2507",
+            "display_name": "Polymers and Plastics"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/25",
+            "display_name": "Materials Science"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        },
+        {
+          "id": "https://openalex.org/T11472",
+          "display_name": "Analytical Chemistry and Sensors",
+          "score": 0.9983000159263611,
+          "subfield": {
+            "id": "https://openalex.org/subfields/1502",
+            "display_name": "Bioengineering"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/15",
+            "display_name": "Chemical Engineering"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        },
+        {
+          "id": "https://openalex.org/T10310",
+          "display_name": "Corrosion Behavior and Inhibition",
+          "score": 0.9959999918937683,
+          "subfield": {
+            "id": "https://openalex.org/subfields/2505",
+            "display_name": "Materials Chemistry"
+          },
+          "field": {
+            "id": "https://openalex.org/fields/25",
+            "display_name": "Materials Science"
+          },
+          "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences"
+          }
+        }
+      ],
+      "keywords": [
+        {
+          "id": "https://openalex.org/keywords/polyaniline",
+          "display_name": "Polyaniline",
+          "score": 0.8893969655036926
+        },
+        {
+          "id": "https://openalex.org/keywords/ammonium-persulfate",
+          "display_name": "Ammonium persulfate",
+          "score": 0.8449952602386475
+        },
+        {
+          "id": "https://openalex.org/keywords/coating",
+          "display_name": "Coating",
+          "score": 0.7847179174423218
+        },
+        {
+          "id": "https://openalex.org/keywords/salt-spray-test",
+          "display_name": "Salt spray test",
+          "score": 0.7557947635650635
+        },
+        {
+          "id": "https://openalex.org/keywords/corrosion",
+          "display_name": "Corrosion",
+          "score": 0.7443027496337891
+        },
+        {
+          "id": "https://openalex.org/keywords/dielectric-spectroscopy",
+          "display_name": "Dielectric spectroscopy",
+          "score": 0.7259482741355896
+        },
+        {
+          "id": "https://openalex.org/keywords/materials-science",
+          "display_name": "Materials science",
+          "score": 0.7222533226013184
+        },
+        {
+          "id": "https://openalex.org/keywords/passivation",
+          "display_name": "Passivation",
+          "score": 0.6176491379737854
+        },
+        {
+          "id": "https://openalex.org/keywords/chemical-engineering",
+          "display_name": "Chemical engineering",
+          "score": 0.5188432931900024
+        },
+        {
+          "id": "https://openalex.org/keywords/conductive-polymer",
+          "display_name": "Conductive polymer",
+          "score": 0.4452729821205139
+        },
+        {
+          "id": "https://openalex.org/keywords/electrochemistry",
+          "display_name": "Electrochemistry",
+          "score": 0.3597524166107178
+        },
+        {
+          "id": "https://openalex.org/keywords/nuclear-chemistry",
+          "display_name": "Nuclear chemistry",
+          "score": 0.33443108201026917
+        },
+        {
+          "id": "https://openalex.org/keywords/composite-material",
+          "display_name": "Composite material",
+          "score": 0.3332942724227905
+        },
+        {
+          "id": "https://openalex.org/keywords/polymer",
+          "display_name": "Polymer",
+          "score": 0.3165116012096405
+        },
+        {
+          "id": "https://openalex.org/keywords/chemistry",
+          "display_name": "Chemistry",
+          "score": 0.17271187901496887
+        },
+        {
+          "id": "https://openalex.org/keywords/electrode",
+          "display_name": "Electrode",
+          "score": 0.10802114009857178
+        },
+        {
+          "id": "https://openalex.org/keywords/layer",
+          "display_name": "Layer (electronics)",
+          "score": 0.10082995891571045
+        },
+        {
+          "id": "https://openalex.org/keywords/polymerization",
+          "display_name": "Polymerization",
+          "score": 0.06967413425445557
+        }
+      ],
+      "concepts": [
+        {
+          "id": "https://openalex.org/C2777580120",
+          "wikidata": "https://www.wikidata.org/wiki/Q417637",
+          "display_name": "Polyaniline",
+          "level": 4,
+          "score": 0.8893969655036926
+        },
+        {
+          "id": "https://openalex.org/C2780023803",
+          "wikidata": "https://www.wikidata.org/wiki/Q412085",
+          "display_name": "Ammonium persulfate",
+          "level": 4,
+          "score": 0.8449952602386475
+        },
+        {
+          "id": "https://openalex.org/C2781448156",
+          "wikidata": "https://www.wikidata.org/wiki/Q1570182",
+          "display_name": "Coating",
+          "level": 2,
+          "score": 0.7847179174423218
+        },
+        {
+          "id": "https://openalex.org/C2777514341",
+          "wikidata": "https://www.wikidata.org/wiki/Q1499743",
+          "display_name": "Salt spray test",
+          "level": 3,
+          "score": 0.7557947635650635
+        },
+        {
+          "id": "https://openalex.org/C20625102",
+          "wikidata": "https://www.wikidata.org/wiki/Q137056",
+          "display_name": "Corrosion",
+          "level": 2,
+          "score": 0.7443027496337891
+        },
+        {
+          "id": "https://openalex.org/C7040849",
+          "wikidata": "https://www.wikidata.org/wiki/Q899580",
+          "display_name": "Dielectric spectroscopy",
+          "level": 4,
+          "score": 0.7259482741355896
+        },
+        {
+          "id": "https://openalex.org/C192562407",
+          "wikidata": "https://www.wikidata.org/wiki/Q228736",
+          "display_name": "Materials science",
+          "level": 0,
+          "score": 0.7222533226013184
+        },
+        {
+          "id": "https://openalex.org/C33574316",
+          "wikidata": "https://www.wikidata.org/wiki/Q917260",
+          "display_name": "Passivation",
+          "level": 3,
+          "score": 0.6176491379737854
+        },
+        {
+          "id": "https://openalex.org/C42360764",
+          "wikidata": "https://www.wikidata.org/wiki/Q83588",
+          "display_name": "Chemical engineering",
+          "level": 1,
+          "score": 0.5188432931900024
+        },
+        {
+          "id": "https://openalex.org/C133495861",
+          "wikidata": "https://www.wikidata.org/wiki/Q412798",
+          "display_name": "Conductive polymer",
+          "level": 3,
+          "score": 0.4452729821205139
+        },
+        {
+          "id": "https://openalex.org/C52859227",
+          "wikidata": "https://www.wikidata.org/wiki/Q7877",
+          "display_name": "Electrochemistry",
+          "level": 3,
+          "score": 0.3597524166107178
+        },
+        {
+          "id": "https://openalex.org/C13965031",
+          "wikidata": "https://www.wikidata.org/wiki/Q243545",
+          "display_name": "Nuclear chemistry",
+          "level": 1,
+          "score": 0.33443108201026917
+        },
+        {
+          "id": "https://openalex.org/C159985019",
+          "wikidata": "https://www.wikidata.org/wiki/Q181790",
+          "display_name": "Composite material",
+          "level": 1,
+          "score": 0.3332942724227905
+        },
+        {
+          "id": "https://openalex.org/C521977710",
+          "wikidata": "https://www.wikidata.org/wiki/Q81163",
+          "display_name": "Polymer",
+          "level": 2,
+          "score": 0.3165116012096405
+        },
+        {
+          "id": "https://openalex.org/C185592680",
+          "wikidata": "https://www.wikidata.org/wiki/Q2329",
+          "display_name": "Chemistry",
+          "level": 0,
+          "score": 0.17271187901496887
+        },
+        {
+          "id": "https://openalex.org/C17525397",
+          "wikidata": "https://www.wikidata.org/wiki/Q176140",
+          "display_name": "Electrode",
+          "level": 2,
+          "score": 0.10802114009857178
+        },
+        {
+          "id": "https://openalex.org/C2779227376",
+          "wikidata": "https://www.wikidata.org/wiki/Q6505497",
+          "display_name": "Layer (electronics)",
+          "level": 2,
+          "score": 0.10082995891571045
+        },
+        {
+          "id": "https://openalex.org/C44228677",
+          "wikidata": "https://www.wikidata.org/wiki/Q181898",
+          "display_name": "Polymerization",
+          "level": 3,
+          "score": 0.06967413425445557
+        },
+        {
+          "id": "https://openalex.org/C127413603",
+          "wikidata": "https://www.wikidata.org/wiki/Q11023",
+          "display_name": "Engineering",
+          "level": 0,
+          "score": 0.0
+        },
+        {
+          "id": "https://openalex.org/C147789679",
+          "wikidata": "https://www.wikidata.org/wiki/Q11372",
+          "display_name": "Physical chemistry",
+          "level": 1,
+          "score": 0.0
+        }
+      ],
+      "mesh": [],
+      "locations_count": 1,
+      "locations": [
+        {
+          "id": "doi:10.1016/j.electacta.2006.08.022",
+          "is_oa": false,
+          "landing_page_url": "https://doi.org/10.1016/j.electacta.2006.08.022",
+          "pdf_url": null,
+          "source": {
+            "id": "https://openalex.org/S198339081",
+            "display_name": "Electrochimica Acta",
+            "issn_l": "0013-4686",
+            "issn": [
+              "0013-4686",
+              "1873-3859"
+            ],
+            "is_oa": false,
+            "is_in_doaj": false,
+            "is_core": true,
+            "host_organization": "https://openalex.org/P4310320990",
+            "host_organization_name": "Elsevier BV",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320990"
+            ],
+            "host_organization_lineage_names": [
+              "Elsevier BV"
+            ],
+            "type": "journal"
+          },
+          "license": null,
+          "license_id": null,
+          "version": "publishedVersion",
+          "is_accepted": true,
+          "is_published": true,
+          "raw_source_name": "Electrochimica Acta",
+          "raw_type": "journal-article"
+        }
+      ],
+      "best_oa_location": null,
+      "sustainable_development_goals": [],
+      "awards": [],
+      "funders": [],
+      "has_content": {
+        "grobid_xml": false,
+        "pdf": false
+      },
+      "content_urls": null,
+      "referenced_works_count": 31,
+      "referenced_works": [
+        "https://openalex.org/W1491994879",
+        "https://openalex.org/W1964521666",
+        "https://openalex.org/W1965153145",
+        "https://openalex.org/W1979686742",
+        "https://openalex.org/W1981367069",
+        "https://openalex.org/W1982798771",
+        "https://openalex.org/W1986549402",
+        "https://openalex.org/W1996469611",
+        "https://openalex.org/W1997004780",
+        "https://openalex.org/W2020699554",
+        "https://openalex.org/W2024513418",
+        "https://openalex.org/W2027329067",
+        "https://openalex.org/W2036951219",
+        "https://openalex.org/W2040477247",
+        "https://openalex.org/W2050076184",
+        "https://openalex.org/W2055188100",
+        "https://openalex.org/W2055641447",
+        "https://openalex.org/W2072953315",
+        "https://openalex.org/W2079378606",
+        "https://openalex.org/W2079822656",
+        "https://openalex.org/W2080954255",
+        "https://openalex.org/W2083225217",
+        "https://openalex.org/W2084596793",
+        "https://openalex.org/W2086264861",
+        "https://openalex.org/W2116590795",
+        "https://openalex.org/W2124006560",
+        "https://openalex.org/W2144851897",
+        "https://openalex.org/W2161086366",
+        "https://openalex.org/W2161093362",
+        "https://openalex.org/W3163709583",
+        "https://openalex.org/W4239954316"
+      ],
+      "related_works": [
+        "https://openalex.org/W2783454266",
+        "https://openalex.org/W3029660344",
+        "https://openalex.org/W4378436594",
+        "https://openalex.org/W2105081438",
+        "https://openalex.org/W2067009955",
+        "https://openalex.org/W2380632329",
+        "https://openalex.org/W2046790392",
+        "https://openalex.org/W2362428057",
+        "https://openalex.org/W3025990756",
+        "https://openalex.org/W2039102321"
+      ],
+      "abstract_inverted_index": null,
+      "counts_by_year": [
+        {
+          "year": 2026,
+          "cited_by_count": 4
+        },
+        {
+          "year": 2025,
+          "cited_by_count": 5
+        },
+        {
+          "year": 2024,
+          "cited_by_count": 6
+        },
+        {
+          "year": 2023,
+          "cited_by_count": 10
+        },
+        {
+          "year": 2022,
+          "cited_by_count": 9
+        },
+        {
+          "year": 2021,
+          "cited_by_count": 8
+        },
+        {
+          "year": 2020,
+          "cited_by_count": 9
+        },
+        {
+          "year": 2019,
+          "cited_by_count": 12
+        },
+        {
+          "year": 2018,
+          "cited_by_count": 18
+        },
+        {
+          "year": 2017,
+          "cited_by_count": 9
+        },
+        {
+          "year": 2016,
+          "cited_by_count": 13
+        },
+        {
+          "year": 2015,
+          "cited_by_count": 11
+        },
+        {
+          "year": 2014,
+          "cited_by_count": 17
+        },
+        {
+          "year": 2013,
+          "cited_by_count": 13
+        },
+        {
+          "year": 2012,
+          "cited_by_count": 13
+        }
+      ],
+      "updated_date": "2026-09-02T07:38:04.252551",
+      "created_date": "2025-10-10T00:00:00"
+    }
+  ],
+  "group_by": []
+}

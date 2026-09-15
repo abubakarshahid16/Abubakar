@@ -1,0 +1,165 @@
+{
+  "_note": "Ground truth read directly from the client's four PDFs by a human-equivalent read of the pages named. Page numbers are PDF page numbers, matching what the system reports. Nothing here is inferred; every line was seen on the page cited. doc16's printed folio runs 3 lower than its PDF page (PDF 21 = printed 'Page 18 of 46') - the PDF number is authoritative here because that is what the system cites.",
+  "facts": [
+    {
+      "id": "d16-drawing-size",
+      "doc": "doc16.pdf",
+      "page": 22,
+      "question": "What size must design submittal drawings be?",
+      "answer_terms": ["ANSI-D", "22", "34"],
+      "must_not_contain": [],
+      "quote": "Design submittal drawings shall be ANSI-D size (22 X 34), suitable for half-size (11\" x 17\") scaled reproduction."
+    },
+    {
+      "id": "d16-piping",
+      "doc": "doc16.pdf",
+      "page": 25,
+      "question": "What is the smallest mechanical piping that must be modelled?",
+      "answer_terms": ["1-1/2", "NPS"],
+      "must_not_contain": [],
+      "quote": "All piping 1-1/2\" NPS and larger shall be modeled."
+    },
+    {
+      "id": "d16-granularity",
+      "doc": "doc16.pdf",
+      "page": 23,
+      "question": "What scale governs model granularity?",
+      "answer_terms": ["1/4", "quarter inch"],
+      "must_not_contain": [],
+      "quote": "at a minimum must include all features that would be included on a quarter inch (1/4\" = 1'0\") scaled drawing"
+    },
+    {
+      "id": "d16-ifc",
+      "doc": "doc16.pdf",
+      "page": 22,
+      "question": "Which IFC Coordination View must the software be certified in?",
+      "answer_terms": ["2x3"],
+      "must_not_contain": [],
+      "quote": "must be certified in the IFC Coordination View (2x3 or better)"
+    },
+    {
+      "id": "d16-attachment-f",
+      "doc": "doc16.pdf",
+      "page": 21,
+      "question": "Which document governs minimum BIM submittal requirements for New York District projects?",
+      "answer_terms": ["Attachment F", "01 33 16"],
+      "must_not_contain": [],
+      "quote": "the requirements of Attachment F shall govern and the contents of Part 2 of this Manual should be considered informational only"
+    },
+    {
+      "id": "d16-bim-pit-50",
+      "doc": "doc16.pdf",
+      "page": 18,
+      "question": "What design percentage is a draft submission from the BIM Pit?",
+      "answer_terms": ["50%"],
+      "must_not_contain": [],
+      "quote": "a substantially complete master model with extractions and sheet files comprising a draft submission (usually at least a 50% design submission)"
+    },
+    {
+      "id": "d16-structural-minimums",
+      "doc": "doc16.pdf",
+      "page": 24,
+      "question": "What are the minimum structural model requirements?",
+      "answer_terms": ["Foundations", "Floor Slabs", "Structural Steel"],
+      "must_not_contain": ["interim"],
+      "quote": "4.4 Structural ... 4.4.1 Foundations. 4.4.2 Floor Slabs. 4.4.3 Structural Steel. 4.4.4 Cast-in-Place Concrete. 4.4.5 Expansion/Contraction Joints. 4.4.6 Stairs.",
+      "trap": "These belong to Section 4 (BIM Model Minimum Requirements), NOT to Section 3.3.1 (Interim Design Submittals). A previous live run attributed foundations to interim submittals. Any answer that calls these an interim-submittal requirement is WRONG."
+    },
+    {
+      "id": "d16-interim-submittal",
+      "doc": "doc16.pdf",
+      "page": 24,
+      "question": "What must interim design submittals include?",
+      "answer_terms": ["architectural", "structural", "mechanical", "electrical"],
+      "must_not_contain": ["foundation"],
+      "quote": "3.3.1 BIM and CAD Detail. The Model shall include architectural, interior design, structural, mechanical, electrical, plumbing and fire protection systems and Facility Data, as applicable to the Interim Design package(s).",
+      "trap": "This clause lists DISCIPLINES, not building elements. An answer naming foundations or floor slabs here has confused Section 3.3.1 with Section 4.4."
+    },
+    {
+      "id": "d15-three-parts",
+      "doc": "doc15.pdf",
+      "page": 7,
+      "question": "What are the three parts of a design analysis?",
+      "answer_terms": ["General Description", "Design Requirements", "O&M"],
+      "must_not_contain": [],
+      "quote": "The design analysis will be organized into three parts; Part 1 - \"General Description,\" Part 2 - \"Design Requirements and Provisions,\" and Part 3 - \"O&M Provisions.\""
+    },
+    {
+      "id": "d15-units",
+      "doc": "doc15.pdf",
+      "page": 7,
+      "question": "What units must a design analysis use and what standard governs conversions?",
+      "answer_terms": ["metric", "ASTM E 621-84"],
+      "must_not_contain": [],
+      "quote": "Unit designations and conversions shall be in accordance with ASTM E 621-84 as modified by the Metric Guide for Federal Construction"
+    },
+    {
+      "id": "d15-part2-disciplines",
+      "doc": "doc15.pdf",
+      "page": 8,
+      "question": "Which design disciplines does Part 2 of a design analysis cover?",
+      "answer_terms": ["Civil", "Environmental", "Architectural", "Structural", "Mechanical", "Electrical", "Fire Protection", "Physical Security"],
+      "must_not_contain": [],
+      "quote": "(1) Civil. (2) Environmental. (3) Architectural. (4) Structural. (5) Mechanical. (6) Electrical. (7) Fire Protection and Life Safety. (8) Physical Security.",
+      "trap": "Part 2 lists EIGHT disciplines and does NOT include communications or HTRW. The Part 1 list on the same page does mention communications and HTRW aspects. Attributing the Part 1 list to Part 2 is WRONG."
+    },
+    {
+      "id": "d15-page-size",
+      "doc": "doc15.pdf",
+      "page": 9,
+      "question": "What page size must design analysis materials use?",
+      "answer_terms": ["A4", "210", "297"],
+      "must_not_contain": [],
+      "quote": "a vertically oriented A4 metric, 210 mm x 297 mm (8.3 inches x 11.7 inches) standard page size"
+    },
+    {
+      "id": "d15-reference-copy",
+      "doc": "doc15.pdf",
+      "page": 12,
+      "question": "How long must a reference copy of the design analysis be retained?",
+      "answer_terms": ["two years", "beneficial occupancy"],
+      "must_not_contain": [],
+      "quote": "Reference copies of the design analysis will be retained by the design agency for at least two years after the beneficial occupancy date (BOD) of the project."
+    },
+    {
+      "id": "d15-part1-five",
+      "doc": "doc15.pdf",
+      "page": 11,
+      "question": "How many sections does Part 1 of the design analysis comprise?",
+      "answer_terms": ["five"],
+      "must_not_contain": [],
+      "quote": "The design analysis -Part 1- will comprise five (5) sections with subsections"
+    }
+  ],
+  "comparisons": [
+    {
+      "id": "cmp-design-requirements",
+      "question": "compare design requirements in doc13.pdf, doc15.pdf and doc16.pdf",
+      "expected_docs": ["doc13.pdf", "doc15.pdf", "doc16.pdf"],
+      "forbidden_docs": ["book1-professionalpractices.pdf", "book2-Differential-Equations.pdf", "book4ChemicalProcessDynamicsAndControls.pdf"],
+      "note": "A named-document comparison must not pull passages from unrelated textbooks. A previous live run surfaced a professional-practices book and a differential-equations textbook in the claim table for this exact question."
+    },
+    {
+      "id": "cmp-submittal-percentage",
+      "question": "compare design submittal percentages in doc13.pdf and doc16.pdf",
+      "expected_docs": ["doc13.pdf", "doc16.pdf"],
+      "forbidden_docs": ["book1-professionalpractices.pdf", "book2-Differential-Equations.pdf"],
+      "must_find_both_sides": true,
+      "note": "doc13 p.125 carries '16.2 Concept/early Preliminary (35%) Design Submittal'; doc16 p.18 carries 'usually at least a 50% design submission'. A previous live run reported this as a POSSIBLE GAP with 'none cited' on the project side, which is a FALSE GAP - doc16 does speak to it. Both sides must be found."
+    },
+    {
+      "id": "cmp-structural-models",
+      "question": "compare structural model requirements in doc16.pdf and doc15.pdf",
+      "expected_docs": ["doc16.pdf", "doc15.pdf"],
+      "forbidden_docs": ["book2-Differential-Equations.pdf"],
+      "note": "A previous live run answered a structural-models question with a differential-equations textbook passage ('which of the following models would produce very accurate results'), matching on the bare word 'models'."
+    }
+  ],
+  "facet_rules": [
+    {"rule": "no_bare_unit", "description": "No facet name may be or contain a bare unit or symbol token such as '%' or '(%)'.", "seen_violations": ["analysis (%)", "documents (%)", "models (%)", "design (%)"]},
+    {"rule": "no_bare_numeral", "description": "No facet name may be a bare numeral or clause number alone.", "seen_violations": ["7.1 (%)"]},
+    {"rule": "noun_phrase", "description": "A facet name must read as a noun phrase, not a bag of query words in arbitrary order.", "seen_violations": ["models structural", "analysis documents"]},
+    {"rule": "no_subset_duplicates", "description": "Two facets whose term sets are subset-related and share a head noun must be one facet.", "seen_violations": ["'analysis' and 'analysis documents' emitted separately", "'models' and 'models structural' emitted separately"]},
+    {"rule": "no_empty_facet", "description": "A facet with no claims on either side must not be emitted.", "seen_violations": ["8 facets 'not applicable' expanding to eight empty rows"]}
+  ]
+}

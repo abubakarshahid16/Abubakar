@@ -11,7 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
-import type { Health } from "../api/client";
+import type { ClassificationCoverage, Health } from "../api/client";
 import type { Metrics ,
   SystemMetrics,
   WorkerStatus,
@@ -73,6 +73,9 @@ function makeMetrics(over: Partial<Metrics> = {}): Metrics {
   return {
     at: "2026-09-04T12:00:00Z",
     refresh_seconds: 15,
+    // Default to the NARROWER claim. A fixture that defaulted to
+    // corpus-wide would make the honest case the one nobody tests.
+    corpus_wide: false,
     corpus: {
       documents: 6,
       by_status: { ready: 6 },
@@ -128,16 +131,46 @@ function makeMetrics(over: Partial<Metrics> = {}): Metrics {
   };
 }
 
-function mockApi(metrics: Metrics | (() => Metrics) = makeMetrics()) {
+/** Default coverage: register not loaded, nothing to show. Tests that do not
+ *  care about classification get a fixture that renders no type counts,
+ *  same as the tile looked before this feature existed - so a test that
+ *  forgets to pass one still exercises the honest default, not a fluke. */
+function makeCoverage(over: Partial<ClassificationCoverage> = {}): ClassificationCoverage {
+  return {
+    register_loaded: false,
+    register_revision: null,
+    by_type: [],
+    by_discipline: [],
+    by_subject: [],
+    needs_classification: 0,
+    // Matches makeMetrics()'s default so the boundary check in the
+    // component (coverage.corpus_wide === metrics.corpus_wide) passes for
+    // tests that do not exercise the boundary mismatch on purpose.
+    corpus_wide: false,
+    ...over,
+  };
+}
+
+function mockApi(
+  metrics: Metrics | (() => Metrics) = makeMetrics(),
+  coverage: ClassificationCoverage | (() => ClassificationCoverage) | null = makeCoverage(),
+) {
   const spy = vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    const body = url.includes("/metrics")
-      ? typeof metrics === "function"
-        ? metrics()
-        : metrics
-      : url.includes("/health")
-        ? health
-        : [];
+    if (url.includes("/classification/coverage") && coverage === null) {
+      return Promise.reject(new TypeError("Failed to fetch"));
+    }
+    const body = url.includes("/classification/coverage")
+      ? typeof coverage === "function"
+        ? coverage()
+        : coverage
+      : url.includes("/metrics")
+        ? typeof metrics === "function"
+          ? metrics()
+          : metrics
+        : url.includes("/health")
+          ? health
+          : [];
     return Promise.resolve(
       new Response(JSON.stringify(body), {
         status: 200,
@@ -154,6 +187,17 @@ async function openDashboard() {
   await userEvent.click(await screen.findByRole("button", { name: /Dashboard/ }));
 }
 
+/** "Documents" labels TWO things on this screen: the headline tile, and the
+ *  Stat inside the (folded) Corpus section. Disambiguated by the headline
+ *  tile's own background token, `bg-ink-800`, which the Corpus Stat card
+ *  (`bg-ink-850`) does not share. */
+async function documentsTile(): Promise<HTMLElement> {
+  const candidates = await screen.findAllByText("Documents");
+  const tile = candidates.map((el) => el.closest(".bg-ink-800")).find((el) => el != null);
+  if (!tile) throw new Error("Documents headline tile not found");
+  return tile as HTMLElement;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -168,6 +212,36 @@ describe("dashboard navigation", () => {
     const nav = await screen.findByRole("navigation", { name: "Main" });
     const item = within(nav).getByRole("button", { name: /Dashboard/ });
     expect(within(item).queryByText("not built")).toBeNull();
+  });
+});
+
+// ----------------------------------------------- the boundary on the counts
+
+describe("which corpus these counts describe", () => {
+  /** This screen once reported 12 documents to a reader whose Documents screen
+   *  correctly said "No documents yet", because /api/metrics resolved an
+   *  access scope and discarded it. The count was arithmetically right and
+   *  unreadable: a count with no stated boundary reads as total.
+   *
+   *  An admin is now deliberately allowed corpus-wide figures - a capability
+   *  `access.py` does not otherwise grant - and that is only defensible while
+   *  the screen says so. These two tests are what hold the label in place.
+   */
+  it("says the counts are corpus-wide when the caller is told they are", async () => {
+    mockApi(makeMetrics({ corpus_wide: true }));
+    await openDashboard();
+    expect(await screen.findByText(/Corpus-wide figures/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/including documents you cannot open/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Your documents only/)).toBeNull();
+  });
+
+  it("says the counts are the reader's own when they are", async () => {
+    mockApi(makeMetrics({ corpus_wide: false }));
+    await openDashboard();
+    expect(await screen.findByText(/Your documents only/)).toBeInTheDocument();
+    expect(screen.queryByText(/Corpus-wide figures/)).toBeNull();
   });
 });
 
@@ -346,6 +420,103 @@ describe("warnings", () => {
     );
     await openDashboard();
     expect(await screen.findByText(/OCR is detected but NOT implemented/)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------- per-type counts on Documents
+
+describe("the Documents tile's per-type counts", () => {
+  /** "Specification" is not one of this project's real document types -
+   *  it exists only in this fixture. If the tile rendered it anyway, the
+   *  component is reading `by_type` rather than a hardcoded list; if a
+   *  hardcoded list crept back in, this is the assertion that would fail. */
+  const byType = [
+    { type: "Drawing", in_register: 12, uploaded: 10, unconfirmed: 1 },
+    { type: "Specification", in_register: null, uploaded: 3, unconfirmed: 0 },
+    { type: "Report", in_register: 5, uploaded: 4, unconfirmed: 2 },
+  ];
+
+  it("shows each type's own name and uploaded count, in the register's own order", async () => {
+    mockApi(makeMetrics(), makeCoverage({ register_loaded: true, by_type: byType }));
+    await openDashboard();
+    const tile = await documentsTile();
+    expect(within(tile).getByText("Drawing")).toBeInTheDocument();
+    expect(within(tile).getByText("10")).toBeInTheDocument();
+    expect(within(tile).getByText("Specification")).toBeInTheDocument();
+    expect(within(tile).getByText("3")).toBeInTheDocument();
+    expect(within(tile).getByText("Report")).toBeInTheDocument();
+    expect(within(tile).getByText("4")).toBeInTheDocument();
+    // the register's own order, not alphabetical (Report < Drawing < ...)
+    const order = [
+      tile.textContent!.indexOf("Drawing"),
+      tile.textContent!.indexOf("Specification"),
+      tile.textContent!.indexOf("Report"),
+    ];
+    expect(order[0]).toBeLessThan(order[1]);
+    expect(order[1]).toBeLessThan(order[2]);
+  });
+
+  it("shows no type counts, and leaves the rest of the tile as it was, when coverage fails", async () => {
+    mockApi(makeMetrics(), null);
+    await openDashboard();
+    const tile = await documentsTile();
+    // the tile's own pre-existing line is still there
+    expect(within(tile).getByText(/pages read/)).toBeInTheDocument();
+    // but nothing about types - a coverage failure must not invent a zero
+    expect(within(tile).queryByText("Drawing")).toBeNull();
+    expect(within(tile).queryByText(/awaiting a type/)).toBeNull();
+  });
+
+  it("shows no type counts when coverage has not answered yet either", async () => {
+    // never resolving: the tile must render as-is, not spin forever waiting
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/classification/coverage")) return new Promise(() => {});
+        const body = url.includes("/metrics") ? makeMetrics() : url.includes("/health") ? health : [];
+        return Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }),
+    );
+    await openDashboard();
+    const tile = await documentsTile();
+    expect(within(tile).getByText(/pages read/)).toBeInTheDocument();
+    expect(within(tile).queryByText(/awaiting a type/)).toBeNull();
+  });
+
+  it("says nothing needs a type when needs_classification is zero", async () => {
+    mockApi(makeMetrics(), makeCoverage({ register_loaded: true, by_type: byType, needs_classification: 0 }));
+    await openDashboard();
+    const tile = await documentsTile();
+    expect(within(tile).queryByText(/awaiting a type/)).toBeNull();
+  });
+
+  it("shows an amber count awaiting a type when needs_classification is non-zero", async () => {
+    mockApi(makeMetrics(), makeCoverage({ register_loaded: true, by_type: byType, needs_classification: 7 }));
+    await openDashboard();
+    const tile = await documentsTile();
+    const line = within(tile).getByText(/awaiting a type/);
+    expect(line).toHaveTextContent("7 awaiting a type");
+    expect(line).toHaveClass("text-warn-500");
+  });
+
+  it("shows no type counts when coverage's boundary disagrees with the metrics' boundary", async () => {
+    // Coverage says corpus-wide while the dashboard is telling this reader
+    // "Your documents only" - showing per-type counts here would describe a
+    // different set of documents than the sentence above them claims.
+    mockApi(
+      makeMetrics({ corpus_wide: false }),
+      makeCoverage({ register_loaded: true, by_type: byType, corpus_wide: true }),
+    );
+    await openDashboard();
+    await screen.findByText(/Your documents only/);
+    const tile = await documentsTile();
+    expect(within(tile).queryByText("Drawing")).toBeNull();
   });
 });
 

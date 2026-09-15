@@ -82,15 +82,38 @@ class Document(BaseModel):
     )
     uploaded_at: str
     indexed_at: str | None = None
+    disciplines: list[str] = Field(
+        description="The disciplines this document is granted to - its category "
+        "as the access model defines it. Empty means no discipline holds it and "
+        "only an administrator can read it. Read from the grant tables, never "
+        "inferred from the filename or the content."
+    )
 
 
 class UploadAccepted(BaseModel):
-    document: Document | None = None
+    document: Document | None = Field(
+        None,
+        description="ABSENT when the bytes duplicate a document this caller "
+                    "may not read (#79). Not an error and not an empty "
+                    "record: the response says nothing about a document "
+                    "outside the caller's scope, the same answer every read "
+                    "path gives. Present in every other case.",
+    )
     job_id: str = Field(description="empty when the upload was a duplicate")
-    duplicate_of: str | None = None
+    duplicate_of: str | None = Field(
+        None,
+        description="The document these bytes already match, and null when "
+                    "the caller may not read it - the id is derived from the "
+                    "content hash, so stating it would confirm the content "
+                    "as well as the existence.",
+    )
     awaiting_grant: bool = Field(
         False,
-        description="true when an administrator must grant the caller access",
+        description="The upload was accepted and there is nothing for this "
+                    "caller to see until an administrator grants it. About "
+                    "the CALLER's request, never about the corpus: it does "
+                    "not distinguish a duplicate from anything else, so it "
+                    "is not an existence oracle.",
     )
 
 
@@ -513,6 +536,7 @@ AnswerType = Literal[
     "model_unavailable",
     # the input was never a document question - a greeting, thanks, chitchat
     "guidance",
+    "metadata",
 ]
 
 
@@ -620,6 +644,15 @@ class Coverage(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class PasswordResetRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=256)
+    password: str = Field(min_length=12, max_length=1024)
+
+
+class PasswordResetResult(BaseModel):
+    reset: Literal[True] = True
 
 
 class Me(BaseModel):
@@ -891,6 +924,131 @@ class MarketQueryPreview(BaseModel):
     would_be_sent_to: None = None
     sent: Literal[False]
     reason: str
+
+
+# ------------------------------------------- live public-market intelligence
+#
+# These describe the two routes the market panel is built against. They are
+# declared for the reason tests/test_no_internal_leaks.py exists: an untyped
+# 200 documents itself as `string`, so every frontend type written against it
+# is a guess. Wiring these routes without response models left that test red,
+# which is the codebase correctly refusing an undeclared body.
+#
+# A response_model also FILTERS. `market_providers.search_all` returns an
+# `audit` list for the persistence call site, and `to_api` strips it - but a
+# declared model means that even if `to_api` were bypassed, the audit rows
+# could not reach a browser. Two independent guards on the same leak, which is
+# the right number for the one field here that must never be served.
+
+
+class MarketOutboundPayload(BaseModel):
+    """THE OBJECT THAT WOULD LEAVE, for one tier.
+
+    A CLOSED shape, and the closure is the point: everything here is sent, so a
+    field added to this model is a field added to what leaves this machine.
+    There is deliberately nothing that could carry a passage - no `context`,
+    no `evidence`, no `surrounding_text`. See
+    tests/test_market_no_document_leak.py, which asserts the field NAMES as
+    well as the values.
+    """
+
+    phrase: str = Field(description="the scrubbed phrase, and the ONLY free "
+                                    "text that leaves this machine")
+    tier: str
+    provider_label: str
+    country: str | None
+    freshness_days: int | None
+
+
+class MarketPreviewPayload(BaseModel):
+    """One tier's payload, named so the reader knows which tier it belongs to."""
+
+    tier: str
+    provider_label: str
+    payload: MarketOutboundPayload
+
+
+class MarketPreview(BaseModel):
+    """What WOULD be sent, per tier. This route performs NO egress.
+
+    `payloads` IS A LIST, one entry per CONFIGURED tier, in attempt order. A
+    single payload could not be honest: a search builds one per tier, so
+    showing one meant the user approved an object that was never sent while up
+    to three others were - the defect this shape was rewritten to close.
+
+    `phrase` null means nothing safe survived and NO SEARCH IS POSSIBLE. Not
+    "send the raw text instead": a caller that falls back to the typed string
+    has broken the only guarantee that matters.
+    """
+
+    phrase: str | None
+    payloads: list[MarketPreviewPayload]
+    tiers_configured: list[str] = Field(
+        description="tiers this build could attempt, in order. Empty is real")
+    tiers_unconfigured: list[str] = Field(
+        description="tiers that cannot run here. Reported SEPARATELY from "
+                    "attempted, because nothing is ever sent to them")
+    tier_labels: dict[str, str] = Field(
+        description="tier id -> label. Sent so a caller never needs its own "
+                    "copy of this mapping, which would drift")
+
+
+class MarketRow(BaseModel):
+    """One public finding, or one labelled sample.
+
+    `published` is nullable and a null must render as NOTHING - not a dash, not
+    "N/A", and never today's date, which would date an undated page.
+    `retrieved` is when this machine fetched it and is always present.
+    """
+
+    text: str
+    provider_label: str = Field(
+        description="which tier produced this row, in its own words - or "
+                    "'sample - illustrative only' for a fixture, which no "
+                    "tier produced")
+    publisher: str
+    published: str | None
+    retrieved: str = Field(description="ISO-8601 UTC")
+    url: str
+    verification: str
+    is_sample: bool
+
+
+class MarketSearchRequest(BaseModel):
+    phrase: str
+    country: str | None = None
+    freshness_days: int | None = None
+
+
+class MarketSearchResult(BaseModel):
+    """The outcome of a search. FOUR states, and they mean different things.
+
+      * `enabled` false with a `phrase`: the feature is off and `rows` are the
+        labelled samples.
+      * `enabled` true with `phrase` null: nothing safe survived the scrub, so
+        no search was attempted. NOT a failure - the same state the preview
+        reports, so both screens can use one form of words.
+      * `failure` non-null: tiers were attempted and EVERY ONE failed. `rows`
+        is empty and samples are never substituted - a fixture served after a
+        failed live search is the one behaviour that turns this feature into a
+        liability.
+      * otherwise `rows` are real, and an empty `rows` is a real answer.
+
+    `tiers_attempted` against `tiers_answered` is what makes a dropped tier
+    visible. Unconfigured tiers are in neither: nothing was sent to them.
+    """
+
+    enabled: bool
+    phrase: str | None
+    rows: list[MarketRow]
+    tiers_attempted: list[str] = Field(
+        description="tiers actually CONTACTED. Never includes an unconfigured "
+                    "tier, so 'tried and did not answer' stays true")
+    tiers_answered: list[str]
+    tiers_unconfigured: list[str]
+    tier_labels: dict[str, str]
+    failure: str | None = Field(
+        None, description="set ONLY when every attempted tier failed")
 
 
 class ReportDocumentRow(BaseModel):
@@ -1207,6 +1365,13 @@ class Metrics(BaseModel):
 
     at: str
     refresh_seconds: int
+    corpus_wide: bool = Field(
+        description="True when `corpus` and `exclusions` count the WHOLE "
+                    "corpus rather than only documents this caller may read. "
+                    "Required, not optional: a count with no stated boundary "
+                    "reads as total, and the screen must be able to say which "
+                    "kind of number it is showing."
+    )
     corpus: CorpusMetrics
     exclusions: list[ExclusionSummary]
     jobs: JobMetrics
@@ -1216,7 +1381,15 @@ class Metrics(BaseModel):
     retrieval: RetrievalLatency | None = Field(
         None, description="null until a question has actually been asked"
     )
-    system: SystemMetrics | None = None
+    system: SystemMetrics | None = Field(
+        None,
+        description="The machine's own CPU, memory and disk. ABSENT, not "
+                    "zeroed, for any caller without the admin capability "
+                    "(#77) - host specifications are not a document, so "
+                    "document scoping could never have removed them. A "
+                    "blanked block would state measurements that are false; "
+                    "an absent one states nothing.",
+    )
     models: ModelStatus
     worker: WorkerStatus
     warnings: list[MetricWarning]
@@ -1269,3 +1442,102 @@ ERRORS_422 = {
 ERRORS_400 = {400: {"model": ApiError, "description": "Rejected request"}}
 ERRORS_401 = {401: {"model": ErrorEnvelope, "description": "Not signed in"}}
 ERRORS_429 = {429: {"model": ErrorEnvelope, "description": "Too many attempts"}}
+
+
+# ------------------------------------------------------------------ admin
+#
+# The admin screen's response shapes, matching `docs/design-admin-screen.md`.
+# Every warning is a Literal ENUM and never a sentence: the UI switches on the
+# value and owns the wording. A message built here would be a string the
+# frontend had to parse for meaning, and `facet` being a string on one side of
+# this boundary and a list on the other is what the contract was written after.
+
+
+class AdminUser(BaseModel):
+    """One row of the users table on the admin screen.
+
+    `last_login_at` is None for a user who has never signed in, and the UI
+    renders that as NOTHING - not a dash, not a zero, not "never". The null
+    reaches the client intact so the decision stays on the screen where the
+    reader is.
+    """
+
+    user_id: str = Field(examples=["usr_a1b2c3d4"])
+    email: str
+    disciplines: list[str]
+    is_admin: bool = Field(description="the admin capability, orthogonal to discipline")
+    active: bool
+    created_at: str | None = Field(None, examples=["2026-09-05T18:12:04Z"])
+    last_login_at: str | None = Field(None, description="null when never signed in")
+    warning: Literal["no_discipline"] | None = None
+
+
+class AdminUserList(BaseModel):
+    """Note what is NOT here: there is no `setup_token` field on this model,
+    so the token cannot be returned by this route even by accident."""
+
+    users: list[AdminUser]
+
+
+class AdminUserCreated(BaseModel):
+    """The ONLY response that ever carries a setup token.
+
+    `shown_once` is part of the contract rather than documentation of it: the
+    client is told, in the payload, that this value is not retrievable again -
+    the storage keeps only its SHA-256 - so a UI cannot decide to fetch it
+    later instead of showing it now.
+    """
+
+    user_id: str
+    email: str
+    setup_token: str = Field(description="shown once; never returned again")
+    setup_token_expires_at: str
+    shown_once: Literal[True] = True
+
+
+class AdminUserDeactivated(BaseModel):
+    """Deactivated, never deleted - conversations and reports reference a user
+    and a hard delete would orphan the evidence a report depends on."""
+
+    user_id: str
+    active: Literal[False] = False
+
+
+class AdminDiscipline(BaseModel):
+    name: str
+    user_count: int
+    document_count: int
+    warning: Literal["no_documents"] | None = Field(
+        None, description="everyone in this discipline sees an empty corpus")
+
+
+class AdminDisciplineList(BaseModel):
+    disciplines: list[AdminDiscipline]
+
+
+class AdminGrantDocument(BaseModel):
+    document_id: str
+    filename: str
+    disciplines: list[str]
+    warning: Literal["no_discipline_can_see_this"] | None = Field(
+        None, description="invisible in every search; looks like a broken upload")
+
+
+class AdminGrantList(BaseModel):
+    documents: list[AdminGrantDocument]
+
+
+class AdminGrantResult(BaseModel):
+    """`granted` states the RESULTING state, not what this call changed.
+
+    That is what makes PUT and DELETE idempotent from the client's side too: a
+    revoke of something already revoked returns exactly what a revoke of a live
+    grant returns, so a retried click has nothing to reconcile.
+    """
+
+    document_id: str
+    discipline: str
+    granted: bool
+
+
+ERRORS_409 = {409: {"model": ErrorEnvelope, "description": "Conflicts with existing state"}}

@@ -20,9 +20,11 @@ ways rather than by intention:
     silently become "real".
   * `verification` may only be `source_not_verified` for a sample. Nothing here
     has been read, so nothing here may claim it was.
-  * The response carries `egress` stating that web search is off and public
-    egress is blocked, so the panel's own banner is driven by the API rather
-    than hard-coded in the component.
+  * The response carries `egress` stating whether web search is enabled and
+    whether public egress is permitted, so the panel's own banner is driven by
+    the API rather than hard-coded in the component. It reports the FLAGS, not
+    two literals - see `egress_state`, which was hardcoded and therefore
+    correct only while the flags happened to agree with it.
 
 EGRESS. `PublicMarketQuery` is the only object that would ever leave this
 machine, and building one is a preview - it is never sent. It is assembled from
@@ -37,6 +39,8 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
+
+from .config import settings
 
 SAMPLE_PATH = Path(__file__).resolve().parent / "samples" / "market_sample.json"
 
@@ -105,8 +109,39 @@ def reload_samples() -> None:
 
 
 def egress_state() -> dict:
-    """What this build will and will not do. Read by the panel's banner."""
-    return {"web_search_enabled": False, "allow_public_egress": False}
+    """What this build will and will not do. Read by the panel's banner.
+
+    READS THE FLAGS. It used to return two hardcoded `False` values, and that
+    was correct only by coincidence: the settings that decide the behaviour did
+    not exist when it was written, and once they did, this function became a
+    claim they could contradict. Measured, with both flags set:
+
+        egress_state() = {web_search_enabled: False, allow_public_egress: False}
+        live_enabled() = True
+
+    So an operator who switched egress on got a screen still promising PUBLIC
+    EGRESS BLOCKED while the backend was willing to make outbound calls. The
+    direction was safe - it under-promised - which is exactly why nothing
+    caught it: with the flags off the literal happened to be right.
+
+    That is the pattern docs/status-honesty-audit.md exists to catch, on the
+    one banner whose entire job is to state the privacy posture. A field
+    derived from something adjacent to the truth rather than from the truth
+    itself.
+
+    BOTH FLAGS, AND WHY THEY ARE TWO. `web_search_enabled` answers "is the
+    feature built and switched on" and `allow_public_egress` answers "does
+    this deployment permit traffic to leave". Reported separately because a
+    reader seeing one true and the other false is being told something real:
+    the feature is on but this machine is not allowed to talk to the internet,
+    so nothing will be sent. Collapsing them into one boolean would lose that.
+    Nothing is sent unless both are true - see `market_providers.live_enabled`,
+    which is the same conjunction and the thing that actually gates the calls.
+    """
+    return {
+        "web_search_enabled": bool(settings.market_live_enabled),
+        "allow_public_egress": bool(settings.market_allow_public_egress),
+    }
 
 
 def findings() -> dict:

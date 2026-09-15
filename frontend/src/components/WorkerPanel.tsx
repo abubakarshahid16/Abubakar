@@ -66,7 +66,10 @@ export function humaniseReason(code: string): string {
 export function WorkerPanel({
   connection,
   documents = [],
-  /** The full worker status, from the SCOPED /api/metrics. Optional: without
+  /** The full worker status, from /api/metrics - genuinely scoped only as of
+   *  the commit that corrected this comment. The word SCOPED stood here as a
+   *  justification for reading document-identifying fields from that route
+   *  while the route ignored the scope it resolved. Optional: without
    *  it this panel still reports whether the worker is alive, busy or stalled
    *  from /api/health, and simply does not name the document being processed.
    *

@@ -66,14 +66,13 @@ export interface TypeVocabularyLoad {
   settled: boolean;
 }
 
-export function useTypeVocabularyLoad(enabled = true): TypeVocabularyLoad {
+export function useTypeVocabularyLoad(): TypeVocabularyLoad {
   const [vocab, setVocab] = useState<ClassificationVocabulary | null>(null);
   const [coverage, setCoverage] = useState<ClassificationCoverage | null>(null);
   const [failed, setFailed] = useState(false);
   const [settled, setSettled] = useState(false);
 
   useEffect(() => {
-    if (!enabled) return;
     let cancelled = false;
     void (async () => {
       const [v, c] = await Promise.all([
@@ -89,9 +88,7 @@ export function useTypeVocabularyLoad(enabled = true): TypeVocabularyLoad {
     return () => {
       cancelled = true;
     };
-  }, [enabled]);
-
-  if (!enabled) return { vocabulary: null, settled: true };
+  }, []);
 
   // BOTH CONDITIONS ARE LOAD-BEARING. `!vocab` is "the answer has not
   // arrived"; the Array check is "the answer arrived malformed". Returning a
@@ -122,8 +119,8 @@ export function useTypeVocabularyLoad(enabled = true): TypeVocabularyLoad {
   };
 }
 
-export function useTypeVocabulary(enabled = true): TypeVocabulary | null {
-  return useTypeVocabularyLoad(enabled).vocabulary;
+export function useTypeVocabulary(): TypeVocabulary | null {
+  return useTypeVocabularyLoad().vocabulary;
 }
 
 /** Selected types, and the scope object to send. Held by the screen so that

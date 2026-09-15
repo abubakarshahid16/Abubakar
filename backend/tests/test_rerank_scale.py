@@ -200,7 +200,8 @@ def test_the_lexical_gate_is_not_relative():
     relative scheme manufactures hallucinations."""
     from app import lexical
 
-    verdict = lexical.assess("what is the warranty period for Inconel 625", "any text")
+    verdict = lexical.assess("what is the warranty period for Inconel 625", "any text",
+                            allowed_document_ids=_scope())
     # decided on presence in the corpus, not on any candidate's score
     assert "coverage" in verdict and "absent_from_corpus" in verdict
     assert not hasattr(lexical, "MIN_SEPARATION")
@@ -260,6 +261,7 @@ def test_a_cross_reference_is_not_admitted_as_a_second_passage(monkeypatch):
         [primary, cross_ref],
         primary,
         None,
+        _scope(),
     )
     assert second is None, (
         f"clause {cross_ref['section']} was admitted as a co-answer; it only "
@@ -301,6 +303,7 @@ def test_a_genuinely_two_part_question_still_gets_two_passages(monkeypatch):
         [primary, co_answer],
         primary,
         None,
+        _scope(),
     )
     assert second is not None, "the legitimate second half of the answer was dropped"
     assert second["section"].startswith("4.4")

@@ -1,16 +1,36 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { auth, onSignedOut, setToken } from "./api/client";
-import { Shell, useConnection, type ViewId } from "./components/Shell";
+import {
+  hasAdminCapability,
+  Shell,
+  useConnection,
+  type ThemeMode,
+  type ViewId,
+} from "./components/Shell";
 import { DisconnectedState } from "./components/states";
+import { AdminScreen } from "./views/AdminScreen";
 import { ChatView } from "./views/ChatView";
 import { DashboardView } from "./views/DashboardView";
 import { DocumentsView } from "./views/DocumentsView";
 import { IngestionView } from "./views/IngestionView";
 import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
-import { AnalysisScreen } from "./views/AnalysisScreen";
+import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
-import type { Me } from "./types/api";
+import type { AuthStatus, Me } from "./types/api";
+
+//: One key, named once. A typo in a second literal is a preference that
+//: silently never persists.
+const THEME_KEY = "rag-intelligence-theme";
+
+//: The key this app wrote before the product rename. READ ONCE, NEVER WRITTEN.
+//: Dropping it outright would silently put every user who had chosen light mode
+//: back into dark: the new key reads `null`, the code falls through to the
+//: "dark" default, and nothing errors. No test can catch it either - tests
+//: start from an empty localStorage, where both keys behave identically. The
+//: effect below writes the new key on mount, so the value migrates on first
+//: load; this line can be deleted once no browser in use still holds it.
+const LEGACY_THEME_KEY = "nabaa-theme";
 
 /** Whether this deployment wants a sign-in, and who is signed in.
  *
@@ -30,10 +50,29 @@ type Session =
   | { s: "disabled" }
   | { s: "required"; me: Me | null };
 
-export default function App() {
-  const [view, setView] = useState<ViewId>("documents");
+export default function App({ initialView = "documents" }: { initialView?: ViewId } = {}) {
+  // The view the app opens on. A prop rather than a hard-coded literal so that
+  // "the reader is somehow already on this view" is expressible - which is the
+  // only way to assert that the admin gate is the gate, rather than the
+  // absence of a navigation button being the gate. There is no router yet; if
+  // one lands, this is where a deep link arrives.
+  const [view, setView] = useState<ViewId>(initialView);
   const { connection, recheck } = useConnection();
   const [session, setSession] = useState<Session>({ s: "checking" });
+
+  // The bearer token, mirrored here ONLY so the admin screen can be handed one.
+  //
+  // api/client.ts owns the token and deliberately exposes no getter (it is a
+  // module-level variable, never localStorage), and AdminScreen's transport
+  // needs to attach it. This is the same value that was just passed to
+  // setToken, held in a ref rather than state so that reading it never causes
+  // a render, and cleared everywhere the client's copy is cleared. It is not
+  // persisted and not logged.
+  const tokenRef = useRef<string | null>(null);
+  // Stable across renders on purpose: AdminScreen memoises its transport on
+  // this identity, and a fresh arrow each render would rebuild the client,
+  // re-run its load effect and re-render forever.
+  const readToken = useCallback(() => tokenRef.current, []);
 
   // The mode is discovered from the API, never from /api/health - health is
   // unauthenticated and was narrowed deliberately, and putting auth_mode on it
@@ -67,7 +106,10 @@ export default function App() {
   // The client clears the token on any 401 and calls this. No auto-retry and
   // no refresh flow: there is no refresh token by design.
   useEffect(() => {
-    onSignedOut(() => setSession({ s: "required", me: null }));
+    onSignedOut(() => {
+      tokenRef.current = null;
+      setSession({ s: "required", me: null });
+    });
     return () => onSignedOut(null);
   }, []);
 
@@ -76,6 +118,7 @@ export default function App() {
       const r = await auth.login(email, password);
       if (r.ok) {
         setToken(r.data.token);
+        tokenRef.current = r.data.token;
         setSession({ s: "required", me: r.data.user });
         return { ok: true };
       }
@@ -91,7 +134,15 @@ export default function App() {
 
   const signOut = useCallback(() => {
     setToken(null);
+    tokenRef.current = null;
     setSession({ s: "required", me: null });
+  }, []);
+
+  const resetPassword = useCallback(async (resetToken: string, password: string) => {
+    const result = await auth.resetPassword(resetToken, password);
+    if (result.ok) return { ok: true as const };
+    if (result.disconnected) return { ok: false as const, message: "The backend is not running." };
+    return { ok: false as const, message: result.error.message };
   }, []);
 
   // NOT a blank screen while the check is in flight. A blank page is
@@ -106,8 +157,60 @@ export default function App() {
   // navigation to views the reader cannot reach. `connected` is passed
   // through because "the backend is down" and "that password is wrong" must
   // never look like the same failure.
+
+  //: Dark or light, remembered across reloads.
+  //:
+  //: The toggle in the Shell was wired to a handler nobody supplied, so
+  //: clicking it changed a value that went nowhere. The [data-theme] blocks in
+  //: index.css were complete and correct and simply unreachable.
+  //:
+  //: Stamping the attribute does MORE than switch the toggle on. The bare
+  //: @theme block still carries the pre-redesign palette - ground #070b10,
+  //: secondary #7d90a4 at 4.1:1, below the accessibility floor for the sizes
+  //: it is used at. The CORRECTED dark values live in [data-theme="dark"], so
+  //: until something stamps, every reader gets the old contrast whether or not
+  //: they ever touch the toggle.
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    // A private window throws on READ, not just on write, so the fallback has
+    // to sit around the read as well.
+    try {
+      const saved =
+        localStorage.getItem(THEME_KEY) ?? localStorage.getItem(LEGACY_THEME_KEY);
+      return saved === "light" || saved === "dark" ? saved : "dark";
+    } catch {
+      return "dark";
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    // A forgotten preference is a nuisance; a crash on a blocked storage API
+    // is a broken app. The theme still applies for this session either way.
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      /* storage unavailable - not worth telling the reader about */
+    }
+  }, [theme]);
+
+  // `/api/auth/me`'s answer, reassembled. `checking` and `unknown` are null:
+  // the question has not been answered, and an unanswered question grants
+  // nothing.
+  const authStatus: AuthStatus | null =
+    session.s === "disabled"
+      ? { required: false, user: null }
+      : session.s === "required"
+        ? { required: true, user: session.me }
+        : null;
+
+  // The single decision. Both the navigation entry and the screen itself read
+  // THIS - so there is no arrangement of view state in which one exists
+  // without the other.
+  const canAdmin = hasAdminCapability(authStatus);
+
   if (session.s === "required" && session.me === null) {
-    return <LoginView onLogin={signIn} connected={connection.state !== "offline"} />;
+    return <LoginView onLogin={signIn} onResetPassword={resetPassword}
+      connected={connection.state !== "offline"} />;
   }
 
   return (
@@ -115,6 +218,9 @@ export default function App() {
       view={view}
       onNavigate={setView}
       connection={connection}
+      auth={authStatus}
+      theme={theme}
+      onThemeChange={setTheme}
       identity={
         // Nothing is claimed while the backend is unreachable. "Authentication
         // disabled" is a statement about the deployment, and it must not be
@@ -137,7 +243,7 @@ export default function App() {
       ) : (
         <>
           {view === "documents" && (
-            <DocumentsView connection={connection} onRetryConnection={recheck} />
+            <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin} />
           )}
           {view === "chat" && (
             <ChatView connection={connection} onRetryConnection={recheck} />
@@ -148,8 +254,14 @@ export default function App() {
           {view === "dashboard" && (
             <DashboardView connection={connection} onRetryConnection={recheck} />
           )}
-          {view === "analysis" && <AnalysisScreen />}
+          {view === "analysis" && <AnalysisModeScreen />}
           {view === "reports" && <ReportsScreen />}
+          {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting
+              the view to "admin" by any other means - a stale state value, a
+              devtools poke - renders nothing at all. The server is the real
+              boundary (every /api/admin route 404s a non-admin), and this is
+              the UI keeping the same answer. */}
+          {view === "admin" && canAdmin && <AdminScreen tokenProvider={readToken} />}
         </>
       )}
     </Shell>

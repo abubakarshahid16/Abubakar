@@ -151,7 +151,7 @@ def test_no_stage_leaves_work_done_with_the_state_unadvanced():
     chunks = conn.execute(
         "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (doc_id,)
     ).fetchone()[0]
-    indexed = keyword.indexed_count(doc_id)
+    indexed = keyword.indexed_count(doc_id, allowed_document_ids=_scope())
     vectors = conn.execute(
         "SELECT COUNT(*) FROM chunk_vectors WHERE document_id = ?", (doc_id,)
     ).fetchone()[0]
@@ -188,7 +188,7 @@ def test_a_document_stranded_by_an_older_build_is_recovered():
             " WHERE id = ?",
             (states.INDEXING_KEYWORD, doc_id),
         )
-    assert keyword.indexed_count(doc_id) > 0
+    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) > 0
     assert worker._next_document() == doc_id, "a stranded document is not even queued"
 
     worker.process(doc_id)
@@ -197,3 +197,16 @@ def test_a_document_stranded_by_an_older_build_is_recovered():
     ).fetchone()
     assert row["status"] == states.READY
     assert row["indexed_at"] is not None
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    The lexical presence gate now REQUIRES an access scope with no default, so
+    a test has to name the documents it is allowed to see. These want all of
+    them, and saying so out loud is the point: each of these is a line
+    somebody changes on purpose rather than a default that quietly kept
+    meaning "everything".
+    """
+    from app.search import every_document_id
+    return every_document_id()

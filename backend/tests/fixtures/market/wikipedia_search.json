@@ -1,0 +1,61 @@
+{
+  "batchcomplete": "",
+  "continue": {
+    "sroffset": 5,
+    "continue": "-||"
+  },
+  "query": {
+    "searchinfo": {
+      "totalhits": 13,
+      "suggestion": "iso 129 1",
+      "suggestionsnippet": "iso 129 1"
+    },
+    "search": [
+      {
+        "ns": 0,
+        "title": "ISO 12944",
+        "pageid": 28872866,
+        "size": 952,
+        "wordcount": 112,
+        "snippet": "<span class=\"searchmatch\">ISO</span> <span class=\"searchmatch\">12944</span> is an international standard on corrosion protection of steel structures by protective paint systems. It consists of several parts: Part 1:",
+        "timestamp": "2023-09-26T17:05:28Z"
+      },
+      {
+        "ns": 0,
+        "title": "Maintenance",
+        "pageid": 91191,
+        "size": 27754,
+        "wordcount": 3154,
+        "snippet": "Springer (2013). Marine Painting Manual (1st ed.). ISBN 978-90-481-8244-2. <span class=\"searchmatch\">ISO</span> <span class=\"searchmatch\">12944</span>-9:2018 – Paints and Varnishes – Corrosion Protection of Steel Structures",
+        "timestamp": "2026-08-08T00:35:26Z"
+      },
+      {
+        "ns": 0,
+        "title": "Salt spray test",
+        "pageid": 6311700,
+        "size": 19288,
+        "wordcount": 2726,
+        "snippet": "hot-dip galvanized coating can be tested according to this method. See <span class=\"searchmatch\">ISO</span> <span class=\"searchmatch\">12944</span>-6. Testing periods range from a few hours (e.g. 8 or 24 hours of phosphated",
+        "timestamp": "2026-04-30T14:09:48Z"
+      },
+      {
+        "ns": 0,
+        "title": "List of ISO standards 12000–13999",
+        "pageid": 59337297,
+        "size": 55110,
+        "wordcount": 7437,
+        "snippet": "conceptual framework <span class=\"searchmatch\">ISO</span> 12931:2012 Performance criteria for authentication solutions used to combat counterfeiting of material goods <span class=\"searchmatch\">ISO</span> <span class=\"searchmatch\">12944</span> Paints and varnishes",
+        "timestamp": "2026-05-05T22:20:00Z"
+      },
+      {
+        "ns": 0,
+        "title": "Musawa",
+        "pageid": 24869565,
+        "size": 4995,
+        "wordcount": 212,
+        "snippet": "Location in Nigeria Coordinates: 12°07′46″N 7°40′08″E﻿ / ﻿12.<span class=\"searchmatch\">12944</span>°N 7.66889°E﻿ / 12.<span class=\"searchmatch\">12944</span>; 7.66889 Country Nigeria State Katsina State established 1989",
+        "timestamp": "2026-07-29T06:40:32Z"
+      }
+    ]
+  }
+}

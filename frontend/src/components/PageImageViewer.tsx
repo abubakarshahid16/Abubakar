@@ -11,6 +11,7 @@ import { api } from "../api/client";
 import type { ApiError, DocumentRecord, PageRecord } from "../types/api";
 import { Drawer } from "./Drawer";
 import { DisconnectedState, ErrorState, Spinner } from "./states";
+import { useAuthedImage } from "./useAuthedImage";
 
 const PAGE_SIZE = 100;
 const ZOOMS = [0.5, 0.75, 1, 1.5, 2] as const;
@@ -25,8 +26,7 @@ export function PageImageViewer({
   const [pages, setPages] = useState<PageRecord[]>([]);
   const [selected, setSelected] = useState(1);
   const [zoom, setZoom] = useState<number>(1);
-  const [imageLoading, setImageLoading] = useState(true);
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const image = useAuthedImage(api.pageImageUrl(doc.id, selected));
   const [state, setState] = useState<
     { s: "loading" } | { s: "error"; error: ApiError; disconnected: boolean } | { s: "ready" }
   >({ s: "loading" });
@@ -45,24 +45,6 @@ export function PageImageViewer({
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => setImageLoading(true), [selected, zoom]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const url = api.pageImageUrl(doc.id, selected);
-    setImageSrc(null);
-    void fetch(url, { credentials: "include" })
-      .then((r) => {
-        if (!r.ok) throw new Error("image request failed");
-        return r.blob();
-      })
-      .then((blob) => {
-        if (!cancelled) setImageSrc(URL.createObjectURL(blob));
-      })
-      .catch(() => { if (!cancelled) setImageSrc(null); });
-    return () => { cancelled = true; };
-  }, [doc.id, selected]);
 
   const current = pages.find((p) => p.page_no === selected);
   const total = doc.page_count ?? pages.length;
@@ -156,16 +138,22 @@ export function PageImageViewer({
           )}
 
           <div className="overflow-auto rounded border border-ink-700 bg-ink-950 p-3">
-            {imageLoading && <Spinner label={`Rendering page ${selected}`} />}
-            <img
-              key={`${doc.id}-${selected}`}
-              src={imageSrc ?? ""}
-              alt={`Page ${selected} of ${doc.filename}`}
-              onLoad={() => setImageLoading(false)}
-              onError={() => setImageLoading(false)}
-              style={{ width: `${zoom * 100}%` }}
-              className="mx-auto block max-w-none rounded bg-white"
-            />
+            {image.loading && <Spinner label={`Rendering page ${selected}`} />}
+            {image.failed && (
+              <p className="text-xs text-warn-500">
+                The page image could not be rendered. The extracted text above is
+                what the system searched and cited.
+              </p>
+            )}
+            {image.src && (
+              <img
+                key={`${doc.id}-${selected}`}
+                src={image.src}
+                alt={`Page ${selected} of ${doc.filename}`}
+                style={{ width: `${zoom * 100}%` }}
+                className="mx-auto block max-w-none rounded bg-white"
+              />
+            )}
           </div>
         </>
       )}

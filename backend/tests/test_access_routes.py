@@ -20,7 +20,7 @@ import fitz
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, db
+from app import access, db, states
 from app.config import settings
 from app.db import connect
 from app.ingest import IngestionWorker
@@ -189,6 +189,44 @@ def test_a_user_with_no_grants_at_all_sees_an_empty_corpus(
     assert client.get("/api/documents").json() == []
     assert client.get(f"/api/documents/{doc_id}").status_code == 404
     assert client.get("/api/search", params={"q": "coating"}).json()["hits"] == []
+    # The line this test stopped one short of for as long as it has existed.
+    # /api/documents was scoped and /api/metrics was not, so the Documents
+    # screen said "No documents yet" while the Dashboard counted the whole
+    # corpus to the same caller in the same session.
+    assert client.get("/api/metrics").json()["corpus"]["documents"] == 0
+
+
+def test_metrics_does_not_name_another_users_unsearchable_document(
+        tmp_path, monkeypatch):
+    """A filename reaches /api/metrics through `warnings`, not through `corpus`.
+
+    The live probe that found this leak saw only aggregate counts, because
+    every document in that corpus was `ready`. That is a property of the data,
+    not of the code: `warnings()` interpolates the filename into its message
+    for two terminal statuses, and one of them - `no_searchable_content` - is a
+    SUCCESSFUL outcome. The document finished, every progress bar reads
+    complete, and search can see none of it. It is the likelier of the two to
+    occur in normal use, since a scanned PDF whose every chunk is excluded
+    lands there with nothing going wrong.
+
+    So the fixture manufactures the state rather than waiting for it.
+    """
+    client = TestClient(app)
+    doc_id = _upload(client, tmp_path, "someone-elses.pdf")
+    IngestionWorker().process(doc_id)
+    with connect() as conn:
+        conn.execute("UPDATE documents SET status = ?, error_message = ? WHERE id = ?",
+                     (states.NO_SEARCHABLE_CONTENT, "every chunk was excluded", doc_id))
+
+    _grant("nobody", [])
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_REQUIRED)
+    access.set_user_resolver(lambda req: "nobody")
+
+    body = client.get("/api/metrics").text
+    assert "someone-elses.pdf" not in body, (
+        "a filename the caller has no grant for reached the metrics response")
+    assert doc_id not in body, (
+        "a document id the caller has no grant for reached the metrics response")
 
 
 def test_an_unidentified_caller_sees_nothing_rather_than_everything(
@@ -252,7 +290,31 @@ def test_two_concurrent_requests_never_share_scope(tmp_path, monkeypatch):
 
 # --------------------------------------------------- the disabled default
 
-def test_auth_disabled_is_the_default_and_changes_nothing(tmp_path):
+def test_auth_disabled_is_the_shipped_default():
+    """The DEFAULT, read from a Settings built with no environment at all.
+
+    This assertion used to read `settings.auth_mode == AUTH_DISABLED` against
+    the module-level singleton. That was a real check until conftest began
+    pinning the mode for the whole session - at which point it was asserting
+    the value a fixture had just set, three files away, and could not fail.
+    It would have stayed green if the shipped default were flipped to
+    `demo_required` tomorrow.
+
+    A fresh `Settings()` is what the claim was always about: what a deployment
+    gets when it sets nothing. `_env_file=None` is the important half - without
+    it pydantic-settings reads `backend/.env`, and on a developer machine that
+    file says `demo_required`, so the test would assert the developer's local
+    configuration rather than the shipped default.
+    """
+    from app.config import Settings
+
+    assert Settings(_env_file=None).auth_mode == access.AUTH_DISABLED, (
+        "the shipped default is no longer 'disabled' - every pre-existing test "
+        "runs under that default, and changing it silently changes what they "
+        "prove")
+
+
+def test_auth_disabled_changes_nothing(tmp_path):
     """Every pre-existing test runs under this. It is what proves the
     enforcement is additive, and what makes the rollback a config change."""
     assert settings.auth_mode == access.AUTH_DISABLED

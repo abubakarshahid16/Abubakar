@@ -10,7 +10,7 @@ import os, sqlite3, subprocess, sys, time
 DOC = "doc_b02fb622b193"
 BACKEND = r"d:\project\Rag_chatbot\backend"
 PY = r"d:\project\Rag_chatbot\.venv\Scripts\python.exe"
-DB = os.path.join(BACKEND, "data", "nabaa.sqlite")
+DB = os.path.join(BACKEND, "data", "rag_intelligence.sqlite")
 
 
 def q():

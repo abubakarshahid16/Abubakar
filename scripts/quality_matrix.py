@@ -3,7 +3,7 @@ import sqlite3
 
 from app.quality import assess
 
-c = sqlite3.connect("file:data/nabaa.sqlite?mode=ro", uri=True)
+c = sqlite3.connect("file:data/rag_intelligence.sqlite?mode=ro", uri=True)
 c.row_factory = sqlite3.Row
 
 GOOD_PROSE = list(c.execute(

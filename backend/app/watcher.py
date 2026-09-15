@@ -55,6 +55,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import access
+from . import admin as admin_mod
 from . import errors
 from . import upload as upload_mod
 from .config import settings
@@ -582,9 +583,7 @@ class FolderWatcher:
         # that wrote a row `grant_on_upload` would not write would be handing
         # out access the upload route cannot, which is a privilege escalation
         # dressed as a convenience.
-        granted = []
-        if owner_id:
-            granted = access.grant_uploaded_document_to_owner(row["id"], owner_id)
+        granted = admin_mod.grant_on_upload(row["id"], owner_id)
         record_event(
             path.name, source, sha256, INGESTED, document_id=row["id"],
             detail=(f"queued as job {job_id}" if job_id else "queued")

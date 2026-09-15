@@ -160,13 +160,48 @@ def index_document(
     }
 
 
-def indexed_count(document_id: str | None = None) -> int:
+def _scope_predicate(
+    allowed_document_ids: frozenset[str],
+) -> tuple[str, list[object]]:
+    """` AND document_id IN (...)`, and the ids to bind.
+
+    Same construction as `search` above, for the same reason: the restriction
+    goes INSIDE the SQL. Ids are bound as parameters, never concatenated.
+    """
+    marks = ",".join("?" * len(allowed_document_ids))
+    return f" AND document_id IN ({marks})", sorted(allowed_document_ids)
+
+
+def indexed_count(
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> int:
+    """How many indexed chunks the caller may read.
+
+    `allowed_document_ids` is REQUIRED and keyword-only, and has no default -
+    the same discipline as `search`, and for the same reason. This count is
+    the denominator the lexical gate judges commonness against and the switch
+    that decides whether the gate runs at all, so an unscoped value let a
+    caller's answerability verdict be decided by documents they cannot read.
+    """
     conn = connect()
     ensure_schema(conn)
-    if document_id is None:
-        return conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0]
+    if not allowed_document_ids:
+        # A real answer: this caller may read nothing, so nothing is indexed
+        # for them. The gate treats 0 as "abstain", which is the safe
+        # direction - it never becomes a claim that a term is absent.
+        return 0
+    scope_sql, scope_params = _scope_predicate(allowed_document_ids)
+    params: list[object] = []
+    where = "1 = 1"
+    if document_id is not None:
+        where += " AND document_id = ?"
+        params.append(document_id)
+    where += scope_sql
+    params.extend(scope_params)
     return conn.execute(
-        "SELECT COUNT(*) FROM chunks_fts WHERE document_id = ?", (document_id,)
+        f"SELECT COUNT(*) FROM chunks_fts WHERE {where}", params
     ).fetchone()[0]
 
 
@@ -360,22 +395,40 @@ def search(
     ]
 
 
-def term_occurrences(term: str, document_id: str | None = None) -> int:
-    """How many indexed chunks contain this term at all.
+def term_occurrences(
+    term: str,
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> int:
+    """How many indexed chunks the caller may read contain this term at all.
 
     Zero is decisive. A question about Inconel against a corpus where Inconel
     appears nowhere needs no semantic judgement to refuse - and the semantic
     score will happily return a confident-looking passage about something else
     if it is the only thing asked. Lexical presence is the cheaper and more
     reliable first gate.
+
+    SCOPED, AND THE SCOPE IS REQUIRED. "Decisive" is exactly why: this count
+    reaching zero is what produces the user-visible refusal "none of the terms
+    in this question appear in the indexed documents". Computed corpus-wide it
+    answered a question about documents the caller has no grant on - a
+    presence oracle, and one whose verdict is then read aloud to them. A term
+    that appears only in a document they may not read must count as absent
+    FOR THEM, because for them it is.
     """
     conn = connect()
     ensure_schema(conn)
+    if not allowed_document_ids:
+        return 0
     params: list[object] = [_escape(term)]
     where = "chunks_fts MATCH ?"
     if document_id:
         where += " AND document_id = ?"
         params.append(document_id)
+    scope_sql, scope_params = _scope_predicate(allowed_document_ids)
+    where += scope_sql
+    params.extend(scope_params)
     try:
         return conn.execute(
             f"SELECT COUNT(*) FROM chunks_fts WHERE {where}", params

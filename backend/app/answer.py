@@ -19,18 +19,18 @@ from __future__ import annotations
 
 import re
 
-import httpx
-
 from . import intent as intent_mod
 from . import keyword
 from . import context_budget
 from . import coverage
 from . import progress
 from . import lexical
+from . import model_transport
 from . import passages as passages_mod
 from . import telemetry
 from . import search as search_mod
 from .config import settings
+from .db import connect
 from .rates import Timer
 
 #: System prompt variant B, measured at 122 net tokens. Kept short because at
@@ -98,6 +98,11 @@ _CITATION = re.compile(r"\[S(\d+)\]")
 #: at the very end of the text. Anchored to the end on purpose - a bare "["
 #: mid-sentence is ordinary prose and must survive.
 _HALF_CITATION = re.compile(r"\s*\[S?\d*$")
+_DOCUMENT_COUNT = re.compile(
+    r"\b(?:how many|number of|count of)\s+(?:documents?|files?)\b|"
+    r"\b(?:documents?|files?)\s+(?:are|were)\s+(?:uploaded|loaded|in the corpus)\b",
+    re.IGNORECASE,
+)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -198,7 +203,10 @@ GATE_CANDIDATES = 5
 
 
 def _assess_candidates(
-    question: str, hits: list[dict], document_id: str | None
+    question: str,
+    hits: list[dict],
+    document_id: str | None,
+    allowed_document_ids: frozenset[str],
 ) -> tuple[dict, int]:
     """The best lexical verdict across the top candidates, and whose it was.
 
@@ -214,7 +222,9 @@ def _assess_candidates(
 
     best, best_index = None, 0
     for i, hit in enumerate(hits[:GATE_CANDIDATES]):
-        verdict = lexical.assess(question, _searchable_text(hit), document_id)
+        verdict = lexical.assess(
+            question, _searchable_text(hit), document_id,
+            allowed_document_ids=allowed_document_ids)
         if verdict["ok"]:
             return verdict, i
         if best is None or (verdict["coverage"] or 0) > (best["coverage"] or 0):
@@ -284,7 +294,11 @@ def _is_semantically_credible(hit: dict) -> bool:
 
 
 def _second_passage(
-    question: str, hits: list[dict], first: dict, document_id: str | None
+    question: str,
+    hits: list[dict],
+    first: dict,
+    document_id: str | None,
+    allowed_document_ids: frozenset[str],
 ) -> dict | None:
     """A second passage, when one passage cannot answer the whole question.
 
@@ -302,7 +316,8 @@ def _second_passage(
     # answer for no reason.
     missing = {
         t.lower() for t in lexical.distinguishing_uncovered_terms(
-            question, first["text"], document_id
+            question, first["text"], document_id,
+            allowed_document_ids=allowed_document_ids,
         )
     }
     if not missing:
@@ -359,7 +374,9 @@ def _second_passage(
         if wants_designator and not hit.get("heading_declares"):
             continue
 
-        if not lexical.assess(question, hit["text"], document_id)["ok"]:
+        if not lexical.assess(
+                question, hit["text"], document_id,
+                allowed_document_ids=allowed_document_ids)["ok"]:
             continue
         if any(term in hit["text"].lower() for term in missing):
             return hit
@@ -400,10 +417,13 @@ def _call_model(prompt: str, timeout: float = 180.0) -> dict:
         # once rather than on every question
         "keep_alive": "30m",
     }
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(f"{settings.ollama_url}/api/generate", json=body)
-        response.raise_for_status()
-        return response.json()
+    # THROUGH THE ONE TRANSPORT, never a URL formatted here. `body["prompt"]`
+    # is `_build_prompt`'s output - retrieved passage text, verbatim - so this
+    # is the largest outbound lane in the system, and it used to be an
+    # unvalidated `.env` string with no host check of any kind.
+    # `model_transport` re-validates the configured model URL immediately
+    # before the socket, so a value assigned after startup cannot get past it.
+    return model_transport.post_json("/api/generate", body, timeout=timeout)
 
 
 def strip_half_citation(text: str) -> str:
@@ -449,12 +469,40 @@ def answer(
     """
     timer = Timer()
 
+    # Aggregate application metadata is not document evidence. Answer this
+    # narrow, non-sensitive statistic directly from the caller's scope rather
+    # than retrieving unrelated passages and refusing a question the system
+    # itself can answer. The scope filter prevents revealing hidden documents.
+    if _DOCUMENT_COUNT.search(question or ""):
+        count = 0
+        if allowed_document_ids:
+            placeholders = ",".join("?" for _ in allowed_document_ids)
+            count = connect().execute(
+                f"SELECT COUNT(*) FROM documents WHERE id IN ({placeholders})",
+                tuple(allowed_document_ids),
+            ).fetchone()[0]
+        return {
+            "question": question,
+            "retrieval_mode": "metadata",
+            "reranked": False,
+            "timings": {},
+            "candidates_considered": 0,
+            "answer_type": "metadata",
+            "answer": f"There are {count} uploaded document{'' if count == 1 else 's'} in your accessible corpus.",
+            "reason": "application statistic, not document evidence",
+            "input_kind": "metadata_statistic",
+            "examples": [],
+            "passages": [],
+            "seconds": timer.seconds(),
+        }
+
     # Classified BEFORE retrieval. A greeting is not a failed question, and
     # answering "hi" with a refusal plus three unrelated passages misrepresents
     # both. Nothing is searched, so there is nothing to show as considered.
     kind = intent_mod.classify(question)
     if kind != intent_mod.DOCUMENT_QUESTION:
-        examples = intent_mod.example_questions()
+        examples = intent_mod.example_questions(
+            allowed_document_ids=allowed_document_ids)
         return {
             "question": question,
             "retrieval_mode": "not_searched",
@@ -510,7 +558,8 @@ def answer(
     # It still refuses when NO candidate covers the question, which is what the
     # refusal record rests on. Every gold question had its answer at rank 1, so
     # the harness structurally could not see this.
-    lexical_verdict, gate_index = _assess_candidates(question, hits, document_id)
+    lexical_verdict, gate_index = _assess_candidates(
+        question, hits, document_id, allowed_document_ids)
     base["lexical"] = {
         k: lexical_verdict[k]
         for k in ("coverage", "terms", "covered", "absent_from_corpus")
@@ -539,7 +588,8 @@ def answer(
     if tier == "extract":
         primary = _passage_payload(lead, question)
         answers = [primary]
-        second = _second_passage(question, hits, lead, document_id)
+        second = _second_passage(
+            question, hits, lead, document_id, allowed_document_ids)
         if second is not None:
             answers.append(_passage_payload(second, question))
         used = {p["chunk_id"] for p in answers}
@@ -624,6 +674,14 @@ def answer(
     t = Timer()
     try:
         raw = _call_model(prompt)
+    except model_transport.ModelHostRefused:
+        # NOT caught by the handler below, and this clause exists only to say
+        # so. A refused host is a misconfiguration of the privacy boundary,
+        # not an unreachable model: reporting it as "the model could not be
+        # reached" would turn the loudest failure in the system into a mild
+        # status field, which is the shape audit entry 24 exists to warn
+        # about. It propagates.
+        raise
     except Exception as exc:  # noqa: BLE001 - the model being down is not a crash
         return {
             **base,

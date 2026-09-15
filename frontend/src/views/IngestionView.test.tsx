@@ -57,6 +57,7 @@ function makeDoc(over: Partial<DocumentRecord> = {}): DocumentRecord {
     pages_done: 1400,
     chunk_count: 2113,
     chunk_count_total: 2226,
+    disciplines: [],
     embedded_count: 1536,
     status: "partially_searchable",
     needs_ocr_pages: 0,
@@ -73,6 +74,9 @@ function makeMetrics(over: Partial<Metrics> = {}): Metrics {
   return {
     at: "2026-09-04T12:00:00Z",
     refresh_seconds: 15,
+    // Default to the NARROWER claim. A fixture that defaulted to
+    // corpus-wide would make the honest case the one nobody tests.
+    corpus_wide: false,
     corpus: {
       documents: 1,
       by_status: { partially_searchable: 1 },

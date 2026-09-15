@@ -383,8 +383,8 @@ BURIAL = _spans(
 def _items(question, evidence):
     from app import claims as claims_mod
 
-    rows = claims_mod.extract_claims(evidence)
-    clusters = claims_mod.cluster(rows, claims_mod.question_terms(question))
+    rows = claims_mod.extract_claims(evidence, allowed_document_ids=_scope())
+    clusters = claims_mod.cluster(rows, claims_mod.question_terms(question, allowed_document_ids=_scope()))
     return analysis._gap_items(clusters, None,
                                {e["evidence_id"]: "doc_1" for e in evidence})
 
@@ -462,3 +462,111 @@ def test_without_a_baseline_nothing_claims_to_be_met_or_a_gap():
     documents is still knowable, so `conflict` survives."""
     for item in _items("coating thickness", BURIAL):
         assert item["status"] not in ("met", "possible_gap"), item
+
+
+# ------------------------------------------- a status that matches its note
+
+
+def _items_with_baseline(question, evidence, baseline_ids, doc_of=None):
+    """Gap items WITH a baseline named, which is when met/possible_gap apply."""
+    from app import claims as claims_mod
+
+    rows = claims_mod.extract_claims(evidence, allowed_document_ids=_scope())
+    clusters = claims_mod.cluster(rows, claims_mod.question_terms(question, allowed_document_ids=_scope()))
+    document_of = doc_of or {
+        e["evidence_id"]: ("doc_base" if e["evidence_id"] in baseline_ids else "doc_other")
+        for e in evidence
+    }
+    return analysis._gap_items(clusters, "doc_base", document_of)
+
+
+#: A real "addition" cluster, verified rather than assumed: same facet, same
+#: dimension, no contradiction - the second row simply carries an IDENTIFIER
+#: (ISO 12944) the first lacks, which is what makes `label_cluster` return
+#: "addition" with the note "One row carries a measurement or identifier the
+#: others lack; nothing is contradicted."
+#:
+#: The first version of this fixture used prose with no measurement at all and
+#: produced ZERO claims - a claim needs a measurement or an identifier to
+#: exist. The vacuity guard below caught it.
+ADDITION = _spans(
+    "Minimum coating thickness shall be 125 um.",
+    "Coating thickness shall be 125 um per ISO 12944.",
+)
+
+
+def test_an_addition_is_not_reported_as_a_possible_gap():
+    """THE ROW CONTRADICTED ITSELF. Measured live: facet 'drawings', status
+    "possible_gap" - "Retrieval found nothing addressing this" - above the note
+    "One row carries a measurement or identifier the others lack; nothing is
+    contradicted." A reader cannot reconcile those.
+
+    "addition" means one row says MORE than the others, which is the opposite
+    of retrieval finding nothing. When the project documents DO speak to the
+    facet, the honest status is the one that already means "addressed, nothing
+    contradicted" - which is what `met` means here, since `agreement` maps to
+    it on the same basis.
+    """
+    items = _items_with_baseline("coating thickness", ADDITION, {"ev0"})
+    addition = [i for i in items if i["note"] and "nothing is contradicted" in i["note"]]
+    assert addition, "the fixture produced no addition cluster; this test would be vacuous"
+    for item in addition:
+        assert item["status"] != "possible_gap", (
+            f"{item['facet']!r} is reported as a possible gap while its own note "
+            f"says nothing is contradicted: {item['note']!r}")
+        assert item["status"] == "met", item
+
+
+def test_a_baseline_speaking_alone_is_still_a_possible_gap():
+    """The other half, and the reason this is not a blanket remap.
+
+    A cluster whose only row IS the baseline means no project document
+    addressed it - which is exactly what `possible_gap` is for. Without this
+    the fix would silence the finding the panel exists to make.
+    """
+    alone = _spans("Minimum coating thickness shall be 125 um.")
+    items = _items_with_baseline("coating thickness", alone, {"ev0"})
+    assert items, "no items produced"
+    assert all(i["status"] == "possible_gap" for i in items), items
+
+
+def test_an_unnormalisable_unit_is_insufficient_evidence_not_a_gap():
+    """`unresolved` also fell through to possible_gap. It means the values
+    could not be COMPARED, not that retrieval found nothing - and
+    `insufficient_evidence` says precisely that."""
+    from app import claims as claims_mod
+
+    rows = claims_mod.extract_claims(_spans("Torque shall be 40 klbf-ft at the flange."), allowed_document_ids=_scope())
+    clusters = claims_mod.cluster(rows, claims_mod.question_terms("torque", allowed_document_ids=_scope()))
+    unresolved = [c for c in clusters if c.label == "unresolved"]
+    if not unresolved:
+        pytest.skip("this corpus fixture produced no unresolvable unit; "
+                    "the mapping is asserted directly below instead")
+    items = analysis._gap_items(unresolved, "doc_base",
+                                {"ev0": "doc_base"})
+    assert all(i["status"] == "insufficient_evidence" for i in items), items
+
+
+def test_the_label_to_status_mapping_is_exhaustive_and_honest():
+    """Every label `claims.label_cluster` can return has a deliberate status.
+
+    Asserted directly so a new label added to claims.py cannot fall through to
+    `possible_gap` unnoticed - which is how `addition` and `unresolved` both
+    came to claim that retrieval found nothing.
+    """
+    assert analysis.STATUS_FOR_LABEL == {
+        "possible_conflict": "conflict",
+        "agreement": "met",
+        "addition": "met",
+        "unresolved": "insufficient_evidence",
+    }
+
+
+def _scope():
+    """Corpus-wide scope, stated explicitly.
+
+    `extract_claims` and `question_terms` reach `lexical.distinctive_terms`,
+    which consults the corpus and now REQUIRES a scope with no default.
+    """
+    from app.search import every_document_id
+    return every_document_id()

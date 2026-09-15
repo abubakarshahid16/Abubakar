@@ -12,7 +12,7 @@ does not work for you, that is a bug in the README and worth an issue.
 
 ## Branches
 
-```
+```text
 <type>/<issue-number>-<area>-<short-description>
 ```
 
@@ -29,18 +29,73 @@ convention that silently stops is worth knowing about.
 
 Conventional commits, with the subject saying what changed and why it matters:
 
-```
+```text
 fix(search): the reranker was judging long chunks on a fragment of themselves
 ```
 
 not
 
-```
+```text
 fix search bug
 ```
 
 The body is where the reasoning goes. A future reader with a `git blame` in
 front of them is the audience.
+
+### After a `git commit` that errored, check what it actually did
+
+**`git add` can succeed while `git commit` fails on the same `.git/index.lock`,
+and the error message does not say so.** Both report the same lock, so a failed
+commit looks like nothing happened when the index has in fact been staged.
+
+This has bitten once already. A `git add <paths> && git commit` chain hit a
+stale lock; the `add` had gone through, the `commit` had not, and the retry
+committed a much larger change set than intended — one commit ended up carrying
+two unrelated changes under a message describing only one.
+
+So after any commit that reported an error:
+
+```bash
+git show --stat HEAD     # what the last commit actually contains
+git status --short       # what is still staged
+```
+
+Verify the file list matches what you meant to commit before doing anything
+else. If a commit is wrong and **not yet pushed**, `git reset --soft HEAD~1`
+followed by `git reset` puts everything back in the working tree with no work
+lost, and the split can be redone.
+
+A stale lock is safe to remove only after confirming no git process is running
+(`tasklist | grep git` on Windows). Git's own message says as much, but it says
+it about a crash, and the common case here is a crash.
+
+### A specification may be committed as a strict xfail, never as a red test
+
+Work is sometimes specified in tests before it is built, and committing that
+specification is right - the tests are the clearest statement of what the
+behaviour must be. Committing them RED is not.
+
+A permanently red suite is how a team stops reading test output. Once "27
+failures, that's the spec file" is normal, "28 failures, probably the spec
+file" follows within a week, and the 28th is a real regression nobody looked
+at.
+
+Mark the module instead:
+
+```python
+pytestmark = pytest.mark.xfail(
+    strict=True,
+    reason="#90: <what is specified here and not yet implemented>",
+)
+```
+
+`strict=True` is the important half. A strict xfail that PASSES is a failure,
+so the suite goes red at the moment the work is finished - the tests announce
+their own completion, and nobody has to remember to unmark them. The reason
+must name the issue, so a reader meeting the marker can find out what is
+missing.
+
+`backend/tests/test_recommendation_gate.py` is the worked example.
 
 ## Pull requests
 

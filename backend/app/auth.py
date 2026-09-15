@@ -44,6 +44,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import math
 import secrets
 import threading
@@ -73,6 +74,31 @@ _hasher = PasswordHasher()
 _DUMMY_HASH = _hasher.hash(secrets.token_urlsafe(32))
 
 TOKEN_VERSION = 1
+MIN_PASSWORD_CHARS = 12
+FORBIDDEN_PASSWORDS = frozenset({
+    "password", "passw0rd", "demo", "demo1234", "changeme", "letmein",
+    "welcome", "12345678", "qwerty", "admin", "ragintel",
+    "ragintelligence", "rag", "ragintelligencesystem", "nabaa", "aramco",
+})
+
+#: Below this, a key is not a key. HMAC-SHA256 accepts any length including
+#: zero, so nothing in the crypto complains - `hmac.new(b"", ...)` signs
+#: perfectly happily, and an attacker who knows the key is empty can compute
+#: the same signature over any payload they like. Under the SHIPPED DEFAULT
+#: (`auth_mode=disabled`, `auth_secret=""`) that was the state, so a forged
+#: Bearer token naming any user id verified, and that id became `actor` in
+#: every admin audit row it touched. 32 bytes is the digest size.
+MIN_SECRET_BYTES = 32
+
+
+class WeakSigningKey(RuntimeError):
+    """Refusal to sign with a key that cannot carry a signature.
+
+    Raised, never returned: `issue_token` returning None would be silently
+    dropped into a header by a caller that expected a string. `read_token`
+    does not raise, because its contract is that it never does - it returns
+    None, which lands the request on `empty_scope()`.
+    """
 
 
 class AuthError(Exception):
@@ -83,6 +109,24 @@ class AuthError(Exception):
         self.code = code
         self.message = message
         self.retry_after = retry_after
+
+
+def password_problems(password: str, email: str) -> list[str]:
+    """Return all reasons a proposed password is unsafe."""
+    problems: list[str] = []
+    if len(password) < MIN_PASSWORD_CHARS:
+        problems.append(f"must be at least {MIN_PASSWORD_CHARS} characters")
+    low = password.lower()
+    if low in FORBIDDEN_PASSWORDS:
+        problems.append("is too easy to guess")
+    elif any(word in low for word in FORBIDDEN_PASSWORDS if word != "admin"):
+        problems.append("contains an easily guessed word")
+    local = (email.split("@", 1)[0] if email else "").split("+", 1)[0].lower()
+    if len(local) >= 3 and local in low:
+        problems.append("must not contain the email address")
+    if password.strip() != password:
+        problems.append("must not start or end with whitespace")
+    return problems
 
 
 # --------------------------------------------------------------- the secret
@@ -137,7 +181,19 @@ def issue_token(user_id: str, now: float | None = None) -> str:
     a login screen appearing mid-demo.
     """
     now = time.time() if now is None else now
-    row = connect().execute("SELECT token_epoch FROM users WHERE id = ?", (user_id,)).fetchone()
+    # A token signed with a zero-length key is a forgery anybody can repeat.
+    # Refused here as well as at startup, because `check_secret_or_refuse`
+    # returns early under `AUTH_MODE=disabled` and `settings` can be
+    # reassigned afterwards - the same two-gate shape as the model host check.
+    if len(_secret()) < MIN_SECRET_BYTES:
+        raise WeakSigningKey(
+            f"refusing to sign a token: AUTH_SECRET is "
+            f"{len(_secret())} bytes, and at least {MIN_SECRET_BYTES} are "
+            f"required. Set AUTH_SECRET in backend/.env."
+        )
+    row = connect().execute(
+        "SELECT token_epoch FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
     epoch = int(row["token_epoch"]) if row else 0
     body = json.dumps(
         {"u": user_id, "e": epoch, "v": TOKEN_VERSION,
@@ -156,6 +212,13 @@ def read_token(token: str, now: float | None = None) -> str | None:
     part of its forgery was wrong is free help.
     """
     now = time.time() if now is None else now
+    # THE HALF THAT MATTERS FOR FORGERY. Verifying with an empty key means any
+    # caller can mint a token naming any user id - including one holding the
+    # admin capability - because they can compute the signature themselves.
+    # None rather than an exception: this function's contract is that it never
+    # raises, and None lands the request on `empty_scope()`.
+    if len(_secret()) < MIN_SECRET_BYTES:
+        return None
     try:
         body_b64, signature_b64 = token.split(".", 1)
         body = _unb64(body_b64)
@@ -175,6 +238,24 @@ def read_token(token: str, now: float | None = None) -> str | None:
         return None
 
 
+def _token_epoch(token: str) -> int:
+    try:
+        body_b64, _ = token.split(".", 1)
+        claims = json.loads(_unb64(body_b64))
+        return int(claims.get("e", 0))
+    except Exception:
+        return -1
+
+
+def revoke_user_tokens(user_id: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute(
+            "UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?",
+            (user_id,),
+        )
+        return cur.rowcount > 0
+
+
 # ------------------------------------------------------------ the rate limit
 
 
@@ -190,8 +271,24 @@ class _Limiter:
     because an operator who believes otherwise will not notice it reset.
     """
 
+    #: A host may carry several people (one office, one NAT, one browser per
+    #: family member), so its budget is a MULTIPLE of the per-email one rather
+    #: than the same number. It exists to bound work, not to identify anyone:
+    #: without it a caller cycling a fresh address per request never filled any
+    #: bucket, and every request reached a 64 MiB Argon2 verify.
+    HOST_MULTIPLIER = 4
+    #: A failure budget limits work over time; this separate ceiling limits
+    #: work happening at the same instant. Four Argon2 checks are about
+    #: 256 MiB with the configured profile, while an unbounded burst could
+    #: exhaust the machine before any request had finished and been counted.
+    MAX_IN_FLIGHT_PER_HOST = 4
+
     def __init__(self) -> None:
         self._fails: dict[str, list[float]] = {}
+        #: Keys whose bucket has already been recorded as full. The audit row
+        #: is owed once per fill, not once per refusal - see `record_failure`.
+        self._audited: set[str] = set()
+        self._in_flight: dict[str, int] = {}
         self._lock = threading.Lock()
 
     #: The countdown is reported to the nearest 30 seconds, rounded UP.
@@ -206,25 +303,69 @@ class _Limiter:
     #: seconds than on 300.
     GRANULARITY = 30
 
+    def _limit_for(self, key: str) -> int:
+        return (settings.auth_max_attempts * self.HOST_MULTIPLIER
+                if key.startswith("host:") else settings.auth_max_attempts)
+
     def check(self, key: str, now: float) -> int | None:
         """Seconds to wait, rounded up, or None to proceed."""
         window = settings.auth_lockout_seconds
         with self._lock:
             recent = [t for t in self._fails.get(key, []) if now - t < window]
             self._fails[key] = recent
-            if len(recent) >= settings.auth_max_attempts:
+            if not recent:
+                # The window emptied, so the next fill owes a fresh audit row.
+                self._audited.discard(key)
+            if len(recent) >= self._limit_for(key):
                 remaining = window - (now - recent[0])
                 buckets = max(1, math.ceil(remaining / self.GRANULARITY))
                 return buckets * self.GRANULARITY
         return None
 
-    def record_failure(self, key: str, now: float) -> None:
+    def record_failure(self, key: str, now: float) -> bool:
+        """Record a failure. True only on the attempt that FILLS the bucket.
+
+        The caller writes the `rate_limited` audit row on that True and on no
+        other, so the durable record still says the lockout happened while the
+        refusal path itself stops being an unauthenticated write. `login` used
+        to write a row on EVERY refusal, which made the locked-out branch the
+        cheapest path to an INSERT - no Argon2 work at all - against the same
+        SQLite file ingestion is writing to. That is the denial-of-service
+        primitive this class's own docstring says it exists to avoid, and the
+        row carried up to 200 bytes of caller-chosen text in `actor_username`.
+        """
         with self._lock:
             self._fails.setdefault(key, []).append(now)
+            window = settings.auth_lockout_seconds
+            recent = [t for t in self._fails[key] if now - t < window]
+            self._fails[key] = recent
+            if len(recent) < self._limit_for(key) or key in self._audited:
+                return False
+            self._audited.add(key)
+            return True
+
+    def reserve_work(self, host: str) -> bool:
+        """Atomically reserve one expensive password check for a host."""
+        with self._lock:
+            active = self._in_flight.get(host, 0)
+            if active >= self.MAX_IN_FLIGHT_PER_HOST:
+                return False
+            self._in_flight[host] = active + 1
+            return True
+
+    def release_work(self, host: str) -> None:
+        """Release a reservation even when verification raised."""
+        with self._lock:
+            active = self._in_flight.get(host, 0)
+            if active <= 1:
+                self._in_flight.pop(host, None)
+            else:
+                self._in_flight[host] = active - 1
 
     def clear(self, key: str) -> None:
         with self._lock:
             self._fails.pop(key, None)
+            self._audited.discard(key)
 
 
 _limiter = _Limiter()
@@ -253,11 +394,10 @@ def _audit(action: str, outcome: str, username: str, user_id: str | None = None,
         with conn:
             conn.execute(
                 """INSERT INTO audit_events
-                       (id, at, actor_user_id, actor_username, action,
+                       (at, actor_user_id, actor_username, action,
                         resource_type, resource_id, outcome, detail)
-                   VALUES (?, ?, ?, ?, ?, 'session', NULL, ?, ?)""",
-                (secrets.token_hex(12),
-                 datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                   VALUES (?, ?, ?, ?, 'session', NULL, ?, ?)""",
+                (datetime.now(timezone.utc).isoformat(timespec="seconds"),
                  user_id, username[:200], action, outcome, detail),
             )
     except Exception:  # noqa: BLE001 - an unwritable audit must not block login
@@ -267,49 +407,92 @@ def _audit(action: str, outcome: str, username: str, user_id: str | None = None,
 # ------------------------------------------------------------------ the login
 
 
-def login(email: str, password: str, now: float | None = None) -> dict:
+def login(email: str, password: str, now: float | None = None,
+          *, client_host: str | None = None) -> dict:
     """Verify credentials and issue a token. Raises AuthError on refusal.
 
     ONE failure message for every credential failure. "No such user" and
     "wrong password" are the same sentence and the same amount of work - see
     _DUMMY_HASH - because the pair of them is a user enumeration oracle.
+
+    TWO BUCKETS. The email bucket is keyed on a value THE CALLER CHOOSES, so
+    on its own it bounded nothing: a fresh address per request met an empty
+    bucket every time and every request reached a 64 MiB Argon2 verify
+    (argon2-cffi's RFC_9106_LOW_MEMORY profile - time_cost 3, memory_cost
+    65536 KiB, parallelism 4). Twenty in flight is about 1.3 GB on a machine
+    that is also running local inference. The host bucket is what bounds the
+    work; the email bucket is what protects one account.
+
+    `client_host` is optional so every existing caller keeps working; when it
+    is absent only the email bucket applies, and the route passes it.
     """
     now = time.time() if now is None else now
     key = (email or "").strip().lower()
+    host_key = f"host:{client_host}" if client_host else None
+    work_key = client_host or "unknown-client"
 
-    wait = _limiter.check(key, now)
-    if wait is not None:
-        _audit("login_failed", "rate_limited", key)
+    # The host bucket is checked FIRST and refuses before any hashing, which
+    # is the whole point of having it.
+    for bucket in ([host_key] if host_key else []) + [key]:
+        wait = _limiter.check(bucket, now)
+        if wait is not None:
+            # NO AUDIT ROW HERE. It was written on the way past by the attempt
+            # that filled the bucket; one per refusal turned this branch into
+            # an unauthenticated writer at request rate.
+            raise AuthError(
+                "rate_limited",
+                f"Too many failed attempts. Try again in {wait} seconds.",
+                retry_after=wait,
+            )
+
+    # Reserve BEFORE Argon2. Checking the historical failure bucket above is
+    # insufficient for a burst: many requests can all observe an empty bucket
+    # before the first expensive hash finishes and records its failure.
+    if not _limiter.reserve_work(work_key):
         raise AuthError(
             "rate_limited",
-            f"Too many failed attempts. Try again in {wait} seconds.",
-            retry_after=wait,
+            "Too many sign-in checks are already running. Try again shortly.",
+            retry_after=_Limiter.GRANULARITY,
         )
 
-    row = connect().execute(
-        "SELECT id, email, display_name, password_hash, is_active "
-        "FROM users WHERE lower(email) = ?",
-        (key,),
-    ).fetchone()
-
-    stored = row["password_hash"] if row else _DUMMY_HASH
     try:
-        _hasher.verify(stored, password or "")
-        ok = True
-    except (VerifyMismatchError, VerificationError):
-        ok = False
-    except Exception:  # noqa: BLE001 - a corrupt hash is a failed login
-        ok = False
+        row = connect().execute(
+            "SELECT id, email, display_name, password_hash, is_active "
+            "FROM users WHERE lower(email) = ?",
+            (key,),
+        ).fetchone()
+
+        stored = row["password_hash"] if row else _DUMMY_HASH
+        try:
+            _hasher.verify(stored, password or "")
+            ok = True
+        except (VerifyMismatchError, VerificationError):
+            ok = False
+        except Exception:  # noqa: BLE001 - a corrupt hash is a failed login
+            ok = False
+    finally:
+        _limiter.release_work(work_key)
 
     # An inactive user is refused with the SAME message. Saying "your account
     # is disabled" confirms the address exists.
     if not ok or row is None or not row["is_active"]:
-        _limiter.record_failure(key, now)
+        filled = _limiter.record_failure(key, now)
+        if host_key and _limiter.record_failure(host_key, now):
+            filled = True
         _audit("login_failed", "denied", key,
                user_id=row["id"] if row else None)
+        if filled:
+            # Once per bucket-fill, so the lockout is still on the durable
+            # record without the refusal path writing a row per request.
+            _audit("login_failed", "rate_limited", key)
         raise AuthError("invalid_credentials", "Email or password is incorrect.")
 
     _limiter.clear(key)
+    if host_key:
+        # A successful login clears the host budget too: the traffic was
+        # legitimate, and leaving it charged would lock out the next person
+        # behind the same address.
+        _limiter.clear(host_key)
     from datetime import datetime, timezone
 
     conn = connect()
@@ -383,21 +566,51 @@ def resolve_user_id(request: Request) -> str | None:
     return row["id"] if row else None
 
 
-def _token_epoch(token: str) -> int:
-    try:
-        body_b64, _ = token.split(".", 1)
-        claims = json.loads(_unb64(body_b64))
-        return int(claims.get("e", 0))
-    except Exception:
-        return -1
+def announce_mode() -> None:
+    """Say, once at startup, whether anybody has to log in.
 
+    THIS LINE EXISTS BECAUSE ITS ABSENCE COST TWO DAYS. `env_file` used to be a
+    relative path, so a server launched from the repository root ignored
+    `backend/.env` entirely and came up with authentication OFF while that file
+    said `demo_required`. Nothing said so. The only way to discover it was to
+    call /api/auth/me, see `required: false`, and know what that meant - and in
+    the meantime a browser showed "Authentication disabled" beside a
+    configuration file that had switched it on.
 
-def revoke_user_tokens(user_id: str) -> bool:
-    with connect() as conn:
-        cur = conn.execute(
-            "UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?", (user_id,)
-        )
-        return cur.rowcount > 0
+    It is a log line and NOT a field on /api/health, deliberately. That surface
+    was narrowed on purpose - it is the one unauthenticated route, and whether
+    this deployment demands credentials is exactly the kind of fact an
+    unauthenticated caller should not be handed. The operator starting the
+    process can read the terminal; a stranger on the port cannot.
+
+    The secret is reported as PRESENT OR ABSENT and never printed, not even
+    truncated. A prefix is enough to confirm a guess.
+
+    Logged through `uvicorn.error`, NOT through the "rag_intelligence" logger. That one is
+    a rotating FILE handler, attached lazily the first time `errors._log()`
+    runs - so at startup it has no handler at all and a record sent to it is
+    dropped silently. A startup line nobody sees is the defect this function
+    was written to prevent, appearing one level up; the first version of it did
+    exactly that and was caught by looking for the line rather than assuming
+    it. `uvicorn.error` is the logger that prints "Application startup
+    complete", so this lands in the same stream the operator is already
+    watching.
+    """
+    from .access import AUTH_DISABLED
+
+    log = logging.getLogger("uvicorn.error")
+    if settings.auth_mode == AUTH_DISABLED:
+        log.warning(
+            "AUTH_MODE=%s - every request sees every document, and no login is "
+            "required. Set AUTH_MODE=demo_required in backend/.env to enforce "
+            "access control.", settings.auth_mode)
+        return
+    secret = (settings.auth_secret or "").strip()
+    log.info(
+        "AUTH_MODE=%s - a bearer token is required; AUTH_SECRET %s",
+        settings.auth_mode,
+        f"present ({len(secret)} chars)" if secret else "ABSENT",
+    )
 
 
 def install() -> None:
@@ -405,4 +618,5 @@ def install() -> None:
     from . import access
 
     check_secret_or_refuse()
+    announce_mode()
     access.set_user_resolver(resolve_user_id)

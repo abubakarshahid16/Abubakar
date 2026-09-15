@@ -244,13 +244,43 @@ CREATE TABLE IF NOT EXISTS roles (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL,
-    kind        TEXT NOT NULL DEFAULT 'general',
+    -- 'discipline' | 'capability'. The ONE thing this column exists to say:
+    -- `admin` is a CAPABILITY, not a fifth discipline. An administrator also
+    -- works somewhere - an IT administrator is IT *and* admin - so admin is
+    -- orthogonal to the four disciplines (Civil Engineering, Mechanical,
+    -- Chemical-Process, IT) rather than a member of them. Modelling it as a
+    -- discipline forces a false choice and leaves an admin unable to see their
+    -- own documents. See docs/design-admin-screen.md.
+    --
+    -- Why a column here rather than a boolean on `users` or a separate
+    -- capability table: user_roles is ALREADY many-to-many, so a person
+    -- holding IT and admin at once needs no new table and no new join - the
+    -- storage was always capable of it. What was missing was any way to tell
+    -- the two kinds APART, and without that the admin screen's `disciplines[]`
+    -- and `is_admin` cannot be derived from the database at all; the split
+    -- would live in a Python constant in one script that every other caller
+    -- would have to import. A boolean on `users` would fix is_admin alone and
+    -- leave a second capability needing a second column.
+    --
+    -- Defaulting to 'discipline' keeps every row written by existing code -
+    -- all of which inserts (id, name, description, created_at) - meaningful
+    -- rather than NULL.
+    kind        TEXT NOT NULL DEFAULT 'discipline',
     created_at  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS user_roles (
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role_id    TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    -- NOT NULL AND NO DEFAULT, deliberately: a role grant with no recorded
+    -- time is an audit record that cannot answer "when did this person get
+    -- this access", which is the first question asked after an incident.
+    --
+    -- Stated here because it is not obvious from any calling code and costs
+    -- twenty minutes to rediscover: a hand-written INSERT that omits this
+    -- column fails with `NOT NULL constraint failed: user_roles.granted_at`,
+    -- and every insert in the repository supplies it, so nothing demonstrates
+    -- the requirement. Use `scripts/seed_access.py` rather than raw SQL.
     granted_at TEXT NOT NULL,
     granted_by TEXT REFERENCES users(id) ON DELETE SET NULL,
     PRIMARY KEY (user_id, role_id)
@@ -547,7 +577,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if user_columns and "token_epoch" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN token_epoch INTEGER NOT NULL DEFAULT 0")
     if roles and "kind" not in roles:
-        conn.execute("ALTER TABLE roles ADD COLUMN kind TEXT NOT NULL DEFAULT 'general'")
+        conn.execute(
+            "ALTER TABLE roles ADD COLUMN kind TEXT NOT NULL DEFAULT 'discipline'"
+        )
     if have and "retrievable" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN retrievable INTEGER NOT NULL DEFAULT 1")
     if have and "quality_flags" not in have:
@@ -608,6 +640,27 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_page_ocr_document ON page_ocr(document_id)"
     )
     # ------------------------------------------------------------- access
+    # `roles` predates the distinction between a discipline and a capability:
+    # every role in a database written before this column was, by construction,
+    # undifferentiated. 'discipline' is the right default for all of them -
+    # they were seeded to carry document grants - with exactly one exception,
+    # corrected by name below.
+    role_cols = {r["name"] for r in conn.execute("PRAGMA table_info(roles)")}
+    if role_cols and "kind" not in role_cols:
+        conn.execute(
+            "ALTER TABLE roles ADD COLUMN kind TEXT NOT NULL DEFAULT 'discipline'")
+    # Idempotent and by NAME, not by id: `admin` is a capability in every
+    # database, including one seeded by an earlier build that had no idea the
+    # two kinds differed. Re-asserted on every init for the same reason the
+    # exclusions rule rename above is - a database that is never re-seeded
+    # would otherwise keep the wrong answer forever.
+    conn.execute("UPDATE roles SET kind = 'capability' WHERE name = 'admin'")
+    # Created HERE and not in SCHEMA, for the reason the retrievable and
+    # parent indexes below are: executescript(SCHEMA) runs BEFORE _migrate, so
+    # an index over `kind` in SCHEMA fails outright on a database whose roles
+    # table predates the column. Measured, not reasoned about - it raised
+    # "no such column: kind" on a legacy database.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_roles_kind ON roles(kind, name)")
     # conversations predate ownership. NULL means "written before there were
     # users", and it must read as INACCESSIBLE rather than as unowned-and-
     # therefore-public. Deliberately no DEFAULT: there is no user to attribute

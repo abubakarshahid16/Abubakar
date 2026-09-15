@@ -66,7 +66,7 @@ was: nine bytes appended to the detector →
 
 Sizes on disk, measured:
 
-```
+```text
   1.83 MB  PP-OCRv6_det_tiny.onnx
   4.49 MB  PP-OCRv6_rec_tiny.onnx
   0.59 MB  ch_ppocr_mobile_v2.0_cls_mobile.onnx
@@ -88,7 +88,7 @@ the opposite.
 
 The cover of book2, at 150 dpi and at 300 dpi, same model, same settings:
 
-```
+```text
 150 dpi:  Differential / Equations / With Boundary-Value Problems / SEVENTH / Dennis G. Zill
 300 dpi:  Different / tial / EquationsS / With Boundary-Value Problems / Denis G. Zill / SEVENTH
 ```
@@ -126,7 +126,7 @@ Of 74 flagged pages, the ones carrying text are **book covers and Excel/
 Mathematica UI screenshots**, not scanned specification prose. Sample, tiny at
 150 dpi against the page image:
 
-```
+```text
 tiny   : Pyblish      el Optjons    Example_1_Excel_File,xls    Ja66nqaa
 small  : Publish      el Options    Example_1_Excel_File.xls    Dəbbəgr
 truth  : Publish      el Options    Example_1_Excel_File.xls    Debugger

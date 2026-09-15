@@ -225,3 +225,81 @@ def test_frontmatter_blocks_never_set_section_state():
     blocks, _ = segment_document(pages, running=set(), page_kinds=kinds)
     body = [b for b in blocks if b.page_start == 5]
     assert body and body[0].section is None
+
+
+def test_dense_specification_page_labels_each_body_with_its_own_heading():
+    """A body page carrying many real headings is not a contents page.
+
+    The shape is doc16 page 44 verbatim in structure: prose continuing from the
+    previous clause, then a numbered ALL-CAPS heading, its body, then the next
+    heading and its body. Eight headings sit on that one page. Counting heading
+    lines alone called it a contents listing, discarded every heading on it, and
+    left the section from the PREVIOUS page in force - so
+    "5.3.2 DRAWING EXTRACTION REQUIREMENTS" was published under clause 4.4.2.
+    """
+    page1 = "\n".join([
+        "4.4.1 ARCHITECTURAL MODELS",
+        "The architectural model shall include all interior partitions and the",
+        "circulation elements required for the submittal at this design phase.",
+        "4.4.2 DRAWING EXTRACTION REQUIREMENTS",
+        "Composite Floor Plan - provide a smaller scale floor plan from the model",
+        "showing exterior wall, interior partitions and circulation elements.",
+    ])
+    page2 = "\n".join([
+        "5.1 GENERAL",
+        "This chapter provides guidance for the requirements of each submittal.",
+        "5.2 CHARETTE SUBMITTAL",
+        "There are no modelling requirements for this phase of the project.",
+        "5.3 INTERIM SUBMITTAL",
+        "The interim submittal collects the models listed in the clauses below.",
+        "5.3.1 INTERIOR MODELS",
+        "The interior system models may vary in level of detail for individual",
+        "elements, but the minimum must include every scheduled feature.",
+        "5.3.2 DRAWING EXTRACTION REQUIREMENTS",
+        "Refer to applicable discipline specific requirements described in other",
+        "project documentation for this submittal phase.",
+        "5.4 FINAL SUBMITTAL",
+        "All extractions shall be updated to include the previous comments.",
+        "5.4.1 INTERIOR MODELS",
+        "The furniture system models shall include all office furniture layouts",
+        "using the furniture cell library provided in the project dataset.",
+        "5.4.2 DRAWING EXTRACTION REQUIREMENTS",
+        "Composite Furniture Plans - a composite floor plan will be required if",
+        "partial floor plans are needed to comply with the scale requirements.",
+    ])
+    blocks, _ = segment_document([(43, page1), (44, page2)], running=set())
+
+    def section_of(fragment: str) -> str | None:
+        for b in blocks:
+            if fragment in b.text:
+                return b.section
+        raise AssertionError(f"no block carried {fragment!r}")
+
+    # The heading itself is consumed, so its body is what carries the label.
+    assert section_of("Refer to applicable discipline specific") == (
+        "5.3.2 DRAWING EXTRACTION REQUIREMENTS"
+    )
+    assert section_of("Composite Furniture Plans") == (
+        "5.4.2 DRAWING EXTRACTION REQUIREMENTS"
+    )
+    assert section_of("interior system models may vary") == "5.3.1 INTERIOR MODELS"
+    assert section_of("guidance for the requirements") == "5.1 GENERAL"
+    # ...and the previous page's clause never leaks forward onto this one.
+    assert not any(
+        b.page_start == 44 and b.section == "4.4.2 DRAWING EXTRACTION REQUIREMENTS"
+        for b in blocks
+    )
+
+
+def test_a_contents_page_is_still_ignored_when_it_carries_no_prose():
+    """The counterpart guard: headings without prose under them stay ignored."""
+    toc = "\n".join([
+        "4.1 GENERAL", "4.2 CHARETTE SUBMITTAL", "4.3 INTERIM SUBMITTAL",
+        "4.3.1 ARCHITECTURAL MODELS", "4.3.2 DRAWING EXTRACTION REQUIREMENTS",
+        "4.4 FINAL SUBMITTAL", "4.4.1 ARCHITECTURAL MODELS",
+    ])
+    pages = [(1, toc), (2, "Body text on the next page with no heading of its own.")]
+    blocks, _ = segment_document(pages, running=set())
+    body = [b for b in blocks if b.page_start == 2]
+    assert body
+    assert body[0].section is None

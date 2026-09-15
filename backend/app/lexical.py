@@ -113,7 +113,12 @@ def is_compound_question(question: str) -> bool:
     return bool(_COMPOUND.search(question))
 
 
-def distinctive_terms(question: str, document_id: str | None = None) -> list[str]:
+def distinctive_terms(
+    question: str,
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> list[str]:
     """The terms that say what the question is ABOUT, in order, deduplicated.
 
     Identifiers are included as written, because "B16.5" is the entire subject
@@ -138,7 +143,8 @@ def distinctive_terms(question: str, document_id: str | None = None) -> list[str
         add(ident)
 
     remaining = question
-    for phrase in acronyms.known_expansions(document_id):
+    for phrase in acronyms.known_expansions(
+            document_id, allowed_document_ids=allowed_document_ids):
         if phrase in remaining.lower():
             add(phrase)
             # case-insensitive removal, so the phrase's own words are not
@@ -170,13 +176,29 @@ def looks_like_a_named_subject(term: str, question: str) -> bool:
     return not question.strip().startswith(term)
 
 
-def assess(question: str, passage_text: str, document_id: str | None = None) -> dict:
+def assess(
+    question: str,
+    passage_text: str,
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> dict:
     """Whether this passage is lexically plausible as an answer.
 
     Returns the evidence as well as the verdict, so a refusal can name the
     term that was missing rather than only saying it was not confident.
+
+    `allowed_document_ids` is REQUIRED and keyword-only. This function's
+    absolute presence gate produces the user-visible refusal "none of the
+    terms in this question appear in the indexed documents", and it used to
+    compute that over the WHOLE corpus: a term present only in a document the
+    caller has no grant on made the answer "it exists, just not for you"
+    without saying so, and a term absent everywhere made a claim about
+    documents they cannot see. Both are a presence oracle. The scope is the
+    caller's, and it reaches every count below.
     """
-    terms = distinctive_terms(question, document_id)
+    terms = distinctive_terms(
+        question, document_id, allowed_document_ids=allowed_document_ids)
     empty = {
         "ok": True,
         "reason": None,
@@ -189,7 +211,8 @@ def assess(question: str, passage_text: str, document_id: str | None = None) -> 
         # nothing distinctive to check; the semantic score decides alone
         return empty
 
-    indexed = keyword.indexed_count(document_id)
+    indexed = keyword.indexed_count(
+        document_id, allowed_document_ids=allowed_document_ids)
     if not indexed:
         return empty
     common_cutoff = max(1, int(indexed * COMMON_TERM_FRACTION))
@@ -208,12 +231,14 @@ def assess(question: str, passage_text: str, document_id: str | None = None) -> 
         # and the reader was still asking a fair question. Bidirectional, so
         # asking for the full term also matches chunks that only write the
         # acronym. See app/acronyms.py - the map is built FROM the documents.
-        forms = [term, *acronyms.equivalents(term, document_id)]
+        forms = [term, *acronyms.equivalents(
+            term, document_id, allowed_document_ids=allowed_document_ids)]
 
         occurrences = 0
         unparseable = True
         for form in forms:
-            count = keyword.term_occurrences(form, document_id)
+            count = keyword.term_occurrences(
+                form, document_id, allowed_document_ids=allowed_document_ids)
             if count >= 0:
                 unparseable = False
                 occurrences = max(occurrences, count)
@@ -285,17 +310,25 @@ def assess(question: str, passage_text: str, document_id: str | None = None) -> 
     }
 
 
-def uncovered_terms(question: str, passage_text: str) -> list[str]:
+def uncovered_terms(
+    question: str, passage_text: str, *, allowed_document_ids: frozenset[str]
+) -> list[str]:
     """Distinctive terms the question asks about that this passage does not
     mention. Used to decide whether a SECOND passage is needed: a question
     asking for a check frequency and a humidity limit is answered by one
     passage only if that passage covers both."""
     body = passage_text.lower()
-    return [t for t in distinctive_terms(question) if t.lower() not in body]
+    return [t for t in distinctive_terms(
+        question, allowed_document_ids=allowed_document_ids)
+        if t.lower() not in body]
 
 
 def distinguishing_uncovered_terms(
-    question: str, passage_text: str, document_id: str | None = None
+    question: str,
+    passage_text: str,
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
 ) -> list[str]:
     """Uncovered terms that would actually change the answer if covered.
 
@@ -308,7 +341,8 @@ def distinguishing_uncovered_terms(
     if not is_compound_question(question):
         # a single-subject question is answered by one passage or not at all
         return []
-    indexed = keyword.indexed_count(document_id)
+    indexed = keyword.indexed_count(
+        document_id, allowed_document_ids=allowed_document_ids)
     if not indexed:
         return []
     cutoff = (
@@ -318,10 +352,12 @@ def distinguishing_uncovered_terms(
     )
     body = passage_text.lower()
     out: list[str] = []
-    for term in distinctive_terms(question, document_id):
+    for term in distinctive_terms(
+            question, document_id, allowed_document_ids=allowed_document_ids):
         if term.lower() in body:
             continue
-        occurrences = keyword.term_occurrences(term, document_id)
+        occurrences = keyword.term_occurrences(
+            term, document_id, allowed_document_ids=allowed_document_ids)
         if 0 < occurrences <= cutoff:
             out.append(term)
     return out

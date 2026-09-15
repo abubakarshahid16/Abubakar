@@ -5,7 +5,7 @@ refused a question asking for the NDFT. The term genuinely was not there, and
 the reader was still asking a fair question.
 
 Relying on a glossary clause alone would have looked sufficient on NORSOK,
-which has one. It is not sufficient in general: Aramco specifications are
+which has one. It is not sufficient in general: engineering specifications are
 dense with acronyms and a client uploads their own documents, one of which may
 have no abbreviations clause at all.
 """
@@ -43,7 +43,7 @@ GLOSSARY = [
     "Abbreviations",
     "CPS coating procedure specification CPT coating procedure test",
     "NACE National Association of Corrosion Engineers PWHT post weld heat",
-    "treatment SAMSS Saudi Aramco materials system specification",
+    "treatment EEMUA Engineering Equipment and Materials Users Association",
 ]
 
 ACRONYM_ONLY = [
@@ -124,7 +124,7 @@ def test_function_words_may_be_skipped_but_not_substantive_ones():
 def test_a_single_letter_is_not_an_abbreviation():
     assert not acronyms.looks_like_acronym("A")
     assert acronyms.looks_like_acronym("AB")
-    assert acronyms.looks_like_acronym("SAES")
+    assert acronyms.looks_like_acronym("SSPC")
     assert acronyms.looks_like_acronym("CERT/CC")
     assert not acronyms.looks_like_acronym("coating")
 
@@ -135,21 +135,27 @@ def test_a_single_letter_is_not_an_abbreviation():
 def test_a_parenthetical_definition_is_harvested():
     client = TestClient(app)
     upload(client, [PARENTHETICAL])
-    assert "nominal dry film thickness" in acronyms.harvest()["NDFT"]
+    assert "nominal dry film thickness" in acronyms.harvest(allowed_document_ids=_scope())["NDFT"]
 
 
 def test_an_inverse_parenthetical_definition_is_harvested():
     client = TestClient(app)
     upload(client, [INVERSE])
-    assert "maximum allowable working pressure" in acronyms.harvest()["MAWP"]
+    assert "maximum allowable working pressure" in acronyms.harvest(allowed_document_ids=_scope())["MAWP"]
 
 
 def test_a_glossary_row_is_harvested():
     client = TestClient(app)
     upload(client, [GLOSSARY])
-    harvested = acronyms.harvest()
+    harvested = acronyms.harvest(allowed_document_ids=_scope())
     assert "coating procedure specification" in harvested["CPS"]
     assert "post weld heat treatment" in harvested["PWHT"]
+    # The last row bounds the one before it, so it has to harvest too - and its
+    # expansion skips a function word ("and"), which the initials check allows.
+    assert any(
+        e.lower() == "engineering equipment and materials users association"
+        for e in harvested["EEMUA"]
+    )
 
 
 def test_a_capitalised_glossary_expansion_is_harvested():
@@ -158,30 +164,30 @@ def test_a_capitalised_glossary_expansion_is_harvested():
     client = TestClient(app)
     upload(client, [GLOSSARY])
     assert any(
-        e.startswith("national association") for e in acronyms.harvest().get("NACE", ())
+        e.startswith("national association") for e in acronyms.harvest(allowed_document_ids=_scope()).get("NACE", ())
     )
 
 
 def test_the_map_is_bidirectional():
     client = TestClient(app)
     upload(client, [PARENTHETICAL])
-    assert acronyms.equivalents("NDFT") == ["nominal dry film thickness"]
-    assert acronyms.equivalents("nominal dry film thickness") == ["NDFT"]
+    assert acronyms.equivalents("NDFT", allowed_document_ids=_scope()) == ["nominal dry film thickness"]
+    assert acronyms.equivalents("nominal dry film thickness", allowed_document_ids=_scope()) == ["NDFT"]
 
 
 def test_a_term_the_corpus_never_defines_has_no_equivalents():
     client = TestClient(app)
     upload(client, [PARENTHETICAL])
-    assert acronyms.equivalents("Inconel") == []
-    assert acronyms.equivalents("SAES") == []
+    assert acronyms.equivalents("Inconel", allowed_document_ids=_scope()) == []
+    assert acronyms.equivalents("SSPC", allowed_document_ids=_scope()) == []
 
 
 def test_the_map_is_rebuilt_when_the_corpus_changes():
     client = TestClient(app)
     upload(client, [PARENTHETICAL])
-    assert "NDFT" in acronyms.harvest()
+    assert "NDFT" in acronyms.harvest(allowed_document_ids=_scope())
     upload(client, [GLOSSARY], name="glossary.pdf")
-    both = acronyms.harvest()
+    both = acronyms.harvest(allowed_document_ids=_scope())
     assert "NDFT" in both and "CPS" in both
 
 
@@ -204,6 +210,7 @@ def test_a_question_using_the_full_term_matches_a_chunk_that_only_writes_the_acr
     verdict = lexical.assess(
         "what is the nominal dry film thickness for the submerged zone",
         "The NDFT for the submerged zone shall not be less than 350 um.",
+        allowed_document_ids=_scope(),
     )
     assert verdict["ok"] is True
     assert "nominal" not in verdict["absent_from_corpus"]
@@ -221,7 +228,7 @@ def test_a_genuinely_absent_term_still_refuses():
 def test_an_absent_acronym_gets_a_useful_refusal_not_a_dead_end():
     client = TestClient(app)
     upload(client, [PARENTHETICAL, GLOSSARY])
-    result = answer_mod.answer("what does SAES require for shop priming", allowed_document_ids=_scope())
+    result = answer_mod.answer("what does SSPC require for shop priming", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
     assert "If it is an abbreviation, try the full term" in result["reason"]
 
@@ -240,9 +247,50 @@ def test_the_expansion_map_never_invents_an_equivalence():
     about one thing match a passage about another, with a citation."""
     client = TestClient(app)
     upload(client, [PARENTHETICAL, GLOSSARY, INVERSE])
-    for acronym, expansions in acronyms.harvest().items():
+    for acronym, expansions in acronyms.harvest(allowed_document_ids=_scope()).items():
         for expansion in expansions:
             assert acronyms.initials_match(acronym, expansion), (acronym, expansion)
+
+
+# --------------------------------------- the gaps route's own scope path
+
+
+def test_an_unreadable_document_cannot_shape_a_callers_question_terms():
+    """The third path into the lexical layer, which the review did not name.
+
+    `claims.question_terms` and `claims.claim_terms` reach
+    `lexical.distinctive_terms`, which folds in the multi-word expansions the
+    CORPUS defines. Unscoped, a document the caller has no grant on decided
+    how their question was split into terms - and those terms become
+    `facet_key` inputs the gap analysis shows the reader.
+
+    Here only `defs.pdf` defines NDFT. A caller granted just `use.pdf` must
+    not have the phrase collapsed into the single term the other document's
+    glossary would produce.
+
+    MUTATION-PROVEN. Drop the scope from `claims.question_terms` and the
+    restricted caller's term set becomes the corpus-wide one.
+    """
+    from app import claims as claims_mod
+
+    client = TestClient(app)
+    defs_doc = upload(client, [PARENTHETICAL], name="defs.pdf")
+    use_doc = upload(client, [ACRONYM_ONLY], name="use.pdf")
+
+    question = "what is the nominal dry film thickness for the submerged zone"
+    everything = claims_mod.question_terms(
+        question, allowed_document_ids=_scope())
+    mine = claims_mod.question_terms(
+        question, allowed_document_ids=frozenset({use_doc}))
+
+    # Corpus-wide, the phrase IS a known expansion, so it survives as one
+    # multi-word term. That is the precondition: without it this test would
+    # compare two identical sets and assert nothing.
+    assert "nominal dry film thickness" in everything, everything
+    assert "nominal dry film thickness" not in mine, (
+        "an unreadable document's glossary shaped the caller's question terms")
+    assert mine != everything
+    assert defs_doc  # the document that defines it is real, and unreadable here
 
 
 def _scope():

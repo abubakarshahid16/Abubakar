@@ -3,7 +3,7 @@
 What the repository actually contains, verified on **2026-09-05** against
 the current `main` branch (verify the exact commit with `git rev-parse HEAD`).
 
-Required by §0 of `NABAA-SUNDAY-POC-EXECUTION.md` before any enterprise code.
+Required by §0 of `RAG-INTELLIGENCE-POC-EXECUTION.md` before any enterprise code.
 The plan states its own precedence rule:
 
 > *"If this reference differs from the repository, the repository and its
@@ -148,7 +148,7 @@ an existing convention to extend.
 
 `contracts/types.ts` line 1:
 
-```
+```text
 // Shared API types. Hand-written, source of truth for the UI.
 // Backend mirrors these in Pydantic models.
 ```

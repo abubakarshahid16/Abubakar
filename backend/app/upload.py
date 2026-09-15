@@ -7,6 +7,7 @@ then atomically renames into place and records document + job rows.
 """
 
 import hashlib
+import logging
 import os
 import re
 import sqlite3
@@ -16,10 +17,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
-from . import classification
+from . import access, classification
 from .config import settings
 from .db import connect
 from .errors import redact
+
+log = logging.getLogger(__name__)
 
 PDF_MAGIC = b"%PDF-"
 _SAFE = re.compile(r"[^A-Za-z0-9._ -]")
@@ -135,25 +138,69 @@ def ingest(src: BinaryIO, raw_filename: str) -> tuple[sqlite3.Row, str | None, s
         )
 
     row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
-    # Classification is a synchronous metadata suggestion. It never confirms
-    # a type; it only seeds the review queue while extraction runs separately.
+    _suggest_classification(doc_id, filename, final_path)
+    return row, job_id, None
+
+
+def _suggest_classification(doc_id: str, filename: str, pdf_path: Path) -> None:
+    """Suggest what this document IS. Never confirms, never grants.
+
+    ONE HOOK COVERS BOTH INGEST PATHS. The manual upload route and the watched
+    folder both come through `ingest`, so suggesting here means neither can
+    acquire a document the other classifies - which two call sites would
+    eventually allow.
+
+    SUGGESTION ONLY. `confirmed_by` stays NULL: confirming requires the admin
+    capability, because a wrong classification misroutes searches for everyone
+    rather than only for the person who uploaded. The needs-classification
+    queue is what surfaces this to a human.
+
+    NEVER RAISES INTO THE INGEST. A document that failed to be classified is
+    still a document, and losing an upload over a suggestion would trade the
+    valuable thing for the cheap one. It lands unclassified, which is a real
+    state the queue already reports.
+
+    EXISTING DOCUMENTS GET NOTHING. This runs on new ingests only;
+    back-classifying the current corpus is a human-confirmed step and not a
+    side effect of deploying this.
+    """
+    try:
+        revision = classification.register_revision()
+        first_page = _first_page_text(pdf_path)
+        suggestion = classification.suggest(filename, first_page, revision)
+        if suggestion.is_empty:
+            # Nothing matched. Recorded anyway, with every field NULL, so the
+            # document appears in the needs-classification queue rather than
+            # being absent from it - "no row" and "no match" would otherwise
+            # look identical to the UI.
+            pass
+        classification.write_suggestion(
+            doc_id, suggestion,
+            suggested_by=(classification.SOURCE_REGISTER
+                          if suggestion.register_id else
+                          classification.SOURCE_PATTERN if not suggestion.is_empty
+                          else classification.SOURCE_NONE))
+    except Exception:  # noqa: BLE001 - a suggestion must never fail an ingest
+        log.warning("classification suggestion failed for %s", doc_id)
+
+
+def _first_page_text(pdf_path: Path) -> str:
+    """Page 1 only, and cheaply.
+
+    Read here rather than waiting for extraction because the suggestion is
+    wanted at upload time - the uploader should see what the system thinks it
+    is while they are still looking at the screen. One page, so the cost is a
+    single page parse and not a document.
+    """
     try:
         import fitz
-        reader = fitz.open(str(final_path))
-        first_page = reader[0].get_text() if reader.page_count else ""
-        reader.close()
-        revision = classification.register_revision()
-        suggestion = classification.suggest(filename, first_page or "", revision)
-        classification.write_suggestion(
-            doc_id,
-            suggestion,
-            suggested_by=next(iter(suggestion.source.values()), classification.SOURCE_NONE),
-        )
-    except Exception:
-        # A malformed or scanned PDF still enters the queue; classification is
-        # advisory and must never make an otherwise valid upload disappear.
-        pass
-    return row, job_id, None
+
+        with fitz.open(pdf_path) as document:
+            if document.page_count == 0:
+                return ""
+            return document.load_page(0).get_text() or ""
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def to_api(row: sqlite3.Row) -> dict:
@@ -181,4 +228,8 @@ def to_api(row: sqlite3.Row) -> dict:
         ),
         "uploaded_at": row["uploaded_at"],
         "indexed_at": row["indexed_at"],
+        # The category, read from the grant tables. Not the filename: a file
+        # called civil-Design-and-Construction.pdf is Civil because an
+        # administrator granted it to Civil, and would be nothing otherwise.
+        "disciplines": access.disciplines_for(row["id"]),
     }

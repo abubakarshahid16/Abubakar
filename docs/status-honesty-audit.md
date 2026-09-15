@@ -3,9 +3,12 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
-**Why this document exists.** Fourteen separate times something in this system
-has claimed what was not so - a status field, a count, a measurement, and twice
-now a design document about the code it was written against:
+**Why this document exists.** Twenty-nine separate times something in this
+system has claimed what was not so - a status field, a count, a measurement,
+twice a design document about the code it was written against, once a type that
+could not describe its own API, once an evaluation harness measuring a different
+layer than the one it was cited for, once the secret-scanning hook that the
+privacy ADR depends on, and once the product's headline promise itself:
 
 | # | The claim | The reality |
 |---|---|---|
@@ -23,10 +26,61 @@ now a design document about the code it was written against:
 | 12 | The coverage design: the shortlist cut is "the one place candidates are dropped with no recorded reason" | `deduplicate()` and the pool builder drop silently too. A candidate lost to dedup is indistinguishable from one that never existed, so recording only the cut would have answered "was doc17 ever in the pool?" wrongly, with apparent evidence |
 | 7 | A passing ordering test over a document that had `failed` | The test asserted the statuses it OBSERVED at every OCR invocation and never asserted where the document FINISHED. `partially_searchable -> chunking` was an illegal transition; the raise was swallowed by the broad handler in `process()`; every scanned document on a fresh machine landed at `failed`, green suite and all |
 | 6 | "Quoted verbatim from the document" over OCR text | `AnswerCard.tsx:277` rendered the label unconditionally. 92 recognised chunks were retrievable, so a passage OCR had guessed off a page image could be cited as the document's own words, beside "quoted directly, no AI rewriting" |
+| 15 | `current_document` and `last_error` were moved OFF `/api/health` "to the scoped `/api/metrics`" | **`/api/metrics` was not scoped.** It resolved an `AccessScope` via `Depends` and never passed it on. The fields moved from one unscoped route to another, and a comment recording a false reason is what made the move look like hardening |
+| 16 | README: `npm run test` — **"279 tests"** | **496**, across 42 files. Understated by 217. Nobody re-measured it after the redesign and the auth work added whole test files |
+| 17 | README: `python -m pytest -q` — **"887 tests, ~5 minutes"** | **1,174 passed / 3 skipped / 17 xfailed / 1 deselected** in **4m57s**, measured by CI at cd72bac. A local run of an earlier tree (5baf18e, four tests fewer) gave 1,170 in 5m44s with `--ignore` for the two parked test files. The count was understated by 287. The DURATION claim is retracted rather than replaced: three CI runs of the identical suite took 3m18s, 4m57s and 10m48s, and locally 5m44s idle against over 11 minutes contended. "~5 minutes" was not so much wrong as unsupportable - the spread is 3x on identical work, so the README now gives a range and says to check the count, not the clock. Both original figures were written once and never re-run |
+| 18 | README stack table: the answer model runs at **`num_ctx`~1536** and **60-100 output tokens** | `backend/app/config.py` sets `num_ctx = 4096` and `max_output_tokens = 250`. The 1,536 figure is real but historical - it survives in `context_budget.py` as the value a past measurement was taken at, and the README kept quoting it as current configuration |
+| 19 | README scope cuts: **"System view — four views"** | **Six** built views plus an Administration section, per `Shell.tsx`. Analysis and Reports were built after the line was written; a scope cut that stopped being a cut still read as one |
+| 20 | README title and setup steps named **Nabaa**, and `git clone <repo-url> nabaa` | The product is the RAG Intelligence System. The `cd nabaa` was worse than a stale name: a reader following the README landed in a directory that the next command did not expect |
+| 21 | `contracts/types.ts`: `Metrics.system?: SystemMetrics` | The type could not express the response the server sends. `/api/metrics` serialises `"system": null` for a non-admin, so every consumer typed against this contract was typed against a shape the backend never produces |
+| 22 | `eval/score_analysis_gold.py`, run to confirm the analysis accuracy fixes | **It cannot confirm them.** It imports `app.keyword` and calls `search()` directly, so it measures the RAW retrieval layer, before the analysis-layer scoping, per-document cap and percentage recall. Its output still shows doc16 taking 18 of 24 slots and hiding its own p.18 answer - the defect a288653 fixed - because that layer really does still do that. A green run of it would have said nothing about the fix. `eval/verify_analysis_accuracy.py` was added to measure the layer that was actually changed |
+| 23 | `test_recommendation_gate.py`: **"all 27 are expected to fail"** | **Eleven now pass.** The advisory-gate half of #90 was implemented; the docstring still described the whole module as unimplemented specification. `strict=True` is what caught it - the eleven went red on completion exactly as designed - but the prose had to be corrected by hand |
+| 24 | `.githooks/pre-commit`, the compensating control ADR-0004 rests on | It failed OPEN two ways: a missing gitleaks printed a WARNING and exited 0, and before that an unguarded `$LOCALAPPDATA` under `set -u` aborted the hook entirely on any machine not exporting it. A control whose absence is invisible is not a control |
+| 25 | README:14 and ADR-0002's Enforcement section: **"Client document content never leaves this machine"** | **The one rule had no enforcement point on the answer path's own socket.** `ollama_url` was an ordinary `.env` string (`config.py:106`) with a loopback DEFAULT and no validation, and four call sites - `answer.py:404`, `analysis.py:667`, `metrics.py:271,279` - each formatted their own URL from it and POSTed. The body carries `_build_prompt` / `synthesis.build_prompt` output, which is retrieved passage text verbatim, so `OLLAMA_URL=http://collector.example.net:11434` in `backend/.env` sent client document content to that host with no allowlist, no flag, no audit row and no log line. The four Enforcement controls do not touch it: the binding rule is INBOUND and the offline flags govern HuggingFace. Nothing had leaked - Ollama is on localhost in every deployment - but the promise rested on a default rather than a rule, and the socket-containment test could not see it: `test_market_no_document_leak.py:57` iterates a hand-written tuple of three market filenames, so the largest outbound lane in the system sat outside every guard. Now: `config.check_model_url` parses with `urllib` (never string splits - `market_providers._host_of`'s `?@` bypass is a test case), refuses a non-loopback host, embedded credentials and anything that is not a base URL, and runs TWICE - at startup, so a misconfigured machine does not boot, and again in `model_transport` immediately before every request, because `settings` can be reassigned after startup. A non-loopback host needs two explicit settings and writes an audit row. `test_socket_containment.py` asserts all of it over the WHOLE `app/` package by globbing, so the next module that opens a socket is red without anyone remembering to list it |
+| 26 | `test_admin.py:554` `test_the_admin_capability_is_not_a_discipline`, and the `is_admin` shown on the admin screen | **The test never touched the column whose name it cites, and the gate it was supposed to guard read the wrong column.** `temp_storage` runs `db.init_db()` before `world` inserts its roles, so `init_db`'s corrective `UPDATE roles SET kind = 'capability' WHERE name = 'admin'` never saw them and the fixture's `admin` role carried the column default `'discipline'`. Every assertion in that test - and every one of the 44 others in the file, including `test_an_admin_reaches_every_route` - was satisfied by the NAME predicate alone, over a database in which admin was not a capability. Dropping `roles.kind` from the schema entirely would have left them all green. Meanwhile `admin.is_admin` really did read `roles.name`, so a row named `admin` with `kind = 'discipline'` was a full administrator to all seven `/api/admin/*` routes and an ordinary engineer to `AccessScope.is_admin` for the same request, and `list_users` reported `is_admin: true` for them. `main.py:185-192` had already NAMED this divergence as a hazard and closed it for `/api/metrics` only. Now: `is_admin`, `create_user`'s lookup and the listing all use `kind = 'capability' AND name = ?`; `make_role` takes a kind and writes it; and a new parametrised test walks the whole `ROUTES` table with every resource present, so a 404 can only come from the gate |
+| 27 | `admin.py:442`, the self-deactivation guard: **"Without this the last admin can lock every user, including themselves, out of a system whose only other door is a terminal."** | **The guard did not hold under the shipped default, and the comment describes the outcome it permitted.** It read `if actor is not None and user_id == actor.get("id")` - keyed on WHO IS ASKING. Under `AUTH_MODE=disabled` (the default at `config.py:51`, asserted by `test_access_routes.py:311`) `current_admin` returns `None` for a caller presenting no identity, by design, so `DELETE /api/admin/users/<id>` with no Authorization header at all reached `deactivate_user` with `actor = None` and the `actor is not None` prefix skipped the refusal completely. Every account holding the admin capability could be deactivated by an unauthenticated local caller; switching to `demo_required` afterwards - the documented hardening step - then left `/api/admin/*` unreachable by anyone, with `seed_access.py` at a terminal as the only door. The same anonymous path also reached `POST /api/admin/users` and both grant routes, so document access could be widened or removed permanently, under a mode whose stated concession (`admin.py:206-213`) is argued only for READS. No test in `test_admin.py` could see any of it: `temp_storage` pins `demo_required`, under which the anonymous caller is 404'd before reaching the guard. Now: `_is_last_active_admin` asks whether an active administrator would REMAIN - a property of the corpus that mentions no caller and so cannot be skipped by having no identity - and the self-check is kept beside it |
+| 28 | `watch_api.py:28`, the module docstring: **"Everything else in the payload is: whether the feature is on, how often it looks, when it last looked, and what it decided"** - and `recent_events`' own docstring, concluding that withholding `source_path` closed the leak | **"What it decided" was ten real client filenames, sent unscoped to every caller.** The route resolved an `AccessScope` and spent it on ONE field, `folder_name`; `recent_events()` took no scope and its query had no predicate. A caller with zero grants received the last ten watched-folder decisions in the same second `GET /api/documents` correctly returned `[]` for them - and `duplicate` additionally asserts that a document with that content is already in the corpus. Measured during the fix: the leaked `detail` string also carried the grant list (`granted to Mechanical, admin`). The docstring inspected the host PATH and pronounced the leak closed while the filename beside it was the leak - the same fixed-in-one-of-its-two-homes shape the review names as this codebase's dominant pattern. `test_watch_folder.py:549` and `:568` asserted the filenames were PRESENT; nothing asserted they were withheld. Now: `recent_events` takes the scope and filters on `document_id`, `WHERE 1 = 0` for an empty scope and no predicate for `unrestricted`, and rows whose `document_id` is NULL sit behind the capability gate |
+| 29 | `coverage.py:26-33`: **"The gate runs exactly once, before any per-document reasoning, on the scope the request already had, and its verdict is final."** | **There was no scope.** `keyword.term_occurrences` and `keyword.indexed_count` took no `allowed_document_ids` parameter at all and counted over the whole `chunks_fts` table, so the lexical gate's verdict - and the user-visible refusal "none of the terms in this question appear in the indexed documents" - was decided partly by documents the caller has no grant on. A term present only in an unreadable document made the answer "it exists, just not for you" without saying so; a term absent everywhere made a claim about documents the caller cannot see. Either way a caller could test for a term's presence in the whole corpus, which is the disclosure `/api/health` was stripped for. The comment was precise about a property the code did not have - it named the right rule and then asserted compliance with it. The same unscoped counts also fed `acronyms.harvest`, so an unreadable document could supply the expansion that decided a caller's verdict, and the expansions are phrases lifted from that document's text. Now: both take `allowed_document_ids`, keyword-only with no default, and it is threaded through `lexical.assess`, `distinctive_terms`, `distinguishing_uncovered_terms`, `acronyms.harvest`/`equivalents`/`known_expansions`/`reverse_map` and `coverage`. An empty scope counts 0, which makes the gate ABSTAIN rather than claim absence |
 
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
 it is derived from, so the next instance is easy to spot.
+
+**Entry 15 is the only one where the hardening itself carried the lie.**
+
+`/api/health` used to return `current_document` — a real document id the UI
+joins against the document list to show a filename — along with free-text
+`last_error` and `stalled_reasons`. That was correctly identified as a
+privacy-boundary problem and correctly fixed: those fields were removed from the
+one unauthenticated route.
+
+**They were moved to `/api/metrics`, and the reason recorded for choosing that
+destination was that `/api/metrics` is scoped. It was not.** The route took
+`scope: AccessScope = Depends(access.current_scope)` and then called
+`metrics_mod.snapshot(...)` without it. The parameter was resolved on every
+request and discarded, so the corpus block was byte-identical for an
+administrator, a four-document user and a user granted nothing — measured, all
+three reporting 12 documents while `/api/documents` correctly returned 6, 4
+and 0.
+
+So the hardening **relocated the leak**. A document id that an unauthenticated
+caller could previously read on `/api/health` became a document id that any
+authenticated caller could read on `/api/metrics`, regardless of grants, and the
+change was recorded as a security improvement.
+
+The belief spread. **Seven comments in five files** described the endpoint as
+"the scoped `/api/metrics`", including two inside
+`test_health_never_exposes_a_traceback` — the test written to hold this exact
+boundary. That test never called `/api/metrics` at all. It asserts what
+`/api/health` does *not* say, which is real and still passes, and the word
+"scoped" in it was an assumption it had no way to check.
+
+This is the distinguishing feature: the earlier entries are fields derived from
+something adjacent to the truth. This one is **a justification derived from
+something adjacent to the truth** — a comment that made a real design decision
+look safe, and was then cited by later work as though it were a verified
+property. A count without a boundary reads as total; a comment without a test
+reads as a guarantee.
 
 **Entry 11 is the same shape twice, and both times the sweep was mine.**
 
@@ -468,7 +522,7 @@ Reporting only one of them is how "19% of pages vanished" stayed invisible.
 | `oldest_pending_age_seconds` | age of the oldest pending document's `uploaded_at` | Distinguishes a fresh queue from a stuck one |
 | `stalled` | `not alive` **or** heartbeat > 120 s **or** (`pending_count > 0` **and** `seconds_since_progress` > 180 s) | Reflects whether work is *moving* |
 | `stalled_reasons` | which of the above fired | Never just a bare boolean |
-| `last_error` | `{code, message, document_id, stage, at}` | **Response-safe only.** Full tracebacks go to `backend/data/logs/nabaa.log` |
+| `last_error` | `{code, message, document_id, stage, at}` | **Response-safe only.** Full tracebacks go to `backend/data/logs/rag-intelligence.log` |
 
 An idle worker with an empty queue is **not** stalled. A worker alive and
 ignoring a backlog **is**.
