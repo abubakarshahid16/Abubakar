@@ -40,6 +40,7 @@ from . import market_transport as market_transport_mod
 from . import progress as progress_mod
 from . import reports as reports_mod
 from . import review as review_mod
+from . import deliverables as deliverables_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -56,6 +57,7 @@ async def lifespan(app: FastAPI):
     auth_mod.install()
     keyword_mod.ensure_schema()
     review_mod.ensure_schema()
+    deliverables_mod.ensure_schema()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()
@@ -1169,6 +1171,57 @@ def update_review_finding(
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id"))
     return updated
+
+
+# ------------------------------------------------------------- deliverables / WBS
+
+@app.get("/api/deliverables", response_model=schemas.DeliverableList,
+         responses=schemas.ERRORS_422)
+def list_deliverables(scope: access.AccessScope = Depends(access.current_scope)):
+    return {"deliverables": deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)}
+
+
+@app.post("/api/deliverables", response_model=schemas.Deliverable,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def create_deliverable(body: schemas.DeliverableCreate,
+                       scope: access.AccessScope = Depends(access.current_scope)):
+    _require_identity_to_write(scope)
+    if body.document_id:
+        require_document(body.document_id, scope)
+    return deliverables_mod.create(body.model_dump(), created_by=scope.user_id)
+
+
+@app.patch("/api/deliverables/{deliverable_id}", response_model=schemas.Deliverable,
+           responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
+                       scope: access.AccessScope = Depends(access.current_scope)):
+    _require_identity_to_write(scope)
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("document_id"):
+        require_document(changes["document_id"], scope)
+    item = deliverables_mod.update(deliverable_id, changes)
+    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
+    return item
+
+
+@app.get("/api/deliverables/alerts")
+def deliverable_alerts(scope: access.AccessScope = Depends(access.current_scope)):
+    return {"alerts": deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)}
+
+
+@app.get("/api/management/summary")
+def management_summary(scope: access.AccessScope = Depends(access.current_scope)):
+    items = deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)
+    alerts = deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)
+    findings = review_mod.list_findings(allowed_document_ids=scope.allowed_document_ids)
+    by_status = {status: sum(1 for item in items if item["status"] == status)
+                 for status in {item["status"] for item in items}}
+    by_severity = {severity: sum(1 for item in findings if item["severity"] == severity)
+                   for severity in {item["severity"] for item in findings}}
+    return {"deliverables_total": len(items), "deliverables_by_status": by_status,
+            "review_findings_total": len(findings), "findings_by_severity": by_severity,
+            "overdue_alerts": len(alerts), "alerts": alerts}
 
 
 @app.post("/api/conversations", response_model=schemas.Conversation,

@@ -45,6 +45,9 @@ import type {
   ReviewFinding,
   ReviewFindingCreate,
   ReviewFindingUpdate,
+  Deliverable,
+  DeliverableCreate,
+  DeliverableUpdate,
 } from "../types/api";
 
 /** The unauthenticated route, and the only one. It answers "is the service up"
@@ -261,6 +264,12 @@ export const reviews = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+};
+
+export const deliverables = {
+  list: () => request<{ deliverables: Deliverable[] }>("/deliverables"),
+  create: (body: DeliverableCreate) => request<Deliverable>("/deliverables", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  update: (id: string, body: DeliverableUpdate) => request<Deliverable>(`/deliverables/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 };
 
 // The market preview/search contract now lives in contracts/types.ts, which

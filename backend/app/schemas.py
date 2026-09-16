@@ -1100,6 +1100,7 @@ ReviewCategory = Literal[
 ReviewSeverity = Literal["critical", "major", "minor", "observation"]
 ReviewStatus = Literal["open", "in_progress", "awaiting_response", "resolved", "deferred"]
 ApprovalStatus = Literal["pending", "accepted", "rejected", "not_required"]
+ReviewDisposition = Literal["accepted", "partially_accepted", "rejected", "not_applicable"]
 
 
 class ReviewFindingCreate(BaseModel):
@@ -1110,6 +1111,8 @@ class ReviewFindingCreate(BaseModel):
     requirement: str = Field(min_length=1, max_length=4000)
     finding: str = Field(min_length=1, max_length=8000)
     required_action: str = Field(min_length=1, max_length=8000)
+    response_text: str | None = Field(default=None, max_length=8000)
+    disposition: ReviewDisposition | None = None
     citation_ids: list[str] = Field(default_factory=list, max_length=50)
     owner_user_id: str | None = None
     due_date: str | None = None
@@ -1126,6 +1129,10 @@ class ReviewFindingUpdate(BaseModel):
     status: ReviewStatus | None = None
     approval_status: ApprovalStatus | None = None
     escalation_level: int | None = Field(default=None, ge=0, le=5)
+    response_text: str | None = Field(default=None, max_length=8000)
+    disposition: ReviewDisposition | None = None
+    approved_by: str | None = None
+    approved_at: str | None = None
 
 
 class ReviewFinding(BaseModel):
@@ -1137,11 +1144,15 @@ class ReviewFinding(BaseModel):
     requirement: str
     finding: str
     required_action: str
+    response_text: str | None
+    disposition: ReviewDisposition | None
     citation_ids: list[str]
     owner_user_id: str | None
     due_date: str | None
     status: ReviewStatus
     approval_status: ApprovalStatus
+    approved_by: str | None
+    approved_at: str | None
     escalation_level: int
     created_by: str | None
     created_at: str
@@ -1150,6 +1161,59 @@ class ReviewFinding(BaseModel):
 
 class ReviewFindingList(BaseModel):
     findings: list[ReviewFinding]
+
+
+DeliverableStatus = Literal["planned", "in_progress", "submitted", "under_review", "approved", "rejected", "superseded"]
+
+
+class DeliverableCreate(BaseModel):
+    wbs_code: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=500)
+    deliverable_type: str = Field(min_length=1, max_length=100)
+    revision: str = Field(default="0", max_length=50)
+    status: DeliverableStatus = "planned"
+    document_id: str | None = None
+    owner_user_id: str | None = None
+    planned_date: str | None = None
+    due_date: str | None = None
+    submitted_at: str | None = None
+    approved_at: str | None = None
+
+
+class DeliverableUpdate(BaseModel):
+    wbs_code: str | None = Field(default=None, min_length=1, max_length=100)
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    deliverable_type: str | None = Field(default=None, min_length=1, max_length=100)
+    revision: str | None = Field(default=None, max_length=50)
+    status: DeliverableStatus | None = None
+    document_id: str | None = None
+    owner_user_id: str | None = None
+    planned_date: str | None = None
+    due_date: str | None = None
+    submitted_at: str | None = None
+    approved_at: str | None = None
+
+
+class Deliverable(BaseModel):
+    id: str
+    wbs_code: str
+    title: str
+    deliverable_type: str
+    revision: str
+    status: DeliverableStatus
+    document_id: str | None
+    owner_user_id: str | None
+    planned_date: str | None
+    due_date: str | None
+    submitted_at: str | None
+    approved_at: str | None
+    created_by: str | None
+    created_at: str
+    updated_at: str
+
+
+class DeliverableList(BaseModel):
+    deliverables: list[Deliverable]
 
 
 class ReportVerification(BaseModel):

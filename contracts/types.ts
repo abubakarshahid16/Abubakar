@@ -125,6 +125,7 @@ export type ReviewCategory =
   | "technical_query"
   | "positive_observation";
 export type ReviewSeverity = "critical" | "major" | "minor" | "observation";
+export type ReviewDisposition = "accepted" | "partially_accepted" | "rejected" | "not_applicable";
 export type ReviewStatus = "open" | "in_progress" | "awaiting_response" | "resolved" | "deferred";
 export type ApprovalStatus = "pending" | "accepted" | "rejected" | "not_required";
 
@@ -137,11 +138,15 @@ export interface ReviewFinding {
   requirement: string;
   finding: string;
   required_action: string;
+  response_text: string | null;
+  disposition: ReviewDisposition | null;
   citation_ids: string[];
   owner_user_id: string | null;
   due_date: string | null;
   status: ReviewStatus;
   approval_status: ApprovalStatus;
+  approved_by: string | null;
+  approved_at: string | null;
   escalation_level: number;
   created_by: string | null;
   created_at: string;
@@ -156,12 +161,16 @@ export interface ReviewFindingCreate {
   requirement: string;
   finding: string;
   required_action: string;
+  response_text?: string | null;
+  disposition?: ReviewDisposition | null;
   citation_ids?: string[];
   owner_user_id?: string | null;
   due_date?: string | null;
   status?: ReviewStatus;
   approval_status?: ApprovalStatus;
   escalation_level?: number;
+  approved_by?: string | null;
+  approved_at?: string | null;
 }
 
 export interface ReviewFindingUpdate {
@@ -169,10 +178,47 @@ export interface ReviewFindingUpdate {
   due_date?: string | null;
   severity?: ReviewSeverity;
   required_action?: string;
+  response_text?: string | null;
+  disposition?: ReviewDisposition | null;
   status?: ReviewStatus;
   approval_status?: ApprovalStatus;
   escalation_level?: number;
+  approved_by?: string | null;
+  approved_at?: string | null;
 }
+
+export type DeliverableStatus = "planned" | "in_progress" | "submitted" | "under_review" | "approved" | "rejected" | "superseded";
+export interface Deliverable {
+  id: string;
+  wbs_code: string;
+  title: string;
+  deliverable_type: string;
+  revision: string;
+  status: DeliverableStatus;
+  document_id: string | null;
+  owner_user_id: string | null;
+  planned_date: string | null;
+  due_date: string | null;
+  submitted_at: string | null;
+  approved_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface DeliverableCreate {
+  wbs_code: string;
+  title: string;
+  deliverable_type: string;
+  revision?: string;
+  status?: DeliverableStatus;
+  document_id?: string | null;
+  owner_user_id?: string | null;
+  planned_date?: string | null;
+  due_date?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+}
+export type DeliverableUpdate = Partial<DeliverableCreate>;
 
 // ---------- jobs ----------
 

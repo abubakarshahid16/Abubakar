@@ -1,0 +1,110 @@
+"""Revision-aware EPC deliverable and WBS records."""
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+
+from .db import connect
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def ensure_schema() -> None:
+    with connect() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS deliverables (
+            id TEXT PRIMARY KEY,
+            wbs_code TEXT NOT NULL,
+            title TEXT NOT NULL,
+            deliverable_type TEXT NOT NULL,
+            revision TEXT NOT NULL DEFAULT '0',
+            status TEXT NOT NULL DEFAULT 'planned',
+            document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+            owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+            planned_date TEXT,
+            due_date TEXT,
+            submitted_at TEXT,
+            approved_at TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_wbs ON deliverables(wbs_code)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_due ON deliverables(due_date, status)")
+
+
+def create(payload: dict, *, created_by: str | None) -> dict:
+    ensure_schema()
+    now = _now()
+    item = {
+        "id": str(uuid.uuid4()), "wbs_code": payload["wbs_code"],
+        "title": payload["title"], "deliverable_type": payload["deliverable_type"],
+        "revision": payload.get("revision", "0"), "status": payload.get("status", "planned"),
+        "document_id": payload.get("document_id"), "owner_user_id": payload.get("owner_user_id"),
+        "planned_date": payload.get("planned_date"), "due_date": payload.get("due_date"),
+        "submitted_at": payload.get("submitted_at"), "approved_at": payload.get("approved_at"),
+        "created_by": created_by, "created_at": now, "updated_at": now,
+    }
+    with connect() as conn:
+        conn.execute("""INSERT INTO deliverables
+            (id,wbs_code,title,deliverable_type,revision,status,document_id,owner_user_id,
+             planned_date,due_date,submitted_at,approved_at,created_by,created_at,updated_at)
+            VALUES (:id,:wbs_code,:title,:deliverable_type,:revision,:status,:document_id,:owner_user_id,
+                    :planned_date,:due_date,:submitted_at,:approved_at,:created_by,:created_at,:updated_at)""", item)
+    return item
+
+
+def list_items(*, allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
+    ensure_schema()
+    sql = "SELECT * FROM deliverables"
+    args: list[str] = []
+    if allowed_document_ids is not None:
+        if not allowed_document_ids:
+            return []
+        marks = ",".join("?" for _ in allowed_document_ids)
+        sql += f" WHERE document_id IS NULL OR document_id IN ({marks})"
+        args.extend(sorted(allowed_document_ids))
+    sql += " ORDER BY wbs_code, due_date, revision"
+    return [dict(row) for row in connect().execute(sql, args).fetchall()]
+
+
+def update(item_id: str, changes: dict) -> dict | None:
+    ensure_schema()
+    allowed = {"wbs_code", "title", "deliverable_type", "revision", "status", "document_id",
+               "owner_user_id", "planned_date", "due_date", "submitted_at", "approved_at"}
+    sets = [f"{k} = ?" for k in changes if k in allowed and changes[k] is not None]
+    if not sets:
+        row = connect().execute("SELECT * FROM deliverables WHERE id = ?", (item_id,)).fetchone()
+        return dict(row) if row else None
+    args = [changes[k] for k in changes if k in allowed and changes[k] is not None]
+    sets.append("updated_at = ?"); args.extend([_now(), item_id])
+    with connect() as conn:
+        if conn.execute(f"UPDATE deliverables SET {', '.join(sets)} WHERE id = ?", args).rowcount == 0:
+            return None
+    row = connect().execute("SELECT * FROM deliverables WHERE id = ?", (item_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def alerts(*, allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
+    """Return deterministic reminder/escalation facts; sending is separate."""
+    today = datetime.now(timezone.utc).date()
+    rows = list_items(allowed_document_ids=allowed_document_ids)
+    result: list[dict] = []
+    for row in rows:
+        if row["status"] in {"approved", "superseded"} or not row.get("due_date"):
+            continue
+        try:
+            due = datetime.fromisoformat(row["due_date"].replace("Z", "+00:00")).date()
+        except ValueError:
+            continue
+        days = (today - due).days
+        if days < 0:
+            continue
+        result.append({
+            "deliverable_id": row["id"], "wbs_code": row["wbs_code"],
+            "title": row["title"], "due_date": row["due_date"],
+            "days_overdue": days, "escalation_level": min(5, 1 + days // 7),
+            "severity": "critical" if days >= 14 else "major" if days >= 7 else "minor",
+        })
+    return result

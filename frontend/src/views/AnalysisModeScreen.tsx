@@ -106,6 +106,7 @@ import {
   type AnalysisToggles,
 } from "../components/analysis/ModeSelector";
 import { RecommendationCard } from "../components/analysis/RecommendationCard";
+import { ReviewWorkflowPanel } from "../components/analysis/ReviewWorkflowPanel";
 import { SummaryCard } from "../components/analysis/SummaryCard";
 import { DisconnectedState, EmptyState, ErrorState, Spinner } from "../components/states";
 import {
@@ -122,6 +123,7 @@ import type {
   EvidenceItem,
   MarketFinding,
   ReviewFindingCreate,
+  ReviewFinding,
 } from "../types/api";
 import type {
   AnalysisResult,
@@ -1153,6 +1155,7 @@ export function AnalysisModeScreen() {
   // Egress preview state is transient UI and stays with the component.
   const [pendingQuery, setPendingQuery] = useState<PublicMarketQuery | null>(null);
   const [queryOutcome, setQueryOutcome] = useState<string | null>(null);
+  const [reviewFindings, setReviewFindings] = useState<ReviewFinding[]>([]);
 
   // A ticking counter rather than a bare spinner, exactly as ChatView does it:
   // the seconds since the run's real start, re-derived from the timestamp each
@@ -1204,7 +1207,23 @@ export function AnalysisModeScreen() {
     if (!result.ok) {
       throw new Error(result.error.message);
     }
+    setReviewFindings((current) => [result.data, ...current.filter((item) => item.id !== result.data.id)]);
   }, []);
+
+  const updateReviewFinding = useCallback(async (id: string, update: import("../types/api").ReviewFindingUpdate) => {
+    const result = await reviewsApi.update(id, update);
+    if (!result.ok) throw new Error(result.error.message);
+    setReviewFindings((current) => current.map((item) => item.id === id ? result.data : item));
+  }, []);
+
+  useEffect(() => {
+    if (gapsSlot.s !== "ready") return;
+    let cancelled = false;
+    void reviewsApi.list().then((result) => {
+      if (!cancelled && result.ok) setReviewFindings(result.data.findings);
+    });
+    return () => { cancelled = true; };
+  }, [gapsSlot]);
 
   /**
    * BRING THE SOURCES PANEL INTO VIEW ON SELECT.
@@ -1546,6 +1565,7 @@ export function AnalysisModeScreen() {
                       ledger={d.ledger}
                       onCreateFinding={createReviewFinding}
                     />
+                    <ReviewWorkflowPanel findings={reviewFindings} onUpdate={updateReviewFinding} />
                     {d.gaps.applicability === "applicable" && d.gaps.baseline !== null && (
                       <ClaimTable
                         clusters={d.clusters}

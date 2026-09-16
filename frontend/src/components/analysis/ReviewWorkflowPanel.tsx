@@ -1,0 +1,96 @@
+import { useState } from "react";
+
+import type { ReviewDisposition, ReviewFinding, ReviewFindingUpdate, ReviewStatus } from "../../types/api";
+
+type Props = {
+  findings: ReviewFinding[];
+  onUpdate: (id: string, update: ReviewFindingUpdate) => Promise<void>;
+};
+
+const statusLabels: Record<ReviewStatus, string> = {
+  open: "Open",
+  in_progress: "In progress",
+  awaiting_response: "Awaiting response",
+  resolved: "Resolved",
+  deferred: "Deferred",
+};
+
+export function ReviewWorkflowPanel({ findings, onUpdate }: Props) {
+  if (findings.length === 0) return null;
+  return (
+    <section aria-label="Engineering review workflow" className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slateish-300">Engineering review workflow</h3>
+          <p className="mt-1 text-xs text-slateish-500">Respond to cited findings, record the disposition, and submit them for approval.</p>
+        </div>
+        <span className="text-xs text-slateish-500">{findings.length} finding{findings.length === 1 ? "" : "s"}</span>
+      </div>
+      <ul className="mt-3 divide-y divide-ink-700/70">
+        {findings.map((finding) => <FindingRow key={finding.id} finding={finding} onUpdate={onUpdate} />)}
+      </ul>
+    </section>
+  );
+}
+
+function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: Props["onUpdate"] }) {
+  const [response, setResponse] = useState(finding.response_text ?? "");
+  const [disposition, setDisposition] = useState<ReviewDisposition | "">(finding.disposition ?? "");
+  const [status, setStatus] = useState<ReviewStatus>(finding.status);
+  const [approval, setApproval] = useState(finding.approval_status);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setMessage(null);
+    try {
+      await onUpdate(finding.id, {
+        response_text: response.trim() || null,
+        disposition: disposition || null,
+        status,
+        approval_status: approval,
+      });
+      setMessage("Saved");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <li className="py-4 first:pt-3 last:pb-1">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="rounded bg-danger-500/15 px-2 py-0.5 font-semibold uppercase tracking-wide text-danger-400">{finding.severity}</span>
+        <span className="text-slateish-400">{finding.category.replaceAll("_", " ")}</span>
+        <span className="text-slateish-500">{finding.id.slice(0, 8)}</span>
+      </div>
+      <p className="mt-2 text-sm text-slateish-200">{finding.finding}</p>
+      <p className="mt-1 text-xs text-slateish-400">Required action: {finding.required_action}</p>
+      <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto_auto]">
+        <textarea value={response} onChange={(e) => setResponse(e.target.value)} rows={2} placeholder="Engineer response or corrective-action explanation" className="w-full rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200" />
+        <select value={disposition} onChange={(e) => setDisposition(e.target.value as ReviewDisposition | "")} className="rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200">
+          <option value="">Disposition</option>
+          <option value="accepted">Accepted</option>
+          <option value="partially_accepted">Partially accepted</option>
+          <option value="rejected">Rejected</option>
+          <option value="not_applicable">Not applicable</option>
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value as ReviewStatus)} className="rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200">
+          {(Object.keys(statusLabels) as ReviewStatus[]).map((key) => <option key={key} value={key}>{statusLabels[key]}</option>)}
+        </select>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <select value={approval} onChange={(e) => setApproval(e.target.value as typeof approval)} className="rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">
+          <option value="pending">Approval pending</option>
+          <option value="accepted">Approved</option>
+          <option value="rejected">Approval rejected</option>
+          <option value="not_required">Approval not required</option>
+        </select>
+        <button type="button" disabled={saving} onClick={() => void save()} className="rounded bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30 disabled:opacity-50">{saving ? "Saving…" : "Save response"}</button>
+        {message !== null && <span className="text-xs text-slateish-400" role="status">{message}</span>}
+      </div>
+    </li>
+  );
+}
