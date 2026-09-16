@@ -616,12 +616,24 @@ export function ChatView({
               ["extract", "Exact quotation"],
               ["generated", "Written explanation"],
             ] as const).map(([value, label]) => (
-              <label key={value} className="flex cursor-pointer items-center gap-2 rounded-md border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 transition-colors hover:border-signal-500/60 hover:bg-ink-800">
+              <label key={value} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-full)] border border-ink-600 px-3.5 py-1.5 text-sm text-slateish-200 transition-colors hover:border-signal-500/60 hover:bg-ink-800 has-[:checked]:border-signal-500/70 has-[:checked]:bg-signal-500/10 has-[:checked]:text-signal-300">
                 <input type="radio" name="answer-style" value={value} checked={answerStyle === value} onChange={() => setAnswerStyle(value)} />
                 {label}
               </label>
             ))}
           </fieldset>
+          {answerStyle === "extract" && isReviewRequest(question) && (
+            <div
+              role="alert"
+              className="mb-2 rounded-[var(--radius-sm)] border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200"
+            >
+              A critique needs a written explanation. <button
+                type="button"
+                className="font-semibold underline decoration-amber-300/70 underline-offset-2 hover:text-white"
+                onClick={() => setAnswerStyle("generated")}
+              >Use Written explanation</button> above; <strong>Exact quotation</strong> can only return wording already present in the documents.
+            </div>
+          )}
           <div className="flex gap-2">
             <label htmlFor="chat-question" className="sr-only">
               Your question
