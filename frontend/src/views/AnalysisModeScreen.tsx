@@ -1566,7 +1566,7 @@ export function AnalysisModeScreen() {
                       onCreateFinding={createReviewFinding}
                     />
                     <ReviewWorkflowPanel findings={reviewFindings} onUpdate={updateReviewFinding} />
-                    {d.gaps.applicability === "applicable" && d.gaps.baseline !== null && (
+                    {(mode === "quote" || (d.gaps.applicability === "applicable" && d.gaps.baseline !== null)) && (
                       <ClaimTable
                         clusters={d.clusters}
                         onCite={onCite}
