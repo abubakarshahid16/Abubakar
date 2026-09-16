@@ -1020,7 +1020,7 @@ def recommendation(question: str, scope: access.AccessScope, *, limit: int = 8,
     each named, so a reader can see why it is what it is rather than being
     handed a number.
     """
-    evidence, raw = gather(question, scope, limit=limit)
+    evidence, _raw = gather(question, scope, limit=limit)
     gap = gaps(question, scope, limit=limit,
                baseline_document_id=baseline_document_id)
     summarised = _synthesise(question, evidence, limit, generate)

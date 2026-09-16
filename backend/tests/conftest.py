@@ -147,6 +147,7 @@ def _never_the_developers_database(tmp_path_factory):
        `temp_storage` override this per test and are unaffected.
     """
     from app import db
+    from app import access
 
     session_dir = tmp_path_factory.mktemp("ragintel-session")
     settings.data_dir = session_dir

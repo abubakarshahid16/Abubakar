@@ -235,6 +235,7 @@ CREATE TABLE IF NOT EXISTS users (
     -- cheaper guarantee than a rule saying not to.
     password_hash TEXT NOT NULL,
     is_active     INTEGER NOT NULL DEFAULT 1,
+    token_epoch   INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL,
     last_login_at TEXT
 );
@@ -571,6 +572,14 @@ def connect() -> sqlite3.Connection:
 def _migrate(conn: sqlite3.Connection) -> None:
     """Additive column migrations for databases created by an earlier build."""
     have = {r["name"] for r in conn.execute("PRAGMA table_info(chunks)")}
+    roles = {r["name"] for r in conn.execute("PRAGMA table_info(roles)")}
+    user_columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
+    if user_columns and "token_epoch" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN token_epoch INTEGER NOT NULL DEFAULT 0")
+    if roles and "kind" not in roles:
+        conn.execute(
+            "ALTER TABLE roles ADD COLUMN kind TEXT NOT NULL DEFAULT 'discipline'"
+        )
     if have and "retrievable" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN retrievable INTEGER NOT NULL DEFAULT 1")
     if have and "quality_flags" not in have:

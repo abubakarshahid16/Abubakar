@@ -46,7 +46,6 @@ export function PageImageViewer({
     void load();
   }, [load]);
 
-
   const current = pages.find((p) => p.page_no === selected);
   const total = doc.page_count ?? pages.length;
 

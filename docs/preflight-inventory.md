@@ -1,7 +1,7 @@
 # Preflight inventory
 
 What the repository actually contains, verified on **2026-09-05** against
-commit `cec7731` on branch `chore/60-sec-001-upload-ceiling-and-reachability`.
+the current `main` branch (verify the exact commit with `git rev-parse HEAD`).
 
 Required by §0 of `RAG-INTELLIGENCE-POC-EXECUTION.md` before any enterprise code.
 The plan states its own precedence rule:

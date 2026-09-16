@@ -231,8 +231,10 @@ class Settings(BaseSettings):
     #: Bounded explicitly. Never -1: that takes all 12 logical cores and
     #: allocates a per-thread arena each, which is how the reranker came to
     #: reserve 829 MB for a 22 MB model.
-    ocr_threads: int = 2
-    ocr_rec_batch: int = 4
+    # Laptop-safe defaults: OCR is CPU-heavy and a second worker competes with
+    # the local answer model for all cores and memory.
+    ocr_threads: int = 1
+    ocr_rec_batch: int = 2
     ocr_max_side_len: int = 2000
     #: Memory-bound, not CPU-bound, and ONE - corrected by measuring the real
     #: stage rather than one worker in isolation. Isolated workers peaked at
@@ -318,8 +320,77 @@ class Settings(BaseSettings):
     #: anything.
     max_upload_mb: int = 512
     page_batch_size: int = 32
-    extract_processes: int = 2
-    embed_batch_size: int = 32
+    extract_processes: int = 1
+    embed_batch_size: int = 16
+
+    # ------------------------------------------------------- watched folder
+    #: The drop folder. EMPTY IS THE DEFAULT AND EMPTY MEANS OFF - there is no
+    #: separate `watch_enabled` boolean, because two settings that can disagree
+    #: are two settings that eventually do: a folder configured with the
+    #: boolean left false is a client dropping documents into a system that is
+    #: not looking, and reports nothing wrong. One value, and its emptiness is
+    #: the switch.
+    #:
+    #: FROM `.env` AND FROM NOWHERE ELSE. Never a request body, never a query
+    #: parameter, never an admin form. A path supplied by a caller is a
+    #: file-disclosure hole: the watcher reads whatever directory it is given
+    #: and copies what it finds into a corpus the caller can then search, so a
+    #: client-settable path turns "read my drop folder" into "read any folder
+    #: this process can open". The value being operator-supplied at deploy time
+    #: is what makes reading it safe at all - and it is still withheld from
+    #: non-administrators by /api/watch/status, because host filesystem layout
+    #: is not corpus data.
+    #:
+    #: A str rather than a Path, deliberately: `Path("")` is `.`, so an unset
+    #: Path setting would silently mean "watch the working directory". The
+    #: emptiness has to survive being read.
+    watch_folder: str = ""
+    #: Five minutes. This is a POLL, not an OS filesystem event subscription -
+    #: a network share and a synced folder both fail to deliver events, and the
+    #: client's drop folder is expected to be one or the other. Polling costs a
+    #: directory listing per interval, which is nothing, and it is the same
+    #: code path on every kind of volume.
+    #:
+    #: Latency is not the constraint people expect it to be: a file is only
+    #: eligible once it has been seen UNCHANGED on two consecutive scans, so a
+    #: document appears in the corpus one to two intervals after it is dropped
+    #: regardless. That two-scan rule is what stops a half-copied 40 MB PDF
+    #: being ingested as a truncated document, and shortening this interval
+    #: buys latency at the cost of making that race likelier on a slow share.
+    watch_interval_seconds: int = 300
+    #: WHO the documents the folder brings in belong to. An email of an
+    #: EXISTING user, and empty by default.
+    #:
+    #: A file sitting in a folder carries no identity. Somebody put it there
+    #: and the filesystem does not record who in any way this system can
+    #: trust, so the two available answers were to invent a service account -
+    #: a permanent false record of who supplied every document the client ever
+    #: drops - or to have the administrator STATE which real person owns what
+    #: the folder brings in. This is the second. `admin.grant_on_upload` then
+    #: gives the document exactly the grants a manual upload by that user
+    #: would have given it: their disciplines, plus the admin capability. No
+    #: more, and it is deliberately the same call rather than a similar one.
+    #:
+    #: WITHOUT THIS THE FEATURE DOES NOTHING under `AUTH_MODE=demo_required`,
+    #: which is the only mode anyone deploys. `document_role_access` is
+    #: written by `admin.grant()` and by nothing else, so a document ingested
+    #: with no owner is readable by nobody - not by an engineer, not by an
+    #: administrator - while holding disk and occupying the worker. The
+    #: watcher refuses rather than creating one, and this setting is what
+    #: turns that refusal into an ingest.
+    #:
+    #: FROM `.env` AND FROM NOWHERE ELSE, for a sharper reason than the path
+    #: is. This value decides WHO CAN READ the documents: a request that could
+    #: set it could point the folder's output at its own roles and read every
+    #: specification the client drops. It is an access-control decision, and
+    #: access-control decisions in this system come from the grant tables and
+    #: from operator configuration, never from a caller.
+    #:
+    #: The named user must hold a DISCIPLINE role. One who does not would send
+    #: every dropped document to no discipline at all, which is the orphan
+    #: again wearing a name; the watcher checks and says so rather than
+    #: ingesting into a void. See `watcher.resolve_owner`.
+    watch_owner_email: str = ""
 
     # ------------------------------------------------------- watched folder
     #: The drop folder. EMPTY IS THE DEFAULT AND EMPTY MEANS OFF - there is no
@@ -435,7 +506,7 @@ class Settings(BaseSettings):
     #:   512 tokens  1182 ms
     #: +213 ms against 256, which keeps Tier 1 inside its 1-2 second target.
     rerank_max_tokens: int = 480
-    rerank_batch: int = 32
+    rerank_batch: int = 16
 
     #: ONNX Runtime's CPU arena allocator reserves large per-thread blocks
     #: and never returns them. Measured on this machine (16 GB, 12 threads):
