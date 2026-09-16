@@ -115,6 +115,65 @@ export interface DeletedConversation {
    *  anything. */
 }
 
+// ---------- engineering review workflow ----------
+
+export type ReviewCategory =
+  | "missing_information"
+  | "inconsistency"
+  | "requirement_deviation"
+  | "document_control"
+  | "technical_query"
+  | "positive_observation";
+export type ReviewSeverity = "critical" | "major" | "minor" | "observation";
+export type ReviewStatus = "open" | "in_progress" | "awaiting_response" | "resolved" | "deferred";
+export type ApprovalStatus = "pending" | "accepted" | "rejected" | "not_required";
+
+export interface ReviewFinding {
+  id: string;
+  document_id: string;
+  baseline_document_id: string | null;
+  category: ReviewCategory;
+  severity: ReviewSeverity;
+  requirement: string;
+  finding: string;
+  required_action: string;
+  citation_ids: string[];
+  owner_user_id: string | null;
+  due_date: string | null;
+  status: ReviewStatus;
+  approval_status: ApprovalStatus;
+  escalation_level: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReviewFindingCreate {
+  document_id: string;
+  baseline_document_id?: string | null;
+  category: ReviewCategory;
+  severity: ReviewSeverity;
+  requirement: string;
+  finding: string;
+  required_action: string;
+  citation_ids?: string[];
+  owner_user_id?: string | null;
+  due_date?: string | null;
+  status?: ReviewStatus;
+  approval_status?: ApprovalStatus;
+  escalation_level?: number;
+}
+
+export interface ReviewFindingUpdate {
+  owner_user_id?: string | null;
+  due_date?: string | null;
+  severity?: ReviewSeverity;
+  required_action?: string;
+  status?: ReviewStatus;
+  approval_status?: ApprovalStatus;
+  escalation_level?: number;
+}
+
 // ---------- jobs ----------
 
 export type JobStage = "extract" | "chunk" | "embed" | "index";

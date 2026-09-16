@@ -1086,6 +1086,67 @@ class ReportList(BaseModel):
         "scope. THAT something is hidden, never WHAT")
 
 
+# ------------------------------------------------------- engineering reviews
+
+ReviewCategory = Literal[
+    "missing_information", "inconsistency", "requirement_deviation",
+    "document_control", "technical_query", "positive_observation",
+]
+ReviewSeverity = Literal["critical", "major", "minor", "observation"]
+ReviewStatus = Literal["open", "in_progress", "awaiting_response", "resolved", "deferred"]
+ApprovalStatus = Literal["pending", "accepted", "rejected", "not_required"]
+
+
+class ReviewFindingCreate(BaseModel):
+    document_id: str
+    baseline_document_id: str | None = None
+    category: ReviewCategory
+    severity: ReviewSeverity
+    requirement: str = Field(min_length=1, max_length=4000)
+    finding: str = Field(min_length=1, max_length=8000)
+    required_action: str = Field(min_length=1, max_length=8000)
+    citation_ids: list[str] = Field(default_factory=list, max_length=50)
+    owner_user_id: str | None = None
+    due_date: str | None = None
+    status: ReviewStatus = "open"
+    approval_status: ApprovalStatus = "pending"
+    escalation_level: int = Field(default=0, ge=0, le=5)
+
+
+class ReviewFindingUpdate(BaseModel):
+    owner_user_id: str | None = None
+    due_date: str | None = None
+    severity: ReviewSeverity | None = None
+    required_action: str | None = Field(default=None, min_length=1, max_length=8000)
+    status: ReviewStatus | None = None
+    approval_status: ApprovalStatus | None = None
+    escalation_level: int | None = Field(default=None, ge=0, le=5)
+
+
+class ReviewFinding(BaseModel):
+    id: str
+    document_id: str
+    baseline_document_id: str | None
+    category: ReviewCategory
+    severity: ReviewSeverity
+    requirement: str
+    finding: str
+    required_action: str
+    citation_ids: list[str]
+    owner_user_id: str | None
+    due_date: str | None
+    status: ReviewStatus
+    approval_status: ApprovalStatus
+    escalation_level: int
+    created_by: str | None
+    created_at: str
+    updated_at: str
+
+
+class ReviewFindingList(BaseModel):
+    findings: list[ReviewFinding]
+
+
 class ReportVerification(BaseModel):
     report_id: str
     snapshot_intact: bool

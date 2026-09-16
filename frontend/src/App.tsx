@@ -246,7 +246,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
             <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin} />
           )}
           {view === "chat" && (
-            <ChatView connection={connection} onRetryConnection={recheck} />
+            <ChatView connection={connection} onRetryConnection={recheck} onNavigate={setView} />
           )}
           {view === "ingestion" && (
             <IngestionView connection={connection} onRetryConnection={recheck} />

@@ -42,6 +42,9 @@ import type {
   ClassificationCoverage,
   ClassificationUpdate,
   DocumentClassification,
+  ReviewFinding,
+  ReviewFindingCreate,
+  ReviewFindingUpdate,
 } from "../types/api";
 
 /** The unauthenticated route, and the only one. It answers "is the service up"
@@ -232,6 +235,29 @@ export const analysis = {
   gaps: (body: AnalysisRequest) =>
     request<AnalysisGapsResult>("/analysis/gaps", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+};
+
+export const reviews = {
+  list: (params?: { document_id?: string; status?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.document_id) query.set("document_id", params.document_id);
+    if (params?.status) query.set("status", params.status);
+    return request<{ findings: ReviewFinding[] }>(
+      `/reviews/findings${query.toString() ? `?${query.toString()}` : ""}`,
+    );
+  },
+  create: (body: ReviewFindingCreate) =>
+    request<ReviewFinding>("/reviews/findings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  update: (id: string, body: ReviewFindingUpdate) =>
+    request<ReviewFinding>(`/reviews/findings/${encodeURIComponent(id)}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),

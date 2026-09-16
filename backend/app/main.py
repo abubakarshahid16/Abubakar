@@ -39,6 +39,7 @@ from . import market_providers as market_providers_mod
 from . import market_transport as market_transport_mod
 from . import progress as progress_mod
 from . import reports as reports_mod
+from . import review as review_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
     # then rejects everyone looks like a broken deployment.
     auth_mod.install()
     keyword_mod.ensure_schema()
+    review_mod.ensure_schema()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()
@@ -1110,6 +1112,66 @@ def download_report(report_id: str,
         filename=f"rag-intelligence-report-{report_id}.pdf",
         headers={"Cache-Control": "private, no-store"},
     )
+
+
+# ------------------------------------------------------- engineering reviews
+
+@app.get("/api/reviews/findings", response_model=schemas.ReviewFindingList,
+         responses=schemas.ERRORS_422)
+def list_review_findings(
+    request: Request,
+    document_id: str | None = Query(None),
+    status: schemas.ReviewStatus | None = Query(None),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """List review findings only for documents the caller may read."""
+    reject_unknown_params(request, {"document_id", "status"})
+    if document_id is not None:
+        require_document(document_id, scope)
+    return {"findings": review_mod.list_findings(
+        document_id=document_id, status=status,
+        allowed_document_ids=scope.allowed_document_ids,
+    )}
+
+
+@app.post("/api/reviews/findings", response_model=schemas.ReviewFinding,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def create_review_finding(
+    body: schemas.ReviewFindingCreate,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Persist a cited AI finding for human engineering workflow."""
+    _require_identity_to_write(scope)
+    require_document(body.document_id, scope)
+    if body.baseline_document_id:
+        require_document(body.baseline_document_id, scope)
+    if body.owner_user_id and not scope.unrestricted and not scope.is_admin and body.owner_user_id != scope.user_id:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "review owner not found"))
+    return review_mod.create(body.model_dump(), created_by=scope.user_id)
+
+
+@app.patch("/api/reviews/findings/{finding_id}", response_model=schemas.ReviewFinding,
+           responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def update_review_finding(
+    finding_id: str,
+    body: schemas.ReviewFindingUpdate,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Update workflow fields without changing the original evidence."""
+    _require_identity_to_write(scope)
+    current = review_mod.get(finding_id)
+    if current is None or not scope.may_read(current["document_id"]):
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review finding with that id"))
+    if body.owner_user_id and not scope.unrestricted and not scope.is_admin and body.owner_user_id != scope.user_id:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "review owner not found"))
+    updated = review_mod.update(finding_id, body.model_dump(exclude_unset=True))
+    if updated is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review finding with that id"))
+    return updated
 
 
 @app.post("/api/conversations", response_model=schemas.Conversation,

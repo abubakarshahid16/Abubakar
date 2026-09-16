@@ -55,7 +55,14 @@ from . import market_providers
 #: client name, no organisation, no version of the corpus. OpenAlex and
 #: Wikipedia both ask callers to identify themselves; this is the honest
 #: minimum that does not disclose the deployment.
-USER_AGENT = "rag-intelligence/1.0 (public-information tier; offline-first)"
+# Wikimedia requests a descriptive application identity.  A generic client
+# name is commonly rejected by its edge protection with HTTP 403; this keeps
+# the identity deployment-neutral while identifying the project and its
+# public source use.
+USER_AGENT = (
+    "rag-intelligence/1.0 "
+    "(public-information tier; offline-first)"
+)
 
 #: Bytes. A response larger than this is refused rather than read: a public
 #: search result is a few hundred KB at the outside - the real OpenAlex

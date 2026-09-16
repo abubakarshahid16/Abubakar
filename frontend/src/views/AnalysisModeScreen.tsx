@@ -92,6 +92,7 @@ import {
   analysis as analysisApi,
   isSignedIn,
   market as marketApi,
+  reviews as reviewsApi,
   type AppliedScope,
   type ClassificationScope,
   type Result,
@@ -120,6 +121,7 @@ import type {
   EgressState,
   EvidenceItem,
   MarketFinding,
+  ReviewFindingCreate,
 } from "../types/api";
 import type {
   AnalysisResult,
@@ -1197,6 +1199,13 @@ export function AnalysisModeScreen() {
 
   const onCite = useCallback((evidenceId: string) => setSelected(evidenceId), []);
 
+  const createReviewFinding = useCallback(async (draft: ReviewFindingCreate) => {
+    const result = await reviewsApi.create(draft);
+    if (!result.ok) {
+      throw new Error(result.error.message);
+    }
+  }, []);
+
   /**
    * BRING THE SOURCES PANEL INTO VIEW ON SELECT.
    *
@@ -1341,12 +1350,20 @@ export function AnalysisModeScreen() {
                 a register with different types must not show a filter for
                 types it does not have. */}
             <div aria-label="Search in">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+                Search scope
+              </p>
+              <p className="mb-2 text-xs text-slateish-400">
+                Leave all filters clear to search across every indexed document.
+                Select a category only when you want to narrow the run.
+              </p>
               <TypeFilter
                 vocabulary={typeVocabulary}
                 selected={selectedTypes}
                 onToggle={toggleType}
                 onClear={clearTypes}
                 applied={appliedScope}
+                label="Document categories"
                 layout="column"
               />
               {/* RULE 3, the other half: no server echo yet under the CURRENT
@@ -1526,8 +1543,16 @@ export function AnalysisModeScreen() {
                       documents={documents}
                       onCite={onCite}
                       onNominateBaseline={nominateBaseline}
+                      ledger={d.ledger}
+                      onCreateFinding={createReviewFinding}
                     />
-                    <ClaimTable clusters={d.clusters} onCite={onCite} selectedEvidenceId={selected} />
+                    {d.gaps.applicability === "applicable" && d.gaps.baseline !== null && (
+                      <ClaimTable
+                        clusters={d.clusters}
+                        onCite={onCite}
+                        selectedEvidenceId={selected}
+                      />
+                    )}
                   </div>
                 )}
               </SlotBody>

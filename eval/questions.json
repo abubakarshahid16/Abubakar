@@ -207,6 +207,18 @@
       "answerable": true,
       "tier": "generated",
       "type": "regression: THE TOKEN BUDGET. Every other question in this set lands on prose, at 4.4-5.8 characters per token, so none of them could fill the context window. This one is a numeric table at 1.01 - three such passages built a 3,645-token prompt against num_ctx 1,536 and llama.cpp discarded 72% of it silently, reporting 1,026 tokens evaluated, BELOW the ceiling. Same shape as question 16: the harness could not see the defect because every question it asked avoided the condition. Asked at Tier 2 deliberately - Tier 1 builds no prompt and would prove nothing. NO expected_answer ON PURPOSE. The corpus holds several wave-equation tables, each with a t=4.00 row; a first label naming 8.0000 (page 598) was measured wrong when the system correctly read page 597 instead. Setting the label to whatever the system returned would be fitting the expectation to the output. What this question asserts is that the evidence FITS and any removal is REPORTED. The numeric answer needs an engineer."
+    },
+    {
+      "id": "18",
+      "q": "can you tell me about Design team leader ??",
+      "document": "doc16.pdf",
+      "expected_pages": [
+        14
+      ],
+      "expected_clause": null,
+      "expected_answer": "Engineer or Architect responsible for coordinating the efforts of all modelers and technicians within the model",
+      "answerable": true,
+      "type": "regression: found live on 2026-09-15. build_match_query() had no stopword filtering and no phrase requirement, so 'design', 'team', 'leader' were OR-ed with noise words 'you', 'tell', 'me', 'about' as equal-weight terms. A passage on page 12 that repeats 'design team' four times (but never the exact phrase 'design team leader' - it says 'leaders', plural, a different FTS token) outscored the page 14 glossary entry that contains the exact phrase once. Fixed same day with a STOPWORDS list and a phrase-boost pass in build_match_query()/search() (keyword.py) plus phrase_hits scoring in search.py. This question exists so that fix can never silently regress - conversational, noise-word-heavy phrasing is exactly the shape a real user, not a test author, actually types."
     }
   ]
 }

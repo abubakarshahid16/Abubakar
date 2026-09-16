@@ -232,6 +232,17 @@ table {
   hyphens: none;
 }
 
+/* Evidence is a verification drawer, so its quotation stays readable beside
+   the answer instead of becoming a large second reading column. */
+.evidence-quote {
+  font-family: "IBM Plex Serif", ui-serif, Georgia, Cambria,
+    "Times New Roman", Times, serif;
+  max-width: none;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  letter-spacing: 0.001em;
+}
+
 /* A quoted TABLE cannot be reflowed as prose - column pairing is positional,
    so wrapping it destroys the only structure it has. Held in a monospace
    grid that scrolls sideways rather than wrapped into a wall of text. */

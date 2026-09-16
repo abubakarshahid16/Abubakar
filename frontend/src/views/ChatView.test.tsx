@@ -214,6 +214,17 @@ afterEach(() => vi.unstubAllGlobals());
 // --------------------------------------------------------------- navigation
 
 describe("chat navigation", () => {
+  it("sends the selected response style to the existing answer pipeline", async () => {
+    const calls = mockApi();
+    await openChat();
+    await userEvent.click(screen.getByRole("radio", { name: "Written explanation" }));
+    await userEvent.type(screen.getByLabelText("Your question"), "Explain the coating requirement");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(calls.find((c) => c.url.endsWith("/ask"))?.body).toMatchObject({
+      question: "Explain the coating requirement", tier: "generated",
+    }));
+  });
+
   it("is no longer marked as not built", async () => {
     mockApi();
     render(<App />);

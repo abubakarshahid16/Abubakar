@@ -163,7 +163,7 @@ const CANCEL_SENDS_NOTHING = "Cancel closes this and sends nothing.";
  *  not answer") rather than what failed, because a tier returning nothing is
  *  not the same as a tier erroring, and the API does not distinguish them. */
 const TIER_FALLBACK =
-  "The general web search did not answer. The rows below come from reference sources: they are background only and are not market findings.";
+  "One or more public sources did not answer. Any rows shown are labeled with their actual source tier; they are preliminary background evidence, not proof of internal project compliance.";
 
 /** Printed under a failure, so the absence of rows is stated rather than left
  *  to be noticed. */

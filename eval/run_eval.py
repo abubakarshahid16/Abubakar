@@ -286,13 +286,18 @@ def check_ground_truth(questions: list[dict]) -> list[str]:
     from app import lexical  # noqa: PLC0415 - keeps the import local to the check
 
     problems: list[str] = []
+    allowed_document_ids = frozenset(every_document_id())
     for q in questions:
         if q["answerable"]:
             continue
-        for term in lexical.distinctive_terms(q["question"]):
+        for term in lexical.distinctive_terms(
+            q["question"], allowed_document_ids=allowed_document_ids
+        ):
             if not lexical.looks_like_a_named_subject(term, q["question"]):
                 continue
-            occurrences = keyword.term_occurrences(term)
+            occurrences = keyword.term_occurrences(
+                term, allowed_document_ids=allowed_document_ids
+            )
             if occurrences > 0:
                 problems.append(
                     f"question {q['id']} is marked UNANSWERABLE but its named "

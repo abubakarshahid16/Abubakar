@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import string
 import time
+import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 
@@ -478,17 +479,33 @@ class OpenAlexProvider:
         contact = (settings.market_openalex_contact_email or "").strip()
         if contact:
             url = f"{url}&mailto={quote(contact)}"
-        return self._rows(fetch(check_host(url), {}, timeout))
+        return self._rows(fetch(check_host(url), {}, timeout), phrase=str(payload['phrase']))
 
     @staticmethod
-    def _rows(raw: object) -> list[dict]:
+    def _rows(raw: object, *, phrase: str | None = None) -> list[dict]:
+        """Parse literature and discard clearly off-topic title matches.
+
+        OpenAlex's broad search can return records sharing only one common
+        word (for example ``design``). For a multi-word engineering query,
+        require every meaningful query token in the title; this prevents
+        unrelated records from being presented as useful project evidence.
+        """
+        required = tuple(dict.fromkeys(
+            token.lower() for token in re.findall(r"[A-Za-z0-9]+", phrase or "")
+            if len(token) >= 3
+        ))
         rows: list[dict] = []
+        all_rows: list[dict] = []
         for item in _as_list(raw, ("results",)):
             if not isinstance(item, Mapping):
                 continue
             title = _first_present(item, ("display_name", "title"))
             if not title:
                 continue
+            title_tokens = set(re.findall(r"[A-Za-z0-9]+", title.lower()))
+            matches_phrase = not required or len(required) <= 1 or all(
+                token in title_tokens for token in required
+            )
             landing = item.get("primary_location")
             url = ""
             publisher = ""
@@ -500,13 +517,19 @@ class OpenAlexProvider:
             url = url or _first_present(item, ("doi", "id")) or ""
             if not url:
                 continue
-            rows.append(_row(
+            row = _row(
                 text=title, tier=TIER_LITERATURE,
                 publisher=publisher or "OpenAlex",
                 url=url,
                 published=_first_present(item, ("publication_date",)),
-            ))
-        return rows
+            )
+            all_rows.append(row)
+            if matches_phrase:
+                rows.append(row)
+        # Do not turn a provider response into a false outage when none of
+        # the returned titles contains every term. Keep the real candidates,
+        # still labelled as preliminary literature, rather than hiding them.
+        return rows or all_rows
 
 
 class WikipediaProvider:
@@ -532,8 +555,11 @@ class WikipediaProvider:
 
     def search(self, payload: Mapping[str, object], *, fetch: Fetch,
                timeout: float) -> list[dict]:
+        # `formatversion=2` avoids the legacy response shape and `origin=*`
+        # is accepted by Wikimedia's edge/API consistently across deployments.
         url = (f"{self.BASE}?action=query&list=search&format=json"
-               f"&srlimit=5&srsearch={quote(str(payload['phrase']))}")
+               f"&formatversion=2&origin=*&srlimit=5"
+               f"&srsearch={quote(str(payload['phrase']))}")
         return self._rows(fetch(check_host(url), {}, timeout))
 
     @staticmethod

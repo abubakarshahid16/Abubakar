@@ -163,7 +163,7 @@ export function EvidencePanel({
   return (
     <aside
       aria-label="Evidence"
-      className="flex h-full min-h-0 w-full flex-col border-ink-700 bg-ink-850 lg:w-[26rem] lg:shrink-0 lg:border-l"
+      className="flex h-full min-h-0 w-full flex-col border-ink-700 bg-ink-850 lg:w-80 xl:w-[22rem] lg:shrink-0 lg:border-l"
     >
       <div className="flex items-start justify-between gap-2 border-b border-ink-700 px-4 py-3">
         <div className="min-w-0">
@@ -211,7 +211,7 @@ export function EvidencePanel({
         </h3>
         <blockquote
           className={[
-            "mt-1.5 rounded border-l-2 border-signal-500/50 bg-ink-900 px-3 py-2.5 text-slateish-200",
+            "evidence-quote mt-1.5 rounded border-l-2 border-signal-500/50 bg-ink-900 px-3 py-2.5 text-slateish-200",
             passage.kind === "table"
               ? "document-table"
               : "document-quote whitespace-pre-wrap text-sm",

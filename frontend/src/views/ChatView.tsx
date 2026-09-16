@@ -84,9 +84,11 @@ function UserTurn({ message }: { message: Message }) {
 export function ChatView({
   connection,
   onRetryConnection,
+  onNavigate,
 }: {
   connection: Connection;
   onRetryConnection: () => void;
+  onNavigate?: (view: "documents") => void;
 }) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
@@ -94,6 +96,8 @@ export function ChatView({
   const [load, setLoad] = useState<Load>({ s: "loading" });
 
   const [question, setQuestion] = useState("");
+  const [answerStyle, setAnswerStyle] = useState<"extract" | "generated">("extract");
+  const [showConversations, setShowConversations] = useState(true);
   // WHICH conversation the pending question belongs to, not merely that one is
   // pending: the spinner must not appear under a transcript the reader moved
   // to while the answer was still running.
@@ -275,7 +279,7 @@ export function ChatView({
     setQuestion("");
     const ticket = crypto.randomUUID();
     setProgressId(ticket);
-    const r = await api.ask(id, { question: text, tier: "extract",
+    const r = await api.ask(id, { question: text, tier: answerStyle,
                                   progress_id: ticket });
     setProgressId(null);
     sending.current = false;
@@ -292,7 +296,7 @@ export function ChatView({
     }
     setMessages((m) => appendUnseen(m, [r.data.user_message, r.data.assistant_message]));
     void refreshList();
-  }, [question, asking, current, refreshList]);
+  }, [question, asking, current, refreshList, answerStyle]);
 
   const explain = useCallback(
     async (messageId: string) => {
@@ -447,11 +451,11 @@ export function ChatView({
   };
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] min-h-0 flex-col gap-4 lg:flex-row">
+    <div className="flex h-[calc(100vh-9rem)] min-h-0 flex-col gap-4 lg:h-[calc(100vh-3rem)] lg:flex-row">
       {/* ------------------------------------------------ recent conversations */}
-      <aside
+      {showConversations && <aside
         aria-label="Recent conversations"
-        className="flex max-h-56 min-h-0 w-full shrink-0 flex-col rounded-lg border border-ink-700 bg-ink-850 lg:max-h-none lg:w-64"
+        className="flex max-h-56 min-h-0 w-full shrink-0 flex-col rounded-lg border border-ink-700 bg-ink-850 lg:max-h-none lg:w-56 xl:w-64"
       >
         <div className="flex items-center justify-between gap-2 border-b border-ink-700 px-3 py-2.5">
           <h2 className="text-sm font-semibold text-slateish-200">Conversations</h2>
@@ -507,15 +511,40 @@ export function ChatView({
             ))}
           </ul>
         </div>
-      </aside>
+      </aside>}
 
       {/* ----------------------------------------------------------- transcript */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-ink-700 bg-ink-900">
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        <div className="flex items-center justify-between border-b border-ink-700 px-4 py-3">
+          <div>
+            <h1 className="text-sm font-semibold text-slateish-100">Document review chat</h1>
+            <p className="mt-0.5 text-xs text-slateish-500">Ask, verify the evidence, and continue the review.</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowConversations((visible) => !visible)}
+              aria-expanded={showConversations}
+              className="rounded border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 hover:bg-ink-700"
+            >
+              {showConversations ? "Hide history" : "Show history"}
+            </button>
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => onNavigate("documents")}
+                className="rounded border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 hover:bg-ink-700"
+              >
+                Open documents
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-6">
           {messages.length === 0 && askingIn !== current && (
             <EmptyState
               title="Ask a question about the indexed documents"
-              hint="You get the document's own words back, with the page and clause. Ask a follow-up and it will carry the subject forward — and show you what it carried."
+              hint="Choose a written explanation or an exact quotation. Open the sources to check the evidence, then ask a follow-up."
             />
           )}
 
@@ -523,7 +552,7 @@ export function ChatView({
             m.role === "user" ? (
               <UserTurn key={m.id} message={m} />
             ) : attachedElsewhere.has(m.id) ? null : (
-              <div key={m.id} className="max-w-[52rem]">
+              <div key={m.id} className="w-full max-w-5xl">
                 <AnswerCard
                   view={viewFromMessage(m) as AnswerView}
                   activeSource={evidence?.messageId === m.id ? evidence.index : null}
@@ -557,7 +586,7 @@ export function ChatView({
           )}
 
           {failure && (
-            <div className="max-w-[52rem]">
+            <div className="w-full max-w-5xl">
               <ErrorState error={failure} />
             </div>
           )}
@@ -567,22 +596,35 @@ export function ChatView({
 
         {/* ------------------------------------------------------------ composer */}
         <form
-          className="border-t border-ink-700 p-3"
+          className="sticky bottom-0 z-20 shrink-0 border-t border-ink-700 bg-ink-900/95 px-4 py-3 shadow-[0_-10px_26px_rgba(0,0,0,0.22)] backdrop-blur-sm"
           onSubmit={(e) => {
             e.preventDefault();
             void send();
           }}
         >
+          <fieldset className="mb-2 flex flex-wrap items-center gap-2" disabled={asking || offline}>
+            <legend className="mr-1 text-xs font-medium uppercase tracking-wide text-slateish-500">Response style</legend>
+            {([
+              ["extract", "Exact quotation"],
+              ["generated", "Written explanation"],
+            ] as const).map(([value, label]) => (
+              <label key={value} className="flex cursor-pointer items-center gap-2 rounded-md border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 transition-colors hover:border-signal-500/60 hover:bg-ink-800">
+                <input type="radio" name="answer-style" value={value} checked={answerStyle === value} onChange={() => setAnswerStyle(value)} />
+                {label}
+              </label>
+            ))}
+          </fieldset>
           <div className="flex gap-2">
             <label htmlFor="chat-question" className="sr-only">
               Your question
             </label>
-            <input
+            <textarea
               id="chat-question"
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               disabled={offline}
-              placeholder="What is the NDFT for coating system no. 1?"
+              rows={2}
+              placeholder="Ask about a requirement, explain a passage, or continue your review…"
               className="min-w-0 flex-1 rounded border border-ink-600 bg-ink-850 px-3 py-2 text-slateish-100 placeholder:text-slateish-500 disabled:opacity-50"
             />
             <button
@@ -594,8 +636,10 @@ export function ChatView({
             </button>
           </div>
           <p className="mt-1.5 text-xs text-slateish-500">
-            Answers are quoted from the documents. Nothing you type leaves this
-            machine.
+            {answerStyle === "extract"
+              ? "Exact wording from your documents, with source references."
+              : "An AI explanation based on retrieved passages, with source references. Generation may take longer; this is not a full-document review."}
+            {" "}Nothing you type leaves this machine.
           </p>
         </form>
       </section>

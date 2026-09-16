@@ -16,9 +16,10 @@
  * `baseline_span` is the document's own words (or the user's stated
  * requirement), set in serif on a quote rule so it is never mistaken for prose.
  */
-import { useId, useState } from "react";
+import { useId, useState, type FormEvent } from "react";
 
 import type { BaselineSelection, GapAnalysis, GapItem, GapItemStatus } from "../../types/analysis";
+import type { EvidenceItem, ReviewCategory, ReviewFindingCreate, ReviewSeverity } from "../../types/api";
 
 const REVIEW_SENTENCE = "Review and approval by a qualified engineer is required.";
 
@@ -323,16 +324,53 @@ function ItemRow({
   item,
   onCite,
   baselineIsStated,
+  baselineDocumentId,
+  ledger,
+  onCreateFinding,
 }: {
   item: GapItem;
   onCite: (evidenceId: string) => void;
   baselineIsStated: boolean;
+  baselineDocumentId: string | null;
+  ledger: EvidenceItem[];
+  onCreateFinding?: (draft: ReviewFindingCreate) => Promise<void> | void;
 }) {
   const s = STATUS[item.status];
   const evidenceCount = item.project_citation_ids.length;
   const caption = captionFor(item.status, evidenceCount);
   const withSpan = hasBaselineSpan(item);
   const note = noteOf(item);
+  const [editing, setEditing] = useState(false);
+  const [category, setCategory] = useState<ReviewCategory>(
+    item.status === "conflict" ? "inconsistency" : item.status === "possible_gap" ? "missing_information" : "requirement_deviation",
+  );
+  const [severity, setSeverity] = useState<ReviewSeverity>(
+    item.status === "conflict" ? "major" : item.status === "possible_gap" ? "minor" : "observation",
+  );
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [action, setAction] = useState("Review the cited evidence and record the engineering disposition.");
+  const targetEvidence = ledger.find((e) => item.project_citation_ids.includes(e.evidence_id));
+
+  async function saveFinding(e: FormEvent) {
+    e.preventDefault();
+    if (!onCreateFinding || !targetEvidence) return;
+    setSaveError(null);
+    try {
+      await onCreateFinding({
+        document_id: targetEvidence.document_id,
+        baseline_document_id: baselineDocumentId,
+        category,
+        severity,
+        requirement: item.baseline_span || item.facet || "Requirement requires engineering review",
+        finding: note || `${STATUS[item.status].text}: ${item.facet || "review item"}`,
+        required_action: action.trim() || "Review the cited evidence and record the engineering disposition.",
+        citation_ids: [item.baseline_citation_id, ...item.project_citation_ids].filter((id): id is string => Boolean(id)),
+      });
+      setEditing(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "The finding could not be saved.");
+    }
+  }
   return (
     <li className="border-t border-ink-700/60 py-3 first:border-t-0">
       {/* The status leads the row; the facet trails it as a marker. See the
@@ -393,6 +431,51 @@ function ItemRow({
 
       {note !== null && <p className="mt-2 text-sm text-slateish-300">{note}</p>}
       {caption !== null && <p className={["mt-1.5 text-xs", s.tone].join(" ")}>{caption}</p>}
+      {onCreateFinding && (
+        targetEvidence ? (
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={() => setEditing((open) => !open)}
+              className="rounded border border-signal-500/50 px-2.5 py-1 text-xs text-signal-300 hover:bg-signal-500/10"
+            >
+              {editing ? "Cancel review finding" : "Add review finding"}
+            </button>
+            {editing && (
+              <form onSubmit={(e) => void saveFinding(e)} className="mt-2 space-y-2 rounded border border-ink-600 bg-ink-900 p-3">
+                <p className="text-xs text-slateish-400">Save this evidence-backed item for engineering assignment and response.</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="text-xs text-slateish-400">Category
+                    <select value={category} onChange={(e) => setCategory(e.target.value as ReviewCategory)} className="mt-1 w-full rounded border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200">
+                      <option value="missing_information">Missing information</option>
+                      <option value="inconsistency">Inconsistency</option>
+                      <option value="requirement_deviation">Requirement deviation</option>
+                      <option value="document_control">Document control</option>
+                      <option value="technical_query">Technical query</option>
+                      <option value="positive_observation">Positive observation</option>
+                    </select>
+                  </label>
+                  <label className="text-xs text-slateish-400">Severity
+                    <select value={severity} onChange={(e) => setSeverity(e.target.value as ReviewSeverity)} className="mt-1 w-full rounded border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200">
+                      <option value="critical">Critical</option>
+                      <option value="major">Major</option>
+                      <option value="minor">Minor</option>
+                      <option value="observation">Observation</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="block text-xs text-slateish-400">Required action
+                  <textarea value={action} onChange={(e) => setAction(e.target.value)} rows={2} className="mt-1 w-full rounded border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200" />
+                </label>
+                <button type="submit" className="rounded bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30">Save finding</button>
+                {saveError !== null && <p className="text-xs text-danger-400" role="alert">{saveError}</p>}
+              </form>
+            )}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-slateish-500">No submitted-document citation is available to create a workflow finding.</p>
+        )
+      )}
     </li>
   );
 }
@@ -414,7 +497,7 @@ function NominateBaseline({
   const typed = text.trim();
   const canSubmit = documentId !== "" || typed !== "";
 
-  function submit(e: React.FormEvent) {
+  function submit(e: FormEvent) {
     e.preventDefault();
     if (!canSubmit) return;
     if (documentId !== "") {
@@ -499,11 +582,15 @@ export function GapAnalysisCard({
   onNominateBaseline,
   documents,
   onCite,
+  ledger,
+  onCreateFinding,
 }: {
   gaps: GapAnalysis;
   onNominateBaseline?: (b: BaselineSelection) => void;
   documents: { id: string; filename: string }[];
   onCite: (evidenceId: string) => void;
+  ledger?: EvidenceItem[];
+  onCreateFinding?: (draft: ReviewFindingCreate) => Promise<void> | void;
 }) {
   const heading = (
     <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slateish-300">
@@ -560,7 +647,7 @@ export function GapAnalysisCard({
           {ordered.length > 0 && (
             <ul className="mt-1">
               {ordered.map((it, i) => (
-                <ItemRow key={`${it.facet}-${i}`} item={it} onCite={onCite} baselineIsStated={baselineIsStated} />
+                <ItemRow key={`${it.facet}-${i}`} item={it} onCite={onCite} baselineIsStated={baselineIsStated} baselineDocumentId={gaps.baseline?.document_id ?? null} ledger={ledger ?? []} onCreateFinding={onCreateFinding} />
               ))}
             </ul>
           )}
@@ -586,6 +673,9 @@ export function GapAnalysisCard({
                       item={it}
                       onCite={onCite}
                       baselineIsStated={baselineIsStated}
+                      baselineDocumentId={gaps.baseline?.document_id ?? null}
+                      ledger={ledger ?? []}
+                      onCreateFinding={onCreateFinding}
                     />
                   ))}
                 </ul>

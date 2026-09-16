@@ -516,8 +516,9 @@ describe("MarketPanel: the fallback is visible", () => {
     expect(within(p).getByText("Tried and did not answer: web")).toBeInTheDocument();
     expect(
       within(p).getByText(
-        "The general web search did not answer. The rows below come from reference sources: " +
-          "they are background only and are not market findings.",
+        "One or more public sources did not answer. Any rows shown are labeled " +
+          "with their actual source tier; they are preliminary background evidence, " +
+          "not proof of internal project compliance.",
       ),
     ).toBeInTheDocument();
   });
