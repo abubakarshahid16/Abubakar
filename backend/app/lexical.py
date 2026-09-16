@@ -171,6 +171,14 @@ def looks_like_a_named_subject(term: str, question: str) -> bool:
     """
     if keyword.IDENTIFIER.fullmatch(term):
         return True
+    # A user may paste a heading or a whole question in ALL CAPS. Long
+    # alphabetic words in that style are ordinary prose, not named subjects;
+    # treating `ORIGINAL` or `PARAGRAPH` as missing engineering identifiers
+    # causes a valid document question to be refused before answer generation.
+    # Short all-caps tokens remain eligible as abbreviations (for example
+    # NDFT), while code-shaped standards/tags were handled above.
+    if term.isalpha() and term.isupper() and len(term) > 5:
+        return False
     if len(term) < 4 or not term[:1].isupper():
         return False
     return not question.strip().startswith(term)

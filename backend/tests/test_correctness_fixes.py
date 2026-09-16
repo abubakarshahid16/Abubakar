@@ -261,6 +261,13 @@ def test_a_named_subject_absent_from_the_corpus_is_refused_without_scoring():
     assert "does not appear anywhere" in result["reason"]
 
 
+def test_all_caps_prose_words_do_not_become_missing_named_subjects():
+    """Pasted all-caps questions must not treat ordinary words as identifiers."""
+    assert lexical.looks_like_a_named_subject("ORIGINAL", "ON SECOND SECTION ORIGINAL PARAGRAPH") is False
+    assert lexical.looks_like_a_named_subject("PARAGRAPH", "ON SECOND SECTION ORIGINAL PARAGRAPH") is False
+    assert lexical.looks_like_a_named_subject("NDFT", "WHAT DOES NDFT MEAN") is True
+
+
 def test_the_refusal_names_the_term_rather_than_only_lacking_confidence():
     client = TestClient(app)
     upload(client, [CLAUSE_PAGE])
