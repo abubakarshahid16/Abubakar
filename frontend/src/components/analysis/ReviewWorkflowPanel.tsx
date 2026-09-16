@@ -62,7 +62,7 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
   return (
     <li className="py-4 first:pt-3 last:pb-1">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="rounded bg-danger-500/15 px-2 py-0.5 font-semibold uppercase tracking-wide text-danger-400">{finding.severity}</span>
+        <span className="rounded bg-danger-500/15 px-2 py-0.5 font-semibold uppercase tracking-wide text-danger-500">{finding.severity}</span>
         <span className="text-slateish-400">{finding.category.replaceAll("_", " ")}</span>
         <span className="text-slateish-500">{finding.id.slice(0, 8)}</span>
       </div>

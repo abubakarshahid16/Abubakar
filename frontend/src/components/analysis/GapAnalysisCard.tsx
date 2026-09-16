@@ -470,7 +470,7 @@ function ItemRow({
                   <textarea value={action} onChange={(e) => setAction(e.target.value)} rows={2} className="mt-1 w-full rounded border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200" />
                 </label>
                 <button type="submit" className="rounded bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30">Save finding</button>
-                {saveError !== null && <p className="text-xs text-danger-400" role="alert">{saveError}</p>}
+                {saveError !== null && <p className="text-xs text-danger-500" role="alert">{saveError}</p>}
               </form>
             )}
           </div>

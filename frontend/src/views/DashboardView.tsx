@@ -464,7 +464,7 @@ export function DashboardView({
             <Stat label="Deliverables" value={delivery.deliverables_total} hint="registered in WBS" />
             <Stat label="Review findings" value={delivery.review_findings_total} hint="AI or engineer findings" />
             <Stat label="Overdue" value={delivery.overdue_alerts} hint="requires follow-up" tone={delivery.overdue_alerts ? "warn" : "good"} />
-            <Stat label="Approved" value={delivery.deliverables_by_status.approved ?? 0} hint="current revisions" tone="good" />
+            <Stat label="Approved" value={delivery.deliverables_by_status?.approved ?? 0} hint="current revisions" tone="good" />
           </div>
         </section>
       )}

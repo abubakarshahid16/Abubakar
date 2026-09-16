@@ -48,8 +48,8 @@ export function DeliverablesView() {
         <p className="mt-1 max-w-2xl text-sm text-slateish-400">Track the WBS, revision, review status, and due-date risk for every engineering submittal.</p>
       </header>
 
-      {error !== null && <p role="alert" className="mt-4 rounded border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-300">{error}</p>}
-      {alerts.length > 0 && <section className="mt-5 rounded-lg border border-warn-500/40 bg-warn-500/10 p-4"><h2 className="text-sm font-semibold text-warn-300">Escalation alerts</h2><ul className="mt-2 space-y-1 text-sm text-warn-200">{alerts.map((alert) => <li key={`${alert.title}-${alert.escalation_level}`}>{alert.title} is {alert.days_overdue} day{alert.days_overdue === 1 ? "" : "s"} overdue · level {alert.escalation_level} · {alert.severity}</li>)}</ul></section>}
+      {error !== null && <p role="alert" className="mt-4 rounded border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">{error}</p>}
+      {alerts.length > 0 && <section className="mt-5 rounded-lg border border-warn-500/40 bg-warn-500/10 p-4"><h2 className="text-sm font-semibold text-warn-500">Escalation alerts</h2><ul className="mt-2 space-y-1 text-sm text-warn-500">{alerts.map((alert) => <li key={`${alert.title}-${alert.escalation_level}`}>{alert.title} is {alert.days_overdue} day{alert.days_overdue === 1 ? "" : "s"} overdue · level {alert.escalation_level} · {alert.severity}</li>)}</ul></section>}
 
       <section className="mt-5 rounded-lg border border-ink-600 bg-ink-850 p-4">
         <h2 className="text-sm font-semibold text-slateish-200">Add deliverable</h2>
