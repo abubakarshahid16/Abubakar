@@ -111,6 +111,10 @@ _DOCUMENT_COUNT = re.compile(
     re.IGNORECASE,
 )
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
+_REVIEW_REQUEST = re.compile(
+    r"\b(?:review|critique|criteque|assess|evaluate|audit|commentary|criticism)\b",
+    re.IGNORECASE,
+)
 
 
 # ------------------------------------------------------------------ tier 1
@@ -298,6 +302,20 @@ def _is_semantically_credible(hit: dict) -> bool:
     if hit.get("rerank_score") is not None:
         return hit["rerank_score"] >= MIN_RERANK_SCORE
     return hit.get("rrf", 0.0) >= MIN_RRF_SCORE
+
+
+def _is_broad_review_request(question: str, lexical_verdict: dict, tier: str) -> bool:
+    """Allow an explicit review request to reach the grounded model.
+
+    A broad critique is not a single-fact lookup: its best passages can score
+    below the factual rerank floor even when they contain several of the
+    requested subject terms. This exception is deliberately narrow. It only
+    applies to generated/written explanations, requires at least two terms
+    covered by the retrieved passages, and leaves extract answers and named
+    subject refusals on the strict gate.
+    """
+    covered = lexical_verdict.get("covered") or []
+    return tier == "generated" and bool(_REVIEW_REQUEST.search(question or "")) and len(covered) >= 2
 
 
 def _second_passage(
@@ -576,13 +594,14 @@ def answer(
     # the gate approve rank 4 while the answer quotes rank 0 would mean the
     # justification and the answer were different passages.
     lead = hits[gate_index] if hits else None
-    if not hits or not lexical_verdict["ok"] or not _is_semantically_credible(lead):
+    review_fallback = _is_broad_review_request(question, lexical_verdict, tier)
+    if not hits or not lexical_verdict["ok"] or (not _is_semantically_credible(lead) and not review_fallback):
         if not hits:
-            reason = "no indexed passage matched this question"
+            reason = "none of the indexed documents mention this topic"
         elif not lexical_verdict["ok"]:
             reason = lexical_verdict["reason"]
         else:
-            reason = "the closest passages were not a credible match"
+            reason = "the closest matches were not a strong enough fit to answer confidently"
         return {
             **base,
             "answer_type": "insufficient_evidence",

@@ -141,6 +141,20 @@ def test_refusal_happens_before_the_model_is_called():
     assert "generation_ms" not in result["timings"]
 
 
+def test_written_review_request_can_reach_grounded_model_below_lookup_floor():
+    """A broad critique is a synthesis request, not a one-fact lookup."""
+    assert answer._is_broad_review_request(
+        "DO A CRITEQUE ON MATERIAL AND DOCUMENT",
+        {"covered": ["MATERIAL", "DOCUMENT"]},
+        "generated",
+    ) is True
+    assert answer._is_broad_review_request(
+        "what is the material limit",
+        {"covered": ["MATERIAL", "LIMIT"]},
+        "extract",
+    ) is False
+
+
 def test_an_empty_corpus_refuses_rather_than_erroring():
     result = answer.answer("anything at all", allowed_document_ids=_scope())
     assert result["answer_type"] == "insufficient_evidence"
