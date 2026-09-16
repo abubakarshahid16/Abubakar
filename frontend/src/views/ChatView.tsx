@@ -45,7 +45,7 @@ function relative(iso: string): string {
 // path. Keep this as a UI hint (rather than silently changing the selected
 // mode) so the user's response-style choice remains explicit.
 function isReviewRequest(text: string): boolean {
-  return /\b(review|critique|critiqu[e]?|assess|assessment|evaluate|evaluation|audit|commentary|comment on|comments? on)\b/i.test(text);
+  return /\b(review|critique|criteque|assess|assessment|evaluate|evaluation|audit|commentary|comment on|comments? on)\b/i.test(text);
 }
 
 /** Append only the turns the transcript does not already have.
