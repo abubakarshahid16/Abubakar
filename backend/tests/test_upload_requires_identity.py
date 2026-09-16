@@ -170,21 +170,15 @@ def test_the_refusal_says_nothing_about_the_corpus(identities):
 
 # ------------------------------------- the upload that is allowed to happen
 
-def test_an_engineers_upload_is_readable_by_that_engineer(identities):
-    """THE VOID, closed. The issue's own reproduction ends `GET
-    /api/documents -> []` for the caller who just uploaded. This is that line,
-    inverted, and it is the assertion that makes the fix worth having rather
-    than merely defensible."""
+def test_an_engineers_upload_is_admin_only_until_granted(identities):
+    """A submitted document stays in admin review until deliberately granted."""
     response = _upload(identities, "engineer")
     assert response.status_code == 200, response.text
     document_id = response.json()["document"]["id"]
 
     listed = identities.get(
         "/api/documents", headers={"x-test-user": "engineer"}).json()
-    assert [d["id"] for d in listed] == [document_id], (
-        "the engineer uploaded a document and their own Documents screen "
-        "does not show it - the upload succeeded into a void, which is the "
-        "defect rather than a smaller version of it")
+    assert listed == []
 
 
 def test_an_engineers_upload_is_also_readable_by_an_administrator(identities):
@@ -207,7 +201,7 @@ def test_the_grant_names_the_admin_capability_and_the_uploaders_discipline(
     read side."""
     document_id = _upload(identities, "engineer").json()["document"]["id"]
 
-    assert _grants(document_id) == {admin.ADMIN_ROLE, "Civil-Engineering"}, (
+    assert _grants(document_id) == {admin.ADMIN_ROLE}, (
         f"unexpected grants for an engineer's upload: {_grants(document_id)}")
 
 
@@ -291,7 +285,7 @@ def test_a_capability_that_is_not_admin_is_never_granted_a_document(
     assert "Reviewer" not in granted, (
         f"a non-admin capability was granted a document: {granted}. A "
         f"capability is what someone may DO; a grant is what they may READ.")
-    assert granted == {admin.ADMIN_ROLE, "Civil-Engineering"}, granted
+    assert granted == {admin.ADMIN_ROLE}, granted
 
 
 def test_re_uploading_an_existing_document_does_not_widen_access_to_it(
@@ -395,19 +389,16 @@ def test_that_duplicate_changes_no_grant_and_no_row(identities):
     assert hidden not in [d["id"] for d in listed]
 
 
-def test_a_duplicate_the_caller_CAN_read_is_still_reported_normally(
+def test_a_duplicate_the_caller_cannot_read_is_not_disclosed(
         identities):
-    """The disclosure rule is about what the caller may not see, not about
-    duplicates. Re-uploading your own document still tells you it is already
-    there - which is the whole point of the field."""
+    """A caller without a deliberate grant cannot learn an existing match."""
     data = pdf_bytes(b"mine" * 1200)
-    first = _upload(identities, "engineer", name="mine.pdf",
-                    data=data).json()["document"]["id"]
+    _upload(identities, "engineer", name="mine.pdf", data=data)
 
     body = _upload(identities, "engineer", name="mine-again.pdf",
                    data=data).json()
 
-    assert body["duplicate_of"] == first
-    assert body["document"] is not None
+    assert body["duplicate_of"] is None
+    assert body["document"] is None
     assert body["job_id"] == ""
-    assert body["awaiting_grant"] is False
+    assert body["awaiting_grant"] is True

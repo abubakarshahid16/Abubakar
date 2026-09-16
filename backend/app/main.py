@@ -237,7 +237,7 @@ async def upload_document(
         "document": upload_mod.to_api(row),
         "job_id": job_id or "",
         "duplicate_of": duplicate_of,
-        "awaiting_grant": not uploader_is_admin,
+        "awaiting_grant": not uploader_is_admin and duplicate_of is None,
     }
 
 
