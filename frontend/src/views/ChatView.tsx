@@ -40,6 +40,14 @@ function relative(iso: string): string {
   return `${Math.floor(seconds / 86400)} d ago`;
 }
 
+// A quotation can only return text that already exists in the documents. A
+// review/critique is a synthesis request and needs the generated explanation
+// path. Keep this as a UI hint (rather than silently changing the selected
+// mode) so the user's response-style choice remains explicit.
+function isReviewRequest(text: string): boolean {
+  return /\b(review|critique|critiqu[e]?|assess|assessment|evaluate|evaluation|audit|commentary|comment on|comments? on)\b/i.test(text);
+}
+
 /** Append only the turns the transcript does not already have.
  *
  * `chat.ask` commits the USER turn to the database BEFORE generating the
@@ -533,7 +541,7 @@ export function ChatView({
               <button
                 type="button"
                 onClick={() => onNavigate("documents")}
-                className="rounded border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 hover:bg-ink-700"
+                className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 transition-colors hover:border-signal-500/50 hover:bg-ink-700"
               >
                 Open documents
               </button>
