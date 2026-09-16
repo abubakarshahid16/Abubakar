@@ -16,6 +16,7 @@ export type ViewId =
   | "ingestion"
   | "dashboard"
   | "reports"
+  | "deliverables"
   | "admin";
 
 export type ThemeMode = "dark" | "light";
@@ -33,6 +34,7 @@ export const NAV: NavItem[] = [
   { id: "chat", label: "Chat", hint: "Ask questions with citations", built: true },
   { id: "analysis", label: "Analysis", hint: "Summary, gaps, advice", built: true },
   { id: "reports", label: "Reports", hint: "Frozen evidence, as PDF", built: true },
+  { id: "deliverables", label: "Deliverables", hint: "WBS, revisions, due dates", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
 ];
 

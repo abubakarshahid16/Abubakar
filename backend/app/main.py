@@ -1224,6 +1224,22 @@ def management_summary(scope: access.AccessScope = Depends(access.current_scope)
             "overdue_alerts": len(alerts), "alerts": alerts}
 
 
+@app.get("/api/management/escalation-rules", response_model=schemas.EscalationRuleList)
+def list_escalation_rules(scope: access.AccessScope = Depends(access.current_scope)):
+    return {"rules": deliverables_mod.escalation_rules()}
+
+
+@app.put("/api/management/escalation-rules/{level}", response_model=schemas.EscalationRule,
+         responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def update_escalation_rule(level: int, body: schemas.EscalationRule,
+                           scope: access.AccessScope = Depends(access.current_scope)):
+    _require_identity_to_write(scope)
+    item = deliverables_mod.update_escalation_rule(level, body.model_dump(exclude={"level"}))
+    if item is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no escalation rule with that level"))
+    return item
+
+
 @app.post("/api/conversations", response_model=schemas.Conversation,
           responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
 def create_conversation(body: schemas.NewConversation | None = None,

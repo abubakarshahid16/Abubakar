@@ -220,6 +220,31 @@ export interface DeliverableCreate {
 }
 export type DeliverableUpdate = Partial<DeliverableCreate>;
 
+export interface DeliverableAlert {
+  deliverable_id: string;
+  wbs_code: string;
+  title: string;
+  due_date: string;
+  days_overdue: number;
+  escalation_level: number;
+  severity: "minor" | "major" | "critical";
+}
+export interface ManagementSummary {
+  deliverables_total: number;
+  deliverables_by_status: Record<string, number>;
+  review_findings_total: number;
+  findings_by_severity: Record<string, number>;
+  overdue_alerts: number;
+  alerts: DeliverableAlert[];
+}
+export interface EscalationRule {
+  level: number;
+  trigger_days: number;
+  recipient_role: string;
+  action: string;
+  enabled: boolean;
+}
+
 // ---------- jobs ----------
 
 export type JobStage = "extract" | "chunk" | "embed" | "index";

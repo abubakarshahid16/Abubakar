@@ -1239,6 +1239,18 @@ class ManagementSummary(BaseModel):
     alerts: list[DeliverableAlert]
 
 
+class EscalationRule(BaseModel):
+    level: int = Field(ge=1, le=5)
+    trigger_days: int = Field(ge=0, le=3650)
+    recipient_role: str = Field(min_length=1, max_length=100)
+    action: str = Field(min_length=1, max_length=300)
+    enabled: bool = True
+
+
+class EscalationRuleList(BaseModel):
+    rules: list[EscalationRule]
+
+
 class ReportVerification(BaseModel):
     report_id: str
     snapshot_intact: bool

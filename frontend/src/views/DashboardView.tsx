@@ -14,12 +14,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, classification } from "../api/client";
+import { api, classification, management } from "../api/client";
 import type { ClassificationCoverage } from "../api/client";
 import type { Connection } from "../components/Shell";
 import { DisconnectedState, ErrorState, Spinner } from "../components/states";
 import { humaniseReason } from "../components/WorkerPanel";
-import type { ApiError, Metrics, MetricWarning, StageThroughput } from "../types/api";
+import type { ApiError, Metrics, MetricWarning, StageThroughput, ManagementSummary } from "../types/api";
 
 const STAGE_LABELS: Record<string, string> = {
   extract: "Extraction",
@@ -334,6 +334,7 @@ export function DashboardView({
   // classification coverage existed. There is no error state for this one
   // add-on; the rest of the dashboard does not depend on it.
   const [coverage, setCoverage] = useState<ClassificationCoverage | null>(null);
+  const [delivery, setDelivery] = useState<ManagementSummary | null>(null);
   const first = useRef(true);
 
   const load = useCallback(async () => {
@@ -359,12 +360,18 @@ export function DashboardView({
     setCoverage(r.ok ? r.data : null);
   }, []);
 
+  const loadDelivery = useCallback(async () => {
+    const r = await management.summary();
+    setDelivery(r.ok ? r.data : null);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const tick = () => {
       if (!cancelled) {
         void load();
         void loadCoverage();
+        void loadDelivery();
       }
     };
     tick();
@@ -373,7 +380,7 @@ export function DashboardView({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [load, loadCoverage]);
+  }, [load, loadCoverage, loadDelivery]);
 
   // The shell already knows the backend is gone, so say so at once rather
   // than waiting for this screen's own fetch to time out.
@@ -443,6 +450,24 @@ export function DashboardView({
       </div>
 
       <ReadinessPanel metrics={metrics} />
+
+      {delivery && (
+        <section className="mt-5 rounded-lg border border-ink-700 bg-ink-850 p-4" aria-label="EPC delivery overview">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-slateish-200">EPC delivery overview</h2>
+              <p className="mt-1 text-xs text-slateish-500">Live WBS, review, and overdue-risk counts for your accessible project scope.</p>
+            </div>
+            <a href="#deliverables" className="text-xs font-medium text-signal-400 hover:underline">Open deliverables</a>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+            <Stat label="Deliverables" value={delivery.deliverables_total} hint="registered in WBS" />
+            <Stat label="Review findings" value={delivery.review_findings_total} hint="AI or engineer findings" />
+            <Stat label="Overdue" value={delivery.overdue_alerts} hint="requires follow-up" tone={delivery.overdue_alerts ? "warn" : "good"} />
+            <Stat label="Approved" value={delivery.deliverables_by_status.approved ?? 0} hint="current revisions" tone="good" />
+          </div>
+        </section>
+      )}
 
       {/* THE ONE SENTENCE. Before the numbers, what they add up to - written
           only from values that were measured, so it never claims readiness

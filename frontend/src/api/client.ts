@@ -48,6 +48,8 @@ import type {
   Deliverable,
   DeliverableCreate,
   DeliverableUpdate,
+  ManagementSummary,
+  EscalationRule,
 } from "../types/api";
 
 /** The unauthenticated route, and the only one. It answers "is the service up"
@@ -268,6 +270,7 @@ export const reviews = {
 
 export const deliverables = {
   list: () => request<{ deliverables: Deliverable[] }>("/deliverables"),
+  alerts: () => request<{ alerts: { deliverable_id: string; wbs_code: string; title: string; due_date: string; days_overdue: number; escalation_level: number; severity: string }[] }>("/deliverables/alerts"),
   create: (body: DeliverableCreate) => request<Deliverable>("/deliverables", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   update: (id: string, body: DeliverableUpdate) => request<Deliverable>(`/deliverables/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 };
@@ -751,5 +754,16 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question: "", tier: "extract", ...body }),
+    }),
+};
+
+export const management = {
+  summary: () => request<ManagementSummary>("/management/summary"),
+  escalationRules: () => request<{ rules: EscalationRule[] }>("/management/escalation-rules"),
+  updateEscalationRule: (level: number, body: Partial<EscalationRule>) =>
+    request<EscalationRule>(`/management/escalation-rules/${level}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     }),
 };

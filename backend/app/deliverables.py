@@ -32,6 +32,34 @@ def ensure_schema() -> None:
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_wbs ON deliverables(wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_due ON deliverables(due_date, status)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS escalation_rules (
+            level INTEGER PRIMARY KEY, trigger_days INTEGER NOT NULL,
+            recipient_role TEXT NOT NULL, action TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1
+        )""")
+        defaults = [
+            (1, 0, "Deliverable owner", "Send due-date reminder and request status update."),
+            (2, 7, "Project manager", "Escalate overdue deliverable for recovery plan."),
+            (3, 14, "Engineering manager", "Require formal review and corrective action."),
+            (4, 30, "Project controls / contract admin", "Flag contractual delivery risk to management."),
+        ]
+        for level, days, role, action in defaults:
+            conn.execute("INSERT OR IGNORE INTO escalation_rules(level, trigger_days, recipient_role, action) VALUES (?,?,?,?)", (level, days, role, action))
+
+
+def escalation_rules() -> list[dict]:
+    ensure_schema()
+    return [dict(row) for row in connect().execute("SELECT level, trigger_days, recipient_role, action, enabled FROM escalation_rules ORDER BY level").fetchall()]
+
+
+def update_escalation_rule(level: int, changes: dict) -> dict | None:
+    ensure_schema()
+    allowed = {"trigger_days", "recipient_role", "action", "enabled"}
+    pairs = [(k, changes[k]) for k in allowed if k in changes]
+    if pairs:
+        with connect() as conn:
+            conn.execute(f"UPDATE escalation_rules SET {', '.join(f'{k} = ?' for k, _ in pairs)} WHERE level = ?", [v for _, v in pairs] + [level])
+    row = connect().execute("SELECT level, trigger_days, recipient_role, action, enabled FROM escalation_rules WHERE level = ?", (level,)).fetchone()
+    return dict(row) if row else None
 
 
 def create(payload: dict, *, created_by: str | None) -> dict:
