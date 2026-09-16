@@ -1216,6 +1216,29 @@ class DeliverableList(BaseModel):
     deliverables: list[Deliverable]
 
 
+class DeliverableAlert(BaseModel):
+    deliverable_id: str
+    wbs_code: str
+    title: str
+    due_date: str
+    days_overdue: int
+    escalation_level: int
+    severity: Literal["minor", "major", "critical"]
+
+
+class DeliverableAlertList(BaseModel):
+    alerts: list[DeliverableAlert]
+
+
+class ManagementSummary(BaseModel):
+    deliverables_total: int
+    deliverables_by_status: dict[str, int]
+    review_findings_total: int
+    findings_by_severity: dict[str, int]
+    overdue_alerts: int
+    alerts: list[DeliverableAlert]
+
+
 class ReportVerification(BaseModel):
     report_id: str
     snapshot_intact: bool

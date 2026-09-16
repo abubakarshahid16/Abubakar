@@ -1205,12 +1205,12 @@ def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
     return item
 
 
-@app.get("/api/deliverables/alerts")
+@app.get("/api/deliverables/alerts", response_model=schemas.DeliverableAlertList)
 def deliverable_alerts(scope: access.AccessScope = Depends(access.current_scope)):
     return {"alerts": deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)}
 
 
-@app.get("/api/management/summary")
+@app.get("/api/management/summary", response_model=schemas.ManagementSummary)
 def management_summary(scope: access.AccessScope = Depends(access.current_scope)):
     items = deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)
     alerts = deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)
