@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { ReviewDisposition, ReviewFinding, ReviewFindingEvent, ReviewFindingUpdate, ReviewStatus } from "../../types/api";
 import { reviews as reviewsApi } from "../../api/client";
@@ -6,7 +6,9 @@ import { reviews as reviewsApi } from "../../api/client";
 type Props = {
   findings: ReviewFinding[];
   onUpdate: (id: string, update: ReviewFindingUpdate) => Promise<void>;
+  documents?: DocumentOption[];
 };
+type DocumentOption = { id: string; filename: string };
 
 const statusLabels: Record<ReviewStatus, string> = {
   open: "Open",
@@ -16,7 +18,7 @@ const statusLabels: Record<ReviewStatus, string> = {
   deferred: "Deferred",
 };
 
-export function ReviewWorkflowPanel({ findings, onUpdate }: Props) {
+export function ReviewWorkflowPanel({ findings, onUpdate, documents = [] }: Props) {
   if (findings.length === 0) return null;
   return (
     <section aria-label="Engineering review workflow" className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
@@ -28,13 +30,13 @@ export function ReviewWorkflowPanel({ findings, onUpdate }: Props) {
         <span className="text-xs text-slateish-500">{findings.length} finding{findings.length === 1 ? "" : "s"}</span>
       </div>
       <ul className="mt-3 divide-y divide-ink-700/70">
-        {findings.map((finding) => <FindingRow key={finding.id} finding={finding} onUpdate={onUpdate} />)}
+        {findings.map((finding) => <FindingRow key={finding.id} finding={finding} onUpdate={onUpdate} documents={documents} />)}
       </ul>
     </section>
   );
 }
 
-function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: Props["onUpdate"] }) {
+function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; onUpdate: Props["onUpdate"]; documents: DocumentOption[] }) {
   const [response, setResponse] = useState(finding.response_text ?? "");
   const [disposition, setDisposition] = useState<ReviewDisposition | "">(finding.disposition ?? "");
   const [status, setStatus] = useState<ReviewStatus>(finding.status);
@@ -46,6 +48,20 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
   const [history, setHistory] = useState<ReviewFindingEvent[] | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [traceability, setTraceability] = useState<import("../../types/api").ReviewTraceability | null>(null);
+  const [automaticBaseline, setAutomaticBaseline] = useState<import("../../types/api").BaselineSelection | null>(null);
+  const [baselineOverride, setBaselineOverride] = useState(finding.baseline_document_id ?? "");
+  const [baselineMessage, setBaselineMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (documents.length === 0) return;
+    let cancelled = false;
+    void reviewsApi.baselineSelection(finding.document_id).then((result) => {
+      if (cancelled) return;
+      if (result.ok) setAutomaticBaseline(result.data);
+      else setBaselineMessage(result.error.message);
+    });
+    return () => { cancelled = true; };
+  }, [documents.length, finding.document_id]);
 
   async function save() {
     setSaving(true);
@@ -93,6 +109,20 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
       </div>
       <p className="mt-2 text-sm text-slateish-200">{finding.finding}</p>
       <p className="mt-1 text-xs text-slateish-400">Required action: {finding.required_action}</p>
+      {documents.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slateish-400">
+          <span className="font-medium text-slateish-300">Baseline</span>
+          {automaticBaseline?.automatic && <span className="rounded-[var(--radius-xs)] bg-signal-500/15 px-2 py-0.5 text-signal-300">Auto-selected based on document type</span>}
+          <select aria-label="Review baseline override" value={baselineOverride || automaticBaseline?.document_id || ""} onChange={(e) => setBaselineOverride(e.target.value)} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">
+            <option value="">No baseline selected</option>
+            {[...new Map([
+              ...(automaticBaseline?.document_id ? [[automaticBaseline.document_id, "Auto-selected baseline"] as const] : []),
+              ...documents.map((document) => [document.id, document.filename] as const),
+            ]).entries()].map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          {baselineMessage !== null && <span role="alert" className="text-danger-400">{baselineMessage}</span>}
+        </div>
+      )}
       <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto_auto]">
         <textarea value={response} onChange={(e) => setResponse(e.target.value)} rows={2} placeholder="Engineer response or corrective-action explanation" className="w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200" />
         <select value={disposition} onChange={(e) => setDisposition(e.target.value as ReviewDisposition | "")} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200">

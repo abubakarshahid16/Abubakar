@@ -1325,6 +1325,7 @@ export function AnalysisModeScreen() {
           Enterprise FEED intelligence
         </p>
         <h1 className="mt-1 text-xl font-semibold text-slateish-100">Analysis</h1>
+        <p className="mt-1 text-sm font-semibold text-signal-300">Document submittal review</p>
         <p className="mt-2 max-w-3xl text-sm text-slateish-300">
           Ask one engineering question, choose the work to run, and inspect only
           cited document evidence. Public evidence is isolated from private document context.
@@ -1593,7 +1594,7 @@ export function AnalysisModeScreen() {
                       onCreateFinding={createReviewFinding}
                       templates={reviewTemplates}
                     />
-                    <ReviewWorkflowPanel findings={reviewFindings} onUpdate={updateReviewFinding} />
+                    <ReviewWorkflowPanel findings={reviewFindings} documents={documents} onUpdate={updateReviewFinding} />
                     {(mode === "quote" || (d.gaps.applicability === "applicable" && d.gaps.baseline !== null)) && (
                       <ClaimTable
                         clusters={d.clusters}
