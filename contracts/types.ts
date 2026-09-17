@@ -153,6 +153,15 @@ export interface ReviewFinding {
   updated_at: string;
 }
 
+export interface ReviewFindingEvent {
+  id: string;
+  finding_id: string;
+  event_type: "created" | "updated";
+  changes: Record<string, unknown>;
+  actor_user_id: string | null;
+  created_at: string;
+}
+
 export interface ReviewFindingCreate {
   document_id: string;
   baseline_document_id?: string | null;

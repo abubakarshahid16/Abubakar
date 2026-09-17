@@ -1,6 +1,7 @@
 import { useState } from "react";
 
-import type { ReviewDisposition, ReviewFinding, ReviewFindingUpdate, ReviewStatus } from "../../types/api";
+import type { ReviewDisposition, ReviewFinding, ReviewFindingEvent, ReviewFindingUpdate, ReviewStatus } from "../../types/api";
+import { reviews as reviewsApi } from "../../api/client";
 
 type Props = {
   findings: ReviewFinding[];
@@ -18,7 +19,7 @@ const statusLabels: Record<ReviewStatus, string> = {
 export function ReviewWorkflowPanel({ findings, onUpdate }: Props) {
   if (findings.length === 0) return null;
   return (
-    <section aria-label="Engineering review workflow" className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+    <section aria-label="Engineering review workflow" className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slateish-300">Engineering review workflow</h3>
@@ -40,6 +41,8 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
   const [approval, setApproval] = useState(finding.approval_status);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [history, setHistory] = useState<ReviewFindingEvent[] | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   async function save() {
     setSaving(true);
@@ -59,38 +62,53 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
     }
   }
 
+  async function showHistory() {
+    setLoadingHistory(true);
+    try {
+      const result = await reviewsApi.history(finding.id);
+      if (result.ok) setHistory(result.data.events);
+      else setMessage(result.error.message);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
   return (
     <li className="py-4 first:pt-3 last:pb-1">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="rounded bg-danger-500/15 px-2 py-0.5 font-semibold uppercase tracking-wide text-danger-500">{finding.severity}</span>
+        <span className="rounded-[var(--radius-xs)] bg-danger-500/15 px-2 py-0.5 font-semibold uppercase tracking-wide text-danger-500">{finding.severity}</span>
         <span className="text-slateish-400">{finding.category.replaceAll("_", " ")}</span>
         <span className="text-slateish-500">{finding.id.slice(0, 8)}</span>
       </div>
       <p className="mt-2 text-sm text-slateish-200">{finding.finding}</p>
       <p className="mt-1 text-xs text-slateish-400">Required action: {finding.required_action}</p>
       <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto_auto]">
-        <textarea value={response} onChange={(e) => setResponse(e.target.value)} rows={2} placeholder="Engineer response or corrective-action explanation" className="w-full rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200" />
-        <select value={disposition} onChange={(e) => setDisposition(e.target.value as ReviewDisposition | "")} className="rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200">
+        <textarea value={response} onChange={(e) => setResponse(e.target.value)} rows={2} placeholder="Engineer response or corrective-action explanation" className="w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200" />
+        <select value={disposition} onChange={(e) => setDisposition(e.target.value as ReviewDisposition | "")} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200">
           <option value="">Disposition</option>
           <option value="accepted">Accepted</option>
           <option value="partially_accepted">Partially accepted</option>
           <option value="rejected">Rejected</option>
           <option value="not_applicable">Not applicable</option>
         </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value as ReviewStatus)} className="rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200">
+        <select value={status} onChange={(e) => setStatus(e.target.value as ReviewStatus)} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200">
           {(Object.keys(statusLabels) as ReviewStatus[]).map((key) => <option key={key} value={key}>{statusLabels[key]}</option>)}
         </select>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <select value={approval} onChange={(e) => setApproval(e.target.value as typeof approval)} className="rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">
+        <select value={approval} onChange={(e) => setApproval(e.target.value as typeof approval)} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">
           <option value="pending">Approval pending</option>
           <option value="accepted">Approved</option>
           <option value="rejected">Approval rejected</option>
           <option value="not_required">Approval not required</option>
         </select>
-        <button type="button" disabled={saving} onClick={() => void save()} className="rounded bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30 disabled:opacity-50">{saving ? "Saving…" : "Save response"}</button>
+        <button type="button" disabled={saving} onClick={() => void save()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30 disabled:opacity-50">{saving ? "Saving…" : "Save response"}</button>
         {message !== null && <span className="text-xs text-slateish-400" role="status">{message}</span>}
+        <button type="button" onClick={() => void showHistory()} disabled={loadingHistory} className="rounded-[var(--radius-xs)] border border-ink-600 px-3 py-1.5 text-xs text-slateish-300 hover:border-signal-500/60 disabled:opacity-50">{loadingHistory ? "Loading history…" : history === null ? "View history" : "Refresh history"}</button>
       </div>
+      {history !== null && <ol className="mt-3 space-y-1 border-l border-ink-600 pl-3 text-xs text-slateish-500" aria-label="Finding history">
+        {history.map((event) => <li key={event.id}><span className="text-slateish-400">{event.event_type === "created" ? "Created" : "Updated"}</span> · {new Date(event.created_at).toLocaleString()} · {Object.keys(event.changes).join(", ") || "no field changes"}</li>)}
+      </ol>}
     </li>
   );
 }

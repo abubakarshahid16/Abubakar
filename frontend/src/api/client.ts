@@ -45,6 +45,7 @@ import type {
   ReviewFinding,
   ReviewFindingCreate,
   ReviewFindingUpdate,
+  ReviewFindingEvent,
   Deliverable,
   DeliverableCreate,
   DeliverableUpdate,
@@ -266,6 +267,8 @@ export const reviews = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  history: (id: string) =>
+    request<{ events: ReviewFindingEvent[] }>(`/reviews/findings/${encodeURIComponent(id)}/history`),
 };
 
 export const deliverables = {
