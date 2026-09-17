@@ -383,3 +383,7 @@ structured fields, with the same document access scope as the rest of the API.
 
 The risk register uses governed types: schedule, review, dependency, and
 compliance. Unknown types are rejected at creation.
+
+Review finding traceability is available at `/api/reviews/findings/{id}/traceability`;
+it links the finding, source document/baseline, citations, event history, and
+linked deliverables in one access-scoped response.

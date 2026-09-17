@@ -1309,6 +1309,14 @@ def list_risks(risk_type: str | None = None,
     return {"risks": risks_mod.list_items(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids)}
 
 
+@app.get("/api/reviews/findings/{finding_id}/traceability")
+def finding_traceability(finding_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+    item = review_mod.traceability(finding_id, allowed_document_ids=scope.allowed_document_ids)
+    if item is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no finding with that id"))
+    return item
+
+
 @app.post("/api/risks")
 def create_risk(body: dict, scope: access.AccessScope = Depends(access.current_scope)):
     if body.get("risk_type") not in risks_mod.RISK_TYPES:

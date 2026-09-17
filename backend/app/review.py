@@ -223,6 +223,27 @@ def resolve_baseline(document_id: str, override_document_id: str | None = None,
     return auto_select_baseline(document_id, allowed_document_ids=allowed_document_ids)
 
 
+def traceability(finding_id: str, *, allowed_document_ids: frozenset[str] | None = None) -> dict | None:
+    """Return the evidence/workflow chain for one finding."""
+    ensure_schema()
+    from . import deliverables as deliverables_mod
+    deliverables_mod.ensure_schema()
+    row = connect().execute("""SELECT rf.*, d.filename, b.filename AS baseline_filename
+        FROM review_findings rf JOIN documents d ON d.id=rf.document_id
+        LEFT JOIN documents b ON b.id=rf.baseline_document_id WHERE rf.id=?""", (finding_id,)).fetchone()
+    if row is None or (allowed_document_ids is not None and row["document_id"] not in allowed_document_ids):
+        return None
+    events = [dict(item) for item in connect().execute(
+        "SELECT * FROM review_finding_events WHERE finding_id=? ORDER BY created_at", (finding_id,)).fetchall()]
+    deliverables = [dict(item) for item in connect().execute(
+        "SELECT id,wbs_code,title,status,revision FROM deliverables WHERE document_id=? ORDER BY wbs_code",
+        (row["document_id"],)).fetchall()]
+    return {"finding": _row(row), "document": {"id": row["document_id"], "filename": row["filename"]},
+            "baseline": ({"filename": row["baseline_filename"]} if row["baseline_filename"] else None),
+            "citations": json.loads(row["citation_ids"] or "[]"), "events": events,
+            "deliverables": deliverables}
+
+
 def create_template(payload: dict, *, created_by: str | None) -> dict:
     ensure_schema()
     now = _now()

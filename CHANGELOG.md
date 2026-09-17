@@ -35,6 +35,9 @@ findings, and actions without flattening them into document text search.
 Added a typed, scope-aware risk register for schedule, review, dependency, and
 compliance risks.
 
+Review findings now expose a traceability chain covering source documents,
+baselines, citations, workflow events, and linked deliverables.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.
