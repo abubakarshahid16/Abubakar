@@ -1355,6 +1355,10 @@ class ReminderEventList(BaseModel):
     reminders: list[ReminderEvent]
 
 
+class NotificationSendResponse(BaseModel):
+    sent: bool
+
+
 class ManagementSummary(BaseModel):
     deliverables_total: int
     deliverables_by_status: dict[str, int]

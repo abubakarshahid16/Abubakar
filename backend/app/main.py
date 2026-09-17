@@ -1365,7 +1365,7 @@ def management_summary(scope: access.AccessScope = Depends(access.current_scope)
             "overdue_alerts": len(alerts), "alerts": alerts}
 
 
-@app.post("/api/management/summary/email", response_model=dict,
+@app.post("/api/management/summary/email", response_model=schemas.NotificationSendResponse,
           responses=schemas.ERRORS_401)
 def email_management_summary(scope: access.AccessScope = Depends(access.current_scope)):
     _require_identity_to_write(scope)
