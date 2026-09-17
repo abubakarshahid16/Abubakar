@@ -270,7 +270,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         <DisconnectedState onRetry={recheck} />
       ) : route.kind === "forbidden" ? (
         <main className="mx-auto w-full max-w-3xl px-4 py-10" role="alert">
-          <h1 className="text-2xl font-semibold text-slateish-100">This page is not available</h1>
+          <h1 className="text-2xl font-semibold text-slateish-100">This address cannot be opened</h1>
           <p className="mt-2 text-sm text-slateish-300">
             The address <code className="rounded bg-ink-800 px-1.5 py-0.5">{route.path}</code> is not an available workspace route.
             The backend still enforces authorization; no data was exposed.
