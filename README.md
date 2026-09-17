@@ -405,3 +405,6 @@ and the UI labels inferred versus manual origins.
 The risk register also creates idempotent schedule, review, dependency, and
 compliance risks from overdue deliverables, aged findings, overdue parents,
 and unresolved requirement evidence, with an audited notification attempt.
+
+Review traceability now continues through the assigned owner and required
+action, so an engineer can inspect the complete finding-to-action chain.

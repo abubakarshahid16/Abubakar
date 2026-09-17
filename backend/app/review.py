@@ -249,10 +249,23 @@ def traceability(finding_id: str, *, allowed_document_ids: frozenset[str] | None
     deliverables = [dict(item) for item in connect().execute(
         "SELECT id,wbs_code,title,status,revision FROM deliverables WHERE document_id=? ORDER BY wbs_code",
         (row["document_id"],)).fetchall()]
+    owner = None
+    if deliverables:
+        owner = connect().execute(
+            """SELECT ds.user_id, u.email, u.display_name
+               FROM deliverable_stakeholders ds JOIN users u ON u.id=ds.user_id
+               WHERE ds.deliverable_id IN ({}) AND ds.role='owner'
+               ORDER BY ds.created_at LIMIT 1""".format(",".join("?" for _ in deliverables)),
+            [item["id"] for item in deliverables]).fetchone()
+    if owner is None and row["owner_user_id"]:
+        owner = connect().execute(
+            "SELECT id AS user_id, email, display_name FROM users WHERE id=?",
+            (row["owner_user_id"],)).fetchone()
     return {"finding": _row(row), "document": {"id": row["document_id"], "filename": row["filename"]},
             "baseline": ({"filename": row["baseline_filename"]} if row["baseline_filename"] else None),
             "citations": json.loads(row["citation_ids"] or "[]"), "events": events,
-            "deliverables": deliverables}
+            "deliverables": deliverables, "owner": (dict(owner) if owner else None),
+            "action": row["required_action"]}
 
 
 def create_template(payload: dict, *, created_by: str | None) -> dict:

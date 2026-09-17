@@ -1235,6 +1235,8 @@ class ReviewTraceability(BaseModel):
     citations: list[str]
     events: list[ReviewFindingEvent]
     deliverables: list[Deliverable]
+    owner: dict | None
+    action: str
 
 
 class ReviewReportRequest(BaseModel):

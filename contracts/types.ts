@@ -303,7 +303,7 @@ export interface ExpectedDeliverable { id: string; wbs_code: string; deliverable
 export type RiskType = "schedule" | "review" | "dependency" | "compliance";
 export interface Risk { id: string; risk_type: RiskType; title: string; description: string; severity: string; status: string; deliverable_id: string | null; document_id: string | null; owner_user_id: string | null; due_date: string | null; source_finding_id: string | null; created_at: string; updated_at: string; }
 export interface StructuredSearchResult { id: string; kind: "deliverable" | "finding" | "risk" | "stakeholder"; label: string; wbs_code: string | null; document_id: string | null; }
-export interface ReviewTraceability { finding: ReviewFinding; document: { id: string; filename: string }; baseline: { filename: string } | null; citations: string[]; events: ReviewFindingEvent[]; deliverables: Deliverable[]; owner?: { user_id: string; email: string; display_name: string | null } | null; action?: string; }
+export interface ReviewTraceability { finding: ReviewFinding; document: { id: string; filename: string }; baseline: { filename: string } | null; citations: string[]; events: ReviewFindingEvent[]; deliverables: Deliverable[]; owner: { user_id: string; email: string; display_name: string | null } | null; action: string; }
 
 // ---------- jobs ----------
 

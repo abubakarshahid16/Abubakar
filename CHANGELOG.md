@@ -53,6 +53,8 @@ package and shown alongside manual overrides, with idempotent detection.
 The risk register now auto-creates and notifies on schedule, review,
 dependency, and compliance conditions, while remaining safe to run repeatedly.
 
+Finding traceability now includes the assigned owner and required action.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.

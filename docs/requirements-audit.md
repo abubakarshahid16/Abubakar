@@ -21,7 +21,7 @@ BLOCKED means it requires a client-approved input.
 | 13 | Expected/missing deliverable intelligence | DONE |
 | 14 | Structured EPC search | DONE |
 | 15 | Typed risk register | DONE |
-| 16 | Review traceability | PARTIAL |
+| 16 | Review traceability | DONE |
 | 17 | Stakeholder roles and approval workflow | DONE |
 
 The scorecard is intentionally not inflated: client templates and the remaining
