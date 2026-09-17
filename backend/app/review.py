@@ -21,6 +21,28 @@ def ensure_schema() -> None:
     conn = connect()
     with conn:
         conn.execute(
+            """CREATE TABLE IF NOT EXISTS review_templates (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                version TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                discipline TEXT,
+                deliverable_type TEXT,
+                governing_sources TEXT NOT NULL DEFAULT '[]',
+                categories TEXT NOT NULL DEFAULT '[]',
+                severity_levels TEXT NOT NULL DEFAULT '[]',
+                approval_terms TEXT NOT NULL DEFAULT '[]',
+                required_sections TEXT NOT NULL DEFAULT '[]',
+                active INTEGER NOT NULL DEFAULT 1,
+                created_by TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(name, version)
+            )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_review_templates_active "
+                     "ON review_templates(active, discipline, deliverable_type)")
+        conn.execute(
             """CREATE TABLE IF NOT EXISTS review_findings (
                 id TEXT PRIMARY KEY,
                 document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -79,6 +101,67 @@ def _row(row) -> dict:
     except (TypeError, ValueError):
         result["citation_ids"] = []
     return result
+
+
+_TEMPLATE_LIST_FIELDS = (
+    "governing_sources", "categories", "severity_levels", "approval_terms",
+    "required_sections",
+)
+
+
+def _template_row(row) -> dict:
+    result = dict(row)
+    for field in _TEMPLATE_LIST_FIELDS:
+        try:
+            result[field] = json.loads(result.get(field) or "[]")
+        except (TypeError, ValueError):
+            result[field] = []
+    result["active"] = bool(result.get("active"))
+    return result
+
+
+def list_templates(*, active_only: bool = True, discipline: str | None = None,
+                   deliverable_type: str | None = None) -> list[dict]:
+    ensure_schema()
+    clauses: list[str] = []
+    args: list[str | int] = []
+    if active_only:
+        clauses.append("active = 1")
+    if discipline:
+        clauses.append("(discipline = ? OR discipline IS NULL)")
+        args.append(discipline)
+    if deliverable_type:
+        clauses.append("(deliverable_type = ? OR deliverable_type IS NULL)")
+        args.append(deliverable_type)
+    sql = "SELECT * FROM review_templates"
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY name, version DESC"
+    return [_template_row(row) for row in connect().execute(sql, args).fetchall()]
+
+
+def create_template(payload: dict, *, created_by: str | None) -> dict:
+    ensure_schema()
+    now = _now()
+    template_id = str(uuid.uuid4())
+    conn = connect()
+    with conn:
+        conn.execute(
+            """INSERT INTO review_templates
+               (id, name, version, description, discipline, deliverable_type,
+                governing_sources, categories, severity_levels, approval_terms,
+                required_sections, active, created_by, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                template_id, payload["name"], payload["version"],
+                payload.get("description", ""), payload.get("discipline"),
+                payload.get("deliverable_type"),
+                *(json.dumps(payload.get(field, [])) for field in _TEMPLATE_LIST_FIELDS),
+                1 if payload.get("active", True) else 0, created_by, now, now,
+            ),
+        )
+    row = connect().execute("SELECT * FROM review_templates WHERE id = ?", (template_id,)).fetchone()
+    return _template_row(row)  # type: ignore[arg-type]
 
 
 def _event(conn, finding_id: str, event_type: str, changes: dict,

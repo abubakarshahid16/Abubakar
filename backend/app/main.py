@@ -1115,6 +1115,33 @@ def download_report(report_id: str,
 
 # ------------------------------------------------------- engineering reviews
 
+@app.get("/api/reviews/templates", response_model=schemas.ReviewTemplateList,
+         responses=schemas.ERRORS_422)
+def list_review_templates(
+    request: Request,
+    discipline: str | None = Query(None),
+    deliverable_type: str | None = Query(None),
+    active_only: bool = Query(True),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """List versioned, governed review templates available to the caller."""
+    reject_unknown_params(request, {"discipline", "deliverable_type", "active_only"})
+    return {"templates": review_mod.list_templates(
+        active_only=active_only, discipline=discipline,
+        deliverable_type=deliverable_type,
+    )}
+
+
+@app.post("/api/reviews/templates", response_model=schemas.ReviewTemplate,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_422})
+def create_review_template(
+    body: schemas.ReviewTemplateCreate,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Register a client-approved review template; versions never overwrite."""
+    _require_identity_to_write(scope)
+    return review_mod.create_template(body.model_dump(), created_by=scope.user_id)
+
 @app.get("/api/reviews/findings", response_model=schemas.ReviewFindingList,
          responses=schemas.ERRORS_422)
 def list_review_findings(

@@ -1093,6 +1093,41 @@ class ReportList(BaseModel):
 
 # ------------------------------------------------------- engineering reviews
 
+class ReviewTemplateCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    version: str = Field(min_length=1, max_length=40)
+    description: str = Field(default="", max_length=4000)
+    discipline: str | None = Field(default=None, max_length=100)
+    deliverable_type: str | None = Field(default=None, max_length=100)
+    governing_sources: list[str] = Field(default_factory=list, max_length=100)
+    categories: list[str] = Field(default_factory=list, max_length=30)
+    severity_levels: list[str] = Field(default_factory=list, max_length=10)
+    approval_terms: list[str] = Field(default_factory=list, max_length=30)
+    required_sections: list[str] = Field(default_factory=list, max_length=50)
+    active: bool = True
+
+
+class ReviewTemplate(BaseModel):
+    id: str
+    name: str
+    version: str
+    description: str
+    discipline: str | None
+    deliverable_type: str | None
+    governing_sources: list[str]
+    categories: list[str]
+    severity_levels: list[str]
+    approval_terms: list[str]
+    required_sections: list[str]
+    active: bool
+    created_by: str | None
+    created_at: str
+    updated_at: str
+
+
+class ReviewTemplateList(BaseModel):
+    templates: list[ReviewTemplate]
+
 ReviewCategory = Literal[
     "missing_information", "inconsistency", "requirement_deviation",
     "document_control", "technical_query", "positive_observation",

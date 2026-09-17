@@ -57,3 +57,28 @@ def test_finding_history_records_creation_and_updates():
         "response_text": "Package due Friday",
     }
 
+
+def test_review_templates_are_versioned_and_filterable():
+    first = review.create_template(
+        {
+            "name": "Civil submittal",
+            "version": "1.0",
+            "discipline": "civil",
+            "governing_sources": ["Project specification §01 33 00"],
+            "categories": ["document_control", "requirement_deviation"],
+            "severity_levels": ["critical", "major", "minor"],
+            "approval_terms": ["accepted", "rejected"],
+            "required_sections": ["finding", "required action", "response"],
+        },
+        created_by="admin-1",
+    )
+    second = review.create_template(
+        {"name": "Civil submittal", "version": "2.0", "discipline": "civil"},
+        created_by="admin-1",
+    )
+
+    templates = review.list_templates(discipline="civil")
+    assert [item["version"] for item in templates] == ["2.0", "1.0"]
+    assert templates[-1]["id"] == first["id"]
+    assert second["active"] is True
+    assert templates[-1]["governing_sources"] == ["Project specification §01 33 00"]
