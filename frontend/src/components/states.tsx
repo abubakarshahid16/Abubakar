@@ -52,6 +52,14 @@ export function EmptyState({
   );
 }
 
+export function ZeroResultsState({ message }: { message: string }) {
+  return <p role="status" className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2 text-xs text-slateish-400">{message}</p>;
+}
+
+export function InlineErrorState({ message }: { message: string }) {
+  return <p role="alert" className="mt-4 rounded-[var(--radius-xs)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">{message}</p>;
+}
+
 /** A human title per error code.
  *
  *  Never the code itself and never a raw HTTP status. "code: internal" and
