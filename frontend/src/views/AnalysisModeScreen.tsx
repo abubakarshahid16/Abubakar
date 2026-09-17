@@ -124,6 +124,7 @@ import type {
   MarketFinding,
   ReviewFindingCreate,
   ReviewFinding,
+  ReviewTemplate,
 } from "../types/api";
 import type {
   AnalysisResult,
@@ -961,7 +962,7 @@ function RunChip({ active, children }: { active: boolean; children: React.ReactN
   return (
     <span
       className={[
-        "inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs",
+        "inline-flex items-center gap-1.5 rounded-[var(--radius-xs)] border px-2 py-1 text-xs",
         active
           ? "border-signal-500/50 bg-signal-500/10 text-signal-300"
           : "border-ink-600 bg-ink-850 text-slateish-500",
@@ -991,7 +992,7 @@ function RunPlan({
   return (
     <section
       aria-label="Selected analysis work"
-      className="rounded-lg border border-ink-600 bg-ink-850 p-3"
+      className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-3"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
@@ -1083,7 +1084,7 @@ function DroppedSentences({ dropped }: { dropped: { sentence: string; reason: st
   const shown = dropped.filter((s) => s.sentence.trim() !== "");
   const withheld = dropped.length - shown.length;
   return (
-    <details className="rounded border border-ink-700 bg-ink-850 px-3 py-2">
+    <details className="surface-card rounded-[var(--radius-sm)] border border-ink-700 bg-ink-850 px-3 py-2">
       <summary className="cursor-pointer text-xs text-slateish-400">
         {dropped.length} sentence{dropped.length === 1 ? " was" : "s were"} removed from this
         summary
@@ -1117,7 +1118,7 @@ function SelectedPassage({ item }: { item: EvidenceItem }) {
   return (
     <section
       aria-label="Selected passage"
-      className="rounded-lg border border-signal-500/40 bg-ink-850 p-4"
+      className="card-3d accent-edge relative surface-floating rounded-[var(--radius-md)] border border-signal-500/40 bg-ink-850 p-4"
     >
       <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-slateish-400">
         <span className="font-medium text-slateish-200">{item.filename}</span>
@@ -1156,6 +1157,7 @@ export function AnalysisModeScreen() {
   const [pendingQuery, setPendingQuery] = useState<PublicMarketQuery | null>(null);
   const [queryOutcome, setQueryOutcome] = useState<string | null>(null);
   const [reviewFindings, setReviewFindings] = useState<ReviewFinding[]>([]);
+  const [reviewTemplates, setReviewTemplates] = useState<ReviewTemplate[]>([]);
 
   // A ticking counter rather than a bare spinner, exactly as ChatView does it:
   // the seconds since the run's real start, re-derived from the timestamp each
@@ -1221,6 +1223,9 @@ export function AnalysisModeScreen() {
     let cancelled = false;
     void reviewsApi.list().then((result) => {
       if (!cancelled && result.ok) setReviewFindings(result.data.findings);
+    });
+    void reviewsApi.templates().then((result) => {
+      if (!cancelled && result.ok) setReviewTemplates(result.data.templates);
     });
     return () => { cancelled = true; };
   }, [gapsSlot]);
@@ -1305,7 +1310,9 @@ export function AnalysisModeScreen() {
       : [];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="aurora-field mx-auto max-w-7xl space-y-6">
+      <div aria-hidden className="aurora-a" />
+      <div aria-hidden className="aurora-b" />
       <header className="border-b border-ink-700 pb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-signal-400">
           Enterprise FEED intelligence
@@ -1316,7 +1323,7 @@ export function AnalysisModeScreen() {
           cited document evidence. Public evidence is isolated from private document context.
         </p>
         <div className="mt-4 grid gap-2 md:grid-cols-3">
-          <div className="rounded border border-ink-600 bg-ink-850 px-3 py-2">
+          <div className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
               Evidence rule
             </p>
@@ -1324,7 +1331,7 @@ export function AnalysisModeScreen() {
               Document claims render only when citations resolve to page evidence.
             </p>
           </div>
-          <div className="rounded border border-ink-600 bg-ink-850 px-3 py-2">
+          <div className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
               Recommendation rule
             </p>
@@ -1332,7 +1339,7 @@ export function AnalysisModeScreen() {
               Advisory output is separate from document facts and carries engineer review.
             </p>
           </div>
-          <div className="rounded border border-warn-500/40 bg-warn-500/10 px-3 py-2">
+          <div className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/10 px-3 py-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-warn-500">
               Market rule
             </p>
@@ -1345,7 +1352,7 @@ export function AnalysisModeScreen() {
 
       <section
         aria-label="Analysis controls"
-        className="rounded-lg border border-ink-600 bg-ink-800 p-4 shadow-sm"
+        className="card-3d surface-floating rounded-[var(--radius-lg)] border border-ink-600 bg-ink-800 p-4"
       >
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="space-y-4">
@@ -1359,7 +1366,7 @@ export function AnalysisModeScreen() {
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 placeholder="Example: What does PID mean in this control section?"
-                className="mt-2 w-full resize-y rounded border border-ink-600 bg-ink-900 px-3 py-2 text-base text-slateish-100 placeholder:text-slateish-500"
+                className="mt-2 w-full resize-y rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-base text-slateish-100 placeholder:text-slateish-500"
               />
             </div>
 
@@ -1403,7 +1410,7 @@ export function AnalysisModeScreen() {
             <RunPlan mode={mode} engines={engines} />
 
             {mode === "comprehensive" && (
-              <p className="rounded border border-warn-500/40 bg-warn-500/[0.08] px-3 py-2 text-xs text-warn-500">
+              <p className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-3 py-2 text-xs text-warn-500">
                 Persistent analysis jobs, streaming progress and cancellation are not exposed by
                 this backend yet. This frontend sends the available wider synchronous request and
                 labels that limitation.
@@ -1415,7 +1422,7 @@ export function AnalysisModeScreen() {
               disabled={!canRun}
               aria-busy={running}
               onClick={() => void runAnalysis()}
-              className="w-full rounded border border-signal-500/70 bg-signal-500 px-4 py-2.5 text-sm font-semibold text-ink-800 hover:bg-signal-400 disabled:cursor-not-allowed disabled:border-ink-500 disabled:bg-ink-700 disabled:text-slateish-500"
+              className="w-full rounded-[var(--radius-sm)] border border-signal-500/70 bg-signal-500 px-4 py-2.5 text-sm font-semibold text-ink-950 shadow-[var(--shadow-raised)] transition-all hover:shadow-[var(--shadow-glow)] active:scale-[0.98] disabled:cursor-not-allowed disabled:border-ink-500 disabled:bg-ink-700 disabled:text-slateish-500 disabled:shadow-none"
             >
               {running ? "Running…" : "Run analysis"}
             </button>
@@ -1430,7 +1437,7 @@ export function AnalysisModeScreen() {
                 role="status"
                 aria-live="polite"
                 data-testid="analysis-run-status"
-                className="rounded border border-ink-700 bg-ink-850 p-3"
+                className="rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 p-3"
               >
                 <div className="flex items-baseline justify-between gap-3">
                   <p className="text-sm font-medium text-slateish-200">Working on this machine</p>
@@ -1455,7 +1462,7 @@ export function AnalysisModeScreen() {
             )}
 
             {baselineRefusal !== null && (
-              <p role="alert" className="rounded border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
+              <p role="alert" className="rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
                 {baselineRefusal}
               </p>
             )}
@@ -1488,7 +1495,7 @@ export function AnalysisModeScreen() {
                     {d.refusal !== null && (
                       <p
                         role="status"
-                        className="rounded border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500"
+                        className="rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500"
                       >
                         {d.refusal}
                       </p>
@@ -1551,7 +1558,7 @@ export function AnalysisModeScreen() {
                 {(d) => (
                   <div className="space-y-3">
                     {mode === "quote" && (
-                      <p className="rounded border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300">
+                      <p className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300">
                         Quote mode ran the mechanical comparison and nothing else. Everything
                         below is document evidence with a page behind it — no model wrote any
                         of it, and no summary or recommendation was requested.
@@ -1564,6 +1571,7 @@ export function AnalysisModeScreen() {
                       onNominateBaseline={nominateBaseline}
                       ledger={d.ledger}
                       onCreateFinding={createReviewFinding}
+                      templates={reviewTemplates}
                     />
                     <ReviewWorkflowPanel findings={reviewFindings} onUpdate={updateReviewFinding} />
                     {(mode === "quote" || (d.gaps.applicability === "applicable" && d.gaps.baseline !== null)) && (
@@ -1596,7 +1604,7 @@ export function AnalysisModeScreen() {
                     {queryOutcome && (
                       <p
                         role="status"
-                        className="rounded border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300"
+                        className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300"
                       >
                         {queryOutcome}
                       </p>
@@ -1622,7 +1630,7 @@ export function AnalysisModeScreen() {
           )}
 
           {(notImplemented.length > 0 || summarySlot.s === "ready" || gapsSlot.s === "ready") && (
-            <section aria-label="Not produced by this build" className="rounded-lg border border-dashed border-ink-600 p-4">
+            <section aria-label="Not produced by this build" className="rounded-[var(--radius-md)] border border-dashed border-ink-600 p-4">
               <h2 className="text-xs uppercase tracking-wide text-slateish-500">
                 Not produced by this build
               </h2>
@@ -1637,7 +1645,7 @@ export function AnalysisModeScreen() {
         </div>
 
         <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
-          <section className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+          <section className="surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
               Execution-plan boundary
             </h2>
@@ -1653,7 +1661,7 @@ export function AnalysisModeScreen() {
             {selectedItem !== null ? (
               <SelectedPassage item={selectedItem} />
             ) : (
-              <section className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+              <section className="surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
                   Sources
                 </h2>

@@ -164,6 +164,24 @@ export interface ReviewFindingEvent {
   created_at: string;
 }
 
+export interface ReviewTemplate {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  discipline: string | null;
+  deliverable_type: string | null;
+  governing_sources: string[];
+  categories: string[];
+  severity_levels: string[];
+  approval_terms: string[];
+  required_sections: string[];
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ReviewFindingCreate {
   document_id: string;
   baseline_document_id?: string | null;

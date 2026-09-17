@@ -46,6 +46,7 @@ import type {
   ReviewFindingCreate,
   ReviewFindingUpdate,
   ReviewFindingEvent,
+  ReviewTemplate,
   Deliverable,
   DeliverableCreate,
   DeliverableUpdate,
@@ -247,6 +248,13 @@ export const analysis = {
 };
 
 export const reviews = {
+  templates: (params?: { discipline?: string; deliverable_type?: string; active_only?: boolean }) => {
+    const query = new URLSearchParams();
+    if (params?.discipline) query.set("discipline", params.discipline);
+    if (params?.deliverable_type) query.set("deliverable_type", params.deliverable_type);
+    if (params?.active_only !== undefined) query.set("active_only", String(params.active_only));
+    return request<{ templates: ReviewTemplate[] }>(`/reviews/templates${query.toString() ? `?${query.toString()}` : ""}`);
+  },
   list: (params?: { document_id?: string; status?: string }) => {
     const query = new URLSearchParams();
     if (params?.document_id) query.set("document_id", params.document_id);
