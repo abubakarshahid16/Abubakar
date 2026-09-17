@@ -67,3 +67,12 @@ present in the current report sample.
    relevant values and scale labels exist on that endpoint.
 5. Keep `GapAnalysisCard`’s empty-row disclosure separate from synthesis
    removals.
+
+## Phase 3 traceability limit
+
+The traceability response supplies citation identifiers and a baseline filename,
+but it does not supply a citation route, citation record, or baseline document
+identifier. The UI therefore renders those nodes as factual timeline entries
+without inventing links. The document node links to the existing Documents
+view, and deliverables link to their existing record route. A fully clickable
+citation/baseline chain requires those identifiers and routes from the API.

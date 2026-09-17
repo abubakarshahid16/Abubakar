@@ -157,7 +157,32 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
       {history !== null && <ol className="mt-3 space-y-1 border-l border-ink-600 ps-3 text-xs text-slateish-500" aria-label="Finding history">
         {history.map((event) => <li key={event.id}><span className="text-slateish-400">{event.event_type === "created" ? "Created" : "Updated"}</span> · {new Date(event.created_at).toLocaleString()} · {Object.keys(event.changes).join(", ") || "no field changes"}</li>)}
       </ol>}
-      {traceability !== null && <div aria-label="Finding traceability" className="mt-3 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3 text-xs text-slateish-300"><p className="font-semibold uppercase tracking-wide text-signal-400">Full traceability chain</p><p className="mt-2">Finding → {traceability.document.filename} → {traceability.baseline?.filename ?? "No baseline"} → {traceability.citations.length} citation(s) → {traceability.deliverables.length} deliverable(s) → {traceability.owner?.display_name || traceability.owner?.email || "No owner assigned"} → {traceability.action || finding.required_action}</p></div>}
+      {traceability !== null && <TraceabilityTimeline traceability={traceability} finding={finding} />}
     </li>
   );
+}
+
+function TraceabilityTimeline({ traceability, finding }: { traceability: import("../../types/api").ReviewTraceability; finding: ReviewFinding }) {
+  const nodes = [
+    { label: "Finding", value: finding.finding, href: `#finding-${finding.id}` },
+    { label: "Document", value: traceability.document.filename, href: "/documents" },
+    { label: "Baseline", value: traceability.baseline?.filename ?? "No baseline returned", href: null },
+    { label: "Citations", value: `${traceability.citations.length} citation${traceability.citations.length === 1 ? "" : "s"}`, href: null },
+    { label: "Deliverable", value: traceability.deliverables[0]?.title ?? "No deliverable linked", href: traceability.deliverables[0] ? `/deliverables/${traceability.deliverables[0].id}` : null },
+    { label: "Owner", value: traceability.owner?.display_name || traceability.owner?.email || "No owner assigned", href: null },
+    { label: "Action", value: traceability.action || finding.required_action, href: null },
+  ];
+  return <section aria-label="Finding traceability" className="mt-3 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3 text-xs text-slateish-300">
+    <p className="font-semibold uppercase tracking-wide text-signal-400">Full traceability chain</p>
+    <ol className="mt-3 border-s border-signal-500/40 ps-4">
+      {nodes.map((node) => <li key={node.label} className="relative pb-3 last:pb-0">
+        <span aria-hidden className="absolute -start-[1.2rem] top-0.5 h-2 w-2 rounded-full bg-signal-400 ring-4 ring-ink-850" />
+        <span className="font-semibold text-slateish-200">{node.label}</span>
+        {node.href ? <a className="ms-2 text-signal-300 underline underline-offset-2" href={node.href}>{node.value}</a> : <span className="ms-2">{node.value}</span>}
+      </li>)}
+    </ol>
+    {traceability.events.length > 0 && <ul className="mt-3 border-t border-ink-700 pt-2 text-slateish-500">
+      {traceability.events.map((event) => <li key={event.id}>{event.event_type === "created" ? "Created" : "Updated"} · {new Date(event.created_at).toLocaleString()} · {event.actor_user_id ?? "system"}</li>)}
+    </ul>}
+  </section>;
 }
