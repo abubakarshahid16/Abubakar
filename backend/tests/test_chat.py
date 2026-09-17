@@ -518,3 +518,12 @@ def test_completeness_is_judged_on_a_finite_verb_not_on_length():
     # and the follow-up verdict follows from it
     assert not chat.is_followup("what is the warranty period")
     assert chat.is_followup("system 4?")
+
+
+def test_a_substantial_noun_phrase_is_not_rewritten_as_a_follow_up():
+    resolved, carried = chat.resolve_followup(
+        "inherent problems of P&IDs",
+        ["what is the coating system no. 1 operating temperature"],
+    )
+    assert resolved == "inherent problems of P&IDs"
+    assert carried == []

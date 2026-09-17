@@ -165,6 +165,13 @@ def is_followup(question: str) -> bool:
         return True
     if lowered.startswith(FOLLOWUP_OPENERS):
         return True
+    # A substantial noun phrase is often a complete search request even when
+    # it has no finite verb (for example, "inherent problems of P&IDs"). Do
+    # not inject an unrelated prior designator into it. Short designator
+    # phrases such as "system 4?" remain follow-ups through the completeness
+    # rule below.
+    if len(_content_words(question)) >= 2 and not keyword.find_designators(question):
+        return False
     return not is_complete_question(lowered)
 
 
