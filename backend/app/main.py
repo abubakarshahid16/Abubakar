@@ -782,7 +782,8 @@ def analysis_gaps(body: schemas.AnalysisRequest,
     # baseline, which reads as the baseline being wrong.
     narrowed, echo = _analysis_scope(body, scope)
     result = analysis_mod.gaps(body.question, narrowed, limit=body.limit,
-                               baseline_document_id=selected_baseline)
+                               baseline_document_id=selected_baseline,
+                               comparison_type=body.comparison_type)
     return {**result, "applied_scope": echo}
 
 

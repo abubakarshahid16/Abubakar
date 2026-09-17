@@ -733,7 +733,8 @@ def summary(question: str, scope: access.AccessScope, *, limit: int = 8,
 
 
 def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
-         baseline_document_id: str | None = None) -> dict:
+         baseline_document_id: str | None = None,
+         comparison_type: str | None = None) -> dict:
     """Mechanical claim comparison. No model call, and no baseline invented.
 
     THE BASELINE MUST COME FROM THE USER. Choosing one here - the oldest
@@ -759,6 +760,7 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
         }
     return {
         "question": question,
+        "comparison_type": comparison_type,
         "evidence_ledger": evidence,
         "claim_clusters": claims.to_api(clusters),
         "gaps": {

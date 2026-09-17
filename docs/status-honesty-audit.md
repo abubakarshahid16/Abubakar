@@ -10,6 +10,10 @@ absence of a match remains “no baseline,” not evidence that a document is
 authoritative. This is implemented in `app.review.resolve_baseline` and is
 covered by `test_review_baselines.py`.
 
+**Comparison intent.** `AnalysisRequest.comparison_type` accepts only the four
+named engineering workflows and gap analysis echoes the selected value;
+arbitrary labels are rejected rather than presented as governed workflows.
+
 **Why this document exists.** Twenty-nine separate times something in this
 system has claimed what was not so - a status field, a count, a measurement,
 twice a design document about the code it was written against, once a type that

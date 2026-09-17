@@ -18,6 +18,10 @@ baseline is access-scoped and a manual document choice always takes priority.
 The rule and selection endpoints are available under `/api/reviews`, with
 regression tests covering automatic selection and manual override.
 
+Named comparison workflows are now validated and carried through gap analysis:
+baseline vs submittal, requirements vs submittal, revision delta, and
+discipline coordination.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.

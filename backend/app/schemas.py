@@ -869,6 +869,10 @@ class AnalysisRecommendation(BaseModel):
 class AnalysisRequest(BaseModel):
     question: str
     limit: int = 8
+    comparison_type: Literal[
+        "baseline_vs_submittal", "requirements_vs_submittal",
+        "revision_delta", "discipline_coordination"
+    ] | None = Field(None, description="named engineering comparison workflow")
     document_id: str | None = Field(
         None, description="engineering submittal document used for automatic baseline selection")
     baseline_document_id: str | None = Field(

@@ -336,6 +336,10 @@ then select the newest searchable matching document within the caller's access
 scope. A user-supplied baseline remains an explicit override; the API never
 silently chooses an authoritative document when no rule matches.
 
+Reviewers can label the comparison intent as baseline vs submittal,
+requirements vs submittal, revision delta, or discipline coordination. The
+label is validated at the API boundary and returned with the comparison.
+
 ### Branches
 
     <type>/<issue-number>-<stable-id>-<slug>
