@@ -1174,12 +1174,15 @@ def create_review_baseline_rule(body: schemas.ReviewBaselineRuleCreate,
 
 
 @app.get("/api/reviews/baseline-selection/{document_id}",
-         response_model=schemas.ReviewBaselineSelection | None,
+         response_model=schemas.ReviewBaselineSelection,
          responses=schemas.ERRORS_404)
 def select_review_baseline(document_id: str, scope: access.AccessScope = Depends(access.current_scope)):
     require_document(document_id, scope)
-    return review_mod.auto_select_baseline(
+    selection = review_mod.auto_select_baseline(
         document_id, allowed_document_ids=scope.allowed_document_ids)
+    if selection is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no configured baseline matches"))
+    return selection
 
 
 @app.post("/api/reviews/report", response_class=FileResponse,
@@ -1285,14 +1288,14 @@ def list_deliverables(scope: access.AccessScope = Depends(access.current_scope))
     return {"deliverables": deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)}
 
 
-@app.get("/api/deliverables/expected")
+@app.get("/api/deliverables/expected", response_model=schemas.ExpectedDeliverableList)
 def expected_deliverables(wbs_code: str | None = None,
                           scope: access.AccessScope = Depends(access.current_scope)):
     return {"deliverables": deliverables_mod.expected_missing(
         wbs_code=wbs_code, allowed_document_ids=scope.allowed_document_ids)}
 
 
-@app.get("/api/search/structured")
+@app.get("/api/search/structured", response_model=schemas.StructuredSearchList)
 def structured_search(q: str, kind: str | None = None,
                       scope: access.AccessScope = Depends(access.current_scope)):
     if kind not in {None, "deliverable", "finding"}:
@@ -1301,7 +1304,7 @@ def structured_search(q: str, kind: str | None = None,
         q, kind=kind, allowed_document_ids=scope.allowed_document_ids)}
 
 
-@app.get("/api/risks")
+@app.get("/api/risks", response_model=schemas.RiskList)
 def list_risks(risk_type: str | None = None,
                scope: access.AccessScope = Depends(access.current_scope)):
     if risk_type is not None and risk_type not in risks_mod.RISK_TYPES:
@@ -1309,7 +1312,7 @@ def list_risks(risk_type: str | None = None,
     return {"risks": risks_mod.list_items(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids)}
 
 
-@app.get("/api/reviews/findings/{finding_id}/traceability")
+@app.get("/api/reviews/findings/{finding_id}/traceability", response_model=schemas.ReviewTraceability)
 def finding_traceability(finding_id: str, scope: access.AccessScope = Depends(access.current_scope)):
     item = review_mod.traceability(finding_id, allowed_document_ids=scope.allowed_document_ids)
     if item is None:
@@ -1317,11 +1320,11 @@ def finding_traceability(finding_id: str, scope: access.AccessScope = Depends(ac
     return item
 
 
-@app.post("/api/risks")
-def create_risk(body: dict, scope: access.AccessScope = Depends(access.current_scope)):
-    if body.get("risk_type") not in risks_mod.RISK_TYPES:
+@app.post("/api/risks", response_model=schemas.Risk)
+def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(access.current_scope)):
+    if body.risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
-    return risks_mod.create(body)
+    return risks_mod.create(body.model_dump())
 
 
 @app.post("/api/deliverables", response_model=schemas.Deliverable,

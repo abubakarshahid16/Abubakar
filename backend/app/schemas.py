@@ -1160,8 +1160,80 @@ class ReviewBaselineRuleList(BaseModel):
 
 class ReviewBaselineSelection(BaseModel):
     document_id: str
-    rule_id: str
+    rule_id: str | None
     automatic: bool
+
+
+class ExpectedDeliverable(BaseModel):
+    id: str
+    wbs_code: str
+    deliverable_type: str
+    title: str
+    required: bool
+    deliverable_id: str | None
+    status: str | None
+    state: Literal["registered", "missing"]
+
+
+class ExpectedDeliverableList(BaseModel):
+    deliverables: list[ExpectedDeliverable]
+
+
+RiskType = Literal["schedule", "review", "dependency", "compliance"]
+
+
+class RiskCreate(BaseModel):
+    risk_type: RiskType
+    title: str
+    description: str
+    severity: str = "medium"
+    status: str = "open"
+    deliverable_id: str | None = None
+    document_id: str | None = None
+    owner_user_id: str | None = None
+    due_date: str | None = None
+    source_finding_id: str | None = None
+
+
+class Risk(BaseModel):
+    id: str
+    risk_type: RiskType
+    title: str
+    description: str
+    severity: str
+    status: str
+    deliverable_id: str | None
+    document_id: str | None
+    owner_user_id: str | None
+    due_date: str | None
+    source_finding_id: str | None
+    created_at: str
+    updated_at: str
+
+
+class RiskList(BaseModel):
+    risks: list[Risk]
+
+
+class StructuredSearchResult(BaseModel):
+    id: str
+    kind: Literal["deliverable", "finding"]
+    label: str
+    wbs_code: str | None
+    document_id: str | None
+
+
+class StructuredSearchList(BaseModel):
+    results: list[StructuredSearchResult]
+
+
+class ReviewTraceability(BaseModel):
+    finding: ReviewFinding
+    document: dict
+    baseline: dict | None
+    citations: list[str]
+    events: list[ReviewFindingEvent]
+    deliverables: list[Deliverable]
 
 
 class ReviewReportRequest(BaseModel):
