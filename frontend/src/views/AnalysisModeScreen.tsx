@@ -955,7 +955,7 @@ function Section({
       <div className="flex flex-wrap items-end justify-between gap-2">
         <h2 className="text-sm font-semibold text-slateish-100">{title}</h2>
         {eyebrow && (
-          <span className="text-[11px] uppercase tracking-wide text-slateish-500">
+          <span className="text-xs uppercase tracking-wide text-slateish-500">
             {eyebrow}
           </span>
         )}
@@ -976,7 +976,7 @@ function RunChip({ active, children }: { active: boolean; children: React.ReactN
       ].join(" ")}
     >
       {children}
-      <span className="font-mono text-[10px] uppercase tracking-wide">
+      <span className="font-mono text-xs uppercase tracking-wide">
         {active ? "On" : "Off"}
       </span>
     </span>
@@ -1332,7 +1332,7 @@ export function AnalysisModeScreen() {
         </p>
         <div className="mt-4 grid gap-2 md:grid-cols-3">
           <div className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
               Evidence rule
             </p>
             <p className="mt-1 text-xs text-slateish-300">
@@ -1340,7 +1340,7 @@ export function AnalysisModeScreen() {
             </p>
           </div>
           <div className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
               Recommendation rule
             </p>
             <p className="mt-1 text-xs text-slateish-300">
@@ -1348,7 +1348,7 @@ export function AnalysisModeScreen() {
             </p>
           </div>
           <div className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/10 px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-warn-500">
+            <p className="text-xs font-semibold uppercase tracking-wide text-warn-500">
               Market rule
             </p>
             <p className="mt-1 text-xs text-slateish-300">
@@ -1396,7 +1396,7 @@ export function AnalysisModeScreen() {
                 a register with different types must not show a filter for
                 types it does not have. */}
             <div aria-label="Search in">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slateish-400">
                 Search scope
               </p>
               <p className="mb-2 text-xs text-slateish-400">

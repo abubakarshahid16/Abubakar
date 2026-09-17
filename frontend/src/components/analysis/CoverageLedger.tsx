@@ -74,7 +74,7 @@ export function CoverageLedger({
       <p className="mt-1 font-mono text-sm text-slateish-200">{segments.join(" · ")}</p>
 
       {c.complete === false && (
-        <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-warn-500">
+        <p className="mt-2 text-xs font-semibold uppercase tracking-wider text-warn-500">
           This analysis is partial
         </p>
       )}

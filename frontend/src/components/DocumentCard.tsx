@@ -82,7 +82,7 @@ export function DocumentCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate font-medium text-slateish-200">{doc.filename}</h3>
-            <span className={`rounded-[var(--radius-xs)] px-2 py-0.5 text-[11px] ${TONE[status.tone]}`}>
+            <span className={`rounded-[var(--radius-xs)] px-2 py-0.5 text-xs ${TONE[status.tone]}`}>
               {status.label}
             </span>
             {/* THE REGISTER TYPE. NEUTRAL only when `confirmed` is true - a
@@ -96,21 +96,21 @@ export function DocumentCard({
               (classification.doc_type === null ? (
                 <span
                   data-testid="type-chip"
-                  className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-[11px] text-slateish-400"
+                  className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-400"
                 >
                   Awaiting a type
                 </span>
               ) : classification.confirmed ? (
                 <span
                   data-testid="type-chip"
-                  className="rounded-[var(--radius-xs)] bg-ink-700 px-2 py-0.5 text-[11px] text-slateish-300"
+                  className="rounded-[var(--radius-xs)] bg-ink-700 px-2 py-0.5 text-xs text-slateish-300"
                 >
                   {classification.doc_type}
                 </span>
               ) : (
                 <span
                   data-testid="type-chip"
-                  className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/10 px-2 py-0.5 text-[11px] text-warn-500"
+                  className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/10 px-2 py-0.5 text-xs text-warn-500"
                   title={`Suggested by ${classification.suggested_by}, not yet confirmed.`}
                 >
                   {`${classification.doc_type}? \u00b7 guessed from ${sourceLabel(classification.suggested_by)}`}
@@ -128,7 +128,7 @@ export function DocumentCard({
                 <span
                   key={d}
                   data-testid="discipline"
-                  className="rounded-[var(--radius-xs)] border border-signal-500/40 bg-signal-500/10 px-2 py-0.5 text-[11px] text-signal-400"
+                  className="rounded-[var(--radius-xs)] border border-signal-500/40 bg-signal-500/10 px-2 py-0.5 text-xs text-signal-400"
                 >
                   {d}
                 </span>
@@ -136,7 +136,7 @@ export function DocumentCard({
             ) : (
               <span
                 data-testid="discipline"
-                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-[11px] text-slateish-400"
+                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-400"
                 title="No discipline holds this document. Only an administrator can read it."
               >
                 Admin only
@@ -150,7 +150,7 @@ export function DocumentCard({
                 the day it shipped. */}
             {doc.needs_ocr_pages > doc.recognised_pages && (
               <span
-                className="rounded-[var(--radius-xs)] bg-warn-500/15 px-2 py-0.5 text-[11px] text-warn-500"
+                className="rounded-[var(--radius-xs)] bg-warn-500/15 px-2 py-0.5 text-xs text-warn-500"
                 title="Scanned pages with no extractable text that recognition has not yet read."
               >
                 {doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR
@@ -158,7 +158,7 @@ export function DocumentCard({
             )}
             {doc.equation_pages > 0 && (
               <span
-                className="rounded-[var(--radius-xs)] bg-info-500/15 px-2 py-0.5 text-[11px] text-info-500"
+                className="rounded-[var(--radius-xs)] bg-info-500/15 px-2 py-0.5 text-xs text-info-500"
                 title="Mathematics did not survive extraction on these pages. Use the page image."
               >
                 {doc.equation_pages} equation-heavy

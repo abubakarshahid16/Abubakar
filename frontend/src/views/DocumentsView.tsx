@@ -339,7 +339,7 @@ export function DocumentsView({
       {vocabulary && vocabulary.types.length > 0 && load.state === "ready" && (
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+            <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
               Type
             </span>
             <FilterChip
@@ -367,7 +367,7 @@ export function DocumentsView({
           {/* A count with no stated boundary reads as total. `corpus_wide` is
               true only for an admin - everyone else's counts above are their
               own grants, and this line is the one place that says so. */}
-          <p className="text-[11px] text-slateish-500">
+          <p className="text-xs text-slateish-500">
             {vocabulary.corpusWide
               ? "Counts cover every document in the corpus."
               : "Counts cover the documents you can open."}
@@ -428,7 +428,7 @@ export function DocumentsView({
                     .map((group) => (
                       <div key={group.name}>
                         <h3
-                          className="mb-2 flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wider text-slateish-400"
+                          className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-slateish-400"
                           aria-label={`${group.name}, ${group.documents.length} document(s)`}
                         >
                           {group.name}
@@ -468,7 +468,7 @@ export function DocumentsView({
                   {showAwaiting && awaiting.documents.length > 0 && (
                     <div key={awaiting.name}>
                       <h3
-                        className="mb-2 flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wider text-warn-500"
+                        className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-warn-500"
                         aria-label={`${awaiting.name}, ${awaiting.documents.length} document(s)`}
                       >
                         {awaiting.name}
@@ -544,7 +544,7 @@ function FilterChip({
       {label}
       {/* A COUNT ONLY WHEN COVERAGE ANSWERED. See TypeFilter.tsx: rendering 0
           for "we do not know" reads as "there are none of these". */}
-      {count != null && <span className="font-mono text-[11px] opacity-75">{count}</span>}
+      {count != null && <span className="font-mono text-xs text-slateish-300">{count}</span>}
     </button>
   );
 }

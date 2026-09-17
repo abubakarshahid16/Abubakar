@@ -24,7 +24,7 @@ export function ReviewWorkflowPanel({ findings, onUpdate, documents = [] }: Prop
     <section aria-label="Engineering review workflow" className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slateish-300">Engineering review workflow</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-slateish-300">Engineering review workflow</h3>
           <p className="mt-1 text-xs text-slateish-500">Respond to cited findings, record the disposition, and submit them for approval.</p>
         </div>
         <span className="text-xs text-slateish-500">{findings.length} finding{findings.length === 1 ? "" : "s"}</span>

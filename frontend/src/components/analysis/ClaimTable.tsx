@@ -27,7 +27,7 @@ const POSSIBLE_CONFLICT_CAPTION =
 function LabelMark({ label }: { label: ClaimLabel }) {
   const l = LABELS[label];
   return (
-    <span className={["text-[11px] font-semibold uppercase tracking-wider", l.tone].join(" ")}>
+    <span className={["text-xs font-semibold uppercase tracking-wider", l.tone].join(" ")}>
       <span aria-hidden="true" className="mr-1 font-mono">
         {l.icon}
       </span>
@@ -97,7 +97,7 @@ function Row({
         </span>
         <span>p.{row.page_start}</span>
         {selected && (
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-signal-300">
+          <span className="text-xs font-semibold uppercase tracking-wider text-signal-300">
             Showing
           </span>
         )}
@@ -156,7 +156,7 @@ export function ClaimTable({
 }) {
   return (
     <section aria-label="Claim comparison" className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-signal-400">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-signal-400">
         Claim comparison &mdash; quoted verbatim from the documents
       </h3>
 

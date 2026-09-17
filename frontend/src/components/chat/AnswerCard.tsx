@@ -201,7 +201,7 @@ function formatDuration(seconds: number): string {
 
 function chipClass(active: boolean): string {
   return [
-    "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] px-1 align-baseline font-mono text-[11px] leading-none",
+    "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] px-1 align-baseline font-mono text-xs leading-none",
     active
       ? "bg-signal-500/30 text-signal-300 ring-1 ring-signal-500/60"
       : "bg-ink-700 text-slateish-300 hover:bg-ink-600",
@@ -286,7 +286,7 @@ function Label({
   return (
     <p
       className={[
-        "text-[11px] font-semibold uppercase tracking-wider",
+        "text-xs font-semibold uppercase tracking-wider",
         tone === "quote"
           ? "text-signal-400"
           : tone === "generated"
@@ -360,7 +360,7 @@ function UpgradeFailureNotice({ failure }: { failure: UpgradeFailure }) {
           the machine, not your question. The quoted answer above is unaffected
           — only the plain-language version needs the model.
         </p>
-        <pre className="mt-1.5 overflow-x-auto rounded bg-ink-900 p-2 font-mono text-[11px] text-slateish-300">
+        <pre className="mt-1.5 overflow-x-auto rounded bg-ink-900 p-2 font-mono text-xs text-slateish-300">
 ollama serve
         </pre>
       </div>
@@ -384,7 +384,7 @@ ollama serve
       </p>
       {failure.considered.length > 0 && (
         <div className="mt-2">
-          <p className="text-[11px] uppercase tracking-wide text-slateish-500">
+          <p className="text-xs uppercase tracking-wide text-slateish-500">
             What the model was given, so you can judge for yourself
           </p>
           <ul className="mt-1.5 space-y-1">
@@ -598,7 +598,7 @@ ollama serve
             <Label tone="ocr">Provenance unknown — source not attached</Label>
           )}
           {view.seconds != null && (
-            <span className="font-mono text-[11px] text-slateish-500">
+            <span className="font-mono text-xs text-slateish-500">
               {formatDuration(view.seconds)}
               {" · "}
               {p
@@ -737,7 +737,7 @@ ollama serve
           Written by the model{view.model ? ` · ${view.model}` : ""} — not the document's words
         </Label>
         {view.seconds != null && (
-          <span className="font-mono text-[11px] text-slateish-500">
+          <span className="font-mono text-xs text-slateish-500">
             {formatDuration(view.seconds)}
           </span>
         )}

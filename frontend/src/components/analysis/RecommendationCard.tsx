@@ -36,7 +36,7 @@ export function RecommendationCard({
       open
       className="card-3d accent-edge relative surface-card rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05]"
     >
-      <summary className="cursor-pointer list-item px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-info-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-info-500">
+      <summary className="cursor-pointer list-item px-4 py-3 text-xs font-semibold uppercase tracking-wider text-info-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-info-500">
         AI Advisory — not a documented requirement
       </summary>
 
@@ -90,7 +90,7 @@ export function RecommendationCard({
                 <li key={c.label} className="flex items-baseline gap-2 text-sm">
                   <span
                     className={[
-                      "w-16 shrink-0 font-mono text-[11px]",
+                      "w-16 shrink-0 font-mono text-xs",
                       c.fired ? "text-warn-500" : "text-slateish-500",
                     ].join(" ")}
                   >

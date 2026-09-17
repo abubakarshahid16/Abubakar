@@ -292,7 +292,7 @@ export function RoleBadge({ me, onLogout }: { me: Me | null; onLogout: () => voi
           me.roles.map((r) => (
             <span
               key={r}
-              className="rounded-[var(--radius-xs)] bg-ink-700 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-300"
+              className="rounded-[var(--radius-xs)] bg-ink-700 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slateish-300"
             >
               {r}
             </span>

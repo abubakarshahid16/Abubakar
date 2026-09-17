@@ -135,7 +135,7 @@ function CancelButton({ onCancel }: { onCancel: () => void }) {
 
 function WarnBadge({ children }: { children: ReactNode }) {
   return (
-    <span className="ml-2 inline-block rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-warn-500">
+    <span className="ml-2 inline-block rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-warn-500">
       {children}
     </span>
   );
@@ -246,7 +246,7 @@ export function AnalysisView({
                 >
                   <h2
                     id="analysis-refused-heading"
-                    className="text-[11px] font-semibold uppercase tracking-wider text-warn-500"
+                    className="text-xs font-semibold uppercase tracking-wider text-warn-500"
                   >
                     No answer &mdash; insufficient evidence
                   </h2>
@@ -374,7 +374,7 @@ export function AnalysisView({
                               {e.section && ` · ${e.section}`}
                             </span>
                             {e.text_source === "recognised" && (
-                              <span className="ml-1 text-[11px] uppercase tracking-wider text-slateish-500">
+                              <span className="ml-1 text-xs uppercase tracking-wider text-slateish-500">
                                 OCR
                               </span>
                             )}

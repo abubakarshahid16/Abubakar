@@ -46,7 +46,7 @@ function markerLabel(n: number): string {
 }
 
 function chipClass(): string {
-  return "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] px-1 align-baseline font-mono text-[11px] leading-none bg-ink-700 text-slateish-300 ring-1 ring-ink-500 hover:bg-ink-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400";
+  return "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] px-1 align-baseline font-mono text-xs leading-none bg-ink-700 text-slateish-300 ring-1 ring-ink-500 hover:bg-ink-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400";
 }
 
 /**
@@ -88,7 +88,7 @@ function DeadChip({ n }: { n: number }) {
       title="citation not among supplied sources"
       aria-label={`Citation ${n} is not among the supplied sources`}
       data-citation-marker={n}
-      className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] px-1 align-baseline font-mono text-[11px] leading-none line-through bg-danger-500/10 text-danger-500 ring-1 ring-danger-500/40"
+      className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] px-1 align-baseline font-mono text-xs leading-none line-through bg-danger-500/10 text-danger-500 ring-1 ring-danger-500/40"
     >
       {markerLabel(n)}
     </span>
@@ -145,12 +145,12 @@ function Finding({
         </span>
       )}
       {userStated && (
-        <span className="ml-2 rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-warn-500">
+        <span className="ml-2 rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-warn-500">
           stated by the user — not documentary evidence
         </span>
       )}
       {finding.text_source === "recognised" && (
-        <span className="ml-2 text-[11px] uppercase tracking-wider text-slateish-500">
+        <span className="ml-2 text-xs uppercase tracking-wider text-slateish-500">
           from recognised (OCR) text
         </span>
       )}
@@ -192,11 +192,11 @@ export function SummaryCard({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p
               id="summary-card-heading"
-              className="text-[11px] font-semibold uppercase tracking-wider text-info-500"
+              className="text-xs font-semibold uppercase tracking-wider text-info-500"
             >
               Written by the model — not the document's words
             </p>
-            <span className="font-mono text-[11px] text-slateish-500">
+            <span className="font-mono text-xs text-slateish-500">
               Summary of {n} passage{n === 1 ? "" : "s"}
             </span>
           </div>

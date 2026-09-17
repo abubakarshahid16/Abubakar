@@ -103,7 +103,7 @@ export function LocalWork({
                 )}
                 {s.label}
                 {now && progress?.detail ? (
-                  <span className="ml-1.5 font-mono text-[11px] opacity-80">
+                  <span className="ml-1.5 font-mono text-xs opacity-80">
                     {progress.detail}
                   </span>
                 ) : null}

@@ -246,7 +246,7 @@ function StatusMark({ status }: { status: GapItemStatus }) {
   return (
     <span
       className={[
-        "inline-flex items-center rounded-[var(--radius-xs)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider",
+        "inline-flex items-center rounded-[var(--radius-xs)] px-2 py-0.5 text-xs font-semibold uppercase tracking-wider",
         s.badge,
       ].join(" ")}
     >
@@ -274,7 +274,7 @@ function EvidenceChip({
       type="button"
       onClick={() => onCite(evidenceId)}
       aria-label={`Show project evidence ${n}`}
-      className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] bg-ink-700 px-1 align-baseline font-mono text-[11px] leading-none text-slateish-300 hover:bg-ink-600"
+      className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] bg-ink-700 px-1 align-baseline font-mono text-xs leading-none text-slateish-300 hover:bg-ink-600"
     >
       {n}
     </button>
@@ -292,7 +292,7 @@ function BaselineHeader({
   if (baseline.kind === "stated_requirement") {
     return (
       <div className="mt-2 text-sm">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-warn-500">
+        <p className="text-xs font-semibold uppercase tracking-wider text-warn-500">
           Baseline &mdash; stated by the user. Not evidence; carries no citation.
         </p>
         <p className="mt-1 text-slateish-200">{baseline.text}</p>
@@ -307,7 +307,7 @@ function BaselineHeader({
   const filename = documents.find((d) => d.id === baseline.document_id)?.filename ?? null;
   return (
     <div className="mt-2 text-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-signal-400">Baseline</p>
+      <p className="text-xs font-semibold uppercase tracking-wider text-signal-400">Baseline</p>
       <p className="mt-1 text-slateish-200">
         {filename ?? baseline.document_id}
         {baseline.section !== null && <span className="text-slateish-400"> &sect; {baseline.section}</span>}
@@ -386,7 +386,7 @@ function ItemRow({
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <StatusMark status={item.status} />
         {hasFacet(item) && (
-          <span className="text-[11px] text-slateish-500">
+          <span className="text-xs text-slateish-500">
             {FACET_LABEL}{" "}
             <span data-facet="" className="font-mono text-slateish-400">
               {item.facet}
@@ -397,7 +397,7 @@ function ItemRow({
 
       {withSpan && (
         <>
-          <p className="mt-1.5 text-[11px] uppercase tracking-wide text-slateish-500">
+          <p className="mt-1.5 text-xs uppercase tracking-wide text-slateish-500">
             {baselineIsStated ? "Requirement as stated by the user" : "Baseline, quoted verbatim"}
           </p>
           <blockquote
@@ -608,7 +608,7 @@ export function GapAnalysisCard({
   templates?: ReviewTemplate[];
 }) {
   const heading = (
-    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slateish-300">
+    <h3 className="text-xs font-semibold uppercase tracking-wider text-slateish-300">
       Preliminary gap assessment
     </h3>
   );

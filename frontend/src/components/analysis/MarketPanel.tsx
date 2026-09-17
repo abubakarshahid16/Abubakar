@@ -189,7 +189,7 @@ const REFERENCE_LABEL = "reference - background only";
 
 function Pill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-[var(--radius-full)] border border-ink-500 bg-ink-800 px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider text-slateish-300">
+    <span className="rounded-[var(--radius-full)] border border-ink-500 bg-ink-800 px-2 py-0.5 font-mono text-xs uppercase tracking-wider text-slateish-300">
       {children}
     </span>
   );
@@ -197,7 +197,7 @@ function Pill({ children }: { children: React.ReactNode }) {
 
 function SampleTag() {
   return (
-    <span className="rounded-[var(--radius-xs)] border border-ink-500 px-1 font-mono text-[10px] uppercase tracking-wider text-slateish-400">
+    <span className="rounded-[var(--radius-xs)] border border-ink-500 px-1 font-mono text-xs uppercase tracking-wider text-slateish-400">
       Sample
     </span>
   );
@@ -214,7 +214,7 @@ function ProviderTag({ label }: { label: string }) {
   return (
     <span
       className={[
-        "rounded-[var(--radius-xs)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+        "rounded-[var(--radius-xs)] px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider",
         isReference
           ? "border border-warn-500/70 bg-warn-500/10 text-warn-500"
           : "border border-signal-500/50 bg-signal-500/10 text-signal-400",
@@ -253,7 +253,7 @@ function FindingRow({ f }: { f: MarketFinding }) {
         <dd>
           <code
             title="sample row; this link was not followed"
-            className="break-all font-mono text-[11px] text-slateish-400"
+            className="break-all font-mono text-xs text-slateish-400"
           >
             {f.url}
           </code>
@@ -308,7 +308,7 @@ function SearchRow({ row }: { row: MarketRow }) {
         <dd className="text-slateish-300">{verificationWords(row.verification)}</dd>
         <dt className="text-slateish-500">url</dt>
         <dd>
-          <code className="break-all font-mono text-[11px] text-slateish-400">{row.url}</code>
+          <code className="break-all font-mono text-xs text-slateish-400">{row.url}</code>
         </dd>
       </dl>
     </li>
@@ -372,7 +372,7 @@ function QueryForm({ onPreview }: { onPreview: (q: PublicMarketQuery) => void })
 
   return (
     <form onSubmit={submit} className="mt-4 space-y-3 rounded-[var(--radius-xs)] border border-ink-700 p-3">
-      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-slateish-300">
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-slateish-300">
         Public market query
       </h4>
       <p className="text-xs text-slateish-300">
@@ -534,7 +534,7 @@ function ConfirmDialog({
         {/* What the reader typed, before any scrubbing, so the two strings can
             be compared side by side. This one is the reader's own and is
             always available; the one below is the backend's. */}
-        <p className="mt-3 text-[11px] uppercase tracking-wider text-slateish-500">What you typed</p>
+        <p className="mt-3 text-xs uppercase tracking-wider text-slateish-500">What you typed</p>
         <p className="mt-1 break-words text-sm text-slateish-200">{query.query}</p>
 
         <div aria-live="polite">
@@ -554,7 +554,7 @@ function ConfirmDialog({
 
           {preview.s === "ready" && preview.data.phrase !== null && (
           <>
-            <p className="mt-3 text-[11px] uppercase tracking-wider text-slateish-500">
+            <p className="mt-3 text-xs uppercase tracking-wider text-slateish-500">
               The phrase that would be sent
             </p>
             <p className="mt-1 break-words text-sm text-slateish-100">{preview.data.phrase}</p>
@@ -564,7 +564,7 @@ function ConfirmDialog({
                 others went - and this dialog is the approval. Each is
                 labelled with the tier it belongs to, so "would be asked of"
                 and "here is what it would be asked" are the same list. */}
-            <p className="mt-3 text-[11px] uppercase tracking-wider text-slateish-500">
+            <p className="mt-3 text-xs uppercase tracking-wider text-slateish-500">
               {preview.data.payloads.length === 1
                 ? "The exact outbound payload, as the backend states it"
                 : `The exact outbound payloads, as the backend states them (${preview.data.payloads.length})`}
@@ -836,7 +836,7 @@ export function MarketPanel({
   return (
     <section aria-label="Public market information" className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slateish-300">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slateish-300">
           Public market information
         </h3>
         <div className="flex flex-wrap gap-1.5" aria-live="polite">

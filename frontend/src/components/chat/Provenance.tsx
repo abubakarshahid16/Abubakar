@@ -56,7 +56,7 @@ export function ProvenanceMark({
   if (variant === "short") {
     return (
       <span
-        className="rounded bg-warn-500/15 px-1.5 py-0.5 text-[11px] font-medium text-warn-500"
+        className="rounded bg-warn-500/15 px-1.5 py-0.5 text-xs font-medium text-warn-500"
         title={
           violated
             ? "Read by OCR, and the recogniser produced characters this document cannot contain. Check the page image."
@@ -74,7 +74,7 @@ export function ProvenanceMark({
   // obvious to anyone; U+2266 reads as U+2264 to a skimming engineer, and
   // that is the one that gets into a specification unnoticed.
   return (
-    <p className="text-[11px] font-semibold uppercase tracking-wider text-warn-500">
+    <p className="text-xs font-semibold uppercase tracking-wider text-warn-500">
       {violated
         ? "Read by OCR — and misread: characters this document cannot contain"
         : "Read by OCR from a scanned page"}
@@ -99,7 +99,7 @@ export function OcrConfidence({ passage }: { passage: AnswerPassage }) {
   if (!isRecognised(passage) || passage.ocr_min_conf == null) return null;
   return (
     <span
-      className="font-mono text-[11px] text-slateish-500"
+      className="font-mono text-xs text-slateish-500"
       title="Lowest OCR confidence across this passage. No pass/fail threshold is set - this is the measurement, not a verdict."
     >
       OCR confidence {passage.ocr_min_conf.toFixed(2)}

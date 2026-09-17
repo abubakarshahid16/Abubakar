@@ -13,11 +13,10 @@
    time, and the quoted passage IS the product. Sustained reading of dense
    technical prose is harder on a dark ground.
 
-   THE DEFECT THIS FIXES. --color-slateish-400 (#7d90a4) on #070b10 is
-   4.1:1 - below the AA floor for the sizes it carries (hints, timestamps,
-   captions, every `hint` line in the sidebar). It is now 5.1:1 as the
-   tertiary, with a genuine secondary at 8.6:1 above it. That single value
-   accounts for most of "I can't read it carefully".
+   CONTRAST GUARANTEE. The light tertiary/quiet pair now measures 6.4:1 / 5.8:1
+   on the light ground; the dark pair measures 7.0:1 / 6.0:1 on the dark
+   ground. All readable text is at least 12px, so these values clear the AA
+   normal-text floor at their actual sizes.
 
    NAMING. `ink-*` still means "surface" and `slateish-*` still means
    "text". On a light ground the ramps run the other way: ink-800 is now
@@ -130,14 +129,14 @@
   --color-slateish-100: #F7F9FA;
   --color-slateish-200: #EDEFF1;
   --color-slateish-300: #AAB3BA;
-  --color-slateish-400: #7D878F;
-  --color-slateish-500: #626C74;
+  --color-slateish-400: #9AA5AD;
+  --color-slateish-500: #8C98A2;
 
   --color-signal-500: #4FC9B5;
   --color-signal-400: #4FC9B5;
   --color-signal-300: #6FDBC9;
 
-  --color-warn-500: #D08B5E;
+  --color-warn-500: #F0A97A;
   --color-danger-500: #EA7A6E;
   --color-info-500: #6FB1E8;
 
@@ -157,14 +156,14 @@
   --color-slateish-100: #101820;
   --color-slateish-200: #1f2933;
   --color-slateish-300: #4b5563;
-  --color-slateish-400: #667382;
-  --color-slateish-500: #7a8592;
+  --color-slateish-400: #4f5b68;
+  --color-slateish-500: #536170;
 
   --color-signal-500: #0e6b60;
   --color-signal-400: #0e6b60;
   --color-signal-300: #0a544b;
 
-  --color-warn-500: #8c5530;
+  --color-warn-500: #7b4628;
   --color-danger-500: #a02f26;
   --color-info-500: #175c97;
 
@@ -202,11 +201,18 @@
      within 4px of each other, so nothing led the eye. Five steps at a
      ~1.28 ratio. Reference these from components rather than scattering
      arbitrary px values.                                                */
-  --t-xs: 0.719rem;   /* 11.5px - uppercase labels, timestamps          */
+  --t-xs: 0.75rem;    /* 12px   - uppercase labels, timestamps          */
   --t-sm: 0.813rem;   /* 13px   - secondary text, controls              */
   --t-md: 0.938rem;   /* 15px   - body                                  */
   --t-lg: 1.25rem;    /* 20px   - view headings                         */
   --t-xl: 1.688rem;   /* 27px   - page title                            */
+}
+
+/* Keep legacy arbitrary utility names compatible while enforcing the
+   product-wide 12px readability floor. */
+.text-\[10px\],
+.text-\[11px\] {
+  font-size: 0.75rem !important;
 }
 
 /* min-height, not height. A fixed 100% with taller content inside let the

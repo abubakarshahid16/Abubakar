@@ -5,7 +5,7 @@ import path from "node:path";
 
 const views = ["Dashboard", "Documents", "Chat", "Analysis", "Reports", "Deliverables", "Ingestion", "Administration"] as const;
 const themes = ["light", "dark"] as const;
-const outputPath = path.resolve("..", "docs", "ui-redesign", "contrast-root-cause.json");
+const outputPath = path.resolve("..", "docs", "ui-redesign", process.env.CONTRAST_OUTPUT ?? "contrast-root-cause.json");
 
 async function openView(page: Page, view: string) {
   await page.goto("/");
@@ -63,4 +63,6 @@ test("collect every serious/critical contrast node with computed colors", async 
     }
   }
   await writeFile(outputPath, JSON.stringify(rows, null, 2), "utf8");
+  expect(rows.filter((row: any) => row.rule === "color-contrast" || row.rule === "list"),
+    "serious/critical accessibility violations").toEqual([]);
 });

@@ -178,7 +178,7 @@ export function TypeFilter({
           : "flex flex-col gap-1.5"
       }
     >
-      <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+      <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
         {label}
       </span>
       {vocabulary.types.map((type) => {
@@ -211,7 +211,7 @@ export function TypeFilter({
                 know" reads as "there are none of these", which is a different
                 claim and sometimes a false one. */}
             {count != null && (
-              <span className="font-mono text-[11px] opacity-75">{count}</span>
+              <span className="font-mono text-xs text-slateish-300">{count}</span>
             )}
           </button>
         );
@@ -221,7 +221,7 @@ export function TypeFilter({
         <button
           type="button"
           onClick={onClear}
-          className="rounded border border-ink-600 px-2 py-1 text-[11px] text-slateish-400 hover:text-slateish-200"
+          className="rounded border border-ink-600 px-2 py-1 text-xs text-slateish-400 hover:text-slateish-200"
         >
           Clear
         </button>
@@ -229,7 +229,7 @@ export function TypeFilter({
 
       {/* RULE 3: the server's number, or no number. */}
       {applied?.applied && (
-        <span className="ml-auto font-mono text-[11px] tabular-nums text-slateish-400">
+        <span className="ml-auto font-mono text-xs tabular-nums text-slateish-400">
           {applied.documents_in_scope} document
           {applied.documents_in_scope === 1 ? "" : "s"} in scope
         </span>

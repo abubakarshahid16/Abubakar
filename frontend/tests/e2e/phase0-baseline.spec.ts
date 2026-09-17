@@ -20,8 +20,8 @@ const sizes = [
   { width: 1920, height: 1080 },
 ] as const;
 
-const beforeDir = path.resolve("..", "docs", "ui-redesign", "before");
-const axePath = path.resolve("..", "docs", "ui-redesign", "axe-baseline.json");
+const beforeDir = path.resolve("..", "docs", "ui-redesign", process.env.SCREENSHOT_DIR ?? "before");
+const axePath = path.resolve("..", "docs", "ui-redesign", process.env.AXE_OUTPUT ?? "axe-baseline.json");
 type AxeRow = {
   view: string;
   theme: string;

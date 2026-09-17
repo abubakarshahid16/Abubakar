@@ -151,7 +151,7 @@ function ReportRow({
           </p>
 
           <div className="mt-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slateish-400">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slateish-400">
               Documents cited
             </p>
             {report.documents.length === 0 ? (
@@ -184,7 +184,7 @@ function ReportRow({
 
           {report.not_implemented_sections.length > 0 && (
             <div className="mt-3 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900/60 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
                 Outside this report
               </p>
               <p className="mt-1 text-xs text-slateish-400">

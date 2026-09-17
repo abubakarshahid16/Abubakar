@@ -322,3 +322,22 @@ Verification at close-out:
   in 32.2 seconds.
 
 Phase 1 has not started.
+
+## Contrast remediation follow-up (2026-09-17)
+
+The approved remediation raised every readable 10/11px utility to the 12px
+floor, corrected the light/dark `slateish-400`/`slateish-500` ramps, corrected
+theme-appropriate warning text, removed the opacity-reduced metadata cases,
+and fixed the Dashboard list semantics without changing its appearance.
+
+| Measurement | Phase 0 baseline | After remediation |
+| --- | ---: | ---: |
+| `text-[10px]` / `text-[11px]` source occurrences | 119 | 0 |
+| `text-xs` source occurrences | 309 | 429 |
+| serious/critical axe nodes (8 views × 2 themes) | 448 contrast + 2 list | 0 |
+| settled screenshots | 48 in `before/` | 48 in `after-contrast/` |
+
+Evidence artifacts: `axe-after.json`, `contrast-after.json`, and the
+`after-contrast/` screenshot set. The fast token WCAG test is
+`frontend/src/contrastTokens.test.ts`; the full axe gate is
+`frontend/tests/e2e/contrast-root-cause.spec.ts`.

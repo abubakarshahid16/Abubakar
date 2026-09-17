@@ -69,7 +69,7 @@ function Tile({
           : "text-slateish-100";
   return (
     <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
-      <p className="text-[11px] uppercase tracking-wide text-slateish-500">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-slateish-500">{label}</p>
       {measured ? (
         <p className={`mt-1 font-mono text-lg leading-tight ${toneClass}`}>
           {typeof value === "number" ? nf.format(value) : value}
@@ -79,7 +79,7 @@ function Tile({
           not measured yet
         </p>
       )}
-      {hint && <p className="mt-1 text-[11px] text-slateish-500">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-slateish-500">{hint}</p>}
     </div>
   );
 }
@@ -129,7 +129,7 @@ function Step({
         {done ? "done" : current ? "now" : "··"}
       </span>
       <span className="font-medium">{label}</span>
-      {detail && <span className="ml-auto font-mono text-[11px]">{detail}</span>}
+      {detail && <span className="ml-auto font-mono text-xs">{detail}</span>}
     </li>
   );
 }
@@ -152,7 +152,7 @@ function DocumentProgress({ doc }: { doc: DocumentRecord }) {
     <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-medium text-slateish-200">{doc.filename}</p>
-        <p className="font-mono text-[11px] text-slateish-400">
+        <p className="font-mono text-xs text-slateish-400">
           {doc.page_count != null ? `${nf.format(doc.page_count)} pages` : "reading the manifest"}
         </p>
       </div>
@@ -347,7 +347,7 @@ function WatchRow({ event }: { event: WatchEvent }) {
       <span className="font-medium text-slateish-200">{event.filename}</span>
       <span className={style.tone}>{style.word}</span>
       {when && (
-        <span className="ml-auto font-mono text-[11px] text-slateish-300" title={event.at}>
+        <span className="ml-auto font-mono text-xs text-slateish-300" title={event.at}>
           {when}
         </span>
       )}
@@ -569,7 +569,7 @@ export function IngestionView({
             What the system is doing to your documents, and how fast it is doing it.
           </p>
         </div>
-        <p className="font-mono text-[11px] text-slateish-500">
+        <p className="font-mono text-xs text-slateish-500">
           every {metrics.refresh_seconds}s
         </p>
       </div>
@@ -673,7 +673,7 @@ export function IngestionView({
                 className="flex flex-wrap items-baseline gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2 text-xs"
               >
                 <span className="font-medium text-slateish-200">{d.filename}</span>
-                <span className="font-mono text-[11px] text-slateish-400">
+                <span className="font-mono text-xs text-slateish-400">
                   {d.page_count != null ? `${nf.format(d.page_count)} pages` : ""}
                   {" · "}
                   {nf.format(d.chunk_count)} searchable passages

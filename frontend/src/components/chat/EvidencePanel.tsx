@@ -113,7 +113,7 @@ export function PassageLocation({ passage }: { passage: AnswerPassage }) {
       {clause && (
         <>
           <span className="text-slateish-500">·</span>
-          <span className="rounded-[var(--radius-xs)] bg-ink-700 px-1.5 py-0.5 font-mono text-[11px] text-slateish-200">
+          <span className="rounded-[var(--radius-xs)] bg-ink-700 px-1.5 py-0.5 font-mono text-xs text-slateish-200">
             {clause}
           </span>
         </>
@@ -223,7 +223,7 @@ export function EvidencePanel({
         <h3 className="mt-5 text-xs uppercase tracking-wide text-slateish-400">
           Page {passage.page_start} as printed
           {boxed && image.answerLocated !== false && (
-            <span className="ml-2 rounded-[var(--radius-full)] bg-signal-500/20 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-signal-300">
+            <span className="ml-2 rounded-[var(--radius-full)] bg-signal-500/20 px-1.5 py-0.5 text-xs normal-case tracking-normal text-signal-300">
               answer outlined
             </span>
           )}

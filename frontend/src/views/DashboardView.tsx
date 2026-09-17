@@ -65,7 +65,7 @@ function Stat({
           : "text-slateish-100";
   return (
     <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
-      <p className="text-[11px] uppercase tracking-wide text-slateish-500">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-slateish-500">{label}</p>
       {measured ? (
         <p className={`mt-1 font-mono text-lg leading-tight ${toneClass}`}>
           {typeof value === "number" ? nf.format(value) : value}
@@ -75,7 +75,7 @@ function Stat({
           not measured yet
         </p>
       )}
-      {hint && <p className="mt-1 text-[11px] text-slateish-500">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-slateish-500">{hint}</p>}
     </div>
   );
 }
@@ -183,16 +183,15 @@ function Warning({ warning }: { warning: MetricWarning }) {
         ? "border-warn-500/50 bg-warn-500/10 text-warn-500"
         : "border-ink-600 bg-ink-850 text-slateish-400";
   return (
-    <li
-      className={`rounded-[var(--radius-sm)] border px-3 py-2 text-sm ${style}`}
-      role={warning.severity === "error" ? "alert" : "status"}
-    >
-      {/* The message leads. This row used to open with the raw code -
-          NEEDS_OCR, EQUATION_PAGES - which is a database enum, not a sentence.
-          The code stays at the end for a bug report. */}
-      <span className="text-slateish-300">{warning.message}</span>
-      <span className="ml-2 font-mono text-[10px] uppercase tracking-wide opacity-50">
-        {warning.code}
+    <li className={`rounded-[var(--radius-sm)] border px-3 py-2 text-sm ${style}`}>
+      <span role={warning.severity === "error" ? "alert" : "status"}>
+        {/* The message leads. This row used to open with the raw code -
+            NEEDS_OCR, EQUATION_PAGES - which is a database enum, not a sentence.
+            The code stays at the end for a bug report. */}
+        <span className="text-slateish-300">{warning.message}</span>
+        <span className="ml-2 font-mono text-xs uppercase tracking-wide text-slateish-500">
+          {warning.code}
+        </span>
       </span>
     </li>
   );
@@ -252,7 +251,7 @@ function ReadinessPanel({ metrics }: { metrics: Metrics }) {
             about before relying on it.
           </p>
         </div>
-        <span className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-2 py-1 font-mono text-[11px] text-warn-500">
+        <span className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-2 py-1 font-mono text-xs text-warn-500">
           Prototype
         </span>
       </div>
@@ -445,7 +444,7 @@ export function DashboardView({
             )}
           </p>
         </div>
-        <p className="font-mono text-[11px] text-slateish-500">
+        <p className="font-mono text-xs text-slateish-500">
           refreshed {fetchedAt ? new Date(fetchedAt).toLocaleTimeString() : "—"} · every{" "}
           {metrics.refresh_seconds}s
         </p>
@@ -656,7 +655,7 @@ export function DashboardView({
               <span
                 key={status}
                 className={[
-                  "rounded-[var(--radius-xs)] border px-2 py-0.5 font-mono text-[11px]",
+                  "rounded-[var(--radius-xs)] border px-2 py-0.5 font-mono text-xs",
                   status === "no_searchable_content"
                     ? "border-warn-500/50 bg-warn-500/10 text-warn-500"
                     : status === "failed"
@@ -730,7 +729,7 @@ export function DashboardView({
                 className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm"
               >
                 <span className="text-slateish-200">{f.filename}</span>
-                <span className="ml-2 font-mono text-[11px] text-danger-500">
+                <span className="ml-2 font-mono text-xs text-danger-500">
                   {f.error_code ?? "failed"}
                 </span>
                 {f.error_message && (
@@ -841,7 +840,7 @@ export function DashboardView({
       <Section title="Machine" hint="Everything runs here. No document or question leaves this computer.">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
-            <p className="text-[11px] uppercase tracking-wide text-slateish-500">CPU</p>
+            <p className="text-xs uppercase tracking-wide text-slateish-500">CPU</p>
             {system.cpu_percent_since_last_call == null ? (
               <p className="mt-1 text-sm italic leading-tight text-slateish-500">
                 not measured yet
@@ -857,7 +856,7 @@ export function DashboardView({
                 />
               </>
             )}
-            <p className="mt-1 text-[11px] text-slateish-500">
+            <p className="mt-1 text-xs text-slateish-500">
               {system.cpu_physical_cores ?? "?"} physical /{" "}
               {system.cpu_logical_cores ?? "?"} logical ·{" "}
               {system.cpu_percent_since_last_call != null
@@ -869,7 +868,7 @@ export function DashboardView({
           </div>
 
           <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
-            <p className="text-[11px] uppercase tracking-wide text-slateish-500">Memory</p>
+            <p className="text-xs uppercase tracking-wide text-slateish-500">Memory</p>
             {/* Free, not used. The reader's question is "is there room for the
                 answer model", and used/total made them subtract - which broke
                 on rounding: 15.4 of 16 rendered as "15 / 16", implying 1 GB
@@ -879,13 +878,13 @@ export function DashboardView({
               <span className="text-sm text-slateish-500">free of {bytes(system.ram_total_bytes)}</span>
             </p>
             <Bar percent={system.ram_percent} tone={loadTone(system.ram_percent)} />
-            <p className="mt-1 text-[11px] text-slateish-500">
+            <p className="mt-1 text-xs text-slateish-500">
               this backend: {bytes(system.process_rss_bytes)} resident
             </p>
           </div>
 
           <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
-            <p className="text-[11px] uppercase tracking-wide text-slateish-500">Disk</p>
+            <p className="text-xs uppercase tracking-wide text-slateish-500">Disk</p>
             <p className="mt-1 font-mono text-lg leading-tight text-slateish-100">
               {bytes(system.disk_free_bytes)}{" "}
               <span className="text-sm text-slateish-500">free</span>
@@ -894,7 +893,7 @@ export function DashboardView({
               percent={system.disk_percent ?? 0}
               tone={loadTone(system.disk_percent ?? 0)}
             />
-            <p className="mt-1 text-[11px] text-slateish-500">
+            <p className="mt-1 text-xs text-slateish-500">
               documents and index: {bytes(system.data_dir_bytes)}
             </p>
           </div>
@@ -909,7 +908,7 @@ export function DashboardView({
         >
           <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-700">
             <table className="w-full text-left text-sm">
-              <thead className="bg-ink-850 text-[11px] uppercase tracking-wide text-slateish-500">
+              <thead className="bg-ink-850 text-xs uppercase tracking-wide text-slateish-500">
                 <tr>
                   <th className="px-3 py-2 font-medium">Scope</th>
                   <th className="px-3 py-2 font-medium">Rule</th>

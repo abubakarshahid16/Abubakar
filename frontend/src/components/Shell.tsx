@@ -248,10 +248,10 @@ export function Shell({
           <span className="block text-base font-semibold leading-tight tracking-tight text-slateish-100">
             RAG Intelligence System
           </span>
-          <span className="mt-1 block text-[11px] leading-snug text-slateish-400">
+          <span className="mt-1 block text-xs leading-snug text-slateish-400">
             Cited answers from your own documents
           </span>
-          <p className="mt-3 border-l-2 border-signal-500/40 pl-2.5 text-[11px] leading-relaxed text-slateish-400">
+          <p className="mt-3 border-l-2 border-signal-500/40 pl-2.5 text-xs leading-relaxed text-slateish-400">
             <span className="font-medium text-slateish-300">Private by design.</span>{" "}
             Your documents stay on this machine, and every answer cites its
             document and page.
@@ -297,12 +297,12 @@ export function Shell({
                         a size down, so the seven destinations scan as seven
                         destinations rather than fourteen lines of equal
                         weight. */}
-                    <span className="block truncate text-[11px] leading-snug text-slateish-500">
+                    <span className="block truncate text-xs leading-snug text-slateish-500">
                       {item.hint}
                     </span>
                   </span>
                   {!item.built && (
-                    <span className="ml-2 shrink-0 rounded-[var(--radius-full)] border border-ink-500 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-300">
+                    <span className="ml-2 shrink-0 rounded-[var(--radius-full)] border border-ink-500 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slateish-300">
                       not built
                     </span>
                   )}
@@ -328,7 +328,7 @@ export function Shell({
               caller saw the whole corpus. Scoped as of the commit that
               corrected this comment. */}
           {connection.state === "online" && (
-            <p className="mt-1.5 text-[11px] text-slateish-500">
+            <p className="mt-1.5 text-xs text-slateish-500">
               {connection.health.answer_model_present
                 ? "Answer model configured"
                 : "No answer model configured"}
@@ -342,7 +342,7 @@ export function Shell({
               the amber one is the only coloured word. They earn their place:
               each is a question a client asks in the first minute, and the
               middle one is the answer nobody volunteers unprompted. */}
-          <dl className="mt-4 space-y-1 text-[11px] text-slateish-500">
+          <dl className="mt-4 space-y-1 text-xs text-slateish-500">
             <div className="flex items-baseline justify-between gap-2">
               <dt>Documents</dt>
               <dd className="text-slateish-400">on this machine</dd>
@@ -381,7 +381,7 @@ function ThemeToggle({
       aria-label="Theme mode"
       className={[
         "inline-grid grid-cols-2 rounded-[var(--radius-full)] border border-ink-600 bg-ink-900 p-0.5",
-        compact ? "text-[11px]" : "w-full text-xs",
+        compact ? "text-xs" : "w-full text-xs",
       ].join(" ")}
     >
       {(["dark", "light"] as const).map((mode) => {
