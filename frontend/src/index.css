@@ -65,6 +65,20 @@
 }
 
 @theme {
+  /* Phase 2 foundations: every spacing step is a 4px multiple, shared motion
+     timings keep feedback predictable, and the radius scale is reusable. */
+  --spacing-1: 0.25rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-5: 1.25rem;
+  --spacing-6: 1.5rem;
+  --spacing-8: 2rem;
+  --spacing-10: 2.5rem;
+  --spacing-12: 3rem;
+  --duration-fast: 100ms;
+  --duration-standard: 200ms;
+  --duration-slow: 300ms;
   /* ── Surfaces. Warm paper, not #fff: a pure white ground glares under
      long prose. Ordered deepest-sunken to most-raised.                  */
   --color-ink-950: #04070a;  /* sunken wells, table stripes             */
@@ -206,6 +220,29 @@
   --t-md: 0.938rem;   /* 15px   - body                                  */
   --t-lg: 1.25rem;    /* 20px   - view headings                         */
   --t-xl: 1.688rem;   /* 27px   - page title                            */
+  --density-gap: 0.5rem;
+  --density-card-padding: 0.75rem;
+}
+
+:root[data-density="compact"] {
+  --density-gap: 0.25rem;
+  --density-card-padding: 0.5rem;
+}
+
+/* One focus treatment for keyboard users, including controls that previously
+   had no bespoke focus-visible class. Both theme focus tokens clear 3:1. */
+:where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Keep legacy arbitrary utility names compatible while enforcing the

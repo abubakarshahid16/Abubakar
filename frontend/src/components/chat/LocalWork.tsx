@@ -98,7 +98,7 @@ export function LocalWork({
                 {now && (
                   <span
                     aria-hidden="true"
-                    className="mr-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-signal-400 align-middle"
+              className="mr-1.5 inline-block h-2 w-2 motion-safe:animate-pulse rounded-full bg-signal-400 align-middle"
                   />
                 )}
                 {s.label}

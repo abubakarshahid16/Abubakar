@@ -20,6 +20,7 @@ export type ViewId =
   | "admin";
 
 export type ThemeMode = "dark" | "light";
+export type DensityMode = "comfortable" | "compact";
 
 interface NavItem {
   id: ViewId;
@@ -200,10 +201,18 @@ export function Shell({
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [density, setDensity] = useState<DensityMode>(() => {
+    try { return localStorage.getItem("rag-intelligence-density") === "compact" ? "compact" : "comfortable"; }
+    catch { return "comfortable"; }
+  });
   const items = navFor(auth);
+  useEffect(() => {
+    document.documentElement.setAttribute("data-density", density);
+    try { localStorage.setItem("rag-intelligence-density", density); } catch { /* memory-only fallback */ }
+  }, [density]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink-900 md:flex-row">
+    <div className={`density-${density} flex min-h-screen flex-col bg-ink-900 md:flex-row`}>
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-[var(--radius-sm)] focus:bg-ink-700 focus:px-3 focus:py-2 focus:text-slateish-200 focus:shadow-[var(--shadow-floating)]"
@@ -336,6 +345,11 @@ export function Shell({
           )}
           <div className="mt-4">
             <ThemeToggle theme={theme} onChange={onThemeChange} />
+          </div>
+          <div className="mt-3 flex items-center gap-2 text-xs text-slateish-400" aria-label="Density">
+            <span>Density</span>
+            <button type="button" aria-pressed={density === "comfortable"} onClick={() => setDensity("comfortable")} className="min-h-11 rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1">Comfortable</button>
+            <button type="button" aria-pressed={density === "compact"} onClick={() => setDensity("compact")} className="min-h-11 rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1">Compact</button>
           </div>
           {/* THREE STANDING FACTS ABOUT THE DEPLOYMENT, not live status - which
               is why they are quieter than the connection badge above and why
