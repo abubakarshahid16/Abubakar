@@ -38,6 +38,8 @@ compliance risks.
 Review findings now expose a traceability chain covering source documents,
 baselines, citations, workflow events, and linked deliverables.
 
+Reminder and escalation emails now have separate audited notification paths.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.

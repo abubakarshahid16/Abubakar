@@ -92,6 +92,26 @@ def send_daily_summary(summary: dict, *, actor_user_id: str | None = None) -> bo
                       resource_id=None, actor_user_id=actor_user_id)
 
 
+def send_reminder(*, deliverable_id: str, title: str, due_date: str,
+                  recipients: list[str] | None = None,
+                  actor_user_id: str | None = None) -> bool:
+    return send_email(subject=f"EPC deliverable reminder: {title}",
+                      body=f"Deliverable {title} is due or overdue ({due_date}).",
+                      trigger="overdue_deliverable", resource_type="deliverable",
+                      resource_id=deliverable_id, recipients=recipients,
+                      actor_user_id=actor_user_id)
+
+
+def send_escalation(*, deliverable_id: str, title: str, level: int,
+                    recipients: list[str] | None = None,
+                    actor_user_id: str | None = None) -> bool:
+    return send_email(subject=f"EPC escalation level {level}: {title}",
+                      body=f"Deliverable {title} has reached escalation level {level}.",
+                      trigger="escalation_level_change", resource_type="deliverable",
+                      resource_id=deliverable_id, recipients=recipients,
+                      actor_user_id=actor_user_id)
+
+
 def run_scheduled_summary(summary: dict, *, now: datetime | None = None,
                           actor_user_id: str | None = None) -> bool:
     """Send at most one configured daily/weekly digest for the current window.

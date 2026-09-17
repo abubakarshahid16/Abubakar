@@ -344,15 +344,10 @@ def reminder_events(*, allowed_document_ids: frozenset[str] | None = None) -> li
                     stakeholder_role = candidate
                     break
             recipients = stakeholder_emails(alert["deliverable_id"], stakeholder_role)
-            notifications.send_email(
-                subject=f"EPC deliverable escalation level {alert['escalation_level']}",
-                body=(f"Deliverable {alert['wbs_code']} is {alert['days_overdue']} "
-                      f"day(s) overdue. Recipient role: {rule['recipient_role']}."),
-                trigger=("overdue_deliverable" if alert["days_overdue"] == 0
-                         else "escalation_level_change"),
-                resource_type="deliverable", resource_id=alert["deliverable_id"],
-                recipients=recipients or None,
-            )
+            if alert["days_overdue"] == 0:
+                notifications.send_reminder(deliverable_id=alert["deliverable_id"], title=alert["title"], due_date=alert["due_date"], recipients=recipients or None)
+            else:
+                notifications.send_escalation(deliverable_id=alert["deliverable_id"], title=alert["title"], level=alert["escalation_level"], recipients=recipients or None)
     allowed_ids = {item["id"] for item in items}
     rows = connect().execute(
         "SELECT * FROM reminder_events ORDER BY created_at DESC"

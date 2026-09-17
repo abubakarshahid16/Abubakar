@@ -387,3 +387,6 @@ compliance. Unknown types are rejected at creation.
 Review finding traceability is available at `/api/reviews/findings/{id}/traceability`;
 it links the finding, source document/baseline, citations, event history, and
 linked deliverables in one access-scoped response.
+
+Overdue deliverables now use distinct audited reminder and escalation functions;
+they are not collapsed into the daily summary.
