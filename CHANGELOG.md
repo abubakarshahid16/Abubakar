@@ -10,6 +10,14 @@ the day they merged.
 
 ## [Unreleased]
 
+### 2026-09-17 — configurable engineering-review baselines
+
+Engineering gap reviews can now use administrator-configured mappings from a
+submittal's classified type/discipline to a searchable baseline. The selected
+baseline is access-scoped and a manual document choice always takes priority.
+The rule and selection endpoints are available under `/api/reviews`, with
+regression tests covering automatic selection and manual override.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.

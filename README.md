@@ -327,6 +327,15 @@ the last things to degrade.
 
 ## Repository conventions
 
+### Engineering review baselines
+
+Engineering review comparisons support configurable baseline rules. An
+administrator maps the uploaded submittal's classified document type and
+discipline to a baseline type/discipline, with a priority. The review API can
+then select the newest searchable matching document within the caller's access
+scope. A user-supplied baseline remains an explicit override; the API never
+silently chooses an authoritative document when no rule matches.
+
 ### Branches
 
     <type>/<issue-number>-<stable-id>-<slug>

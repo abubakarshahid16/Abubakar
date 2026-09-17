@@ -3,6 +3,13 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
+**Current review-baseline rule.** Engineering gap analysis may select a
+baseline only through an active, configured type/discipline mapping and a
+caller-scoped searchable document. A manual baseline overrides the mapping;
+absence of a match remains “no baseline,” not evidence that a document is
+authoritative. This is implemented in `app.review.resolve_baseline` and is
+covered by `test_review_baselines.py`.
+
 **Why this document exists.** Twenty-nine separate times something in this
 system has claimed what was not so - a status field, a count, a measurement,
 twice a design document about the code it was written against, once a type that

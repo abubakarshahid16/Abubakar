@@ -758,14 +758,23 @@ def analysis_gaps(body: schemas.AnalysisRequest,
                   scope: access.AccessScope = Depends(access.current_scope)):
     """Mechanical claim comparison. No model call.
 
-    The baseline comes from the caller or there is none. Choosing one here -
-    the oldest document, the one with "standard" in its name - would be the
-    system deciding which document is authoritative.
+    A caller may explicitly choose a baseline. For an engineering submittal,
+    a configured review rule can select one automatically; the manual choice
+    always wins and every choice remains visible in the returned comparison.
     """
     if body.baseline_document_id:
         # Through require_document, so an id the caller may not read is 404 and
         # is indistinguishable from one that does not exist.
         require_document(body.baseline_document_id, scope)
+    selected_baseline = body.baseline_document_id
+    if body.document_id:
+        require_document(body.document_id, scope)
+        selection = review_mod.resolve_baseline(
+            body.document_id, body.baseline_document_id,
+            allowed_document_ids=scope.allowed_document_ids)
+        selected_baseline = selection["document_id"] if selection else None
+        if selected_baseline and selected_baseline != body.baseline_document_id:
+            require_document(selected_baseline, scope)
     # THE BASELINE IS CHECKED AGAINST THE CALLER'S OWN SCOPE, above, and not
     # against the narrowed one. A caller may nominate a baseline they may read
     # and then filter the comparison to a subject that baseline is not in;
@@ -773,7 +782,7 @@ def analysis_gaps(body: schemas.AnalysisRequest,
     # baseline, which reads as the baseline being wrong.
     narrowed, echo = _analysis_scope(body, scope)
     result = analysis_mod.gaps(body.question, narrowed, limit=body.limit,
-                               baseline_document_id=body.baseline_document_id)
+                               baseline_document_id=selected_baseline)
     return {**result, "applied_scope": echo}
 
 
@@ -1144,6 +1153,29 @@ def create_review_template(
     """Register a client-approved review template; versions never overwrite."""
     _require_identity_to_write(scope)
     return review_mod.create_template(body.model_dump(), created_by=scope.user_id)
+
+
+@app.get("/api/reviews/baseline-rules", response_model=schemas.ReviewBaselineRuleList)
+def list_review_baseline_rules(scope: access.AccessScope = Depends(access.current_scope)):
+    return {"rules": review_mod.list_baseline_rules()}
+
+
+@app.post("/api/reviews/baseline-rules", response_model=schemas.ReviewBaselineRule,
+          responses=schemas.ERRORS_401)
+def create_review_baseline_rule(body: schemas.ReviewBaselineRuleCreate,
+                                scope: access.AccessScope = Depends(access.current_scope)):
+    _require_identity_to_write(scope)
+    payload = body.model_dump()
+    return review_mod.create_baseline_rule(payload)
+
+
+@app.get("/api/reviews/baseline-selection/{document_id}",
+         response_model=schemas.ReviewBaselineSelection | None,
+         responses=schemas.ERRORS_404)
+def select_review_baseline(document_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+    require_document(document_id, scope)
+    return review_mod.auto_select_baseline(
+        document_id, allowed_document_ids=scope.allowed_document_ids)
 
 
 @app.post("/api/reviews/report", response_class=FileResponse,

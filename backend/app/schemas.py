@@ -869,9 +869,10 @@ class AnalysisRecommendation(BaseModel):
 class AnalysisRequest(BaseModel):
     question: str
     limit: int = 8
+    document_id: str | None = Field(
+        None, description="engineering submittal document used for automatic baseline selection")
     baseline_document_id: str | None = Field(
-        None, description="the caller's choice of authoritative document. "
-        "Never chosen by the system")
+        None, description="optional manual authoritative-document override; takes precedence")
     #: OPTIONAL. Absent means today's behaviour, byte for byte. Present, it is
     #: intersected with the caller's own grants BEFORE retrieval, so it can
     #: only ever narrow. An object here rather than repeated query params
@@ -1127,6 +1128,36 @@ class ReviewTemplate(BaseModel):
 
 class ReviewTemplateList(BaseModel):
     templates: list[ReviewTemplate]
+
+
+class ReviewBaselineRuleCreate(BaseModel):
+    submittal_doc_type: str | None = None
+    submittal_discipline: str | None = None
+    baseline_doc_type: str
+    baseline_discipline: str | None = None
+    priority: int = 0
+    active: bool = True
+
+
+class ReviewBaselineRule(BaseModel):
+    id: str
+    submittal_doc_type: str | None
+    submittal_discipline: str | None
+    baseline_doc_type: str
+    baseline_discipline: str | None
+    priority: int
+    active: bool
+    created_at: str
+
+
+class ReviewBaselineRuleList(BaseModel):
+    rules: list[ReviewBaselineRule]
+
+
+class ReviewBaselineSelection(BaseModel):
+    document_id: str
+    rule_id: str
+    automatic: bool
 
 
 class ReviewReportRequest(BaseModel):

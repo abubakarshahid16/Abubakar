@@ -46,6 +46,11 @@ def ensure_schema() -> None:
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_review_templates_active "
                      "ON review_templates(active, discipline, deliverable_type)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS review_baseline_rules (
+            id TEXT PRIMARY KEY, submittal_doc_type TEXT, submittal_discipline TEXT,
+            baseline_doc_type TEXT NOT NULL, baseline_discipline TEXT,
+            priority INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL)""")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS review_findings (
                 id TEXT PRIMARY KEY,
@@ -160,6 +165,62 @@ def list_templates(*, active_only: bool = True, discipline: str | None = None,
         sql += " WHERE " + " AND ".join(clauses)
     sql += " ORDER BY name, version DESC"
     return [_template_row(row) for row in connect().execute(sql, args).fetchall()]
+
+
+def create_baseline_rule(payload: dict) -> dict:
+    ensure_schema()
+    item = {"id": str(uuid.uuid4()), "created_at": _now(), **payload}
+    with connect() as conn:
+        conn.execute("""INSERT INTO review_baseline_rules
+            (id,submittal_doc_type,submittal_discipline,baseline_doc_type,
+             baseline_discipline,priority,active,created_at)
+            VALUES (:id,:submittal_doc_type,:submittal_discipline,:baseline_doc_type,
+                    :baseline_discipline,:priority,:active,:created_at)""", item)
+    return item
+
+
+def list_baseline_rules() -> list[dict]:
+    ensure_schema()
+    return [dict(row) for row in connect().execute(
+        "SELECT * FROM review_baseline_rules ORDER BY priority DESC, created_at DESC").fetchall()]
+
+
+def auto_select_baseline(document_id: str, *, allowed_document_ids: frozenset[str] | None = None) -> dict | None:
+    ensure_schema()
+    source = connect().execute(
+        "SELECT doc_type, discipline FROM document_classification WHERE document_id = ?",
+        (document_id,)).fetchone()
+    if source is None:
+        return None
+    rules = connect().execute("""SELECT * FROM review_baseline_rules WHERE active = 1
+        AND (submittal_doc_type IS NULL OR submittal_doc_type = ?)
+        AND (submittal_discipline IS NULL OR submittal_discipline = ?)
+        ORDER BY priority DESC, created_at DESC""",
+        (source["doc_type"], source["discipline"])).fetchall()
+    for rule in rules:
+        sql = """SELECT d.id FROM documents d JOIN document_classification c ON c.document_id = d.id
+                 WHERE d.id != ? AND d.status IN ('ready','partially_searchable') AND c.doc_type = ?"""
+        args: list[object] = [document_id, rule["baseline_doc_type"]]
+        if rule["baseline_discipline"]:
+            sql += " AND c.discipline = ?"; args.append(rule["baseline_discipline"])
+        if allowed_document_ids is not None:
+            if not allowed_document_ids: continue
+            marks = ",".join("?" for _ in allowed_document_ids)
+            sql += f" AND d.id IN ({marks})"; args.extend(sorted(allowed_document_ids))
+        candidate = connect().execute(sql + " ORDER BY d.uploaded_at DESC LIMIT 1", args).fetchone()
+        if candidate:
+            return {"document_id": candidate["id"], "rule_id": rule["id"], "automatic": True}
+    return None
+
+
+def resolve_baseline(document_id: str, override_document_id: str | None = None,
+                     *, allowed_document_ids: frozenset[str] | None = None) -> dict | None:
+    """Manual choice wins; automatic mapping is only the default."""
+    if override_document_id:
+        if allowed_document_ids is not None and override_document_id not in allowed_document_ids:
+            return None
+        return {"document_id": override_document_id, "rule_id": None, "automatic": False}
+    return auto_select_baseline(document_id, allowed_document_ids=allowed_document_ids)
 
 
 def create_template(payload: dict, *, created_by: str | None) -> dict:
