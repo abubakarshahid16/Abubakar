@@ -123,7 +123,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
           void start(e.dataTransfer.files);
         }}
         className={[
-          "rounded-lg border-2 border-dashed p-6 text-center transition-colors",
+          "rounded-lg border-2 border-dashed p-6 text-center motion-safe:transition-colors",
           dragging ? "border-signal-500 bg-signal-500/10" : "border-ink-600 bg-ink-850/50",
         ].join(" ")}
       >
@@ -192,7 +192,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
                   aria-valuemax={100}
                 >
                   <div
-                    className="h-full bg-signal-500 transition-all"
+                    className="h-full bg-signal-500 motion-safe:transition-all"
                     style={{ width: `${item.state.percent}%` }}
                   />
                 </div>

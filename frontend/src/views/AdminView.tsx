@@ -138,7 +138,7 @@ export function DangerAction({
         type="button"
         disabled={busy}
         onClick={() => setAsking(true)}
-        className="rounded-[var(--radius-xs)] border border-transparent px-2 py-1 text-xs text-slateish-400 transition-colors hover:border-danger-500 hover:bg-danger-500/10 hover:text-danger-500 focus-visible:border-danger-500 focus-visible:text-danger-500 disabled:opacity-50"
+        className="rounded-[var(--radius-xs)] border border-transparent px-2 py-1 text-xs text-slateish-400 motion-safe:transition-colors hover:border-danger-500 hover:bg-danger-500/10 hover:text-danger-500 focus-visible:border-danger-500 focus-visible:text-danger-500 disabled:opacity-50"
       >
         {label}
       </button>

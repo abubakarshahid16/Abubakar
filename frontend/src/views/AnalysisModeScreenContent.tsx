@@ -1410,7 +1410,7 @@ export function AnalysisModeScreen() {
               disabled={!canRun}
               aria-busy={running}
               onClick={() => void runAnalysis()}
-              className="w-full rounded-[var(--radius-sm)] border border-signal-500/70 bg-signal-500 px-4 py-2.5 text-sm font-semibold text-ink-950 shadow-[var(--shadow-raised)] transition-all hover:shadow-[var(--shadow-glow)] active:scale-[0.98] disabled:cursor-not-allowed disabled:border-ink-500 disabled:bg-ink-700 disabled:text-slateish-500 disabled:shadow-none"
+              className="w-full rounded-[var(--radius-sm)] border border-signal-500/70 bg-signal-500 px-4 py-2.5 text-sm font-semibold text-ink-950 shadow-[var(--shadow-raised)] motion-safe:transition-all hover:shadow-[var(--shadow-glow)] active:scale-[0.98] disabled:cursor-not-allowed disabled:border-ink-500 disabled:bg-ink-700 disabled:text-slateish-500 disabled:shadow-none"
             >
               {running ? "Running…" : "Run analysis"}
             </button>

@@ -192,7 +192,7 @@ export function TypeFilter({
             aria-checked={on}
             onClick={() => onToggle(type)}
             className={[
-              "inline-flex items-center gap-2 rounded border px-2.5 py-1 text-[13px] transition-colors",
+              "inline-flex items-center gap-2 rounded border px-2.5 py-1 text-[13px] motion-safe:transition-colors",
               layout === "column" ? "justify-start" : "",
               on
                 ? "border-signal-500/40 bg-signal-500/10 text-signal-400"

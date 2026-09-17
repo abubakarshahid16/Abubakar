@@ -302,7 +302,7 @@ export function RoleBadge({ me, onLogout }: { me: Me | null; onLogout: () => voi
       <button
         type="button"
         onClick={onLogout}
-        className="mt-2 w-full rounded-[var(--radius-xs)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 transition-colors hover:bg-ink-700"
+        className="mt-2 w-full rounded-[var(--radius-xs)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 motion-safe:transition-colors hover:bg-ink-700"
       >
         Sign out
       </button>

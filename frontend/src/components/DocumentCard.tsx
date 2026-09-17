@@ -178,7 +178,7 @@ export function DocumentCard({
               aria-valuemax={100}
             >
               <div
-                className="h-full bg-info-500 transition-all"
+                className="h-full bg-info-500 motion-safe:transition-all"
                 style={{ width: `${progress * 100}%` }}
               />
             </div>
@@ -441,7 +441,7 @@ function Action({
       disabled={disabled}
       aria-expanded={expanded}
       className={[
-        "rounded-[var(--radius-xs)] border px-2.5 py-1 text-xs transition-colors disabled:opacity-40",
+        "rounded-[var(--radius-xs)] border px-2.5 py-1 text-xs motion-safe:transition-colors disabled:opacity-40",
         primary
           ? "border-signal-500/60 text-signal-400 hover:bg-signal-500/15"
           : danger

@@ -85,7 +85,7 @@ export function ReportsView({
                 <button
                   type="button"
                   onClick={onGenerate}
-                  className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-medium text-ink-950 shadow-[var(--shadow-raised)] transition-transform hover:shadow-[var(--shadow-glow)] active:scale-[0.98]"
+                  className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-medium text-ink-950 shadow-[var(--shadow-raised)] motion-safe:transition-transform hover:shadow-[var(--shadow-glow)] active:scale-[0.98]"
                 >
                   Generate a report
                 </button>
@@ -199,7 +199,7 @@ function ReportRow({
           <button
             type="button"
             onClick={() => onDownload(report.id)}
-            className="rounded-[var(--radius-sm)] border border-signal-500/60 bg-signal-500/10 px-2.5 py-1 text-xs text-signal-300 shadow-[var(--shadow-resting)] transition-colors hover:bg-signal-500/20"
+            className="rounded-[var(--radius-sm)] border border-signal-500/60 bg-signal-500/10 px-2.5 py-1 text-xs text-signal-300 shadow-[var(--shadow-resting)] motion-safe:transition-colors hover:bg-signal-500/20"
           >
             Download
           </button>
@@ -208,7 +208,7 @@ function ReportRow({
             onClick={runVerify}
             disabled={verify.state === "checking"}
             aria-busy={verify.state === "checking"}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 transition-colors hover:bg-ink-700 disabled:opacity-40"
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 motion-safe:transition-colors hover:bg-ink-700 disabled:opacity-40"
           >
             {verify.state === "checking" ? "Verifying…" : "Verify"}
           </button>

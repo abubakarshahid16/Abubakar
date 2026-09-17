@@ -531,7 +531,7 @@ function FilterChip({
       aria-checked={on}
       onClick={onClick}
       className={[
-        "inline-flex items-center gap-2 rounded-[var(--radius-full)] border px-2.5 py-1 text-[13px] transition-colors",
+        "inline-flex items-center gap-2 rounded-[var(--radius-full)] border px-2.5 py-1 text-[13px] motion-safe:transition-colors",
         on
           ? amber
             ? "border-warn-500/50 bg-warn-500/10 text-warn-500"

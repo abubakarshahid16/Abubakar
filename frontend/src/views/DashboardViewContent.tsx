@@ -571,7 +571,7 @@ export function DashboardView({
           the honesty rules changes: an unmeasured value still says so. */}
       <details className="mt-8 group">
         <summary className="cursor-pointer select-none rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-300 hover:text-slateish-100 [&::-webkit-details-marker]:hidden">
-          <span className="me-2 inline-block transition-transform group-open:rotate-90">&#9656;</span>
+          <span className="me-2 inline-block motion-safe:transition-transform group-open:rotate-90">&#9656;</span>
           <span className="font-medium">Technical detail</span>
           <span className="ms-2 text-xs text-slateish-500">
             corpus counts, processing speed, retrieval latency, jobs, worker, models, machine, exclusion rules

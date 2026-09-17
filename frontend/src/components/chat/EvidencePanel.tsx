@@ -176,7 +176,7 @@ export function EvidencePanel({
           type="button"
           onClick={onClose}
           aria-label="Close evidence panel"
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300 transition-colors hover:border-signal-500/50 hover:bg-ink-700"
+          className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
         >
           Close
         </button>
@@ -191,7 +191,7 @@ export function EvidencePanel({
               aria-pressed={i === selected}
               onClick={() => onSelect(i)}
               className={[
-                "rounded-[var(--radius-full)] border px-3 py-1 font-mono text-xs transition-colors",
+                "rounded-[var(--radius-full)] border px-3 py-1 font-mono text-xs motion-safe:transition-colors",
                 i === selected
                   ? "border-signal-500/60 bg-signal-500/18 text-signal-300 shadow-[0_0_0_1px_rgba(79,201,181,.35)]"
                   : "border-ink-600 text-slateish-300 hover:bg-ink-700",

@@ -229,7 +229,7 @@ export function Shell({
             aria-expanded={menuOpen}
             aria-controls="sidebar-nav"
             onClick={() => setMenuOpen((o) => !o)}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-300 transition-colors hover:border-signal-500/50"
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50"
           >
             {menuOpen ? "Close" : "Menu"}
           </button>
@@ -292,7 +292,7 @@ export function Shell({
                     setMenuOpen(false);
                   }}
                   className={[
-                    "relative flex w-full items-center justify-between overflow-hidden rounded-[var(--radius-sm)] px-3 py-1.5 text-left text-sm transition-colors",
+                    "relative flex w-full items-center justify-between overflow-hidden rounded-[var(--radius-sm)] px-3 py-1.5 text-left text-sm motion-safe:transition-colors",
                     active
                       ? "bg-signal-500/10 text-slateish-100 shadow-[var(--shadow-resting)] before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-full before:bg-signal-500 before:content-['']"
                       : "text-slateish-300 hover:bg-ink-800",
@@ -407,7 +407,7 @@ function ThemeToggle({
             aria-pressed={active}
             onClick={() => onChange(mode)}
             className={[
-              "rounded-[var(--radius-full)] px-2 py-1 font-medium capitalize transition-colors",
+              "rounded-[var(--radius-full)] px-2 py-1 font-medium capitalize motion-safe:transition-colors",
               active
                 ? "bg-signal-500 text-ink-950 shadow-[var(--shadow-resting)]"
                 : "text-slateish-400 hover:bg-ink-800 hover:text-slateish-200",

@@ -500,7 +500,7 @@ export function ChatView({
           <button
             type="button"
             onClick={startNew}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300 transition-colors hover:border-signal-500/50 hover:bg-ink-700"
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
           >
             New
           </button>
@@ -527,7 +527,7 @@ export function ChatView({
                   aria-current={c.id === current ? "true" : undefined}
                   onClick={() => void open(c.id)}
                   className={[
-                    "w-full rounded-[var(--radius-sm)] px-2 py-2 pe-7 text-left transition-colors",
+                    "w-full rounded-[var(--radius-sm)] px-2 py-2 pe-7 text-left motion-safe:transition-colors",
                     c.id === current ? "bg-ink-700" : "hover:bg-ink-800",
                   ].join(" ")}
                 >
@@ -541,7 +541,7 @@ export function ChatView({
                   type="button"
                   aria-label={`Delete conversation ${c.title}`}
                   onClick={() => void remove(c.id)}
-                  className="absolute end-1 top-1.5 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-xs text-slateish-500 opacity-0 transition-colors hover:bg-ink-600 hover:text-danger-500 focus:opacity-100 group-hover:opacity-100"
+                  className="absolute end-1 top-1.5 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-xs text-slateish-500 opacity-0 motion-safe:transition-colors hover:bg-ink-600 hover:text-danger-500 focus:opacity-100 group-hover:opacity-100"
                 >
                   ×
                 </button>
@@ -563,7 +563,7 @@ export function ChatView({
               type="button"
               onClick={() => setShowConversations((visible) => !visible)}
               aria-expanded={showConversations}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 transition-colors hover:border-signal-500/50 hover:bg-ink-700"
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
             >
               {showConversations ? "Hide history" : "Show history"}
             </button>
@@ -571,7 +571,7 @@ export function ChatView({
               <button
                 type="button"
                 onClick={() => onNavigate("documents")}
-                className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 transition-colors hover:border-signal-500/50 hover:bg-ink-700"
+                className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
               >
                 Open documents
               </button>
@@ -646,7 +646,7 @@ export function ChatView({
               ["extract", "Exact quotation"],
               ["generated", "Written explanation"],
             ] as const).map(([value, label]) => (
-              <label key={value} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-full)] border border-ink-600 px-3.5 py-1.5 text-sm text-slateish-200 transition-colors hover:border-signal-500/60 hover:bg-ink-800 has-[:checked]:border-signal-500/70 has-[:checked]:bg-signal-500/10 has-[:checked]:text-signal-300">
+              <label key={value} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-full)] border border-ink-600 px-3.5 py-1.5 text-sm text-slateish-200 motion-safe:transition-colors hover:border-signal-500/60 hover:bg-ink-800 has-[:checked]:border-signal-500/70 has-[:checked]:bg-signal-500/10 has-[:checked]:text-signal-300">
                 <input type="radio" name="answer-style" value={value} checked={answerStyle === value} onChange={() => { setAnswerStyle(value); setStyleNotice(null); }} />
                 {label}
               </label>
@@ -680,12 +680,12 @@ export function ChatView({
               disabled={offline}
               rows={2}
               placeholder="Ask about a requirement, explain a passage, or continue your review…"
-              className="min-w-0 flex-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 px-3 py-2 text-slateish-100 shadow-[var(--shadow-resting)] transition-shadow placeholder:text-slateish-500 focus:shadow-[var(--shadow-glow)] disabled:opacity-50"
+              className="min-w-0 flex-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 px-3 py-2 text-slateish-100 shadow-[var(--shadow-resting)] motion-safe:transition-shadow placeholder:text-slateish-500 focus:shadow-[var(--shadow-glow)] disabled:opacity-50"
             />
             <button
               type="submit"
               disabled={asking || offline || !question.trim()}
-              className="rounded-[var(--radius-sm)] bg-signal-500 px-5 py-2 text-sm font-semibold text-ink-950 shadow-[var(--shadow-raised)] transition-transform hover:bg-signal-400 hover:shadow-[var(--shadow-glow)] active:scale-[0.98] disabled:bg-signal-500/20 disabled:text-signal-300 disabled:shadow-none disabled:active:scale-100 disabled:opacity-40"
+              className="rounded-[var(--radius-sm)] bg-signal-500 px-5 py-2 text-sm font-semibold text-ink-950 shadow-[var(--shadow-raised)] motion-safe:transition-transform hover:bg-signal-400 hover:shadow-[var(--shadow-glow)] active:scale-[0.98] disabled:bg-signal-500/20 disabled:text-signal-300 disabled:shadow-none disabled:active:scale-100 disabled:opacity-40"
             >
               Ask
             </button>
