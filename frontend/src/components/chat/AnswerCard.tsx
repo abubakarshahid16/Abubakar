@@ -13,6 +13,7 @@ import { useEffect } from "react";
 import type { AnswerPassage, EvidenceRemoved, AnswerType, Message } from "../../types/api";
 import { Citation, Highlighted, PassageLocation } from "./EvidencePanel";
 import { ProvenanceMark, isRecognised, provenanceDetail } from "./Provenance";
+import { ComparisonScopeNotice as ComparisonScopeNoticeView } from "./ComparisonScopeNotice";
 
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
@@ -169,19 +170,6 @@ export function documentsAnsweredFrom(view: AnswerView): string[] {
  * naming a screen that might do it would be a claim this component cannot
  * verify.
  */
-function ComparisonScopeNotice({ documents }: { documents: number }) {
-  return (
-    <p
-      role="note"
-      className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500"
-    >
-      Answered from {documents} document{documents === 1 ? "" : "s"}. This
-      question asks for a comparison across documents; comparison across the
-      corpus is not performed in Chat.
-    </p>
-  );
-}
-
 /** Two sentences joined without punctuation read as one broken sentence:
  *  "…were not a credible match Nothing was made up to fill the gap." */
 function asSentence(text: string): string {
@@ -637,7 +625,7 @@ ollama serve
         )}
 
         {comparisonFromOneDocument && (
-          <ComparisonScopeNotice documents={answeredFrom.length} />
+          <ComparisonScopeNoticeView documents={answeredFrom.length} />
         )}
 
         {view.supporting.length > 0 && (
@@ -783,7 +771,7 @@ ollama serve
           removal is named, because "some evidence was dropped" is not
           something a reader can act on and "page 598 was dropped" is. */}
       {comparisonFromOneDocument && (
-        <ComparisonScopeNotice documents={answeredFrom.length} />
+        <ComparisonScopeNoticeView documents={answeredFrom.length} />
       )}
 
       {view.evidence_removed.length > 0 && (

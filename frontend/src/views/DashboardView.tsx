@@ -19,7 +19,8 @@ import type { ClassificationCoverage } from "../api/client";
 import type { Connection } from "../components/Shell";
 import { DisconnectedState, ErrorState, Spinner } from "../components/states";
 import { humaniseReason } from "../components/WorkerPanel";
-import type { ApiError, Metrics, MetricWarning, StageThroughput, ManagementSummary } from "../types/api";
+import { MetricWarningRow } from "../components/dashboard/MetricWarning";
+import type { ApiError, Metrics, StageThroughput, ManagementSummary } from "../types/api";
 
 const STAGE_LABELS: Record<string, string> = {
   extract: "Extraction",
@@ -173,28 +174,6 @@ function loadTone(percent: number): "normal" | "warn" | "danger" {
   if (percent >= 90) return "danger";
   if (percent >= 75) return "warn";
   return "normal";
-}
-
-function Warning({ warning }: { warning: MetricWarning }) {
-  const style =
-    warning.severity === "error"
-      ? "border-danger-500/50 bg-danger-500/10 text-danger-500"
-      : warning.severity === "warning"
-        ? "border-warn-500/50 bg-warn-500/10 text-warn-500"
-        : "border-ink-600 bg-ink-850 text-slateish-400";
-  return (
-    <li className={`rounded-[var(--radius-sm)] border px-3 py-2 text-sm ${style}`}>
-      <span role={warning.severity === "error" ? "alert" : "status"}>
-        {/* The message leads. This row used to open with the raw code -
-            NEEDS_OCR, EQUATION_PAGES - which is a database enum, not a sentence.
-            The code stays at the end for a bug report. */}
-        <span className="text-slateish-300">{warning.message}</span>
-        <span className="ml-2 font-mono text-xs uppercase tracking-wide text-slateish-500">
-          {warning.code}
-        </span>
-      </span>
-    </li>
-  );
 }
 
 function ReadinessPanel({ metrics }: { metrics: Metrics }) {
@@ -578,7 +557,7 @@ export function DashboardView({
       {metrics.warnings.length > 0 && (
         <ul className="mt-4 space-y-1.5">
           {metrics.warnings.map((w) => (
-            <Warning key={`${w.code}-${w.document_id ?? "all"}-${w.message}`} warning={w} />
+            <MetricWarningRow key={`${w.code}-${w.document_id ?? "all"}-${w.message}`} warning={w} />
           ))}
         </ul>
       )}

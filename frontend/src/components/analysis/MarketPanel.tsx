@@ -70,6 +70,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { market as marketApi } from "../../api/client";
 import type { MarketPreview, MarketRow, MarketSearchResult } from "../../api/client";
 import type { EgressState, MarketFinding, PublicMarketQuery } from "../../types/analysis";
+import { MarketPill } from "./MarketPill";
 
 const VERIFICATION: Record<string, string> = {
   source_read: "source read",
@@ -186,14 +187,6 @@ const REFERENCE_CAPTION =
 const REFERENCE_LABEL = "reference - background only";
 
 // ------------------------------------------------------------------- pieces
-
-function Pill({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded-[var(--radius-full)] border border-ink-500 bg-ink-800 px-2 py-0.5 font-mono text-xs uppercase tracking-wider text-slateish-300">
-      {children}
-    </span>
-  );
-}
 
 function SampleTag() {
   return (
@@ -840,8 +833,8 @@ export function MarketPanel({
           Public market information
         </h3>
         <div className="flex flex-wrap gap-1.5" aria-live="polite">
-          {egress.web_search_enabled === false && <Pill>Web search off</Pill>}
-          {egress.allow_public_egress === false && <Pill>Public egress blocked</Pill>}
+          {egress.web_search_enabled === false && <MarketPill>Web search off</MarketPill>}
+          {egress.allow_public_egress === false && <MarketPill>Public egress blocked</MarketPill>}
         </div>
       </div>
 
