@@ -43,6 +43,7 @@ from . import review as review_mod
 from . import deliverables as deliverables_mod
 from . import notifications as notifications_mod
 from . import structured_search as structured_search_mod
+from . import risks as risks_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI):
     keyword_mod.ensure_schema()
     review_mod.ensure_schema()
     deliverables_mod.ensure_schema()
+    risks_mod.ensure_schema()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()
@@ -1297,6 +1299,21 @@ def structured_search(q: str, kind: str | None = None,
         raise HTTPException(status_code=422, detail="unsupported structured-search kind")
     return {"results": structured_search_mod.search(
         q, kind=kind, allowed_document_ids=scope.allowed_document_ids)}
+
+
+@app.get("/api/risks")
+def list_risks(risk_type: str | None = None,
+               scope: access.AccessScope = Depends(access.current_scope)):
+    if risk_type is not None and risk_type not in risks_mod.RISK_TYPES:
+        raise HTTPException(status_code=422, detail="unsupported risk type")
+    return {"risks": risks_mod.list_items(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids)}
+
+
+@app.post("/api/risks")
+def create_risk(body: dict, scope: access.AccessScope = Depends(access.current_scope)):
+    if body.get("risk_type") not in risks_mod.RISK_TYPES:
+        raise HTTPException(status_code=422, detail="unsupported risk type")
+    return risks_mod.create(body)
 
 
 @app.post("/api/deliverables", response_model=schemas.Deliverable,

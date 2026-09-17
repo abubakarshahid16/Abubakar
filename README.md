@@ -380,3 +380,6 @@ reports whether each expected deliverable is registered or missing.
 
 `/api/search/structured` searches deliverables and review findings by their
 structured fields, with the same document access scope as the rest of the API.
+
+The risk register uses governed types: schedule, review, dependency, and
+compliance. Unknown types are rejected at creation.
