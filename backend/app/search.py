@@ -40,6 +40,14 @@ RRF_K = 60
 #: dominate a result that matches nothing else.
 IDENTIFIER_BOOST = 0.5
 
+# Decimal values in a table question are lookup keys, not conversational
+# filler.  The cross-encoder often prefers the table heading over the row
+# containing the requested value, so an exact decimal match gets a small
+# categorical boost after reranking.  This is deliberately limited to
+# decimals; ordinary clause/standard numbers continue through the existing
+# identifier rules.
+DECIMAL_TOKEN_BOOST = 2.0
+
 #: Two chunks whose texts share this proportion of tokens are near-duplicates.
 DUPLICATE_OVERLAP = 0.85
 
@@ -77,6 +85,7 @@ class Candidate:
     cosine: float | None = None
     rrf: float = 0.0
     identifier_hits: list[str] = field(default_factory=list)
+    numeric_hits: list[str] = field(default_factory=list)
     phrase_hits: list[str] = field(default_factory=list)
     #: designators this passage names that the question did NOT ask for
     conflicts: list[str] = field(default_factory=list)
@@ -126,6 +135,7 @@ class Candidate:
             "keyword_rank": self.keyword_rank,
             "dense_rank": self.dense_rank,
             "identifier_hits": self.identifier_hits,
+            "numeric_hits": self.numeric_hits,
             "phrase_hits": self.phrase_hits,
             "text_source": self.text_source,
             "ocr_min_conf": self.ocr_min_conf,
@@ -289,7 +299,8 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
             v.lower() for v in keyword.designator_variants(designator)
         ]
     phrases = [phrase.lower() for phrase in keyword.content_phrases(question)]
-    if not wanted and not phrases:
+    decimals = sorted(set(re.findall(r"(?<![\w.])\d+\.\d+(?![\w.])", question)))
+    if not wanted and not phrases and not decimals:
         return
 
     top_rrf = max((c.rrf for c in candidates), default=0.0) or 1.0
@@ -307,6 +318,9 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
         )
         if hits:
             c.identifier_hits = hits
+        c.numeric_hits = [value for value in decimals if re.search(
+            r"(?<![\w.])" + re.escape(value) + r"(?![\w.])", lowered
+        )]
         lowered_tokens = [t.lower() for t in _TOKEN.findall(c.searchable_text)]
         c.phrase_hits = []
         for phrase in phrases:
@@ -321,6 +335,11 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
         wanted_count = len(wanted) + len(phrases)
         if matched:
             c.boost = IDENTIFIER_BOOST * top_rrf * (matched / wanted_count)
+        if c.numeric_hits:
+            # A requested decimal is a row locator (for example, time 4.00),
+            # so it must remain effective on the reranker score scale rather
+            # than being diluted into the tiny RRF boost above.
+            c.boost += DECIMAL_TOKEN_BOOST * (len(c.numeric_hits) / len(decimals))
 
         # Which member does the HEADING declare? In a specification the clause
         # heading is the authoritative scope of the passage; a mention in the

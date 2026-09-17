@@ -652,9 +652,17 @@ def answer(
     # A smaller budget here: three expanded sources have to fit inside num_ctx
     # alongside the system prompt, and overflowing it would silently truncate
     # the evidence the answer is supposed to be grounded in.
+    # Numeric table lookups are unusually expensive for the local model:
+    # digit-heavy OCR tokenises almost one character at a time.  Once the
+    # decimal row key has been promoted by retrieval, the first two pages are
+    # sufficient evidence and keeping a third near-duplicate can push the
+    # prompt over the practical context budget (or make generation appear to
+    # hang).  Keep the normal multi-source behaviour for prose questions.
+    decimal_lookup = bool(re.search(r"(?<![\w.])\d+\.\d+(?![\w.])", question))
+    passage_limit = min(limit, 2) if decimal_lookup else limit
     passages = [
         _passage_payload(h, question, budget=settings.generated_context_chars)
-        for h in hits[:limit]
+        for h in hits[:passage_limit]
     ]
 
     # The character budget above is a stand-in for a token budget, and the
