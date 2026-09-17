@@ -542,12 +542,21 @@ export function IngestionView({
   // health: health is unauthenticated and a document id is not public.
   const activeWorker = metrics?.worker ?? null;
 
-  if (error) return <ErrorState error={error} onRetry={onRetryConnection} />;
+  const pageIdentity = (
+    <div className="mb-4">
+      <h1 className="text-lg font-semibold text-slateish-200">Ingestion</h1>
+      <p className="mt-0.5 text-sm text-slateish-400">
+        What the system is doing to your documents, and how fast it is doing it.
+      </p>
+    </div>
+  );
+
+  if (error) return <div>{pageIdentity}<ErrorState error={error} onRetry={onRetryConnection} /></div>;
   // Array.isArray, not a truthiness check. A malformed payload used to crash
   // this whole screen on `documents.filter`, which is the one thing a status
   // screen must never do - it is what you look at when things are wrong.
   if (!metrics || !worker || !Array.isArray(documents)) {
-    return <Spinner label="Reading the queue" />;
+    return <div>{pageIdentity}<Spinner label="Reading the queue" /></div>;
   }
 
   const inProgress = documents.filter(
@@ -563,12 +572,7 @@ export function IngestionView({
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-semibold text-slateish-200">Ingestion</h1>
-          <p className="mt-0.5 text-sm text-slateish-400">
-            What the system is doing to your documents, and how fast it is doing it.
-          </p>
-        </div>
+        <div>{pageIdentity}</div>
         <p className="font-mono text-xs text-slateish-500">
           every {metrics.refresh_seconds}s
         </p>

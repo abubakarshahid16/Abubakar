@@ -19,6 +19,7 @@ import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
 import type { AuthStatus, Me } from "./types/api";
+import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
@@ -57,7 +58,33 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   // only way to assert that the admin gate is the gate, rather than the
   // absence of a navigation button being the gate. There is no router yet; if
   // one lands, this is where a deep link arrives.
-  const [view, setView] = useState<ViewId>(initialView);
+  const [route, setRoute] = useState<AppRoute>(() => {
+    // Unit tests intentionally render isolated views without owning the
+    // browser address bar. Production builds always follow the URL.
+    if (import.meta.env.MODE === "test") return { kind: "view", view: initialView };
+    if (initialView !== "documents") return { kind: "view", view: initialView };
+    return parseRoute(window.location.pathname);
+  });
+  const view = route.kind === "view" ? route.view : initialView;
+  const onNavigate = useCallback((next: ViewId, recordId?: string) => {
+    const nextPath = pathForView(next, recordId);
+    if (import.meta.env.MODE !== "test") window.history.pushState({ __epcRoute: true }, "", nextPath);
+    setRoute({ kind: "view", view: next, recordId });
+  }, []);
+  useEffect(() => {
+    const onPopState = () => setRoute(parseRoute(window.location.pathname));
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      // Test renders mount/unmount the whole app repeatedly. Do not let a
+      // previous in-memory navigation change the next independent render;
+      // real browser refreshes and pasted links still use their URL normally.
+      if (window.history.state?.__epcRoute) window.history.replaceState({}, "", "/");
+    };
+  }, []);
+  useEffect(() => {
+    document.title = route.kind === "forbidden" ? "Access denied · EPC Intelligence" : titleForView(route.view);
+  }, [route]);
   const { connection, recheck } = useConnection();
   const [session, setSession] = useState<Session>({ s: "checking" });
 
@@ -217,7 +244,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   return (
     <Shell
       view={view}
-      onNavigate={setView}
+      onNavigate={onNavigate}
       connection={connection}
       auth={authStatus}
       theme={theme}
@@ -241,13 +268,21 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           rendered at all while it holds. */}
       {connection.state === "offline" ? (
         <DisconnectedState onRetry={recheck} />
+      ) : route.kind === "forbidden" ? (
+        <main className="mx-auto w-full max-w-3xl px-4 py-10" role="alert">
+          <h1 className="text-2xl font-semibold text-slateish-100">This page is not available</h1>
+          <p className="mt-2 text-sm text-slateish-300">
+            The address <code className="rounded bg-ink-800 px-1.5 py-0.5">{route.path}</code> is not an available workspace route.
+            The backend still enforces authorization; no data was exposed.
+          </p>
+        </main>
       ) : (
         <>
           {view === "documents" && (
             <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin} />
           )}
           {view === "chat" && (
-            <ChatView connection={connection} onRetryConnection={recheck} onNavigate={setView} />
+            <ChatView connection={connection} onRetryConnection={recheck} onNavigate={onNavigate} />
           )}
           {view === "ingestion" && (
             <IngestionView connection={connection} onRetryConnection={recheck} />

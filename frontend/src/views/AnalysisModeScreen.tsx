@@ -98,6 +98,7 @@ import {
   type Result,
 } from "../api/client";
 import { ClaimTable } from "../components/analysis/ClaimTable";
+import { DroppedSentences as DroppedSentencesView } from "../components/analysis/DroppedSentences";
 import { GapAnalysisCard } from "../components/analysis/GapAnalysisCard";
 import { MarketPanel } from "../components/analysis/MarketPanel";
 import {
@@ -1086,39 +1087,6 @@ function SlotBody<T>({
  * that. No reason is ever invented, and a missing reason renders as nothing
  * rather than as a bare dash.
  */
-function DroppedSentences({ dropped }: { dropped: { sentence: string; reason: string }[] }) {
-  if (dropped.length === 0) return null;
-  const shown = dropped.filter((s) => s.sentence.trim() !== "");
-  const withheld = dropped.length - shown.length;
-  return (
-    <details className="surface-card rounded-[var(--radius-sm)] border border-ink-700 bg-ink-850 px-3 py-2">
-      <summary className="cursor-pointer text-xs text-slateish-400">
-        {dropped.length} sentence{dropped.length === 1 ? " was" : "s were"} removed from this
-        summary
-      </summary>
-      {shown.length > 0 && (
-        <ul className="mt-2 space-y-1.5">
-          {shown.map((s, i) => (
-            <li key={`${i}-${s.sentence.slice(0, 24)}`} className="text-xs text-slateish-400">
-              <span className="text-slateish-300">{s.sentence}</span>
-              {s.reason.trim() !== "" && (
-                <span className="ml-1 text-slateish-500">&mdash; {s.reason}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {withheld > 0 && (
-        <p className="mt-2 text-xs text-slateish-500">
-          {withheld === 1
-            ? "One of them was reported without the removed text, so it is not shown here."
-            : `${withheld} of them were reported without the removed text, so they are not shown here.`}
-        </p>
-      )}
-    </details>
-  );
-}
-
 /** The passage behind a citation: a document, a page, and the words. Nothing
  *  on this screen cites anything that cannot be shown here. */
 function SelectedPassage({ item }: { item: EvidenceItem }) {
@@ -1521,7 +1489,7 @@ export function AnalysisModeScreen() {
                       </p>
                     )}
                     <SummaryCard result={d.result} onCite={onCite} />
-                    <DroppedSentences dropped={d.dropped} />
+                    <DroppedSentencesView dropped={d.dropped} />
                   </div>
                 )}
               </SlotBody>

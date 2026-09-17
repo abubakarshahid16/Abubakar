@@ -304,7 +304,7 @@ These are open product inputs, not Phase 0 test failures.
 
 - 0.1 report download: **closed with live Chrome evidence**.
 - 0.2 screenshots: **48/48 captured**.
-- 0.3 axe: **16/16 view/theme combinations measured; serious findings open**.
+- 0.3 axe: **16/16 view/theme combinations measured; serious/critical findings zero after remediation**.
 - 0.4 journeys: **documented**.
 - 0.5 heuristics: **documented; no redesign applied**.
 - 0.6 evidence display: **documented with screenshots and field inventory**.
@@ -321,7 +321,12 @@ Verification at close-out:
 - Evidence, ingestion-timing and report-download Playwright checks: **4 passed**
   in 32.2 seconds.
 
-Phase 1 has not started.
+Phase 1 structural routing work is now complete: URL routes, record-safe links,
+browser back/forward handling, unique titles, forbidden-route messaging, an
+immediate Ingestion page identity, and the extracted dropped-sentence display
+component are in the Phase 1 commit. The four large screens remain visually
+unchanged; broader component decomposition is tracked for the next structural
+pass.
 
 ## Contrast remediation follow-up (2026-09-17)
 
