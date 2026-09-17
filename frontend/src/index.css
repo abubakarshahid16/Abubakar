@@ -229,11 +229,28 @@
   --density-card-padding: 0.5rem;
 }
 
+.density-compact .surface-card,
+.density-compact section {
+  padding: var(--density-card-padding);
+  gap: var(--density-gap);
+}
+
 /* One focus treatment for keyboard users, including controls that previously
    had no bespoke focus-visible class. Both theme focus tokens clear 3:1. */
 :where(button, a, input, select, textarea, [role="button"]):focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* WCAG target floor. Text links may opt into inline flow with the class below;
+   otherwise every interactive control keeps a comfortable 44px hit area. */
+:where(button, a, input, select, textarea, [role="button"]) {
+  min-height: 44px;
+}
+.inline-target {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
 }
 
 @media (prefers-reduced-motion: reduce) {

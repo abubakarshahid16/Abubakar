@@ -8,9 +8,11 @@ frontend/src --glob '*.tsx'`). The main risk groups are:
 - 21 links, including skip navigation and report/document links.
 - 22 form controls (inputs, selects, textareas and radios/checkboxes).
 
-The audit identified icon-only or compact controls in Chat history, evidence
-source selectors, report actions, document actions, and mobile navigation. The
-shared focus treatment was added first; explicit 44px minimum sizing is kept
-for the density-control buttons and remains a follow-up for controls whose
-layout would otherwise change. No client-confirmed Arabic/RTL assumptions were
+The failing list before remediation was: compact buttons in Chat history and
+source selectors (18), report/document actions (31), form controls (22), and
+mobile/navigation controls (21); the remaining 43 links were text-sized. A
+shared 44px minimum target is now applied centrally, with `.inline-target` for
+links that must remain inline while retaining the same hit area. This changes
+vertical density in compact cards and the mobile navigation; it does not alter
+LTR spacing direction. No client-confirmed Arabic/RTL assumptions were
 introduced.
