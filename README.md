@@ -401,3 +401,7 @@ stakeholders) separately from page-cited document evidence.
 Expected deliverables are inferred from requirement passages using the same
 claim text used by engineering review; manual expectations remain overrides,
 and the UI labels inferred versus manual origins.
+
+The risk register also creates idempotent schedule, review, dependency, and
+compliance risks from overdue deliverables, aged findings, overdue parents,
+and unresolved requirement evidence, with an audited notification attempt.

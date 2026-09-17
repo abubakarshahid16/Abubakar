@@ -1321,6 +1321,7 @@ def list_risks(risk_type: str | None = None,
                scope: access.AccessScope = Depends(access.current_scope)):
     if risk_type is not None and risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
+    risks_mod.detect_automatic_risks(allowed_document_ids=scope.allowed_document_ids)
     return {"risks": risks_mod.list_items(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids)}
 
 

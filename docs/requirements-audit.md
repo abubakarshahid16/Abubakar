@@ -14,15 +14,17 @@ BLOCKED means it requires a client-approved input.
 | 6 | WBS hierarchy | DONE |
 | 7 | Document and deliverable management | DONE |
 | 8 | AI search and question answering | DONE |
-| 9 | AI gap and risk identification | PARTIAL |
+| 9 | AI gap and risk identification | DONE |
 | 10 | Management dashboard and reports | DONE |
 | 11 | Baseline-rule selection | DONE |
 | 12 | Named comparison workflows | DONE |
 | 13 | Expected/missing deliverable intelligence | DONE |
 | 14 | Structured EPC search | DONE |
-| 15 | Typed risk register | PARTIAL |
+| 15 | Typed risk register | DONE |
 | 16 | Review traceability | PARTIAL |
 | 17 | Stakeholder roles and approval workflow | DONE |
 
-The scorecard is intentionally not inflated: automatic inference/detection and
-the remaining UI surfaces must land before the partial areas move to DONE.
+The scorecard is intentionally not inflated: client templates and the remaining
+reminder/escalation and review traceability workflow surfaces remain partial or
+blocked. Automatic deliverable inference and typed risk detection are measured
+and covered by regression tests.
