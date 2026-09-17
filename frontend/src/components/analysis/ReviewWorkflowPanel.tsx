@@ -120,7 +120,7 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
               ...documents.map((document) => [document.id, document.filename] as const),
             ]).entries()].map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
-          {baselineMessage !== null && <span role="alert" className="text-danger-400">{baselineMessage}</span>}
+          {baselineMessage !== null && <span role="alert" className="text-danger-500">{baselineMessage}</span>}
         </div>
       )}
       <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto_auto]">
