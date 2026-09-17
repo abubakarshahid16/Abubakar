@@ -206,7 +206,7 @@ export function Shell({
     <div className="flex min-h-screen flex-col bg-ink-900 md:flex-row">
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded focus:bg-ink-700 focus:px-3 focus:py-2 focus:text-slateish-200"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-[var(--radius-sm)] focus:bg-ink-700 focus:px-3 focus:py-2 focus:text-slateish-200 focus:shadow-[var(--shadow-floating)]"
       >
         Skip to content
       </a>
@@ -220,7 +220,7 @@ export function Shell({
             aria-expanded={menuOpen}
             aria-controls="sidebar-nav"
             onClick={() => setMenuOpen((o) => !o)}
-            className="rounded border border-ink-600 px-3 py-1 text-sm text-slateish-300"
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-300 transition-colors hover:border-signal-500/50"
           >
             {menuOpen ? "Close" : "Menu"}
           </button>
@@ -230,7 +230,7 @@ export function Shell({
       <nav
         id="sidebar-nav"
         aria-label="Main"
-        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 md:flex md:h-screen md:w-64 md:shrink-0 md:border-b-0 md:border-r md:sticky md:top-0`}
+        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 shadow-[var(--shadow-raised)] md:flex md:h-screen md:w-64 md:shrink-0 md:border-b-0 md:border-r md:sticky md:top-0`}
       >
         {/* THE HEADER PAYS FOR ITSELF IN NAV SPACE. At text-lg the product name
             wrapped to two lines in a 256px rail, and with the tagline and a
@@ -283,9 +283,9 @@ export function Shell({
                     setMenuOpen(false);
                   }}
                   className={[
-                    "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-sm transition-colors",
+                    "relative flex w-full items-center justify-between overflow-hidden rounded-[var(--radius-sm)] px-3 py-1.5 text-left text-sm transition-colors",
                     active
-                      ? "bg-ink-700 text-slateish-200"
+                      ? "bg-signal-500/10 text-slateish-100 shadow-[var(--shadow-resting)] before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-full before:bg-signal-500 before:content-['']"
                       : "text-slateish-300 hover:bg-ink-800",
                     item.built ? "" : "opacity-70",
                   ].join(" ")}
@@ -302,7 +302,7 @@ export function Shell({
                     </span>
                   </span>
                   {!item.built && (
-                    <span className="ml-2 shrink-0 rounded border border-ink-500 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-300">
+                    <span className="ml-2 shrink-0 rounded-[var(--radius-full)] border border-ink-500 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-300">
                       not built
                     </span>
                   )}
@@ -380,7 +380,7 @@ function ThemeToggle({
       role="group"
       aria-label="Theme mode"
       className={[
-        "inline-grid grid-cols-2 rounded-md border border-ink-600 bg-ink-900 p-0.5",
+        "inline-grid grid-cols-2 rounded-[var(--radius-full)] border border-ink-600 bg-ink-900 p-0.5",
         compact ? "text-[11px]" : "w-full text-xs",
       ].join(" ")}
     >
@@ -393,9 +393,9 @@ function ThemeToggle({
             aria-pressed={active}
             onClick={() => onChange(mode)}
             className={[
-              "rounded px-2 py-1 font-medium capitalize transition-colors",
+              "rounded-[var(--radius-full)] px-2 py-1 font-medium capitalize transition-colors",
               active
-                ? "bg-ink-700 text-slateish-100"
+                ? "bg-signal-500 text-ink-950 shadow-[var(--shadow-resting)]"
                 : "text-slateish-400 hover:bg-ink-800 hover:text-slateish-200",
             ].join(" ")}
           >

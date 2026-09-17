@@ -86,7 +86,7 @@ function Row({
         onClick={activate}
         onKeyDown={onKeyDown}
         className={[
-          "cursor-pointer rounded border px-2 py-2.5",
+          "cursor-pointer rounded-[var(--radius-xs)] border px-2 py-2.5",
           "hover:bg-ink-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400",
           selected ? "border-signal-500/50 bg-signal-500/10" : "border-transparent",
         ].join(" ")}
@@ -155,7 +155,7 @@ export function ClaimTable({
   selectedEvidenceId?: string | null;
 }) {
   return (
-    <section aria-label="Claim comparison" className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+    <section aria-label="Claim comparison" className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
       <h3 className="text-[11px] font-semibold uppercase tracking-wider text-signal-400">
         Claim comparison &mdash; quoted verbatim from the documents
       </h3>
@@ -167,7 +167,7 @@ export function ClaimTable({
       ) : (
         <ul className="mt-3 space-y-4">
           {clusters.map((c, i) => (
-            <li key={`${c.facet}-${i}`} className="rounded border border-ink-700 p-3">
+            <li key={`${c.facet}-${i}`} className="rounded-[var(--radius-xs)] border border-ink-700 p-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h4 className="text-sm font-semibold text-slateish-200">{c.facet}</h4>
                 <LabelMark label={c.label} />

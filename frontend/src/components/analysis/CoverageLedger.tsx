@@ -67,7 +67,7 @@ export function CoverageLedger({
   const rows = result.documents.slice(current * pageSize, (current + 1) * pageSize);
 
   return (
-    <section aria-labelledby="coverage-ledger-heading" className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+    <section aria-labelledby="coverage-ledger-heading" className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
       <p id="coverage-ledger-heading" className="text-xs uppercase tracking-wide text-slateish-500">
         Coverage
       </p>
@@ -88,7 +88,7 @@ export function CoverageLedger({
       )}
 
       {cancelled && (
-        <p role="status" className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-sm text-warn-500">
+        <p role="status" className="mt-2 rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-sm text-warn-500">
           Cancelled — partial results below are batches, not a consolidated answer
         </p>
       )}
@@ -137,7 +137,7 @@ export function CoverageLedger({
                 aria-label="Previous page of documents"
                 disabled={current === 0}
                 onClick={() => setPage(current - 1)}
-                className="rounded border border-ink-600 px-2 py-1 hover:bg-ink-700 disabled:opacity-40"
+                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1 hover:bg-ink-700 disabled:opacity-40"
               >
                 Prev
               </button>
@@ -149,7 +149,7 @@ export function CoverageLedger({
                 aria-label="Next page of documents"
                 disabled={current >= pages - 1}
                 onClick={() => setPage(current + 1)}
-                className="rounded border border-ink-600 px-2 py-1 hover:bg-ink-700 disabled:opacity-40"
+                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1 hover:bg-ink-700 disabled:opacity-40"
               >
                 Next
               </button>

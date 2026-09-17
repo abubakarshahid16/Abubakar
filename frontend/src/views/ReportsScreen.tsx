@@ -149,7 +149,7 @@ export function ReportsScreen() {
         // above the list as its own card.
         <div
           role="alert"
-          className="rounded-lg border border-danger-500/30 bg-danger-500/10 px-4 py-3 text-sm"
+          className="rounded-[var(--radius-md)] border border-danger-500/30 bg-danger-500/10 px-4 py-3 text-sm"
         >
           <p className="font-medium text-danger-500">{downloadState.title}</p>
           <p className="mt-1 text-slateish-300">{downloadState.detail}</p>

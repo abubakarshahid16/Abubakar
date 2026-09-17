@@ -189,7 +189,7 @@ const REFERENCE_LABEL = "reference - background only";
 
 function Pill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full border border-ink-500 bg-ink-800 px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider text-slateish-300">
+    <span className="rounded-[var(--radius-full)] border border-ink-500 bg-ink-800 px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider text-slateish-300">
       {children}
     </span>
   );
@@ -197,7 +197,7 @@ function Pill({ children }: { children: React.ReactNode }) {
 
 function SampleTag() {
   return (
-    <span className="rounded border border-ink-500 px-1 font-mono text-[10px] uppercase tracking-wider text-slateish-400">
+    <span className="rounded-[var(--radius-xs)] border border-ink-500 px-1 font-mono text-[10px] uppercase tracking-wider text-slateish-400">
       Sample
     </span>
   );
@@ -214,7 +214,7 @@ function ProviderTag({ label }: { label: string }) {
   return (
     <span
       className={[
-        "rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+        "rounded-[var(--radius-xs)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
         isReference
           ? "border border-warn-500/70 bg-warn-500/10 text-warn-500"
           : "border border-signal-500/50 bg-signal-500/10 text-signal-400",
@@ -371,7 +371,7 @@ function QueryForm({ onPreview }: { onPreview: (q: PublicMarketQuery) => void })
   }
 
   return (
-    <form onSubmit={submit} className="mt-4 space-y-3 rounded border border-ink-700 p-3">
+    <form onSubmit={submit} className="mt-4 space-y-3 rounded-[var(--radius-xs)] border border-ink-700 p-3">
       <h4 className="text-[11px] font-semibold uppercase tracking-wider text-slateish-300">
         Public market query
       </h4>
@@ -392,7 +392,7 @@ function QueryForm({ onPreview }: { onPreview: (q: PublicMarketQuery) => void })
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
+          className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
         />
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -405,7 +405,7 @@ function QueryForm({ onPreview }: { onPreview: (q: PublicMarketQuery) => void })
             type="text"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
-            className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
+            className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
           />
         </div>
         <div>
@@ -418,14 +418,14 @@ function QueryForm({ onPreview }: { onPreview: (q: PublicMarketQuery) => void })
             min={1}
             value={freshness}
             onChange={(e) => setFreshness(e.target.value)}
-            className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
+            className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
           />
         </div>
       </div>
       <button
         type="submit"
         disabled={!trimmed}
-        className="rounded border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
         Preview exact outbound query
       </button>
@@ -522,7 +522,7 @@ function ConfirmDialog({
         aria-labelledby={titleId}
         aria-describedby={descId}
         onKeyDown={onKeyDown}
-        className="w-full max-w-lg rounded-lg border border-ink-500 bg-ink-850 p-4"
+        className="w-full max-w-lg rounded-[var(--radius-md)] border border-ink-500 bg-ink-850 p-4"
       >
         <h4 id={titleId} className="text-sm font-semibold text-slateish-200">
           Confirm outbound query
@@ -574,7 +574,7 @@ function ConfirmDialog({
                 <p className="text-xs text-slateish-400">
                   To {entry.provider_label}:
                 </p>
-                <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded border border-ink-600 bg-ink-900 p-3 font-mono text-xs text-slateish-100">
+                <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 p-3 font-mono text-xs text-slateish-100">
                   {JSON.stringify(entry.payload, null, 2)}
                 </pre>
               </div>
@@ -617,7 +617,7 @@ function ConfirmDialog({
             ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="rounded border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700"
+            className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700"
           >
             Cancel
           </button>
@@ -634,7 +634,7 @@ function ConfirmDialog({
                   ? NO_SAFE_PHRASE
                   : undefined
             }
-            className="rounded border border-signal-500/60 px-3 py-1.5 text-sm text-signal-300 hover:bg-signal-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-[var(--radius-xs)] border border-signal-500/60 px-3 py-1.5 text-sm text-signal-300 hover:bg-signal-500/10 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Confirm and send
           </button>
@@ -656,7 +656,7 @@ type SearchState =
 
 function SampleBanner({ reason }: { reason: string }) {
   return (
-    <div role="note" className="mt-3 rounded border-2 border-warn-500/70 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">
+    <div role="note" className="mt-3 rounded-[var(--radius-xs)] border-2 border-warn-500/70 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">
       <span className="font-semibold">SAMPLE DATA &mdash; NOT LIVE.</span>{" "}
       {reason} {SAMPLE_BANNER_TAIL}
     </div>
@@ -834,7 +834,7 @@ export function MarketPanel({
   }
 
   return (
-    <section aria-label="Public market information" className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+    <section aria-label="Public market information" className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slateish-300">
           Public market information

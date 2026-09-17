@@ -64,7 +64,7 @@ function Stat({
           ? "text-signal-400"
           : "text-slateish-100";
   return (
-    <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
+    <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
       <p className="text-[11px] uppercase tracking-wide text-slateish-500">{label}</p>
       {measured ? (
         <p className={`mt-1 font-mono text-lg leading-tight ${toneClass}`}>
@@ -135,7 +135,7 @@ function Headline({
           ? "text-signal-400"
           : "text-slateish-100";
   return (
-    <div className="rounded-xl border border-ink-700 bg-ink-800 px-5 py-4">
+    <div className="card-3d surface-floating rounded-[var(--radius-lg)] border border-ink-700 bg-ink-800 px-5 py-4">
       <p className="text-xs font-medium uppercase tracking-wide text-slateish-400">{label}</p>
       {value == null ? (
         <p className="mt-2 text-lg italic leading-tight text-slateish-500">
@@ -158,7 +158,7 @@ function Bar({ percent, tone }: { percent: number; tone: "normal" | "warn" | "da
     tone === "danger" ? "bg-danger-500" : tone === "warn" ? "bg-warn-500" : "bg-signal-500";
   return (
     <div
-      className="mt-1.5 h-1.5 overflow-hidden rounded bg-ink-700"
+      className="mt-1.5 h-1.5 overflow-hidden rounded-[var(--radius-full)] bg-ink-700"
       role="progressbar"
       aria-valuenow={Math.round(percent)}
       aria-valuemin={0}
@@ -184,7 +184,7 @@ function Warning({ warning }: { warning: MetricWarning }) {
         : "border-ink-600 bg-ink-850 text-slateish-400";
   return (
     <li
-      className={`rounded border px-3 py-2 text-sm ${style}`}
+      className={`rounded-[var(--radius-sm)] border px-3 py-2 text-sm ${style}`}
       role={warning.severity === "error" ? "alert" : "status"}
     >
       {/* The message leads. This row used to open with the raw code -
@@ -243,7 +243,7 @@ function ReadinessPanel({ metrics }: { metrics: Metrics }) {
   ];
 
   return (
-    <section className="mt-4 rounded-lg border border-ink-700 bg-ink-850 p-4">
+    <section className="card-3d surface-card rounded-[var(--radius-lg)] border border-ink-700 bg-ink-850 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-slateish-200">What this system can do right now</h2>
@@ -252,7 +252,7 @@ function ReadinessPanel({ metrics }: { metrics: Metrics }) {
             about before relying on it.
           </p>
         </div>
-        <span className="rounded border border-warn-500/40 bg-warn-500/10 px-2 py-1 font-mono text-[11px] text-warn-500">
+        <span className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-2 py-1 font-mono text-[11px] text-warn-500">
           Prototype
         </span>
       </div>
@@ -266,7 +266,7 @@ function ReadinessPanel({ metrics }: { metrics: Metrics }) {
                 ? "border-warn-500/35 bg-warn-500/10 text-warn-500"
                 : "border-danger-500/35 bg-danger-500/10 text-danger-500";
           return (
-            <li key={g.label} className={`rounded border px-3 py-2 ${klass}`}>
+            <li key={g.label} className={`rounded-[var(--radius-sm)] border px-3 py-2 ${klass}`}>
               <p className="text-xs font-semibold">{g.label}</p>
               <p className="mt-1 text-xs leading-relaxed text-slateish-300">{g.detail}</p>
             </li>
@@ -407,7 +407,9 @@ export function DashboardView({
   const byType = coverageInScope ? coverage!.by_type : [];
 
   return (
-    <div>
+    <div className="aurora-field">
+      <div aria-hidden className="aurora-a" />
+      <div aria-hidden className="aurora-b" />
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold text-slateish-200">System</h1>
@@ -452,7 +454,7 @@ export function DashboardView({
       <ReadinessPanel metrics={metrics} />
 
       {delivery && (
-        <section className="mt-5 rounded-lg border border-ink-700 bg-ink-850 p-4" aria-label="EPC delivery overview">
+        <section className="card-3d surface-card rounded-[var(--radius-lg)] border border-ink-700 bg-ink-850 p-4" aria-label="EPC delivery overview">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <h2 className="text-sm font-semibold text-slateish-200">EPC delivery overview</h2>
@@ -590,7 +592,7 @@ export function DashboardView({
           console, one click away, with every number intact. Nothing about
           the honesty rules changes: an unmeasured value still says so. */}
       <details className="mt-8 group">
-        <summary className="cursor-pointer select-none rounded-lg border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-300 hover:text-slateish-100 [&::-webkit-details-marker]:hidden">
+        <summary className="cursor-pointer select-none rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-300 hover:text-slateish-100 [&::-webkit-details-marker]:hidden">
           <span className="mr-2 inline-block transition-transform group-open:rotate-90">&#9656;</span>
           <span className="font-medium">Technical detail</span>
           <span className="ml-2 text-xs text-slateish-500">
@@ -654,7 +656,7 @@ export function DashboardView({
               <span
                 key={status}
                 className={[
-                  "rounded border px-2 py-0.5 font-mono text-[11px]",
+                  "rounded-[var(--radius-xs)] border px-2 py-0.5 font-mono text-[11px]",
                   status === "no_searchable_content"
                     ? "border-warn-500/50 bg-warn-500/10 text-warn-500"
                     : status === "failed"
@@ -725,7 +727,7 @@ export function DashboardView({
             {jobs.failures.map((f) => (
               <li
                 key={f.id}
-                className="rounded border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm"
+                className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm"
               >
                 <span className="text-slateish-200">{f.filename}</span>
                 <span className="ml-2 font-mono text-[11px] text-danger-500">
@@ -782,7 +784,7 @@ export function DashboardView({
               <li
                 key={reason}
                 role="alert"
-                className="rounded border border-danger-500/50 bg-danger-500/10 px-3 py-1.5 text-sm text-slateish-300"
+                className="rounded-[var(--radius-sm)] border border-danger-500/50 bg-danger-500/10 px-3 py-1.5 text-sm text-slateish-300"
               >
                 {humaniseReason(reason)}
               </li>
@@ -838,7 +840,7 @@ export function DashboardView({
       {system && (
       <Section title="Machine" hint="Everything runs here. No document or question leaves this computer.">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
+          <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
             <p className="text-[11px] uppercase tracking-wide text-slateish-500">CPU</p>
             {system.cpu_percent_since_last_call == null ? (
               <p className="mt-1 text-sm italic leading-tight text-slateish-500">
@@ -866,7 +868,7 @@ export function DashboardView({
             </p>
           </div>
 
-          <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
+          <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
             <p className="text-[11px] uppercase tracking-wide text-slateish-500">Memory</p>
             {/* Free, not used. The reader's question is "is there room for the
                 answer model", and used/total made them subtract - which broke
@@ -882,7 +884,7 @@ export function DashboardView({
             </p>
           </div>
 
-          <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
+          <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
             <p className="text-[11px] uppercase tracking-wide text-slateish-500">Disk</p>
             <p className="mt-1 font-mono text-lg leading-tight text-slateish-100">
               {bytes(system.disk_free_bytes)}{" "}
@@ -905,7 +907,7 @@ export function DashboardView({
           title="Why search cannot see it"
           hint="One row per RULE, not per passage — a single page rule can cover several passages, so these counts are smaller than the Excluded total above. Nothing is dropped silently; every exclusion is recorded with the rule that caused it."
         >
-          <div className="overflow-x-auto rounded-lg border border-ink-700">
+          <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-700">
             <table className="w-full text-left text-sm">
               <thead className="bg-ink-850 text-[11px] uppercase tracking-wide text-slateish-500">
                 <tr>

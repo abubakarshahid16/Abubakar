@@ -302,7 +302,9 @@ export function DocumentsView({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="aurora-field space-y-6">
+      <div aria-hidden className="aurora-a" />
+      <div aria-hidden className="aurora-b" />
       <header>
         <h1 className="text-xl font-semibold text-slateish-200">Documents</h1>
         <p className="mt-1 text-sm text-slateish-400">
@@ -529,7 +531,7 @@ function FilterChip({
       aria-checked={on}
       onClick={onClick}
       className={[
-        "inline-flex items-center gap-2 rounded border px-2.5 py-1 text-[13px] transition-colors",
+        "inline-flex items-center gap-2 rounded-[var(--radius-full)] border px-2.5 py-1 text-[13px] transition-colors",
         on
           ? amber
             ? "border-warn-500/50 bg-warn-500/10 text-warn-500"

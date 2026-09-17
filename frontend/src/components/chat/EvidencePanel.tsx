@@ -37,7 +37,7 @@ export function Highlighted({ passage }: { passage: AnswerPassage }) {
   return (
     <>
       {passage.text.slice(0, start)}
-      <mark className="rounded bg-signal-500/25 px-0.5 text-slateish-100">
+      <mark className="rounded-[var(--radius-xs)] bg-signal-500/25 px-0.5 text-slateish-100">
         {passage.text.slice(start, end)}
       </mark>
       {passage.text.slice(end)}
@@ -113,7 +113,7 @@ export function PassageLocation({ passage }: { passage: AnswerPassage }) {
       {clause && (
         <>
           <span className="text-slateish-500">·</span>
-          <span className="rounded bg-ink-700 px-1.5 py-0.5 font-mono text-[11px] text-slateish-200">
+          <span className="rounded-[var(--radius-xs)] bg-ink-700 px-1.5 py-0.5 font-mono text-[11px] text-slateish-200">
             {clause}
           </span>
         </>
@@ -163,7 +163,7 @@ export function EvidencePanel({
   return (
     <aside
       aria-label="Evidence"
-      className="flex h-full min-h-0 w-full flex-col border-ink-700 bg-ink-850 lg:w-80 xl:w-[22rem] lg:shrink-0 lg:border-l"
+      className="card-3d surface-card flex h-full min-h-0 w-full flex-col border-ink-700 bg-ink-850/90 backdrop-blur-xl lg:w-80 xl:w-[22rem] lg:shrink-0 lg:border-l"
     >
       <div className="flex items-start justify-between gap-2 border-b border-ink-700 px-4 py-3">
         <div className="min-w-0">
@@ -176,14 +176,14 @@ export function EvidencePanel({
           type="button"
           onClick={onClose}
           aria-label="Close evidence panel"
-          className="rounded border border-ink-600 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700"
+          className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300 transition-colors hover:border-signal-500/50 hover:bg-ink-700"
         >
           Close
         </button>
       </div>
 
       {passages.length > 1 && (
-        <div role="group" aria-label="Sources" className="flex flex-wrap gap-1 px-4 pt-3">
+        <div role="group" aria-label="Sources" className="flex flex-wrap gap-1.5 px-4 pt-3">
           {passages.map((p, i) => (
             <button
               key={p.chunk_id}
@@ -191,13 +191,13 @@ export function EvidencePanel({
               aria-pressed={i === selected}
               onClick={() => onSelect(i)}
               className={[
-                "rounded border px-2 py-1 text-xs",
+                "rounded-[var(--radius-full)] border px-3 py-1 font-mono text-xs transition-colors",
                 i === selected
-                  ? "border-signal-500/60 bg-signal-500/15 text-signal-400"
+                  ? "border-signal-500/60 bg-signal-500/18 text-signal-300 shadow-[0_0_0_1px_rgba(79,201,181,.35)]"
                   : "border-ink-600 text-slateish-300 hover:bg-ink-700",
               ].join(" ")}
             >
-              Source {i + 1}
+              {i + 1}
             </button>
           ))}
         </div>
@@ -211,7 +211,7 @@ export function EvidencePanel({
         </h3>
         <blockquote
           className={[
-            "evidence-quote mt-1.5 rounded border-l-2 border-signal-500/50 bg-ink-900 px-3 py-2.5 text-slateish-200",
+            "evidence-quote mt-1.5 rounded-[var(--radius-sm)] border-l-2 border-signal-500/50 bg-ink-900 px-3 py-2.5 text-slateish-200 shadow-[var(--shadow-resting)]",
             passage.kind === "table"
               ? "document-table"
               : "document-quote whitespace-pre-wrap text-sm",
@@ -223,7 +223,7 @@ export function EvidencePanel({
         <h3 className="mt-5 text-xs uppercase tracking-wide text-slateish-400">
           Page {passage.page_start} as printed
           {boxed && (
-            <span className="ml-2 rounded bg-signal-500/20 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-signal-300">
+            <span className="ml-2 rounded-[var(--radius-full)] bg-signal-500/20 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-signal-300">
               answer outlined
             </span>
           )}
@@ -239,7 +239,7 @@ export function EvidencePanel({
             confirmed, so nothing is outlined.
           </p>
         )}
-        <div className="mt-2 overflow-auto rounded border border-ink-700 bg-ink-950 p-2">
+        <div className="mt-2 overflow-auto rounded-[var(--radius-md)] border border-ink-700 bg-ink-950 p-2 shadow-[var(--shadow-floating)]">
           {image.loading && <Spinner label={`Rendering page ${passage.page_start}`} />}
           {image.failed && (
             <p className="text-xs text-warn-500">
@@ -256,7 +256,7 @@ export function EvidencePanel({
                   ? `Page ${passage.page_start} of ${passage.filename}, with the answer outlined`
                   : `Page ${passage.page_start} of ${passage.filename}`
               }
-              className="block w-full rounded bg-white"
+              className="block w-full rounded-[var(--radius-sm)] bg-white shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
             />
           )}
         </div>

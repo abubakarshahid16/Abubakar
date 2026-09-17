@@ -80,7 +80,7 @@ function SectionFailure({ failure, onRetry }: { failure: LoadFailure; onRetry: (
     return (
       <div
         role="status"
-        className="rounded-lg border border-dashed border-ink-600 bg-ink-850/60 p-6 text-sm"
+        className="rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-850/60 p-6 text-sm"
       >
         <p className="text-slateish-300">This admin route is not built yet.</p>
         <p className="mt-1 text-slateish-400">
@@ -94,13 +94,13 @@ function SectionFailure({ failure, onRetry }: { failure: LoadFailure; onRetry: (
   // code union, and the admin codes are not in it yet (see AdminErrorCode).
   // Same shape and same colour, so the two read identically on screen.
   return (
-    <div role="alert" className="rounded-lg border border-danger-500/50 bg-danger-500/10 p-4 text-sm">
+    <div role="alert" className="rounded-[var(--radius-md)] border border-danger-500/50 bg-danger-500/10 p-4 text-sm">
       <p className="font-medium text-danger-500">That request failed</p>
       <p className="mt-1 text-slateish-300">{failure.message}</p>
       <button
         type="button"
         onClick={onRetry}
-        className="mt-3 rounded border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
+        className="mt-3 rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
       >
         Try again
       </button>
@@ -137,7 +137,7 @@ export function DangerAction({
         type="button"
         disabled={busy}
         onClick={() => setAsking(true)}
-        className="rounded border border-transparent px-2 py-1 text-xs text-slateish-400 transition-colors hover:border-danger-500 hover:bg-danger-500/10 hover:text-danger-500 focus-visible:border-danger-500 focus-visible:text-danger-500 disabled:opacity-50"
+        className="rounded-[var(--radius-xs)] border border-transparent px-2 py-1 text-xs text-slateish-400 transition-colors hover:border-danger-500 hover:bg-danger-500/10 hover:text-danger-500 focus-visible:border-danger-500 focus-visible:text-danger-500 disabled:opacity-50"
       >
         {label}
       </button>
@@ -154,14 +154,14 @@ export function DangerAction({
           setAsking(false);
           onConfirm();
         }}
-        className="rounded border border-danger-500 bg-danger-500/10 px-2 py-1 text-xs font-medium text-danger-500 disabled:opacity-50"
+        className="rounded-[var(--radius-xs)] border border-danger-500 bg-danger-500/10 px-2 py-1 text-xs font-medium text-danger-500 disabled:opacity-50"
       >
         {confirmLabel}
       </button>
       <button
         type="button"
         onClick={() => setAsking(false)}
-        className="rounded border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700"
+        className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700"
       >
         Keep it
       </button>
@@ -175,7 +175,7 @@ function SetupTokenBlock({ created, onDismiss }: { created: CreatedUser; onDismi
   return (
     <div
       role="alert"
-      className="rounded-lg border border-signal-500 bg-signal-500/10 p-4 text-sm"
+      className="rounded-[var(--radius-md)] border border-signal-500 bg-signal-500/10 p-4 text-sm"
     >
       <p className="font-medium text-slateish-200">
         Setup token for {created.email}
@@ -185,7 +185,7 @@ function SetupTokenBlock({ created, onDismiss }: { created: CreatedUser; onDismi
         if it is lost, create the user again. It expires{" "}
         {formatWhen(created.setup_token_expires_at)}.
       </p>
-      <p className="mt-3 break-all rounded bg-ink-900 p-3 font-mono text-xs text-slateish-200">
+      <p className="mt-3 break-all rounded-[var(--radius-xs)] bg-ink-900 p-3 font-mono text-xs text-slateish-200">
         {created.setup_token}
       </p>
       <div className="mt-3 flex gap-2">
@@ -200,14 +200,14 @@ function SetupTokenBlock({ created, onDismiss }: { created: CreatedUser; onDismi
               () => setCopied(false),
             );
           }}
-          className="rounded border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
+          className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
         >
           Copy
         </button>
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
+          className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
         >
           Done - hide it
         </button>
@@ -234,7 +234,7 @@ function CreateUserForm({
 
   return (
     <form
-      className="rounded-lg border border-ink-600 bg-ink-800 p-4"
+      className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4"
       onSubmit={(e) => {
         e.preventDefault();
         onCreate({
@@ -262,7 +262,7 @@ function CreateUserForm({
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-64 rounded border border-ink-500 bg-ink-900 px-2 py-1 text-sm text-slateish-200"
+            className="w-64 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1 text-sm text-slateish-200"
           />
         </label>
         <label className="flex flex-col gap-1 text-xs text-slateish-400">
@@ -270,7 +270,7 @@ function CreateUserForm({
           <select
             value={discipline}
             onChange={(e) => setDiscipline(e.target.value)}
-            className="w-56 rounded border border-ink-500 bg-ink-900 px-2 py-1 text-sm text-slateish-200"
+            className="w-56 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1 text-sm text-slateish-200"
           >
             {/* An empty choice is offered because the state exists anyway, and
                 the summary at the top names it the moment it does. Hiding it
@@ -294,7 +294,7 @@ function CreateUserForm({
         <button
           type="submit"
           disabled={busy}
-          className="rounded border border-signal-500 bg-signal-500/10 px-3 py-1 text-sm text-signal-500 disabled:opacity-50"
+          className="rounded-[var(--radius-xs)] border border-signal-500 bg-signal-500/10 px-3 py-1 text-sm text-signal-500 disabled:opacity-50"
         >
           {busy ? "Creating…" : "Create user"}
         </button>
@@ -375,7 +375,7 @@ export function AdminView(props: AdminViewProps) {
         <section
           role="status"
           aria-label="Access problems"
-          className="rounded-lg border border-warn-500/50 bg-warn-500/10 p-4 text-sm"
+          className="rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-4 text-sm"
         >
           <p className="font-medium text-warn-500">This system is seeded but not usable</p>
           <p className="mt-1 text-slateish-300">{summary.join(" ")}</p>
@@ -407,7 +407,7 @@ export function AdminView(props: AdminViewProps) {
         )}
 
         {!usersFailure && users !== null && users.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border border-ink-600">
+          <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-600">
             <table className="w-full text-left text-sm">
               <thead className="bg-ink-850 text-xs uppercase text-slateish-400">
                 <tr>
@@ -458,7 +458,7 @@ export function AdminView(props: AdminViewProps) {
                           <button type="button"
                             disabled={busyKey === `reset:${u.user_id}`}
                             onClick={() => onResetPassword(u.user_id)}
-                            className="rounded border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700 disabled:opacity-50">
+                            className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700 disabled:opacity-50">
                             Reset password
                           </button>
                           <DangerAction
@@ -493,7 +493,7 @@ export function AdminView(props: AdminViewProps) {
         )}
 
         {!disciplinesFailure && disciplines !== null && disciplines.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border border-ink-600">
+          <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-600">
             <table className="w-full text-left text-sm">
               <thead className="bg-ink-850 text-xs uppercase text-slateish-400">
                 <tr>
@@ -539,7 +539,7 @@ export function AdminView(props: AdminViewProps) {
             {documents.map((doc) => (
               <li
                 key={doc.document_id}
-                className="rounded-lg border border-ink-600 bg-ink-800 p-3"
+                className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-3"
               >
                 <p className="text-sm text-slateish-200">{doc.filename}</p>
                 {doc.warning === "no_discipline_can_see_this" && (
@@ -557,7 +557,7 @@ export function AdminView(props: AdminViewProps) {
                       return (
                         <span
                           key={name}
-                          className="inline-flex items-center gap-2 rounded border border-ink-500 bg-ink-850 px-2 py-1 text-xs text-slateish-200"
+                          className="inline-flex items-center gap-2 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-850 px-2 py-1 text-xs text-slateish-200"
                         >
                           {name}
                           <DangerAction
@@ -578,7 +578,7 @@ export function AdminView(props: AdminViewProps) {
                         type="button"
                         disabled={busyKey === key}
                         onClick={() => onGrant({ document_id: doc.document_id, discipline: name })}
-                        className="rounded border border-ink-500 px-2 py-1 text-xs text-slateish-400 hover:bg-ink-700 hover:text-slateish-200 disabled:opacity-50"
+                        className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 text-xs text-slateish-400 hover:bg-ink-700 hover:text-slateish-200 disabled:opacity-50"
                       >
                         Grant {name}
                       </button>

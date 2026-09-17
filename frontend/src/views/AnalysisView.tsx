@@ -68,14 +68,14 @@ function Skeleton({ lines, label }: { lines: number; label: string }) {
     <div
       aria-label={label}
       role="img"
-      className="rounded-lg border border-ink-700 bg-ink-850 p-4"
+      className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-4"
     >
-      <div className="h-3 w-40 rounded bg-ink-700" />
+      <div className="h-3 w-40 rounded-[var(--radius-xs)] bg-ink-700" />
       <div className="mt-3 space-y-2">
         {Array.from({ length: lines }, (_, i) => (
           <div
             key={i}
-            className="h-3 rounded bg-ink-700"
+            className="h-3 rounded-[var(--radius-xs)] bg-ink-700"
             style={{ width: `${[92, 78, 85, 64, 88][i % 5]}%` }}
           />
         ))}
@@ -102,7 +102,7 @@ function CancelButton({ onCancel }: { onCancel: () => void }) {
       <button
         type="button"
         onClick={() => setArmed(true)}
-        className="rounded border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
+        className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
       >
         Cancel analysis?
       </button>
@@ -118,14 +118,14 @@ function CancelButton({ onCancel }: { onCancel: () => void }) {
           setArmed(false);
           onCancel();
         }}
-        className="rounded border border-danger-500/60 bg-danger-500/10 px-3 py-1.5 text-sm font-medium text-danger-500 hover:bg-danger-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-danger-500"
+        className="rounded-[var(--radius-xs)] border border-danger-500/60 bg-danger-500/10 px-3 py-1.5 text-sm font-medium text-danger-500 hover:bg-danger-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-danger-500"
       >
         Yes, cancel
       </button>
       <button
         type="button"
         onClick={() => setArmed(false)}
-        className="rounded px-3 py-1.5 text-sm text-slateish-300 hover:bg-ink-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
+        className="rounded-[var(--radius-xs)] px-3 py-1.5 text-sm text-slateish-300 hover:bg-ink-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
       >
         Keep running
       </button>
@@ -135,7 +135,7 @@ function CancelButton({ onCancel }: { onCancel: () => void }) {
 
 function WarnBadge({ children }: { children: ReactNode }) {
   return (
-    <span className="ml-2 inline-block rounded border border-warn-500/50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-warn-500">
+    <span className="ml-2 inline-block rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-warn-500">
       {children}
     </span>
   );
@@ -172,7 +172,7 @@ export function AnalysisView({
   const showMarket = result !== null && toggles.market;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-ink-700 bg-ink-900">
+    <div className="flex min-h-0 flex-1 flex-col rounded-[var(--radius-md)] border border-ink-700 bg-ink-900">
       {/* Persistent progress card. Sticky so it stays in view while the
           reader scrolls partial results underneath it. */}
       {running && (
@@ -204,7 +204,7 @@ export function AnalysisView({
         <div className="mx-auto max-w-[72ch] space-y-5">
           {/* Nothing run yet, not running: say so plainly. */}
           {result === null && !running && (
-            <div className="rounded-lg border border-dashed border-ink-600 bg-ink-850/60 p-10 text-center">
+            <div className="rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-850/60 p-10 text-center">
               <p className="text-slateish-300">No analysis has been run.</p>
               <p className="mt-1 text-sm text-slateish-400">
                 Choose a mode and ask a question. Results appear here, with every claim tied to a
@@ -232,7 +232,7 @@ export function AnalysisView({
                 <h2 id="analysis-question-heading" className="sr-only">
                   Question
                 </h2>
-                <p className="rounded-lg bg-ink-700 px-3 py-2 text-[15px] text-slateish-100">
+                <p className="rounded-[var(--radius-md)] bg-ink-700 px-3 py-2 text-[15px] text-slateish-100">
                   {result.question}
                 </p>
               </section>
@@ -242,7 +242,7 @@ export function AnalysisView({
                 <section
                   role="alert"
                   aria-labelledby="analysis-refused-heading"
-                  className="rounded-lg border border-warn-500/60 bg-warn-500/10 p-4"
+                  className="rounded-[var(--radius-md)] border border-warn-500/60 bg-warn-500/10 p-4"
                 >
                   <h2
                     id="analysis-refused-heading"
@@ -298,7 +298,7 @@ export function AnalysisView({
               {showGaps && (
                 <section aria-labelledby="analysis-gaps-heading">
                   <details open className="group">
-                    <summary className="cursor-pointer list-item rounded px-1 py-1 text-sm font-semibold text-slateish-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400">
+                    <summary className="cursor-pointer list-item rounded-[var(--radius-xs)] px-1 py-1 text-sm font-semibold text-slateish-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400">
                       <span id="analysis-gaps-heading">Gap Analysis</span>
                       <WarnBadge>preliminary</WarnBadge>
                       {partial && <WarnBadge>analysis is partial</WarnBadge>}
@@ -320,7 +320,7 @@ export function AnalysisView({
               {showMarket && (
                 <section aria-labelledby="analysis-market-heading">
                   <details open>
-                    <summary className="cursor-pointer list-item rounded px-1 py-1 text-sm font-semibold text-slateish-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400">
+                    <summary className="cursor-pointer list-item rounded-[var(--radius-xs)] px-1 py-1 text-sm font-semibold text-slateish-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400">
                       <span id="analysis-market-heading">Public Market Information</span>
                       <WarnBadge>sample data &mdash; not live</WarnBadge>
                     </summary>
@@ -354,7 +354,7 @@ export function AnalysisView({
                 <CoverageLedger result={result} />
 
                 {result.evidence_ledger.length > 0 && (
-                  <div className="mt-3 rounded-lg border border-ink-600 bg-ink-850 p-4">
+                  <div className="mt-3 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
                     <h3 className="text-xs uppercase tracking-wide text-slateish-500">
                       Cited passages ({result.evidence_ledger.length})
                     </h3>
@@ -388,7 +388,7 @@ export function AnalysisView({
                 {(result.assumptions.length > 0 ||
                   result.limitations.length > 0 ||
                   result.not_implemented_sections.length > 0) && (
-                  <div className="mt-3 rounded-lg border border-ink-600 bg-ink-850 p-4 text-sm">
+                  <div className="mt-3 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4 text-sm">
                     {result.assumptions.length > 0 && (
                       <>
                         <h3 className="text-xs uppercase tracking-wide text-slateish-500">Assumptions</h3>
@@ -433,7 +433,7 @@ export function AnalysisView({
                 type="button"
                 onClick={onGenerateReport}
                 disabled={running || result === null}
-                className="rounded bg-signal-500/20 px-4 py-2 text-sm font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
+                className="rounded-[var(--radius-xs)] bg-signal-500/20 px-4 py-2 text-sm font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
               >
                 Generate report
               </button>

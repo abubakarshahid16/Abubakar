@@ -65,7 +65,7 @@ function appendUnseen(existing: Message[], incoming: Message[]): Message[] {
 function UserTurn({ message }: { message: Message }) {
   return (
     <div className="flex flex-col items-end">
-      <p className="max-w-[42rem] rounded-lg bg-ink-700 px-3 py-2 text-[15px] text-slateish-100">
+      <p className="max-w-[42rem] rounded-[var(--radius-md)] bg-ink-700 px-3 py-2 text-[15px] text-slateish-100 shadow-[var(--shadow-resting)]">
         {message.text}
       </p>
       {/* `?? []` because carried_terms was added later: a transcript row
@@ -470,18 +470,20 @@ export function ChatView({
   };
 
   return (
-    <div className="flex h-[calc(100vh-9rem)] min-h-0 flex-col gap-4 lg:h-[calc(100vh-3rem)] lg:flex-row">
+    <div className="aurora-field flex h-[calc(100vh-9rem)] min-h-0 flex-col gap-4 lg:h-[calc(100vh-3rem)] lg:flex-row">
+      <div aria-hidden className="aurora-a" />
+      <div aria-hidden className="aurora-b" />
       {/* ------------------------------------------------ recent conversations */}
       {showConversations && <aside
         aria-label="Recent conversations"
-        className="flex max-h-56 min-h-0 w-full shrink-0 flex-col rounded-lg border border-ink-700 bg-ink-850 lg:max-h-none lg:w-56 xl:w-64"
+        className="surface-card flex max-h-56 min-h-0 w-full shrink-0 flex-col rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 lg:max-h-none lg:w-56 xl:w-64"
       >
         <div className="flex items-center justify-between gap-2 border-b border-ink-700 px-3 py-2.5">
           <h2 className="text-sm font-semibold text-slateish-200">Conversations</h2>
           <button
             type="button"
             onClick={startNew}
-            className="rounded border border-ink-600 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700"
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300 transition-colors hover:border-signal-500/50 hover:bg-ink-700"
           >
             New
           </button>
@@ -508,7 +510,7 @@ export function ChatView({
                   aria-current={c.id === current ? "true" : undefined}
                   onClick={() => void open(c.id)}
                   className={[
-                    "w-full rounded px-2 py-2 pr-7 text-left",
+                    "w-full rounded-[var(--radius-sm)] px-2 py-2 pr-7 text-left transition-colors",
                     c.id === current ? "bg-ink-700" : "hover:bg-ink-800",
                   ].join(" ")}
                 >
@@ -522,7 +524,7 @@ export function ChatView({
                   type="button"
                   aria-label={`Delete conversation ${c.title}`}
                   onClick={() => void remove(c.id)}
-                  className="absolute right-1 top-1.5 rounded px-1.5 py-0.5 text-xs text-slateish-500 opacity-0 hover:bg-ink-600 hover:text-danger-500 focus:opacity-100 group-hover:opacity-100"
+                  className="absolute right-1 top-1.5 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-xs text-slateish-500 opacity-0 transition-colors hover:bg-ink-600 hover:text-danger-500 focus:opacity-100 group-hover:opacity-100"
                 >
                   ×
                 </button>
@@ -533,7 +535,7 @@ export function ChatView({
       </aside>}
 
       {/* ----------------------------------------------------------- transcript */}
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-ink-700 bg-ink-900">
+      <section className="card-3d surface-floating flex min-h-0 min-w-0 flex-1 flex-col rounded-[var(--radius-lg)] border border-ink-700 bg-ink-900">
         <div className="flex items-center justify-between border-b border-ink-700 px-4 py-3">
           <div>
             <h1 className="text-sm font-semibold text-slateish-100">Document review chat</h1>
@@ -544,7 +546,7 @@ export function ChatView({
               type="button"
               onClick={() => setShowConversations((visible) => !visible)}
               aria-expanded={showConversations}
-              className="rounded border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 hover:bg-ink-700"
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 transition-colors hover:border-signal-500/50 hover:bg-ink-700"
             >
               {showConversations ? "Hide history" : "Show history"}
             </button>
@@ -661,12 +663,12 @@ export function ChatView({
               disabled={offline}
               rows={2}
               placeholder="Ask about a requirement, explain a passage, or continue your review…"
-              className="min-w-0 flex-1 rounded border border-ink-600 bg-ink-850 px-3 py-2 text-slateish-100 placeholder:text-slateish-500 disabled:opacity-50"
+              className="min-w-0 flex-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 px-3 py-2 text-slateish-100 shadow-[var(--shadow-resting)] transition-shadow placeholder:text-slateish-500 focus:shadow-[var(--shadow-glow)] disabled:opacity-50"
             />
             <button
               type="submit"
               disabled={asking || offline || !question.trim()}
-              className="rounded bg-signal-500/20 px-4 py-2 text-sm font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30 disabled:opacity-40"
+              className="rounded-[var(--radius-sm)] bg-signal-500 px-5 py-2 text-sm font-semibold text-ink-950 shadow-[var(--shadow-raised)] transition-transform hover:bg-signal-400 hover:shadow-[var(--shadow-glow)] active:scale-[0.98] disabled:bg-signal-500/20 disabled:text-signal-300 disabled:shadow-none disabled:active:scale-100 disabled:opacity-40"
             >
               Ask
             </button>

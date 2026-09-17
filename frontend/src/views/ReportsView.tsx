@@ -46,7 +46,9 @@ export function ReportsView({
   suppressedCount: number;
 }) {
   return (
-    <div className="space-y-6">
+    <div className="aurora-field space-y-6">
+      <div aria-hidden className="aurora-a" />
+      <div aria-hidden className="aurora-b" />
       <header>
         <h1 className="text-xl font-semibold text-slateish-200">Reports</h1>
         <p className="mt-1 text-sm text-slateish-400">
@@ -58,7 +60,7 @@ export function ReportsView({
       {suppressedCount > 0 && (
         <p
           role="status"
-          className="rounded border border-ink-600 bg-ink-850 px-3 py-2 text-sm text-slateish-300"
+          className="surface-card rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 px-3 py-2 text-sm text-slateish-300"
         >
           <span aria-hidden="true">◌ </span>
           {nf.format(suppressedCount)} report{suppressedCount === 1 ? " is" : "s are"} not
@@ -83,7 +85,7 @@ export function ReportsView({
                 <button
                   type="button"
                   onClick={onGenerate}
-                  className="rounded bg-signal-500/20 px-4 py-2 text-sm font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30"
+                  className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-medium text-ink-950 shadow-[var(--shadow-raised)] transition-transform hover:shadow-[var(--shadow-glow)] active:scale-[0.98]"
                 >
                   Generate a report
                 </button>
@@ -132,7 +134,7 @@ function ReportRow({
   };
 
   return (
-    <li className="rounded-lg border border-ink-700 bg-ink-850">
+    <li className="card-3d surface-card overflow-hidden rounded-[var(--radius-md)] border border-ink-700 bg-ink-850">
       <div className="flex flex-wrap items-start justify-between gap-3 p-4">
         <div className="min-w-0 flex-1">
           <h3 className="font-medium text-slateish-200">{report.question}</h3>
@@ -181,8 +183,8 @@ function ReportRow({
           </div>
 
           {report.not_implemented_sections.length > 0 && (
-            <div className="mt-3 rounded border border-warn-500/40 bg-warn-500/10 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-warn-500">
+            <div className="mt-3 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900/60 px-3 py-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
                 Outside this report
               </p>
               <p className="mt-1 text-xs text-slateish-400">
@@ -197,7 +199,7 @@ function ReportRow({
           <button
             type="button"
             onClick={() => onDownload(report.id)}
-            className="rounded border border-signal-500/60 px-2.5 py-1 text-xs text-signal-400 transition-colors hover:bg-signal-500/15"
+            className="rounded-[var(--radius-sm)] border border-signal-500/60 bg-signal-500/10 px-2.5 py-1 text-xs text-signal-300 shadow-[var(--shadow-resting)] transition-colors hover:bg-signal-500/20"
           >
             Download
           </button>
@@ -206,7 +208,7 @@ function ReportRow({
             onClick={runVerify}
             disabled={verify.state === "checking"}
             aria-busy={verify.state === "checking"}
-            className="rounded border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 transition-colors hover:bg-ink-700 disabled:opacity-40"
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 transition-colors hover:bg-ink-700 disabled:opacity-40"
           >
             {verify.state === "checking" ? "Verifying…" : "Verify"}
           </button>

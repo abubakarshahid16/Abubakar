@@ -68,7 +68,7 @@ function Tile({
           ? "text-signal-400"
           : "text-slateish-100";
   return (
-    <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
+    <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
       <p className="text-[11px] uppercase tracking-wide text-slateish-500">{label}</p>
       {measured ? (
         <p className={`mt-1 font-mono text-lg leading-tight ${toneClass}`}>
@@ -117,7 +117,7 @@ function Step({
   return (
     <li
       className={[
-        "flex items-baseline gap-2 rounded border px-2 py-1.5 text-xs",
+        "flex items-baseline gap-2 rounded-[var(--radius-xs)] border px-2 py-1.5 text-xs",
         current
           ? "border-signal-500/60 bg-signal-500/10 text-signal-300"
           : done
@@ -140,7 +140,7 @@ function DocumentProgress({ doc }: { doc: DocumentRecord }) {
 
   if (OFF_TRACK.includes(doc.status)) {
     return (
-      <div className="rounded-lg border border-warn-500/40 bg-warn-500/5 p-3">
+      <div className="rounded-[var(--radius-md)] border border-warn-500/40 bg-warn-500/5 p-3">
         <p className="text-sm font-medium text-slateish-200">{doc.filename}</p>
         <p className="mt-1 text-xs text-warn-500">{status.label}</p>
         {doc.error && <p className="mt-1 text-xs text-slateish-300">{doc.error.message}</p>}
@@ -149,7 +149,7 @@ function DocumentProgress({ doc }: { doc: DocumentRecord }) {
   }
 
   return (
-    <div className="rounded-lg border border-ink-700 bg-ink-850 p-3">
+    <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-medium text-slateish-200">{doc.filename}</p>
         <p className="font-mono text-[11px] text-slateish-400">
@@ -340,7 +340,7 @@ function WatchRow({ event }: { event: WatchEvent }) {
   const style = outcomeStyle(event.outcome);
   const when = relativeTime(event.at);
   return (
-    <li className="flex flex-wrap items-baseline gap-2 rounded border border-ink-700 bg-ink-800 px-2 py-1.5 text-xs">
+    <li className="flex flex-wrap items-baseline gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-800 px-2 py-1.5 text-xs">
       <span aria-hidden className={`font-mono ${style.tone}`}>
         {style.glyph}
       </span>
@@ -417,7 +417,7 @@ function WatchedFolderPanel() {
       title="Watched folder"
       hint="Documents dropped into this folder are ingested without anyone uploading them."
     >
-      <div className="rounded-lg border border-ink-700 bg-ink-850 p-3">
+      <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
         {/* Reachability is rendered in ONE direction only.
             false is the state that matters at a client site - a share
             unmounted, a VPN dropped, permissions revoked - and it is written
@@ -431,7 +431,7 @@ function WatchedFolderPanel() {
         {status.reachable === false && (
           <p
             role="alert"
-            className="mb-2 rounded border border-danger-500/50 bg-danger-500/10 px-2 py-1.5 text-xs"
+            className="mb-2 rounded-[var(--radius-xs)] border border-danger-500/50 bg-danger-500/10 px-2 py-1.5 text-xs"
           >
             <span className="font-medium text-danger-500">
               The folder is not being read right now.
@@ -670,7 +670,7 @@ export function IngestionView({
             {finished.map((d) => (
               <li
                 key={d.id}
-                className="flex flex-wrap items-baseline gap-2 rounded border border-ink-700 bg-ink-850 px-3 py-2 text-xs"
+                className="flex flex-wrap items-baseline gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2 text-xs"
               >
                 <span className="font-medium text-slateish-200">{d.filename}</span>
                 <span className="font-mono text-[11px] text-slateish-400">

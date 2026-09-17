@@ -34,16 +34,16 @@ export function RecommendationCard({
   return (
     <details
       open
-      className="rounded-lg border border-warn-500/50 bg-warn-500/[0.06]"
+      className="card-3d accent-edge relative surface-card rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05]"
     >
-      <summary className="cursor-pointer list-item px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-warn-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-warn-500">
+      <summary className="cursor-pointer list-item px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-info-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-info-500">
         AI Advisory — not a documented requirement
       </summary>
 
-      <div className="border-t border-warn-500/30 px-4 pb-4">
+      <div className="border-t border-info-500/20 px-4 pb-4">
         <p
           role="note"
-          className="mt-3 rounded border border-warn-500/60 bg-warn-500/[0.12] px-3 py-2 text-sm font-semibold text-warn-500"
+          className="mt-3 rounded-[var(--radius-xs)] border border-warn-500/60 bg-warn-500/[0.12] px-3 py-2 text-sm font-semibold text-warn-500"
         >
           {REVIEW_SENTENCE}
         </p>
