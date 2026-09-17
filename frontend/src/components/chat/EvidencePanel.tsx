@@ -222,17 +222,25 @@ export function EvidencePanel({
 
         <h3 className="mt-5 text-xs uppercase tracking-wide text-slateish-400">
           Page {passage.page_start} as printed
-          {boxed && (
+          {boxed && image.answerLocated !== false && (
             <span className="ml-2 rounded-[var(--radius-full)] bg-signal-500/20 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-signal-300">
               answer outlined
             </span>
           )}
         </h3>
         <p className="mt-1 text-xs text-slateish-500">
-          {boxed
+          {boxed && image.answerLocated !== false
             ? "The answering sentence is outlined on the real page. Extraction flattens tables and drops equation operators; this is the page as printed."
+            : boxed && image.answerLocated === false
+              ? "The page was rendered, but the server could not locate the answering sentence to outline. Extraction flattens tables and drops equation operators."
             : "Extraction flattens tables and drops equation operators. This is the real page."}
         </p>
+        {boxed && image.answerLocated === false && (
+          <p className="mt-1 text-xs text-warn-500 italic">
+            The answering sentence could not be located on this page, so nothing
+            is outlined.
+          </p>
+        )}
         {question && !passage.highlight && (
           <p className="mt-1 text-xs text-slateish-500 italic">
             The exact location of the answer on this page could not be
@@ -252,7 +260,7 @@ export function EvidencePanel({
               key={`${passage.document_id}-${passage.page_start}-${boxed ? "boxed" : "plain"}`}
               src={image.src}
               alt={
-                boxed
+                boxed && image.answerLocated !== false
                   ? `Page ${passage.page_start} of ${passage.filename}, with the answer outlined`
                   : `Page ${passage.page_start} of ${passage.filename}`
               }

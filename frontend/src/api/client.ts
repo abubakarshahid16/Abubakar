@@ -536,15 +536,25 @@ export function filenameFromContentDisposition(header: string | null): string | 
  *  given the token as a query parameter. The caller owns the returned URL and
  *  must revoke it. Null on any failure, so the caller renders "could not
  *  render" rather than the browser's broken-image glyph. */
-export async function fetchImageObjectUrl(url: string): Promise<string | null> {
+export interface ImageObjectResult {
+  url: string | null;
+  /** null means the endpoint did not provide answer-location metadata. */
+  answerLocated: boolean | null;
+}
+
+export async function fetchImageObjectUrl(url: string): Promise<ImageObjectResult> {
   try {
     const headers = new Headers();
     if (token) headers.set("Authorization", `Bearer ${token}`);
     const response = await fetch(url, { headers });
-    if (!response.ok) return null;
-    return URL.createObjectURL(await response.blob());
+    if (!response.ok) return { url: null, answerLocated: null };
+    const located = response.headers.get("X-Answer-Located");
+    return {
+      url: URL.createObjectURL(await response.blob()),
+      answerLocated: located === "0" ? false : located === "1" ? true : null,
+    };
   } catch {
-    return null;
+    return { url: null, answerLocated: null };
   }
 }
 

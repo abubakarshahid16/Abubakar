@@ -16,7 +16,7 @@ retrieval values need careful, non-judgemental presentation.
 | `score` | Yes | Not shown | Hidden. If exposed later, place under Retrieval details with its scale and no “strong/weak” label. |
 | `identifier_hits` | Yes | Not shown | Hidden. Useful only as diagnostic/retrieval detail. |
 | `evidence_removed` | Yes | Amber disclosure in `AnswerCard`: count, filename/page, dropped vs shortened, omitted character count | Already visible. Do not rebuild. Screenshot: `ui-redesign/evidence-removed-chat.png`. |
-| server header `X-Answer-Located` | Yes on boxed-page response | Discarded by `fetchImageObjectUrl`; UI says “answer outlined” whenever a pre-request highlight exists | **Gap.** Return the header through the image hook and show the explicit unlocated state when it is `0`. Do not draw a client-side box. |
+| server header `X-Answer-Located` | Yes on boxed-page response | Preserved by `fetchImageObjectUrl` and `useAuthedImage`; the evidence panel says “answer outlined” only when the header is not `0`, and explicitly says the sentence could not be located when it is `0` | Fixed in the X-Answer-Located correction; regression covered by `src/api/client.pageImage.test.ts`. The client still never draws a box. |
 | raw `rrf`, `boost`, `rerank_score`, `bm25`, `cosine`, keyword/dense rank | Present in backend search records, not in the answer-passage contract | Not shown | Not a missing widget: those values are not delivered on this response. If Phase 3 requires them, extend the answer API contract and tests first. |
 
 ## Analysis summary and selected evidence
@@ -59,8 +59,9 @@ present in the current report sample.
 
 1. Improve visibility and wording around the two existing removal disclosures;
    do not create replacement components or another removal record.
-2. Carry `X-Answer-Located` through the authenticated image fetch before
-   claiming a server-drawn box was found.
+2. Keep `X-Answer-Located` carried through the authenticated image fetch; this
+   was corrected before Phase 1 so the UI never claims a server-drawn box when
+   the server reports that the sentence was not located.
 3. Reuse the existing provenance primitives in Analysis selected evidence.
 4. Put retrieval diagnostics behind an expandable detail area only after the
    relevant values and scale labels exist on that endpoint.
