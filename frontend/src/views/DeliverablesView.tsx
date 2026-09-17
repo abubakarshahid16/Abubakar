@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { deliverables as deliverablesApi, management } from "../api/client";
-import type { Deliverable, DeliverableCreate, DeliverableStatus, DeliverableStakeholder } from "../types/api";
+import type { Deliverable, DeliverableCreate, DeliverableStatus, DeliverableStakeholder, StakeholderRole } from "../types/api";
 import type { EscalationRule } from "../types/api";
 
 const statuses: DeliverableStatus[] = ["planned", "in_progress", "submitted", "under_review", "approved", "rejected", "superseded"];
@@ -15,6 +15,8 @@ export function DeliverablesView() {
   const [stakeholders, setStakeholders] = useState<Record<string, DeliverableStakeholder[]>>({});
   const [selected, setSelected] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<import("../types/api").WbsWorkspace | null>(null);
+  const [stakeholderUser, setStakeholderUser] = useState("");
+  const [stakeholderRole, setStakeholderRole] = useState<StakeholderRole>("reviewer");
   const [form, setForm] = useState<DeliverableCreate>({ wbs_code: "1.0", title: "", deliverable_type: "Engineering submittal", due_date: "" });
 
   const load = useCallback(async () => {
@@ -50,6 +52,19 @@ export function DeliverablesView() {
     if (result.ok) setStakeholders((current) => ({ ...current, [item.id]: result.data.stakeholders }));
     const workspaceResult = await deliverablesApi.workspace(item.id);
     if (workspaceResult.ok) setWorkspace(workspaceResult.data);
+  }
+
+  async function assignStakeholder() {
+    if (!selected || !stakeholderUser.trim()) return;
+    const existing = stakeholders[selected] ?? [];
+    const result = await deliverablesApi.replaceStakeholders(selected, [
+      ...existing.map((person) => ({ user_id: person.user_id, role: person.role })),
+      { user_id: stakeholderUser.trim(), role: stakeholderRole },
+    ]);
+    if (result.ok) {
+      setStakeholders((current) => ({ ...current, [selected]: result.data.stakeholders }));
+      setStakeholderUser("");
+    } else setError(result.error.message);
   }
 
   return (
@@ -91,6 +106,7 @@ export function DeliverablesView() {
       </section>
 
       {workspace && selected === workspace.node.id && <section className="mt-5 rounded-[var(--radius-md)] border border-signal-500/40 bg-ink-850 p-4"><div className="flex items-baseline justify-between"><h2 className="text-sm font-semibold text-slateish-200">WBS workspace · {workspace.node.wbs_code}</h2><button type="button" onClick={() => setWorkspace(null)} className="text-xs text-slateish-400 hover:text-slateish-200">Close</button></div><p className="mt-1 text-xs text-slateish-500">Linked context for this node and its direct children.</p><div className="mt-3 grid gap-3 md:grid-cols-3"><div><p className="text-[11px] uppercase tracking-wide text-slateish-500">Children</p><p className="mt-1 text-xl font-semibold text-slateish-100">{workspace.children.length}</p></div><div><p className="text-[11px] uppercase tracking-wide text-slateish-500">Linked documents</p><p className="mt-1 text-xl font-semibold text-slateish-100">{workspace.documents.length}</p></div><div><p className="text-[11px] uppercase tracking-wide text-slateish-500">Review / escalation signals</p><p className="mt-1 text-xl font-semibold text-slateish-100">{workspace.reviews.length + workspace.escalations.length}</p></div></div><div className="mt-3 flex flex-wrap gap-2 text-xs text-slateish-400">{workspace.children.map((child) => <span key={child.id} className="rounded-full bg-ink-700 px-2 py-1"><strong className="text-signal-300">{child.wbs_code}</strong> · {child.title}</span>)}</div></section>}
+      {selected && <section className="mt-3 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4"><h2 className="text-sm font-semibold text-slateish-200">Assign stakeholder</h2><div className="mt-2 flex flex-wrap gap-2"><input value={stakeholderUser} onChange={(e) => setStakeholderUser(e.target.value)} placeholder="User ID" aria-label="Stakeholder user ID" className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><select value={stakeholderRole} onChange={(e) => setStakeholderRole(e.target.value as StakeholderRole)} aria-label="Stakeholder role" className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="owner">Owner</option><option value="reviewer">Reviewer</option><option value="approver">Approver</option><option value="informed">Informed</option></select><button type="button" onClick={() => void assignStakeholder()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Assign</button></div></section>}
     </main>
   );
 }
