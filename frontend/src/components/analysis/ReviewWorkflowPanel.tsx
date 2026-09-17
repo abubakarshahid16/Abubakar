@@ -45,6 +45,7 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
   const [message, setMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<ReviewFindingEvent[] | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [traceability, setTraceability] = useState<import("../../types/api").ReviewTraceability | null>(null);
 
   async function save() {
     setSaving(true);
@@ -75,6 +76,12 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
     } finally {
       setLoadingHistory(false);
     }
+  }
+
+  async function showTraceability() {
+    const result = await reviewsApi.traceability(finding.id);
+    if (result.ok) setTraceability(result.data);
+    else setMessage(result.error.message);
   }
 
   return (
@@ -115,10 +122,12 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
         <button type="button" disabled={saving} onClick={() => void save()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30 disabled:opacity-50">{saving ? "Saving…" : "Save response"}</button>
         {message !== null && <span className="text-xs text-slateish-400" role="status">{message}</span>}
         <button type="button" onClick={() => void showHistory()} disabled={loadingHistory} className="rounded-[var(--radius-xs)] border border-ink-600 px-3 py-1.5 text-xs text-slateish-300 hover:border-signal-500/60 disabled:opacity-50">{loadingHistory ? "Loading history…" : history === null ? "View history" : "Refresh history"}</button>
+        <button type="button" onClick={() => void showTraceability()} className="rounded-[var(--radius-xs)] border border-signal-500/50 px-3 py-1.5 text-xs text-signal-300 hover:bg-signal-500/10">{traceability === null ? "View full chain" : "Refresh full chain"}</button>
       </div>
       {history !== null && <ol className="mt-3 space-y-1 border-l border-ink-600 pl-3 text-xs text-slateish-500" aria-label="Finding history">
         {history.map((event) => <li key={event.id}><span className="text-slateish-400">{event.event_type === "created" ? "Created" : "Updated"}</span> · {new Date(event.created_at).toLocaleString()} · {Object.keys(event.changes).join(", ") || "no field changes"}</li>)}
       </ol>}
+      {traceability !== null && <div aria-label="Finding traceability" className="mt-3 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3 text-xs text-slateish-300"><p className="font-semibold uppercase tracking-wide text-signal-400">Full traceability chain</p><p className="mt-2">Finding → {traceability.document.filename} → {traceability.baseline?.filename ?? "No baseline"} → {traceability.citations.length} citation(s) → {traceability.deliverables.length} deliverable(s) → {traceability.owner?.display_name || traceability.owner?.email || "No owner assigned"} → {traceability.action || finding.required_action}</p></div>}
     </li>
   );
 }
