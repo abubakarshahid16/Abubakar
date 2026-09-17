@@ -173,7 +173,7 @@ function ComparisonScopeNotice({ documents }: { documents: number }) {
   return (
     <p
       role="note"
-      className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500"
+      className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500"
     >
       Answered from {documents} document{documents === 1 ? "" : "s"}. This
       question asks for a comparison across documents; comparison across the
@@ -201,7 +201,7 @@ function formatDuration(seconds: number): string {
 
 function chipClass(active: boolean): string {
   return [
-    "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 align-baseline font-mono text-[11px] leading-none",
+    "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] px-1 align-baseline font-mono text-[11px] leading-none",
     active
       ? "bg-signal-500/30 text-signal-300 ring-1 ring-signal-500/60"
       : "bg-ink-700 text-slateish-300 hover:bg-ink-600",
@@ -245,8 +245,6 @@ function Chip({
   );
 }
 
-const CITATION = /\[S(\d+)\]/g;
-
 /** Renders generated prose with `[S1]` turned into a clickable chip. */
 function CitedProse({
   text,
@@ -258,10 +256,10 @@ function CitedProse({
   activeSource: number | null;
 }) {
   const parts: React.ReactNode[] = [];
+  const citation = /\[S(\d+)\]/g;
   let last = 0;
   let match: RegExpExecArray | null;
-  CITATION.lastIndex = 0;
-  while ((match = CITATION.exec(text)) !== null) {
+  while ((match = citation.exec(text)) !== null) {
     if (match.index > last) parts.push(text.slice(last, match.index));
     const n = Number(match[1]);
     parts.push(
@@ -289,7 +287,11 @@ function Label({
     <p
       className={[
         "text-[11px] font-semibold uppercase tracking-wider",
-        tone === "quote" ? "text-signal-400" : "text-warn-500",
+        tone === "quote"
+          ? "text-signal-400"
+          : tone === "generated"
+            ? "text-info-500"
+            : "text-warn-500",
       ].join(" ")}
     >
       {children}
@@ -315,7 +317,7 @@ function ReportAction({
         type="button"
         onClick={onSaveReport}
         disabled={savingReport}
-        className="rounded border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:opacity-60"
+        className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:opacity-60"
       >
         {savingReport ? "Saving..." : "Save as report"}
       </button>
@@ -347,7 +349,7 @@ function UpgradeFailureNotice({ failure }: { failure: UpgradeFailure }) {
     return (
       <div
         role="alert"
-        className="mt-2 rounded border border-warn-500/50 bg-warn-500/10 px-2.5 py-2"
+        className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-2.5 py-2"
       >
         <p className="text-xs font-semibold text-warn-500">
           The plain-language version could not be produced — the local answer
@@ -368,7 +370,7 @@ ollama serve
   return (
     <div
       role="status"
-      className="mt-2 rounded border border-ink-600 bg-ink-900 px-2.5 py-2"
+      className="mt-2 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-2.5 py-2"
     >
       <p className="text-xs font-semibold text-slateish-200">
         The plain-language version could not be produced
@@ -392,7 +394,7 @@ ollama serve
                   type="button"
                   onClick={() => failure.onSelectSource(i)}
                   className={[
-                    "w-full rounded border px-2 py-1.5 text-left hover:bg-ink-800",
+                    "w-full rounded-[var(--radius-sm)] border px-2 py-1.5 text-left hover:bg-ink-800",
                     failure.activeSource === i
                       ? "border-signal-500/60 bg-ink-800"
                       : "border-ink-700",
@@ -476,7 +478,7 @@ export function AnswerCard({
     // split back apart on the heading rather than shown twice.
     const [lead, ...rest] = (view.answer ?? "").split("Try one of these:");
     return (
-      <div className="rounded-lg border border-ink-700 bg-ink-850/60 p-4">
+      <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850/60 p-4">
         <p className="text-sm text-slateish-300">{lead.trim()}</p>
         {view.examples.length > 0 && (
           <>
@@ -504,7 +506,7 @@ export function AnswerCard({
 
   if (view.answer_type === "metadata") {
     return (
-      <div className="rounded-lg border border-signal-500/40 bg-signal-500/10 p-4">
+      <div className="surface-card rounded-[var(--radius-md)] border border-signal-500/40 bg-signal-500/10 p-4">
         <p className="text-xs uppercase tracking-wide text-signal-400">Application statistic</p>
         <p className="mt-1 text-sm text-slateish-200">{view.answer}</p>
         <p className="mt-2 text-xs text-slateish-500">This count comes from accessible system metadata, not document text.</p>
@@ -515,13 +517,14 @@ export function AnswerCard({
   // ---------------------------------------------------------- no answer
   if (view.answer_type === "insufficient_evidence") {
     return (
-      <div className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+      <div className="surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
         <p className="text-sm font-semibold text-slateish-200">
           The documents do not answer this
         </p>
         <p className="mt-1 text-sm text-slateish-400">
-          {asSentence(view.reason ?? "Nothing credible was retrieved")} Nothing
-          was made up to fill the gap.
+          {asSentence(view.reason ?? "nothing credible was retrieved")} Nothing
+          was made up to fill the gap — try rephrasing, or check that the
+          right document has been uploaded.
         </p>
         {sources.length > 0 && (
           <div className="mt-3">
@@ -534,7 +537,7 @@ export function AnswerCard({
                   <button
                     type="button"
                     onClick={() => onSelectSource(i)}
-                    className="w-full rounded border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
+                    className="w-full rounded-[var(--radius-sm)] border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
                   >
                     <PassageLocation passage={p} />
                   </button>
@@ -549,7 +552,7 @@ export function AnswerCard({
 
   if (view.answer_type === "model_unavailable") {
     return (
-      <div role="alert" className="rounded-lg border border-warn-500/50 bg-warn-500/10 p-4">
+      <div role="alert" className="surface-card rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-4">
         <p className="text-sm font-semibold text-warn-500">
           The local answer model is not running
         </p>
@@ -578,7 +581,7 @@ ollama serve
     const recognised = isRecognised(p);
     const extracted = p?.text_source === "extracted";
     return (
-      <div className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+      <div className="surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
         {/* THE LABEL IS THE CLAIM. "Quoted verbatim" is literally true only
             when the characters came out of the PDF's own text layer. OCR read
             them off a page image - a guess about pixels, measured producing
@@ -649,7 +652,7 @@ ollama serve
                   <button
                     type="button"
                     onClick={() => onSelectSource(i + 1)}
-                    className="flex w-full items-center gap-2 rounded border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
+                    className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
                   >
                     <ChipMark n={i + 2} active={activeSource === i + 1} />
                     <PassageLocation passage={s} />
@@ -666,7 +669,7 @@ ollama serve
               type="button"
               onClick={onSaveReport}
               disabled={savingReport}
-              className="rounded border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:opacity-60"
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:opacity-60"
             >
               {savingReport ? "Saving…" : "Save as report"}
             </button>
@@ -684,7 +687,7 @@ ollama serve
         )}
 
         {onSaveReport && view.supporting.length > 0 && (
-          <p className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
+          <p className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
             This report will freeze the quoted passage above as the answer.
             Other matched passages stay in the evidence section, but they are
             not merged into the quoted answer.
@@ -699,7 +702,7 @@ ollama serve
                   type="button"
                   onClick={onExplain}
                   disabled={explaining}
-                  className="rounded border border-warn-500/50 px-3 py-1.5 text-sm text-warn-500 hover:bg-warn-500/10 disabled:opacity-60"
+                  className="rounded-[var(--radius-sm)] border border-info-500/50 px-3 py-1.5 text-sm text-info-500 hover:bg-info-500/10 disabled:opacity-60"
                 >
                   {explaining
                     ? `Explaining… ${explainSeconds ?? 0}s`
@@ -728,7 +731,7 @@ ollama serve
 
   // ------------------------------------------------------ tier 2: generated
   return (
-    <div className="rounded-lg border border-warn-500/40 bg-warn-500/[0.06] p-4">
+    <div className="surface-card accent-edge rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Label tone="generated">
           Written by the model{view.model ? ` · ${view.model}` : ""} — not the document's words
@@ -763,7 +766,7 @@ ollama serve
           bracket looks like a fault in the citation system rather than a
           length limit. */}
       {view.truncated && (
-        <p className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
+        <p className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
           This answer reached its length limit and stops early — the model had
           more to say. The passages below are complete; open them for the rest.
         </p>
@@ -784,7 +787,7 @@ ollama serve
       )}
 
       {view.evidence_removed.length > 0 && (
-        <div className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
+        <div className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
           <p>
             {view.evidence_removed.length === 1
               ? "One source did not fit the model's context window."
@@ -813,7 +816,7 @@ ollama serve
               <button
                 type="button"
                 onClick={() => onSelectSource(i)}
-                className="flex w-full items-center gap-2 rounded border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
+                className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
               >
                 <ChipMark n={i + 1} active={activeSource === i} />
                 <PassageLocation passage={s} />
@@ -824,7 +827,7 @@ ollama serve
       )}
 
       {view.rejected_citations.length > 0 && (
-        <p className="mt-3 rounded border border-danger-500/40 bg-danger-500/10 px-2 py-1.5 text-xs text-slateish-300">
+        <p className="mt-3 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-2 py-1.5 text-xs text-slateish-300">
           The model cited {view.rejected_citations.map((n) => `[S${n}]`).join(", ")}, which
           {view.rejected_citations.length === 1 ? " was" : " were"} not among the sources
           supplied. Removed from the answer above rather than shown to you.
