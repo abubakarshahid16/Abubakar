@@ -3,6 +3,15 @@
 Operational rules for running this system on the demo machine. Everything here
 is a consequence of a measurement in `docs/benchmarks.md`, not a preference.
 
+## Backend restart after code changes
+
+`backend/run.py` starts Uvicorn without `--reload`, and this deployment has no
+supervisor or file-watching process manager. The frontend may refresh during
+development, but backend code and configuration changes are **not** picked up
+until the backend process is restarted. After any backend change, stop the
+running process and start it again from `backend` with the project virtual
+environment (for example, `..\\.venv\\Scripts\\python.exe run.py`).
+
 ## The machine has no spare memory. This governs everything below.
 
 | Component | Resident |
