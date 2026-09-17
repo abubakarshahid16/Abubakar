@@ -328,12 +328,11 @@ component are in the Phase 1 commit. The four large screens remain visually
 unchanged; broader component decomposition is tracked for the next structural
 pass.
 
-Final verification note (2026-09-17): frontend build passed and the complete
-frontend suite passed serially at **47 files / 567 tests**. The backend suite
-was attempted from the available system Python but could not collect because
-this shell lacks the existing runtime dependencies `fitz` (PyMuPDF) and
-`onnxruntime`; no backend result is claimed from that attempt. The backend
-process remained live on `127.0.0.1:8000` from the feature branch.
+Final verification note (2026-09-18): frontend build passed and the complete
+frontend suite passed serially at **47 files / 567 tests**. The project
+environment suite (`.venv\Scripts\python.exe -m pytest -q`) passed at
+**1,553 passed, 27 skipped, 17 xfailed**. The backend process remained live on
+`127.0.0.1:8000` from the feature branch.
 
 ## Contrast remediation follow-up (2026-09-17)
 
