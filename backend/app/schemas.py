@@ -1305,6 +1305,21 @@ class DeliverableAlertList(BaseModel):
     alerts: list[DeliverableAlert]
 
 
+class ReminderEvent(BaseModel):
+    id: str
+    deliverable_id: str
+    level: int
+    due_date: str
+    recipient_role: str
+    status: Literal["pending", "acknowledged"]
+    acknowledged_at: str | None
+    created_at: str
+
+
+class ReminderEventList(BaseModel):
+    reminders: list[ReminderEvent]
+
+
 class ManagementSummary(BaseModel):
     deliverables_total: int
     deliverables_by_status: dict[str, int]

@@ -24,3 +24,18 @@ def test_deliverable_revision_history_is_preserved():
     assert [event["event_type"] for event in events] == ["created", "updated"]
     assert events[1]["changes"] == {"revision": "B", "status": "under_review"}
     assert events[1]["actor_user_id"] == "owner-2"
+
+
+def test_overdue_deliverable_creates_acknowledgeable_reminder():
+    item = deliverables.create(
+        {"wbs_code": "2.1", "title": "Late submittal", "deliverable_type": "drawing",
+         "due_date": "2020-01-01", "status": "under_review"}, created_by="owner-1",
+    )
+    reminders = deliverables.reminder_events()
+    assert len(reminders) == 1
+    assert reminders[0]["deliverable_id"] == item["id"]
+    assert reminders[0]["status"] == "pending"
+    acknowledged = deliverables.acknowledge_reminder(reminders[0]["id"])
+    assert acknowledged is not None
+    assert acknowledged["status"] == "acknowledged"
+    assert acknowledged["acknowledged_at"] is not None

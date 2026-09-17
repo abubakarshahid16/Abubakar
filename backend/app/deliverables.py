@@ -42,6 +42,17 @@ def ensure_schema() -> None:
             created_at TEXT NOT NULL
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverable_events_item ON deliverable_events(deliverable_id, created_at)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS reminder_events (
+            id TEXT PRIMARY KEY,
+            deliverable_id TEXT NOT NULL REFERENCES deliverables(id) ON DELETE CASCADE,
+            level INTEGER NOT NULL,
+            due_date TEXT NOT NULL,
+            recipient_role TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            acknowledged_at TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(deliverable_id, level, due_date)
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS escalation_rules (
             level INTEGER PRIMARY KEY, trigger_days INTEGER NOT NULL,
             recipient_role TEXT NOT NULL, action TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1
@@ -172,3 +183,37 @@ def alerts(*, allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
             "severity": "critical" if days >= 14 else "major" if days >= 7 else "minor",
         })
     return result
+
+
+def reminder_events(*, allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
+    ensure_schema()
+    items = list_items(allowed_document_ids=allowed_document_ids)
+    rules = {r["level"]: r for r in escalation_rules()}
+    now = _now()
+    conn = connect()
+    for alert in alerts(allowed_document_ids=allowed_document_ids):
+        rule = rules.get(alert["escalation_level"]) or rules.get(1)
+        if rule is None:
+            continue
+        with conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO reminder_events
+                   (id, deliverable_id, level, due_date, recipient_role, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (str(uuid.uuid4()), alert["deliverable_id"], alert["escalation_level"],
+                 alert["due_date"], rule["recipient_role"], now),
+            )
+    allowed_ids = {item["id"] for item in items}
+    rows = connect().execute(
+        "SELECT * FROM reminder_events ORDER BY created_at DESC"
+    ).fetchall()
+    return [dict(row) for row in rows if row["deliverable_id"] in allowed_ids]
+
+
+def acknowledge_reminder(reminder_id: str) -> dict | None:
+    ensure_schema()
+    now = _now()
+    with connect() as conn:
+        conn.execute("UPDATE reminder_events SET status = 'acknowledged', acknowledged_at = ? WHERE id = ?", (now, reminder_id))
+    row = connect().execute("SELECT * FROM reminder_events WHERE id = ?", (reminder_id,)).fetchone()
+    return dict(row) if row else None

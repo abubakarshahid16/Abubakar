@@ -1284,6 +1284,24 @@ def deliverable_alerts(scope: access.AccessScope = Depends(access.current_scope)
     return {"alerts": deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)}
 
 
+@app.get("/api/management/reminders", response_model=schemas.ReminderEventList)
+def management_reminders(scope: access.AccessScope = Depends(access.current_scope)):
+    return {"reminders": deliverables_mod.reminder_events(allowed_document_ids=scope.allowed_document_ids)}
+
+
+@app.post("/api/management/reminders/{reminder_id}/ack", response_model=schemas.ReminderEvent,
+          responses=schemas.ERRORS_404)
+def acknowledge_management_reminder(reminder_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+    reminder = next((item for item in deliverables_mod.reminder_events(allowed_document_ids=scope.allowed_document_ids)
+                     if item["id"] == reminder_id), None)
+    if reminder is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no reminder with that id"))
+    item = deliverables_mod.acknowledge_reminder(reminder_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no reminder with that id"))
+    return item
+
+
 @app.get("/api/management/summary", response_model=schemas.ManagementSummary)
 def management_summary(scope: access.AccessScope = Depends(access.current_scope)):
     items = deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)
