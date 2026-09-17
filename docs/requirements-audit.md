@@ -18,7 +18,7 @@ BLOCKED means it requires a client-approved input.
 | 10 | Management dashboard and reports | DONE |
 | 11 | Baseline-rule selection | DONE |
 | 12 | Named comparison workflows | DONE |
-| 13 | Expected/missing deliverable intelligence | PARTIAL |
+| 13 | Expected/missing deliverable intelligence | DONE |
 | 14 | Structured EPC search | DONE |
 | 15 | Typed risk register | PARTIAL |
 | 16 | Review traceability | PARTIAL |

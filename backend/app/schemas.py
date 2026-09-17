@@ -1173,6 +1173,7 @@ class ExpectedDeliverable(BaseModel):
     deliverable_id: str | None
     status: str | None
     state: Literal["registered", "missing"]
+    origin: Literal["manual", "inferred"]
 
 
 class ExpectedDeliverableList(BaseModel):

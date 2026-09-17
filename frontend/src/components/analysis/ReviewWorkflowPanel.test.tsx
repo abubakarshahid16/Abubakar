@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { expect, it, vi } from "vitest";
 import { ReviewWorkflowPanel } from "./ReviewWorkflowPanel";
 import { reviews } from "../../api/client";
 

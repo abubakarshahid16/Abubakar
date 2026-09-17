@@ -45,9 +45,13 @@ def ensure_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_due ON deliverables(due_date, status)")
         conn.execute("""CREATE TABLE IF NOT EXISTS deliverable_expectations (
             id TEXT PRIMARY KEY, wbs_code TEXT NOT NULL, deliverable_type TEXT NOT NULL,
-            title TEXT NOT NULL, required INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+            title TEXT NOT NULL, required INTEGER NOT NULL DEFAULT 1, inferred INTEGER NOT NULL DEFAULT 0,
+            source_document_id TEXT, created_at TEXT NOT NULL,
             UNIQUE(wbs_code, deliverable_type)
         )""")
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(deliverable_expectations)")}
+        if "inferred" not in columns: conn.execute("ALTER TABLE deliverable_expectations ADD COLUMN inferred INTEGER NOT NULL DEFAULT 0")
+        if "source_document_id" not in columns: conn.execute("ALTER TABLE deliverable_expectations ADD COLUMN source_document_id TEXT")
         conn.execute("""CREATE TABLE IF NOT EXISTS deliverable_events (
             id TEXT PRIMARY KEY,
             deliverable_id TEXT NOT NULL REFERENCES deliverables(id) ON DELETE CASCADE,
@@ -159,19 +163,43 @@ def expected_missing(*, wbs_code: str | None = None,
     if wbs_code:
         sql += " WHERE e.wbs_code = ?"; args.append(wbs_code)
     rows = connect().execute(sql, args).fetchall()
-    return [dict(row) | {"state": "registered" if row["deliverable_id"] else "missing"}
+    return [dict(row) | {"state": "registered" if row["deliverable_id"] else "missing", "origin": "inferred" if row["inferred"] else "manual"}
             for row in rows]
 
 
 def configure_expectation(payload: dict) -> dict:
     ensure_schema()
-    item = {"id": str(uuid.uuid4()), "created_at": _now(), **payload}
+    item = {"id": str(uuid.uuid4()), "inferred": 0, "source_document_id": None, "created_at": _now(), **payload}
     with connect() as conn:
         conn.execute("""INSERT INTO deliverable_expectations
-            (id,wbs_code,deliverable_type,title,required,created_at)
-            VALUES (:id,:wbs_code,:deliverable_type,:title,:required,:created_at)
-            ON CONFLICT(wbs_code,deliverable_type) DO UPDATE SET title=excluded.title, required=excluded.required""", item)
+            (id,wbs_code,deliverable_type,title,required,inferred,source_document_id,created_at)
+            VALUES (:id,:wbs_code,:deliverable_type,:title,:required,:inferred,:source_document_id,:created_at)
+            ON CONFLICT(wbs_code,deliverable_type) DO UPDATE SET title=excluded.title, required=excluded.required, inferred=excluded.inferred, source_document_id=excluded.source_document_id""", item)
     return item
+
+
+def infer_expectations(*, allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
+    """Infer expected deliverables from requirement passages using claim text."""
+    ensure_schema()
+    sql = "SELECT c.document_id, c.page_start, c.text FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.status IN ('ready','partially_searchable') AND (lower(c.text) LIKE '%submit%' OR lower(c.text) LIKE '%deliverable%')"
+    args: list[str] = []
+    if allowed_document_ids is not None:
+        if not allowed_document_ids: return []
+        marks=",".join("?" for _ in allowed_document_ids); sql += f" AND c.document_id IN ({marks})"; args.extend(sorted(allowed_document_ids))
+    import re
+    results=[]
+    for row in connect().execute(sql,args).fetchall():
+        text=row["text"]
+        wbs = re.search(r"\b(?:WBS|package|section)\s*([0-9]+(?:\.[0-9]+)+)", text, re.I)
+        if not wbs: continue
+        lowered=text.lower()
+        deliverable_type = "drawing" if "drawing" in lowered else "report" if "report" in lowered else "engineering submittal"
+        title = f"Inferred {deliverable_type} requirement"
+        item={"wbs_code": wbs.group(1), "deliverable_type": deliverable_type, "title": title, "required": 1, "inferred": 1, "source_document_id": row["document_id"], "id": str(uuid.uuid4()), "created_at": _now()}
+        with connect() as conn:
+            conn.execute("""INSERT INTO deliverable_expectations(id,wbs_code,deliverable_type,title,required,inferred,source_document_id,created_at) VALUES (:id,:wbs_code,:deliverable_type,:title,:required,:inferred,:source_document_id,:created_at) ON CONFLICT(wbs_code,deliverable_type) DO UPDATE SET inferred=1, source_document_id=excluded.source_document_id""", item)
+        results.append(item)
+    return results
 
 
 def get(item_id: str) -> dict | None:

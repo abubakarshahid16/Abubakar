@@ -47,6 +47,9 @@ the remaining automation gaps as partial.
 Chat now offers structured workflow search across deliverables, findings,
 risks, and stakeholders, with a visual distinction from document citations.
 
+Deliverable expectations are now inferred from requirement passages per WBS
+package and shown alongside manual overrides, with idempotent detection.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.

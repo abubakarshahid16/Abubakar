@@ -397,3 +397,7 @@ shippable UI from backend scaffolding and client-blocked templates.
 
 Chat can search workflow records (deliverables, findings, risks, and
 stakeholders) separately from page-cited document evidence.
+
+Expected deliverables are inferred from requirement passages using the same
+claim text used by engineering review; manual expectations remain overrides,
+and the UI labels inferred versus manual origins.

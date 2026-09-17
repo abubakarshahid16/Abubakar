@@ -1302,6 +1302,7 @@ def list_deliverables(scope: access.AccessScope = Depends(access.current_scope))
 @app.get("/api/deliverables/expected", response_model=schemas.ExpectedDeliverableList)
 def expected_deliverables(wbs_code: str | None = None,
                           scope: access.AccessScope = Depends(access.current_scope)):
+    deliverables_mod.infer_expectations(allowed_document_ids=scope.allowed_document_ids)
     return {"deliverables": deliverables_mod.expected_missing(
         wbs_code=wbs_code, allowed_document_ids=scope.allowed_document_ids)}
 

@@ -299,7 +299,7 @@ export interface EscalationRule {
 export type ComparisonType = "baseline_vs_submittal" | "requirements_vs_submittal" | "revision_delta" | "discipline_coordination";
 export interface ReviewBaselineRule { id: string; submittal_doc_type: string | null; submittal_discipline: string | null; baseline_doc_type: string; baseline_discipline: string | null; priority: number; active: boolean; created_at: string; }
 export interface BaselineSelection { document_id: string; rule_id: string | null; automatic: boolean; }
-export interface ExpectedDeliverable { id: string; wbs_code: string; deliverable_type: string; title: string; required: boolean; deliverable_id: string | null; status: DeliverableStatus | null; state: "registered" | "missing"; }
+export interface ExpectedDeliverable { id: string; wbs_code: string; deliverable_type: string; title: string; required: boolean; deliverable_id: string | null; status: DeliverableStatus | null; state: "registered" | "missing"; origin: "manual" | "inferred"; }
 export type RiskType = "schedule" | "review" | "dependency" | "compliance";
 export interface Risk { id: string; risk_type: RiskType; title: string; description: string; severity: string; status: string; deliverable_id: string | null; document_id: string | null; owner_user_id: string | null; due_date: string | null; source_finding_id: string | null; created_at: string; updated_at: string; }
 export interface StructuredSearchResult { id: string; kind: "deliverable" | "finding" | "risk" | "stakeholder"; label: string; wbs_code: string | null; document_id: string | null; }
