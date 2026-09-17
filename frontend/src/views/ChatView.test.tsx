@@ -157,6 +157,7 @@ interface Routes {
   newConversation?: unknown;
   report?: unknown;
   structured?: unknown;
+  structuredFailure?: boolean;
 }
 
 function mockApi(routes: Routes = {}) {
@@ -164,6 +165,9 @@ function mockApi(routes: Routes = {}) {
   const spy = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+    if (url.includes("/search/structured") && routes.structuredFailure) {
+      return Promise.resolve(new Response(JSON.stringify({ code: "internal", message: "Structured search is unavailable." }), { status: 500, headers: { "Content-Type": "application/json" } }));
+    }
     const body = (() => {
       if (url.includes("/health")) return health;
       if (url.endsWith("/reports")) {
@@ -223,6 +227,24 @@ describe("structured workflow search", () => {
     expect(await screen.findByText("Workflow records — not page-cited evidence")).toBeInTheDocument();
     expect(screen.getByText("IFC drawing")).toBeInTheDocument();
     expect(calls.some((call) => call.url.includes("/search/structured"))).toBe(true);
+  });
+
+  it("shows an API failure instead of leaving a silent blank panel", async () => {
+    mockApi({ structuredFailure: true });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "schedule");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "Search records" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Structured search is unavailable.");
+  });
+
+  it("distinguishes a successful search with no matches", async () => {
+    mockApi({ structured: { results: [] } });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "missing");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "Search records" }));
+    expect(await screen.findByText("No matching deliverable found for 'missing'.")).toBeInTheDocument();
   });
 });
 

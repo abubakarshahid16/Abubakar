@@ -308,7 +308,11 @@ export const risks = {
 };
 
 export const structuredSearch = (query: string, kind?: "deliverable" | "finding" | "risk" | "stakeholder") =>
-  request<{ results: StructuredSearchResult[] }>(`/search/structured?q=${encodeURIComponent(query)}${kind ? `&kind=${kind}` : ""}`);
+  request<{ results: StructuredSearchResult[] }>(
+    `/search/structured?q=${encodeURIComponent(query)}${kind ? `&kind=${kind}` : ""}`,
+    undefined,
+    hasArrayField("results"),
+  );
 
 // The market preview/search contract now lives in contracts/types.ts, which
 // this file's own header calls the single source of truth. It was declared

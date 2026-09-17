@@ -27,8 +27,8 @@ def search(query: str, *, allowed_document_ids: frozenset[str] | None = None,
             sql += f" AND document_id IN ({marks})"; args.extend(sorted(allowed_document_ids))
         out.extend(dict(row) for row in connect().execute(sql, args).fetchall())
     if kind in (None, "risk"):
-        sql = "SELECT id, 'risk' AS kind, title AS label, NULL AS wbs_code, document_id FROM risks WHERE (title LIKE ? OR description LIKE ?)"
-        args = [term, term]
+        sql = "SELECT id, 'risk' AS kind, title AS label, NULL AS wbs_code, document_id FROM risks WHERE (title LIKE ? OR description LIKE ? OR risk_type LIKE ?)"
+        args = [term, term, term]
         if allowed_document_ids is not None:
             if not allowed_document_ids: return []
             marks = ",".join("?" for _ in allowed_document_ids); sql += f" AND (document_id IS NULL OR document_id IN ({marks}))"; args.extend(sorted(allowed_document_ids))

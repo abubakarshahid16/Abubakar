@@ -28,10 +28,12 @@ export function DeliverablesView() {
     const [list, alertResult, ruleResult, expectedResult, riskResult] = await Promise.all([deliverablesApi.list(), deliverablesApi.alerts(), management.escalationRules(), deliverablesApi.expected(), risksApi.list()]);
     if (!list.ok) { setError(list.error.message); setLoading(false); return; }
     setItems(list.data.deliverables);
+    const secondaryErrors = [alertResult, ruleResult, expectedResult, riskResult].filter((result) => !result.ok).map((result) => result.error.message);
     if (alertResult.ok) setAlerts(alertResult.data.alerts);
     if (ruleResult.ok) setRules(ruleResult.data.rules);
     if (expectedResult.ok) setExpected(expectedResult.data.deliverables);
     if (riskResult.ok) setRisks(riskResult.data.risks);
+    if (secondaryErrors.length > 0) setError(secondaryErrors.join(" "));
     setLoading(false);
   }, []);
 
@@ -56,8 +58,10 @@ export function DeliverablesView() {
     if (stakeholders[item.id]) return;
     const result = await deliverablesApi.stakeholders(item.id);
     if (result.ok) setStakeholders((current) => ({ ...current, [item.id]: result.data.stakeholders }));
+    else setError(result.error.message);
     const workspaceResult = await deliverablesApi.workspace(item.id);
     if (workspaceResult.ok) setWorkspace(workspaceResult.data);
+    else setError(workspaceResult.error.message);
   }
 
   async function assignStakeholder() {
@@ -116,7 +120,7 @@ export function DeliverablesView() {
       </section>
 
       <section aria-label="Risk register" className="mt-5 overflow-hidden rounded-[var(--radius-md)] border border-ink-600 bg-ink-850">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-700 px-4 py-3"><div><h2 className="text-sm font-semibold text-slateish-200">Risk register</h2><p className="mt-1 text-xs text-slateish-500">Schedule, review, dependency, and compliance risks linked to project records.</p></div><div className="flex flex-wrap gap-2"><select aria-label="Risk type filter" value={riskType} onChange={(e) => { const next = e.target.value as import("../types/api").RiskType; setRiskType(next); void risksApi.list(next).then((result) => { if (result.ok) setRisks(result.data.risks); }); }} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="schedule">Schedule</option><option value="review">Review</option><option value="dependency">Dependency</option><option value="compliance">Compliance</option></select><input aria-label="Risk title" value={riskTitle} onChange={(e) => setRiskTitle(e.target.value)} placeholder="Add risk" className="w-40 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><button type="button" onClick={() => void createRisk()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Create</button></div></div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-700 px-4 py-3"><div><h2 className="text-sm font-semibold text-slateish-200">Risk register</h2><p className="mt-1 text-xs text-slateish-500">Schedule, review, dependency, and compliance risks linked to project records.</p></div><div className="flex flex-wrap gap-2"><select aria-label="Risk type filter" value={riskType} onChange={(e) => { const next = e.target.value as import("../types/api").RiskType; setRiskType(next); void risksApi.list(next).then((result) => { if (result.ok) setRisks(result.data.risks); else setError(result.error.message); }); }} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="schedule">Schedule</option><option value="review">Review</option><option value="dependency">Dependency</option><option value="compliance">Compliance</option></select><input aria-label="Risk title" value={riskTitle} onChange={(e) => setRiskTitle(e.target.value)} placeholder="Add risk" className="w-40 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><button type="button" onClick={() => void createRisk()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Create</button></div></div>
         {risks.length === 0 ? <p className="p-4 text-sm text-slateish-500">No {riskType} risks are recorded.</p> : <div className="divide-y divide-ink-700/70">{risks.map((risk) => <div key={risk.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><div><p className="text-sm text-slateish-200">{risk.title}</p><p className="text-xs text-slateish-500">{risk.description}</p></div><span className="rounded-full bg-warn-500/15 px-2 py-1 text-xs text-warn-500">{risk.severity} · {risk.status}</span></div>)}</div>}
       </section>
 

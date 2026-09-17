@@ -364,16 +364,38 @@ export function AdminView(props: AdminViewProps) {
   const [baselineType, setBaselineType] = useState("");
   const [baselineTarget, setBaselineTarget] = useState("");
   const [baselineMessage, setBaselineMessage] = useState<string | null>(null);
+  const [baselineFailure, setBaselineFailure] = useState<string | null>(null);
   const [editingBaseline, setEditingBaseline] = useState<string | null>(null);
   const [summarySchedule, setSummarySchedule] = useState("disabled");
-  useEffect(() => { void reviews.baselineRules().then((result) => { if (result.ok) setBaselineRules(result.data.rules ?? []); }); void management.summarySchedule().then((result) => { if (result.ok) setSummarySchedule(result.data.schedule ?? "disabled"); }); }, []);
+  const [summaryFailure, setSummaryFailure] = useState<string | null>(null);
+  useEffect(() => {
+    void reviews.baselineRules().then((result) => {
+      if (result.ok) setBaselineRules(result.data.rules ?? []);
+      else setBaselineFailure(result.error.message);
+    });
+    void management.summarySchedule().then((result) => {
+      if (result.ok) setSummarySchedule(result.data.schedule ?? "disabled");
+      else setSummaryFailure(result.error.message);
+    });
+  }, []);
   async function createBaselineRule() {
     if (!baselineType.trim() || !baselineTarget.trim()) return;
     const result = editingBaseline
       ? await reviews.updateBaselineRule(editingBaseline, { submittal_doc_type: baselineType.trim(), baseline_doc_type: baselineTarget.trim(), priority: 0, active: true })
       : await reviews.createBaselineRule({ submittal_doc_type: baselineType.trim(), baseline_doc_type: baselineTarget.trim(), priority: 0, active: true });
-    if (result.ok) { setBaselineRules((current) => editingBaseline ? current.map((rule) => rule.id === result.data.id ? result.data : rule) : [result.data, ...current]); setBaselineType(""); setBaselineTarget(""); setEditingBaseline(null); setBaselineMessage(editingBaseline ? "Baseline rule updated." : "Baseline rule created."); }
-    else setBaselineMessage(result.error.message);
+    if (result.ok) { setBaselineFailure(null); setBaselineRules((current) => editingBaseline ? current.map((rule) => rule.id === result.data.id ? result.data : rule) : [result.data, ...current]); setBaselineType(""); setBaselineTarget(""); setEditingBaseline(null); setBaselineMessage(editingBaseline ? "Baseline rule updated." : "Baseline rule created."); }
+    else { setBaselineMessage(null); setBaselineFailure(result.error.message); }
+  }
+
+  async function updateSummarySchedule(next: "disabled" | "daily" | "weekly") {
+    setSummarySchedule(next);
+    const result = await management.setSummarySchedule({ schedule: next, weekday_utc: 0, hour_utc: 8 });
+    setSummaryFailure(result.ok ? null : result.error.message);
+  }
+
+  async function sendSummaryNow() {
+    const result = await management.emailSummary();
+    setSummaryFailure(result.ok ? null : result.error.message);
   }
 
   return (
@@ -411,9 +433,10 @@ export function AdminView(props: AdminViewProps) {
             <h3 className="text-sm font-medium text-slateish-200">Baseline rules</h3>
             <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-slateish-400"><tr><th className="px-2 py-1">Submittal type</th><th className="px-2 py-1">Baseline type</th><th className="px-2 py-1">Priority</th><th /></tr></thead><tbody>{baselineRules.map((rule) => <tr key={rule.id} className="border-t border-ink-600"><td className="px-2 py-2 text-slateish-200">{rule.submittal_doc_type || "Any"}</td><td className="px-2 py-2 text-slateish-200">{rule.baseline_doc_type}</td><td className="px-2 py-2 text-slateish-400">{rule.priority}</td><td className="px-2 py-2"><button type="button" onClick={() => { setEditingBaseline(rule.id); setBaselineType(rule.submittal_doc_type || ""); setBaselineTarget(rule.baseline_doc_type); }} className="text-signal-400 hover:underline">Edit</button></td></tr>)}</tbody></table></div>
             <div className="mt-3 flex flex-wrap gap-2"><input aria-label="Submittal document type" value={baselineType} onChange={(e) => setBaselineType(e.target.value)} placeholder="Submittal type" className="w-36 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><input aria-label="Baseline document type" value={baselineTarget} onChange={(e) => setBaselineTarget(e.target.value)} placeholder="Baseline type" className="w-36 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><button type="button" onClick={() => void createBaselineRule()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">{editingBaseline ? "Save rule" : "Add rule"}</button></div>
+            {baselineFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{baselineFailure}</p>}
             {baselineMessage && <p role="status" className="mt-2 text-xs text-slateish-400">{baselineMessage}</p>}
           </div>
-          <div className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4"><h3 className="text-sm font-medium text-slateish-200">Management summaries</h3><p className="mt-1 text-xs text-slateish-400">Choose the reporting cadence used by the scheduled summary job.</p><div className="mt-3 flex flex-wrap items-center gap-2"><select aria-label="Summary schedule" value={summarySchedule} onChange={(e) => { const next = e.target.value as "disabled" | "daily" | "weekly"; setSummarySchedule(next); void management.setSummarySchedule({ schedule: next, weekday_utc: 0, hour_utc: 8 }); }} className="rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="disabled">Disabled</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select><button type="button" onClick={() => void management.emailSummary()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Send now</button></div><p className="mt-2 text-xs text-slateish-500">Selected cadence: {summarySchedule}.</p></div>
+          <div className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4"><h3 className="text-sm font-medium text-slateish-200">Management summaries</h3><p className="mt-1 text-xs text-slateish-400">Choose the reporting cadence used by the scheduled summary job.</p><div className="mt-3 flex flex-wrap items-center gap-2"><select aria-label="Summary schedule" value={summarySchedule} onChange={(e) => void updateSummarySchedule(e.target.value as "disabled" | "daily" | "weekly")} className="rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="disabled">Disabled</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select><button type="button" onClick={() => void sendSummaryNow()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Send now</button></div><p className="mt-2 text-xs text-slateish-500">Selected cadence: {summarySchedule}.</p>{summaryFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{summaryFailure}</p>}</div>
         </div>
       </section>
 

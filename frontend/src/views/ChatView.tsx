@@ -126,6 +126,8 @@ export function ChatView({
   const [structuredEnabled, setStructuredEnabled] = useState(false);
   const [structuredKind, setStructuredKind] = useState<"deliverable" | "finding" | "risk" | "stakeholder">("deliverable");
   const [structuredResults, setStructuredResults] = useState<import("../types/api").StructuredSearchResult[]>([]);
+  const [structuredFailure, setStructuredFailure] = useState<ApiError | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
   const [evidence, setEvidence] = useState<{ messageId: string; index: number } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
@@ -134,8 +136,14 @@ export function ChatView({
   const searchStructured = useCallback(async () => {
     const query = question.trim();
     if (!query) return;
+    setHasSearched(true);
+    setStructuredFailure(null);
     const result = await structuredSearch(query, structuredEnabled ? structuredKind : undefined);
     if (result.ok) setStructuredResults(result.data.results);
+    else {
+      setStructuredResults([]);
+      setStructuredFailure(result.error);
+    }
   }, [question, structuredEnabled, structuredKind]);
 
   // ------------------------------------------------------ request ownership
@@ -668,7 +676,7 @@ export function ChatView({
             <textarea
               id="chat-question"
               value={question}
-              onChange={(e) => setQuestion(e.target.value)}
+              onChange={(e) => { setQuestion(e.target.value); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }}
               disabled={offline}
               rows={2}
               placeholder="Ask about a requirement, explain a passage, or continue your review…"
@@ -682,7 +690,9 @@ export function ChatView({
               Ask
             </button>
           </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2"><label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={structuredEnabled} onChange={(e) => setStructuredEnabled(e.target.checked)} /> Search workflow records</label><select aria-label="Structured search type" value={structuredKind} onChange={(e) => setStructuredKind(e.target.value as "deliverable" | "finding" | "risk" | "stakeholder")} disabled={!structuredEnabled} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1 text-xs text-slateish-300"><option value="deliverable">Deliverables / WBS</option><option value="finding">Review findings</option><option value="risk">Risks</option><option value="stakeholder">Stakeholders</option></select><button type="button" onClick={() => void searchStructured()} disabled={!structuredEnabled || !question.trim()} className="rounded-[var(--radius-xs)] border border-signal-500/50 px-2 py-1 text-xs text-signal-300 disabled:opacity-50">Search records</button></div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2"><label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={structuredEnabled} onChange={(e) => { setStructuredEnabled(e.target.checked); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }} /> Search workflow records</label><select aria-label="Structured search type" value={structuredKind} onChange={(e) => { setStructuredKind(e.target.value as "deliverable" | "finding" | "risk" | "stakeholder"); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }} disabled={!structuredEnabled} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1 text-xs text-slateish-300"><option value="deliverable">Deliverables / WBS</option><option value="finding">Review findings</option><option value="risk">Risks</option><option value="stakeholder">Stakeholders</option></select><button type="button" onClick={() => void searchStructured()} disabled={!structuredEnabled || !question.trim()} className="rounded-[var(--radius-xs)] border border-signal-500/50 px-2 py-1 text-xs text-signal-300 disabled:opacity-50">Search records</button></div>
+          {structuredFailure && <div className="mt-2"><ErrorState error={structuredFailure} /></div>}
+          {hasSearched && !structuredFailure && structuredResults.length === 0 && <p role="status" className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2 text-xs text-slateish-400">No matching {structuredKind} found for '{question.trim()}'.</p>}
           {structuredResults.length > 0 && <div aria-label="Structured search results" className="mt-2 space-y-2 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-signal-400">Workflow records — not page-cited evidence</p>{structuredResults.map((item) => <div key={`${item.kind}-${item.id}`} className="rounded-[var(--radius-xs)] border border-ink-700 px-2 py-1.5 text-xs text-slateish-300"><span className="mr-2 rounded-full bg-ink-700 px-1.5 py-0.5 text-signal-300">{item.kind}</span>{item.label}{item.wbs_code ? ` · WBS ${item.wbs_code}` : ""}</div>)}</div>}
           <p className="mt-1.5 text-xs text-slateish-500">
             {answerStyle === "extract"
