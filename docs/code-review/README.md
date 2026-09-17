@@ -118,6 +118,11 @@ for a present defect.
 
 ### P2 — claims the client can read that are not true
 
+Finding 17 is fixed in the current tree: `recommendation_refusal` is part of
+the typed API response and the Analysis screen renders the backend's reason
+instead of substituting a generic citation message. Regression coverage is in
+`AnalysisModeScreen.test.tsx` and the recommendation gate suite.
+
 | # | Defect | Where |
 |---|---|---|
 | 15 | The frozen report PDF renders "Quoted verbatim from the document" on every extract answer with no `text_source` branch, while the same file adds an OCR caveat to the same passage. This is audit #6 re-shipped in the artefact a client files. ADR-0006 forbids it; `runbook.md:78` tells the reader to report exactly this | `reports.py:354` |

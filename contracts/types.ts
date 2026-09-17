@@ -812,6 +812,7 @@ export interface AnalysisRecommendationResult {
   evidence_ledger: EvidenceItem[];
   /** Null is not an empty recommendation. */
   recommendation: RecommendationOut | null;
+  recommendation_refusal: string | null;
   public_market_findings: MarketFinding[];
   not_implemented_sections: string[];
 }

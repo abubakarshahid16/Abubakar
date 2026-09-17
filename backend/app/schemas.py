@@ -858,6 +858,8 @@ class AnalysisRecommendation(BaseModel):
     evidence_ledger: list[EvidenceItem]
     recommendation: RecommendationOut | None = Field(
         None, description="null is not an empty recommendation")
+    recommendation_refusal: str | None = Field(
+        None, description="reason the advisory recommendation was not produced")
     public_market_findings: list[MarketFinding]
     not_implemented_sections: list[str]
     #: THE FILTER THAT WAS APPLIED. Echoed so a reader can judge an

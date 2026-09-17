@@ -408,3 +408,7 @@ and unresolved requirement evidence, with an audited notification attempt.
 
 Review traceability now continues through the assigned owner and required
 action, so an engineer can inspect the complete finding-to-action chain.
+
+Recommendation refusals now preserve the backend reason through the API and
+show it directly in Analysis; the UI does not guess why advisory output was
+withheld.

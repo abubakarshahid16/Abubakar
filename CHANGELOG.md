@@ -55,6 +55,9 @@ dependency, and compliance conditions, while remaining safe to run repeatedly.
 
 Finding traceability now includes the assigned owner and required action.
 
+Analysis now displays the actual recommendation refusal reason returned by the
+backend instead of replacing it with a generic citation message.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.

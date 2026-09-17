@@ -111,6 +111,7 @@ function recommendationBody(over: Record<string, unknown> = {}) {
     },
     public_market_findings: [],
     not_implemented_sections: [],
+    recommendation_refusal: null,
     ...over,
   };
 }
@@ -429,6 +430,22 @@ describe("AnalysisModeScreen: rules that must hold on screen", () => {
     await user.click(screen.getByRole("checkbox", { name: /generate recommendation/i }));
     await ask(user);
     expect(await screen.findByText("No recommendation was generated.")).toBeInTheDocument();
+  });
+
+  it("shows the backend refusal reason instead of inventing one", async () => {
+    const user = userEvent.setup();
+    routes({
+      "/analysis/summary": () => Promise.resolve(json(summaryBody())),
+      "/analysis/recommendations": () => Promise.resolve(json(recommendationBody({
+        recommendation: null,
+        recommendation_refusal: "The model declined because the evidence window was exceeded.",
+      }))),
+    });
+    render(<AnalysisModeScreen />);
+    await user.click(screen.getByRole("checkbox", { name: /generate recommendation/i }));
+    await ask(user);
+    expect(await screen.findByText("The model declined because the evidence window was exceeded.")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing was produced that carried a citation/i)).toBeNull();
   });
 
   it("RULE 3: an unnormalisable value renders as nothing - no 0, no dash, no empty row", async () => {

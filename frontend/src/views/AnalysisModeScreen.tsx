@@ -524,6 +524,7 @@ interface GapsSlotData {
 
 interface RecommendationSlotData {
   recommendation: Recommendation | null;
+  refusal: string | null;
   findings: MarketFinding[];
   ledger: EvidenceItem[];
 }
@@ -873,9 +874,12 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
             const located = locate(d.evidence_ledger);
             const rec = toRecommendation(d.recommendation, located);
             const findings = rec === null ? [] : onlySamples(d.public_market_findings);
-            if (rec === null && findings.length === 0) return null;
+            const refusal = typeof d.recommendation_refusal === "string" && d.recommendation_refusal.trim() !== ""
+              ? d.recommendation_refusal : null;
+            if (rec === null && findings.length === 0 && refusal === null) return null;
             return {
               recommendation: rec,
+              refusal,
               findings,
               ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
             };
@@ -1536,7 +1540,8 @@ export function AnalysisModeScreen() {
               >
                 {(d) => (
                   <div className="space-y-3">
-                    <RecommendationCard recommendation={d.recommendation} onCite={onCite} />
+                    {d.refusal && <p role="status" className="rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">{d.refusal}</p>}
+                    {d.recommendation && <RecommendationCard recommendation={d.recommendation} onCite={onCite} />}
                   </div>
                 )}
               </SlotBody>
