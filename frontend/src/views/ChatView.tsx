@@ -646,7 +646,7 @@ export function ChatView({
             </div>
           )}
           {styleNotice && (
-            <div role="status" className="mb-2 rounded-[var(--radius-sm)] border border-signal-500/30 bg-signal-500/10 px-3 py-2 text-xs leading-5 text-signal-200">
+            <div role="status" className="mb-2 rounded-[var(--radius-sm)] border border-signal-500/30 bg-signal-500/10 px-3 py-2 text-xs leading-5 text-signal-300">
               {styleNotice}
             </div>
           )}
