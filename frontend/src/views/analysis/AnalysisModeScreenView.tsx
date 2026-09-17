@@ -144,6 +144,10 @@ import type {
 
 import * as model from "./analysisModel";
 import * as store from "./analysisStore";
+import { AnalysisResultSections } from "./AnalysisResultSections";
+import { AnalysisControls } from "./AnalysisControls";
+import { AnalysisHeader } from "./AnalysisHeader";
+import { AnalysisSources } from "./AnalysisSources";
 function Section({
   title,
   eyebrow,
@@ -490,351 +494,36 @@ export function AnalysisModeScreen() {
     <div className="aurora-field mx-auto max-w-7xl space-y-6">
       <div aria-hidden className="aurora-a" />
       <div aria-hidden className="aurora-b" />
-      <header className="border-b border-ink-700 pb-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-signal-400">
-          Enterprise FEED intelligence
-        </p>
-        <h1 className="mt-1 text-xl font-semibold text-slateish-100">Analysis</h1>
-        <p className="mt-1 text-sm font-semibold text-signal-300">Document submittal review</p>
-        <p className="mt-2 max-w-3xl text-sm text-slateish-300">
-          Ask one engineering question, choose the work to run, and inspect only
-          cited document evidence. Public evidence is isolated from private document context.
-        </p>
-        <div className="mt-4 grid gap-2 md:grid-cols-3">
-          <div className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
-              Evidence rule
-            </p>
-            <p className="mt-1 text-xs text-slateish-300">
-              Document claims render only when citations resolve to page evidence.
-            </p>
-          </div>
-          <div className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
-              Recommendation rule
-            </p>
-            <p className="mt-1 text-xs text-slateish-300">
-              Advisory output is separate from document facts and carries engineer review.
-            </p>
-          </div>
-          <div className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/10 px-3 py-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-warn-500">
-              Market rule
-            </p>
-            <p className="mt-1 text-xs text-slateish-300">
-              Public market rows are sample data unless a governed provider is enabled.
-            </p>
-          </div>
-        </div>
-      </header>
-
-      <section
-        aria-label="Analysis controls"
-        className="card-3d surface-floating rounded-[var(--radius-lg)] border border-ink-600 bg-ink-800 p-4"
-      >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="space-y-4">
-            <div>
-              <label htmlFor={questionId} className="block text-xs font-semibold uppercase tracking-wide text-slateish-400">
-                Question
-              </label>
-              <textarea
-                id={questionId}
-                rows={4}
-                value={question}
-                onChange={(e) => store.setQuestion(e.target.value)}
-                placeholder="Example: What does PID mean in this control section?"
-                className="mt-2 w-full resize-y rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-base text-slateish-100 placeholder:text-slateish-500"
-              />
-            </div>
-
-            <label htmlFor="comparison-type" className="block text-xs font-semibold uppercase tracking-wide text-slateish-400">
-              Comparison workflow
-              <select id="comparison-type" value={comparisonType} onChange={(e) => store.patch({ comparisonType: e.target.value as ComparisonType | "" })} className="mt-2 block w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal normal-case text-slateish-200">
-                <option value="">No named comparison</option>
-                <option value="baseline_vs_submittal">Baseline vs submittal</option>
-                <option value="requirements_vs_submittal">Requirements vs submittal</option>
-                <option value="revision_delta">Revision delta</option>
-                <option value="discipline_coordination">Discipline coordination</option>
-              </select>
-              {comparisonType && <span className="mt-1 block text-xs font-normal normal-case text-slateish-500">Pick the documents for this workflow; the system will not invent an authoritative baseline.</span>}
-            </label>
-
-            {/* Narrows what the run searches, never what may be read - see the
-                doc comment on TypeFilter. Rendered here (nothing, if the
-                vocabulary has not loaded) rather than hard-coding a type list:
-                a register with different types must not show a filter for
-                types it does not have. */}
-            <div aria-label="Search in">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slateish-400">
-                Search scope
-              </p>
-              <p className="mb-2 text-xs text-slateish-400">
-                Leave all filters clear to search across every indexed document.
-                Select a category only when you want to narrow the run.
-              </p>
-              <TypeFilter
-                vocabulary={typeVocabulary}
-                selected={selectedTypes}
-                onToggle={store.toggleType}
-                onClear={store.clearTypes}
-                applied={appliedScope}
-                label="Document categories"
-                layout="column"
-              />
-              {/* RULE 3, the other half: no server echo yet under the CURRENT
-                  ticks (before the first run, or after a retick) means no
-                  count - the pending sentence stands in for it instead of a
-                  stale or invented number. */}
-              {appliedScope === null && pendingFilterNotice(selectedTypes) !== null && (
-                <p className="mt-1 text-xs text-slateish-400">
-                  {pendingFilterNotice(selectedTypes)}
-                </p>
-              )}
-            </div>
-
-            <ModeSelector mode={mode} onChange={store.changeMode} toggles={toggles} onToggle={store.changeToggle} />
-          </div>
-
-          <div className="space-y-3">
-            <RunPlan mode={mode} engines={engines} />
-
-            {mode === "comprehensive" && (
-              <p className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-3 py-2 text-xs text-warn-500">
-                Persistent analysis jobs, streaming progress and cancellation are not exposed by
-                this backend yet. This frontend sends the available wider synchronous request and
-                labels that limitation.
-              </p>
-            )}
-
-            <button
-              type="button"
-              disabled={!canRun}
-              aria-busy={running}
-              onClick={() => void store.runAnalysis()}
-              className="w-full rounded-[var(--radius-sm)] border border-signal-500/70 bg-signal-500 px-4 py-2.5 text-sm font-semibold text-ink-950 shadow-[var(--shadow-raised)] motion-safe:transition-all hover:shadow-[var(--shadow-glow)] active:scale-[0.98] disabled:cursor-not-allowed disabled:border-ink-500 disabled:bg-ink-700 disabled:text-slateish-500 disabled:shadow-none"
-            >
-              {running ? "Running…" : "Run analysis"}
-            </button>
-
-            {/* Real elapsed time from the run's own start timestamp, and the
-                engines that have not answered - both facts the client holds.
-                No stage: the analysis routes take no progress_id and report
-                none, and a stage guessed from the clock would be wrong on
-                exactly the run where it mattered. */}
-            {running && (
-              <div
-                role="status"
-                aria-live="polite"
-                data-testid="analysis-run-status"
-                className="rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 p-3"
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  <p className="text-sm font-medium text-slateish-200">Working on this machine</p>
-                  <span
-                    data-testid="analysis-elapsed"
-                    className="shrink-0 font-mono text-sm tabular-nums text-slateish-300"
-                  >
-                    {elapsed}s
-                  </span>
-                </div>
-                {waitingOn.length > 0 && (
-                  <p className="mt-1.5 text-xs text-slateish-400">
-                    Still waiting on: {waitingOn.join(", ")}.
-                  </p>
-                )}
-                <p className="mt-1.5 text-xs text-slateish-500">
-                  Generation runs on this CPU and is not streamed; the backend reports no stage for
-                  analysis, so only the elapsed time is shown. Leaving this screen does not cancel
-                  the run - the result will be here when you come back.
-                </p>
-              </div>
-            )}
-
-            {baselineRefusal !== null && (
-              <p role="alert" className="rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
-                {baselineRefusal}
-              </p>
-            )}
-          </div>
-        </div>
-      </section>
-
+      <AnalysisHeader />\n\n      <AnalysisControls ctx={{ questionId, question, comparisonType, selectedTypes, appliedScope, typeVocabulary, mode, toggles, running, canRun, elapsed, waitingOn, baselineRefusal, store, engines }} />
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-6">
-          {summarySlot.s === "idle" && gapsSlot.s === "idle" && (
-            <EmptyState
-              title="Nothing has been run yet."
-              hint="Choose the sections you need, then run the selected analysis. The frontend will not silently change the selected mode."
-            />
-          )}
-
-          {engines.summary && hasBody(summarySlot) && (
-            <Section title="Summary" eyebrow="document-backed synthesis">
-              <SlotBody
-                slot={summarySlot}
-                loadingLabel="Generating the summary"
-                emptyTitle="No summary was produced for this question."
-                emptyHint={filteredEmptyHint(
-                  "Nothing the retrieval found could be summarised with a citation behind every sentence.",
-                )}
-                onRetry={retry}
-              >
-                {(d) => (
-                  <div className="space-y-3">
-                    {d.refusal !== null && (
-                      <p
-                        role="status"
-                        className="rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500"
-                      >
-                        {d.refusal}
-                      </p>
-                    )}
-                    <SummaryCard result={d.result} onCite={onCite} />
-                    <DroppedSentencesView dropped={d.dropped} />
-                  </div>
-                )}
-              </SlotBody>
-            </Section>
-          )}
-
-          {engines.recommendation && hasBody(recSlot) && (
-            <Section title="AI recommendation" eyebrow="advisory only">
-              <SlotBody
-                slot={recSlot}
-                loadingLabel="Computing the recommendation"
-                emptyTitle="No recommendation was generated."
-                emptyHint={filteredEmptyHint(
-                  "Nothing was produced that carried a citation, so there is nothing to advise on.",
-                )}
-                onRetry={retry}
-              >
-                {(d) => (
-                  <div className="space-y-3">
-                    {d.refusal && <p role="status" className="rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">{d.refusal}</p>}
-                    {d.recommendation && <RecommendationCard recommendation={d.recommendation} onCite={onCite} />}
-                  </div>
-                )}
-              </SlotBody>
-            </Section>
-          )}
-
-          {/* In Quote mode this is the ONLY section on the screen: quote turns
-              the summary, the recommendation and the market off, and gaps is
-              the one engine that needs no model - which is exactly what the
-              mode's own description promises. The eyebrow therefore names the
-              mode when quote is selected, so the reader can tell that Quote ran
-              and that what follows is its product, rather than reading a
-              generic "Gap analysis" heading and wondering where their output
-              went. The claim is honest either way: it describes the request
-              this screen actually issued. */}
-          {engines.gaps && hasBody(gapsSlot) && (
-            <Section
-              title="Gap analysis"
-              eyebrow={
-                mode === "quote"
-                  ? "quote mode — cited document evidence, no model"
-                  : "baseline-controlled"
-              }
-            >
-              <SlotBody
-                slot={gapsSlot}
-                loadingLabel="Comparing claims across documents"
-                emptyTitle="No comparable claims were found."
-                emptyHint={filteredEmptyHint(
-                  "Retrieval found nothing carrying a measurable claim with a page behind it. That is not proof the documents say nothing.",
-                )}
-                onRetry={retry}
-              >
-                {(d) => (
-                  <div className="space-y-3">
-                    {mode === "quote" && (
-                      <p className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300">
-                        Quote mode ran the mechanical comparison and nothing else. Everything
-                        below is document evidence with a page behind it — no model wrote any
-                        of it, and no summary or recommendation was requested.
-                      </p>
-                    )}
-                    <GapAnalysisCard
-                      gaps={d.gaps}
-                      documents={documents}
-                      onCite={onCite}
-                      onNominateBaseline={store.nominateBaseline}
-                      ledger={d.ledger}
-                      onCreateFinding={createReviewFinding}
-                      templates={reviewTemplates}
-                    />
-                    <ReviewWorkflowPanel findings={reviewFindings} documents={documents} onUpdate={updateReviewFinding} />
-                    {(mode === "quote" || (d.gaps.applicability === "applicable" && d.gaps.baseline !== null)) && (
-                      <ClaimTable
-                        clusters={d.clusters}
-                        onCite={onCite}
-                        selectedEvidenceId={selected}
-                      />
-                    )}
-                  </div>
-                )}
-              </SlotBody>
-            </Section>
-          )}
-
-          {engines.market && hasBody(marketSlot) && (
-            <Section title="Public market intelligence" eyebrow="isolated egress">
-              <SlotBody
-                slot={marketSlot}
-                loadingLabel="Loading the market sample"
-                emptyTitle="No market sample is loaded."
-                emptyHint="No market sample is loaded and no search has returned rows, so there is nothing to show, sample or otherwise."
-                onRetry={retry}
-              >
-                {(d) => (
-                  <div className="space-y-3">
-                    {/* What came back from the preview. Rendered so a reader
-                        SEES that nothing was sent rather than being told it
-                        in a tooltip. */}
-                    {queryOutcome && (
-                      <p
-                        role="status"
-                        className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300"
-                      >
-                        {queryOutcome}
-                      </p>
-                    )}
-                    {/* `d.egress` is the state the API MEASURED. The copy of
-                        this panel that used to render inside the AI
-                        recommendation section passed a hard-coded
-                        web_search_enabled/allow_public_egress pair of
-                        `false` instead - an egress claim the screen invented
-                        rather than read. */}
-                    <MarketPanel
-                      findings={d.findings}
-                      egress={d.egress}
-                      onPreviewQuery={previewQuery}
-                      pendingQuery={pendingQuery}
-                      onConfirmQuery={confirmQuery}
-                      onCancelQuery={cancelQuery}
-                    />
-                  </div>
-                )}
-              </SlotBody>
-            </Section>
-          )}
-
-          {(notImplemented.length > 0 || summarySlot.s === "ready" || gapsSlot.s === "ready") && (
-            <section aria-label="Not produced by this build" className="rounded-[var(--radius-md)] border border-dashed border-ink-600 p-4">
-              <h2 className="text-xs uppercase tracking-wide text-slateish-500">
-                Not produced by this build
-              </h2>
-              <ul className="mt-2 space-y-1 text-xs text-slateish-400">
-                {notImplemented.map((s) => (
-                  <li key={s}>{s}</li>
-                ))}
-                <li>{NOT_RENDERED_HERE}</li>
-              </ul>
-            </section>
-          )}
+          <AnalysisResultSections ctx={{
+            engines,
+            summarySlot,
+            gapsSlot,
+            recSlot,
+            marketSlot,
+            mode,
+            documents,
+            selected,
+            onCite,
+            retry,
+            filteredEmptyHint,
+            hasBody,
+            store,
+            createReviewFinding,
+            reviewTemplates,
+            reviewFindings,
+            updateReviewFinding,
+            queryOutcome,
+            previewQuery,
+            pendingQuery,
+            confirmQuery,
+            cancelQuery,
+            notImplemented,
+            sourcesRef,
+          }} />
         </div>
-
         <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
           <section className="surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
@@ -848,20 +537,7 @@ export function AnalysisModeScreen() {
             </ul>
           </section>
 
-          <div ref={sourcesRef} data-testid="analysis-sources-panel">
-            {selectedItem !== null ? (
-              <SelectedPassage item={selectedItem} />
-            ) : (
-              <section className="surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
-                  Sources
-                </h2>
-                <p className="mt-2 text-sm text-slateish-500">
-                  Select a citation or evidence row to inspect the exact passage here.
-                </p>
-              </section>
-            )}
-          </div>
+          <AnalysisSources selectedItem={selectedItem} sourcesRef={sourcesRef} />
         </aside>
       </div>
     </div>
