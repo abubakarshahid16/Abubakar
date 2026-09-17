@@ -1,33 +1,33 @@
-// @ts-nocheck
-import { analysis as analysisApi, isSignedIn, market as marketApi, reviews as reviewsApi } from "../../api/client";
+import { analysis as analysisApi, isSignedIn, market as marketApi } from "../../api/client";
 import type { AppliedScope, ClassificationScope } from "../../api/client";
-import type { AnalysisGapsResult, AnalysisRecommendationResult, AnalysisSummaryResult, ApiError, EvidenceItem, EgressState, MarketFinding } from "../../types/api";
+import type { AnalysisGapsResult, ComparisonType, EvidenceItem, EgressState, MarketFinding } from "../../types/api";
 import type { AnalysisResult, BaselineSelection, ClaimCluster, GapAnalysis, Recommendation } from "../../types/analysis";
 import type { AnalysisMode, AnalysisToggles } from "../../components/analysis/ModeSelector";
 import { citedFindings, citedSummary, enginesFor, locate, onlySamples, slotFrom, toAnalysisResult, toClaimClusters, toGapAnalysis, toGapItems, toRecommendation, str } from "./analysisModel";
+import type { Slot } from "./analysisModel";
 // ------------------------------------------------------------- what renders
 
-interface SummarySlotData {
+export interface SummarySlotData {
   result: AnalysisResult;
   refusal: string | null;
   dropped: { sentence: string; reason: string }[];
   ledger: EvidenceItem[];
 }
 
-interface GapsSlotData {
+export interface GapsSlotData {
   clusters: ClaimCluster[];
   gaps: GapAnalysis;
   ledger: EvidenceItem[];
 }
 
-interface RecommendationSlotData {
+export interface RecommendationSlotData {
   recommendation: Recommendation | null;
   refusal: string | null;
   findings: MarketFinding[];
   ledger: EvidenceItem[];
 }
 
-interface MarketSlotData {
+export interface MarketSlotData {
   notice: string;
   egress: EgressState;
   findings: MarketFinding[];
@@ -63,7 +63,7 @@ interface MarketSlotData {
 // arriving while the reader is on Documents lands here and is on screen when
 // they come back.
 
-interface ScreenState {
+export interface ScreenState {
   question: string;
   comparisonType: ComparisonType | "";
   mode: AnalysisMode;

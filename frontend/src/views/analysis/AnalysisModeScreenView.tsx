@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * The Analysis screen: pick a mode, run the engine that mode means, render the
  * result with the cards that already exist.
@@ -89,57 +88,10 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import {
-  analysis as analysisApi,
-  isSignedIn,
-  market as marketApi,
-  reviews as reviewsApi,
-  type AppliedScope,
-  type ClassificationScope,
-  type Result,
-} from "../../api/client";
-import { ClaimTable } from "../../components/analysis/ClaimTable";
-import { DroppedSentences as DroppedSentencesView } from "../../components/analysis/DroppedSentences";
-import { GapAnalysisCard } from "../../components/analysis/GapAnalysisCard";
-import { MarketPanel } from "../../components/analysis/MarketPanel";
-import {
-  ModeSelector,
-  type AnalysisMode,
-  type AnalysisToggles,
-} from "../../components/analysis/ModeSelector";
-import { RecommendationCard } from "../../components/analysis/RecommendationCard";
-import { ReviewWorkflowPanel } from "../../components/analysis/ReviewWorkflowPanel";
-import { SummaryCard } from "../../components/analysis/SummaryCard";
-import { DisconnectedState, EmptyState, ErrorState, Spinner } from "../../components/states";
-import {
-  TypeFilter,
-  pendingFilterNotice,
-  useTypeVocabulary,
-} from "../../components/classification/TypeFilter";
-import type {
-  AnalysisGapsResult,
-  AnalysisRecommendationResult,
-  AnalysisSummaryResult,
-  ApiError,
-  EgressState,
-  EvidenceItem,
-  MarketFinding,
-  ReviewFindingCreate,
-  ReviewFinding,
-  ReviewTemplate,
-  ComparisonType,
-} from "../../types/api";
-import type {
-  AnalysisResult,
-  BaselineSelection,
-  ClaimCluster,
-  ClaimRow,
-  DocumentedFinding,
-  GapAnalysis,
-  GapItem,
-  PublicMarketQuery,
-  Recommendation,
-} from "../../types/analysis";
+import { market as marketApi, reviews as reviewsApi } from "../../api/client";
+import { useTypeVocabulary } from "../../components/classification/TypeFilter";
+import type { EvidenceItem, ReviewFindingCreate, ReviewFinding, ReviewTemplate } from "../../types/api";
+import type { PublicMarketQuery } from "../../types/analysis";
 
 
 import * as model from "./analysisModel";
@@ -148,174 +100,9 @@ import { AnalysisResultSections } from "./AnalysisResultSections";
 import { AnalysisControls } from "./AnalysisControls";
 import { AnalysisHeader } from "./AnalysisHeader";
 import { AnalysisSources } from "./AnalysisSources";
-function Section({
-  title,
-  eyebrow,
-  children,
-}: {
-  title: string;
-  eyebrow?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section aria-label={title} className="space-y-2">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slateish-100">{title}</h2>
-        {eyebrow && (
-          <span className="text-xs uppercase tracking-wide text-slateish-500">
-            {eyebrow}
-          </span>
-        )}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function RunChip({ active, children }: { active: boolean; children: React.ReactNode }) {
-  return (
-    <span
-      className={[
-        "inline-flex items-center gap-1.5 rounded-[var(--radius-xs)] border px-2 py-1 text-xs",
-        active
-          ? "border-signal-500/50 bg-signal-500/10 text-signal-300"
-          : "border-ink-600 bg-ink-850 text-slateish-500",
-      ].join(" ")}
-    >
-      {children}
-      <span className="font-mono text-xs uppercase tracking-wide">
-        {active ? "On" : "Off"}
-      </span>
-    </span>
-  );
-}
-
-function RunPlan({
-  mode,
-  engines,
-}: {
-  mode: AnalysisMode;
-  engines: ReturnType<typeof enginesFor>;
-}) {
-  const modeText =
-    mode === "quote"
-      ? "Quote: mechanical evidence comparison"
-      : mode === "focused"
-        ? "Focused: generated synthesis over top passages"
-        : "Comprehensive: wider synthesis request";
-  return (
-    <section
-      aria-label="Selected analysis work"
-      className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-3"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
-          Selected work
-        </p>
-        <span className="text-xs text-slateish-500">{modeText}</span>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {engines.summary && <RunChip active>Summary</RunChip>}
-        {engines.recommendation && <RunChip active>AI recommendation</RunChip>}
-        {engines.gaps && <RunChip active>Gap analysis</RunChip>}
-        {engines.market && <RunChip active>Public market sample</RunChip>}
-        {!engines.summary && !engines.recommendation && !engines.market && (
-          <RunChip active={false}>Summary, recommendation and market</RunChip>
-        )}
-      </div>
-      <p className="mt-2 text-xs text-slateish-400">
-        Recommendation, gaps and public evidence stay separate. Review and approval by a
-        qualified engineer is required.
-      </p>
-    </section>
-  );
-}
-
-/**
- * Whether a slot has anything to put under a heading.
- *
- * `Section` draws an `<h2>` unconditionally; `SlotBody` returns null for `off`
- * and `idle`. Together they drew a heading over nothing, and the place it hurt
- * was Quote mode: Quote turns the summary, recommendation and market engines
- * OFF, so the only section it keeps is Gap analysis - and before a run that
- * section was a bare "Gap analysis / baseline-controlled" header with empty
- * space beneath it, sitting under "Nothing has been run yet". A reader who
- * selected Quote saw a heading, no content, and concluded Quote does nothing.
- *
- * A heading is a promise that something is under it. This is the guard that
- * keeps the promise: no slot state, no section. It is the same rule the rest of
- * this screen already follows - an absent thing is absent, not an empty box.
- */
-export function hasBody<T>(slot: Slot<T>): boolean {
+export function hasBody<T>(slot: model.Slot<T>): boolean {
   return slot.s !== "off" && slot.s !== "idle";
 }
-
-/**
- * The four states, rendered four ways. `off` is nothing at all - a section the
- * reader did not ask for is absent, not disabled and not empty.
- */
-function SlotBody<T>({
-  slot,
-  loadingLabel,
-  emptyTitle,
-  emptyHint,
-  onRetry,
-  children,
-}: {
-  slot: Slot<T>;
-  loadingLabel: string;
-  emptyTitle: string;
-  emptyHint: string;
-  onRetry: () => void;
-  children: (data: T) => React.ReactNode;
-}) {
-  if (slot.s === "off" || slot.s === "idle") return null;
-  if (slot.s === "loading") return <Spinner label={loadingLabel} />;
-  if (slot.s === "offline") return <DisconnectedState onRetry={onRetry} />;
-  if (slot.s === "failed") return <ErrorState error={slot.error} onRetry={onRetry} />;
-  if (slot.s === "empty") return <EmptyState title={emptyTitle} hint={emptyHint} />;
-  return <>{children(slot.data)}</>;
-}
-
-/**
- * What was removed from the generated summary, and why.
- *
- * THE DISCLOSURE IS THE POINT, so it may never be empty. A live run showed
- * "2 sentences were removed from this summary" over two bullets with no text
- * in them: the reader was told something had been hidden and then shown
- * nothing, which is worse than saying nothing at all. An empty bullet is a
- * null rendering as something, which rule 3 forbids.
- *
- * So: a bullet is rendered only for an entry that HAS the removed text. The
- * count in the summary line still counts every removal the API reported - the
- * honest number is the number removed, not the number this screen can show -
- * and any entry whose text did not come back is named in one line as exactly
- * that. No reason is ever invented, and a missing reason renders as nothing
- * rather than as a bare dash.
- */
-/** The passage behind a citation: a document, a page, and the words. Nothing
- *  on this screen cites anything that cannot be shown here. */
-function SelectedPassage({ item }: { item: EvidenceItem }) {
-  return (
-    <section
-      aria-label="Selected passage"
-      className="card-3d accent-edge relative surface-floating rounded-[var(--radius-md)] border border-signal-500/40 bg-ink-850 p-4"
-    >
-      <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-slateish-400">
-        <span className="font-medium text-slateish-200">{item.filename}</span>
-        <span>p.{item.page_start}</span>
-        {item.section !== null && <span>&sect; {item.section}</span>}
-      </div>
-      <blockquote className="document-quote mt-2 whitespace-pre-wrap border-l-2 border-signal-500/60 bg-ink-900 py-2 ps-4 pe-3 text-[14px] text-slateish-100">
-        {item.exact_span}
-      </blockquote>
-    </section>
-  );
-}
-
-const NOT_RENDERED_HERE =
-  "coverage ledger (none of these routes reports a coverage object, and the " +
-  "ledger cannot be drawn without inventing the document count it opens with)";
 
 export function AnalysisModeScreen() {
   const questionId = useId();
@@ -393,7 +180,7 @@ export function AnalysisModeScreen() {
     setReviewFindings((current) => [result.data, ...current.filter((item) => item.id !== result.data.id)]);
   }, []);
 
-  const updateReviewFinding = useCallback(async (id: string, update: import("../types/api").ReviewFindingUpdate) => {
+  const updateReviewFinding = useCallback(async (id: string, update: import("../../types/api").ReviewFindingUpdate) => {
     const result = await reviewsApi.update(id, update);
     if (!result.ok) throw new Error(result.error.message);
     setReviewFindings((current) => current.map((item) => item.id === id ? result.data : item));
@@ -521,7 +308,6 @@ export function AnalysisModeScreen() {
             confirmQuery,
             cancelQuery,
             notImplemented,
-            sourcesRef,
           }} />
         </div>
         <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">

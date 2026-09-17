@@ -1,10 +1,28 @@
-// @ts-nocheck
-import React from "react";
-import { ModeSelector } from "../../components/analysis/ModeSelector";
+import { ModeSelector, type AnalysisMode, type AnalysisToggles } from "../../components/analysis/ModeSelector";
 import { TypeFilter, pendingFilterNotice } from "../../components/classification/TypeFilter";
 import { RunPlan } from "./AnalysisRunPlan";
+import type { ComparisonType } from "../../types/api";
+import { enginesFor } from "./analysisModel";
 
-export function AnalysisControls({ ctx }: { ctx: any }) {
+interface ControlsContext {
+  questionId: string;
+  question: string;
+  comparisonType: ComparisonType | "";
+  selectedTypes: string[];
+  appliedScope: import("../../api/client").AppliedScope | null;
+  typeVocabulary: ReturnType<typeof import("../../components/classification/TypeFilter").useTypeVocabulary>;
+  mode: AnalysisMode;
+  toggles: AnalysisToggles;
+  running: boolean;
+  canRun: boolean;
+  elapsed: number;
+  waitingOn: string[];
+  baselineRefusal: string | null;
+  store: typeof import("./analysisStore");
+  engines: ReturnType<typeof enginesFor>;
+}
+
+export function AnalysisControls({ ctx }: { ctx: ControlsContext }) {
   const { questionId, question, comparisonType, selectedTypes, appliedScope, typeVocabulary,
     mode, toggles, running, canRun, elapsed, waitingOn, baselineRefusal, store, engines } = ctx;
   return <section aria-label="Analysis controls" className="card-3d surface-floating rounded-[var(--radius-lg)] border border-ink-600 bg-ink-800 p-4">
@@ -14,7 +32,7 @@ export function AnalysisControls({ ctx }: { ctx: any }) {
           <textarea id={questionId} rows={4} value={question} onChange={(e) => store.setQuestion(e.target.value)} placeholder="Example: What does PID mean in this control section?" className="mt-2 w-full resize-y rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-base text-slateish-100 placeholder:text-slateish-500" />
         </div>
         <label htmlFor="comparison-type" className="block text-xs font-semibold uppercase tracking-wide text-slateish-400">Comparison workflow
-          <select id="comparison-type" value={comparisonType} onChange={(e) => store.patch({ comparisonType: e.target.value })} className="mt-2 block w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal normal-case text-slateish-200">
+          <select id="comparison-type" value={comparisonType} onChange={(e) => store.patch({ comparisonType: e.target.value as ComparisonType | "" })} className="mt-2 block w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal normal-case text-slateish-200">
             <option value="">No named comparison</option><option value="baseline_vs_submittal">Baseline vs submittal</option><option value="requirements_vs_submittal">Requirements vs submittal</option><option value="revision_delta">Revision delta</option><option value="discipline_coordination">Discipline coordination</option>
           </select>
           {comparisonType && <span className="mt-1 block text-xs font-normal normal-case text-slateish-500">Pick the documents for this workflow; the system will not invent an authoritative baseline.</span>}
