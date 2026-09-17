@@ -296,6 +296,15 @@ export interface EscalationRule {
   enabled: boolean;
 }
 
+export type ComparisonType = "baseline_vs_submittal" | "requirements_vs_submittal" | "revision_delta" | "discipline_coordination";
+export interface ReviewBaselineRule { id: string; submittal_doc_type: string | null; submittal_discipline: string | null; baseline_doc_type: string; baseline_discipline: string | null; priority: number; active: boolean; created_at: string; }
+export interface BaselineSelection { document_id: string; rule_id: string | null; automatic: boolean; }
+export interface ExpectedDeliverable { id: string; wbs_code: string; deliverable_type: string; title: string; required: boolean; deliverable_id: string | null; status: DeliverableStatus | null; state: "registered" | "missing"; }
+export type RiskType = "schedule" | "review" | "dependency" | "compliance";
+export interface Risk { id: string; risk_type: RiskType; title: string; description: string; severity: string; status: string; deliverable_id: string | null; document_id: string | null; owner_user_id: string | null; due_date: string | null; source_finding_id: string | null; created_at: string; updated_at: string; }
+export interface StructuredSearchResult { id: string; kind: "deliverable" | "finding"; label: string; wbs_code: string | null; document_id: string | null; }
+export interface ReviewTraceability { finding: ReviewFinding; document: { id: string; filename: string }; baseline: { filename: string } | null; citations: string[]; events: ReviewFindingEvent[]; deliverables: Deliverable[]; }
+
 // ---------- jobs ----------
 
 export type JobStage = "extract" | "chunk" | "embed" | "index";
@@ -810,6 +819,8 @@ export interface AnalysisRecommendationResult {
 export interface AnalysisRequest {
   question: string;
   limit?: number;
+  comparison_type?: ComparisonType | null;
+  document_id?: string | null;
   /** The caller's choice of authoritative document. Never chosen by the
    *  system. */
   baseline_document_id?: string | null;

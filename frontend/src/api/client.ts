@@ -52,6 +52,13 @@ import type {
   DeliverableUpdate,
   ManagementSummary,
   EscalationRule,
+  ReviewBaselineRule,
+  BaselineSelection,
+  ExpectedDeliverable,
+  Risk,
+  RiskType,
+  StructuredSearchResult,
+  ReviewTraceability,
 } from "../types/api";
 
 /** The unauthenticated route, and the only one. It answers "is the service up"
@@ -277,6 +284,10 @@ export const reviews = {
     }),
   history: (id: string) =>
     request<{ events: ReviewFindingEvent[] }>(`/reviews/findings/${encodeURIComponent(id)}/history`),
+  traceability: (id: string) => request<ReviewTraceability>(`/reviews/findings/${encodeURIComponent(id)}/traceability`),
+  baselineRules: () => request<{ rules: ReviewBaselineRule[] }>("/reviews/baseline-rules"),
+  createBaselineRule: (body: Partial<ReviewBaselineRule>) => request<ReviewBaselineRule>("/reviews/baseline-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  baselineSelection: (documentId: string) => request<BaselineSelection | null>(`/reviews/baseline-selection/${encodeURIComponent(documentId)}`),
 };
 
 export const deliverables = {
@@ -287,7 +298,16 @@ export const deliverables = {
   stakeholders: (id: string) => request<{ stakeholders: import("../types/api").DeliverableStakeholder[] }>(`/deliverables/${encodeURIComponent(id)}/stakeholders`),
   replaceStakeholders: (id: string, assignments: import("../types/api").DeliverableStakeholderAssignment[]) => request<{ stakeholders: import("../types/api").DeliverableStakeholder[] }>(`/deliverables/${encodeURIComponent(id)}/stakeholders`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assignments }) }),
   workspace: (id: string) => request<import("../types/api").WbsWorkspace>(`/deliverables/${encodeURIComponent(id)}/workspace`),
+  expected: (wbsCode?: string) => request<{ deliverables: ExpectedDeliverable[] }>(`/deliverables/expected${wbsCode ? `?wbs_code=${encodeURIComponent(wbsCode)}` : ""}`),
 };
+
+export const risks = {
+  list: (riskType?: RiskType) => request<{ risks: Risk[] }>(`/risks${riskType ? `?risk_type=${encodeURIComponent(riskType)}` : ""}`),
+  create: (body: Partial<Risk> & { risk_type: RiskType; title: string; description: string }) => request<Risk>("/risks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+};
+
+export const structuredSearch = (query: string, kind?: "deliverable" | "finding") =>
+  request<{ results: StructuredSearchResult[] }>(`/search/structured?q=${encodeURIComponent(query)}${kind ? `&kind=${kind}` : ""}`);
 
 // The market preview/search contract now lives in contracts/types.ts, which
 // this file's own header calls the single source of truth. It was declared
@@ -773,6 +793,7 @@ export const api = {
 
 export const management = {
   summary: () => request<ManagementSummary>("/management/summary"),
+  emailSummary: () => request<{ sent: boolean }>("/management/summary/email", { method: "POST" }),
   escalationRules: () => request<{ rules: EscalationRule[] }>("/management/escalation-rules"),
   updateEscalationRule: (level: number, body: Partial<EscalationRule>) =>
     request<EscalationRule>(`/management/escalation-rules/${level}`, {

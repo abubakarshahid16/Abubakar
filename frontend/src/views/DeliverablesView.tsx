@@ -15,17 +15,19 @@ export function DeliverablesView() {
   const [stakeholders, setStakeholders] = useState<Record<string, DeliverableStakeholder[]>>({});
   const [selected, setSelected] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<import("../types/api").WbsWorkspace | null>(null);
+  const [expected, setExpected] = useState<import("../types/api").ExpectedDeliverable[]>([]);
   const [stakeholderUser, setStakeholderUser] = useState("");
   const [stakeholderRole, setStakeholderRole] = useState<StakeholderRole>("reviewer");
   const [form, setForm] = useState<DeliverableCreate>({ wbs_code: "1.0", title: "", deliverable_type: "Engineering submittal", due_date: "" });
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    const [list, alertResult, ruleResult] = await Promise.all([deliverablesApi.list(), deliverablesApi.alerts(), management.escalationRules()]);
+    const [list, alertResult, ruleResult, expectedResult] = await Promise.all([deliverablesApi.list(), deliverablesApi.alerts(), management.escalationRules(), deliverablesApi.expected()]);
     if (!list.ok) { setError(list.error.message); setLoading(false); return; }
     setItems(list.data.deliverables);
     if (alertResult.ok) setAlerts(alertResult.data.alerts);
     if (ruleResult.ok) setRules(ruleResult.data.rules);
+    if (expectedResult.ok) setExpected(expectedResult.data.deliverables);
     setLoading(false);
   }, []);
 
@@ -92,6 +94,14 @@ export function DeliverablesView() {
       <section className="mt-5 overflow-hidden rounded-[var(--radius-md)] border border-ink-600 bg-ink-850">
         <div className="border-b border-ink-700 px-4 py-3"><h2 className="text-sm font-semibold text-slateish-200">WBS register</h2></div>
         {loading ? <p className="p-4 text-sm text-slateish-500">Loading deliverables…</p> : items.length === 0 ? <p className="p-4 text-sm text-slateish-500">No deliverables have been registered yet.</p> : <div className="divide-y divide-ink-700/70">{items.map((item) => <div key={item.id} className="px-4 py-3"><div className="grid gap-2 md:grid-cols-[100px_1fr_150px_130px_150px_auto] md:items-center"><span className="font-mono text-xs text-signal-400">{item.wbs_code}</span><div><p className="text-sm text-slateish-200">{item.title}</p><p className="text-xs text-slateish-500">{item.deliverable_type} · revision {item.revision}</p></div><span className="text-xs text-slateish-400">Due {item.due_date || "not set"}</span><span className="text-xs text-slateish-400">{item.status.replaceAll("_", " ")}</span><select value={item.status} onChange={(e) => void changeStatus(item, e.target.value as DeliverableStatus)} aria-label={`Status for ${item.title}`} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">{statuses.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select><button type="button" onClick={() => void showStakeholders(item)} className="text-xs text-signal-400 hover:underline">Stakeholders</button></div>{selected === item.id && <div className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-900/60 px-3 py-2 text-xs text-slateish-400">{(stakeholders[item.id] ?? []).length === 0 ? "No stakeholders assigned." : <div className="flex flex-wrap gap-2">{stakeholders[item.id].map((person) => <span key={`${person.user_id}-${person.role}`} className="rounded-full bg-ink-700 px-2 py-1"><strong className="text-signal-300">{person.role}</strong> · {person.display_name || person.email}</span>)}</div>}</div>}</div>)}</div>}
+      </section>
+
+      <section aria-label="Expected deliverables" className="mt-5 overflow-hidden rounded-[var(--radius-md)] border border-ink-600 bg-ink-850">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-700 px-4 py-3">
+          <div><h2 className="text-sm font-semibold text-slateish-200">Expected deliverables</h2><p className="mt-1 text-xs text-slateish-500">Requirement-linked expectations compared with the WBS register.</p></div>
+          <span className="text-[11px] uppercase tracking-wide text-signal-400">{expected.filter((item) => item.state === "missing").length} missing</span>
+        </div>
+        {expected.length === 0 ? <p className="p-4 text-sm text-slateish-500">No expectations are configured or inferred yet.</p> : <div className="divide-y divide-ink-700/70">{expected.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><div><p className="text-sm text-slateish-200">{item.title}</p><p className="text-xs text-slateish-500">WBS {item.wbs_code} · {item.deliverable_type}</p></div><span className={`rounded-full px-2 py-1 text-xs ${item.state === "missing" ? "bg-warn-500/15 text-warn-500" : "bg-signal-500/15 text-signal-300"}`}>{item.state}</span></div>)}</div>}
       </section>
 
       <section className="mt-5 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
