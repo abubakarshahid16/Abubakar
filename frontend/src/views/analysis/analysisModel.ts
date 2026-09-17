@@ -350,6 +350,7 @@ export function toAnalysisResult(
     summary_cited_evidence_ids: Array.isArray(r.summary_cited_evidence_ids)
       ? r.summary_cited_evidence_ids
       : [],
+    evidence_removed: Array.isArray(r.evidence_removed) ? r.evidence_removed : [],
     claim_clusters: [],
     gaps: { applicability: "not_applicable", baseline: null, items: [] },
     public_market_findings: [],

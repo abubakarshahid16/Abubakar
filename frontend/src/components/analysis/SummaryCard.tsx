@@ -211,6 +211,22 @@ export function SummaryCard({
               more to say. The passages it cites are complete; open them for the rest.
             </p>
           )}
+          {(result.evidence_removed ?? []).length > 0 && (
+            <div role="status" className="mt-2 rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
+              <p>
+                {(result.evidence_removed ?? []).length === 1
+                  ? "One source was shortened or left out before the summary was written."
+                  : `${(result.evidence_removed ?? []).length} sources were shortened or left out before the summary was written.`}
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {(result.evidence_removed ?? []).map((item) => (
+                  <li key={`${item.index}-${item.filename ?? "source"}`}>
+                    {item.filename ?? "A source"}{item.page_start !== null ? ` · page ${item.page_start}` : ""} — {item.action === "dropped" ? "not used" : `${item.characters_dropped.toLocaleString()} characters omitted`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </>
       ) : (
         <p id="summary-card-heading" className="sr-only">
