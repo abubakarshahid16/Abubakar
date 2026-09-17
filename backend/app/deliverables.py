@@ -10,6 +10,7 @@ import fitz
 
 from .db import connect
 from .config import settings
+from . import notifications
 
 
 def _now() -> str:
@@ -200,12 +201,21 @@ def reminder_events(*, allowed_document_ids: frozenset[str] | None = None) -> li
         if rule is None:
             continue
         with conn:
-            conn.execute(
+            inserted = conn.execute(
                 """INSERT OR IGNORE INTO reminder_events
                    (id, deliverable_id, level, due_date, recipient_role, created_at)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (str(uuid.uuid4()), alert["deliverable_id"], alert["escalation_level"],
                  alert["due_date"], rule["recipient_role"], now),
+            ).rowcount
+        if inserted:
+            notifications.send_email(
+                subject=f"EPC deliverable escalation level {alert['escalation_level']}",
+                body=(f"Deliverable {alert['wbs_code']} is {alert['days_overdue']} "
+                      f"day(s) overdue. Recipient role: {rule['recipient_role']}."),
+                trigger=("overdue_deliverable" if alert["days_overdue"] == 0
+                         else "escalation_level_change"),
+                resource_type="deliverable", resource_id=alert["deliverable_id"],
             )
     allowed_ids = {item["id"] for item in items}
     rows = connect().execute(

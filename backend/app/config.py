@@ -19,6 +19,10 @@ class ModelHostRefused(RuntimeError):
     """
 
 
+class NotificationConfigError(RuntimeError):
+    """SMTP notifications were enabled without a complete configuration."""
+
+
 #: Host names that mean "this machine" without being an IP literal.
 #: `localhost` only. NOT any name a resolver happens to point at 127.0.0.1: a
 #: DNS name is somebody else's to change, and a check that trusts resolution
@@ -657,6 +661,20 @@ class Settings(BaseSettings):
     #: them is both rude and a fast route to being blocked.
     market_tier_min_interval_seconds: float = 1.0
 
+    # ------------------------------------------------------------- notifications
+    # Disabled by default: the local-only product must not open an SMTP
+    # connection merely because a reminder was calculated. When enabled, the
+    # validator below requires an explicit server, sender and recipient.
+    smtp_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_recipient: str = ""
+    smtp_starttls: bool = True
+    smtp_timeout_seconds: float = 10.0
+
     @model_validator(mode="after")
     def _refuse_a_non_local_answer_model(self) -> "Settings":
         """The process refuses to start on a misconfigured model host.
@@ -680,6 +698,29 @@ class Settings(BaseSettings):
             allow_remote=self.answer_model_allow_remote_host,
             allowed_hosts=self.answer_model_allowed_hosts,
         )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_smtp_notifications(self) -> "Settings":
+        """Fail closed when outbound notifications are explicitly enabled."""
+        if not self.smtp_enabled:
+            return self
+        missing = [name for name, value in (
+            ("SMTP_HOST", self.smtp_host),
+            ("SMTP_FROM", self.smtp_from),
+            ("SMTP_RECIPIENT", self.smtp_recipient),
+        ) if not str(value).strip()]
+        if missing:
+            raise NotificationConfigError(
+                "SMTP notifications are enabled but missing: "
+                + ", ".join(missing))
+        if not 1 <= self.smtp_port <= 65535:
+            raise NotificationConfigError("SMTP_PORT must be between 1 and 65535")
+        if bool(self.smtp_username) != bool(self.smtp_password):
+            raise NotificationConfigError(
+                "SMTP_USERNAME and SMTP_PASSWORD must be provided together")
+        if self.smtp_timeout_seconds <= 0:
+            raise NotificationConfigError("SMTP_TIMEOUT_SECONDS must be positive")
         return self
 
     def ensure_dirs(self) -> None:

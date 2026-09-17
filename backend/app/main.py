@@ -41,6 +41,7 @@ from . import progress as progress_mod
 from . import reports as reports_mod
 from . import review as review_mod
 from . import deliverables as deliverables_mod
+from . import notifications as notifications_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -1320,6 +1321,19 @@ def management_summary(scope: access.AccessScope = Depends(access.current_scope)
             "review_findings_total": len(findings), "findings_by_severity": by_severity,
             "findings_by_status": by_review_status, "escalated_findings": escalated,
             "overdue_alerts": len(alerts), "alerts": alerts}
+
+
+@app.post("/api/management/summary/email", response_model=dict,
+          responses=schemas.ERRORS_401)
+def email_management_summary(scope: access.AccessScope = Depends(access.current_scope)):
+    _require_identity_to_write(scope)
+    items = deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)
+    alerts = deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)
+    findings = review_mod.list_findings(allowed_document_ids=scope.allowed_document_ids)
+    summary = {"deliverables_total": len(items), "overdue_alerts": len(alerts),
+               "escalated_findings": sum(1 for item in findings if item["escalation_level"] > 0)}
+    sent = notifications_mod.send_daily_summary(summary, actor_user_id=scope.user_id)
+    return {"sent": sent}
 
 
 @app.get("/api/management/escalation-rules", response_model=schemas.EscalationRuleList)
