@@ -654,12 +654,22 @@ def answer(
     # the evidence the answer is supposed to be grounded in.
     # Numeric table lookups are unusually expensive for the local model:
     # digit-heavy OCR tokenises almost one character at a time.  Once the
-    # decimal row key has been promoted by retrieval, the first two pages are
-    # sufficient evidence and keeping a third near-duplicate can push the
-    # prompt over the practical context budget (or make generation appear to
-    # hang).  Keep the normal multi-source behaviour for prose questions.
+    # decimal row key has been promoted by retrieval, the lead page is usually
+    # sufficient evidence; keeping another digit-heavy near-duplicate can
+    # push the prompt over the practical context budget (or make generation
+    # appear to hang). Keep the normal multi-source behaviour for prose.
     decimal_lookup = bool(re.search(r"(?<![\w.])\d+\.\d+(?![\w.])", question))
-    passage_limit = min(limit, 2) if decimal_lookup else limit
+    passage_limit = limit
+    if decimal_lookup:
+        # Retrieval promotes the page containing the requested decimal. If
+        # that lead passage contains the row key, it is sufficient evidence
+        # on its own and avoids feeding a second digit-heavy OCR page to the
+        # local model. Keep a second page only when the lead page lacks it.
+        target = re.search(r"(?<![\w.])\d+\.\d+(?![\w.])", question).group(0)
+        lead_text = hits[0].get("text", "") if hits else ""
+        passage_limit = 1 if re.search(
+            r"(?<![\w.])" + re.escape(target) + r"(?![\w.])", lead_text
+        ) else min(limit, 2)
     passages = [
         _passage_payload(h, question, budget=settings.generated_context_chars)
         for h in hits[:passage_limit]
