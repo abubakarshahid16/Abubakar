@@ -82,3 +82,21 @@ def test_review_templates_are_versioned_and_filterable():
     assert templates[-1]["id"] == first["id"]
     assert second["active"] is True
     assert templates[-1]["governing_sources"] == ["Project specification §01 33 00"]
+
+
+def test_finding_inherits_governing_sources_from_selected_template():
+    template = review.create_template(
+        {"name": "Electrical submittal", "version": "1.0",
+         "governing_sources": ["IEC 60364", "Project specification §26 05 00"]},
+        created_by="admin-1",
+    )
+    _document()
+    finding = review.create(
+        {"document_id": "doc-1", "template_id": template["id"],
+         "category": "requirement_deviation", "severity": "major",
+         "requirement": "Use approved cable type", "finding": "Cable type is not stated",
+         "required_action": "Confirm cable schedule"},
+        created_by="engineer-1",
+    )
+    assert finding["template_id"] == template["id"]
+    assert finding["governing_sources"] == ["IEC 60364", "Project specification §26 05 00"]

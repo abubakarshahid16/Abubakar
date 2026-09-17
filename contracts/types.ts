@@ -133,11 +133,13 @@ export interface ReviewFinding {
   id: string;
   document_id: string;
   baseline_document_id: string | null;
+  template_id: string | null;
   category: ReviewCategory;
   severity: ReviewSeverity;
   requirement: string;
   finding: string;
   required_action: string;
+  governing_sources: string[];
   response_text: string | null;
   disposition: ReviewDisposition | null;
   citation_ids: string[];
@@ -165,11 +167,13 @@ export interface ReviewFindingEvent {
 export interface ReviewFindingCreate {
   document_id: string;
   baseline_document_id?: string | null;
+  template_id?: string | null;
   category: ReviewCategory;
   severity: ReviewSeverity;
   requirement: string;
   finding: string;
   required_action: string;
+  governing_sources?: string[];
   response_text?: string | null;
   disposition?: ReviewDisposition | null;
   citation_ids?: string[];

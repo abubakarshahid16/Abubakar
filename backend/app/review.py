@@ -47,11 +47,13 @@ def ensure_schema() -> None:
                 id TEXT PRIMARY KEY,
                 document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
                 baseline_document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+                template_id TEXT REFERENCES review_templates(id) ON DELETE SET NULL,
                 category TEXT NOT NULL,
                 severity TEXT NOT NULL,
                 requirement TEXT NOT NULL,
                 finding TEXT NOT NULL,
                 required_action TEXT NOT NULL,
+                governing_sources TEXT NOT NULL DEFAULT '[]',
                 response_text TEXT,
                 disposition TEXT,
                 citation_ids TEXT NOT NULL DEFAULT '[]',
@@ -69,6 +71,8 @@ def ensure_schema() -> None:
         )
         columns = {row[1] for row in conn.execute("PRAGMA table_info(review_findings)")}
         for name, definition in {
+            "template_id": "TEXT",
+            "governing_sources": "TEXT NOT NULL DEFAULT '[]'",
             "response_text": "TEXT",
             "disposition": "TEXT",
             "approved_by": "TEXT",
@@ -100,6 +104,10 @@ def _row(row) -> dict:
         result["citation_ids"] = json.loads(result.get("citation_ids") or "[]")
     except (TypeError, ValueError):
         result["citation_ids"] = []
+    try:
+        result["governing_sources"] = json.loads(result.get("governing_sources") or "[]")
+    except (TypeError, ValueError):
+        result["governing_sources"] = []
     return result
 
 
@@ -179,19 +187,31 @@ def create(payload: dict, *, created_by: str | None) -> dict:
     ensure_schema()
     now = _now()
     finding_id = str(uuid.uuid4())
+    governing_sources = list(payload.get("governing_sources", []))
+    template_id = payload.get("template_id")
+    if template_id and not governing_sources:
+        template = connect().execute(
+            "SELECT governing_sources FROM review_templates WHERE id = ? AND active = 1",
+            (template_id,),
+        ).fetchone()
+        if template:
+            try:
+                governing_sources = json.loads(template["governing_sources"] or "[]")
+            except (TypeError, ValueError):
+                governing_sources = []
     conn = connect()
     with conn:
         conn.execute(
             """INSERT INTO review_findings
-               (id, document_id, baseline_document_id, category, severity,
-               requirement, finding, required_action, response_text, disposition, citation_ids,
+               (id, document_id, baseline_document_id, template_id, category, severity,
+               requirement, finding, required_action, governing_sources, response_text, disposition, citation_ids,
                owner_user_id, due_date, status, approval_status, approved_by, approved_at,
                escalation_level, created_by, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                finding_id, payload["document_id"], payload.get("baseline_document_id"),
+                finding_id, payload["document_id"], payload.get("baseline_document_id"), template_id,
                 payload["category"], payload["severity"], payload["requirement"],
-                payload["finding"], payload["required_action"],
+                payload["finding"], payload["required_action"], json.dumps(governing_sources),
                 payload.get("response_text"), payload.get("disposition"),
                 json.dumps(payload.get("citation_ids", [])), payload.get("owner_user_id"),
                 payload.get("due_date"), payload.get("status", "open"),
