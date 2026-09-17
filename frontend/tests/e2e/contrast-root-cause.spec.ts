@@ -8,7 +8,10 @@ const themes = ["light", "dark"] as const;
 const outputPath = path.resolve("..", "docs", "ui-redesign", process.env.CONTRAST_OUTPUT ?? "contrast-root-cause.json");
 
 async function openView(page: Page, view: string) {
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded", timeout: 30_000 });
+  if (await page.getByRole("heading", { name: "Sign in" }).isVisible().catch(() => false)) {
+    throw new Error("Contrast audit requires an authenticated session; the app is showing Sign in. Start the audit backend with AUTH_MODE=disabled or provide an authenticated Playwright storage state.");
+  }
   await expect(page.getByText("Connected", { exact: true })).toBeVisible({ timeout: 15_000 });
   if (view !== "Documents") await page.getByRole("button", { name: new RegExp(`^${view}\\b`) }).click();
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15_000 });
