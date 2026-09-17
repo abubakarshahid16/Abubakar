@@ -238,7 +238,7 @@
 /* One focus treatment for keyboard users, including controls that previously
    had no bespoke focus-visible class. Both theme focus tokens clear 3:1. */
 :where(button, a, input, select, textarea, [role="button"]):focus-visible {
-  outline: 3px solid var(--focus);
+  outline: 3px solid var(--focus) !important;
   outline-offset: 2px;
 }
 
