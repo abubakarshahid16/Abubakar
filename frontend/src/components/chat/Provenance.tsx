@@ -14,7 +14,10 @@
  * `provenance.enumerated.test.tsx` walks the source for every component that
  * renders a passage and fails until each one complies.
  */
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AnswerPassage } from "../../types/api";
+
+export type ProvenanceSource = Pick<AnswerPassage, "text_source" | "ocr_min_conf" | "ocr_alphabet_violations"> & { ocr_alphabet_sample?: string | null };
 
 /** The wording that may ONLY appear over text from the PDF's own text layer. */
 export const VERBATIM_STRINGS = [
@@ -23,14 +26,14 @@ export const VERBATIM_STRINGS = [
 ] as const;
 
 /** Read off a page image rather than out of the text layer. */
-export function isRecognised(p: AnswerPassage | null | undefined): boolean {
+export function isRecognised(p: ProvenanceSource | null | undefined): boolean {
   return p?.text_source === "recognised";
 }
 
 /** A recognised passage whose recogniser emitted characters the document's
  *  script cannot contain. PROOF of a substitution, not an opinion about one:
  *  two passages can both sit at 0.95 confidence and one of them contains 凤. */
-export function hasAlphabetViolation(p: AnswerPassage | null | undefined): boolean {
+export function hasAlphabetViolation(p: ProvenanceSource | null | undefined): boolean {
   return isRecognised(p) && (p?.ocr_alphabet_violations ?? 0) > 0;
 }
 
@@ -47,7 +50,7 @@ export function ProvenanceMark({
   passage,
   variant = "short",
 }: {
-  passage: AnswerPassage;
+  passage: ProvenanceSource;
   variant?: "full" | "short";
 }) {
   if (!isRecognised(passage)) return null;
@@ -95,7 +98,7 @@ export function ProvenanceMark({
  * is the model's opinion of itself; an alphabet violation is proof. Two
  * passages can both sit at 0.95 and one of them contains a CJK ideograph.
  */
-export function OcrConfidence({ passage }: { passage: AnswerPassage }) {
+export function OcrConfidence({ passage }: { passage: ProvenanceSource }) {
   if (!isRecognised(passage) || passage.ocr_min_conf == null) return null;
   return (
     <span
@@ -103,6 +106,57 @@ export function OcrConfidence({ passage }: { passage: AnswerPassage }) {
       title="Lowest OCR confidence across this passage. No pass/fail threshold is set - this is the measurement, not a verdict."
     >
       OCR confidence {passage.ocr_min_conf.toFixed(2)}
+    </span>
+  );
+}
+
+/** A plain-language provenance label used anywhere a reader inspects a source. */
+export function provenanceLabel(passage: ProvenanceSource): string {
+  if (isRecognised(passage)) {
+    return passage.ocr_min_conf == null
+      ? "Read by OCR"
+      : `Read by OCR, lowest confidence ${passage.ocr_min_conf.toFixed(2)}`;
+  }
+  return "Verbatim from PDF";
+}
+
+/** Keyboard-accessible source inspection without inventing a second evidence model. */
+export function CitationInspector({ passage, children }: { passage: AnswerPassage; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        trigger.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+  return (
+    <span className="relative inline-flex max-w-full flex-wrap items-center">
+      <button
+        ref={trigger}
+        type="button"
+        aria-expanded={open}
+        aria-label={`Inspect citation for ${passage.filename}, page ${passage.page_start}`}
+        onClick={() => setOpen((value) => !value)}
+        className="rounded-[var(--radius-xs)] text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
+      >
+        {children}
+      </button>
+      {open && (
+        <span role="dialog" aria-label="Citation details" className="absolute start-0 top-full z-30 mt-2 w-[min(28rem,calc(100vw-2rem))] rounded-[var(--radius-sm)] border border-signal-500/40 bg-ink-900 p-3 text-left shadow-[var(--shadow-floating)]">
+          <span className="block text-xs font-semibold text-slateish-100">{provenanceLabel(passage)}</span>
+          <span className="mt-1 block text-xs text-slateish-400">
+            {passage.filename} · {passage.page_start === passage.page_end ? `page ${passage.page_start}` : `pages ${passage.page_start}–${passage.page_end}`}
+            {passage.section ? ` · section ${passage.section}` : ""}
+          </span>
+          <span className="mt-2 block max-h-32 overflow-auto whitespace-pre-wrap border-l-2 border-signal-500/50 ps-2 text-xs text-slateish-200">{passage.text}</span>
+        </span>
+      )}
     </span>
   );
 }

@@ -8,10 +8,11 @@
  */
 
 import { api } from "../../api/client";
-import { clauseLabel, OcrConfidence, ProvenanceMark } from "./Provenance";
+import { clauseLabel, CitationInspector, OcrConfidence, ProvenanceMark } from "./Provenance";
 import type { AnswerPassage } from "../../types/api";
 import { Spinner } from "../states";
 import { useAuthedImage } from "../useAuthedImage";
+import { useEffect, useRef, useState } from "react";
 
 /** Exported because the answer card needs it too.
  *
@@ -70,7 +71,8 @@ export function Citation({ passage }: { passage: AnswerPassage }) {
   // printed, saying it of one document would imply the others had one shown.
   const clause = clauseLabel(passage);
   return (
-    <cite className="text-[13px] not-italic leading-relaxed text-slateish-300">
+    <CitationInspector passage={passage}>
+      <cite className="text-[13px] not-italic leading-relaxed text-slateish-300">
       <span className="font-medium">{passage.filename}</span>
       {clause && (
         <>
@@ -92,7 +94,8 @@ export function Citation({ passage }: { passage: AnswerPassage }) {
           <OcrConfidence passage={passage} />
         </>
       )}
-    </cite>
+      </cite>
+    </CitationInspector>
   );
 }
 
@@ -140,6 +143,24 @@ export function EvidencePanel({
   question?: string;
 }) {
   const passage = passages[selected];
+  const [width, setWidth] = useState(() => {
+    const stored = Number(window.localStorage.getItem("evidence-panel-width"));
+    return Number.isFinite(stored) && stored >= 320 && stored <= 640 ? stored : 352;
+  });
+  const resizing = useRef(false);
+  useEffect(() => {
+    window.localStorage.setItem("evidence-panel-width", String(width));
+  }, [width]);
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      if (!resizing.current) return;
+      setWidth(Math.max(320, Math.min(640, window.innerWidth - event.clientX)));
+    };
+    const stop = () => { resizing.current = false; };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); };
+  }, []);
 
   // The box is only requested when there IS an answering span to box, so an
   // unboxed page never leaves the reader wondering whether the answer is on it.
@@ -163,9 +184,11 @@ export function EvidencePanel({
   return (
     <aside
       aria-label="Evidence"
-      className="card-3d surface-card flex h-full min-h-0 w-full flex-col border-ink-700 bg-ink-850/90 backdrop-blur-xl lg:w-80 xl:w-[22rem] lg:shrink-0 lg:border-l"
+      className="card-3d surface-card relative flex h-full min-h-0 w-full flex-col border-ink-700 bg-ink-850/90 backdrop-blur-xl lg:w-[var(--evidence-width)] lg:shrink-0 lg:border-l"
+      style={{ "--evidence-width": `${width}px` } as React.CSSProperties}
     >
-      <div className="flex items-start justify-between gap-2 border-b border-ink-700 px-4 py-3">
+      <div className="absolute -start-1 top-0 hidden h-full w-2 cursor-col-resize lg:block" role="separator" aria-label="Resize evidence panel" aria-orientation="vertical" tabIndex={0} onPointerDown={() => { resizing.current = true; }} onKeyDown={(event) => { if (event.key === "ArrowLeft") setWidth((value) => Math.min(640, value + 16)); if (event.key === "ArrowRight") setWidth((value) => Math.max(320, value - 16)); }} />
+      <div className="flex items-start justify-between gap-2 border-b border-ink-700 px-4 py-3 lg:w-[var(--evidence-width)]">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-slateish-200">Evidence</h2>
           <p className="mt-0.5 text-xs text-slateish-400">
@@ -183,7 +206,7 @@ export function EvidencePanel({
       </div>
 
       {passages.length > 1 && (
-        <div role="group" aria-label="Sources" className="flex flex-wrap gap-1.5 px-4 pt-3">
+        <div role="group" aria-label="Sources" className="flex flex-wrap gap-1.5 px-4 pt-3 lg:w-[var(--evidence-width)]">
           {passages.map((p, i) => (
             <button
               key={p.chunk_id}
@@ -203,7 +226,7 @@ export function EvidencePanel({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 lg:w-[var(--evidence-width)]">
         <Citation passage={passage} />
 
         <h3 className="mt-4 text-xs uppercase tracking-wide text-slateish-400">
