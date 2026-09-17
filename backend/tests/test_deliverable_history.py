@@ -39,3 +39,20 @@ def test_overdue_deliverable_creates_acknowledgeable_reminder():
     assert acknowledged is not None
     assert acknowledged["status"] == "acknowledged"
     assert acknowledged["acknowledged_at"] is not None
+
+
+def test_management_report_exports_operational_summary_pdf():
+    deliverables.create(
+        {"wbs_code": "3.1", "title": "Late management item", "deliverable_type": "report",
+         "due_date": "2020-01-01", "status": "under_review"}, created_by="owner-1",
+    )
+    path = deliverables.render_management_report()
+    try:
+        pdf = __import__("fitz").open(str(path))
+        text = "\n".join(page.get_text() for page in pdf)
+        pdf.close()
+        assert "EPC MANAGEMENT REPORT" in text
+        assert "Late management item" in text
+        assert "Overdue alerts: 1" in text
+    finally:
+        path.unlink(missing_ok=True)

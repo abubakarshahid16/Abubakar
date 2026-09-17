@@ -4,8 +4,12 @@ from __future__ import annotations
 import uuid
 import json
 from datetime import datetime, timezone
+from pathlib import Path
+
+import fitz
 
 from .db import connect
+from .config import settings
 
 
 def _now() -> str:
@@ -217,3 +221,40 @@ def acknowledge_reminder(reminder_id: str) -> dict | None:
         conn.execute("UPDATE reminder_events SET status = 'acknowledged', acknowledged_at = ? WHERE id = ?", (now, reminder_id))
     row = connect().execute("SELECT * FROM reminder_events WHERE id = ?", (reminder_id,)).fetchone()
     return dict(row) if row else None
+
+
+def render_management_report(*, allowed_document_ids: frozenset[str] | None = None) -> Path:
+    """Export current WBS, overdue, and reminder controls as a PDF."""
+    items = list_items(allowed_document_ids=allowed_document_ids)
+    alerts_now = alerts(allowed_document_ids=allowed_document_ids)
+    reminders = reminder_events(allowed_document_ids=allowed_document_ids)
+    report_dir = settings.data_dir / "management_reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    path = report_dir / f"management-report-{uuid.uuid4()}.pdf"
+    pdf = fitz.open()
+    page = pdf.new_page()
+    page.insert_text((48, 52), "EPC MANAGEMENT REPORT", fontsize=18, fontname="hebo", color=(0.07, 0.23, 0.32))
+    page.insert_text((48, 74), f"Generated: {_now()}", fontsize=9, fontname="helv", color=(0.3, 0.35, 0.4))
+    by_status: dict[str, int] = {}
+    for item in items:
+        by_status[item["status"]] = by_status.get(item["status"], 0) + 1
+    lines = [
+        f"Deliverables: {len(items)}",
+        "Deliverable status: " + (", ".join(f"{k}={v}" for k, v in sorted(by_status.items())) or "none"),
+        f"Overdue alerts: {len(alerts_now)}",
+        f"Reminder events: {len(reminders)} (pending={sum(r['status'] == 'pending' for r in reminders)}, acknowledged={sum(r['status'] == 'acknowledged' for r in reminders)})",
+        "",
+        "Management control summary. Engineering findings remain evidence-linked in the submittal review report.",
+    ]
+    page.insert_textbox(fitz.Rect(48, 105, 548, 220), "\n".join(lines), fontsize=11, fontname="helv", lineheight=1.45)
+    y = 250
+    for alert in alerts_now:
+        if y > 760:
+            page = pdf.new_page(); y = 48
+        page.insert_textbox(fitz.Rect(48, y, 548, y + 32),
+                            f"{alert['wbs_code']} · {alert['title']} · {alert['days_overdue']} days overdue · escalation {alert['escalation_level']}",
+                            fontsize=9, fontname="helv", color=(0.55, 0.18, 0.02))
+        y += 38
+    pdf.save(str(path))
+    pdf.close()
+    return path

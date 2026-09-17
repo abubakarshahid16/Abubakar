@@ -1325,6 +1325,14 @@ def list_escalation_rules(scope: access.AccessScope = Depends(access.current_sco
     return {"rules": deliverables_mod.escalation_rules()}
 
 
+@app.get("/api/management/report", response_class=FileResponse,
+         responses={200: {"content": {"application/pdf": {}}, "description": "Management PDF"}})
+def management_report(scope: access.AccessScope = Depends(access.current_scope)):
+    path = deliverables_mod.render_management_report(allowed_document_ids=scope.allowed_document_ids)
+    return FileResponse(path, media_type="application/pdf", filename="epc-management-report.pdf",
+                        headers={"Cache-Control": "private, no-store"})
+
+
 @app.put("/api/management/escalation-rules/{level}", response_model=schemas.EscalationRule,
          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def update_escalation_rule(level: int, body: schemas.EscalationRule,
