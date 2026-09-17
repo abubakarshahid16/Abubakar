@@ -456,7 +456,7 @@ function ItemRow({
                     {templates.map((template) => <option key={template.id} value={template.id}>{template.name} · v{template.version}</option>)}
                   </select>
                 </label>}
-                {templateId && (() => { const selected = templates.find((item) => item.id === templateId); return selected && selected.governing_sources.length > 1 ? <p className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/10 px-2 py-1.5 text-xs text-warn-400">Multiple governing sources are attached. Confirm which source controls if they conflict: {selected.governing_sources.join("; ")}</p> : null; })()}
+                {templateId && (() => { const selected = templates.find((item) => item.id === templateId); return selected && selected.governing_sources.length > 1 ? <p className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/10 px-2 py-1.5 text-xs text-warn-500">Multiple governing sources are attached. Confirm which source controls if they conflict: {selected.governing_sources.join("; ")}</p> : null; })()}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="text-xs text-slateish-400">Category
                     <select value={category} onChange={(e) => setCategory(e.target.value as ReviewCategory)} className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200">
