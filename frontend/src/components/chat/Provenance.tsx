@@ -121,7 +121,8 @@ export function provenanceLabel(passage: ProvenanceSource): string {
 }
 
 /** Keyboard-accessible source inspection without inventing a second evidence model. */
-export function CitationInspector({ passage, children }: { passage: AnswerPassage; children: ReactNode }) {
+type CitationSource = { filename: string; page_start: number; page_end: number; section: string | null; text: string; text_source: "extracted" | "recognised"; ocr_min_conf: number | null; ocr_alphabet_violations: number; ocr_alphabet_sample: string | null };
+export function CitationInspector({ passage, children }: { passage: CitationSource; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -137,7 +138,6 @@ export function CitationInspector({ passage, children }: { passage: AnswerPassag
   }, [open]);
   return (
     <span className="relative inline-flex max-w-full flex-wrap items-center">
-      <span className="sr-only">{provenanceLabel(passage)}</span>
       <button
         ref={trigger}
         type="button"
