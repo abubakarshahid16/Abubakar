@@ -281,7 +281,8 @@ export function AnalysisModeScreen() {
     <div className="aurora-field mx-auto max-w-7xl space-y-6">
       <div aria-hidden className="aurora-a" />
       <div aria-hidden className="aurora-b" />
-      <AnalysisHeader />\n\n      <AnalysisControls ctx={{ questionId, question, comparisonType, selectedTypes, appliedScope, typeVocabulary, mode, toggles, running, canRun, elapsed, waitingOn, baselineRefusal, store, engines }} />
+      <AnalysisHeader />
+      <AnalysisControls ctx={{ questionId, question, comparisonType, selectedTypes, appliedScope, typeVocabulary, mode, toggles, running, canRun, elapsed, waitingOn, baselineRefusal, store, engines }} />
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-6">
           <AnalysisResultSections ctx={{
