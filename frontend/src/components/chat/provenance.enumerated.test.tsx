@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 
 import { AnswerCard, type AnswerView } from "./AnswerCard";
 import { Citation, EvidencePanel, Highlighted, PassageLocation } from "./EvidencePanel";
-import { OcrConfidence, ProvenanceMark, VERBATIM_STRINGS } from "./Provenance";
+import { CitationInspector, OcrConfidence, ProvenanceMark, VERBATIM_STRINGS } from "./Provenance";
 import type { AnswerPassage } from "../../types/api";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -80,6 +80,7 @@ type Entry =
 
 /** Every exported component that renders a passage. Keyed by export name. */
 const RENDERERS: Record<string, Entry> = {
+  CitationInspector: { kind: "shows", render: () => <CitationInspector passage={RECOGNISED}>source</CitationInspector> },
   Citation: { kind: "shows", render: () => <Citation passage={RECOGNISED} /> },
   PassageLocation: {
     kind: "shows",

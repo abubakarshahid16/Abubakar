@@ -10,7 +10,10 @@ it("renders the complete traceability chain returned by the API", async () => {
   vi.spyOn(reviews, "traceability").mockResolvedValue({ ok: true, data: { finding, document: { id: "d1", filename: "submittal.pdf" }, baseline: { filename: "requirements.pdf" }, citations: ["c1"], events: [], deliverables: [], owner: null, action: "Resolve the deviation" } });
   render(<ReviewWorkflowPanel findings={[finding]} onUpdate={async () => undefined} />);
   await userEvent.click(screen.getByRole("button", { name: "View full chain" }));
-  expect(await screen.findByText(/Finding → submittal.pdf → requirements.pdf → 1 citation/)).toBeInTheDocument();
+  expect(await screen.findByRole("region", { name: "Finding traceability" })).toHaveTextContent("Finding");
+  expect(screen.getByRole("region", { name: "Finding traceability" })).toHaveTextContent("submittal.pdf");
+  expect(screen.getByRole("region", { name: "Finding traceability" })).toHaveTextContent("requirements.pdf");
+  expect(screen.getByRole("region", { name: "Finding traceability" })).toHaveTextContent("1 citation");
   expect(screen.getByText(/Resolve the deviation/)).toBeInTheDocument();
   vi.restoreAllMocks();
 });

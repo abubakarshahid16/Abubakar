@@ -137,6 +137,7 @@ export function CitationInspector({ passage, children }: { passage: AnswerPassag
   }, [open]);
   return (
     <span className="relative inline-flex max-w-full flex-wrap items-center">
+      <span className="sr-only">{provenanceLabel(passage)}</span>
       <button
         ref={trigger}
         type="button"
