@@ -105,6 +105,7 @@ export function ChatView({
 
   const [question, setQuestion] = useState("");
   const [answerStyle, setAnswerStyle] = useState<"extract" | "generated">("extract");
+  const [styleNotice, setStyleNotice] = useState<string | null>(null);
   const [showConversations, setShowConversations] = useState(true);
   // WHICH conversation the pending question belongs to, not merely that one is
   // pending: the spinner must not appear under a transcript the reader moved
@@ -283,11 +284,21 @@ export function ChatView({
       setMessages([]);
     }
 
+    // Reviews and critiques need synthesis. If the user leaves quotation mode
+    // selected, route this request through the grounded explanation path
+    // rather than returning a misleading "not found" card.
+    const reviewRequest = isReviewRequest(text);
+    const requestStyle = reviewRequest ? "generated" : answerStyle;
+    if (reviewRequest && answerStyle === "extract") {
+      setAnswerStyle("generated");
+      setStyleNotice("This review was answered as a grounded written explanation; quotation mode only returns verbatim text.");
+    }
+
     setAskingIn(id);
     setQuestion("");
     const ticket = crypto.randomUUID();
     setProgressId(ticket);
-    const r = await api.ask(id, { question: text, tier: answerStyle,
+    const r = await api.ask(id, { question: text, tier: requestStyle,
                                   progress_id: ticket });
     setProgressId(null);
     sending.current = false;
@@ -617,7 +628,7 @@ export function ChatView({
               ["generated", "Written explanation"],
             ] as const).map(([value, label]) => (
               <label key={value} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-full)] border border-ink-600 px-3.5 py-1.5 text-sm text-slateish-200 transition-colors hover:border-signal-500/60 hover:bg-ink-800 has-[:checked]:border-signal-500/70 has-[:checked]:bg-signal-500/10 has-[:checked]:text-signal-300">
-                <input type="radio" name="answer-style" value={value} checked={answerStyle === value} onChange={() => setAnswerStyle(value)} />
+                <input type="radio" name="answer-style" value={value} checked={answerStyle === value} onChange={() => { setAnswerStyle(value); setStyleNotice(null); }} />
                 {label}
               </label>
             ))}
@@ -632,6 +643,11 @@ export function ChatView({
                 className="font-semibold underline decoration-amber-300/70 underline-offset-2 hover:text-white"
                 onClick={() => setAnswerStyle("generated")}
               >Use Written explanation</button> above; <strong>Exact quotation</strong> can only return wording already present in the documents.
+            </div>
+          )}
+          {styleNotice && (
+            <div role="status" className="mb-2 rounded-[var(--radius-sm)] border border-signal-500/30 bg-signal-500/10 px-3 py-2 text-xs leading-5 text-signal-200">
+              {styleNotice}
             </div>
           )}
           <div className="flex gap-2">
