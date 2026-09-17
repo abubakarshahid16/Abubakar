@@ -5,6 +5,16 @@ import { ComparisonScopeNotice as ComparisonScopeNoticeView } from "./Comparison
 import { type AnswerView, type UpgradeFailure, asksForComparison, documentsAnsweredFrom, sourcesOf, asSentence, formatDuration, Chip, ChipMark, CitedProse, Label, ReportAction, UpgradeFailureNotice } from "./AnswerCardContent";
 import { GuidanceAnswer, MetadataAnswer } from "./AnswerNonDocument";
 import { InsufficientAnswer } from "./AnswerInsufficient";
+import type { AnswerPassage } from "../../types/api";
+
+function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
+  return passage.score == null ? null : (
+    <details className="mt-1 ms-7 rounded-[var(--radius-xs)] border border-ink-700 px-2 py-1 text-xs text-slateish-500">
+      <summary className="cursor-pointer">Retrieval details</summary>
+      <p className="mt-1">This passage’s rerank score was {passage.score.toFixed(3)}. It is a ranking diagnostic, not a quality verdict.</p>
+    </details>
+  );
+}
 
 export function AnswerCard({
   view,
@@ -163,10 +173,13 @@ ollama serve
         </blockquote>
 
         {p && (
-          <div className="mt-2.5 flex flex-wrap items-baseline gap-2 border-t border-ink-700/60 pt-2">
-            <Chip n={1} active={activeSource === 0} onClick={() => onSelectSource(0)} />
-            <Citation passage={p} />
-          </div>
+          <>
+            <div className="mt-2.5 flex flex-wrap items-baseline gap-2 border-t border-ink-700/60 pt-2">
+              <Chip n={1} active={activeSource === 0} onClick={() => onSelectSource(0)} />
+              <Citation passage={p} />
+            </div>
+            <RetrievalDetails passage={p} />
+          </>
         )}
 
         {comparisonFromOneDocument && (
@@ -181,7 +194,7 @@ ollama serve
             </summary>
             <ul className="mt-1.5 space-y-1">
               {view.supporting.map((s, i) => (
-                <li key={s.chunk_id}>
+                  <li key={s.chunk_id}>
                   <button
                     type="button"
                     onClick={() => onSelectSource(i + 1)}
@@ -190,6 +203,7 @@ ollama serve
                     <ChipMark n={i + 2} active={activeSource === i + 1} />
                     <PassageLocation passage={s} />
                   </button>
+                  <RetrievalDetails passage={s} />
                 </li>
               ))}
             </ul>
@@ -345,7 +359,7 @@ ollama serve
       {sources.length > 0 && (
         <ul className="mt-3 space-y-1">
           {sources.map((s, i) => (
-            <li key={s.chunk_id}>
+              <li key={s.chunk_id}>
               <button
                 type="button"
                 onClick={() => onSelectSource(i)}
@@ -354,6 +368,7 @@ ollama serve
                 <ChipMark n={i + 1} active={activeSource === i} />
                 <PassageLocation passage={s} />
               </button>
+              <RetrievalDetails passage={s} />
             </li>
           ))}
         </ul>
