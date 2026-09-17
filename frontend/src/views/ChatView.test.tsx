@@ -225,6 +225,16 @@ describe("chat navigation", () => {
     }));
   });
 
+  it("routes a critique through written explanation even when quotation mode is selected", async () => {
+    const calls = mockApi();
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "Do a criteque on material and document");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(calls.find((c) => c.url.endsWith("/ask"))?.body).toMatchObject({
+      question: "Do a criteque on material and document", tier: "generated",
+    }));
+  });
+
   it("is no longer marked as not built", async () => {
     mockApi();
     render(<App />);
