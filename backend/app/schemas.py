@@ -1142,12 +1142,15 @@ class ReviewFindingCreate(BaseModel):
     document_id: str
     baseline_document_id: str | None = None
     template_id: str | None = None
+    discipline: str | None = Field(default=None, max_length=100)
+    confidence: Literal["low", "medium"] | None = None
     category: ReviewCategory
     severity: ReviewSeverity
     requirement: str = Field(min_length=1, max_length=4000)
     finding: str = Field(min_length=1, max_length=8000)
     required_action: str = Field(min_length=1, max_length=8000)
     governing_sources: list[str] = Field(default_factory=list, max_length=100)
+    unresolved_evidence: list[str] = Field(default_factory=list, max_length=50)
     response_text: str | None = Field(default=None, max_length=8000)
     disposition: ReviewDisposition | None = None
     citation_ids: list[str] = Field(default_factory=list, max_length=50)
@@ -1177,12 +1180,15 @@ class ReviewFinding(BaseModel):
     document_id: str
     baseline_document_id: str | None
     template_id: str | None
+    discipline: str | None
+    confidence: Literal["low", "medium"] | None
     category: ReviewCategory
     severity: ReviewSeverity
     requirement: str
     finding: str
     required_action: str
     governing_sources: list[str]
+    unresolved_evidence: list[str]
     response_text: str | None
     disposition: ReviewDisposition | None
     citation_ids: list[str]

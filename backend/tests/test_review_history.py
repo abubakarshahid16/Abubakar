@@ -86,7 +86,7 @@ def test_review_templates_are_versioned_and_filterable():
 
 def test_finding_inherits_governing_sources_from_selected_template():
     template = review.create_template(
-        {"name": "Electrical submittal", "version": "1.0",
+        {"name": "Electrical submittal", "version": "1.0", "discipline": "electrical",
          "governing_sources": ["IEC 60364", "Project specification §26 05 00"]},
         created_by="admin-1",
     )
@@ -99,4 +99,5 @@ def test_finding_inherits_governing_sources_from_selected_template():
         created_by="engineer-1",
     )
     assert finding["template_id"] == template["id"]
+    assert finding["discipline"] == "electrical"
     assert finding["governing_sources"] == ["IEC 60364", "Project specification §26 05 00"]
