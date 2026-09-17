@@ -17,6 +17,9 @@ def test_finding_traceability_returns_citations_and_event_chain(tmp_path, monkey
     finding = review.create({"document_id": "doc", "category": "technical_query", "severity": "major", "requirement": "r", "finding": "f", "required_action": "a", "citation_ids": ["c1"]}, created_by=None)
     chain = review.traceability(finding["id"], allowed_document_ids=frozenset({"doc"}))
     assert chain and chain["citations"] == ["c1"] and chain["events"]
+    assert chain["events"][0]["changes"]["status"] == "open"
+    assert chain["deliverables"][0]["parent_id"] is None
+    assert chain["deliverables"][0]["deliverable_type"] == "report"
     assert chain["owner"]["display_name"] == "Lead Engineer"
     assert chain["action"] == "a"
     db.reset_connection()

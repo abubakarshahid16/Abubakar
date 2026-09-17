@@ -244,11 +244,19 @@ def traceability(finding_id: str, *, allowed_document_ids: frozenset[str] | None
         LEFT JOIN documents b ON b.id=rf.baseline_document_id WHERE rf.id=?""", (finding_id,)).fetchone()
     if row is None or (allowed_document_ids is not None and row["document_id"] not in allowed_document_ids):
         return None
-    events = [dict(item) for item in connect().execute(
-        "SELECT * FROM review_finding_events WHERE finding_id=? ORDER BY created_at", (finding_id,)).fetchall()]
-    deliverables = [dict(item) for item in connect().execute(
-        "SELECT id,wbs_code,title,status,revision FROM deliverables WHERE document_id=? ORDER BY wbs_code",
-        (row["document_id"],)).fetchall()]
+    events = []
+    for item in connect().execute(
+        "SELECT * FROM review_finding_events WHERE finding_id=? ORDER BY created_at", (finding_id,)
+    ).fetchall():
+        event = dict(item)
+        try:
+            event["changes"] = json.loads(event.get("changes") or "{}")
+        except (TypeError, ValueError):
+            event["changes"] = {}
+        events.append(event)
+    deliverables = [item for item in deliverables_mod.list_items(
+        allowed_document_ids=frozenset({row["document_id"]})
+    ) if item.get("document_id") == row["document_id"]]
     owner = None
     if deliverables:
         owner = connect().execute(
