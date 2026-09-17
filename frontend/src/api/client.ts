@@ -284,6 +284,8 @@ export const deliverables = {
   alerts: () => request<{ alerts: { deliverable_id: string; wbs_code: string; title: string; due_date: string; days_overdue: number; escalation_level: number; severity: string }[] }>("/deliverables/alerts"),
   create: (body: DeliverableCreate) => request<Deliverable>("/deliverables", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   update: (id: string, body: DeliverableUpdate) => request<Deliverable>(`/deliverables/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  stakeholders: (id: string) => request<{ stakeholders: import("../types/api").DeliverableStakeholder[] }>(`/deliverables/${encodeURIComponent(id)}/stakeholders`),
+  replaceStakeholders: (id: string, assignments: import("../types/api").DeliverableStakeholderAssignment[]) => request<{ stakeholders: import("../types/api").DeliverableStakeholder[] }>(`/deliverables/${encodeURIComponent(id)}/stakeholders`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assignments }) }),
 };
 
 // The market preview/search contract now lives in contracts/types.ts, which

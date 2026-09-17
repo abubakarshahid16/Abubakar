@@ -2,6 +2,7 @@ import pytest
 
 from app import db, deliverables
 from app.config import settings
+from app.db import connect
 
 
 @pytest.fixture(autouse=True)
@@ -56,3 +57,23 @@ def test_management_report_exports_operational_summary_pdf():
         assert "Overdue alerts: 1" in text
     finally:
         path.unlink(missing_ok=True)
+
+
+def test_stakeholder_roles_migrate_owner_and_route_assignments():
+    with connect() as conn:
+        for user_id, email in (("owner", "owner@example.test"),
+                               ("reviewer", "reviewer@example.test")):
+            conn.execute(
+                "INSERT INTO users (id,email,display_name,password_hash,created_at)"
+                " VALUES (?,?,?,?,?)", (user_id, email, user_id, "hash", "now"))
+    item = deliverables.create({
+        "wbs_code": "4.1", "title": "Review package", "deliverable_type": "PDF",
+        "owner_user_id": "owner",
+    }, created_by="owner")
+    assert [row["role"] for row in deliverables.stakeholders(item["id"])] == ["owner"]
+    assigned = deliverables.replace_stakeholders(item["id"], [
+        {"user_id": "owner", "role": "owner"},
+        {"user_id": "reviewer", "role": "reviewer"},
+    ], actor_user_id="owner")
+    assert {(row["user_id"], row["role"]) for row in assigned} == {
+        ("owner", "owner"), ("reviewer", "reviewer")}

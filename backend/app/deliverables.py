@@ -47,6 +47,19 @@ def ensure_schema() -> None:
             created_at TEXT NOT NULL
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverable_events_item ON deliverable_events(deliverable_id, created_at)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS deliverable_stakeholders (
+            deliverable_id TEXT NOT NULL REFERENCES deliverables(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            role TEXT NOT NULL CHECK(role IN ('owner','reviewer','approver','informed')),
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (deliverable_id, user_id, role)
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverable_stakeholders_role ON deliverable_stakeholders(deliverable_id, role)")
+        # Preserve the pre-stakeholder schema's single owner during migration.
+        conn.execute("""INSERT OR IGNORE INTO deliverable_stakeholders
+            (deliverable_id, user_id, role, created_at)
+            SELECT id, owner_user_id, 'owner', updated_at
+            FROM deliverables WHERE owner_user_id IS NOT NULL""")
         conn.execute("""CREATE TABLE IF NOT EXISTS reminder_events (
             id TEXT PRIMARY KEY,
             deliverable_id TEXT NOT NULL REFERENCES deliverables(id) ON DELETE CASCADE,
@@ -131,6 +144,48 @@ def get(item_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+STAKEHOLDER_ROLES = frozenset({"owner", "reviewer", "approver", "informed"})
+
+
+def stakeholders(item_id: str) -> list[dict]:
+    ensure_schema()
+    rows = connect().execute(
+        """SELECT ds.deliverable_id, ds.user_id, ds.role, u.email, u.display_name
+           FROM deliverable_stakeholders ds JOIN users u ON u.id = ds.user_id
+           WHERE ds.deliverable_id = ? ORDER BY ds.role, u.email""", (item_id,)
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def stakeholder_emails(item_id: str, role: str) -> list[str]:
+    return [row["email"] for row in stakeholders(item_id) if row["role"] == role]
+
+
+def replace_stakeholders(item_id: str, assignments: list[dict], *, actor_user_id: str | None) -> list[dict] | None:
+    ensure_schema()
+    if get(item_id) is None:
+        return None
+    cleaned: list[tuple[str, str]] = []
+    for assignment in assignments:
+        user_id = str(assignment.get("user_id") or "")
+        role = str(assignment.get("role") or "")
+        if user_id and role in STAKEHOLDER_ROLES:
+            cleaned.append((user_id, role))
+    now = _now()
+    with connect() as conn:
+        conn.execute("DELETE FROM deliverable_stakeholders WHERE deliverable_id = ?", (item_id,))
+        for user_id, role in sorted(set(cleaned)):
+            if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
+                conn.execute("""INSERT INTO deliverable_stakeholders
+                    (deliverable_id, user_id, role, created_at) VALUES (?, ?, ?, ?)""",
+                    (item_id, user_id, role, now))
+        conn.execute("""INSERT INTO deliverable_events
+            (id, deliverable_id, event_type, changes, actor_user_id, created_at)
+            VALUES (?, ?, 'stakeholders_replaced', ?, ?, ?)""",
+            (str(uuid.uuid4()), item_id, json.dumps({"count": len(cleaned)}), actor_user_id, now))
+    return stakeholders(item_id)
+
+
 def update(item_id: str, changes: dict, *, actor_user_id: str | None = None) -> dict | None:
     ensure_schema()
     allowed = {"wbs_code", "title", "deliverable_type", "revision", "status", "document_id",
@@ -209,6 +264,13 @@ def reminder_events(*, allowed_document_ids: frozenset[str] | None = None) -> li
                  alert["due_date"], rule["recipient_role"], now),
             ).rowcount
         if inserted:
+            stakeholder_role = "owner"
+            role_name = str(rule["recipient_role"]).lower()
+            for candidate in STAKEHOLDER_ROLES:
+                if candidate in role_name:
+                    stakeholder_role = candidate
+                    break
+            recipients = stakeholder_emails(alert["deliverable_id"], stakeholder_role)
             notifications.send_email(
                 subject=f"EPC deliverable escalation level {alert['escalation_level']}",
                 body=(f"Deliverable {alert['wbs_code']} is {alert['days_overdue']} "
@@ -216,6 +278,7 @@ def reminder_events(*, allowed_document_ids: frozenset[str] | None = None) -> li
                 trigger=("overdue_deliverable" if alert["days_overdue"] == 0
                          else "escalation_level_change"),
                 resource_type="deliverable", resource_id=alert["deliverable_id"],
+                recipients=recipients or None,
             )
     allowed_ids = {item["id"] for item in items}
     rows = connect().execute(

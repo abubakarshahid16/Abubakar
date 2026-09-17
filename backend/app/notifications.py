@@ -44,7 +44,8 @@ def _validate_runtime() -> None:
 
 def send_email(*, subject: str, body: str, trigger: str,
                resource_type: str, resource_id: str | None,
-               actor_user_id: str | None = None) -> bool:
+               actor_user_id: str | None = None,
+               recipients: list[str] | None = None) -> bool:
     """Send one configured email and audit only a successful delivery.
 
     Disabled SMTP is a deliberate no-op, not an implicit localhost attempt.
@@ -53,7 +54,7 @@ def send_email(*, subject: str, body: str, trigger: str,
     if not settings.smtp_enabled:
         return False
     _validate_runtime()
-    recipient = settings.smtp_recipient.strip()
+    recipient = ", ".join(sorted(set(recipients or []))) or settings.smtp_recipient.strip()
     message = EmailMessage()
     message["From"] = settings.smtp_from.strip()
     message["To"] = recipient

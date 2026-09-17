@@ -1282,6 +1282,31 @@ def deliverable_history(deliverable_id: str, scope: access.AccessScope = Depends
     return {"events": deliverables_mod.history(deliverable_id)}
 
 
+@app.get("/api/deliverables/{deliverable_id}/stakeholders",
+         response_model=schemas.DeliverableStakeholderList,
+         responses=schemas.ERRORS_404)
+def deliverable_stakeholders(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+    item = deliverables_mod.get(deliverable_id)
+    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
+    return {"stakeholders": deliverables_mod.stakeholders(deliverable_id)}
+
+
+@app.put("/api/deliverables/{deliverable_id}/stakeholders",
+         response_model=schemas.DeliverableStakeholderList,
+         responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def replace_deliverable_stakeholders(
+    deliverable_id: str, body: schemas.DeliverableStakeholderUpdate,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    _require_identity_to_write(scope)
+    item = deliverables_mod.get(deliverable_id)
+    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
+    return {"stakeholders": deliverables_mod.replace_stakeholders(
+        deliverable_id, [a.model_dump() for a in body.assignments], actor_user_id=scope.user_id)}
+
+
 @app.get("/api/deliverables/alerts", response_model=schemas.DeliverableAlertList)
 def deliverable_alerts(scope: access.AccessScope = Depends(access.current_scope)):
     return {"alerts": deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)}

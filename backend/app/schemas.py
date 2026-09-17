@@ -1291,6 +1291,30 @@ class DeliverableEventList(BaseModel):
     events: list[DeliverableEvent]
 
 
+StakeholderRole = Literal["owner", "reviewer", "approver", "informed"]
+
+
+class DeliverableStakeholder(BaseModel):
+    deliverable_id: str
+    user_id: str
+    role: StakeholderRole
+    email: str
+    display_name: str | None
+
+
+class DeliverableStakeholderAssignment(BaseModel):
+    user_id: str
+    role: StakeholderRole
+
+
+class DeliverableStakeholderUpdate(BaseModel):
+    assignments: list[DeliverableStakeholderAssignment] = Field(max_length=100)
+
+
+class DeliverableStakeholderList(BaseModel):
+    stakeholders: list[DeliverableStakeholder]
+
+
 class DeliverableAlert(BaseModel):
     deliverable_id: str
     wbs_code: str

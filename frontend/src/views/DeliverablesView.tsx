@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { deliverables as deliverablesApi, management } from "../api/client";
-import type { Deliverable, DeliverableCreate, DeliverableStatus } from "../types/api";
+import type { Deliverable, DeliverableCreate, DeliverableStatus, DeliverableStakeholder } from "../types/api";
 import type { EscalationRule } from "../types/api";
 
 const statuses: DeliverableStatus[] = ["planned", "in_progress", "submitted", "under_review", "approved", "rejected", "superseded"];
@@ -12,6 +12,8 @@ export function DeliverablesView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rules, setRules] = useState<EscalationRule[]>([]);
+  const [stakeholders, setStakeholders] = useState<Record<string, DeliverableStakeholder[]>>({});
+  const [selected, setSelected] = useState<string | null>(null);
   const [form, setForm] = useState<DeliverableCreate>({ wbs_code: "1.0", title: "", deliverable_type: "Engineering submittal", due_date: "" });
 
   const load = useCallback(async () => {
@@ -40,6 +42,13 @@ export function DeliverablesView() {
     else setError(result.error.message);
   }
 
+  async function showStakeholders(item: Deliverable) {
+    setSelected(item.id);
+    if (stakeholders[item.id]) return;
+    const result = await deliverablesApi.stakeholders(item.id);
+    if (result.ok) setStakeholders((current) => ({ ...current, [item.id]: result.data.stakeholders }));
+  }
+
   return (
     <main id="deliverables" className="mx-auto w-full max-w-6xl px-4 py-6">
       <header>
@@ -64,7 +73,7 @@ export function DeliverablesView() {
 
       <section className="mt-5 overflow-hidden rounded-[var(--radius-md)] border border-ink-600 bg-ink-850">
         <div className="border-b border-ink-700 px-4 py-3"><h2 className="text-sm font-semibold text-slateish-200">WBS register</h2></div>
-        {loading ? <p className="p-4 text-sm text-slateish-500">Loading deliverables…</p> : items.length === 0 ? <p className="p-4 text-sm text-slateish-500">No deliverables have been registered yet.</p> : <div className="divide-y divide-ink-700/70">{items.map((item) => <div key={item.id} className="grid gap-2 px-4 py-3 md:grid-cols-[100px_1fr_150px_130px_150px] md:items-center"><span className="font-mono text-xs text-signal-400">{item.wbs_code}</span><div><p className="text-sm text-slateish-200">{item.title}</p><p className="text-xs text-slateish-500">{item.deliverable_type} · revision {item.revision}</p></div><span className="text-xs text-slateish-400">Due {item.due_date || "not set"}</span><span className="text-xs text-slateish-400">{item.status.replaceAll("_", " ")}</span><select value={item.status} onChange={(e) => void changeStatus(item, e.target.value as DeliverableStatus)} aria-label={`Status for ${item.title}`} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">{statuses.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select></div>)}</div>}
+        {loading ? <p className="p-4 text-sm text-slateish-500">Loading deliverables…</p> : items.length === 0 ? <p className="p-4 text-sm text-slateish-500">No deliverables have been registered yet.</p> : <div className="divide-y divide-ink-700/70">{items.map((item) => <div key={item.id} className="px-4 py-3"><div className="grid gap-2 md:grid-cols-[100px_1fr_150px_130px_150px_auto] md:items-center"><span className="font-mono text-xs text-signal-400">{item.wbs_code}</span><div><p className="text-sm text-slateish-200">{item.title}</p><p className="text-xs text-slateish-500">{item.deliverable_type} · revision {item.revision}</p></div><span className="text-xs text-slateish-400">Due {item.due_date || "not set"}</span><span className="text-xs text-slateish-400">{item.status.replaceAll("_", " ")}</span><select value={item.status} onChange={(e) => void changeStatus(item, e.target.value as DeliverableStatus)} aria-label={`Status for ${item.title}`} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">{statuses.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select><button type="button" onClick={() => void showStakeholders(item)} className="text-xs text-signal-400 hover:underline">Stakeholders</button></div>{selected === item.id && <div className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-900/60 px-3 py-2 text-xs text-slateish-400">{(stakeholders[item.id] ?? []).length === 0 ? "No stakeholders assigned." : <div className="flex flex-wrap gap-2">{stakeholders[item.id].map((person) => <span key={`${person.user_id}-${person.role}`} className="rounded-full bg-ink-700 px-2 py-1"><strong className="text-signal-300">{person.role}</strong> · {person.display_name || person.email}</span>)}</div>}</div>}</div>)}</div>}
       </section>
 
       <section className="mt-5 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
