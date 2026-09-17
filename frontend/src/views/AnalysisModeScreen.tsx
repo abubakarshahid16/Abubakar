@@ -125,6 +125,7 @@ import type {
   ReviewFindingCreate,
   ReviewFinding,
   ReviewTemplate,
+  ComparisonType,
 } from "../types/api";
 import type {
   AnalysisResult,
@@ -565,6 +566,7 @@ interface MarketSlotData {
 
 interface ScreenState {
   question: string;
+  comparisonType: ComparisonType | "";
   mode: AnalysisMode;
   toggles: AnalysisToggles;
   baselineDocumentId: string | null;
@@ -596,6 +598,7 @@ interface ScreenState {
 function freshState(): ScreenState {
   return {
     question: "",
+    comparisonType: "",
     mode: "focused",
     toggles: { gaps: false, market: false, recommendation: false },
     baselineDocumentId: null,
@@ -780,8 +783,8 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
   const scope: ClassificationScope | null =
     state.selectedTypes.length > 0 ? { types: state.selectedTypes } : null;
   const body = scope
-    ? { question: asked, limit, baseline_document_id: baseline, scope }
-    : { question: asked, limit, baseline_document_id: baseline };
+    ? { question: asked, limit, baseline_document_id: baseline, comparison_type: state.comparisonType || null, scope }
+    : { question: asked, limit, baseline_document_id: baseline, comparison_type: state.comparisonType || null };
 
   patch({
     selected: null,
@@ -1139,7 +1142,7 @@ const NOT_RENDERED_HERE =
 export function AnalysisModeScreen() {
   const questionId = useId();
   const s = useSyncExternalStore(subscribe, getSnapshot);
-  const { question, mode, toggles, baselineRefusal, selected, selectedTypes, appliedScope } = s;
+  const { question, mode, toggles, baselineRefusal, selected, selectedTypes, appliedScope, comparisonType } = s;
   const { summarySlot, gapsSlot, recSlot, marketSlot } = s;
   // RULE 1 (TypeFilter's own doc comment): the vocabulary comes from the
   // register. Null while loading or on failure, in which case the filter
@@ -1369,6 +1372,18 @@ export function AnalysisModeScreen() {
                 className="mt-2 w-full resize-y rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-base text-slateish-100 placeholder:text-slateish-500"
               />
             </div>
+
+            <label htmlFor="comparison-type" className="block text-xs font-semibold uppercase tracking-wide text-slateish-400">
+              Comparison workflow
+              <select id="comparison-type" value={comparisonType} onChange={(e) => patch({ comparisonType: e.target.value as ComparisonType | "" })} className="mt-2 block w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal normal-case text-slateish-200">
+                <option value="">No named comparison</option>
+                <option value="baseline_vs_submittal">Baseline vs submittal</option>
+                <option value="requirements_vs_submittal">Requirements vs submittal</option>
+                <option value="revision_delta">Revision delta</option>
+                <option value="discipline_coordination">Discipline coordination</option>
+              </select>
+              {comparisonType && <span className="mt-1 block text-xs font-normal normal-case text-slateish-500">Pick the documents for this workflow; the system will not invent an authoritative baseline.</span>}
+            </label>
 
             {/* Narrows what the run searches, never what may be read - see the
                 doc comment on TypeFilter. Rendered here (nothing, if the
