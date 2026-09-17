@@ -27,6 +27,9 @@ BLOCKED means it requires a client-approved input.
 Live verification on 2026-09-17, authenticated as `testadmin`, confirmed the
 review, baseline, comparison, risk-register, traceability, and stakeholder
 workflows. SMTP is disabled in this environment (`SMTP_ENABLED` is not set),
-so reminder, escalation, and automatic-risk email delivery remain genuinely
-unverifiable rather than being marked complete. A fresh report download/open
-was also not confirmed. Client templates remain blocked on client input.
+and no disposable provider credentials or test inbox were supplied, so
+reminder, escalation, and automatic-risk email delivery remain genuinely
+unverifiable rather than being marked complete. The Reports screen is
+populated and the Download control is present, but this pass did not produce
+a new local file to open, so report download remains PARTIAL. Client
+templates remain blocked on client input.
