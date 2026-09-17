@@ -377,3 +377,6 @@ cost of the project's memory.
 
 Deliverable intelligence supports configured expected items per WBS code and
 reports whether each expected deliverable is registered or missing.
+
+`/api/search/structured` searches deliverables and review findings by their
+structured fields, with the same document access scope as the rest of the API.

@@ -42,6 +42,7 @@ from . import reports as reports_mod
 from . import review as review_mod
 from . import deliverables as deliverables_mod
 from . import notifications as notifications_mod
+from . import structured_search as structured_search_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -1287,6 +1288,15 @@ def expected_deliverables(wbs_code: str | None = None,
                           scope: access.AccessScope = Depends(access.current_scope)):
     return {"deliverables": deliverables_mod.expected_missing(
         wbs_code=wbs_code, allowed_document_ids=scope.allowed_document_ids)}
+
+
+@app.get("/api/search/structured")
+def structured_search(q: str, kind: str | None = None,
+                      scope: access.AccessScope = Depends(access.current_scope)):
+    if kind not in {None, "deliverable", "finding"}:
+        raise HTTPException(status_code=422, detail="unsupported structured-search kind")
+    return {"results": structured_search_mod.search(
+        q, kind=kind, allowed_document_ids=scope.allowed_document_ids)}
 
 
 @app.post("/api/deliverables", response_model=schemas.Deliverable,

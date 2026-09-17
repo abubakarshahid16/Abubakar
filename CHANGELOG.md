@@ -29,6 +29,9 @@ emails, and disabled SMTP remains a no-op.
 WBS packages can now declare expected deliverable types and expose registered
 versus missing status through `/api/deliverables/expected`.
 
+Structured search now covers WBS/deliverable labels and review requirements,
+findings, and actions without flattening them into document text search.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.
