@@ -366,7 +366,7 @@ export function AdminView(props: AdminViewProps) {
   const [baselineMessage, setBaselineMessage] = useState<string | null>(null);
   const [editingBaseline, setEditingBaseline] = useState<string | null>(null);
   const [summarySchedule, setSummarySchedule] = useState("disabled");
-  useEffect(() => { void reviews.baselineRules().then((result) => { if (result.ok) setBaselineRules(result.data.rules); }); void management.summarySchedule().then((result) => { if (result.ok) setSummarySchedule(result.data.schedule); }); }, []);
+  useEffect(() => { void reviews.baselineRules().then((result) => { if (result.ok) setBaselineRules(result.data.rules ?? []); }); void management.summarySchedule().then((result) => { if (result.ok) setSummarySchedule(result.data.schedule ?? "disabled"); }); }, []);
   async function createBaselineRule() {
     if (!baselineType.trim() || !baselineTarget.trim()) return;
     const result = editingBaseline
