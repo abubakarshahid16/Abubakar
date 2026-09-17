@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { deliverables as deliverablesApi, management } from "../api/client";
+import { deliverables as deliverablesApi, management, risks as risksApi } from "../api/client";
 import type { Deliverable, DeliverableCreate, DeliverableStatus, DeliverableStakeholder, StakeholderRole } from "../types/api";
 import type { EscalationRule } from "../types/api";
 
@@ -16,18 +16,22 @@ export function DeliverablesView() {
   const [selected, setSelected] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<import("../types/api").WbsWorkspace | null>(null);
   const [expected, setExpected] = useState<import("../types/api").ExpectedDeliverable[]>([]);
+  const [risks, setRisks] = useState<import("../types/api").Risk[]>([]);
+  const [riskType, setRiskType] = useState<import("../types/api").RiskType>("schedule");
+  const [riskTitle, setRiskTitle] = useState("");
   const [stakeholderUser, setStakeholderUser] = useState("");
   const [stakeholderRole, setStakeholderRole] = useState<StakeholderRole>("reviewer");
   const [form, setForm] = useState<DeliverableCreate>({ wbs_code: "1.0", title: "", deliverable_type: "Engineering submittal", due_date: "" });
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    const [list, alertResult, ruleResult, expectedResult] = await Promise.all([deliverablesApi.list(), deliverablesApi.alerts(), management.escalationRules(), deliverablesApi.expected()]);
+    const [list, alertResult, ruleResult, expectedResult, riskResult] = await Promise.all([deliverablesApi.list(), deliverablesApi.alerts(), management.escalationRules(), deliverablesApi.expected(), risksApi.list()]);
     if (!list.ok) { setError(list.error.message); setLoading(false); return; }
     setItems(list.data.deliverables);
     if (alertResult.ok) setAlerts(alertResult.data.alerts);
     if (ruleResult.ok) setRules(ruleResult.data.rules);
     if (expectedResult.ok) setExpected(expectedResult.data.deliverables);
+    if (riskResult.ok) setRisks(riskResult.data.risks);
     setLoading(false);
   }, []);
 
@@ -69,6 +73,13 @@ export function DeliverablesView() {
     } else setError(result.error.message);
   }
 
+  async function createRisk() {
+    if (!riskTitle.trim()) return;
+    const result = await risksApi.create({ risk_type: riskType, title: riskTitle.trim(), description: "Created from the project risk register." });
+    if (result.ok) { setRisks((current) => [result.data, ...current]); setRiskTitle(""); }
+    else setError(result.error.message);
+  }
+
   return (
     <main id="deliverables" className="mx-auto w-full max-w-6xl px-4 py-6">
       <header>
@@ -102,6 +113,11 @@ export function DeliverablesView() {
           <span className="text-[11px] uppercase tracking-wide text-signal-400">{expected.filter((item) => item.state === "missing").length} missing</span>
         </div>
         {expected.length === 0 ? <p className="p-4 text-sm text-slateish-500">No expectations are configured or inferred yet.</p> : <div className="divide-y divide-ink-700/70">{expected.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><div><p className="text-sm text-slateish-200">{item.title}</p><p className="text-xs text-slateish-500">WBS {item.wbs_code} · {item.deliverable_type}</p></div><span className={`rounded-full px-2 py-1 text-xs ${item.state === "missing" ? "bg-warn-500/15 text-warn-500" : "bg-signal-500/15 text-signal-300"}`}>{item.state}</span></div>)}</div>}
+      </section>
+
+      <section aria-label="Risk register" className="mt-5 overflow-hidden rounded-[var(--radius-md)] border border-ink-600 bg-ink-850">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-700 px-4 py-3"><div><h2 className="text-sm font-semibold text-slateish-200">Risk register</h2><p className="mt-1 text-xs text-slateish-500">Schedule, review, dependency, and compliance risks linked to project records.</p></div><div className="flex flex-wrap gap-2"><select aria-label="Risk type filter" value={riskType} onChange={(e) => { const next = e.target.value as import("../types/api").RiskType; setRiskType(next); void risksApi.list(next).then((result) => { if (result.ok) setRisks(result.data.risks); }); }} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="schedule">Schedule</option><option value="review">Review</option><option value="dependency">Dependency</option><option value="compliance">Compliance</option></select><input aria-label="Risk title" value={riskTitle} onChange={(e) => setRiskTitle(e.target.value)} placeholder="Add risk" className="w-40 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><button type="button" onClick={() => void createRisk()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Create</button></div></div>
+        {risks.length === 0 ? <p className="p-4 text-sm text-slateish-500">No {riskType} risks are recorded.</p> : <div className="divide-y divide-ink-700/70">{risks.map((risk) => <div key={risk.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><div><p className="text-sm text-slateish-200">{risk.title}</p><p className="text-xs text-slateish-500">{risk.description}</p></div><span className="rounded-full bg-warn-500/15 px-2 py-1 text-xs text-warn-500">{risk.severity} · {risk.status}</span></div>)}</div>}
       </section>
 
       <section className="mt-5 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
