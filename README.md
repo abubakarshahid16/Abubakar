@@ -394,3 +394,6 @@ they are not collapsed into the daily summary.
 The current KJO requirements scorecard is maintained in
 [`docs/requirements-audit.md`](docs/requirements-audit.md); it separates
 shippable UI from backend scaffolding and client-blocked templates.
+
+Chat can search workflow records (deliverables, findings, risks, and
+stakeholders) separately from page-cited document evidence.

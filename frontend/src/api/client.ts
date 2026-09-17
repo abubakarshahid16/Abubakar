@@ -307,7 +307,7 @@ export const risks = {
   create: (body: Partial<Risk> & { risk_type: RiskType; title: string; description: string }) => request<Risk>("/risks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 };
 
-export const structuredSearch = (query: string, kind?: "deliverable" | "finding") =>
+export const structuredSearch = (query: string, kind?: "deliverable" | "finding" | "risk" | "stakeholder") =>
   request<{ results: StructuredSearchResult[] }>(`/search/structured?q=${encodeURIComponent(query)}${kind ? `&kind=${kind}` : ""}`);
 
 // The market preview/search contract now lives in contracts/types.ts, which

@@ -1309,7 +1309,7 @@ def expected_deliverables(wbs_code: str | None = None,
 @app.get("/api/search/structured", response_model=schemas.StructuredSearchList)
 def structured_search(q: str, kind: str | None = None,
                       scope: access.AccessScope = Depends(access.current_scope)):
-    if kind not in {None, "deliverable", "finding"}:
+    if kind not in {None, "deliverable", "finding", "risk", "stakeholder"}:
         raise HTTPException(status_code=422, detail="unsupported structured-search kind")
     return {"results": structured_search_mod.search(
         q, kind=kind, allowed_document_ids=scope.allowed_document_ids)}

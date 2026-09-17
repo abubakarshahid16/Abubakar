@@ -1217,7 +1217,7 @@ class RiskList(BaseModel):
 
 class StructuredSearchResult(BaseModel):
     id: str
-    kind: Literal["deliverable", "finding"]
+    kind: Literal["deliverable", "finding", "risk", "stakeholder"]
     label: str
     wbs_code: str | None
     document_id: str | None

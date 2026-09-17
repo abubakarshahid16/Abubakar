@@ -19,7 +19,7 @@ BLOCKED means it requires a client-approved input.
 | 11 | Baseline-rule selection | DONE |
 | 12 | Named comparison workflows | DONE |
 | 13 | Expected/missing deliverable intelligence | PARTIAL |
-| 14 | Structured EPC search | PARTIAL |
+| 14 | Structured EPC search | DONE |
 | 15 | Typed risk register | PARTIAL |
 | 16 | Review traceability | PARTIAL |
 | 17 | Stakeholder roles and approval workflow | DONE |

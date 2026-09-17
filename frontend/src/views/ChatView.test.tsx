@@ -156,6 +156,7 @@ interface Routes {
   ask?: unknown | (() => unknown);
   newConversation?: unknown;
   report?: unknown;
+  structured?: unknown;
 }
 
 function mockApi(routes: Routes = {}) {
@@ -180,6 +181,7 @@ function mockApi(routes: Routes = {}) {
           suppressed_reason: null,
         };
       }
+      if (url.includes("/search/structured")) return routes.structured ?? { results: [{ id: "d1", kind: "deliverable", label: "IFC drawing", wbs_code: "1.2", document_id: null }] };
       if (url.endsWith("/ask")) {
         const r = routes.ask ?? askResult();
         return typeof r === "function" ? (r as () => unknown)() : r;
@@ -210,6 +212,19 @@ async function openChat() {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("structured workflow search", () => {
+  it("renders workflow records separately from document evidence", async () => {
+    const calls = mockApi({ structured: { results: [{ id: "d1", kind: "deliverable", label: "IFC drawing", wbs_code: "1.2", document_id: null }] } });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "IFC drawing");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "Search records" }));
+    expect(await screen.findByText("Workflow records — not page-cited evidence")).toBeInTheDocument();
+    expect(screen.getByText("IFC drawing")).toBeInTheDocument();
+    expect(calls.some((call) => call.url.includes("/search/structured"))).toBe(true);
+  });
+});
 
 // --------------------------------------------------------------- navigation
 
