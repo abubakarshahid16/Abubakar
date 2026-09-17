@@ -39,6 +39,8 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
   const [disposition, setDisposition] = useState<ReviewDisposition | "">(finding.disposition ?? "");
   const [status, setStatus] = useState<ReviewStatus>(finding.status);
   const [approval, setApproval] = useState(finding.approval_status);
+  const [owner, setOwner] = useState(finding.owner_user_id ?? "");
+  const [dueDate, setDueDate] = useState(finding.due_date ?? "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<ReviewFindingEvent[] | null>(null);
@@ -53,6 +55,8 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
         disposition: disposition || null,
         status,
         approval_status: approval,
+        owner_user_id: owner.trim() || null,
+        due_date: dueDate || null,
       });
       setMessage("Saved");
     } catch (error) {
@@ -96,6 +100,12 @@ function FindingRow({ finding, onUpdate }: { finding: ReviewFinding; onUpdate: P
         </select>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
+        <label className="text-xs text-slateish-500">Owner
+          <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="Engineer ID" className="ml-1 w-32 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" />
+        </label>
+        <label className="text-xs text-slateish-500">Due
+          <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="ml-1 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" />
+        </label>
         <select value={approval} onChange={(e) => setApproval(e.target.value as typeof approval)} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">
           <option value="pending">Approval pending</option>
           <option value="accepted">Approved</option>
