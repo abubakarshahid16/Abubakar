@@ -29,8 +29,11 @@ does not invent links for those nodes. This is recorded in
 
 ## Verification
 
-- Axe audit: `contrast-root-cause.spec.ts`, all 8 views × both themes, **0
-  serious/critical violations**. Output: `contrast-phase3.json`.
+- Axe audit: `contrast-root-cause.spec.ts` authenticated with a disposable
+  local audit account, all 8 views × both themes (16 runs), **0
+  serious/critical violations**. The runner prints one line per view/theme
+  with its non-zero DOM node count, and `contrast-phase3.json` contains all 16
+  entries (including zero-violation runs).
 - Frontend: **570 passed** with
   `npx vitest run --pool=forks --maxWorkers=1`.
 - Backend: **1553 passed, 27 skipped, 17 xfailed** with
@@ -40,8 +43,9 @@ does not invent links for those nodes. This is recorded in
 - Backend was restarted from the current branch after the audit and health
   returned HTTP 200.
 
-## Remaining scope
+## Audit authentication
 
-The axe run required a local temporary `AUTH_MODE=disabled` process because no
-demo password is stored in the repository. The normal backend was restored
-afterward; no credentials or `.env` files were changed.
+The audit logged in through the real sign-in form using a disposable local
+account created only for the run. That account was deleted after the audit;
+the normal `AUTH_MODE=demo_required` backend was restored and no credentials or
+`.env` files were committed.

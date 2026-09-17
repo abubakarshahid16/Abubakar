@@ -7,20 +7,55 @@ const views = ["Dashboard", "Documents", "Chat", "Analysis", "Reports", "Deliver
 const themes = ["light", "dark"] as const;
 const outputPath = path.resolve("..", "docs", "ui-redesign", process.env.CONTRAST_OUTPUT ?? "contrast-root-cause.json");
 
-async function openView(page: Page, view: string) {
+type AuditRun = {
+  view: string;
+  theme: string;
+  nodes_scanned: number;
+  serious: number;
+  critical: number;
+  violations: Array<{
+    rule: string;
+    impact: string | null;
+    target: string[][];
+    failureSummary?: string;
+    computed: unknown;
+  }>;
+};
+
+let authenticated = false;
+let currentView: string | null = null;
+
+async function authenticate(page: Page) {
   await page.goto("/", { waitUntil: "domcontentloaded", timeout: 30_000 });
   if (await page.getByRole("heading", { name: "Sign in" }).isVisible().catch(() => false)) {
-    throw new Error("Contrast audit requires an authenticated session; the app is showing Sign in. Start the audit backend with AUTH_MODE=disabled or provide an authenticated Playwright storage state.");
+    const email = process.env.AUDIT_EMAIL;
+    const password = process.env.AUDIT_PASSWORD;
+    if (!email || !password) {
+      throw new Error("Contrast audit reached the sign-in screen. Set AUDIT_EMAIL and AUDIT_PASSWORD for the disposable local audit account.");
+    }
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
   }
   await expect(page.getByText("Connected", { exact: true })).toBeVisible({ timeout: 15_000 });
-  if (view !== "Documents") await page.getByRole("button", { name: new RegExp(`^${view}\\b`) }).click();
+  authenticated = true;
+  currentView = "Documents";
+}
+
+async function openView(page: Page, view: string) {
+  if (!authenticated) await authenticate(page);
+  if (currentView !== view) {
+    await page.getByRole("button", { name: new RegExp(`^${view}\\b`) }).click();
+    currentView = view;
+  }
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15_000 });
 }
 
 test("collect every serious/critical contrast node with computed colors", async ({ page }) => {
   test.setTimeout(10 * 60 * 1000);
-  const rows: unknown[] = [];
+  const runs: AuditRun[] = [];
   await page.setViewportSize({ width: 1600, height: 900 });
+  console.log(`Axe audit matrix: ${views.length} views x ${themes.length} themes = ${views.length * themes.length} authenticated runs`);
   for (const theme of themes) {
     for (const view of views) {
       await openView(page, view);
@@ -28,7 +63,11 @@ test("collect every serious/critical contrast node with computed colors", async 
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await page.waitForTimeout(5_000);
       const result = await new AxeBuilder({ page }).analyze();
-      for (const violation of result.violations.filter((v) => v.impact === "serious" || v.impact === "critical")) {
+      const seriousViolations = result.violations.filter((v) => v.impact === "serious");
+      const criticalViolations = result.violations.filter((v) => v.impact === "critical");
+      const nodesScanned = await page.locator("body *").count();
+      const violations: AuditRun["violations"] = [];
+      for (const violation of [...seriousViolations, ...criticalViolations]) {
         for (const node of violation.nodes) {
           const computed = await page.evaluate((target) => {
             let element: Element | null = null;
@@ -60,12 +99,15 @@ test("collect every serious/critical contrast node with computed colors", async 
               lineHeight: style.lineHeight,
             };
           }, node.target);
-          rows.push({ view, theme, rule: violation.id, impact: violation.impact, target: node.target, failureSummary: node.failureSummary, computed });
+          violations.push({ rule: violation.id, impact: violation.impact, target: node.target, failureSummary: node.failureSummary, computed });
         }
       }
+      const run: AuditRun = { view, theme, nodes_scanned: nodesScanned, serious: seriousViolations.length, critical: criticalViolations.length, violations };
+      runs.push(run);
+      console.log(`${view} / ${theme}: ${run.serious} serious, ${run.critical} critical, ${run.nodes_scanned} nodes scanned`);
     }
   }
-  await writeFile(outputPath, JSON.stringify(rows, null, 2), "utf8");
-  expect(rows.filter((row: any) => row.rule === "color-contrast" || row.rule === "list"),
-    "serious/critical accessibility violations").toEqual([]);
+  await writeFile(outputPath, JSON.stringify(runs, null, 2), "utf8");
+  expect(runs, "the audit must record every view/theme run").toHaveLength(views.length * themes.length);
+  expect(runs.flatMap((run) => run.violations), "serious/critical accessibility violations").toEqual([]);
 });
