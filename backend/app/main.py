@@ -1142,6 +1142,27 @@ def create_review_template(
     _require_identity_to_write(scope)
     return review_mod.create_template(body.model_dump(), created_by=scope.user_id)
 
+
+@app.post("/api/reviews/report", response_class=FileResponse,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404,
+                     200: {"content": {"application/pdf": {}},
+                           "description": "Engineering review PDF"}})
+def export_review_report(
+    body: schemas.ReviewReportRequest,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Export a document's evidence-linked review record as a PDF."""
+    _require_identity_to_write(scope)
+    require_document(body.document_id, scope)
+    try:
+        path = review_mod.render_report(body.document_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "review document not found"))
+    return FileResponse(path, media_type="application/pdf",
+                        filename=f"engineering-review-{body.document_id}.pdf",
+                        headers={"Cache-Control": "private, no-store"})
+
 @app.get("/api/reviews/findings", response_model=schemas.ReviewFindingList,
          responses=schemas.ERRORS_422)
 def list_review_findings(

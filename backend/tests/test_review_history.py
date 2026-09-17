@@ -101,3 +101,24 @@ def test_finding_inherits_governing_sources_from_selected_template():
     assert finding["template_id"] == template["id"]
     assert finding["discipline"] == "electrical"
     assert finding["governing_sources"] == ["IEC 60364", "Project specification §26 05 00"]
+
+
+def test_review_report_exports_a_pdf_with_finding_content():
+    _document()
+    review.create(
+        {"document_id": "doc-1", "category": "document_control", "severity": "minor",
+         "requirement": "Revision must be identified", "finding": "Revision is absent",
+         "required_action": "Add revision block", "citation_ids": ["evidence-1"]},
+        created_by="engineer-1",
+    )
+    path = review.render_report("doc-1")
+    try:
+        assert path.suffix == ".pdf"
+        pdf = __import__("fitz").open(str(path))
+        text = "\n".join(page.get_text() for page in pdf)
+        pdf.close()
+        assert "ENGINEERING SUBMITTAL REVIEW" in text
+        assert "Revision must be identified" in text
+        assert "evidence-1" in text
+    finally:
+        path.unlink(missing_ok=True)

@@ -1128,6 +1128,10 @@ class ReviewTemplate(BaseModel):
 class ReviewTemplateList(BaseModel):
     templates: list[ReviewTemplate]
 
+
+class ReviewReportRequest(BaseModel):
+    document_id: str
+
 ReviewCategory = Literal[
     "missing_information", "inconsistency", "requirement_deviation",
     "document_control", "technical_query", "positive_observation",
