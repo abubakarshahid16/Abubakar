@@ -757,6 +757,37 @@ def answer(
         ).strip()
 
     if not valid:
+        if decimal_lookup and passages:
+            # A table lookup already has an authoritative verbatim answer in
+            # the lead row.  If the local model returns prose without the
+            # required [S#] marker, do not strand the user with a refusal:
+            # surface that exact passage instead.  This fallback is limited
+            # to decimal lookups, where retrieval has explicitly matched the
+            # requested row key; ordinary generated answers still require a
+            # model citation and refuse when one is missing.
+            primary = passages[0]
+            return {
+                **base,
+                "answer_type": "extract",
+                "answer": primary["text"],
+                "passage": primary,
+                "answer_passages": [primary],
+                "supporting": passages[1:],
+                "coverage": _coverage(
+                    question, results,
+                    document_id=document_id,
+                    allowed_document_ids=allowed_document_ids,
+                    answered=[primary],
+                    supporting=passages[1:],
+                ),
+                "reason": "exact table row shown because the generated response did not cite a source",
+                "rejected_citations": invented,
+                "truncated": truncated,
+                "passages": passages,
+                "evidence_removed": evidence_removed,
+                "seconds": timer.seconds(),
+                "timings": {**base["timings"], "generation_ms": generation_ms},
+            }
         return {
             **base,
             "answer_type": "insufficient_evidence",
