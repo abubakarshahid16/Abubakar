@@ -43,6 +43,11 @@ def ensure_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_wbs ON deliverables(wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_parent ON deliverables(parent_id, wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_due ON deliverables(due_date, status)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS deliverable_expectations (
+            id TEXT PRIMARY KEY, wbs_code TEXT NOT NULL, deliverable_type TEXT NOT NULL,
+            title TEXT NOT NULL, required INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+            UNIQUE(wbs_code, deliverable_type)
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS deliverable_events (
             id TEXT PRIMARY KEY,
             deliverable_id TEXT NOT NULL REFERENCES deliverables(id) ON DELETE CASCADE,
@@ -142,6 +147,31 @@ def list_items(*, allowed_document_ids: frozenset[str] | None = None) -> list[di
         args.extend(sorted(allowed_document_ids))
     sql += " ORDER BY wbs_code, due_date, revision"
     return [dict(row) for row in connect().execute(sql, args).fetchall()]
+
+
+def expected_missing(*, wbs_code: str | None = None,
+                     allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
+    """Return configured expected deliverables and their registered status."""
+    ensure_schema()
+    sql = "SELECT e.*, d.id AS deliverable_id, d.status FROM deliverable_expectations e " \
+          "LEFT JOIN deliverables d ON d.wbs_code=e.wbs_code AND d.deliverable_type=e.deliverable_type"
+    args: list[str] = []
+    if wbs_code:
+        sql += " WHERE e.wbs_code = ?"; args.append(wbs_code)
+    rows = connect().execute(sql, args).fetchall()
+    return [dict(row) | {"state": "registered" if row["deliverable_id"] else "missing"}
+            for row in rows]
+
+
+def configure_expectation(payload: dict) -> dict:
+    ensure_schema()
+    item = {"id": str(uuid.uuid4()), "created_at": _now(), **payload}
+    with connect() as conn:
+        conn.execute("""INSERT INTO deliverable_expectations
+            (id,wbs_code,deliverable_type,title,required,created_at)
+            VALUES (:id,:wbs_code,:deliverable_type,:title,:required,:created_at)
+            ON CONFLICT(wbs_code,deliverable_type) DO UPDATE SET title=excluded.title, required=excluded.required""", item)
+    return item
 
 
 def get(item_id: str) -> dict | None:

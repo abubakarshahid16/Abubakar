@@ -26,6 +26,9 @@ SMTP summaries can now be run as an idempotent daily or weekly job with a
 configured UTC hour and weekday. Duplicate scheduler ticks do not duplicate
 emails, and disabled SMTP remains a no-op.
 
+WBS packages can now declare expected deliverable types and expose registered
+versus missing status through `/api/deliverables/expected`.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.

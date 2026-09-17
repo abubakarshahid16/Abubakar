@@ -374,3 +374,6 @@ measured numbers — *"the isolated figure was measuring the wrong thing"*,
 cost of the project's memory.
 
 **Never commit** PDFs, extracted text, embeddings, chat history, model weights, secrets, or client metrics.
+
+Deliverable intelligence supports configured expected items per WBS code and
+reports whether each expected deliverable is registered or missing.
