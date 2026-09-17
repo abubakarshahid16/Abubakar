@@ -129,7 +129,7 @@ function Step({
         {done ? "done" : current ? "now" : "··"}
       </span>
       <span className="font-medium">{label}</span>
-      {detail && <span className="ml-auto font-mono text-xs">{detail}</span>}
+      {detail && <span className="ms-auto font-mono text-xs">{detail}</span>}
     </li>
   );
 }
@@ -347,7 +347,7 @@ function WatchRow({ event }: { event: WatchEvent }) {
       <span className="font-medium text-slateish-200">{event.filename}</span>
       <span className={style.tone}>{style.word}</span>
       {when && (
-        <span className="ml-auto font-mono text-xs text-slateish-300" title={event.at}>
+        <span className="ms-auto font-mono text-xs text-slateish-300" title={event.at}>
           {when}
         </span>
       )}
@@ -437,7 +437,7 @@ function WatchedFolderPanel() {
               The folder is not being read right now.
             </span>
             {status.last_error && (
-              <span className="ml-1 text-slateish-300">{status.last_error}</span>
+              <span className="ms-1 text-slateish-300">{status.last_error}</span>
             )}
           </p>
         )}

@@ -9,7 +9,7 @@ export function MetricWarningRow({ warning }: { warning: MetricWarning }) {
   return <li className={`rounded-[var(--radius-sm)] border px-3 py-2 text-sm ${style}`}>
     <span role={warning.severity === "error" ? "alert" : "status"}>
       <span className="text-slateish-300">{warning.message}</span>
-      <span className="ml-2 font-mono text-xs uppercase tracking-wide text-slateish-500">{warning.code}</span>
+      <span className="ms-2 font-mono text-xs uppercase tracking-wide text-slateish-500">{warning.code}</span>
     </span>
   </li>;
 }

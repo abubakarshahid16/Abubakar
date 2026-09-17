@@ -77,9 +77,9 @@ export function PageImageViewer({
                   const n = Number(e.target.value);
                   if (Number.isFinite(n)) setSelected(Math.min(Math.max(1, n), total || 1));
                 }}
-                className="ml-1 w-20 rounded border border-ink-600 bg-ink-850 px-2 py-1 font-mono text-slateish-200"
+                className="ms-1 w-20 rounded border border-ink-600 bg-ink-850 px-2 py-1 font-mono text-slateish-200"
               />
-              <span className="ml-1">of {total}</span>
+              <span className="ms-1">of {total}</span>
             </label>
 
             <div className="flex gap-1">
@@ -101,7 +101,7 @@ export function PageImageViewer({
               </button>
             </div>
 
-            <div role="group" aria-label="Zoom" className="ml-auto flex gap-1">
+            <div role="group" aria-label="Zoom" className="ms-auto flex gap-1">
               {ZOOMS.map((z) => (
                 <button
                   key={z}

@@ -28,7 +28,7 @@ function LabelMark({ label }: { label: ClaimLabel }) {
   const l = LABELS[label];
   return (
     <span className={["text-xs font-semibold uppercase tracking-wider", l.tone].join(" ")}>
-      <span aria-hidden="true" className="mr-1 font-mono">
+      <span aria-hidden="true" className="me-1 font-mono">
         {l.icon}
       </span>
       {l.text}
@@ -114,7 +114,7 @@ function Row({
             NOT the same value as GapAnalysisCard's baseline section, which the
             USER types and which is unaffected. */}
       </div>
-      <blockquote className="document-quote mt-1.5 whitespace-pre-wrap border-l-2 border-signal-500/60 bg-ink-900 py-2 pl-4 pr-3 text-[14px] text-slateish-100">
+      <blockquote className="document-quote mt-1.5 whitespace-pre-wrap border-l-2 border-signal-500/60 bg-ink-900 py-2 ps-4 pe-3 text-[14px] text-slateish-100">
         {row.exact_span}
       </blockquote>
       {(hasRaw || hasNormalised) && (

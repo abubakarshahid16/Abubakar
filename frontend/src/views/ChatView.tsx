@@ -527,7 +527,7 @@ export function ChatView({
                   aria-current={c.id === current ? "true" : undefined}
                   onClick={() => void open(c.id)}
                   className={[
-                    "w-full rounded-[var(--radius-sm)] px-2 py-2 pr-7 text-left transition-colors",
+                    "w-full rounded-[var(--radius-sm)] px-2 py-2 pe-7 text-left transition-colors",
                     c.id === current ? "bg-ink-700" : "hover:bg-ink-800",
                   ].join(" ")}
                 >
@@ -541,7 +541,7 @@ export function ChatView({
                   type="button"
                   aria-label={`Delete conversation ${c.title}`}
                   onClick={() => void remove(c.id)}
-                  className="absolute right-1 top-1.5 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-xs text-slateish-500 opacity-0 transition-colors hover:bg-ink-600 hover:text-danger-500 focus:opacity-100 group-hover:opacity-100"
+                  className="absolute end-1 top-1.5 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-xs text-slateish-500 opacity-0 transition-colors hover:bg-ink-600 hover:text-danger-500 focus:opacity-100 group-hover:opacity-100"
                 >
                   ×
                 </button>
@@ -641,7 +641,7 @@ export function ChatView({
           }}
         >
           <fieldset className="mb-2 flex flex-wrap items-center gap-2" disabled={asking || offline}>
-            <legend className="mr-1 text-xs font-medium uppercase tracking-wide text-slateish-500">Response style</legend>
+            <legend className="me-1 text-xs font-medium uppercase tracking-wide text-slateish-500">Response style</legend>
             {([
               ["extract", "Exact quotation"],
               ["generated", "Written explanation"],
@@ -693,7 +693,7 @@ export function ChatView({
             <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2"><label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={structuredEnabled} onChange={(e) => { setStructuredEnabled(e.target.checked); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }} /> Search workflow records</label><select aria-label="Structured search type" value={structuredKind} onChange={(e) => { setStructuredKind(e.target.value as "deliverable" | "finding" | "risk" | "stakeholder"); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }} disabled={!structuredEnabled} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1 text-xs text-slateish-300"><option value="deliverable">Deliverables / WBS</option><option value="finding">Review findings</option><option value="risk">Risks</option><option value="stakeholder">Stakeholders</option></select><button type="button" onClick={() => void searchStructured()} disabled={!structuredEnabled || !question.trim()} className="rounded-[var(--radius-xs)] border border-signal-500/50 px-2 py-1 text-xs text-signal-300 disabled:opacity-50">Search records</button></div>
           {structuredFailure && <div className="mt-2"><ErrorState error={structuredFailure} /></div>}
           {hasSearched && !structuredFailure && structuredResults.length === 0 && <p role="status" className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2 text-xs text-slateish-400">No matching {structuredKind} found for '{question.trim()}'.</p>}
-          {structuredResults.length > 0 && <div aria-label="Structured search results" className="mt-2 space-y-2 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3"><p className="text-xs font-semibold uppercase tracking-wide text-signal-400">Workflow records — not page-cited evidence</p>{structuredResults.map((item) => <div key={`${item.kind}-${item.id}`} className="rounded-[var(--radius-xs)] border border-ink-700 px-2 py-1.5 text-xs text-slateish-300"><span className="mr-2 rounded-full bg-ink-700 px-1.5 py-0.5 text-signal-300">{item.kind}</span>{item.label}{item.wbs_code ? ` · WBS ${item.wbs_code}` : ""}</div>)}</div>}
+          {structuredResults.length > 0 && <div aria-label="Structured search results" className="mt-2 space-y-2 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3"><p className="text-xs font-semibold uppercase tracking-wide text-signal-400">Workflow records — not page-cited evidence</p>{structuredResults.map((item) => <div key={`${item.kind}-${item.id}`} className="rounded-[var(--radius-xs)] border border-ink-700 px-2 py-1.5 text-xs text-slateish-300"><span className="me-2 rounded-full bg-ink-700 px-1.5 py-0.5 text-signal-300">{item.kind}</span>{item.label}{item.wbs_code ? ` · WBS ${item.wbs_code}` : ""}</div>)}</div>}
           <p className="mt-1.5 text-xs text-slateish-500">
             {answerStyle === "extract"
               ? "Exact wording from your documents, with source references."

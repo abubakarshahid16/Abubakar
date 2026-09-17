@@ -274,7 +274,7 @@ function SearchRow({ row }: { row: MarketRow }) {
     <li
       className={[
         "border-t border-ink-700/60 py-2.5 first:border-t-0",
-        isReference ? "border-l-2 border-l-warn-500/60 pl-3" : "",
+        isReference ? "border-l-2 border-l-warn-500/60 ps-3" : "",
       ].join(" ")}
     >
       <div className="flex flex-wrap items-baseline gap-2">

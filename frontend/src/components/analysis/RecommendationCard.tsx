@@ -59,7 +59,7 @@ export function RecommendationCard({
               ? "Based on documents only"
               : "Based on documents and public market sample"}
             {r.basis === "documents_and_public_market" && (
-              <span className="ml-2 text-xs font-semibold uppercase tracking-wider text-warn-500">
+              <span className="ms-2 text-xs font-semibold uppercase tracking-wider text-warn-500">
                 market rows are sample data, not live
               </span>
             )}
@@ -73,7 +73,7 @@ export function RecommendationCard({
               <span className="font-semibold">{r.confidence}</span>
             )}
             {r.checks.length > 0 && (
-              <span className="ml-2 text-xs text-slateish-500">
+              <span className="ms-2 text-xs text-slateish-500">
                 {fired} of {r.checks.length} check{r.checks.length === 1 ? "" : "s"} fired
               </span>
             )}

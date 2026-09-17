@@ -94,7 +94,7 @@ export function ChunkInspector({
         <span className="font-mono text-xs text-slateish-400">
           {shownFrom}–{shownTo} of {total}
         </span>
-        <div className="ml-auto flex gap-1">
+        <div className="ms-auto flex gap-1">
           <button
             type="button"
             disabled={offset === 0}
@@ -155,7 +155,7 @@ export function ChunkInspector({
                     : `pages ${c.page_start}–${c.page_end}`}
                 </span>
                 <span className="text-slateish-400">{c.token_count} tokens</span>
-                <span className="ml-auto font-mono text-xs text-slateish-400">
+                <span className="ms-auto font-mono text-xs text-slateish-400">
                   #{c.ordinal}
                 </span>
               </div>

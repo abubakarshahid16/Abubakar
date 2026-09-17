@@ -99,9 +99,9 @@ export function CoverageLedger({
             <caption className="sr-only">Per-document search outcome</caption>
             <thead>
               <tr className="text-xs uppercase tracking-wide text-slateish-500">
-                <th scope="col" className="py-1 pr-3 font-normal">Document</th>
-                <th scope="col" className="py-1 pr-3 font-normal">Status</th>
-                <th scope="col" className="py-1 pr-3 text-right font-normal">Validated passages</th>
+                <th scope="col" className="py-1 pe-3 font-normal">Document</th>
+                <th scope="col" className="py-1 pe-3 font-normal">Status</th>
+                <th scope="col" className="py-1 pe-3 text-right font-normal">Validated passages</th>
                 <th scope="col" className="py-1 font-normal">Error</th>
               </tr>
             </thead>
@@ -110,12 +110,12 @@ export function CoverageLedger({
                 const st = STATUS_TEXT[d.status];
                 return (
                   <tr key={d.document_id} className="border-t border-ink-700/60">
-                    <td className="py-1.5 pr-3 text-slateish-200">{d.filename}</td>
-                    <td className={`py-1.5 pr-3 ${statusTone(d.status)}`}>
-                      <span aria-hidden="true" className="mr-1.5 font-mono">{st.icon}</span>
+                    <td className="py-1.5 pe-3 text-slateish-200">{d.filename}</td>
+                    <td className={`py-1.5 pe-3 ${statusTone(d.status)}`}>
+                      <span aria-hidden="true" className="me-1.5 font-mono">{st.icon}</span>
                       {st.label}
                     </td>
-                    <td className="py-1.5 pr-3 text-right font-mono text-slateish-300">
+                    <td className="py-1.5 pe-3 text-right font-mono text-slateish-300">
                       {/* null = did not search; 0 = searched, found nothing. */}
                       {d.validated_evidence_count === null ? (
                         <span aria-label="not searched">—</span>

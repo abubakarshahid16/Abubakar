@@ -178,7 +178,7 @@ export function TypeFilter({
           : "flex flex-col gap-1.5"
       }
     >
-      <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
+      <span className="me-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
         {label}
       </span>
       {vocabulary.types.map((type) => {
@@ -229,7 +229,7 @@ export function TypeFilter({
 
       {/* RULE 3: the server's number, or no number. */}
       {applied?.applied && (
-        <span className="ml-auto font-mono text-xs tabular-nums text-slateish-400">
+        <span className="ms-auto font-mono text-xs tabular-nums text-slateish-400">
           {applied.documents_in_scope} document
           {applied.documents_in_scope === 1 ? "" : "s"} in scope
         </span>

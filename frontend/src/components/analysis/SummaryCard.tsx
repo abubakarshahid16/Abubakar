@@ -138,19 +138,19 @@ function Finding({
     <li className="text-sm text-slateish-200">
       <span>{finding.claim}</span>
       {finding.citation_ids.length > 0 && (
-        <span className="ml-1 inline-flex flex-wrap items-baseline">
+        <span className="ms-1 inline-flex flex-wrap items-baseline">
           {finding.citation_ids.map((id, i) => (
             <Chip key={id} n={i + 1} label={`source ${i + 1}`} onClick={() => onCite(id)} />
           ))}
         </span>
       )}
       {userStated && (
-        <span className="ml-2 rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-warn-500">
+        <span className="ms-2 rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-warn-500">
           stated by the user — not documentary evidence
         </span>
       )}
       {finding.text_source === "recognised" && (
-        <span className="ml-2 text-xs uppercase tracking-wider text-slateish-500">
+        <span className="ms-2 text-xs uppercase tracking-wider text-slateish-500">
           from recognised (OCR) text
         </span>
       )}

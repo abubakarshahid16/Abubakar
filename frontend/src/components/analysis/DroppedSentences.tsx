@@ -16,7 +16,7 @@ export function DroppedSentences({ dropped }: { dropped: DroppedSentence[] }) {
       {shown.length > 0 && <ul className="mt-2 space-y-1.5">{shown.map((s, i) => (
         <li key={`${i}-${s.sentence.slice(0, 24)}`} className="text-xs text-slateish-400">
           <span className="text-slateish-300">{s.sentence}</span>
-          {s.reason.trim() !== "" && <span className="ml-1 text-slateish-500">&mdash; {s.reason}</span>}
+          {s.reason.trim() !== "" && <span className="ms-1 text-slateish-500">&mdash; {s.reason}</span>}
         </li>
       ))}</ul>}
       {withheld > 0 && <p className="mt-2 text-xs text-slateish-500">

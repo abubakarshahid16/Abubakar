@@ -476,7 +476,7 @@ export function AnswerCard({
             <ul className="mt-1.5 space-y-1">
               {view.examples.map((q) => (
                 <li key={q} className="text-sm text-slateish-400">
-                  <span aria-hidden className="mr-2 text-slateish-500">
+                  <span aria-hidden className="me-2 text-slateish-500">
                     &bull;
                   </span>
                   {q}
@@ -598,7 +598,7 @@ ollama serve
 
         <blockquote
           className={[
-            "mt-2 border-l-2 border-signal-500/60 bg-ink-900 py-2.5 pl-4 pr-3 text-slateish-100",
+            "mt-2 border-l-2 border-signal-500/60 bg-ink-900 py-2.5 ps-4 pe-3 text-slateish-100",
             p?.kind === "table"
               ? "document-table"
               : "document-quote whitespace-pre-wrap text-[15px]",

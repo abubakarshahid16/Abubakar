@@ -145,7 +145,7 @@ function Headline({
       ) : (
         <p className={`mt-2 font-mono text-[2.6rem] leading-none ${toneClass}`}>
           {value}
-          {unit && <span className="ml-1.5 text-lg text-slateish-500">{unit}</span>}
+          {unit && <span className="ms-1.5 text-lg text-slateish-500">{unit}</span>}
         </p>
       )}
       {children}
@@ -532,7 +532,7 @@ export function DashboardView({
                     would claim a measurement nobody made for a caller with
                     no coverage answer at all. */}
                 {coverageInScope && coverage!.needs_classification > 0 && (
-                  <span className="ml-1 text-warn-500">
+                  <span className="ms-1 text-warn-500">
                     · {nf.format(coverage!.needs_classification)} awaiting a type
                   </span>
                 )}
@@ -571,9 +571,9 @@ export function DashboardView({
           the honesty rules changes: an unmeasured value still says so. */}
       <details className="mt-8 group">
         <summary className="cursor-pointer select-none rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-300 hover:text-slateish-100 [&::-webkit-details-marker]:hidden">
-          <span className="mr-2 inline-block transition-transform group-open:rotate-90">&#9656;</span>
+          <span className="me-2 inline-block transition-transform group-open:rotate-90">&#9656;</span>
           <span className="font-medium">Technical detail</span>
-          <span className="ml-2 text-xs text-slateish-500">
+          <span className="ms-2 text-xs text-slateish-500">
             corpus counts, processing speed, retrieval latency, jobs, worker, models, machine, exclusion rules
           </span>
         </summary>
@@ -708,7 +708,7 @@ export function DashboardView({
                 className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm"
               >
                 <span className="text-slateish-200">{f.filename}</span>
-                <span className="ml-2 font-mono text-xs text-danger-500">
+                <span className="ms-2 font-mono text-xs text-danger-500">
                   {f.error_code ?? "failed"}
                 </span>
                 {f.error_message && (

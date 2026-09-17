@@ -250,7 +250,7 @@ function StatusMark({ status }: { status: GapItemStatus }) {
         s.badge,
       ].join(" ")}
     >
-      <span aria-hidden="true" className="mr-1 font-mono">
+      <span aria-hidden="true" className="me-1 font-mono">
         {s.icon}
       </span>
       {s.text}
@@ -402,7 +402,7 @@ function ItemRow({
           </p>
           <blockquote
             className={[
-              "mt-1 whitespace-pre-wrap py-2 pl-4 pr-3 text-[14px] text-slateish-100",
+              "mt-1 whitespace-pre-wrap py-2 ps-4 pe-3 text-[14px] text-slateish-100",
               baselineIsStated
                 ? "model-prose border-l-2 border-warn-500/60 bg-warn-500/[0.06]"
                 : "document-quote border-l-2 border-signal-500/60 bg-ink-900",

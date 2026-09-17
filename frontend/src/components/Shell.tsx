@@ -260,7 +260,7 @@ export function Shell({
           <span className="mt-1 block text-xs leading-snug text-slateish-400">
             Cited answers from your own documents
           </span>
-          <p className="mt-3 border-l-2 border-signal-500/40 pl-2.5 text-xs leading-relaxed text-slateish-400">
+          <p className="mt-3 border-l-2 border-signal-500/40 ps-2.5 text-xs leading-relaxed text-slateish-400">
             <span className="font-medium text-slateish-300">Private by design.</span>{" "}
             Your documents stay on this machine, and every answer cites its
             document and page.
@@ -311,7 +311,7 @@ export function Shell({
                     </span>
                   </span>
                   {!item.built && (
-                    <span className="ml-2 shrink-0 rounded-[var(--radius-full)] border border-ink-500 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slateish-300">
+                    <span className="ms-2 shrink-0 rounded-[var(--radius-full)] border border-ink-500 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slateish-300">
                       not built
                     </span>
                   )}

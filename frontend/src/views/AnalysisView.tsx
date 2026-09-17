@@ -135,7 +135,7 @@ function CancelButton({ onCancel }: { onCancel: () => void }) {
 
 function WarnBadge({ children }: { children: ReactNode }) {
   return (
-    <span className="ml-2 inline-block rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-warn-500">
+    <span className="ms-2 inline-block rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-warn-500">
       {children}
     </span>
   );
@@ -255,7 +255,7 @@ export function AnalysisView({
                     and no recommendation were generated.
                   </p>
                   {result.limitations.length > 0 && (
-                    <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slateish-300">
+                    <ul className="mt-3 list-disc space-y-1 ps-5 text-sm text-slateish-300">
                       {result.limitations.map((l, i) => (
                         <li key={i}>{l}</li>
                       ))}
@@ -368,13 +368,13 @@ export function AnalysisView({
                             className="min-w-0 text-left text-slateish-200 underline decoration-ink-500 underline-offset-2 hover:decoration-signal-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
                           >
                             <span className="truncate">{e.filename}</span>
-                            <span className="ml-1 text-slateish-500">
+                            <span className="ms-1 text-slateish-500">
                               p.{e.page_start}
                               {e.page_end !== e.page_start && `–${e.page_end}`}
                               {e.section && ` · ${e.section}`}
                             </span>
                             {e.text_source === "recognised" && (
-                              <span className="ml-1 text-xs uppercase tracking-wider text-slateish-500">
+                              <span className="ms-1 text-xs uppercase tracking-wider text-slateish-500">
                                 OCR
                               </span>
                             )}
@@ -392,7 +392,7 @@ export function AnalysisView({
                     {result.assumptions.length > 0 && (
                       <>
                         <h3 className="text-xs uppercase tracking-wide text-slateish-500">Assumptions</h3>
-                        <ul className="mt-1 list-disc space-y-1 pl-5 text-slateish-300">
+                        <ul className="mt-1 list-disc space-y-1 ps-5 text-slateish-300">
                           {result.assumptions.map((a, i) => (
                             <li key={i}>{a}</li>
                           ))}
@@ -402,7 +402,7 @@ export function AnalysisView({
                     {result.limitations.length > 0 && !refused && (
                       <>
                         <h3 className="mt-3 text-xs uppercase tracking-wide text-slateish-500">Limitations</h3>
-                        <ul className="mt-1 list-disc space-y-1 pl-5 text-slateish-300">
+                        <ul className="mt-1 list-disc space-y-1 ps-5 text-slateish-300">
                           {result.limitations.map((l, i) => (
                             <li key={i}>{l}</li>
                           ))}
@@ -414,7 +414,7 @@ export function AnalysisView({
                         <h3 className="mt-3 text-xs uppercase tracking-wide text-slateish-500">
                           Not produced by this build
                         </h3>
-                        <ul className="mt-1 list-disc space-y-1 pl-5 text-slateish-400">
+                        <ul className="mt-1 list-disc space-y-1 ps-5 text-slateish-400">
                           {result.not_implemented_sections.map((s, i) => (
                             <li key={i}>{s}</li>
                           ))}

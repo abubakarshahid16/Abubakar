@@ -138,10 +138,10 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label className="text-xs text-slateish-500">Owner
-          <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="Engineer ID" className="ml-1 w-32 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" />
+          <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="Engineer ID" className="ms-1 w-32 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" />
         </label>
         <label className="text-xs text-slateish-500">Due
-          <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="ml-1 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" />
+          <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="ms-1 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" />
         </label>
         <select value={approval} onChange={(e) => setApproval(e.target.value as typeof approval)} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">
           <option value="pending">Approval pending</option>
@@ -154,7 +154,7 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
         <button type="button" onClick={() => void showHistory()} disabled={loadingHistory} className="rounded-[var(--radius-xs)] border border-ink-600 px-3 py-1.5 text-xs text-slateish-300 hover:border-signal-500/60 disabled:opacity-50">{loadingHistory ? "Loading history…" : history === null ? "View history" : "Refresh history"}</button>
         <button type="button" onClick={() => void showTraceability()} className="rounded-[var(--radius-xs)] border border-signal-500/50 px-3 py-1.5 text-xs text-signal-300 hover:bg-signal-500/10">{traceability === null ? "View full chain" : "Refresh full chain"}</button>
       </div>
-      {history !== null && <ol className="mt-3 space-y-1 border-l border-ink-600 pl-3 text-xs text-slateish-500" aria-label="Finding history">
+      {history !== null && <ol className="mt-3 space-y-1 border-l border-ink-600 ps-3 text-xs text-slateish-500" aria-label="Finding history">
         {history.map((event) => <li key={event.id}><span className="text-slateish-400">{event.event_type === "created" ? "Created" : "Updated"}</span> · {new Date(event.created_at).toLocaleString()} · {Object.keys(event.changes).join(", ") || "no field changes"}</li>)}
       </ol>}
       {traceability !== null && <div aria-label="Finding traceability" className="mt-3 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3 text-xs text-slateish-300"><p className="font-semibold uppercase tracking-wide text-signal-400">Full traceability chain</p><p className="mt-2">Finding → {traceability.document.filename} → {traceability.baseline?.filename ?? "No baseline"} → {traceability.citations.length} citation(s) → {traceability.deliverables.length} deliverable(s) → {traceability.owner?.display_name || traceability.owner?.email || "No owner assigned"} → {traceability.action || finding.required_action}</p></div>}

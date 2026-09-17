@@ -481,7 +481,7 @@ export function AdminView(props: AdminViewProps) {
                     <td className="px-3 py-2 text-slateish-200">
                       {u.email}
                       {!u.active && (
-                        <span className="ml-2 text-xs text-slateish-400">deactivated</span>
+                        <span className="ms-2 text-xs text-slateish-400">deactivated</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-slateish-300">
@@ -562,7 +562,7 @@ export function AdminView(props: AdminViewProps) {
                     <td className="px-3 py-2 text-slateish-300">
                       {d.document_count}
                       {d.warning === "no_documents" && (
-                        <span className="ml-2 text-warn-500">
+                        <span className="ms-2 text-warn-500">
                           Nobody in this discipline can find anything
                         </span>
                       )}

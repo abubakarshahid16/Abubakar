@@ -134,7 +134,7 @@ export function ExcludedViewer({
                           </span>
                         )}
                       </span>
-                      <span className="ml-3 shrink-0 text-right">
+                      <span className="ms-3 shrink-0 text-right">
                         <span className="block font-mono text-sm text-warn-500">
                           {nf.format(s.count)} {s.scope}s
                         </span>
@@ -220,7 +220,7 @@ export function ExcludedViewer({
                         ? `page ${e.page_start}`
                         : `pages ${e.page_start}–${e.page_end}`}
                     </span>
-                    <span className="ml-auto text-slateish-400">
+                    <span className="ms-auto text-slateish-400">
                       {nf.format(e.text_length)} chars
                     </span>
                   </div>

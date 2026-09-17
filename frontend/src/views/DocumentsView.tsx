@@ -339,7 +339,7 @@ export function DocumentsView({
       {vocabulary && vocabulary.types.length > 0 && load.state === "ready" && (
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
+            <span className="me-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
               Type
             </span>
             <FilterChip

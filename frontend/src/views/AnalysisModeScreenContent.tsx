@@ -1100,7 +1100,7 @@ function SelectedPassage({ item }: { item: EvidenceItem }) {
         <span>p.{item.page_start}</span>
         {item.section !== null && <span>&sect; {item.section}</span>}
       </div>
-      <blockquote className="document-quote mt-2 whitespace-pre-wrap border-l-2 border-signal-500/60 bg-ink-900 py-2 pl-4 pr-3 text-[14px] text-slateish-100">
+      <blockquote className="document-quote mt-2 whitespace-pre-wrap border-l-2 border-signal-500/60 bg-ink-900 py-2 ps-4 pe-3 text-[14px] text-slateish-100">
         {item.exact_span}
       </blockquote>
     </section>
