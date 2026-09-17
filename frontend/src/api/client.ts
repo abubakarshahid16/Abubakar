@@ -287,6 +287,7 @@ export const reviews = {
   traceability: (id: string) => request<ReviewTraceability>(`/reviews/findings/${encodeURIComponent(id)}/traceability`),
   baselineRules: () => request<{ rules: ReviewBaselineRule[] }>("/reviews/baseline-rules"),
   createBaselineRule: (body: Partial<ReviewBaselineRule>) => request<ReviewBaselineRule>("/reviews/baseline-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateBaselineRule: (id: string, body: Partial<ReviewBaselineRule>) => request<ReviewBaselineRule>(`/reviews/baseline-rules/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   baselineSelection: (documentId: string) => request<BaselineSelection | null>(`/reviews/baseline-selection/${encodeURIComponent(documentId)}`),
 };
 
@@ -794,6 +795,8 @@ export const api = {
 export const management = {
   summary: () => request<ManagementSummary>("/management/summary"),
   emailSummary: () => request<{ sent: boolean }>("/management/summary/email", { method: "POST" }),
+  summarySchedule: () => request<{ schedule: "disabled" | "daily" | "weekly"; weekday_utc: number; hour_utc: number }>("/management/summary/schedule"),
+  setSummarySchedule: (body: { schedule: "disabled" | "daily" | "weekly"; weekday_utc: number; hour_utc: number }) => request<typeof body>("/management/summary/schedule", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   escalationRules: () => request<{ rules: EscalationRule[] }>("/management/escalation-rules"),
   updateEscalationRule: (level: number, body: Partial<EscalationRule>) =>
     request<EscalationRule>(`/management/escalation-rules/${level}`, {

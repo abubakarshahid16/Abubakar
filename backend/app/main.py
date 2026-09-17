@@ -1173,6 +1173,17 @@ def create_review_baseline_rule(body: schemas.ReviewBaselineRuleCreate,
     return review_mod.create_baseline_rule(payload)
 
 
+@app.patch("/api/reviews/baseline-rules/{rule_id}", response_model=schemas.ReviewBaselineRule,
+           responses=schemas.ERRORS_404)
+def update_review_baseline_rule(rule_id: str, body: schemas.ReviewBaselineRuleCreate,
+                                scope: access.AccessScope = Depends(access.current_scope)):
+    _require_identity_to_write(scope)
+    item = review_mod.update_baseline_rule(rule_id, body.model_dump())
+    if item is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "baseline rule not found"))
+    return item
+
+
 @app.get("/api/reviews/baseline-selection/{document_id}",
          response_model=schemas.ReviewBaselineSelection,
          responses=schemas.ERRORS_404)
@@ -1454,6 +1465,20 @@ def email_management_summary(scope: access.AccessScope = Depends(access.current_
                "escalated_findings": sum(1 for item in findings if item["escalation_level"] > 0)}
     sent = notifications_mod.send_daily_summary(summary, actor_user_id=scope.user_id)
     return {"sent": sent}
+
+
+@app.get("/api/management/summary/schedule", response_model=schemas.SummarySchedule)
+def get_summary_schedule(scope: access.AccessScope = Depends(access.current_scope)):
+    return {"schedule": settings.summary_schedule, "weekday_utc": settings.summary_weekday_utc, "hour_utc": settings.summary_hour_utc}
+
+
+@app.put("/api/management/summary/schedule", response_model=schemas.SummarySchedule)
+def set_summary_schedule(body: schemas.SummarySchedule, scope: access.AccessScope = Depends(access.current_scope)):
+    _require_identity_to_write(scope)
+    settings.summary_schedule = body.schedule
+    settings.summary_weekday_utc = body.weekday_utc
+    settings.summary_hour_utc = body.hour_utc
+    return body
 
 
 @app.get("/api/management/escalation-rules", response_model=schemas.EscalationRuleList)

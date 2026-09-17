@@ -1477,6 +1477,12 @@ class ManagementSummary(BaseModel):
     alerts: list[DeliverableAlert]
 
 
+class SummarySchedule(BaseModel):
+    schedule: Literal["disabled", "daily", "weekly"]
+    weekday_utc: int = Field(default=0, ge=0, le=6)
+    hour_utc: int = Field(default=8, ge=0, le=23)
+
+
 class EscalationRule(BaseModel):
     level: int = Field(ge=1, le=5)
     trigger_days: int = Field(ge=0, le=3650)

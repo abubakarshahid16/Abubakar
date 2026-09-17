@@ -40,6 +40,10 @@ baselines, citations, workflow events, and linked deliverables.
 
 Reminder and escalation emails now have separate audited notification paths.
 
+Administration now exposes baseline-rule management and summary scheduling;
+the requirements scorecard records this area as implemented while preserving
+the remaining automation gaps as partial.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.

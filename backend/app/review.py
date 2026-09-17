@@ -185,6 +185,17 @@ def list_baseline_rules() -> list[dict]:
         "SELECT * FROM review_baseline_rules ORDER BY priority DESC, created_at DESC").fetchall()]
 
 
+def update_baseline_rule(rule_id: str, payload: dict) -> dict | None:
+    ensure_schema()
+    allowed = {"submittal_doc_type", "submittal_discipline", "baseline_doc_type", "baseline_discipline", "priority", "active"}
+    changes = {key: value for key, value in payload.items() if key in allowed}
+    if changes:
+        with connect() as conn:
+            conn.execute(f"UPDATE review_baseline_rules SET {', '.join(f'{key} = ?' for key in changes)} WHERE id = ?", [*changes.values(), rule_id])
+    row = connect().execute("SELECT * FROM review_baseline_rules WHERE id = ?", (rule_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def auto_select_baseline(document_id: str, *, allowed_document_ids: frozenset[str] | None = None) -> dict | None:
     ensure_schema()
     source = connect().execute(
