@@ -406,6 +406,13 @@ def test_a_host_outside_the_allowlist_is_refused():
         market_providers.check_host("https://evil.test/search?q=x")
 
 
+def test_host_allowlist_uses_url_authority_not_string_splitting():
+    """Regression for the old ``?@`` allowlist bypass."""
+    with pytest.raises(market_providers.HostNotAllowed):
+        market_providers.check_host(
+            "https://evil.test?@api.openalex.org/works?search=design")
+
+
 def test_every_shipped_tier_url_is_inside_the_allowlist():
     for url in (market_providers.OpenAlexProvider.BASE,
                 market_providers.WikipediaProvider.BASE):

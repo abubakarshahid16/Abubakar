@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import string
 import time
+from urllib.parse import urlsplit
 import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -281,8 +282,12 @@ class HostNotAllowed(ValueError):
 
 
 def _host_of(url: str) -> str:
-    rest = url.split("://", 1)[-1]
-    return rest.split("/", 1)[0].split("@")[-1].split(":", 1)[0].lower()
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HostNotAllowed("market URL must be an absolute HTTP(S) URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise HostNotAllowed("market URL must not contain embedded credentials")
+    return parsed.hostname.rstrip(".").lower()
 
 
 def check_host(url: str) -> str:

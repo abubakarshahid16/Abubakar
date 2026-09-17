@@ -186,14 +186,11 @@ def metrics(request: Request,
     open is only defensible if the screen says so out loud.
     """
     reject_unknown_params(request, set())
-    # ONE PREDICATE, used for both, and it reads the KIND rather than the name.
-    # `admin_mod.is_admin` answers the same question from `roles.name`, and the
-    # two agree only because `init_db` re-asserts kind = 'capability' for the
-    # role called `admin` on every start. That re-assertion is not a guarantee:
-    # a role NAMED admin with kind = 'discipline' is an administrator to the
-    # name predicate and an ordinary engineer to this one. `AccessScope`
-    # already resolved the capability set for this request, so the stronger
-    # predicate is also the cheaper one - no second query, no second answer.
+    # Corpus-wide aggregate counts are a deliberate administrator capability;
+    # host telemetry is narrower and must never be admitted merely because the
+    # auth mode treats an anonymous caller as unrestricted for document reads.
+    # AccessScope already resolved the capability set for this request, so this
+    # is both the stronger predicate and the cheaper one.
     corpus_wide = scope.unrestricted or scope.is_admin
     allowed = None if corpus_wide else sorted(scope.allowed_document_ids)
     # The machine's own specifications go to an administrator only (#77). Not
@@ -201,8 +198,13 @@ def metrics(request: Request,
     # same flag governs whether the low-memory warning may state free RAM,
     # because gating the block while the prose restates the figure would move
     # the leak rather than close it.
+    # `AccessScope.is_admin` intentionally treats AUTH_MODE=disabled as an
+    # unrestricted development read scope. Host telemetry is not a document
+    # read, so use the actual capability set here and keep the two boundaries
+    # separate.
     return metrics_mod.snapshot(
-        ingest_mod.get_worker().status(), allowed, corpus_wide, corpus_wide)
+        ingest_mod.get_worker().status(), allowed, corpus_wide,
+        "admin" in scope.capabilities)
 
 
 # --------------------------------------------------------------- documents

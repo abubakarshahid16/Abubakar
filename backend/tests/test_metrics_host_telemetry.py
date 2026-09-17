@@ -264,6 +264,21 @@ def test_an_unauthenticated_caller_receives_no_host_telemetry(
         + ", ".join(leaked))
 
 
+def test_disabled_auth_does_not_turn_unrestricted_reads_into_host_access(
+        corpus_and_identities, monkeypatch):
+    """Regression for the shipped AUTH_MODE=disabled default.
+
+    The old route passed ``scope.unrestricted`` as the host gate, making an
+    anonymous caller an administrator for CPU/RAM/worker telemetry.  Document
+    read convenience and machine-fingerprint access are separate decisions.
+    """
+    client, _, _ = corpus_and_identities
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    payload = _metrics(client, None)
+    assert payload.get("system") is None
+    assert payload.get("worker", {}).get("current_document") is None
+
+
 # ------------------------------------------- the corpus figures are untouched
 
 @pytest.mark.parametrize("user,expected_allowed", [
