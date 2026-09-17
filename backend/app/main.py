@@ -1264,10 +1264,19 @@ def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
     changes = body.model_dump(exclude_unset=True)
     if changes.get("document_id"):
         require_document(changes["document_id"], scope)
-    item = deliverables_mod.update(deliverable_id, changes)
+    item = deliverables_mod.update(deliverable_id, changes, actor_user_id=scope.user_id)
     if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return item
+
+
+@app.get("/api/deliverables/{deliverable_id}/history", response_model=schemas.DeliverableEventList,
+         responses=schemas.ERRORS_404)
+def deliverable_history(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+    item = deliverables_mod.get(deliverable_id)
+    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
+    return {"events": deliverables_mod.history(deliverable_id)}
 
 
 @app.get("/api/deliverables/alerts", response_model=schemas.DeliverableAlertList)

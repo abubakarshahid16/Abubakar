@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+import json
 from datetime import datetime, timezone
 
 from .db import connect
@@ -32,6 +33,15 @@ def ensure_schema() -> None:
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_wbs ON deliverables(wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_due ON deliverables(due_date, status)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS deliverable_events (
+            id TEXT PRIMARY KEY,
+            deliverable_id TEXT NOT NULL REFERENCES deliverables(id) ON DELETE CASCADE,
+            event_type TEXT NOT NULL,
+            changes TEXT NOT NULL DEFAULT '{}',
+            actor_user_id TEXT,
+            created_at TEXT NOT NULL
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverable_events_item ON deliverable_events(deliverable_id, created_at)")
         conn.execute("""CREATE TABLE IF NOT EXISTS escalation_rules (
             level INTEGER PRIMARY KEY, trigger_days INTEGER NOT NULL,
             recipient_role TEXT NOT NULL, action TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1
@@ -80,6 +90,8 @@ def create(payload: dict, *, created_by: str | None) -> dict:
              planned_date,due_date,submitted_at,approved_at,created_by,created_at,updated_at)
             VALUES (:id,:wbs_code,:title,:deliverable_type,:revision,:status,:document_id,:owner_user_id,
                     :planned_date,:due_date,:submitted_at,:approved_at,:created_by,:created_at,:updated_at)""", item)
+        conn.execute("INSERT INTO deliverable_events (id, deliverable_id, event_type, changes, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                     (str(uuid.uuid4()), item["id"], "created", json.dumps({"revision": item["revision"], "status": item["status"]}), created_by, now))
     return item
 
 
@@ -97,21 +109,45 @@ def list_items(*, allowed_document_ids: frozenset[str] | None = None) -> list[di
     return [dict(row) for row in connect().execute(sql, args).fetchall()]
 
 
-def update(item_id: str, changes: dict) -> dict | None:
+def get(item_id: str) -> dict | None:
+    ensure_schema()
+    row = connect().execute("SELECT * FROM deliverables WHERE id = ?", (item_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update(item_id: str, changes: dict, *, actor_user_id: str | None = None) -> dict | None:
     ensure_schema()
     allowed = {"wbs_code", "title", "deliverable_type", "revision", "status", "document_id",
                "owner_user_id", "planned_date", "due_date", "submitted_at", "approved_at"}
-    sets = [f"{k} = ?" for k in changes if k in allowed and changes[k] is not None]
+    changed = {k: changes[k] for k in changes if k in allowed and changes[k] is not None}
+    sets = [f"{k} = ?" for k in changed]
     if not sets:
         row = connect().execute("SELECT * FROM deliverables WHERE id = ?", (item_id,)).fetchone()
         return dict(row) if row else None
-    args = [changes[k] for k in changes if k in allowed and changes[k] is not None]
-    sets.append("updated_at = ?"); args.extend([_now(), item_id])
+    args = [changed[k] for k in changed]
+    now = _now()
+    sets.append("updated_at = ?"); args.extend([now, item_id])
     with connect() as conn:
         if conn.execute(f"UPDATE deliverables SET {', '.join(sets)} WHERE id = ?", args).rowcount == 0:
             return None
+        conn.execute("INSERT INTO deliverable_events (id, deliverable_id, event_type, changes, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                     (str(uuid.uuid4()), item_id, "updated", json.dumps(changed), actor_user_id, now))
     row = connect().execute("SELECT * FROM deliverables WHERE id = ?", (item_id,)).fetchone()
     return dict(row) if row else None
+
+
+def history(item_id: str) -> list[dict]:
+    ensure_schema()
+    rows = connect().execute("SELECT * FROM deliverable_events WHERE deliverable_id = ? ORDER BY rowid", (item_id,)).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["changes"] = json.loads(item.get("changes") or "{}")
+        except (TypeError, ValueError):
+            item["changes"] = {}
+        result.append(item)
+    return result
 
 
 def alerts(*, allowed_document_ids: frozenset[str] | None = None) -> list[dict]:

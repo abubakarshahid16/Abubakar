@@ -1278,6 +1278,19 @@ class DeliverableList(BaseModel):
     deliverables: list[Deliverable]
 
 
+class DeliverableEvent(BaseModel):
+    id: str
+    deliverable_id: str
+    event_type: str
+    changes: dict
+    actor_user_id: str | None
+    created_at: str
+
+
+class DeliverableEventList(BaseModel):
+    events: list[DeliverableEvent]
+
+
 class DeliverableAlert(BaseModel):
     deliverable_id: str
     wbs_code: str
