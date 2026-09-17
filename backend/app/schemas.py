@@ -1163,6 +1163,19 @@ class ReviewFindingList(BaseModel):
     findings: list[ReviewFinding]
 
 
+class ReviewFindingEvent(BaseModel):
+    id: str
+    finding_id: str
+    event_type: str
+    changes: dict
+    actor_user_id: str | None
+    created_at: str
+
+
+class ReviewFindingEventList(BaseModel):
+    events: list[ReviewFindingEvent]
+
+
 DeliverableStatus = Literal["planned", "in_progress", "submitted", "under_review", "approved", "rejected", "superseded"]
 
 

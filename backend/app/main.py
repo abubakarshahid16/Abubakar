@@ -1166,11 +1166,28 @@ def update_review_finding(
     if body.owner_user_id and not scope.unrestricted and not scope.is_admin and body.owner_user_id != scope.user_id:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "review owner not found"))
-    updated = review_mod.update(finding_id, body.model_dump(exclude_unset=True))
+    updated = review_mod.update(
+        finding_id, body.model_dump(exclude_unset=True), actor_user_id=scope.user_id
+    )
     if updated is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id"))
     return updated
+
+
+@app.get("/api/reviews/findings/{finding_id}/history",
+         response_model=schemas.ReviewFindingEventList,
+         responses=schemas.ERRORS_404)
+def review_finding_history(
+    finding_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Return the immutable response/approval/disposition audit trail."""
+    current = review_mod.get(finding_id)
+    if current is None or not scope.may_read(current["document_id"]):
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review finding with that id"))
+    return {"events": review_mod.history(finding_id)}
 
 
 # ------------------------------------------------------------- deliverables / WBS

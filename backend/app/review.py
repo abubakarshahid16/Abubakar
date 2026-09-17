@@ -58,6 +58,18 @@ def ensure_schema() -> None:
                      "ON review_findings(document_id, status, updated_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_due "
                      "ON review_findings(due_date, status)")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS review_finding_events (
+                id TEXT PRIMARY KEY,
+                finding_id TEXT NOT NULL REFERENCES review_findings(id) ON DELETE CASCADE,
+                event_type TEXT NOT NULL,
+                changes TEXT NOT NULL DEFAULT '{}',
+                actor_user_id TEXT,
+                created_at TEXT NOT NULL
+            )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_review_finding_events_finding "
+                     "ON review_finding_events(finding_id, created_at DESC)")
 
 
 def _row(row) -> dict:
@@ -67,6 +79,17 @@ def _row(row) -> dict:
     except (TypeError, ValueError):
         result["citation_ids"] = []
     return result
+
+
+def _event(conn, finding_id: str, event_type: str, changes: dict,
+           actor_user_id: str | None, created_at: str) -> None:
+    conn.execute(
+        """INSERT INTO review_finding_events
+           (id, finding_id, event_type, changes, actor_user_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (str(uuid.uuid4()), finding_id, event_type, json.dumps(changes),
+         actor_user_id, created_at),
+    )
 
 
 def create(payload: dict, *, created_by: str | None) -> dict:
@@ -94,6 +117,11 @@ def create(payload: dict, *, created_by: str | None) -> dict:
                 created_by, now, now,
             ),
         )
+        _event(conn, finding_id, "created", {
+            "severity": payload["severity"],
+            "status": payload.get("status", "open"),
+            "approval_status": payload.get("approval_status", "pending"),
+        }, created_by, now)
     return get(finding_id)  # type: ignore[return-value]
 
 
@@ -128,23 +156,47 @@ def list_findings(*, document_id: str | None = None, status: str | None = None,
     return [_row(row) for row in connect().execute(sql, args).fetchall()]
 
 
-def update(finding_id: str, changes: dict) -> dict | None:
+def history(finding_id: str) -> list[dict]:
+    ensure_schema()
+    rows = connect().execute(
+        "SELECT * FROM review_finding_events WHERE finding_id = ? "
+        "ORDER BY rowid ASC", (finding_id,)
+    ).fetchall()
+    out = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["changes"] = json.loads(item.get("changes") or "{}")
+        except (TypeError, ValueError):
+            item["changes"] = {}
+        out.append(item)
+    return out
+
+
+def update(finding_id: str, changes: dict, *, actor_user_id: str | None = None) -> dict | None:
     ensure_schema()
     allowed = {"owner_user_id", "due_date", "status", "approval_status",
                "escalation_level", "required_action", "severity", "response_text",
                "disposition", "approved_by", "approved_at"}
+    current = get(finding_id)
+    if current is None:
+        return None
+    changed = {key: value for key, value in changes.items()
+               if key in allowed and value is not None
+               and value != current.get(key)}
+    if not changed:
+        return current
     sets: list[str] = []
     args: list[object] = []
-    for key, value in changes.items():
-        if key in allowed and value is not None:
-            sets.append(f"{key} = ?")
-            args.append(value)
-    if not sets:
-        return get(finding_id)
+    for key, value in changed.items():
+        sets.append(f"{key} = ?")
+        args.append(value)
+    now = _now()
     sets.append("updated_at = ?")
-    args.extend([_now(), finding_id])
+    args.extend([now, finding_id])
     conn = connect()
     with conn:
         if conn.execute(f"UPDATE review_findings SET {', '.join(sets)} WHERE id = ?", args).rowcount == 0:
             return None
+        _event(conn, finding_id, "updated", changed, actor_user_id, now)
     return get(finding_id)
