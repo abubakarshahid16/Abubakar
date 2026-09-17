@@ -1287,6 +1287,8 @@ class ManagementSummary(BaseModel):
     deliverables_by_status: dict[str, int]
     review_findings_total: int
     findings_by_severity: dict[str, int]
+    findings_by_status: dict[str, int]
+    escalated_findings: int
     overdue_alerts: int
     alerts: list[DeliverableAlert]
 

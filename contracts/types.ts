@@ -265,6 +265,8 @@ export interface ManagementSummary {
   deliverables_by_status: Record<string, number>;
   review_findings_total: number;
   findings_by_severity: Record<string, number>;
+  findings_by_status: Record<string, number>;
+  escalated_findings: number;
   overdue_alerts: number;
   alerts: DeliverableAlert[];
 }

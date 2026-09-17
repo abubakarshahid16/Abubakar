@@ -1263,8 +1263,12 @@ def management_summary(scope: access.AccessScope = Depends(access.current_scope)
                  for status in {item["status"] for item in items}}
     by_severity = {severity: sum(1 for item in findings if item["severity"] == severity)
                    for severity in {item["severity"] for item in findings}}
+    by_review_status = {status: sum(1 for item in findings if item["status"] == status)
+                        for status in {item["status"] for item in findings}}
+    escalated = sum(1 for item in findings if item["escalation_level"] > 0)
     return {"deliverables_total": len(items), "deliverables_by_status": by_status,
             "review_findings_total": len(findings), "findings_by_severity": by_severity,
+            "findings_by_status": by_review_status, "escalated_findings": escalated,
             "overdue_alerts": len(alerts), "alerts": alerts}
 
 
