@@ -22,6 +22,10 @@ Named comparison workflows are now validated and carried through gap analysis:
 baseline vs submittal, requirements vs submittal, revision delta, and
 discipline coordination.
 
+SMTP summaries can now be run as an idempotent daily or weekly job with a
+configured UTC hour and weekday. Duplicate scheduler ticks do not duplicate
+emails, and disabled SMTP remains a no-op.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.

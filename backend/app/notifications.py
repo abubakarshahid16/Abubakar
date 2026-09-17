@@ -90,3 +90,40 @@ def send_daily_summary(summary: dict, *, actor_user_id: str | None = None) -> bo
     return send_email(subject="EPC daily management summary", body="\n".join(lines),
                       trigger="daily_summary", resource_type="management_summary",
                       resource_id=None, actor_user_id=actor_user_id)
+
+
+def run_scheduled_summary(summary: dict, *, now: datetime | None = None,
+                          actor_user_id: str | None = None) -> bool:
+    """Send at most one configured daily/weekly digest for the current window.
+
+    This is deliberately a small idempotent job function: an existing worker or
+    external scheduler can call it repeatedly without duplicate emails.
+    """
+    schedule = (settings.summary_schedule or "disabled").lower()
+    if schedule not in {"daily", "weekly"}:
+        return False
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    if current.hour != int(settings.summary_hour_utc):
+        return False
+    if schedule == "weekly" and current.weekday() != int(settings.summary_weekday_utc):
+        return False
+    window = current.strftime("%Y-%m-%d") if schedule == "daily" else current.strftime("%G-W%V")
+    key = f"management_summary:{schedule}:{window}"
+    with connect() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS notification_schedule_runs (
+            key TEXT PRIMARY KEY, sent_at TEXT NOT NULL)""")
+        if conn.execute("SELECT 1 FROM notification_schedule_runs WHERE key = ?", (key,)).fetchone():
+            return False
+        # Reserve before sending so two worker ticks cannot send duplicates.
+        conn.execute("INSERT INTO notification_schedule_runs(key, sent_at) VALUES (?, ?)",
+                     (key, _now()))
+    try:
+        sent = send_daily_summary(summary, actor_user_id=actor_user_id)
+    except Exception:
+        with connect() as conn:
+            conn.execute("DELETE FROM notification_schedule_runs WHERE key = ?", (key,))
+        raise
+    if not sent:
+        with connect() as conn:
+            conn.execute("DELETE FROM notification_schedule_runs WHERE key = ?", (key,))
+    return sent

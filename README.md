@@ -340,6 +340,10 @@ Reviewers can label the comparison intent as baseline vs submittal,
 requirements vs submittal, revision delta, or discipline coordination. The
 label is validated at the API boundary and returned with the comparison.
 
+Management summaries also support an opt-in daily or weekly schedule. The
+schedule is UTC/config-driven, idempotent per reporting window, and uses the
+same fail-closed SMTP and audit trail as event notifications.
+
 ### Branches
 
     <type>/<issue-number>-<stable-id>-<slug>

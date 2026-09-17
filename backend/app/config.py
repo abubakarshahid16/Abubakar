@@ -674,6 +674,10 @@ class Settings(BaseSettings):
     smtp_recipient: str = ""
     smtp_starttls: bool = True
     smtp_timeout_seconds: float = 10.0
+    # Scheduled summaries are opt-in. The worker calls notifications.run_scheduled_summary.
+    summary_schedule: str = "disabled"  # disabled, daily, weekly
+    summary_hour_utc: int = 8
+    summary_weekday_utc: int = 0  # Monday=0
 
     @model_validator(mode="after")
     def _refuse_a_non_local_answer_model(self) -> "Settings":

@@ -14,6 +14,11 @@ covered by `test_review_baselines.py`.
 named engineering workflows and gap analysis echoes the selected value;
 arbitrary labels are rejected rather than presented as governed workflows.
 
+**Scheduled summaries.** A summary is “scheduled” only when the opt-in
+configuration matches the current UTC window and a durable idempotency key is
+reserved; `run_scheduled_summary` returns false when disabled, outside the
+window, already sent, or unable to send with SMTP disabled.
+
 **Why this document exists.** Twenty-nine separate times something in this
 system has claimed what was not so - a status field, a count, a measurement,
 twice a design document about the code it was written against, once a type that
