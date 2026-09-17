@@ -29,3 +29,11 @@ being hidden as implementation work.
   mail until an approved provider is configured. The UI should keep that
   distinction prominent in production deployments.
 
+## Final screen sweep
+
+On 2026-09-17, the authenticated navigation sweep reached Dashboard,
+Documents, Chat, Analysis, Reports, Deliverables, Ingestion, and
+Administration. Each screen rendered its expected heading and usable empty or
+loaded state; no raw exception text or blank route was observed. The remaining
+items above are deliberate design/provider decisions, not silently ignored
+screen failures.
