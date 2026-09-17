@@ -228,6 +228,7 @@ export type DeliverableStatus = "planned" | "in_progress" | "submitted" | "under
 export interface Deliverable {
   id: string;
   wbs_code: string;
+  parent_id: string | null;
   title: string;
   deliverable_type: string;
   revision: string;
@@ -251,8 +252,10 @@ export interface DeliverableStakeholder {
   display_name: string | null;
 }
 export interface DeliverableStakeholderAssignment { user_id: string; role: StakeholderRole; }
+export interface WbsWorkspace { node: Deliverable; children: Deliverable[]; documents: { id: string }[]; reviews: ReviewFinding[]; escalations: DeliverableAlert[]; }
 export interface DeliverableCreate {
   wbs_code: string;
+  parent_id?: string | null;
   title: string;
   deliverable_type: string;
   revision?: string;

@@ -77,3 +77,19 @@ def test_stakeholder_roles_migrate_owner_and_route_assignments():
     ], actor_user_id="owner")
     assert {(row["user_id"], row["role"]) for row in assigned} == {
         ("owner", "owner"), ("reviewer", "reviewer")}
+
+
+def test_wbs_parent_child_workspace_and_cycle_guard():
+    parent = deliverables.create(
+        {"wbs_code": "5.0", "title": "Design package", "deliverable_type": "package"},
+        created_by="owner",
+    )
+    child = deliverables.create(
+        {"wbs_code": "5.1", "parent_id": parent["id"], "title": "Structural submittal",
+         "deliverable_type": "drawing"}, created_by="owner",
+    )
+    view = deliverables.workspace(parent["id"], allowed_document_ids=frozenset())
+    assert view is not None
+    assert [row["id"] for row in view["children"]] == [child["id"]]
+    with pytest.raises(ValueError, match="cycle"):
+        deliverables.update(parent["id"], {"parent_id": child["id"]})

@@ -286,6 +286,7 @@ export const deliverables = {
   update: (id: string, body: DeliverableUpdate) => request<Deliverable>(`/deliverables/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   stakeholders: (id: string) => request<{ stakeholders: import("../types/api").DeliverableStakeholder[] }>(`/deliverables/${encodeURIComponent(id)}/stakeholders`),
   replaceStakeholders: (id: string, assignments: import("../types/api").DeliverableStakeholderAssignment[]) => request<{ stakeholders: import("../types/api").DeliverableStakeholder[] }>(`/deliverables/${encodeURIComponent(id)}/stakeholders`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assignments }) }),
+  workspace: (id: string) => request<import("../types/api").WbsWorkspace>(`/deliverables/${encodeURIComponent(id)}/workspace`),
 };
 
 // The market preview/search contract now lives in contracts/types.ts, which

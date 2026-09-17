@@ -22,6 +22,7 @@ def ensure_schema() -> None:
         conn.execute("""CREATE TABLE IF NOT EXISTS deliverables (
             id TEXT PRIMARY KEY,
             wbs_code TEXT NOT NULL,
+            parent_id TEXT REFERENCES deliverables(id) ON DELETE SET NULL,
             title TEXT NOT NULL,
             deliverable_type TEXT NOT NULL,
             revision TEXT NOT NULL DEFAULT '0',
@@ -36,7 +37,11 @@ def ensure_schema() -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )""")
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(deliverables)")}
+        if "parent_id" not in columns:
+            conn.execute("ALTER TABLE deliverables ADD COLUMN parent_id TEXT REFERENCES deliverables(id) ON DELETE SET NULL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_wbs ON deliverables(wbs_code)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_parent ON deliverables(parent_id, wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_due ON deliverables(due_date, status)")
         conn.execute("""CREATE TABLE IF NOT EXISTS deliverable_events (
             id TEXT PRIMARY KEY,
@@ -106,6 +111,7 @@ def create(payload: dict, *, created_by: str | None) -> dict:
     now = _now()
     item = {
         "id": str(uuid.uuid4()), "wbs_code": payload["wbs_code"],
+        "parent_id": payload.get("parent_id"),
         "title": payload["title"], "deliverable_type": payload["deliverable_type"],
         "revision": payload.get("revision", "0"), "status": payload.get("status", "planned"),
         "document_id": payload.get("document_id"), "owner_user_id": payload.get("owner_user_id"),
@@ -115,9 +121,9 @@ def create(payload: dict, *, created_by: str | None) -> dict:
     }
     with connect() as conn:
         conn.execute("""INSERT INTO deliverables
-            (id,wbs_code,title,deliverable_type,revision,status,document_id,owner_user_id,
+            (id,wbs_code,parent_id,title,deliverable_type,revision,status,document_id,owner_user_id,
              planned_date,due_date,submitted_at,approved_at,created_by,created_at,updated_at)
-            VALUES (:id,:wbs_code,:title,:deliverable_type,:revision,:status,:document_id,:owner_user_id,
+            VALUES (:id,:wbs_code,:parent_id,:title,:deliverable_type,:revision,:status,:document_id,:owner_user_id,
                     :planned_date,:due_date,:submitted_at,:approved_at,:created_by,:created_at,:updated_at)""", item)
         conn.execute("INSERT INTO deliverable_events (id, deliverable_id, event_type, changes, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                      (str(uuid.uuid4()), item["id"], "created", json.dumps({"revision": item["revision"], "status": item["status"]}), created_by, now))
@@ -142,6 +148,41 @@ def get(item_id: str) -> dict | None:
     ensure_schema()
     row = connect().execute("SELECT * FROM deliverables WHERE id = ?", (item_id,)).fetchone()
     return dict(row) if row else None
+
+
+def _would_cycle(item_id: str, parent_id: str | None) -> bool:
+    seen: set[str] = set()
+    current = parent_id
+    while current:
+        if current == item_id or current in seen:
+            return True
+        seen.add(current)
+        row = connect().execute("SELECT parent_id FROM deliverables WHERE id = ?", (current,)).fetchone()
+        current = row["parent_id"] if row else None
+    return False
+
+
+def workspace(item_id: str, *, allowed_document_ids: frozenset[str] | None = None) -> dict | None:
+    """One WBS node view: hierarchy links plus document/review/risk context."""
+    ensure_schema()
+    item = get(item_id)
+    if item is None:
+        return None
+    if item.get("document_id") and allowed_document_ids is not None and item["document_id"] not in allowed_document_ids:
+        return None
+    children = [dict(row) for row in connect().execute(
+        "SELECT * FROM deliverables WHERE parent_id = ? ORDER BY wbs_code", (item_id,)
+    ).fetchall()]
+    document_ids = [item["document_id"]] if item.get("document_id") else []
+    document_ids.extend(child["document_id"] for child in children if child.get("document_id"))
+    if allowed_document_ids is not None:
+        document_ids = [doc_id for doc_id in document_ids if doc_id in allowed_document_ids]
+    from . import review as review_mod
+    findings = review_mod.list_findings(allowed_document_ids=frozenset(document_ids)) if document_ids else []
+    return {"node": item, "children": children,
+            "documents": [{"id": doc_id} for doc_id in document_ids],
+            "reviews": findings,
+            "escalations": alerts(allowed_document_ids=allowed_document_ids)}
 
 
 STAKEHOLDER_ROLES = frozenset({"owner", "reviewer", "approver", "informed"})
@@ -188,9 +229,11 @@ def replace_stakeholders(item_id: str, assignments: list[dict], *, actor_user_id
 
 def update(item_id: str, changes: dict, *, actor_user_id: str | None = None) -> dict | None:
     ensure_schema()
-    allowed = {"wbs_code", "title", "deliverable_type", "revision", "status", "document_id",
+    allowed = {"wbs_code", "parent_id", "title", "deliverable_type", "revision", "status", "document_id",
                "owner_user_id", "planned_date", "due_date", "submitted_at", "approved_at"}
     changed = {k: changes[k] for k in changes if k in allowed and changes[k] is not None}
+    if "parent_id" in changed and _would_cycle(item_id, changed["parent_id"]):
+        raise ValueError("WBS parent would create a cycle")
     sets = [f"{k} = ?" for k in changed]
     if not sets:
         row = connect().execute("SELECT * FROM deliverables WHERE id = ?", (item_id,)).fetchone()

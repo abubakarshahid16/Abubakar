@@ -14,6 +14,7 @@ export function DeliverablesView() {
   const [rules, setRules] = useState<EscalationRule[]>([]);
   const [stakeholders, setStakeholders] = useState<Record<string, DeliverableStakeholder[]>>({});
   const [selected, setSelected] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState<import("../types/api").WbsWorkspace | null>(null);
   const [form, setForm] = useState<DeliverableCreate>({ wbs_code: "1.0", title: "", deliverable_type: "Engineering submittal", due_date: "" });
 
   const load = useCallback(async () => {
@@ -47,6 +48,8 @@ export function DeliverablesView() {
     if (stakeholders[item.id]) return;
     const result = await deliverablesApi.stakeholders(item.id);
     if (result.ok) setStakeholders((current) => ({ ...current, [item.id]: result.data.stakeholders }));
+    const workspaceResult = await deliverablesApi.workspace(item.id);
+    if (workspaceResult.ok) setWorkspace(workspaceResult.data);
   }
 
   return (
@@ -86,6 +89,8 @@ export function DeliverablesView() {
           {rules.length === 0 && <p className="py-3 text-sm text-slateish-500">No escalation policy is configured.</p>}
         </div>
       </section>
+
+      {workspace && selected === workspace.node.id && <section className="mt-5 rounded-[var(--radius-md)] border border-signal-500/40 bg-ink-850 p-4"><div className="flex items-baseline justify-between"><h2 className="text-sm font-semibold text-slateish-200">WBS workspace · {workspace.node.wbs_code}</h2><button type="button" onClick={() => setWorkspace(null)} className="text-xs text-slateish-400 hover:text-slateish-200">Close</button></div><p className="mt-1 text-xs text-slateish-500">Linked context for this node and its direct children.</p><div className="mt-3 grid gap-3 md:grid-cols-3"><div><p className="text-[11px] uppercase tracking-wide text-slateish-500">Children</p><p className="mt-1 text-xl font-semibold text-slateish-100">{workspace.children.length}</p></div><div><p className="text-[11px] uppercase tracking-wide text-slateish-500">Linked documents</p><p className="mt-1 text-xl font-semibold text-slateish-100">{workspace.documents.length}</p></div><div><p className="text-[11px] uppercase tracking-wide text-slateish-500">Review / escalation signals</p><p className="mt-1 text-xl font-semibold text-slateish-100">{workspace.reviews.length + workspace.escalations.length}</p></div></div><div className="mt-3 flex flex-wrap gap-2 text-xs text-slateish-400">{workspace.children.map((child) => <span key={child.id} className="rounded-full bg-ink-700 px-2 py-1"><strong className="text-signal-300">{child.wbs_code}</strong> · {child.title}</span>)}</div></section>}
     </main>
   );
 }

@@ -1230,6 +1230,7 @@ DeliverableStatus = Literal["planned", "in_progress", "submitted", "under_review
 
 class DeliverableCreate(BaseModel):
     wbs_code: str = Field(min_length=1, max_length=100)
+    parent_id: str | None = None
     title: str = Field(min_length=1, max_length=500)
     deliverable_type: str = Field(min_length=1, max_length=100)
     revision: str = Field(default="0", max_length=50)
@@ -1244,6 +1245,7 @@ class DeliverableCreate(BaseModel):
 
 class DeliverableUpdate(BaseModel):
     wbs_code: str | None = Field(default=None, min_length=1, max_length=100)
+    parent_id: str | None = None
     title: str | None = Field(default=None, min_length=1, max_length=500)
     deliverable_type: str | None = Field(default=None, min_length=1, max_length=100)
     revision: str | None = Field(default=None, max_length=50)
@@ -1259,6 +1261,7 @@ class DeliverableUpdate(BaseModel):
 class Deliverable(BaseModel):
     id: str
     wbs_code: str
+    parent_id: str | None
     title: str
     deliverable_type: str
     revision: str
@@ -1327,6 +1330,14 @@ class DeliverableAlert(BaseModel):
 
 class DeliverableAlertList(BaseModel):
     alerts: list[DeliverableAlert]
+
+
+class WbsWorkspace(BaseModel):
+    node: Deliverable
+    children: list[Deliverable]
+    documents: list[dict]
+    reviews: list[ReviewFinding]
+    escalations: list[DeliverableAlert]
 
 
 class ReminderEvent(BaseModel):

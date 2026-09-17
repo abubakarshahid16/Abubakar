@@ -1256,6 +1256,8 @@ def create_deliverable(body: schemas.DeliverableCreate,
     _require_identity_to_write(scope)
     if body.document_id:
         require_document(body.document_id, scope)
+    if body.parent_id and deliverables_mod.get(body.parent_id) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "parent WBS node not found"))
     return deliverables_mod.create(body.model_dump(), created_by=scope.user_id)
 
 
@@ -1267,7 +1269,12 @@ def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
     changes = body.model_dump(exclude_unset=True)
     if changes.get("document_id"):
         require_document(changes["document_id"], scope)
-    item = deliverables_mod.update(deliverable_id, changes, actor_user_id=scope.user_id)
+    if changes.get("parent_id") and deliverables_mod.get(changes["parent_id"]) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "parent WBS node not found"))
+    try:
+        item = deliverables_mod.update(deliverable_id, changes, actor_user_id=scope.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return item
@@ -1305,6 +1312,16 @@ def replace_deliverable_stakeholders(
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return {"stakeholders": deliverables_mod.replace_stakeholders(
         deliverable_id, [a.model_dump() for a in body.assignments], actor_user_id=scope.user_id)}
+
+
+@app.get("/api/deliverables/{deliverable_id}/workspace",
+         response_model=schemas.WbsWorkspace, responses=schemas.ERRORS_404)
+def deliverable_workspace(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+    item = deliverables_mod.workspace(
+        deliverable_id, allowed_document_ids=scope.allowed_document_ids)
+    if item is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
+    return item
 
 
 @app.get("/api/deliverables/alerts", response_model=schemas.DeliverableAlertList)
