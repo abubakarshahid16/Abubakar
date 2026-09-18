@@ -45,6 +45,7 @@ from . import notifications as notifications_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import submittal_review as submittal_review_mod
+from . import workbook as workbook_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -1875,6 +1876,46 @@ def document_original(
             "Cache-Control": "private, max-age=0, no-store",
         },
     )
+
+
+@app.get("/api/documents/{document_id}/workbook",
+         response_model=schemas.WorkbookPreview,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def document_workbook(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """A read-only view of a stored workbook: sheets, and populated cells.
+
+    Scoped like every other document read - `require_document` answers 404
+    outside the caller's scope.
+
+    THE ORIGINAL IS NOT TOUCHED. This reads the stored bytes and returns a
+    projection of them; `GET .../original` still serves the file itself,
+    unchanged. A preview is never the authority for what the workbook says.
+    """
+    reject_unknown_params(request, set())
+    doc = require_document(document_id, scope)
+    stored = Path(doc["stored_path"])
+    if not str(doc["filename"]).lower().endswith(".xlsx") or not stored.exists():
+        # Not a workbook, or the bytes are gone. Both are "there is nothing to
+        # preview here", and neither is an error the reader can act on.
+        return JSONResponse(
+            status_code=404,
+            content={"detail": errors.safe_error(
+                errors.NOT_FOUND, "no workbook to preview for that document",
+                document_id=document_id)},
+        )
+    try:
+        return workbook_mod.read_sheets(stored)
+    except workbook_mod.WorkbookError as exc:
+        # The file passed upload validation and still cannot be read now.
+        # Reported as a 422 about THIS file rather than a 500: nothing is
+        # broken on the server.
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "that workbook could not be read",
+            document_id=document_id)) from exc
 
 
 @app.get("/api/documents/{document_id}/pages/{page_no}/image",

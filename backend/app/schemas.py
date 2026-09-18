@@ -20,6 +20,10 @@ DocStatus = Literal[
     "partially_searchable",
     "ready",
     "no_searchable_content",
+    #: A workbook: stored and previewable, deliberately never indexed. See
+    #: `states.STORED_NOT_INDEXED` for why this is its own state rather than a
+    #: document that failed to extract.
+    "stored_not_indexed",
     "failed",
 ]
 
@@ -60,7 +64,12 @@ DocumentRole = Literal[
 #: reviewed" has a definite answer for every document, and it is "no".
 #: The remaining values mirror `review_runs.status` exactly, so the two cannot
 #: drift into two vocabularies.
-ReviewStatus = Literal[
+#: Named apart from the guided-review finding status on purpose - that one is
+#: where a single FINDING stands (`open`, `resolved`...). Two different
+#: questions about two different things; one name for both is how a finding's
+#: state ends up rendered on a document card. `contracts/types.ts` carries the
+#: same distinction.
+DocumentReviewStatus = Literal[
     "not_reviewed",
     "pending",
     "running",
@@ -169,7 +178,28 @@ class Document(BaseModel):
                           "this document is current")
     #: DERIVED from the latest review_runs row, never stored. `not_reviewed` is
     #: a real answer, not a null - see `ReviewStatus`.
-    review_status: ReviewStatus = "not_reviewed"
+    review_status: DocumentReviewStatus = "not_reviewed"
+
+
+class WorkbookSheet(BaseModel):
+    """One sheet of a read-only workbook preview."""
+
+    name: str
+    rows: list[list[str]] = Field(
+        default_factory=list,
+        description="POPULATED ROWS ONLY, row-major. Ragged rows are normal - "
+                    "a sheet is not a rectangle. An empty cell is an empty "
+                    "string and renders as nothing, never as 0")
+    truncated: bool = Field(
+        False,
+        description="the preview stopped short of the sheet's full extent. "
+                    "Stated rather than applied silently: a preview that "
+                    "quietly stops at row 500 lies about what the file holds")
+
+
+class WorkbookPreview(BaseModel):
+    sheets: list[WorkbookSheet] = Field(default_factory=list)
+    truncated: bool = False
 
 
 class DocumentPage(BaseModel):
