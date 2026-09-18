@@ -27,6 +27,13 @@
 
 @import "tailwindcss";
 
+/* Keep collapsed disclosures out of document flow. Tailwind's preflight does
+   not provide the user-agent details rule in every browser, so relying on it
+   can leave closed panels contributing their full height to the page. */
+details:not([open]) > :not(summary) {
+  display: none;
+}
+
 /* ── Typeface ───────────────────────────────────────────────────────────────
    IBM Plex: an engineering face with an open licence, three coherent cuts,
    and none of the anonymity of the usual interface default.
@@ -407,6 +414,10 @@ table {
 .aurora-field {
   position: relative;
   isolation: isolate;
+  /* The decorative blobs intentionally extend beyond the field. Clip them at
+     the shared view boundary so their blur/transform cannot create a second,
+     empty scroll region below otherwise short pages. */
+  overflow: hidden;
 }
 .aurora-a,
 .aurora-b {

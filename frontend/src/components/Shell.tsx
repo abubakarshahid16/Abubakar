@@ -212,7 +212,7 @@ export function Shell({
   }, [density]);
 
   return (
-    <div className={`density-${density} flex min-h-screen flex-col bg-ink-900 md:flex-row`}>
+    <div className={`density-${density} flex flex-col bg-ink-900 md:flex-row`}>
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-[var(--radius-sm)] focus:bg-ink-700 focus:px-3 focus:py-2 focus:text-slateish-200 focus:shadow-[var(--shadow-floating)]"
@@ -239,7 +239,7 @@ export function Shell({
       <nav
         id="sidebar-nav"
         aria-label="Main"
-        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 shadow-[var(--shadow-raised)] md:flex md:h-screen md:w-64 md:shrink-0 md:border-b-0 md:border-r md:sticky md:top-0`}
+        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 shadow-[var(--shadow-raised)] md:flex md:w-64 md:shrink-0 md:self-start md:border-b-0 md:border-r md:sticky md:top-0`}
       >
         {/* THE HEADER PAYS FOR ITSELF IN NAV SPACE. At text-lg the product name
             wrapped to two lines in a 256px rail, and with the tagline and a
