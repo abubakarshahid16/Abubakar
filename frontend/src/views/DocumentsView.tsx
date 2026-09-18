@@ -1,10 +1,15 @@
-import { useCallback, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 
 import { usePoll } from "../hooks/usePoll";
 
 import { api, classification } from "../api/client";
 import { ChunkInspector } from "../components/ChunkInspector";
 import { DocumentCard, type DocumentActions } from "../components/DocumentCard";
+import { Drawer } from "../components/Drawer";
+import { DocumentPreview } from "../components/DocumentPreview";
+import { DocumentTechnicalDetails } from "../components/DocumentTechnicalDetails";
+import { MetadataEditor } from "../components/classification/MetadataEditor";
+import { DocumentFilters, EMPTY_FILTERS, type DocumentFilterState } from "../components/classification/DocumentFilters";
 import { ExcludedViewer } from "../components/ExcludedViewer";
 import { PageImageViewer } from "../components/PageImageViewer";
 import type { Connection } from "../components/Shell";
@@ -24,10 +29,17 @@ type Drawer =
   | { kind: "none" }
   | { kind: "chunks"; doc: DocumentRecord }
   | { kind: "excluded"; doc: DocumentRecord }
-  | { kind: "pages"; doc: DocumentRecord };
+  | { kind: "pages"; doc: DocumentRecord }
+  | { kind: "preview"; doc: DocumentRecord }
+  | { kind: "details"; doc: DocumentRecord };
 
-/** A document in any of these is finished; the row will not change again. */
-const SETTLED = new Set(["ready", "failed", "no_searchable_content"]);
+/** A document in any of these is finished; the row will not change again.
+ *
+ *  `stored_not_indexed` belongs here: a workbook is stored deliberately and
+ *  never processed, so polling it for progress would poll forever. */
+const SETTLED = new Set([
+  "ready", "failed", "no_searchable_content", "stored_not_indexed",
+]);
 
 /** What a document held by no discipline is called on screen.
  *
@@ -165,14 +177,37 @@ export function DocumentsView({
   const [sort, setSort] = useState("uploaded_at");
   const [direction, setDirection] = useState<"asc" | "desc">("desc");
   const [totalMatching, setTotalMatching] = useState<number | null>(null);
+  // THE METADATA FILTERS. Passed to the server on every read; never applied to
+  // the returned array. See DocumentFilters for why that distinction matters.
+  const [filters, setFilters] = useState<DocumentFilterState>(EMPTY_FILTERS);
 
   const { vocabulary, settled: vocabularySettled } = useTypeVocabularyLoad();
+
+  // Values actually PRESENT in the rows on screen, offered as filter choices.
+  // Derived from the list rather than from a vocabulary endpoint: there is no
+  // registry of projects or equipment types, and offering a value that matches
+  // nothing teaches the reader that the filter is broken. The reader can still
+  // pick one that the current page does not show, and gets an empty list -
+  // which is the honest answer, not a bug.
+  const observed = (() => {
+    const rows = load.state === "ready" ? load.documents : [];
+    const uniq = (get: (d: DocumentRecord) => string | null | undefined) =>
+      [...new Set(rows.map(get).filter((v): v is string => !!v))].sort();
+    return {
+      disciplines: [...new Set(rows.flatMap((d) => d.disciplines))].sort(),
+      equipmentTypes: uniq((d) => d.equipment_type),
+      projects: uniq((d) => d.project),
+    };
+  })();
 
   const refresh = useCallback(async () => {
     // These reads are independent. Start both before yielding so a slow
     // metrics snapshot never delays the document list (and teardown cannot
     // leave a later document request behind after the view is gone).
-    const [m, result] = await Promise.all([api.metrics(), api.documents({ limit: 100, q: listQuery, sort, direction })]);
+    const [m, result] = await Promise.all([
+      api.metrics(),
+      api.documents({ limit: 100, q: listQuery, sort, direction, ...filters }),
+    ]);
     setWorker(m.ok ? m.data.worker : null);
     if (result.ok) {
       setLoad({ state: "ready", documents: result.data });
@@ -184,11 +219,14 @@ export function DocumentsView({
         disconnected: result.disconnected,
       });
     }
-  }, [direction, listQuery, sort]);
+  }, [direction, filters, listQuery, sort]);
 
   const loadMore = useCallback(async () => {
     if (load.state !== "ready") return;
-    const result = await api.documents({ limit: 100, offset: load.documents.length, q: listQuery, sort, direction });
+    const result = await api.documents({
+      limit: 100, offset: load.documents.length, q: listQuery, sort, direction,
+      ...filters,
+    });
     if (result.ok) {
       setLoad({ state: "ready", documents: [...load.documents, ...result.data] });
       setTotalMatching(Number(result.response?.headers?.get?.("X-Total-Count") ?? load.documents.length + result.data.length));
@@ -292,6 +330,8 @@ export function DocumentsView({
     onInspect: (doc) => setDrawer({ kind: "chunks", doc }),
     onExcluded: (doc) => setDrawer({ kind: "excluded", doc }),
     onPages: (doc) => setDrawer({ kind: "pages", doc }),
+    onPreview: (doc) => setDrawer({ kind: "preview", doc }),
+    onDetails: (doc) => setDrawer({ kind: "details", doc }),
     onExtract: (doc) => void run(doc, "Extract", () => api.extract(doc.id)),
     onChunk: (doc) => void run(doc, "Chunk", () => api.chunk(doc.id)),
     onEmbed: (doc) => void run(doc, "Embed", () => api.embed(doc.id)),
@@ -358,6 +398,19 @@ export function DocumentsView({
           {notice}
         </p>
       )}
+
+      {/* THE METADATA FILTERS, and note the difference from the type filter
+          below: these are sent to the SERVER, which intersects them with the
+          caller's grants and returns a narrower list. The type filter under it
+          never leaves the browser and only hides rows already fetched. Two
+          filters on one screen with different reach, so each says which it is. */}
+      <DocumentFilters
+        value={filters}
+        onChange={setFilters}
+        disciplines={observed.disciplines}
+        equipmentTypes={observed.equipmentTypes}
+        projects={observed.projects}
+      />
 
       {/* THE TYPE FILTER. Built here rather than with <TypeFilter> because
           that component's "documents in scope" count is the SERVER'S echo of
@@ -540,7 +593,63 @@ export function DocumentsView({
       {drawer.kind === "pages" && (
         <PageImageViewer doc={drawer.doc} onClose={() => setDrawer({ kind: "none" })} />
       )}
+      {drawer.kind === "preview" && (
+        <Drawer title={`Preview - ${drawer.doc.filename}`} onClose={() => setDrawer({ kind: "none" })}>
+          <DocumentPreview doc={drawer.doc} />
+        </Drawer>
+      )}
+      {drawer.kind === "details" && (
+        <Drawer title={`Details - ${drawer.doc.filename}`} onClose={() => setDrawer({ kind: "none" })}>
+          <div className="flex flex-col gap-6">
+            <DocumentTechnicalDetails doc={drawer.doc} />
+            <section aria-label="Edit metadata">
+              <h4 className="mb-2 text-xs font-medium opacity-80">Edit metadata</h4>
+              <MetadataEditorForDocument
+                documentId={drawer.doc.id}
+                canEdit={isAdmin}
+                onSaved={() => void refresh()}
+              />
+            </section>
+          </div>
+        </Drawer>
+      )}
     </div>
+  );
+}
+
+/** Load one document's classification, then let an administrator edit it.
+ *
+ *  Fetched here rather than carried on the list row: the list returns the few
+ *  fields the cards show, and the editor needs the whole record so that a save
+ *  - which REPLACES the record - does not clear the fields the list never
+ *  carried. Saving a partial record would silently wipe `service`,
+ *  `effective_date` and the rest.
+ */
+function MetadataEditorForDocument({
+  documentId, canEdit, onSaved,
+}: { documentId: string; canEdit: boolean; onSaved: () => void }) {
+  const [record, setRecord] = useState<DocumentClassification | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    void classification.ofDocument(documentId).then((result) => {
+      if (cancelled) return;
+      if (result.ok) setRecord(result.data);
+      setLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [documentId]);
+
+  if (!loaded) return <p className="text-xs opacity-70">Loading metadata…</p>;
+  return (
+    <MetadataEditor
+      documentId={documentId}
+      record={record}
+      canEdit={canEdit}
+      onSaved={(next) => { setRecord(next); onSaved(); }}
+    />
   );
 }
 

@@ -35,6 +35,10 @@ export interface DocumentActions {
   onInspect: (doc: DocumentRecord) => void;
   onExcluded: (doc: DocumentRecord) => void;
   onPages: (doc: DocumentRecord) => void;
+  /** The ORIGINAL file - a PDF viewer, or a read-only workbook. */
+  onPreview: (doc: DocumentRecord) => void;
+  /** Metadata and processing information, in a drawer rather than on the card. */
+  onDetails: (doc: DocumentRecord) => void;
   onExtract: (doc: DocumentRecord) => void;
   onChunk: (doc: DocumentRecord) => void;
   onEmbed: (doc: DocumentRecord) => void;
@@ -208,7 +212,16 @@ export function DocumentCard({
               "inspect" and "stages" are developer vocabulary. */}
           <Action label="Passages" onClick={() => actions.onInspect(doc)} primary />
           <Action label="Excluded" onClick={() => actions.onExcluded(doc)} />
-          <Action label="Pages" onClick={() => actions.onPages(doc)} />
+          <Action label="Preview" onClick={() => actions.onPreview(doc)} />
+          {/* "Pages" renders the EXTRACTED pages this system indexed;
+              "Preview" shows the ORIGINAL file. Two different questions - what
+              did the system read, and what did the contractor send - and
+              collapsing them would hide every extraction defect this project
+              exists to surface. A workbook has no rendered pages at all. */}
+          {doc.status !== "stored_not_indexed" && (
+            <Action label="Pages" onClick={() => actions.onPages(doc)} />
+          )}
+          <Action label="Details" onClick={() => actions.onDetails(doc)} />
           {/* Re-running a stage is a maintenance operation, not a reading one.
               On a 1,400-page document each of these is minutes of compute, and
               they sat one keystroke apart from the reading controls where a

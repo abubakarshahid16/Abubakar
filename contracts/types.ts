@@ -14,6 +14,40 @@ export type DocStatus =
   | "partially_searchable"   // keyword search works, vectors still arriving
   | "ready"                  // keyword + vector both complete
   | "no_searchable_content"  // finished, but nothing is searchable - NOT ready
+  // A workbook: stored and previewable, DELIBERATELY never indexed. Not a
+  // failure and not a document that is still working - a CRS template is a
+  // form to be filled, not corpus content, so nothing in it should ever come
+  // back as the answer to an engineering question. Terminal.
+  | "stored_not_indexed"
+  | "failed";
+
+/** The five roles a document can play in a submittal review.
+ *
+ *  NOT ACCESS CONTROL (CLAUDE.md rule 5): a role says what a document is FOR;
+ *  the grant tables say who may read it. */
+export type DocumentRole =
+  | "CONTRACTOR_SUBMITTAL"
+  | "COMPANY_STANDARD"
+  | "CONTRACT_DOCUMENT"
+  | "SUPPORTING_DOCUMENT"
+  | "CRS_TEMPLATE";
+
+/** Where a DOCUMENT stands in the review workflow.
+ *
+ *  DERIVED from the latest review run, never stored. `not_reviewed` is a REAL
+ *  ANSWER and not a null: "has this been reviewed" has a definite answer for
+ *  every document, and it is no.
+ *
+ *  Named apart from `ReviewStatus` (line 181) deliberately: that one is where
+ *  a single FINDING stands in the guided-review workflow (`open`,
+ *  `resolved`...). Two different questions about two different things, and
+ *  collapsing them into one name is how a finding's state ends up rendered on
+ *  a document card. */
+export type DocumentReviewStatus =
+  | "not_reviewed"
+  | "pending"
+  | "running"
+  | "completed"
   | "failed";
 
 /** A document can answer questions in these states - never block on embedding. */
@@ -65,6 +99,41 @@ export interface DocumentRecord {
   pages_excluded_with_clause_headings?: number;
   uploaded_at: string;       // ISO 8601
   indexed_at: string | null;
+  /** ---------------------------------- AI submittal review, phase 2
+   *  Every one of these is NULL on every document classified before this
+   *  workflow existed - all 19 in the live corpus at the time of writing.
+   *  NULL RENDERS AS NOTHING: never 0, never "Unknown", never a dash that
+   *  reads like a recorded value. */
+  document_role?: DocumentRole | null;
+  document_number?: string | null;
+  /** The human title, which is NOT the filename. Null means none recorded and
+   *  the UI falls back to the filename rather than inventing one. */
+  title?: string | null;
+  revision?: string | null;
+  equipment_type?: string | null;
+  project?: string | null;
+  /** The document id that replaced this one. Null means this one is current. */
+  superseded_by?: string | null;
+  /** Derived from the latest review run. Absent only from an older backend. */
+  review_status?: DocumentReviewStatus;
+}
+
+/** One sheet of a read-only workbook preview. */
+export interface WorkbookSheet {
+  name: string;
+  /** POPULATED ROWS ONLY, row-major. Ragged rows are normal - a sheet is not
+   *  a rectangle. An empty cell is an empty string and renders as NOTHING,
+   *  never as 0. */
+  rows: string[][];
+  /** The preview stopped short of this sheet's full extent. Stated rather
+   *  than applied silently: a preview that quietly stops at row 500 lies
+   *  about what the file holds. */
+  truncated?: boolean;
+}
+
+export interface WorkbookPreview {
+  sheets: WorkbookSheet[];
+  truncated?: boolean;
 }
 
 export interface DocumentPage {
@@ -1476,13 +1545,43 @@ export interface DocumentClassification {
    *  agreed with the machine yet. */
   confirmed: boolean;
   subjects: DocumentSubject[];
+  // ------------------------------------ AI submittal review, phase 2
+  // Null is "not recorded" for every one of these, and renders as nothing.
+  document_role?: DocumentRole | null;
+  document_number?: string | null;
+  title?: string | null;
+  revision?: string | null;
+  effective_date?: string | null;
+  project?: string | null;
+  contractor_vendor?: string | null;
+  equipment_type?: string | null;
+  /** A flat tag list. An empty array means none recorded. */
+  equipment_tags?: string[];
+  service?: string | null;
+  transmittal_number?: string | null;
+  superseded_by?: string | null;
 }
 
+/** A PUT REPLACES THE WHOLE RECORD. A field left out is CLEARED, not kept -
+ *  the same rule `subject_ids` already follows, so an administrator removing a
+ *  value can actually remove it. Send the full record. */
 export interface ClassificationUpdate {
   doc_type?: string | null;
   discipline?: string | null;
   doc_class?: string | null;
   subject_ids?: string[];
+  document_role?: DocumentRole | null;
+  document_number?: string | null;
+  title?: string | null;
+  revision?: string | null;
+  effective_date?: string | null;
+  project?: string | null;
+  contractor_vendor?: string | null;
+  equipment_type?: string | null;
+  equipment_tags?: string[];
+  service?: string | null;
+  transmittal_number?: string | null;
+  superseded_by?: string | null;
 }
 
 export interface CoverageByType {

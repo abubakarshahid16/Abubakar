@@ -60,6 +60,7 @@ import type {
   RiskType,
   StructuredSearchResult,
   ReviewTraceability,
+  WorkbookPreview,
 } from "../types/api";
 
 export interface SearchResult {
@@ -751,9 +752,31 @@ export const api = {
    *  Guarded like the other list-bearing reads: a body without `recent`
    *  becomes an ordinary ApiError instead of a crash at the map. */
   watchStatus: () => request<WatchStatus>("/watch/status", undefined, hasArrayField("recent")),
-  documents: (opts: { limit?: number; offset?: number; sort?: string; direction?: string; q?: string; status?: string } = {}) => {
+  /** The document list, optionally narrowed.
+   *
+   *  THE FILTERS ARE APPLIED SERVER-SIDE AND NOWHERE ELSE. They are passed
+   *  through to `classification.restrict`, which intersects the matched ids
+   *  with the caller's grants and returns a NARROWER AccessScope - so a filter
+   *  can only ever shrink what comes back. Filtering the returned array here
+   *  instead would be the same defect in a new place: the server would have
+   *  already sent rows the caller was not meant to see.
+   *
+   *  The array-valued filters repeat the key (`?document_role=A&document_role=B`),
+   *  which is what FastAPI reads as a list. */
+  documents: (opts: {
+    limit?: number; offset?: number; sort?: string; direction?: string;
+    q?: string; status?: string;
+    document_role?: string[]; discipline?: string[];
+    equipment_type?: string[]; project?: string[];
+  } = {}) => {
     const q = new URLSearchParams();
-    for (const [key, value] of Object.entries(opts)) if (value != null && value !== "") q.set(key, String(value));
+    for (const [key, value] of Object.entries(opts)) {
+      if (Array.isArray(value)) {
+        for (const item of value) if (item !== "") q.append(key, String(item));
+        continue;
+      }
+      if (value != null && value !== "") q.set(key, String(value));
+    }
     return request<DocumentPage | DocumentRecord[]>(`/documents${q.toString() ? `?${q}` : ""}`, undefined,
       (body) => Array.isArray(body) || (!!body && typeof body === "object" && Array.isArray((body as { items?: unknown }).items)))
       .then((result) => result.ok
@@ -782,6 +805,36 @@ export const api = {
   /** The plain rendered page. */
   pageImageUrl: (id: string, page: number) =>
     `${BASE}/documents/${encodeURIComponent(id)}/pages/${page}/image`,
+  /** The ORIGINAL uploaded bytes, fetched with the bearer header.
+   *
+   *  Used for the PDF viewer, the workbook preview and "download original" -
+   *  one route, so the previewed bytes and the downloaded bytes cannot differ.
+   *
+   *  A URL STRING IS DELIBERATELY NOT RETURNED. Handing one to an `<iframe
+   *  src>`, an `<a href>` or `window.open` sends a request with no
+   *  Authorization header, which under auth_mode=demo_required is a 404 that
+   *  reads to the user as "this document does not exist" - the exact defect
+   *  already fixed for page images (`useAuthedImage`), for report downloads
+   *  (`downloadReport`) and for uploads (`authorize`). The token stays in the
+   *  header and never goes on a URL, where it would reach browser history,
+   *  proxy logs and Referer headers.
+   *
+   *  The caller owns the returned bytes and the object URL it makes from them,
+   *  and must revoke it. */
+  originalFile: (id: string, filename: string): Promise<DownloadResult> =>
+    downloadReport(`/documents/${encodeURIComponent(id)}/original`, filename),
+  /** A read-only view of a stored workbook: sheets and populated cells.
+   *
+   *  Read on the SERVER with the Python standard library rather than by a
+   *  spreadsheet parser in the browser - see `backend/app/workbook.py` for
+   *  why. The original bytes are untouched by this call; `originalFile` still
+   *  serves the file itself. */
+  workbook: (id: string) =>
+    request<WorkbookPreview>(
+      `/documents/${encodeURIComponent(id)}/workbook`,
+      undefined,
+      hasArrayField("sheets"),
+    ),
   /** The rendered page with the answering sentence BOXED on the image.
    *
    *  The box is drawn server-side, in PDF coordinate space where the
