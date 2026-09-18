@@ -409,6 +409,31 @@ next person to write one will be looking at. Entry 12 predicted exactly that
 and it took two more phases to act on it. **A record only works where the
 person about to make the mistake will read it.**
 
+**A nineteenth, 2026-09-19 (phase 5B): the flagship case was silently
+unevaluable because of a character class.**
+
+`datasheets.measure_value("95 dB(A)")` returned the unit `dB`, not `dB(A)` -
+the unit regex excluded parentheses, so the A-weighting was dropped. The
+comparison engine then behaved correctly and REFUSED to compare `dB` against a
+`dB(A)` limit, because `claims.same_unit` rightly holds that A-weighting is
+part of what the number means. Phase 4's own tests asserted that distinction
+and passed; they simply never fed a parenthesised unit through the extractor.
+
+The effect is the part worth recording: **every noise comparison - the worked
+case the entire master plan is written around - would have returned
+NEEDS_ENGINEER_REVIEW with a unit-mismatch rationale.** Honest, traceable, and
+completely useless, and nothing in phases 3B or 4 would have surfaced it
+because neither phase ever compared two values. It took the first component
+that actually CONSUMED the extracted units to expose it.
+
+Two things follow. **A test that exercises a value end to end is worth more
+than any number of tests of the pieces** - this is the second phase-4
+extraction defect found by a phase-5 test, after prose being parsed as
+measurements. And **a unit is not a string**: `dB` and `dB(A)` differ by two
+characters and mean different things, which is exactly why `claims` refuses to
+convert between them, and exactly why an extractor that quietly truncates one
+into the other is worse than one that fails loudly.
+
 **An eighteenth, 2026-09-18 (phase 5A verification): a production defect found
 by suite flakiness, and a failure rate quoted without checking what else was
 running.**

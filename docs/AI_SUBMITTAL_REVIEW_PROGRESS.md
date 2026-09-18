@@ -1853,3 +1853,203 @@ assertions.
    `test_two_concurrent_requests_never_share_scope` already existed; it simply
    had never been exposed to a DROP TABLE in a read path before this phase's
    schema work.
+
+
+---
+
+# Phase 5B (the compliance comparison engine)
+
+For each applicable requirement: does this submittal meet it, what is the
+evidence on both sides, and what code does that add up to.
+
+## 64. THE STANDARDS ARE NOT LOADED, so this was proven on fixtures
+
+Checked before building anything: the live database has **zero** documents
+with a `document_role`, **zero** standard requirements, **zero** submittal
+facts, **zero** review runs and **zero** findings. The KOC datasheets and
+`SAES-A-105.pdf` are still only in `~/Downloads`, never ingested.
+
+So 5B was built and proven against **constructed fixtures**, and the numbers
+below are fixture numbers. **No real-corpus run of the comparison engine has
+happened.** When the standards are loaded, the first real run is the one that
+matters, and phase 4's measured 0.43 extraction recall on the pump sheet
+predicts what it will say: Manual Review Required, gated on completeness.
+
+## 65. Section 14 is the shape of the engine
+
+**Python decides; the model describes.**
+
+| Deterministic, in code | The model, and only this |
+|---|---|
+| numeric comparison | interpreting technical wording |
+| unit conversion | matching a field label to a requirement |
+| required-field presence | reading a condition in prose |
+| threshold evaluation | drafting the contractor-facing comment |
+| review-code policy | explaining its reasoning |
+| citation existence | |
+
+**When they disagree, the deterministic result wins and the disagreement is
+recorded.** `_reconcile` is the one place that happens, written as its own
+function so deleting it is a visible act. Mutation M69 makes the model's
+opinion win and the test fails.
+
+Nothing in this module calls Ollama. A verdict that depends on a language
+model is a verdict nobody can reproduce, and the point of a comparison engine
+is that 95 against a 90 limit comes out the same way every time.
+
+## 66. The three refusals
+
+**1. An absence is never a failure.** A blank "By Contractor" field is
+`MISSING_INFORMATION`. Phase 4 detects those blanks correctly and this engine's
+job is not to undo that - manufacturing a finding against a vendor who was
+never asked is the worst output this product could produce. `MISSING_INFORMATION`
+is deliberately absent from `BLOCKING`, so it steers the code through
+completeness rather than masquerading as a breach. Mutation M66 turns a blank
+into `NON_COMPLIANT` and the test fails.
+
+**2. No finding without both citations.** The contractor's page and the
+standard's clause must each resolve to a real chunk of the right document, on a
+page that chunk spans. Anything failing that is downgraded to
+`NEEDS_ENGINEER_REVIEW` with the reason recorded in `unresolved_evidence` -
+never dropped, never guessed into a status. A citation that opens the WRONG
+document is treated as failure too: a reader who follows it sees something real
+and believes it.
+
+**3. An exception wins over its general limit.** A standard capping equipment
+at 90 dB(A) with an exception allowing relief valves 115 dB(A) does not make a
+108 dB(A) PSV non-compliant. The test asserts the same value IS a breach under
+the general limit first, so it is standing where the exception can fail it -
+without that it would pass on an engine that called everything compliant.
+Matching is conservative: an unknown subject gets the general limit, because
+an exception applied too eagerly EXCUSES a real breach, which is the more
+dangerous direction.
+
+## 67. A real defect the end-to-end test found
+
+`datasheets.measure_value("95 dB(A)")` returned unit **`dB`**, not `dB(A)` -
+the unit regex excluded parentheses. The comparison engine then did exactly the
+right thing and REFUSED to compare `dB` against a `dB(A)` limit, because
+`claims.same_unit` correctly holds that A-weighting is part of what the number
+means (asserted in phase 4's own tests).
+
+The effect: **the flagship case of the entire product was silently unevaluable
+because of a character class.** Every noise comparison would have come back
+`NEEDS_ENGINEER_REVIEW` with a unit-mismatch rationale, which is honest and
+useless.
+
+Fixed in `datasheets.py`: a unit may contain parentheses when it starts with a
+letter. `0.42 (6.09)` is unaffected - the unit group must begin with a letter,
+so a bare parenthetical is still a dual-unit remainder, not a unit.
+
+This is the second time a phase 5 test has found a phase 4 extraction defect
+(the first was prose parsed as measurements). The comparison engine is a good
+test of the extractor precisely because it is the first thing to actually use
+the values.
+
+## 68. Completeness gates the review code
+
+A review that examined nine fields and returns "Approved with Comments" is
+making a claim about the two hundred and forty nobody looked at. **That is the
+most dangerous output this product can produce**, because the code and the CRS
+both imply coverage.
+
+So `recommend_code` checks completeness FIRST and overrides everything:
+
+| Condition | Recommended code |
+|---|---|
+| completeness below threshold | **Manual Review Required** |
+| any requirement unevaluable | Manual Review Required |
+| any requirement not met | Rejected / Revise and Resubmit |
+| only missing information | Approved with Comments |
+| everything met | Approved |
+
+`COMPLETENESS_THRESHOLD = 0.6`, deliberately above phase 4's measured 0.43 on
+the real pump datasheet: **that review would be gated, and it should be.**
+
+Completeness is **the weakest link, not the average** - a review with every
+standard present but a tenth of the sheet read is a tenth of a review, and an
+average would let the good number carry the bad one (mutation M72).
+
+It is **always reported with its denominator**: "the review examined 9 of
+approximately 250 fields". `fields_estimated` is labelled an ESTIMATE, because
+nobody has counted the real total and pretending to would be worse than saying
+approximately.
+
+## 69. Review codes, and who decides
+
+Codes are **configurable** (section 15) - `recommend_code` takes a `codes`
+tuple and the policy is fixed while the labels are not. Defaults: Approved,
+Approved with Comments, Rejected / Revise and Resubmit, Manual Review Required.
+
+Stored per run: the AI-recommended code and its reason, the final engineer
+code, the override reason, the reviewer and the timestamp. **The AI recommends;
+the engineer decides.** A final code that DIFFERS from the recommendation
+requires a reason - an override with none is indistinguishable from a mistake
+six months later - and one that agrees does not. Every decision writes
+`review.code_recorded` to `audit_events`.
+
+Confidence is never "high" (rule 4). The vocabulary stops at `medium`: a
+deterministic comparison is the strongest thing here and is still only as good
+as the extraction that fed it.
+
+## 70. Mutations - 72/72
+
+| # | Mutation |
+|---|---|
+| M64 | Stop comparing numbers, so a breach is never caught |
+| M65 | **Drop the exception, failing a compliant PSV** |
+| M66 | **Turn a blank By-Contractor field into NON_COMPLIANT** |
+| M67 | Store a finding whose citations do not resolve |
+| M68 | Guess a comparison when the units cannot be compared |
+| M69 | **Let the model overrule the deterministic result** |
+| M70 | **Approve a review that examined a fraction of the fields** |
+| M71 | Allow a code override with no reason |
+| M72 | Let completeness average instead of taking the weakest link |
+
+All nine detected on the first run, and 35 of the 36 tests passed first time -
+the one failure was the `dB(A)` extraction defect above, which is the test
+doing its job.
+
+## 71. Verification, measured
+
+All numbers from the same tree state, at ``93359d2` (code and tests; docs follow)`.
+
+| | passed | skipped | deselected | xfailed |
+|---|---|---|---|---|
+| Baseline (5A) | 1773 | 27 | 1 | 17 |
+| **After 5B** | ****1809**** | 27 | 1 | 17 |
+
+| Check | Result |
+|---|---|
+| Mutations | **72/72 detected** |
+| `npm run build` | passes |
+| Frontend known-bad set, isolated | 59 failed - unchanged (5B touched no frontend) |
+| `python run.py` -> `GET /api/health` | 200 |
+| `GET /openapi.json` | 200 |
+| CI lint gate | passes |
+| `git diff --check` | clean |
+
+## 72. Known limitations - 5B
+
+1. **NO REAL-CORPUS RUN.** The standards are not loaded. Everything above is
+   fixtures. This is the single most important caveat in the phase.
+2. **Field matching is exact-normalised only.** `_match_fact` matches a
+   requirement's `field` against a fact's normalised `field_name` and nothing
+   else. Section 14 assigns label interpretation to the model and **that half
+   is not built** - an unmatched requirement becomes `MISSING_INFORMATION`,
+   which is honest but will be the dominant status on a real sheet.
+3. **The model is never actually called.** `model_opinion` is a parameter this
+   engine accepts and reconciles; no code path generates one. The contractor
+   comment is the deterministic rationale. Drafting comments and reading
+   conditions in prose - the model's half of section 14 - is not wired.
+4. **`CONDITIONAL` and `NOT_APPLICABLE` are never produced.** They exist in the
+   vocabulary and in `_required_action`, but no rule assigns them. A
+   conditional requirement currently lands in `NEEDS_ENGINEER_REVIEW`.
+5. **`fields_estimated` is 35 slots per page**, a rough constant, not a count
+   of the sheet. It is labelled an estimate everywhere it surfaces.
+6. **Severity is always `major`.** Nothing computes it, so the blocking rule
+   uses status alone.
+7. **No API routes.** 5B is engine and storage only; phase 6 exposes it.
+8. **Section 13's formal gap types** (missing certificate, unconfirmed test,
+   contradictory values within the submittal) are not detected as distinct
+   categories.
