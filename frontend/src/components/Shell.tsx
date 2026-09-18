@@ -37,7 +37,7 @@ export const NAV: NavItem[] = [
   { id: "analysis", label: "Analysis", hint: "Summary, gaps, advice", built: true },
   { id: "reports", label: "Reports", hint: "Frozen evidence, as PDF", built: true },
   { id: "deliverables", label: "Deliverables", hint: "WBS, revisions, due dates", built: true },
-  { id: "review", label: "Review flow", hint: "Guided submittal review", built: true },
+  { id: "review", label: "Review flow", hint: "Guided document review", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
 ];
 
