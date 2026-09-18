@@ -1064,3 +1064,332 @@ of change that would break them.
 7. **No referenced-standard detection**, which section 9 lists. It needs the
    cross-reference parsing that 3B's applicability work brings.
 8. **The 59 pre-existing frontend failures are untouched**, per instruction.
+
+---
+
+# Phase 3B (structured requirements)
+
+Table extraction, numeric limits and units, conditions and exceptions,
+applicability tags, conflict reporting, the verification queue, and moving
+extraction onto the existing background worker.
+
+## 37. Table extraction, and what measuring it actually showed
+
+This was built first because it is load-bearing, and because a requirement set
+with the sentences and none of the tables looks complete while missing the
+numbers an engineer checks against.
+
+### The two prior-art claims were both correct
+
+**`chunks.kind` is populated, not defaulting.** Verified before anything was
+built on it - on the live database: 6,349 `prose`, **134 `table`**, 47 `toc`,
+28 `index`, 17 `frontmatter`, 5 `references`. So no table is re-found in a PDF;
+`WHERE kind = 'table'` says which chunks are tables and on which pages.
+
+**`claims.py` does the unit work**, and no second unit table was written.
+`normalise`, `Measurement`, `parse_value`, `parse_comparator`, `unit_dimension`
+and `UnknownUnit` are used as they stand - including its deliberate refusal to
+convert Fahrenheit.
+
+### What could NOT be reused: the chunk text
+
+Extraction flattens a table to one cell per line with the column structure
+already destroyed. Real example, `civil-Design-and-Construction.pdf` page 59:
+
+```
+1252\n562\nof abutment\n0\n0\n0\n...\nStrength I\n1565\n758\n...\nSenvice 1\n...
+```
+
+Which number belongs to which column is not in that string, and the
+OCR-damaged labels beside it ("Senvice", "Brioge") make a positional guess
+worse than useless. So the chunk decides WHERE a table is and the stored PDF is
+re-read for that page to recover WHAT SHAPE it has. That is not a second table
+detector: nothing here decides whether a region is a table, and a page the
+chunker never called a table is never opened.
+
+### The measured parse rate, corrected twice
+
+| Measurement | Result |
+|---|---|
+| Pages holding table chunks | 98 |
+| `find_tables()` returns something | 33 (34%) |
+| ...after minimum rows/columns | 29 (30%) |
+| ...after the fragmentation gate | 25 |
+| **...after the column-count gate** | **21 (21.4%)** |
+
+**The first two numbers were wrong and are retracted.** "33 of 98" counted
+shapes without reading them. Reading them showed things like
+
+```
+['DE', 'F', 'I', 'N', 'IT', 'I', 'O', 'N']      (51 columns)
+['T', 'H', 'E', 'O', 'R', 'E']
+```
+
+which are the words DEFINITION and THEOREM cut into columns by the white space
+between their letters. A scanned page has no ruling lines, so the detector
+latches onto letter spacing and returns a grid of fragments. Accepting those
+would have put "F" and "IT" into a requirement as a field name and a value.
+
+Two gates were added, both chosen after reading the failures rather than before:
+a cell-length ratio, and a **25-column ceiling** - no engineering table has
+fifty columns, and both fragmentation cases had 46 and 51.
+
+**What survives the gates is genuine.** From the live corpus:
+
+```
+['Pile Use Category', 'Southern Pine Creosote (pcf)', 'Douglas Fir Creosote (pcf)', ...]
+['Foundation',        '12',                           '17', ...]
+['Marine (Saltwater) N. of Delaware', '16',           '16', ...]
+```
+
+Row labels, column headers carrying their unit in parentheses, numeric cells.
+That is the shape the extractor reads.
+
+### SAES-A-105 IS NOT IN THIS REPOSITORY
+
+The prompt asked for proof against Tables 1 to 5 of SAES-A-105. **That document
+is not in the corpus** - `SELECT COUNT(*) ... WHERE filename LIKE '%SAES%'`
+returns 0 - and nothing here was proven against it. No standard in this corpus
+has machine-readable tables at all; the 21 that parse are from a civil
+engineering text and a mathematics textbook.
+
+So the parser is proven two ways, and neither is "we ran it on SAES-A-105":
+
+1. **against real corpus tables** (the creosote retention table above), which
+   is where the gates and the header-unit rule were derived from;
+2. **against a PDF with real ruled geometry drawn in the test**, because the
+   corpus contains no standard whose tables a parser can see, and a fixture
+   that draws its own lines is the only way to test the accepting path
+   end to end.
+
+The 78.6% that cannot be parsed are reported as UNPARSED with a reason and drag
+`parsed_fraction` down. That figure is the honest measure of how much of a
+standard's tabular content this system actually read.
+
+## 38. Numeric limits and units - deterministic, never the model
+
+`requirements_3b.py` parses limits, conditions and exceptions with regular
+expressions and hands every number to `claims.normalise`. **Nothing in this
+phase calls Ollama** (master plan section 14): a limit that depends on a
+language model is a limit nobody can reproduce.
+
+### An unknown unit is None, never 0
+
+Measured, and it matters more than it might look:
+
+| Unit | Normalised |
+|---|---|
+| `mm` | 12 -> **12000.0 um** |
+| `MPa`, `degC`, `bar`, `%` | converted |
+| **`dB(A)`** | **None** |
+| **`pcf`** | **None** |
+| `F` | None - Fahrenheit is refused by design |
+
+**The master plan's own worked case is in the None column.** `dB(A)` is not in
+`claims.py`'s table, so a 90 dB(A) limit is extracted with
+`raw_value='90'`, `raw_unit='dB(A)'` and `value=None`. That is the honesty rule
+working exactly as specified: the value is still extracted, still cited, still
+quotable, and simply cannot be compared across unit systems until someone adds
+the unit deliberately. A 0 there would read as a limit of zero - a real and
+very different requirement.
+
+### Nothing is invented for text the parser did not understand
+
+An obligation with no recognisable limit is recorded as `statement`, which is a
+true description of it, rather than a `numeric_limit` carrying a null value - a
+shape that reads as a limit nobody bothered to record.
+
+## 39. Conditions and exceptions - the PSV case
+
+The worked case, end to end:
+
+> The noise level shall not exceed 90 dB(A), except for pressure relief valves,
+> which shall not exceed 115 dB(A).
+
+yields a general limit `<= 90 dB(A)` and
+
+```json
+[{"applies_to": "pressure relief valves", "operator": "<=", "raw_value": "115", "raw_unit": "dB(A)"}]
+```
+
+**An exception that is dropped turns a compliant PSV into a false finding**,
+which is why M42 exists and why the exception carries its own limit rather than
+just a note.
+
+Conditions are parsed conservatively and stop at the comma: "For new equipment,
+the noise level shall not exceed..." conditions on `new equipment`, not on
+`new equipment, the noise level`. A wrong condition NARROWS a requirement and
+silently excuses a real deviation - the opposite failure from a wrong limit,
+and much harder to notice.
+
+## 40. Conflicts - surfaced, never resolved
+
+Two standards limiting the same field differently is reported as a conflict
+with **both sides returned and neither marked the winner**. There is no
+precedence rule and there must not be one: seniority between two company
+standards is not something this system can know.
+
+Two deliberate silences:
+- the same limit in two standards is agreement, not conflict;
+- **values that cannot be compared are not called a conflict.** When either
+  side has a null normalised value - an unknown unit - the pair is skipped.
+  Two numbers this system cannot compare are not evidence of disagreement, and
+  claiming one would invent a finding.
+
+## 41. Verification queue and engineer corrections
+
+`confirm`, `edit`, `reject`. **A correction sets `extraction_method` to
+'human'** - after it the row is a person's statement and nothing downstream may
+present it as extracted. Confirming sets `confirmed_by`/`confirmed_at`, which
+`needs_verification` already read from phase 1, so a confirmed row leaves the
+queue whatever its confidence was.
+
+**Reject deletes the row and keeps the audit.** An extraction that is wrong is
+not evidence of anything, and leaving it flagged would put it in front of the
+next reader to judge again. What survives is the record that somebody looked
+and said no.
+
+All three are audited. The queue is filtered in the query, which matters
+because it takes a LIMIT.
+
+## 42. Background extraction - one worker, lowest priority
+
+Extraction was synchronous and would block a request on a large standard.
+It now queues onto the **existing** `jobs` table with a new stage
+(`extract_requirements`) - master plan section 25, "do not create a new table
+if an existing table can be safely extended" - and is drained by the
+**existing** `IngestionWorker`, only when no document needs work.
+
+That is what section 24's "one ingestion/review worker" and its priority list,
+which puts background standard reprocessing LAST, mean on a single worker.
+`test_no_second_worker_was_added` asserts the module still constructs exactly
+one thread.
+
+The worker has no caller and therefore no scope, so it reads every document id
+and passes it explicitly - the same decision `access.unrestricted_scope()`
+makes, named at the point it is taken rather than defaulted into by omitting an
+argument.
+
+## 43. Mutations - 48/48, after one NOT detected and one refused
+
+| # | Mutation | Detected by |
+|---|---|---|
+| M39 | Stop reading the unit out of a table header | real-table test |
+| M40 | Coerce an unknown unit to 0 | unknown-unit test |
+| M41 | Report an unparsed table as parsed | completeness test |
+| M42 | Drop the exception clause | PSV test |
+| M43 | Silently resolve a conflict | conflict test |
+| M44 | Leave `extraction_method` as 'extracted' after a correction | queue test |
+| M45 | Drop the scope filter from the verification queue | permission test |
+| M46 | Make queuing extract synchronously | job test |
+| M47 | Accept character fragmentation as a table | fragmentation test |
+| M48 | Record "see 5.2" as the number 5.2 | cell-value test |
+
+### M47 was NOT DETECTED, and the test was a unit test pretending to be one
+
+`test_character_fragmentation_is_not_accepted_as_a_table` called
+`tables._is_fragmented(...)` **directly**. That proves the predicate works and
+nothing whatever about whether the pipeline uses it - M47 deleted the call site
+in `parse_page_tables` and the test passed happily.
+
+It now builds a PDF whose ruled cells contain single letters, runs it through
+`parse_document_tables`, and asserts the result is UNPARSED - plus a genuine
+table on the same path that IS accepted, so the gate is not simply refusing
+everything.
+
+This is a third distinct species of vacuous test in this project's record:
+entry 6 tested a migration against a table that was never old, entry 11
+asserted an absence before the screen had loaded, and this one tested a helper
+instead of the behaviour that depends on it. Recorded in the honesty audit.
+
+### M31's anchor became ambiguous, and the harness refused to guess
+
+The new `verification_queue` opens with the same `_scope_clause` line as
+`list_requirements`, so M31 matched twice and the harness reported ERROR rather
+than mutating an arbitrary one. That is the safety property working for the
+second time; the anchor was disambiguated by the SELECT that follows it.
+
+## 44. A defect my own test found
+
+`claims.parse_value` deliberately tolerates a leading prefix so that `<= 90`
+and `max 90` yield 90 - correct for a sentence. Applied to a TABLE CELL it read
+`see 5.2`, a cross-reference to clause 5.2, as **the number 5.2**, and would
+have recorded it as a limit. `requirements_3b.cell_value` now requires a cell
+to be a number in its entirety (a comparator symbol and a footnote marker are
+allowed; words are not). M48 covers it.
+
+## 45. A regression I introduced, caught by an existing test
+
+The first full run after 3B came back **1 failed, 1727 passed**. The failure
+was `test_no_internal_leaks.py::test_every_endpoint_declares_a_typed_success_
+response`, and it was mine: three new routes were declared
+`response_model=dict`.
+
+That test is right to fail them. An `additionalProperties: true` response body
+is a contract that promises nothing - a client generator has nothing to
+generate from it, and the "typed result, never a thrown string" rule the API
+client is built on stops at the first untyped route.
+
+Fixed with two real models, `ExtractionJob` and `RequirementDecisionResult`,
+rather than by relaxing the test. `response_model=dict` now appears zero times
+in `main.py`.
+
+Worth stating plainly because it is the counter-example to this phase's own
+mutation work: **48 of 48 mutations passed while a real regression sat in the
+same commit.** Mutation testing proves a test observes its feature; it says
+nothing about features nobody wrote a mutation for. The suite caught this one,
+which is what a suite is for.
+
+## 46. Verification, measured
+
+Backend, `python -m pytest -q` in `backend/`:
+
+| | passed | skipped | deselected | xfailed |
+|---|---|---|---|---|
+| Baseline | 1695 | 27 | 1 | 17 |
+| **After 3B** | **1728** | 27 | 1 | 17 |
+| Delta | **+33** | 0 | 0 | 0 |
+
++33 is exactly `tests/test_standards_3b.py`.
+
+| Check | Result |
+|---|---|
+| Mutations | **48/48 detected** |
+| `npm run build` | passes |
+| Frontend, touched files isolated | 67 passed, 0 failed |
+| Frontend, the 4 known-bad files isolated | 59 failed - unchanged |
+| CI lint gate | passes |
+| `git diff --check` | clean |
+
+**3B added no frontend code.** The Standards Library screen still shows the 3A
+fields; the limits, exceptions, conflicts and queue are API-only. That is a
+real gap and it is listed below rather than implied away.
+
+## 47. Known limitations - 3B
+
+1. **78.6% of this corpus's table chunks cannot be parsed**, because they are
+   scanned pages with no ruling lines. Reported honestly as unparsed; it is
+   not fixable without OCR-level table reconstruction, which is not in any
+   phase yet.
+2. **`dB(A)` and `pcf` do not normalise.** They are not in `claims.py`'s table.
+   Adding them is a deliberate act - a unit table entry is a safety decision,
+   which is why Fahrenheit is absent - and it was not taken unilaterally here.
+   Until then, noise limits cannot be compared numerically across documents.
+3. **No 3B UI.** Conflicts, the verification queue, limits and exceptions are
+   reachable only through the API.
+4. **The limit parser is regular expressions over English.** It handles the
+   comparator phrasings listed in `_OPERATOR` and will miss others. Everything
+   it writes is `extracted` and unconfirmed.
+5. **Ranges are not parsed.** "between 10 and 20 mm" yields at most one bound.
+   `claims._interval` exists and was not wired in; that is honest scope, not an
+   oversight to discover later.
+6. **A table value is recorded at confidence 0.5**, below the verification
+   threshold, because a table cell carries no obligation word. Every extracted
+   table value therefore lands in the queue for a human - deliberate, but it
+   means a large table produces a large queue.
+7. **Multi-row headers and merged cells are not handled.** The first row is
+   taken as the header.
+8. **Conflict detection compares only normalised values**, so the units that
+   matter most for noise are exactly the ones it cannot compare (see 2).
+9. **SAES-A-105 was never tested against**, because it is not in the
+   repository. See section 37.

@@ -395,6 +395,33 @@ against a screen that had not loaded. The fix has the same shape both times -
 assert something POSITIVE first, so that the negative assertion is made at a
 moment when failing was possible.
 
+**A thirteenth, 2026-09-18 (phase 3B): a unit test wearing a behaviour test's
+name.** `test_character_fragmentation_is_not_accepted_as_a_table` called the
+predicate `tables._is_fragmented(...)` directly. That proves the predicate
+works and says nothing whatever about whether the pipeline uses it - mutation
+M47 deleted the call site in `parse_page_tables` and the test passed happily.
+
+This is now the THIRD distinct species of the same disease, and they are worth
+listing together because each looked fine to its author:
+
+  * **entry 6** - tested a migration against a table that was never old;
+  * **entry 11** - asserted an absence before the screen could have rendered;
+  * **entry 13** - tested a helper instead of the behaviour that depends on it.
+
+The common shape: **the test never put itself in a position where the feature
+could have failed it.** A migration with nothing to migrate, an assertion made
+too early, a predicate called outside the pipeline that consumes it.
+
+**A fourteenth, same round, and it is a number this document itself would have
+carried:** the measured table parse rate was reported as "33 of 98 pages" and
+then "29", and both were wrong. They counted shapes that `find_tables()`
+returned WITHOUT READING THEM. Reading them showed `['DE','F','I','N','IT',
+'I','O','N']` - the word DEFINITION cut into columns by the white space between
+its letters - and `['T','H','E','O','R','E']`. The true rate after gating the
+fragments is **21 of 98**. Standing rule 9 again: a number is not a measurement
+until you can say what it counts, and "shapes the library returned" is not
+"tables that were read".
+
 **A twelfth, in the same round:** the `NameError` mutation mistake of entry ten
 was made again, in the same harness, by the same author, one phase later. It is
 recorded separately rather than folded into entry ten because a defect that
