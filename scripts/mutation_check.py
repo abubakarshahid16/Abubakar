@@ -676,9 +676,94 @@ PHASE_3B = (
     ),
 )
 
+#: Phase 4: datasheet intelligence. `phase=5` because --phase 4 already
+#: selects 3B; the ids are the stable handle.
+PHASE_4 = (
+    Mutation(
+        id="M49", phase=5,
+        description="stop reading the unit off a datasheet value",
+        path=APP / "datasheets.py",
+        anchor='    unit = (match.group("unit") or "").strip() or None',
+        replacement="    unit = None",
+        target="tests/test_datasheets.py",
+        keyword="value_with_its_unit_is_extracted",
+        tags=("datasheet", "unit"),
+    ),
+    Mutation(
+        id="M50", phase=5,
+        description="treat a By Contractor field as a filled value, not a blank",
+        path=APP / "datasheets.py",
+        anchor="    marker = _BLANK_MARKERS.search(text)\n    if marker:",
+        replacement="    marker = _BLANK_MARKERS.search(text)\n    if False:",
+        target="tests/test_datasheets.py",
+        keyword="by_contractor_field_is_recorded_as_blank",
+        tags=("honesty", "missing-information"),
+    ),
+    Mutation(
+        id="M51", phase=5,
+        description="report a page that yielded nothing as parsed anyway",
+        path=APP / "datasheets.py",
+        anchor="        if page_written == 0:\n            unparsed.append({",
+        replacement="        if False:\n            unparsed.append({",
+        target="tests/test_datasheets.py",
+        keyword="unparsed_page_lowers_completeness",
+        tags=("honesty", "completeness"),
+    ),
+    Mutation(
+        id="M52", phase=5,
+        description="stop detecting standards referenced by the datasheet",
+        path=APP / "datasheets.py",
+        anchor="    for match in _REFERENCED_STANDARD.finditer(text or \"\"):",
+        replacement="    for match in _REFERENCED_STANDARD.finditer(\"\"):",
+        target="tests/test_datasheets.py",
+        keyword="referenced_standard_named_in_the_datasheet",
+        tags=("datasheet",),
+    ),
+    Mutation(
+        id="M53", phase=5,
+        description="refuse same-unit comparison again, re-blocking the dB(A) case",
+        path=APP / "claims.py",
+        anchor="    if (a.normalized_value is None or b.normalized_value is None) and same_unit(a, b):",
+        replacement="    if False:",
+        target="tests/test_datasheets.py",
+        keyword="same_unit_dba_values_compare",
+        tags=("comparison", "unit"),
+    ),
+    Mutation(
+        id="M54", phase=5,
+        description="compare across different units, breaking ScaleMismatch",
+        path=APP / "claims.py",
+        anchor='    ua, ub = _fold_unit(a.raw_unit or ""), _fold_unit(b.raw_unit or "")\n    return bool(ua) and ua == ub',
+        replacement='    ua, ub = _fold_unit(a.raw_unit or ""), _fold_unit(b.raw_unit or "")\n    return True',
+        target="tests/test_datasheets.py",
+        keyword="different_units_still_refuse",
+        tags=("comparison", "honesty"),
+    ),
+    Mutation(
+        id="M55", phase=5,
+        description="drop the scope filter from the datasheet facts read",
+        path=APP / "datasheets.py",
+        anchor='    where, args = _scope_clause(allowed_document_ids, "f.submittal_document_id")',
+        replacement='    where, args = " WHERE 1 = 1", []',
+        target="tests/test_datasheets.py",
+        keyword="unauthorised_user_sees_no_facts or empty_grant_set",
+        tags=("permission",),
+    ),
+    Mutation(
+        id="M56", phase=5,
+        description="promote a value into a field label, inventing blank fields",
+        path=APP / "datasheets.py",
+        anchor="        if not is_field_label(label):\n            continue",
+        replacement="        if False:\n            continue",
+        target="tests/test_datasheets.py",
+        keyword="value_is_never_promoted_into_a_field_label",
+        tags=("honesty", "datasheet"),
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
-    + PHASE_3B
+    + PHASE_3B + PHASE_4
 )
 
 
