@@ -44,7 +44,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import claims, classification, requirements_3b, submittal_review
 from . import tables as tables_mod
@@ -199,6 +199,104 @@ def backfill_disciplines(*, only_if_unset: bool = True) -> dict:
             row["id"], value, only_if_unset=only_if_unset)
         (result["set"] if changed else result["unchanged"]).append(row["filename"])
     return result
+
+
+# ------------------------------------------------ page furniture and subject
+
+#: The running footer every page of every SAES standard carries. Measured
+#: shape, in both orders it occurs in:
+#:
+#:   "(c)Saudi Arabian Oil Company 2022 Page 4 of 38 Saudi Aramco: Company
+#:    General Use"
+#:   "Page 2 of 38 (c)Saudi Arabian Oil Company 2022 Saudi Aramco: Company
+#:    General Use"
+#:
+#: It matters because extraction reads CHUNKS, not pages, and a chunk that
+#: spans a page break has the footer sitting in the middle of a sentence. The
+#: measured result was 38 of 718 requirement rows (5.3%) carrying text like
+#: "However, the Page 42 of 57 (c)Saudi Arabian Oil Company, 2022 Saudi
+#: Aramco: Company General Use welder performance shall be evaluated" - a
+#: quotation that is not what the standard says, in a system whose whole claim
+#: is that it quotes the document.
+#:
+#: The copyright symbol is matched as a non-word character: the extractor
+#: decodes it as U+FFFD on this corpus, and hard-coding the replacement
+#: character would break on a file that decoded it correctly.
+_FOOTER = re.compile(
+    r"\s*(?:\W{0,2}\s*Saudi Arabian Oil Company,?\s*\d{4}\s*)?"
+    r"Page\s+\d+\s+of\s+\d+\s*"
+    r"(?:\W{0,2}\s*Saudi Arabian Oil Company,?\s*\d{4}\s*)?"
+    r"(?:Saudi Aramco:\s*Company General Use\s*)?",
+    re.IGNORECASE)
+
+#: The same furniture where it appears without a page number beside it.
+#: "All rights reserved." is the tail of the same copyright line and arrives
+#: on its own when the chunk boundary falls between them, which is how two
+#: rows still opened with it after the footer pattern alone was applied.
+_FURNITURE = re.compile(
+    r"\s*(?:\W{0,2}\s*Saudi Arabian Oil Company,?\s*\d{4}"
+    r"|All rights reserved\.?"
+    r"|Saudi Aramco:\s*Company General Use)\s*", re.IGNORECASE)
+
+
+def strip_page_furniture(text: str) -> str:
+    """Remove the running header/footer so it cannot land inside a sentence.
+
+    Applied BEFORE sentence splitting, which is the only place it works: once
+    the splitter has run, the footer has already joined two half-sentences
+    into one wrong sentence and no later cleanup can separate them again.
+    """
+    cleaned = _FOOTER.sub(" ", text or "")
+    cleaned = _FURNITURE.sub(" ", cleaned)
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
+
+
+#: Leading noise on a subject: a clause number, then any number of articles and
+#: modal fragments. Applied repeatedly, because "the a" and "shall be a" both
+#: occur once the comparator phrase has been cut away.
+_SUBJECT_LEAD = re.compile(
+    r"^(?:\d+(?:\.\d+)*\s*|the\s+|a\s+|an\s+|shall\s+be\s+|shall\s+|must\s+be\s+"
+    r"|must\s+|is\s+|are\s+|be\s+|of\s+)", re.IGNORECASE)
+
+#: The same fragments where they TRAIL the subject rather than lead it. The
+#: comparator pattern cuts at "less than", so "the scale density shall be less
+#: than 50 g/m2" leaves "scale density shall be" - a subject with a dangling
+#: verb, which reads as a truncation rather than as a thing.
+_SUBJECT_TAIL = re.compile(
+    r"(?:\s+(?:shall|must|is|are|be|being|of|with|to|a|an|the))+$", re.IGNORECASE)
+
+
+def subject_of(sentence: str) -> str | None:
+    """What the clause is ABOUT, in the document's own words. Never a join key.
+
+    THIS IS NOT `field` AND MUST NOT BECOME IT. `comparison._match_fact` joins
+    on `field` by exact equality against a datasheet's normalised caption, and
+    measured over this corpus the phrase before the operator is a descriptive
+    clause - "the material stress in the bottom parts of the vessel" - which
+    no caption will ever equal. Writing these into `field` would make the
+    column look populated while matching nothing, which is worse than the
+    honest NULL it holds now.
+
+    So this is for a person reading the requirements list, and for nothing
+    else. It is allowed to be long, and it is allowed to be imperfect.
+    """
+    head = requirements_3b.subject_phrase(strip_page_furniture(sentence))
+    if not head:
+        return None
+    # The last comma-separated part: "In outdoor plant areas, equipment shall
+    # be..." is about the equipment, not about outdoor plant areas.
+    head = head.split(",")[-1].strip()
+    previous = None
+    while head and head != previous:
+        previous = head
+        head = _SUBJECT_LEAD.sub("", head, count=1).strip()
+    previous = None
+    while head and head != previous:
+        previous = head
+        head = _SUBJECT_TAIL.sub("", head).strip()
+    head = head.strip(" .;:")
+    # A subject of one or two characters is a fragment, not a subject.
+    return head if len(head) > 2 else None
 
 
 def _now() -> str:
@@ -432,7 +530,7 @@ def create_requirement(
     structured = structured or {}
     for key in ("requirement_type", "field", "operator", "value", "unit",
                 "raw_value", "raw_unit", "condition", "exceptions",
-                "discipline", "table_row"):
+                "discipline", "table_row", "subject"):
         row[key] = structured.get(key)
     conn = connect()
     with conn:
@@ -443,14 +541,14 @@ def create_requirement(
                 confidence, created_at, updated_at,
                 requirement_type, field, operator, value, unit,
                 raw_value, raw_unit, condition, exceptions, discipline,
-                table_row)
+                table_row, subject)
                VALUES (:id, :standard_document_id, :clause, :page, :chunk_id,
                        :requirement_text, :source_text, :category,
                        :extraction_method, :confidence, :created_at,
                        :updated_at,
                        :requirement_type, :field, :operator, :value, :unit,
                        :raw_value, :raw_unit, :condition, :exceptions,
-                       :discipline, :table_row)""", row)
+                       :discipline, :table_row, :subject)""", row)
     return row
 
 
@@ -500,14 +598,45 @@ def extract_requirements(
 
     written = 0
     low_confidence = 0
+    #: (clause, sentence) already written for THIS document. The same clause
+    #: repeats across chunks when a page break splits it and both halves carry
+    #: the full sentence, which produced 54 of 762 rows (7.1%) that were
+    #: byte-identical to another row. A duplicate requirement is not a second
+    #: requirement: it double-counts in every total, and an engineer resolving
+    #: findings sees the same clause twice with no way to tell which is which.
+    #:
+    #: Skipped BEFORE the write rather than deleted after, so the count this
+    #: function reports is the count of rows that exist.
+    seen: set[tuple[str | None, str]] = set()
+    # SEEDED WITH THE ROWS THAT SURVIVED `replace`. Only unconfirmed rows are
+    # deleted above, so a requirement a human has CONFIRMED is still there -
+    # and re-extracting its sentence would write a second, unconfirmed copy
+    # beside it. Every re-run would add another, and since every fix to this
+    # extractor is delivered by re-running it, a confirmed requirement would
+    # accumulate duplicates for as long as the system is maintained.
+    #
+    # The confirmed row IS that requirement. Finding it here means the sentence
+    # is already recorded, by someone whose decision outranks this parse.
+    seen.update(
+        (r["clause"], r["requirement_text"])
+        for r in connect().execute(
+            "SELECT clause, requirement_text FROM standard_requirements"
+            " WHERE standard_document_id = ?", (document_id,)))
     for chunk in chunks:
         clause = clause_number(chunk["section"])
-        for sentence in claims.split_sentences(chunk["text"]):
+        # The running footer is removed BEFORE splitting. After the split it is
+        # already inside a sentence, having joined the tail of one page to the
+        # head of the next.
+        for sentence in claims.split_sentences(strip_page_furniture(chunk["text"])):
             if not _MANDATORY.search(sentence):
                 continue
             if len(sentence.split()) < MIN_REQUIREMENT_WORDS:
                 # A heading or a table cell that happens to contain "shall".
                 continue
+            key = (clause, sentence)
+            if key in seen:
+                continue
+            seen.add(key)
             confidence = _confidence(clause, sentence)
             # Phase 3B: the structured shape, parsed deterministically. A
             # sentence with no recognisable limit becomes a `statement`, which
@@ -520,6 +649,10 @@ def extract_requirements(
                 "condition": requirements_3b.parse_condition(sentence),
                 "exceptions": requirements_3b.encode_exceptions(exceptions),
                 "discipline": discipline,
+                # Descriptive, for a human reading the list. NOT `field` - see
+                # `subject_of`, which explains at length why these two must not
+                # become the same column.
+                "subject": subject_of(sentence),
                 **(limit or {}),
             }
             try:
@@ -792,6 +925,46 @@ def enqueue_extraction(document_id: str, *, actor: dict | None = None) -> str:
             (job_id, document_id, EXTRACTION_STAGE, now, now))
     _audit("standard.extraction_queued", actor, document_id, detail=f"job={job_id}")
     return job_id
+
+
+#: How long an extraction may sit in `running` before it is presumed dead.
+#:
+#: Extraction is deterministic regex over already-chunked text and takes about
+#: a fifth of a second per standard; the whole 272 would finish inside a
+#: minute. Fifteen minutes is therefore not a guess at how long the work takes,
+#: it is a margin so wide that anything past it cannot be running - while still
+#: being short enough that a restart does not leave a queue stalled for a day.
+STALE_EXTRACTION_MINUTES = 15
+
+
+def recover_stale_extraction_jobs(*, older_than_minutes: int = STALE_EXTRACTION_MINUTES) -> int:
+    """Put abandoned `running` extractions back in the queue. Returns the count.
+
+    THE ORPHAN NOBODY WOULD EVER SEE. `next_extraction_job` selects `queued`
+    and only `queued`, so a job that was `running` when the process died is
+    never picked up again - by anything, ever. There is no sweeper, no
+    timeout and no retry anywhere in this codebase. The standard simply never
+    gets extracted, `extraction_job_state` reports `running` forever, and the
+    screen shows work in progress that no process is doing.
+
+    That is worse than a failure. A failed job says so and can be retried; this
+    one claims to be busy.
+
+    Called at STARTUP, where the fact that makes it safe is available: this
+    process has just begun, so nothing it owns is running, and a job still
+    marked running belongs to a process that is gone. The age threshold guards
+    the other case - a second worker on the same database - by refusing to
+    reclaim anything recent enough to plausibly still be alive.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)
+              ).isoformat(timespec="seconds").replace("+00:00", "Z")
+    conn = connect()
+    with conn:
+        cur = conn.execute(
+            "UPDATE jobs SET state = 'queued', updated_at = ?"
+            " WHERE stage = ? AND state = 'running' AND updated_at < ?",
+            (_now(), EXTRACTION_STAGE, cutoff))
+        return cur.rowcount
 
 
 def next_extraction_job() -> str | None:

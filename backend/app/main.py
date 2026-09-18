@@ -74,6 +74,16 @@ async def lifespan(app: FastAPI):
     # intermittent failures in unrelated tests, including the concurrency test,
     # because DDL on one SQLite connection blocks readers on the others.
     submittal_review_mod.migrate_facts_to_per_document()
+    # Put back any extraction that was `running` when a previous process died.
+    # `next_extraction_job` only ever selects `queued`, so without this an
+    # orphaned job is never picked up by anything - the standard is never
+    # extracted and the status keeps reporting work in progress that no process
+    # is doing. Before the worker starts, so a recovered job is in the queue by
+    # the time the worker first looks at it.
+    try:
+        standards_mod.recover_stale_extraction_jobs()
+    except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
+        pass
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()

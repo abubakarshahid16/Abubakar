@@ -185,6 +185,21 @@ def ensure_schema() -> None:
             # Provenance for a value read out of a table rather than a
             # sentence: which parsed table row it came from.
             ("table_row", "INTEGER"),
+            # WHAT THE CLAUSE IS TALKING ABOUT, in the document's own words -
+            # the noun phrase before the comparator, with articles, modal
+            # verbs and page-footer text removed.
+            #
+            # DESCRIPTIVE ONLY, AND DELIBERATELY NOT `field`. `field` is the
+            # join key `comparison._match_fact` looks up against a datasheet's
+            # normalised label, and it is exact equality. Measured over the
+            # corpus, the noun phrase before the operator produces things like
+            # "the material stress in the bottom parts of the vessel" - true
+            # descriptions of the clause, and never a datasheet caption. Put in
+            # `field` they would make the column read as populated while
+            # matching nothing, hiding the fact that no requirement is
+            # comparable yet. So they live here, where a human can read them
+            # and no join can consume them.
+            ("subject", "TEXT"),
         ):
             if requirement_columns and _column not in requirement_columns:
                 conn.execute(

@@ -56,6 +56,39 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     "micrometer": ("length", "um", 1.0),
     "micrometers": ("length", "um", 1.0),
     "mm": ("length", "um", 1000.0),
+    # Added after measuring the standards corpus: `m` and `inch` were already
+    # RECOGNISED as length but had no conversion, so "buried with a minimum of
+    # 1 m" parsed and then stored a null value - the number was read, believed,
+    # and thrown away. Both factors are exact by definition, which is the only
+    # reason they may be added here rather than left unconverted: 1 m is
+    # 1,000,000 um and 1 inch is 25,400 um, neither is a rounding.
+    "m": ("length", "um", 1_000_000.0),
+    "metre": ("length", "um", 1_000_000.0),
+    "metres": ("length", "um", 1_000_000.0),
+    "meter": ("length", "um", 1_000_000.0),
+    "meters": ("length", "um", 1_000_000.0),
+    "inch": ("length", "um", 25_400.0),
+    "inches": ("length", "um", 25_400.0),
+    "in": ("length", "um", 25_400.0),
+    # EACH ITS OWN DIMENSION, WITH A FACTOR OF 1. Measured as missing from the
+    # standards corpus, and every one of them is the ONLY spelling of its
+    # quantity that appears there - there is no second unit to convert between,
+    # so the "conversion" is the identity and the dimension has one member.
+    #
+    # That is not a trick to fill the column. A dimension with one member still
+    # does the job a dimension exists for: two values in g/L compare, and a
+    # value in g/L and a value in mm do NOT, because `_compatible` refuses
+    # across dimensions. Leaving them unconverted instead would have stored the
+    # number and then refused to compare it with itself.
+    "g/l": ("concentration", "g/L", 1.0),
+    "g/m2": ("areal_density", "g/m2", 1.0),
+    "kj/mm": ("heat_input", "KJ/mm", 1.0),
+    "bhn": ("hardness", "BHN", 1.0),
+    "kph": ("speed", "kph", 1.0),
+    # "degC/hr" and "C/hr" both fold to this; `_fold_unit` drops the degree
+    # sign. A RATE, not a temperature - 5 C/hr is a heating rate and must never
+    # compare against a 5 C limit, which is why it is its own dimension.
+    "c/hr": ("temperature_rate", "C/hr", 1.0),
     # pressure -> MPa
     "mpa": ("pressure", "MPa", 1.0),
     "bar": ("pressure", "MPa", 0.1),
@@ -85,9 +118,14 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
 }
 
 #: Canonical unit per dimension, for the human-readable facet string.
+#: Indexed directly by `facet_label`, so a dimension added to `_UNIT_TABLE`
+#: without an entry here is a KeyError at render time rather than a wrong
+#: label. Kept adjacent for that reason.
 _DIMENSION_UNIT = {
     "length": "um", "pressure": "MPa", "temperature": "C", "percent": "%",
     "time": "h", "voltage": "V", "current": "A",
+    "concentration": "g/L", "areal_density": "g/m2", "heat_input": "KJ/mm",
+    "hardness": "BHN", "speed": "kph", "temperature_rate": "C/hr",
 }
 
 #: Units extraction recognises but the table does NOT convert, with the
@@ -97,8 +135,28 @@ _DIMENSION_UNIT = {
 #: arbitrary word after a number ("no. 9 has") is NOT a measurement.
 _UNCONVERTED_UNITS: dict[str, str | None] = {
     "f": "temperature", "degf": "temperature", "k": "temperature",
-    "mil": "length", "mils": "length", "cm": "length", "m": "length", "km": "length",
-    "ft": "length", "inch": "length", "inches": "length", "nm": "length",
+    "mil": "length", "mils": "length", "cm": "length", "km": "length",
+    "ft": "length", "nm": "length",
+    # Measured in the standards corpus and added so the extractor STOPS
+    # treating them as non-units - the gate in `requirements_3b.parse_limit`
+    # now refuses any token that is not recognised here, and without these
+    # entries a real "5 g/L" limit would be discarded along with "3 locations".
+    #
+    # RECOGNISED, NOT CONVERTED, and deliberately so. There is no second
+    # spelling of any of them in this corpus to convert BETWEEN, and inventing
+    # a conversion for an energy-per-length or a hardness number to satisfy a
+    # column would be the wrong kind of completeness. They carry a dimension
+    # where the dimension is certain and None where it is not.
+    # A TENTH ENTRY, BEYOND THE NINE THAT WERE MEASURED AS MISSING, and it is
+    # here to prevent a regression rather than to add coverage. `db` was
+    # already recognised and `db(a)` was not, so the new unit gate - which
+    # discards any token `claims` does not know - would have thrown away the
+    # A-weighting on every noise limit in the corpus: 16 chunks across 8
+    # documents, and the worked example the master plan is written around.
+    # `datasheets.py` was fixed in phase 5B precisely so that "95 dB(A)" keeps
+    # its A-weighting, and a gate that dropped it on the STANDARDS side would
+    # have re-opened that defect from the other direction.
+    "db(a)": None, "dba": None,
     "psig": "pressure", "barg": "pressure", "mbar": "pressure",
     "s": "time", "sec": "time", "secs": "time", "second": "time", "seconds": "time",
     "d": "time", "day": "time", "days": "time",
@@ -115,6 +173,18 @@ def _fold_unit(unit_str: str) -> str:
     u = unit_str.strip().replace("µ", "u").replace("μ", "u").replace("°", "")
     u = u.replace("deg ", "deg").replace("degrees", "deg").replace("degree", "deg")
     return u.lower()
+
+
+def is_unit(unit_str: str) -> bool:
+    """Is this spelling a unit at all?
+
+    Separate from `unit_dimension`, which answers None BOTH for "not a unit"
+    and for "a unit whose dimension is not certain" - `ppm` and `locations`
+    are indistinguishable through it. A caller deciding whether a word after a
+    number is a unit needs those to be different answers, and this is that
+    question asked directly.
+    """
+    return _fold_unit(unit_str) in _RECOGNISED_UNITS
 
 
 def unit_dimension(unit_str: str) -> str | None:

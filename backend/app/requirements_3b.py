@@ -130,6 +130,61 @@ def header_unit(header: str) -> str | None:
     return candidate
 
 
+def subject_phrase(sentence: str) -> str | None:
+    """The text before the comparator, or None when there is no comparator.
+
+    Exposed so `standards.subject_of` does not have to reach for `_LIMIT`
+    itself - the limit pattern is this module's, and a second module splitting
+    on it would be a second place to fix when it changes.
+    """
+    if not sentence or not _LIMIT.search(sentence):
+        return None
+    head = _LIMIT.split(sentence)[0]
+    return " ".join(head.split()).strip() or None
+
+
+def unit_token(candidate: str | None) -> str | None:
+    """The word after a number, IF it is a unit. Otherwise None.
+
+    THE PREVIOUS RULE WAS "keep whatever word follows the number, because the
+    document said it". Measured against the standards corpus that produced
+    `raw_unit` values of 'locations', 'print', 'times' and 'day' - from "in 3
+    locations", "9 print" and "2 times" - stored beside a real number in a row
+    typed `numeric_limit`. A reader sees a limit of 3 locations; there is no
+    such quantity, and no comparison can ever be made against it.
+
+    `claims` is the authority on what a unit is, and this asks it. An
+    unrecognised word means the number HAS no unit, which is a true statement
+    about the sentence - the count is still recorded in `raw_value`.
+
+    TRAILING PUNCTUATION IS STRIPPED FIRST, and that single character was the
+    whole defect behind the product's own worked example: SAES-A-008 says "the
+    maximum solids loading limit shall not exceed 5 g/L." and the sentence's
+    full stop was captured into the unit, so `g/L.` was not `g/L`, did not
+    normalise, and the limit was stored with a null value.
+
+    What is NOT stripped: a leading character, anything inside the token, and
+    the raw spelling itself - only trailing `.,;:)` go, and only for the
+    purpose of asking `claims` whether it knows the word. The spelling handed
+    back is the cleaned one, because `g/L.` is not something any reader wants
+    to see in a unit column.
+    """
+    text = (candidate or "").strip()
+    if not text:
+        return None
+    cleaned = text.rstrip(".,;:")
+    # A CLOSING BRACKET IS ONLY PUNCTUATION WHEN NOTHING OPENED IT. "dB(A)" is
+    # one unit and "dB" is a different one, so stripping the bracket off the
+    # end turns the corpus's noise limits into a unit nobody recognises - the
+    # phase 5B defect, arriving from the other side. Stripped only when
+    # unbalanced, which is the "(see 5 m)" case.
+    while cleaned.endswith(")") and cleaned.count("(") < cleaned.count(")"):
+        cleaned = cleaned[:-1].rstrip(".,;:")
+    if not cleaned:
+        return None
+    return cleaned if claims.is_unit(cleaned) else None
+
+
 def measure(raw_value: str, raw_unit: str | None) -> claims.Measurement:
     """`claims.normalise`, and nothing else.
 
@@ -157,11 +212,7 @@ def parse_limit(sentence: str) -> dict | None:
     if operator is None:
         return None
     raw_value = match.group("value")
-    raw_unit = (match.group("unit") or "").strip() or None
-    # A trailing word that is not a unit - "shall not exceed 3 coats" - must
-    # not become one. `claims.unit_dimension` is the authority on what is a
-    # unit, and an unrecognised spelling is kept as the RAW unit with a null
-    # normalised value rather than discarded: the document said it.
+    raw_unit = unit_token(match.group("unit"))
     measurement = measure(raw_value, raw_unit)
     return {
         "operator": operator,
