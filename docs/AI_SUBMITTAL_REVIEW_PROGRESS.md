@@ -773,3 +773,294 @@ changed status, and `tests/test_upload.py` was not modified.**
 5. **SheetJS was written into the frontend and then removed** in favour of a
    standard-library reader on the server, once its npm distribution turned out
    to be stale and carrying advisories. No new frontend dependency was added.
+
+---
+
+# Phase 3A (Standards Library)
+
+Clause hierarchy, atomic requirements, revision and effective-date management,
+and the Standards Library screen. Applicability, conditions, exceptions,
+numeric limits, units, operators, normalisation and the verification workflow
+are **3B** and are deliberately absent.
+
+## 27. What already existed, and was reused rather than rebuilt
+
+**A COMPANY_STANDARD PDF already goes through the whole pipeline.** It is
+chunked, it is in `chunks_fts`, and it is embedded in `chunk_vectors`. So:
+
+**There is no second index.** `standard_requirements` is a LAYER POINTING INTO
+THE EXISTING CHUNKS, via a new `chunk_id` column. A parallel exact-text or
+vector store would duplicate retrieval and, worse, bypass the
+`allowed_document_ids` masking that only the existing path enforces - the mask
+is applied to the score vector *before* top-k precisely so the size of the
+shrinkage cannot disclose how much matching material exists in documents the
+caller cannot read. A second store would have none of that.
+`test_no_second_index_was_created` asserts no such table appeared, and
+`test_a_requirement_points_at_a_chunk_retrieval_can_also_see` asserts the
+requirement's chunk id is one `chunks_fts` also carries.
+
+**There is no second clause parser.** `chunker.looks_like_heading`,
+`_validate_heading`, `plausible_heading_numbers` and `segment_document` already
+decide what a clause heading is - strictly, and with a documented history of
+why each rule exists ("330 Hudson Street" is not section 330). The result is
+already stored on `chunks.section`. `standards.clause_number()` reads that
+column and takes the number exactly as `chunker._heading_number` does.
+
+**Nothing in chunker.py needed to change, and that is worth stating plainly.**
+The prompt allowed extending those functions in place if they were insufficient
+for standards. They were not insufficient. What they do not compute is the
+HIERARCHY - parent clause and depth - and that is not a gap in the parser: a
+chunker has no reason to know that 5.3.3's parent is 5.3. `parent_clause()` and
+`clause_depth()` are new, they are pure string functions over an
+already-validated heading, and they live in `standards.py` because that is
+where the hierarchy is needed.
+
+## 28. Clause hierarchy
+
+`GET /api/standards/{id}/clauses` returns one row per distinct clause with its
+number, parent, depth, title, page and **chunk id** - so every clause in the
+library resolves to a passage a reader can open.
+
+Ordered by page then chunk ordinal, which is the document's own order. Sorting
+by clause number as a string would put 5.10 before 5.9; sorting it numerically
+would impose an order the document may not have.
+
+A chunk with no `section` yields nothing. **A clause is never inherited from
+whatever clause preceded it** - an inherited number is a citation that resolves
+to the wrong place, which is worse than one that says it does not know.
+`test_a_clause_is_never_inherited_from_the_preceding_chunk` holds that line.
+
+## 29. Atomic requirements
+
+`standard_requirements` had never been written to. It is now filled by
+`POST /api/standards/{id}/requirements/extract` (admin).
+
+Every row carries clause, page, `requirement_text`, `source_text` (the verbatim
+span), **`chunk_id`**, `extraction_method` and `confidence`.
+
+### No requirement without a resolving citation
+
+`create_requirement` REFUSES a row on three separate grounds, and each is a
+different failure:
+
+1. **the chunk does not exist** - the citation resolves to nothing;
+2. **the chunk belongs to another document** - the citation opens something
+   real and wrong, which is the worst of the three;
+3. **the page is outside the pages the chunk spans** - the citation opens the
+   right document at the wrong place.
+
+The check is in code rather than in the schema because `chunk_id` was added by
+`ALTER`, and **SQLite cannot add a column with a foreign key to an existing
+table**. A freshly created database therefore has the constraint and a migrated
+one does not; the code check holds on both. That asymmetry is stated in the
+schema comment rather than left for someone to discover.
+
+### A guess stays labelled a guess
+
+Every extracted row is written `extraction_method='extracted'` with
+`confirmed_by` NULL. Phase 3A never confirms anything.
+
+`confidence` is **a heuristic and is labelled as one** in the schema, the
+contract and the UI. It is not a probability and nothing treats it as one; its
+only job is to decide whether a row is presented as a requirement or as one
+awaiting verification (`VERIFICATION_THRESHOLD = 0.75`). The dominant term is
+whether the clause could be identified at all.
+
+### What is not a requirement
+
+- **`should` is not recorded.** It is a recommendation, and recording it would
+  manufacture non-compliance against advice. `M33` adds it back and the test
+  fails.
+- **`shall not` IS recorded**, categorised as a prohibition: violating it is a
+  real finding.
+- A sentence under five words is a table cell or a heading that happened to
+  contain "shall".
+- A chunk with `retrievable = 0` is not read at all: a requirement citing a
+  passage no answer can reach would be a citation into a hole.
+
+### Re-extraction
+
+`extract_requirements` replaces the unconfirmed rows for that standard, so
+running it twice does not double anything - and **never deletes a confirmed
+row**, so once 3B lets an engineer confirm one, re-extraction cannot silently
+discard their decision. `M34` removes that clause and the test fails.
+
+## 30. Revision and effective-date management
+
+The columns existed from Phase 1; the logic did not.
+
+**A superseded standard is excluded from SELECTION and stays fully READABLE and
+CITABLE.** Those are different questions and this is the one place the rule
+lives (`selectable_standard_ids`). An engineer must still be able to open the
+revision a submittal was reviewed against last year; what must not happen is a
+new review quietly using it. The test asserts both halves, including that a
+superseded standard's requirements still resolve.
+
+`supersede()` is **audited** (`audit_events`, `resource_type='standard'`), and
+refuses three things: superseding a document by itself, naming a superseding
+document the caller cannot read (otherwise a caller learns a document exists by
+pointing at it), and acting on a document with no classification row.
+
+Revision history groups by `document_number` rather than by walking a
+`superseded_by` chain: a chain breaks the moment one link is missing, and a
+missing link is the normal state while a library is being populated.
+
+## 31. The Standards Library screen
+
+`frontend/src/views/StandardsView.tsx`, wired into the nav between Documents
+and Analysis Hub.
+
+List: standard number, title, revision, effective date, active/superseded,
+discipline, requirement count, requirements awaiting verification.
+Detail tabs: **Original Document, Requirements, Revision History, Processing
+Details.** There is no Applicability tab - that is 3B, and an empty tab reads as
+a broken feature rather than an unbuilt one. A test asserts the tab strip is
+exactly those four.
+
+What the screen refuses to say:
+
+- A standard with nothing extracted says **"No requirements extracted yet"**,
+  never "0 requirements", which reads as *this standard requires nothing*.
+- A requirement whose clause could not be identified renders **"Clause not
+  identified"**, never a guessed number.
+- An extracted row is labelled **"Extracted, not confirmed"**.
+- A row whose chunk has gone is labelled **"Citation no longer resolves"**
+  rather than being silently dropped.
+- Null renders as nothing.
+
+## 32. Permissions and audit
+
+Every read path takes `allowed_document_ids` **keyword-only with no default**
+and filters **in the query**. Seven call sites are covered by a parametrised
+test that each raises `TypeError` when the scope is omitted.
+
+`list_standards` ANDs the role with the grants, so the library is always a
+subset of what the caller already holds - **the role is a classification, not a
+grant** (CLAUDE.md rule 5).
+
+`extract_requirements` reads chunks under the caller's grants too: extraction
+from a document the caller cannot read reads **zero chunks** and writes nothing.
+
+Audited: `standard.requirements_extracted`, `standard.superseded`,
+`standard.supersession_cleared`. Detail carries ids and counts only - never
+requirement text, never a document title. The audit table is the one most
+likely to be exported.
+
+## 33. Explicitly NOT built, and the table was not half-extended
+
+No `requirement_type`, `operator`, `value`, `unit`, `condition` or `exceptions`
+columns were added. **Half a numeric limit is worse than none**: a row carrying
+`value: 90` with no operator reads as a limit and is not one. 3B will `ALTER`
+the table.
+
+**`confirmed_by` and `confirmed_at` already exist from Phase 1, so 3B's
+verification queue has its storage waiting.** `needs_verification` is already
+computed and already surfaced in the API and the UI; 3B needs the write path,
+not the schema.
+
+Also not built: conditions, exceptions, applicability tags,
+conflicting-standard handling, engineer corrections, datasheet extraction,
+applicability selection, AI comparison, CRS export.
+
+## 34. Mutations - 38/38, after one that was NOT detected
+
+| # | Mutation | Runner |
+|---|---|---|
+| M27 | Write a requirement whose citation does not resolve | pytest |
+| M28 | Stop lowering confidence for an unidentified clause | pytest |
+| M29 | Keep selecting a superseded standard | pytest |
+| M30 | Drop the scope filter from the library list | pytest |
+| M31 | Drop the scope filter from the requirements read | pytest |
+| M32 | Stop auditing the supersede action | pytest |
+| M33 | Record recommendations (`should`) as requirements | pytest |
+| M34 | Let re-extraction delete a confirmed requirement | pytest |
+| M35 | Render "0 requirements" instead of "none extracted yet" | vitest |
+| M36 | Guess a clause number when none was identified | vitest |
+| M37 | Stop labelling an extracted requirement as unconfirmed | vitest |
+| M38 | Show the supersede control to a non-admin | vitest |
+
+### M38 was NOT DETECTED, and the test was vacuous
+
+Reported loudly rather than quietly fixed.
+
+The test did
+`await waitFor(() => expect(queryByLabelText("Superseded by")).toBeNull())`.
+`waitFor` succeeds on its FIRST tick, and on that tick the tab is still a
+spinner - nothing is on screen to find. So it asserted that a control had not
+rendered **yet**, not that it never would, and it passed with the permission
+check deleted.
+
+The fix is a positive assertion first: wait for the revision list to be on
+screen, *then* assert the control is absent. That is the same lesson as the
+phase 1 migration tests (instance 6 in the honesty audit) in a new costume -
+**a check that runs before the thing it judges can exist will always pass.**
+
+### M32 was rewritten before it counted
+
+Its first version replaced the audit call with a call to a function that does
+not exist, which fails the test with a `NameError` - the right verdict for the
+wrong reason, and indistinguishable from a real detection. It now disables the
+audit without raising, so the mutation reproduces the DEFECT: the action
+happens and no record is written. This is the second time this exact mistake
+has been made in this harness; it is recorded in the honesty audit.
+
+## 35. Verification, measured
+
+Backend, `python -m pytest -q` in `backend/`:
+
+| | passed | skipped | deselected | xfailed | wall |
+|---|---|---|---|---|---|
+| Baseline | 1661 | 27 | 1 | 17 | 552.12s |
+| **After 3A** | **1695** | 27 | 1 | 17 | 535.87s |
+| Delta | **+34** | 0 | 0 | 0 | |
+
++34 is exactly `tests/test_standards_library.py`.
+
+Frontend, measured the only way that works on this suite - **in isolation**:
+
+| Measurement | Result |
+|---|---|
+| Files this phase touched or added, isolated | **70 passed, 0 failed** |
+| The 4 known-bad files, isolated | **59 failed, 7 passed** - unchanged |
+| New tests | **14** (`StandardsView.test.tsx`) |
+| Full parallel run | 610 total (596 + 14), 62 failed |
+| The 3 failures above the stable 59, isolated | **46 passed, 0 failed** - flaky |
+
+The nav entry added to `Shell.tsx` and `routing.ts` did **not** change the
+known-bad set: it is still exactly 59, the same four files, before and after.
+That mattered enough to check on its own, because `glossary.test.ts` and
+`Shell.test.tsx` assert UI terminology and a new nav label is exactly the kind
+of change that would break them.
+
+| Check | Result |
+|---|---|
+| Mutations | **38/38 detected** |
+| `npm run build` | passes |
+| `git diff --check` | clean |
+
+## 36. Known limitations - 3A
+
+1. **Requirement extraction is a regex over mandatory modals.** It finds
+   sentences containing `shall`, `must`, `is/are required to`, `is/are to be`.
+   It does not understand them. Everything it writes is labelled `extracted`
+   and unconfirmed for exactly that reason.
+2. **`requirement_text` and `source_text` are identical in this phase.** They
+   are separate columns because 3B will normalise one and must not lose the
+   other; today one is a copy of the other and the API says so.
+3. **Clause detection is only as good as `chunks.section`.** A standard whose
+   headings the chunker could not validate produces requirements with null
+   clauses - correctly marked low-confidence, but a whole document of them
+   means the chunker did not recognise that document's numbering. The count of
+   awaiting-verification rows is the signal.
+4. **No requirement is extracted from a table.** Chunk kind is not consulted,
+   and a requirement stated only in a table cell is not found. Many
+   specification limits live in tables, so this is a real gap and 3B's numeric
+   limits work will meet it.
+5. **Nothing consumes `selectable_standard_ids` yet.** It is written and tested
+   here because the supersession rule belongs with the data; 3B is what asks.
+6. **The extraction is synchronous.** A large standard blocks the request. It
+   does not go through the background job mechanism, which master-plan
+   section 26 asks for on long-running work.
+7. **No referenced-standard detection**, which section 9 lists. It needs the
+   cross-reference parsing that 3B's applicability work brings.
+8. **The 59 pre-existing frontend failures are untouched**, per instruction.

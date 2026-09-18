@@ -380,6 +380,29 @@ not exist, so the test would have failed with a `NameError` - the right verdict
 for the wrong reason, and indistinguishable from a real detection in the
 report. A mutation has to reproduce the DEFECT, not merely break the code.
 
+**An eleventh, 2026-09-18 (phase 3A), and it is number 6 wearing different
+clothes.** A permission test asserted an absence with
+`await waitFor(() => expect(queryByLabelText("Superseded by")).toBeNull())`.
+`waitFor` succeeds on its FIRST tick, and on that tick the tab under test is
+still a spinner - nothing is on screen to find. So it asserted that the control
+had not rendered **yet**, not that it never would, and it passed with the
+permission check deleted. Mutation M38 reported NOT DETECTED.
+
+The rule, stated generally because it keeps recurring in new forms:
+**a check that runs before the thing it judges can exist will always pass.**
+The migration tests of entry 6 ran against a table that was never old; this ran
+against a screen that had not loaded. The fix has the same shape both times -
+assert something POSITIVE first, so that the negative assertion is made at a
+moment when failing was possible.
+
+**A twelfth, in the same round:** the `NameError` mutation mistake of entry ten
+was made again, in the same harness, by the same author, one phase later. It is
+recorded separately rather than folded into entry ten because a defect that
+recurs after being written down is evidence about the RECORD, not about the
+defect: standing rule 11, a documented hazard is not a guard. The reasoning now
+lives in a comment at the mutation itself, where someone writing the next one
+will be looking, rather than only in this file.
+
 A seventh, of the same family but caused by tooling rather than by design: a shell
 heredoc silently turned `\b` into the literal byte it names, 0x08, **three
 separate times**. Each produced a regex that could never match, inside a rule
