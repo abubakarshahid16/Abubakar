@@ -22,27 +22,36 @@
   prove that provenance.
 - Initial production assets are 141,054 bytes gzip (130.43 KB JS plus CSS),
   below the 300 KB budget. The check is now enforced in CI.
+- The deferred Dashboard module is now a real responsibility split: 
+  `DashboardViewContent.tsx` is 288 lines, `DashboardPrimitives.tsx` is 290,
+  and `DashboardTechnicalDetails.tsx` is 368. No wrapper is being counted as
+  the implementation.
+- The deferred Market module is now a real responsibility split:
+  `MarketPanelContent.tsx` is 184 lines, `MarketPanelPrimitives.tsx` is 341,
+  and `MarketPanelDialogs.tsx` is 374. The existing public export remains
+  unchanged.
 
 ## Explicitly still open
 
 - The API has no suggestion-decision contract for Accept/Edit/Reject (actor,
   timestamp, edited value, audit event). The UI does not invent those actions;
   the limitation is recorded in `docs/ui-backend-gaps.md`.
-- `DashboardViewContent.tsx` and `MarketPanelContent.tsx` remain the deferred
-  large modules (923 and 889 lines respectively). They were not falsely
-  “split” with wrappers; a pure responsibility split is still required.
-- A full backend suite run was started with the project interpreter but was
-  stopped after 18% because this environment's suite is long-running. The
-  previously verified baseline is 1,553 passing tests; this pass does not
-  claim a fresh full-suite result.
-- Live 100,000-row scroll timing and J1–J4 click re-measurement still require a
-  restarted backend and authenticated browser session.
+- Backend full suite: 1,557 passed, 27 skipped, 17 expected failures, with
+  `D:\project\Rag_chatbot\.venv\Scripts\python.exe -m pytest -q` (503.12s).
+  This is above the 1,553 baseline; the skips and expected failures are the
+  suite's recorded cases, not silently converted passes.
+- Live J1–J4 click re-measurement and keyboard-only checks are UNVERIFIED:
+  reloading the local app cleared the in-memory authenticated session and the
+  available browser session has no credentials to re-authenticate. No clicks
+  are being estimated as a pass.
+- Live axe verification for all 8 views and both themes is UNVERIFIED in this
+  pass for the same authenticated-session reason.
 
 ## Checks
 
-- Frontend targeted tests: 571 passing after the Phase 4 changes; the initial
-  full run exposed one glossary regression from the new navigation label, which
-  was corrected and the affected tests pass.
+- Frontend full suite: 51 files, 572 tests passing with
+  `npx vitest run --pool=forks --maxWorkers=1 --reporter=verbose`.
+- Dashboard split tests: 26 passing. Market split tests: 31 passing.
 - `npm run typecheck`: passed.
 - `npm run build`: passed.
 - `npm run check:budget`: passed.
