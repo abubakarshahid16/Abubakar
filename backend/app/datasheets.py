@@ -90,8 +90,19 @@ _REFERENCED_STANDARD = re.compile(
 _NUMBERED_LABEL = re.compile(r"^\s*(?P<no>\d{1,3})\s*[|.\)]?\s*(?P<rest>\S.*)$")
 
 #: A value with a unit at the end: "9970 Kg/hr", "23.5 barg", "0.42 (6.09)".
+#:
+#: PARENTHESES BELONG INSIDE A UNIT when it starts with a letter, because
+#: "dB(A)" is one unit and "dB" is a different one - A-weighting is part of
+#: what the number means. Without this, a datasheet writing "95 dB(A)" was
+#: read as 95 dB, and the comparison engine then correctly REFUSED to compare
+#: it against a 90 dB(A) limit: the flagship case of the whole product,
+#: silently unevaluable because of a character class. Found by phase 5B's
+#: end-to-end test.
+#:
+#: "0.42 (6.09)" is unaffected: the unit group must START with a letter, so a
+#: bare parenthetical is not a unit and is handled as a dual-unit remainder.
 _VALUE_UNIT = re.compile(
-    r"^(?P<value>[-+]?\d[\d.,]*)\s*(?P<unit>[A-Za-z%µμ°][A-Za-z0-9/%µμ°.\-]{0,12})?"
+    r"^(?P<value>[-+]?\d[\d.,]*)\s*(?P<unit>[A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?"
 )
 
 #: A cell that is nothing but a number - "340", "0.892". Used to decide
