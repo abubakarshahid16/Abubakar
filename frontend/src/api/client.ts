@@ -62,6 +62,13 @@ import type {
   ReviewTraceability,
 } from "../types/api";
 
+export interface SearchResult {
+  query: string;
+  mode: string;
+  total: number;
+  hits: Array<{ filename: string }>;
+}
+
 /** The unauthenticated route, and the only one. It answers "is the service up"
  *  and "are the models present" and nothing else.
  *
@@ -722,6 +729,7 @@ async function request<T>(
 export const api = {
   health: () => request<Health>("/health"),
   metrics: () => request<Metrics>("/metrics"),
+  search: (query: string) => request<SearchResult>(`/search?q=${encodeURIComponent(query)}&limit=8`),
   /** Whether the watched folder is running, and what it last picked up.
    *  Guarded like the other list-bearing reads: a body without `recent`
    *  becomes an ordinary ApiError instead of a crash at the map. */

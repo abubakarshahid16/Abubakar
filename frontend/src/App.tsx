@@ -9,6 +9,7 @@ import {
   type ViewId,
 } from "./components/Shell";
 import { DisconnectedState } from "./components/states";
+import { CommandPalette } from "./components/CommandPalette";
 import { AdminScreen } from "./views/AdminScreen";
 import { ChatView } from "./views/ChatView";
 import { DashboardView } from "./views/DashboardView";
@@ -279,6 +280,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         </main>
       ) : (
         <>
+          <CommandPalette onNavigate={onNavigate} auth={authStatus} connection={connection} />
           {view === "documents" && (
             <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin} />
           )}
