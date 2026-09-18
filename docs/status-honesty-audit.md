@@ -298,6 +298,7 @@ thing it judges**. Five instances, all in this build:
 | 4 | "Stale numbers are dropped on refresh", with fake timers | The timers were installed **after** the component had created its interval with real ones. Advancing them fired nothing; the test passed while asserting nothing. | Reading the test back after writing it |
 | 5 | The cross-encoder's own rerank window | `rerank_max_tokens` was 256 against a `chunk_max_tokens` of 480, so a 486-token passage was scored on its first 256 tokens. The answer sat at token 350. It returned **−10.95** — correct about what it was shown, wrong about the passage. | Measuring a hypothesis that turned out to be false, and looking further |
 | 6 | Two **migration** tests, 2026-09-18 (AI submittal review, phase 1) | The fixture calls `db.init_db()`, which builds the table from today's `SCHEMA` — already carrying the new columns. The `ALTER` path therefore never executed, and both tests passed **with the migration deleted**. They asserted the schema, not the migration. | The mutation harness: M6 and M7 reported `*** STILL PASSED ***` while 8 of 10 other mutations failed correctly |
+| 7 | An **immutability** test, 2026-09-18 (phase 2) | It re-implemented `upload.py`'s `if final_path.exists()` branch *inside the test body* and asserted against its own copy, so no change to `upload.py` could ever fail it. Its `-k` expression was also wrong and selected a different test. Two independent ways one check was worth nothing. | Mutation M15 reported NOT DETECTED. Rewritten to call the real `upload.ingest()` |
 
 **Number 3 recurred, on 2026-09-05, in this repository, to the person who wrote
 this list.** CI was fixed to run `tsc -b` and carries a comment saying exactly
@@ -331,6 +332,22 @@ literal and to **assert the old shape first**
 stops testing a migration rather than passing quietly. Standing rule 8 exists
 for exactly this, and the only reason it held is that the mutation step was not
 skipped once the tests were green.
+
+**A claim that was true of the build and false of the suite, 2026-09-18.**
+Section 7 of `docs/AI_SUBMITTAL_REVIEW_HANDOFF.md` recorded that the navigation
+relabel was unverified only in the sense that `npm run build` had not run on
+Windows, the Cowork VM being unable to resolve the TypeScript binary. The build
+does pass. What nobody ran was `vitest`, and it reports **63 failed / 512
+passed** across seven files, `ChatView.test.tsx` failing 54 of 54 — the suites
+that assert UI terminology, against a commit that changed UI terminology.
+
+The retraction is not "the labels were wrong". It is that **"the only
+outstanding check is the build" named one tool and implied the rest were
+clean.** A session that cannot run the suite has not established that the suite
+passes, and the honest sentence is "the tests have not been run on this
+platform" rather than "the build is outstanding". Verified by stashing the two
+phase 2 frontend changes and re-running at `9f75ba5`: the failures are
+unchanged, so they are inherited, not new.
 
 A seventh, of the same family but caused by tooling rather than by design: a shell
 heredoc silently turned `\b` into the literal byte it names, 0x08, **three

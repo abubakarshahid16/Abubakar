@@ -1,4 +1,8 @@
-# AI Submittal Review — Phase 1 (Foundation)
+# AI Submittal Review — Phase 1 (Foundation) and Phase 2 (Document experience)
+
+Phase 1 is sections 1–10. **Phase 2 begins at section 11.**
+
+# Phase 1 (Foundation)
 
 **Status: foundation only.** Schema, vocabularies and scoped read paths. There
 is no extraction engine, no applicability engine, no comparison engine, no
@@ -257,3 +261,223 @@ filter are verified by measurement and by mutation, on a copy and then on the
 live database, with no row lost and no regression in 1611 tests. What it is
 *not* is useful on its own: nothing writes these tables and nothing shows them.
 Accept it as foundation, not as a feature.
+
+---
+
+# Phase 2 (Document experience)
+
+Master-plan section 28 defines Phase 2 as "Document experience: filters,
+PDF/Excel preview, citation-to-page navigation, technical-details drawer."
+This section records what was built, what was **not**, and why.
+
+## 11. The mutation harness is now a committed script
+
+**It did not exist in the repository.** The ten Phase 1 mutations were run from
+a file in a session scratchpad, which proves a claim once and cannot be re-run
+by a reviewer - while section 14 of the handoff tells a reviewer to do exactly
+that.
+
+It is now `scripts/mutation_check.py`, carrying all fifteen mutations (ten from
+Phase 1, five new).
+
+```bash
+python scripts/mutation_check.py              # all 15
+python scripts/mutation_check.py --phase 2    # one phase
+python scripts/mutation_check.py --list       # ids and descriptions
+python scripts/mutation_check.py --only M11   # a subset
+```
+
+It backs each file up, applies one exact-anchor replacement, runs the selected
+tests, and restores in a `finally` block, so an exception or a Ctrl-C cannot
+leave the tree patched. Two properties worth naming:
+
+- **An anchor matching anything other than exactly once is an ERROR, not a
+  pass.** A mutation that silently stops applying reports "tests passed", which
+  is indistinguishable from a vacuous test. That is how a harness lies.
+- **It prefers `.venv`** over `sys.executable`: a 3.10 on PATH would fail every
+  mutation for the wrong reason and read as a perfect score.
+
+Exit code 0 means every mutation was detected.
+
+## 12. Master-plan metadata mapping, resolved
+
+Section 6 lists fifteen metadata items. Eleven were mapped in Phase 1. The four
+that were not are resolved here, explicitly.
+
+| Master-plan item | Resolution | Why |
+|---|---|---|
+| **title** | **New nullable column** `document_classification.title` | `documents.filename` is the name of the file and is authoritative for identity; a title is *descriptive* metadata about the same document. It belongs with the other descriptive fields, not on the core table whose columns decide lifecycle. Null means none recorded, and the UI falls back to the filename rather than inventing one. |
+| **review status** | **DERIVED, never stored.** `submittal_review.review_status_for()` reads the latest `review_runs` row | A `review_status` column would be a second home for a fact `review_runs` already owns, and the two would disagree the first time a run was retried - CLAUDE.md rule 8 broken at design time. A test asserts the column does **not** exist on either table. |
+| **processing status** | Already `documents.status` | The existing state machine (`states.py`) is the single source of truth for where a document is. A second status column is the same defect as above. |
+| **active / superseded** | Already `superseded_by IS NULL` | Phase 1. Active is the absence of a supersession, not a separate flag that could disagree with one. |
+
+`ReviewStatus` is `not_reviewed | pending | running | completed | failed`.
+`not_reviewed` is a **real answer, not a null**: "has this been reviewed" has a
+definite answer for every document, and it is "no". The other four mirror
+`review_runs.status` exactly, so the two cannot drift into two vocabularies.
+
+One subtlety the API preserves: a document the caller may **not** read is absent
+from the result entirely, which is not the same as `not_reviewed`. A missing key
+means "not yours to know".
+
+## 13. What was implemented
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Extend `ClassificationUpdate` with the metadata fields | Done - all 12 fields, `document_role` validated as `DocumentRole` |
+| 2 | Authorized users can assign `document_role` | Done - through the existing admin-gated `PUT .../classification` |
+| 3 | document-role / discipline / equipment-type / project filters | Done - backend, on `GET /api/documents` |
+| 4 | Filters narrow by intersection, never union | Done - routed through `classification.restrict`; mutation-proven |
+| 5 | PDF and Excel preview | **Backend only** - `GET /api/documents/{id}/original`. No UI. See limitations. |
+| 6 | Citation-to-page navigation | **Pre-existing, not extended.** See limitations. |
+| 7 | Fix authenticated image preview URLs | Done - but the images were already fixed; the real bug was the **uploader**. |
+| 8 | Technical document details and processing information | **Backend only** - fields added to `GET /api/documents`. No drawer. |
+| 9 | Preserve original uploaded files | Done - guard plus a mutation-proven test |
+
+### Item 7 was not the bug the architecture document describes
+
+`docs/architecture.md` section 6 hole 1 says `<img src>` bypasses the bearer
+header. **That is stale.** `useAuthedImage` exists, and both
+`PageImageViewer.tsx:149` and `EvidencePanel.tsx:282` render from an object URL
+rather than an API URL.
+
+The transport that genuinely sent **no `Authorization` header** was
+`Uploader.tsx` - `xhr.open("POST", "/api/documents")` with no header, against a
+route that calls `_require_identity_to_write(scope)`. Under
+`AUTH_MODE=demo_required` every upload was a 401 that the screen reported as
+"Cannot reach the backend": a working server described as unreachable.
+
+The fix adds `api.authorize(setHeader)` - a **setter**, not a `getToken()`. The
+token keeps exactly one destination, an `Authorization` header, because a
+returned value is one any caller could log, put in a URL or store, and the whole
+reason it lives in memory only is that it must not be.
+
+## 14. Files changed (Phase 2)
+
+| File | Change |
+|---|---|
+| `scripts/mutation_check.py` | **new** - the committed harness, 15 mutations |
+| `backend/app/db.py` | `title` column plus its migration entry |
+| `backend/app/schemas.py` | `ReviewStatus`; `title`; 12 fields on `ClassificationUpdate`; 8 on `Document` |
+| `backend/app/classification.py` | `METADATA_FIELDS`; `confirm()` writes metadata and tags; `ScopeFilter` gains roles/equipment_types/projects; three new WHERE clauses |
+| `backend/app/submittal_review.py` | `review_status_for()` |
+| `backend/app/main.py` | four filters on `GET /api/documents`; metadata and review status on the listing; `GET /api/documents/{id}/original`; `_MEDIA_TYPES` |
+| `backend/app/upload.py` | the never-rewrite guard |
+| `frontend/src/api/client.ts` | `authorize()` |
+| `frontend/src/components/Uploader.tsx` | attaches the bearer header |
+| `backend/tests/test_document_metadata_filters.py` | **new** - 20 tests |
+| `backend/tests/test_document_original_file.py` | **new** - 11 tests |
+| `frontend/src/components/Uploader.auth.test.tsx` | **new** - 3 tests |
+
+## 15. Two defects found in my own work
+
+Both were caught by the mutation harness, which is the argument for committing
+it rather than the argument for trusting a report.
+
+1. **`review_status_for` returned `not_reviewed` for every reviewed document.**
+   The first version used
+   `(doc, created_at, id) IN (SELECT doc, MAX(created_at), MAX(id) ...)`. Those
+   two maxima are taken **independently**, so the tuple can describe a row that
+   does not exist. Caught by a test, not by review.
+
+2. **The immutability test was vacuous.** It re-implemented upload.py's
+   `if final_path.exists()` branch inside the test, so it could never observe a
+   change to upload.py. M15 reported NOT DETECTED. It now calls the real
+   `upload.ingest()` against an orphaned stored file. The `-k` expression was
+   wrong as well and selected a different test - two independent ways the same
+   check was worthless.
+
+## 16. Known limitations - Phase 2
+
+1. **No Documents-page UI.** Filters, preview and the technical-details drawer
+   are backend only. The API supports them; nothing renders them. Per CLAUDE.md
+   the frontend belongs to Cowork, and this is the largest remaining gap.
+2. **Excel cannot be uploaded at all.** `upload.py` enforces PDF magic bytes and
+   stores `{sha256}.pdf`. `GET .../original` serves the correct workbook media
+   type *if* an `.xlsx` is ever stored, and that is tested - but no route
+   accepts one, so Excel preview is **unreachable in practice**. CRS templates
+   are `.xlsx`, so this blocks the `CRS_TEMPLATE` role from being useful.
+   Accepting non-PDF uploads touches the ingestion state machine and was out of
+   scope for this phase.
+3. **Citation-to-page was not extended.** The page-image route and
+   `X-Answer-Located` already existed and already work from Chat. The
+   master-plan requirement that *every* citation in Analysis, Submittal Review
+   and Reports opens the exact page was **not** verified surface by surface, and
+   is not claimed.
+4. **`equipment_tags` is writable but not filterable.** It is a JSON array in one
+   column; filtering it needs a join table or `json_each`, and neither was in
+   scope.
+5. **The role vocabulary is enforced at the API boundary only.** A direct SQL
+   write or a direct `classification.confirm()` call can still store a bad role.
+6. **`superseded_by` is still unvalidated** - no foreign key, by design, so a
+   dangling id remains possible.
+7. **The frontend test suite was already failing before this work.** See below.
+
+## 17. The frontend suite is red, and it was red before Phase 2
+
+`npx vitest run` reports **63 failed / 512 passed (575)** across 7 files:
+`ChatView.test.tsx` (54), `ChatView.comparisonScope.test.tsx` (3),
+`Shell.test.tsx` (1), `glossary.test.ts` (1) and others.
+
+**This is not a Phase 2 regression, and that was verified rather than assumed:**
+with the two frontend changes stashed, `ChatView.test.tsx` still fails 54/54,
+and `glossary` and `Shell` still fail, at `9f75ba5`. The failures are consistent
+with the navigation relabel in `f0c70a2` - those suites assert UI terminology.
+
+This contradicts section 7 of the handoff, which stated that only
+`npm run build` was outstanding. The build passes; **the suite was never run on
+Windows after the relabel.** Recorded in `docs/status-honesty-audit.md`.
+
+Fixing them is not Phase 2 work - the labels are a product decision and the
+tests encode the old vocabulary - but nothing further should be called green
+until they are addressed.
+
+## 18. Phase 2 mutation proof
+
+`python scripts/mutation_check.py` - **15/15 detected**, the ten Phase 1
+mutations re-run from the committed harness plus five new ones.
+
+| # | Mutation applied | Result |
+|---|---|---|
+| M11 | Make the metadata filter **union** with the caller's scope instead of intersecting | 3 failed |
+| M12 | Let an unknown `document_role` through the update boundary | 4 failed |
+| M13 | Drop the scope check from the original-file download | 2 failed |
+| M14 | Make a filter that matched nothing fall back to the whole corpus | 3 failed |
+| M15 | Let an upload overwrite an existing stored original | 2 failed |
+
+M15 is the one that earned the harness its place: it reported NOT DETECTED on
+the first run and exposed a test that could not observe the code it claimed to
+test. See section 15.
+
+
+## 19. Phase 2 verification, measured
+
+Backend, `python -m pytest -q` in `backend/` on the project venv:
+
+| | passed | skipped | deselected | xfailed | wall |
+|---|---|---|---|---|---|
+| Phase 1 baseline | 1611 | 27 | 1 | 17 | 583.76s |
+| **After Phase 2** | **1642** | 27 | 1 | 17 | 637.21s |
+| Delta | **+31** | 0 | 0 | 0 | |
+
++31 is exactly the two new backend files: 20 in
+`test_document_metadata_filters.py` and 11 in `test_document_original_file.py`.
+**No pre-existing backend test changed status.**
+
+| Check | Result |
+|---|---|
+| Full backend suite | 1642 passed, 0 regressions |
+| Mutation harness, all 15 | 15/15 detected |
+| `cd frontend && npm run build` (`tsc -b && vite build`) | passes, 80 modules, no type errors |
+| New frontend tests (`Uploader.auth.test.tsx`) | 3 passed; mutation-proven by deleting the `authorize(...)` line |
+| Full frontend suite | **63 failed / 512 passed - pre-existing, see section 17** |
+| `python run.py` then `GET /api/health` | 200, `{"ok":true,...}` |
+| `GET /openapi.json` | 200 |
+| `GET /api/documents/{id}/original` with no token | **404** - empty scope, no bytes served, and not a 403 |
+| `git diff --check` | clean |
+
+The unauthenticated 404 on the new route is the one worth reading twice: under
+`AUTH_MODE=demo_required` an unidentified caller resolves to an empty scope,
+`require_document` finds nothing, and the answer says nothing about whether the
+document exists.
+
