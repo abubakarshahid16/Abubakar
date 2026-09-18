@@ -409,6 +409,96 @@ next person to write one will be looking at. Entry 12 predicted exactly that
 and it took two more phases to act on it. **A record only works where the
 person about to make the mistake will read it.**
 
+**A twenty-fourth, 2026-09-19 (extraction review): a defect reported from a
+truncated string.**
+
+I reported that SAES-P-104 stored `value=0.4 unit='%'` for text about NEMA
+enclosures and wrote: **"No percentage exists in that text."** That was false.
+The full sentence reads "...manufactured copper free cast aluminum (aluminum
+with a maximum of **0.4% copper**), or plastic..." - the limit is real and the
+extractor read it correctly.
+
+What produced the error: the probe printed `requirement_text[:150]`, the
+percentage sits at character 250, and I described the row from the truncation
+rather than from the row. The genuine defect is different and milder - the
+limit is attached to a compound sentence whose subject is the whole enclosure
+clause, so it is scoped wrongly, not invented.
+
+**The rule: quote from the value, never from the view of it.** A truncated
+display is a rendering, and an assertion about what a document does NOT contain
+cannot be made from one. This is the same shape as entry 20 - a claim about
+absence, made where the absent thing could not have appeared.
+
+**A twenty-third, 2026-09-19 (extraction review): `field` cannot be populated
+deterministically, and saying so is the finding.**
+
+`comparison._match_fact` joins a requirement to a submitted fact on `field`, by
+EXACT EQUALITY against `datasheets.normalise_field_name(field_label)` - a
+datasheet's form caption. `standard_requirements.field` is NULL on every row
+because `requirements_3b.parse_limit` never returns the key.
+
+The obvious rule - the noun phrase before the operator - was run over all 44
+numeric_limit rows rather than judged by eye. It yields "the material stress in
+the bottom parts of the vessel", "a pvc coated rigid steel conduit with a total
+cover", "scale density shall be". These are descriptive clauses. **A datasheet
+caption is never one of them**, so under exact equality none of the 44 could
+match, and `submittal_facts` holds zero rows so there is not even a label
+vocabulary to test a mapping against.
+
+Populating `field` with them would be worse than leaving it NULL: the column
+would read as usable, the "0 of 762 comparable" measurement would vanish from
+view, and every requirement would still fall through to MISSING_INFORMATION.
+The phrase is therefore stored in a new `subject` column, which nothing joins
+on, and `field` stays NULL until section 14's model-side label matching - which
+`_match_fact`'s own docstring already names as unbuilt - exists.
+
+**The rule: when the honest answer is "this cannot be done deterministically",
+the deliverable is that sentence, not a column full of plausible strings.**
+
+**A twenty-second, 2026-09-19 (extraction review): `needs_ocr_pages = 0` does
+not mean no page needs OCR.**
+
+The corpus reports `needs_ocr_pages = 0` and `recognised_pages = 0` across
+7,914 pages, which reads as "no page needs OCR". It means no page was
+COMPLETELY BLANK of extractable text.
+
+SAES-B-017 page 44 is the counter-example: 30 text spans, ONE embedded image,
+and the string "CAR-SEAL OPEN" present in the drawing and in zero chunks. The
+legend beneath the figure extracts perfectly, which is exactly why the page
+looks healthy - the heuristic asks whether a page has any extractable text, and
+this page has plenty. The text inside the raster is invisible to it.
+
+So the flag detects blank pages, not unreadable content, and a figure carrying
+a valve's operating state is exactly the content a submittal review would need.
+
+**The rule: a zero is only as strong as the question that produced it.** Before
+reading a count as "none", state what it counts - "pages with no extractable
+text at all" and "pages containing unread text" are different measurements and
+only one of them was ever taken.
+
+**A twenty-first, 2026-09-19 (extraction review): a predicted noise rate of
+~113, measured at 1.**
+
+Before extraction ran, the estimate was that 369 revision-history chunks across
+195 standards match phrasing like "Deleted the word...", of which **113 contain
+"shall" and would pass `_MANDATORY`** - enough to justify building a filter.
+
+Measured in the actual output over five standards and 718 statement rows:
+**1 row (0.1%)**, and that one is a genuine requirement that happens to contain
+the phrase "previous revision". The filter was not built, because the evidence
+for it evaporated when the thing was run.
+
+The prediction was not unreasonable - it counted chunks matching a phrase, and
+that count was probably right. It was a count of the WRONG POPULATION:
+extraction reads sentences within clause-numbered chunks, and revision-history
+tables are largely not that. Two measurements of different things, one used to
+size the other.
+
+**The rule: a rate predicted from a proxy population is a hypothesis.** Say
+which population was counted, and re-measure on the real output before acting -
+the measured defects in that same output were page-footer contamination (5.3%)
+and duplicate rows (7.1%), neither of which anyone had predicted at all.
+
 **A twentieth, 2026-09-19 (document roles): a test that covered one of two
 render paths and looked complete.**
 
