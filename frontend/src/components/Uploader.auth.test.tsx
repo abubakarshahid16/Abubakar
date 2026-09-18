@@ -12,7 +12,7 @@
  * exactly why it is not the only one.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 
 import { Uploader } from "./Uploader";
 import { setToken } from "../api/client";

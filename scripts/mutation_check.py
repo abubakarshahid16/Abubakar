@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -61,6 +62,7 @@ REPO = Path(__file__).resolve().parent.parent
 BACKEND = REPO / "backend"
 APP = BACKEND / "app"
 TESTS = BACKEND / "tests"
+FRONTEND_SRC = REPO / "frontend" / "src"
 
 #: The interpreter that runs the suite. The project venv first, because
 #: `run.py` refuses anything but 3.12 and a 3.10 on PATH would fail every
@@ -94,6 +96,10 @@ class Mutation:
     #: Optional `-k` expression narrowing `target`.
     keyword: str | None = None
     tags: tuple[str, ...] = field(default_factory=tuple)
+    #: Which runner proves this one. The frontend workflows are only visible
+    #: through vitest, and a backend-only harness would leave every screen
+    #: unproven while reporting a perfect score.
+    runner: str = "pytest"
 
 
 PHASE_1 = (
@@ -234,10 +240,20 @@ PHASE_2 = (
         id="M13", phase=2,
         description="drop the scope check from the original-file download",
         path=APP / "main.py",
+        # Disambiguated by the line that follows: `document_workbook` opens with
+        # the same two lines, and the harness refuses an ambiguous anchor rather
+        # than guessing which route was meant.
         anchor='    doc = require_document(document_id, scope)\n'
-               '    stored = Path(doc["stored_path"])',
-        replacement='    doc = _document_row_unchecked(document_id)\n'
-                    '    stored = Path(doc["stored_path"])',
+               '    stored = Path(doc["stored_path"])\n'
+               '    if not stored.exists():',
+        # A REAL unscoped read, not a call to a function that does not exist.
+        # A NameError would fail the test for the wrong reason and still report
+        # DETECTED - a mutation has to reproduce the DEFECT (serving a document
+        # the caller holds no grant for), not merely break the route.
+        replacement='    doc = connect().execute(\n'
+                    '        "SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()\n'
+                    '    stored = Path(doc["stored_path"])\n'
+                    '    if not stored.exists():',
         target="tests/test_document_original_file.py",
         keyword="cannot_download",
         tags=("permission",),
@@ -264,10 +280,169 @@ PHASE_2 = (
     ),
 )
 
-ALL: tuple[Mutation, ...] = PHASE_1 + PHASE_2
+#: Phase 2 continued: the workbook upload path.
+PHASE_2_XLSX = (
+    Mutation(
+        id="M16", phase=2,
+        description="accept any zip as a workbook (drop the xl/workbook.xml proof)",
+        path=APP / "upload.py",
+        anchor="            if _XLSX_REQUIRED_ENTRY not in names:",
+        replacement="            if False:",
+        target="tests/test_xlsx_upload.py",
+        keyword="not_a_workbook or docx",
+        tags=("validation", "upload"),
+    ),
+    Mutation(
+        id="M17", phase=2,
+        description="remove the decompression-bomb ceiling",
+        path=APP / "upload.py",
+        anchor="            if declared > MAX_XLSX_UNCOMPRESSED_BYTES:",
+        replacement="            if False:",
+        target="tests/test_xlsx_upload.py",
+        keyword="decompression_bomb",
+        tags=("validation", "upload"),
+    ),
+    Mutation(
+        id="M18", phase=2,
+        description="queue a workbook for indexing like a PDF",
+        path=APP / "upload.py",
+        anchor="    indexed = kind != KIND_XLSX",
+        replacement="    indexed = True",
+        target="tests/test_xlsx_upload.py",
+        keyword="terminal_state or worker_never_selects",
+        tags=("pipeline", "upload"),
+    ),
+    Mutation(
+        id="M19", phase=2,
+        description="hardcode the stored suffix back to .pdf, so an xlsx "
+                    "overwrites or misses the immutability guard",
+        path=APP / "upload.py",
+        anchor='    final_path = settings.upload_dir / f"{sha256}{_SUFFIX_FOR_KIND[kind]}"',
+        replacement='    final_path = settings.upload_dir / f"{sha256}.pdf"',
+        target="tests/test_xlsx_upload.py",
+        keyword="never_rewrites or suffix_comes_from_the_bytes",
+        tags=("immutability", "upload"),
+    ),
+    Mutation(
+        id="M20", phase=2,
+        description="accept macro-enabled workbooks",
+        path=APP / "upload.py",
+        anchor='            if any(n.lower().startswith("xl/vbaproject") for n in names):',
+        replacement="            if False:",
+        target="tests/test_xlsx_upload.py",
+        keyword="macros",
+        tags=("validation", "upload"),
+    ),
+)
+
+#: Phase 2 frontend: the visible workflows. Proven with vitest.
+PHASE_2_UI = (
+    Mutation(
+        id="M21", phase=2, runner="vitest",
+        description="open the page viewer at page 1, ignoring the cited page",
+        path=FRONTEND_SRC / "components" / "PageImageViewer.tsx",
+        anchor="  const [selected, setSelected] = useState(Math.max(1, initialPage ?? 1));",
+        replacement="  const [selected, setSelected] = useState(1);",
+        target="src/components/PageImageViewer.citation.test.tsx",
+        keyword="opens at the cited page",
+        tags=("citation", "ui"),
+    ),
+    Mutation(
+        id="M22", phase=2, runner="vitest",
+        description="stop clearing blank metadata fields, so a value cannot be removed",
+        path=FRONTEND_SRC / "components" / "classification" / "MetadataEditor.tsx",
+        anchor="      body[field] = text[field]?.trim() ? text[field].trim() : null;",
+        replacement="      if (text[field]?.trim()) body[field] = text[field].trim();",
+        target="src/components/DocumentWorkflows.test.tsx",
+        keyword="sends every field",
+        tags=("metadata", "ui"),
+    ),
+    Mutation(
+        id="M23", phase=2, runner="vitest",
+        description="send the human role label instead of its contract value",
+        path=FRONTEND_SRC / "components" / "classification" / "MetadataEditor.tsx",
+        anchor="      document_role: role === \"\" ? null : role,",
+        replacement="      document_role: role === \"\" ? null : String(role).toLowerCase(),",
+        target="src/components/DocumentWorkflows.test.tsx",
+        keyword="sends the role the engineer chose",
+        tags=("validation", "ui"),
+    ),
+    Mutation(
+        id="M24", phase=2, runner="vitest",
+        description="show the metadata form to a non-admin",
+        path=FRONTEND_SRC / "components" / "classification" / "MetadataEditor.tsx",
+        anchor="  if (!canEdit) {",
+        replacement="  if (false) {",
+        target="src/components/DocumentWorkflows.test.tsx",
+        keyword="does not offer the controls to a non-admin",
+        tags=("permission", "ui"),
+    ),
+    Mutation(
+        id="M25", phase=2, runner="vitest",
+        description="render a workbook's empty cells instead of populated ones",
+        path=FRONTEND_SRC / "components" / "DocumentPreview.tsx",
+        anchor="  const rows = sheet.rows.filter((row) => row.some((cell) => cell !== \"\"));",
+        replacement="  const rows: string[][] = [];",
+        target="src/components/DocumentWorkflows.test.tsx",
+        keyword="shows a workbook as sheets",
+        tags=("preview", "ui"),
+    ),
+    Mutation(
+        id="M26", phase=2, runner="vitest",
+        description="render 'Unknown' for a field that was never recorded",
+        path=FRONTEND_SRC / "components" / "DocumentTechnicalDetails.tsx",
+        anchor='  if (value === null || value === undefined || value === "") return null;',
+        replacement='  if (value === null || value === undefined || value === "") value = "Unknown";',
+        target="src/components/DocumentWorkflows.test.tsx",
+        keyword="renders nothing at all",
+        tags=("honesty", "ui"),
+    ),
+)
+
+ALL: tuple[Mutation, ...] = PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI
+
+
+FRONTEND = REPO / "frontend"
+#: The vitest binary as npm installed it. Called directly rather than through
+#: `npx`, which on this project's Windows checkout can reach for a network
+#: install; the local binary is the one the suite already runs.
+_VITEST = FRONTEND / "node_modules" / ".bin" / (
+    "vitest.cmd" if os.name == "nt" else "vitest")
+
+
+def _ascii(text: str) -> str:
+    """Printable on any console. A report that cannot be printed is no report."""
+    return text.encode("ascii", "replace").decode("ascii")
 
 
 def _run_tests(mutation: Mutation) -> tuple[int, str]:
+    if mutation.runner == "vitest":
+        cmd = [str(_VITEST), "run", mutation.target]
+        if mutation.keyword:
+            cmd += ["-t", mutation.keyword]
+        # encoding/errors are NOT optional here. vitest prints box-drawing and
+        # tick characters; on a Windows console defaulting to cp1252 the
+        # decode raises, the harness treats the exception as a non-zero exit,
+        # and EVERY mutation reports DETECTED whether or not the test noticed
+        # anything. A harness that cannot read its runner's output is a harness
+        # that reports a perfect score by accident - the exact failure this
+        # file exists to catch.
+        proc = subprocess.run(cmd, cwd=FRONTEND, capture_output=True, text=True,
+                              timeout=900, shell=False,
+                              encoding="utf-8", errors="replace")
+        out = f"{proc.stdout}\n{proc.stderr}"
+        # The counts line ("Tests  1 failed | 3 passed (4)"), not the "Failed
+        # Tests" banner that also contains the word.
+        counts = re.compile(r"Tests\s+\d+\s+(?:failed|passed)")
+        summary = next(
+            (ln.strip() for ln in reversed(out.splitlines()) if counts.search(ln)),
+            "(no counts line)")
+        # Flattened to ASCII before it is ever printed. vitest's summary
+        # carries box-drawing and tick characters, and a Windows console at
+        # cp1252 raises on ENCODE as readily as it did on decode - killing the
+        # harness mid-run, after the mutation was applied but before the
+        # `finally` had printed anything useful.
+        return proc.returncode, _ascii(summary)
     cmd = [_python(), "-m", "pytest", mutation.target, "-q", "--no-header",
            "-p", "no:cacheprovider"]
     if mutation.keyword:
