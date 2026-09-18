@@ -441,6 +441,49 @@ def set_role(document_id: str, role: str, *, only_if_unset: bool = False) -> boo
     if role not in ROLES:
         raise UnknownRole(
             f"{role!r} is not a document role; expected one of {', '.join(ROLES)}")
+    return _set_one_column("document_role", document_id, role,
+                           only_if_unset=only_if_unset)
+
+
+def set_discipline(document_id: str, discipline: str, *,
+                   only_if_unset: bool = True) -> bool:
+    """Set `discipline` ALONE. Returns True if the column actually changed.
+
+    Same contract as `set_role`, same reasons, and `only_if_unset` defaults
+    TRUE here rather than False: the caller is a backfill over the whole
+    corpus, and a backfill that overwrites is one accidental re-run away from
+    undoing every correction a human has made.
+
+    NO VOCABULARY CHECK, and unlike the role that is not an oversight. The
+    role column has five legal values; `discipline` holds whatever the client's
+    register and the standards' own covers say, which measured 52 distinct
+    committee names across this corpus and will grow. An allowlist here would
+    have to be edited every time Saudi Aramco renames a committee, and the
+    failure mode would be a standard silently left unclassified.
+    """
+    if not (discipline or "").strip():
+        # An empty string is not a discipline, and storing one makes a document
+        # look classified to every reader while matching nothing. NULL is the
+        # honest value for "not known" and this refuses to blur the two.
+        raise ValueError("discipline must not be blank; leave it NULL instead")
+    return _set_one_column("discipline", document_id, discipline.strip(),
+                           only_if_unset=only_if_unset)
+
+
+def _set_one_column(column: str, document_id: str, value: str, *,
+                    only_if_unset: bool) -> bool:
+    """The one writer behind `set_role` and `set_discipline`.
+
+    ONE FUNCTION, because the interesting part is not the column name - it is
+    the `IS NOT` comparison and the `only_if_unset` guard, and two copies of
+    that would be two places for the next person to fix half of (rule 8).
+
+    `column` is interpolated into SQL and is therefore NEVER caller data: both
+    call sites pass a literal, and this refuses anything else rather than
+    trusting that they always will.
+    """
+    if column not in ("document_role", "discipline"):
+        raise ValueError(f"{column!r} is not a column this function may write")
     conn = connect()
     with conn:
         # ON CONFLICT ... WHERE, rather than a SELECT and then an UPDATE: two
@@ -448,7 +491,7 @@ def set_role(document_id: str, role: str, *, only_if_unset: bool = False) -> boo
         # loser would report False having actually been overwritten. `changes()`
         # after this is the count of rows the database really wrote.
         #
-        # `IS NOT excluded.document_role` is not decoration. Without it SQLite
+        # `IS NOT excluded.<column>` is not decoration. Without it SQLite
         # counts a row it rewrote with the SAME value as an update, so setting
         # COMPANY_STANDARD on a document that already held COMPANY_STANDARD
         # reported a change - and the bulk endpoint would then tell an
@@ -456,16 +499,16 @@ def set_role(document_id: str, role: str, *, only_if_unset: bool = False) -> boo
         # none. `IS NOT` rather than `<>` because the existing value is usually
         # NULL, and `NULL <> 'X'` is NULL, which is not true, which would make
         # the only case that matters the one case that never writes.
-        guard = (" AND document_classification.document_role IS NULL"
+        guard = (f" AND document_classification.{column} IS NULL"
                  if only_if_unset else "")
         cur = conn.execute(
             "INSERT INTO document_classification (document_id, suggested_by,"
-            " document_role) VALUES (?, ?, ?)"
+            f" {column}) VALUES (?, ?, ?)"
             " ON CONFLICT(document_id) DO UPDATE SET"
-            " document_role = excluded.document_role"
-            " WHERE document_classification.document_role"
-            f" IS NOT excluded.document_role{guard}",
-            (document_id, SOURCE_NONE, role))
+            f" {column} = excluded.{column}"
+            f" WHERE document_classification.{column}"
+            f" IS NOT excluded.{column}{guard}",
+            (document_id, SOURCE_NONE, value))
         return cur.rowcount > 0
 
 

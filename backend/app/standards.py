@@ -46,7 +46,7 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 
-from . import claims, requirements_3b, submittal_review
+from . import claims, classification, requirements_3b, submittal_review
 from . import tables as tables_mod
 from .db import connect
 
@@ -77,6 +77,128 @@ MIN_REQUIREMENT_WORDS = 5
 
 #: The role a document must hold before this module will touch it.
 COMPANY_STANDARD = "COMPANY_STANDARD"
+
+
+# ------------------------------------------------- the responsibility header
+#
+# WHY THE DOCUMENT'S OWN HEADER AND NOT THE LETTER IN ITS NUMBER.
+#
+# The obvious rule is a letter-to-discipline map: SAES-B is Loss Prevention,
+# SAES-W is Welding. Measured against this corpus it is wrong often enough to
+# be dangerous - SAES-A alone spans eleven committees (Process Engineering,
+# Industrial Drainage, Corrosion Control, Environmental Protection, Energy
+# Systems Optimization, Asset Management, Aviation Fuel Quality and more), L
+# spans five, P six, K four. A map would assign every one of those a single
+# confident value, and `applicability` would then select standards by a
+# discipline the document does not belong to.
+#
+# The header states it. Each standard carries "Document Responsibility: <the
+# committee>" on its cover, so the answer is read from the document rather than
+# inferred from its name.
+
+#: The header, and everything that could be the value. Bounded at 140
+#: characters because the cover page runs straight on into the issue date and
+#: the contents list, and `[^:]` stops at the next field's colon - the value
+#: itself never contains one.
+_RESPONSIBILITY = re.compile(
+    r"Document\s+Responsibility\s*:\s*(?P<window>[^:]{0,140})", re.IGNORECASE | re.DOTALL)
+
+#: The usual value: a committee name. DOTALL matters - the cover page wraps
+#: "... Standards \nCommittee" on 9 of the documents that carry it, and a
+#: pattern that stopped at the newline read those as having no value at all.
+_COMMITTEE = re.compile(r"^(?P<value>.{3,90}?Committee)\b", re.IGNORECASE | re.DOTALL)
+
+#: The value when it does NOT end in "Committee" - SAES-A-302's "Aviation Fuel
+#: Quality" is the only one in this corpus. Deliberately narrow: letters and
+#: ordinary title punctuation, nothing else. A digit here means the cut ran
+#: into the issue date or the document number, and a value like
+#: "Aviation Fuel Quality 15 March 2021 SAES-A" is worse than no value.
+_PLAIN_VALUE = re.compile(r"^[A-Za-z][A-Za-z&.,'\-/ ]{2,60}$")
+
+#: THE FORM THAT MUST NOT BE PARSED, and the reason the colon is required.
+#:
+#: Four standards mention the phrase only in their revision history: "Editorial
+#: revision to transfer document responsibility from the Offshore Structures
+#: Standards Committee to the Geotechnical Standards Committee". There is no
+#: colon, and reading the first committee named would record the SUPERSEDED
+#: owner - a confidently wrong discipline, which is the one outcome worse than
+#: none. Those documents are left NULL and listed for a human.
+
+
+def responsibility_in(text: str) -> list[str]:
+    """Every committee named by a `Document Responsibility:` header in `text`.
+
+    Returns a list because a chunk can carry the header more than once - the
+    cover block repeats on continuation pages - and the caller decides what to
+    do with disagreement rather than this function guessing.
+    """
+    found = []
+    for match in _RESPONSIBILITY.finditer(text or ""):
+        window = match.group("window")
+        committee = _COMMITTEE.match(window)
+        if committee is not None:
+            found.append(" ".join(committee.group("value").split()))
+            continue
+        # No "Committee" in range: take the rest of the LINE only. The cover
+        # page separates fields by a line break or a run of spaces, so that is
+        # the boundary - not a character count, which would cut a long name in
+        # half and store the half.
+        head = re.split(r"\s*\n|\s{2,}", window.strip(), maxsplit=1)[0].strip()
+        if _PLAIN_VALUE.match(head):
+            found.append(" ".join(head.split()))
+    return found
+
+
+def responsibility_of(document_id: str) -> str | None:
+    """The committee this standard's own header names, or None.
+
+    THE MOST FREQUENT VALUE WINS, not the first. The header repeats on every
+    page of some documents and a single garbled page would otherwise decide
+    for the whole standard; when several pages agree and one does not, the
+    agreement is the better evidence. A genuine tie returns None rather than
+    picking one - two different committees named equally often is a document
+    this function does not understand, and NULL says so honestly.
+    """
+    counts: dict[str, int] = {}
+    for row in connect().execute(
+            "SELECT text FROM chunks WHERE document_id = ? AND text LIKE"
+            " '%Document Responsibility%'", (document_id,)):
+        for value in responsibility_in(row["text"]):
+            counts[value] = counts.get(value, 0) + 1
+    if not counts:
+        return None
+    ranked = sorted(counts.items(), key=lambda kv: -kv[1])
+    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+        return None
+    return ranked[0][0]
+
+
+def backfill_disciplines(*, only_if_unset: bool = True) -> dict:
+    """Read every standard's header and store the committee as its discipline.
+
+    NEVER A FALLBACK. A document whose header cannot be read is left NULL and
+    named in the result. `applicability` treats NULL on either side as "not a
+    match" (its docstring says so), so a missing discipline WEAKENS selection
+    while a wrong one MISDIRECTS it - and the letter-based guess that would
+    fill these in is wrong for whole families of this corpus.
+
+    `equipment_type` is deliberately untouched. No published scheme exists to
+    parse it from, and inventing one would put a guess in a column that reads
+    like a fact.
+    """
+    rows = connect().execute(
+        "SELECT d.id, d.filename FROM documents d"
+        " ORDER BY d.filename").fetchall()
+    result = {"documents": len(rows), "set": [], "unchanged": [], "without": []}
+    for row in rows:
+        value = responsibility_of(row["id"])
+        if value is None:
+            result["without"].append(row["filename"])
+            continue
+        changed = classification.set_discipline(
+            row["id"], value, only_if_unset=only_if_unset)
+        (result["set"] if changed else result["unchanged"]).append(row["filename"])
+    return result
 
 
 def _now() -> str:

@@ -1087,9 +1087,99 @@ ROLES_FIX = (
     ),
 )
 
+#: Part A of the extraction preparation: the discipline each standard's own
+#: cover page names. M84 is the one with teeth - the letter map is the rule
+#: anyone would reach for, and it is wrong for whole families of this corpus.
+DISCIPLINE = (
+    Mutation(
+        id="M84", phase=8,
+        description="READ THE SUPERSEDED COMMITTEE out of revision-history "
+                    "prose instead of requiring the header's colon",
+        path=APP / "standards.py",
+        anchor=r'    r"Document\s+Responsibility\s*:\s*(?P<window>[^:]{0,140})", re.IGNORECASE | re.DOTALL)',
+        replacement=r'    r"Document\s+Responsibility\s*:?\s*(?:from\s+the\s+)?(?P<window>[^:]{0,140})", re.IGNORECASE | re.DOTALL)',
+        target="tests/test_standard_discipline.py",
+        keyword="revision_history_prose_is_never_parsed",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M85", phase=8,
+        description="stop at the newline, losing every wrapped committee name",
+        path=APP / "standards.py",
+        anchor='_COMMITTEE = re.compile(r"^(?P<value>.{3,90}?Committee)\\b", re.IGNORECASE | re.DOTALL)',
+        replacement='_COMMITTEE = re.compile(r"^(?P<value>.{3,90}?Committee)\\b", re.IGNORECASE)',
+        target="tests/test_standard_discipline.py",
+        keyword="wrapped_across_a_line_break",
+    ),
+    Mutation(
+        id="M86", phase=8,
+        description="store a value that ran into the issue date",
+        path=APP / "standards.py",
+        # Anchored at the CALL SITE, not at the pattern. The pattern literal
+        # contains a quote, a backslash and a brace, and every attempt to write
+        # it as an anchor produced a string that did not match the file - which
+        # the harness correctly reported as "anchor matched 0 times" rather
+        # than pretending to have mutated anything.
+        anchor="        if _PLAIN_VALUE.match(head):",
+        replacement="        if head:",
+        target="tests/test_standard_discipline.py",
+        keyword="ran_into_the_issue_date",
+    ),
+    Mutation(
+        id="M87", phase=8,
+        description="take the first header rather than the most frequent, so "
+                    "one garbled page decides for the standard",
+        path=APP / "standards.py",
+        anchor="    ranked = sorted(counts.items(), key=lambda kv: -kv[1])",
+        replacement="    ranked = list(counts.items())",
+        target="tests/test_standard_discipline.py",
+        keyword="most_frequent_header_wins",
+    ),
+    Mutation(
+        id="M88", phase=8,
+        description="resolve a tie by picking one instead of answering NULL",
+        path=APP / "standards.py",
+        anchor="    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:\n        return None",
+        replacement="    if False:\n        return None",
+        target="tests/test_standard_discipline.py",
+        keyword="equally_often_yields_nothing",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M89", phase=8,
+        description="let the backfill overwrite a discipline a person set",
+        path=APP / "standards.py",
+        anchor="def backfill_disciplines(*, only_if_unset: bool = True) -> dict:",
+        replacement="def backfill_disciplines(*, only_if_unset: bool = False) -> dict:",
+        target="tests/test_standard_discipline.py",
+        keyword="never_overwrites_a_discipline_a_person_set",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M90", phase=8,
+        description="report the unreadable documents as a count, not by name",
+        path=APP / "standards.py",
+        anchor='            result["without"].append(row["filename"])',
+        replacement="            pass",
+        target="tests/test_standard_discipline.py",
+        keyword="names_what_it_could_not",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M91", phase=8,
+        description="accept a blank discipline, which reads as classified and "
+                    "matches nothing",
+        path=APP / "classification.py",
+        anchor='        raise ValueError("discipline must not be blank; leave it NULL instead")',
+        replacement="        pass",
+        target="tests/test_standard_discipline.py",
+        keyword="refuses_a_blank_value",
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
-    + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX
+    + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
 )
 
 
