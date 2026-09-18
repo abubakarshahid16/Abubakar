@@ -1585,7 +1585,7 @@ holding the line.
 ## 53. Verification, measured
 
 All numbers below were taken from the same tree state, at commit
-`PHASE4_COMMIT_HASH`.
+``02e0acb` (code) / `12d9455` (tests and harness)`.
 
 | | passed | skipped | deselected | xfailed |
 |---|---|---|---|---|
