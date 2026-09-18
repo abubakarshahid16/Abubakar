@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -251,10 +251,27 @@ async def upload_document(
 
 @app.get("/api/documents", response_model=list[schemas.Document],
          responses=schemas.ERRORS_422)
-def list_documents(request: Request,
+def list_documents(request: Request, response: Response,
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("uploaded_at"),
+    direction: str = Query("desc"),
+    q: str | None = Query(None, max_length=200),
+    status: str | None = Query(None),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    reject_unknown_params(request, set())
+    reject_unknown_params(request, {"limit", "offset", "sort", "direction", "q", "status"})
+    sort_columns = {"uploaded_at": "uploaded_at", "filename": "filename",
+                    "status": "status", "size_bytes": "size_bytes"}
+    if sort not in sort_columns:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "sort must be one of: uploaded_at, filename, status, size_bytes"))
+    if direction not in {"asc", "desc"}:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "direction must be asc or desc"))
+    if status is not None and status not in schemas.DocStatus.__args__:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "unknown document status"))
     conn = connect()
     # Filtered IN THE QUERY, not after it. Selecting every document and
     # dropping the unauthorised ones in Python would work here because there is
@@ -264,12 +281,25 @@ def list_documents(request: Request,
     # clause on principle, not because this particular query needs it.
     allowed = sorted(scope.allowed_document_ids)
     if not allowed:
+        response.headers["X-Total-Count"] = "0"
+        response.headers["X-Limit"] = str(limit)
+        response.headers["X-Offset"] = str(offset)
         return []
     marks = ",".join("?" * len(allowed))
+    where = [f"id IN ({marks})"]
+    params: list[object] = list(allowed)
+    if q:
+        where.append("LOWER(filename) LIKE ?")
+        params.append(f"%{q.strip().lower()}%")
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    where_sql = " AND ".join(where)
+    total = conn.execute(f"SELECT COUNT(*) FROM documents WHERE {where_sql}", params).fetchone()[0]
+    order = f"{sort_columns[sort]} {'ASC' if direction == 'asc' else 'DESC'}"
     rows = conn.execute(
-        f"SELECT * FROM documents WHERE id IN ({marks})"
-        " ORDER BY uploaded_at DESC",
-        allowed,
+        f"SELECT * FROM documents WHERE {where_sql} ORDER BY {order}, id LIMIT ? OFFSET ?",
+        [*params, limit, offset],
     ).fetchall()
     # Excluded PAGES carried on the list, so the card can warn without a
     # second request. The Documents screen said "3 excluded" for chunks and
@@ -294,6 +324,9 @@ def list_documents(request: Request,
             "pages_with_clause_headings", 0
         )
         out.append(doc)
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Limit"] = str(limit)
+    response.headers["X-Offset"] = str(offset)
     return out
 
 
@@ -1089,9 +1122,24 @@ def generate_report(body: schemas.GenerateReport,
         )
 
 
-@app.get("/api/reports", response_model=schemas.ReportList)
-def list_reports(scope: access.AccessScope = Depends(access.current_scope)):
-    return reports_mod.list_reports(scope)
+@app.get("/api/reports", response_model=schemas.ReportList,
+         responses=schemas.ERRORS_422)
+def list_reports(request: Request,
+                 limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+                 offset: int = Query(0, ge=0),
+                 sort: str = Query("created_at"),
+                 direction: str = Query("desc"),
+                 q: str | None = Query(None, max_length=200),
+                 scope: access.AccessScope = Depends(access.current_scope)):
+    reject_unknown_params(request, {"limit", "offset", "sort", "direction", "q"})
+    if sort not in {"created_at", "question"}:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "sort must be created_at or question"))
+    if direction not in {"asc", "desc"}:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "direction must be asc or desc"))
+    return reports_mod.list_reports(scope, limit=limit, offset=offset,
+                                    sort=sort, direction=direction, query=q)
 
 
 @app.get("/api/reports/{report_id}/verify", response_model=schemas.ReportVerification,

@@ -90,6 +90,14 @@ class Document(BaseModel):
     )
 
 
+class DocumentPage(BaseModel):
+    """A bounded document listing; authorization and filtering happen before paging."""
+    items: list[Document]
+    total_matching: int
+    limit: int
+    offset: int
+
+
 class UploadAccepted(BaseModel):
     document: Document | None = Field(
         None,
@@ -1096,6 +1104,9 @@ class ReportList(BaseModel):
     suppressed_count: int = Field(
         description="reports hidden because a cited document left the caller's "
         "scope. THAT something is hidden, never WHAT")
+    total_matching: int = 0
+    limit: int = 20
+    offset: int = 0
 
 
 # ------------------------------------------------------- engineering reviews

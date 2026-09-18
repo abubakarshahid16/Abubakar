@@ -138,6 +138,20 @@ def listing(uid: str | None, monkeypatch) -> dict:
     return TestClient(app).get("/api/reports").json()
 
 
+def test_report_list_supports_bounded_pagination_and_sort(monkeypatch):
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    response = TestClient(app).get("/api/reports", params={
+        "limit": 10, "offset": 0, "sort": "question", "direction": "asc",
+        "q": "pump",
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reports"] == []
+    assert body["total_matching"] == 0
+    assert body["limit"] == 10
+    assert body["offset"] == 0
+
+
 def revoke(doc_id: str) -> None:
     with db.connect() as conn:
         conn.execute("DELETE FROM document_role_access WHERE document_id = ?", (doc_id,))

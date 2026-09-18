@@ -149,6 +149,24 @@ def test_the_document_list_shows_only_what_the_scope_allows(two_documents):
     assert ids == {visible}, f"list leaked {ids - {visible}}"
 
 
+def test_document_list_supports_scoped_pagination_and_filters(two_documents):
+    client, visible, hidden = two_documents
+    page = client.get("/api/documents", params={
+        "limit": 1, "offset": 0, "sort": "filename", "direction": "asc",
+        "q": "visible",
+    })
+    assert page.status_code == 200
+    assert [d["id"] for d in page.json()] == [visible]
+    assert page.headers["X-Total-Count"] == "1"
+    assert page.headers["X-Limit"] == "1"
+    assert page.headers["X-Offset"] == "0"
+
+
+def test_document_list_rejects_unsafe_page_size(two_documents):
+    client, *_ = two_documents
+    assert client.get("/api/documents", params={"limit": 201}).status_code == 422
+
+
 def test_search_cannot_reach_a_hidden_document(two_documents):
     client, visible, hidden = two_documents
     hits = client.get("/api/search", params={"q": "coating dry film thickness",

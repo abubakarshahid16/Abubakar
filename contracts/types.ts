@@ -67,6 +67,13 @@ export interface DocumentRecord {
   indexed_at: string | null;
 }
 
+export interface DocumentPage {
+  items: DocumentRecord[];
+  total_matching: number;
+  limit: number;
+  offset: number;
+}
+
 export interface UploadAccepted {
   /** ABSENT when the bytes duplicate a document this caller may not read
    *  (#79). `ingest` dedupes by sha256 and returns the EXISTING row, so
@@ -1063,6 +1070,9 @@ export interface ReportList {
   /** Reports hidden because a cited document left the caller's scope. THAT
    *  something is hidden, never WHAT. */
   suppressed_count: number;
+  total_matching?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export interface ReportVerification {

@@ -18,6 +18,7 @@ import type {
   ConversationDetail,
   ConversationList,
   DocumentRecord,
+  DocumentPage,
   AuthStatus,
   ExclusionsResponse,
   AnalysisGapsResult,
@@ -435,7 +436,11 @@ export const classification = {
 };
 
 export const reports = {
-  list: () => request<ReportList>("/reports"),
+  list: (opts: { limit?: number; offset?: number; sort?: string; direction?: string; q?: string } = {}) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(opts)) if (value != null && value !== "") q.set(key, String(value));
+    return request<ReportList>(`/reports${q.toString() ? `?${q}` : ""}`);
+  },
   generate: (message_id: string) =>
     request<ReportRecord>("/reports", {
       method: "POST",
@@ -721,8 +726,15 @@ export const api = {
    *  Guarded like the other list-bearing reads: a body without `recent`
    *  becomes an ordinary ApiError instead of a crash at the map. */
   watchStatus: () => request<WatchStatus>("/watch/status", undefined, hasArrayField("recent")),
-  documents: () =>
-    request<DocumentRecord[]>("/documents", undefined, isArrayBody),
+  documents: (opts: { limit?: number; offset?: number; sort?: string; direction?: string; q?: string; status?: string } = {}) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(opts)) if (value != null && value !== "") q.set(key, String(value));
+    return request<DocumentPage | DocumentRecord[]>(`/documents${q.toString() ? `?${q}` : ""}`, undefined,
+      (body) => Array.isArray(body) || (!!body && typeof body === "object" && Array.isArray((body as { items?: unknown }).items)))
+      .then((result) => result.ok
+        ? { ...result, data: Array.isArray(result.data) ? result.data : result.data.items }
+        : result);
+  },
   chunks: (id: string, opts: { limit?: number; offset?: number; retrievable?: string } = {}) => {
     const q = new URLSearchParams();
     if (opts.limit != null) q.set("limit", String(opts.limit));

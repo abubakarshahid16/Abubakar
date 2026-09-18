@@ -622,15 +622,31 @@ def _owned_by(rows, scope: access.AccessScope) -> list:
     return [r for r in rows if r["owner_user_id"] == scope.user_id]
 
 
-def list_reports(scope: access.AccessScope) -> dict:
-    rows = connect().execute("SELECT * FROM reports ORDER BY created_at DESC").fetchall()
+def list_reports(scope: access.AccessScope, *, limit: int = 20, offset: int = 0,
+                 sort: str = "created_at", direction: str = "desc",
+                 query: str | None = None) -> dict:
+    conn = connect()
+    rows = conn.execute("SELECT * FROM reports ORDER BY created_at DESC").fetchall()
     visible = [r for r in rows if _visible(r, scope)]
+    if query:
+        needle = query.strip().lower()
+        visible = [r for r in visible if needle in (r["question"] or "").lower()]
+    total = len(visible)
+    reverse = direction == "desc"
+    if sort == "question":
+        visible.sort(key=lambda r: (r["question"] or "").lower(), reverse=reverse)
+    elif sort == "created_at":
+        visible.sort(key=lambda r: r["created_at"] or "", reverse=reverse)
+    page = visible[offset:offset + limit]
     owned = _owned_by(rows, scope)
     return {
-        "reports": [_row_to_record(r) for r in visible],
+        "reports": [_row_to_record(r) for r in page],
         # THAT something is hidden, never WHAT - and nothing at all to a
         # caller who has no identity to hide anything from.
         "suppressed_count": len(owned) - len(visible),
+        "total_matching": total,
+        "limit": limit,
+        "offset": offset,
     }
 
 
