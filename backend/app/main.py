@@ -1957,6 +1957,125 @@ def extract_standard_requirements(
         document_id, allowed_document_ids=scope.allowed_document_ids, actor=actor)
 
 
+@app.get("/api/standards/{document_id}/tables",
+         response_model=schemas.TableReport,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def standard_tables(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Every table of a standard, parsed or explicitly UNPARSED.
+
+    The unparsed ones are the point: `parsed_fraction` is the honest measure of
+    how much of a standard's tabular content was actually read, and a
+    requirement set with the sentences and none of the tables looks complete
+    while missing the numbers an engineer checks against.
+    """
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return standards_mod.table_report(
+        document_id, allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.get("/api/standards/conflicts",
+         response_model=list[schemas.RequirementConflict],
+         responses=schemas.ERRORS_422)
+def standard_conflicts(
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Fields two standards limit differently. SURFACED, NEVER RESOLVED.
+
+    Only over standards the caller may read, so a conflict involving a document
+    they hold no grant for is not shown at all - rather than shown with one
+    side missing, which would disclose that the other side exists.
+    """
+    reject_unknown_params(request, set())
+    return standards_mod.conflicts(allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.get("/api/standards/verification-queue",
+         response_model=list[schemas.StandardRequirement],
+         responses=schemas.ERRORS_422)
+def standard_verification_queue(
+    request: Request,
+    limit: int = Query(200, ge=1, le=500),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Requirements awaiting a human, across every standard the caller may read."""
+    reject_unknown_params(request, {"limit"})
+    rows = standards_mod.verification_queue(
+        allowed_document_ids=scope.allowed_document_ids, limit=limit)
+    return [
+        {**row, "exceptions": standards_mod.requirements_3b.decode_exceptions(
+            row.get("exceptions"))}
+        for row in rows
+    ]
+
+
+@app.post("/api/standards/requirements/{requirement_id}/decision",
+          response_model=schemas.RequirementDecisionResult,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def decide_standard_requirement(
+    requirement_id: str,
+    body: schemas.RequirementDecisionRequest,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """Confirm, edit or reject an extracted requirement. ADMIN, and AUDITED.
+
+    A correction sets `extraction_method` to 'human': after it the row is a
+    person's statement rather than a machine's guess, and nothing downstream
+    may present it as extracted.
+    """
+    try:
+        return standards_mod.decide_requirement(
+            requirement_id, decision=body.decision,
+            allowed_document_ids=scope.allowed_document_ids,
+            actor=actor, edits=body.edits)
+    except standards_mod.RequirementError as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc))) from exc
+
+
+@app.post("/api/standards/{document_id}/requirements/extract-async",
+          response_model=schemas.ExtractionJob,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def queue_standard_extraction(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """Queue extraction on the EXISTING worker rather than blocking this request.
+
+    Master plan section 26 asks that long-running work use the background job
+    mechanism and expose progress without blocking. Section 24 allows one
+    worker and puts background standard reprocessing LAST, so this queues onto
+    the ingestion worker and is drained only when no document needs processing.
+    """
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    job_id = standards_mod.enqueue_extraction(document_id, actor=actor)
+    return {"job_id": job_id, "document_id": document_id, "state": "queued"}
+
+
+@app.get("/api/standards/{document_id}/extraction-state",
+         response_model=schemas.ExtractionJob,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def standard_extraction_state(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    state = standards_mod.extraction_job_state(
+        document_id, allowed_document_ids=scope.allowed_document_ids)
+    return state or {"state": "none"}
+
+
 @app.get("/api/standards/{document_id}/revisions",
          response_model=list[schemas.StandardSummary],
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})

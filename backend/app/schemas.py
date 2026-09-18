@@ -231,11 +231,141 @@ class StandardRequirement(BaseModel):
     needs_verification: bool = Field(
         description="true while a human has not confirmed a row this extractor "
                     "is unsure of")
+    # ------------------------------------------------------------ phase 3B
+    requirement_type: RequirementType | None = None
+    field: str | None = Field(
+        None, description="what is being limited. From a table this is the "
+                          "column header the document wrote; from a sentence "
+                          "it is null rather than guessed")
+    operator: str | None = None
+    value: float | None = Field(
+        None, description="the NORMALISED number, or null. NULL WHEN THE UNIT "
+                          "IS UNKNOWN - never 0, which would read as a limit "
+                          "of zero, a real and very different requirement")
+    unit: str | None = Field(
+        None, description="the canonical unit, or null when the spelling is "
+                          "not in claims.py's table")
+    raw_value: str | None = Field(
+        None, description="exactly as the document wrote it. Preserved so an "
+                          "un-normalisable value is still quotable")
+    raw_unit: str | None = None
+    condition: str | None = Field(
+        None, description="the circumstance the requirement holds under. A "
+                          "wrong condition NARROWS a requirement and silently "
+                          "excuses a real deviation, so it is parsed "
+                          "conservatively and is null when unclear")
+    exceptions: list[dict] = Field(
+        default_factory=list,
+        description="carve-outs with their own limits. An exception that is "
+                    "dropped turns a compliant PSV into a false finding")
+    discipline: str | None = None
+    table_row: int | None = None
     citation_resolves: bool = Field(
         description="false when the cited chunk is gone - re-extract. Shown "
                     "rather than the row being silently dropped")
     created_at: str
     updated_at: str
+
+
+#: What kind of thing a requirement states. Phase 3B.
+#:
+#: NOTHING IS INVENTED FOR TEXT THE PARSER DID NOT UNDERSTAND. An obligation
+#: with no recognisable limit is a `statement`, which is a true description of
+#: it - not a `numeric_limit` carrying a null value, a shape that reads as a
+#: limit nobody bothered to record.
+RequirementType = Literal["numeric_limit", "statement", "table_value"]
+
+#: An engineer's decision on an extracted requirement.
+RequirementDecision = Literal["confirm", "edit", "reject"]
+
+
+class TableParseResult(BaseModel):
+    """One table chunk, parsed or explicitly not."""
+
+    chunk_id: str
+    document_id: str
+    page: int
+    columns: list[str] = Field(default_factory=list)
+    rows: list[list[str]] = Field(default_factory=list)
+    parsed: bool
+    unparsed_reason: str | None = Field(
+        None, description="why this table could not be read. A table that "
+                          "could not be parsed is a FACT to report, never an "
+                          "absence to skip over")
+
+
+class TableReport(BaseModel):
+    document_id: str
+    tables: list[TableParseResult] = Field(default_factory=list)
+    tables_total: int
+    tables_parsed: int
+    tables_unparsed: int
+    parsed_fraction: float | None = Field(
+        None, description="NONE when the standard has no tables at all, which "
+                          "is not 0% and must not render as a failure. A rate "
+                          "is never published without its denominator")
+
+
+class RequirementDecisionRequest(BaseModel):
+    decision: RequirementDecision
+    edits: dict | None = Field(
+        None, description="field -> new value, for `edit`. A correction sets "
+                          "extraction_method to 'human': after it the row is a "
+                          "person's statement, not a machine's guess")
+
+
+class ExtractionJob(BaseModel):
+    """A queued or finished background extraction.
+
+    Typed rather than a bare dict because `test_every_endpoint_declares_a_
+    typed_success_response` forbids an untyped success body - and it is right
+    to: an `additionalProperties: true` response is a contract that promises
+    nothing, and the client generator has nothing to generate.
+    """
+
+    document_id: str | None = None
+    job_id: str | None = None
+    state: str = Field(
+        description="'none' when no extraction has ever been queued for this "
+                    "standard - a real answer, not a missing one")
+    error_code: str | None = None
+    started_at: str | None = None
+    updated_at: str | None = None
+
+
+class RequirementDecisionResult(BaseModel):
+    """What an engineer's decision did.
+
+    `deleted` is true only for a reject, where the row is gone and the audit
+    row is what survives.
+    """
+
+    id: str
+    decision: RequirementDecision
+    deleted: bool = False
+    extraction_method: str | None = Field(
+        None, description="'human' after any confirm or edit: the row is a "
+                          "person's statement, not a machine's guess")
+    confirmed_by: str | None = None
+    confirmed_at: str | None = None
+    requirement_text: str | None = None
+    clause: str | None = None
+    field: str | None = None
+    operator: str | None = None
+    value: float | None = None
+    unit: str | None = None
+
+
+class RequirementConflict(BaseModel):
+    """Two standards limiting the same field differently.
+
+    SURFACED, NEVER RESOLVED. Picking one silently would hide exactly the thing
+    an engineer needs to decide, and seniority between two company standards is
+    not something this system can know.
+    """
+
+    field: str
+    requirements: list[dict]
 
 
 class StandardSummary(BaseModel):

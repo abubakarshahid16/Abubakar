@@ -209,6 +209,29 @@ class IngestionWorker:
         ).fetchone()
         return row["id"] if row else None
 
+    def _drain_standard_extraction(self) -> bool:
+        """Run one queued standards extraction. True when one was run.
+
+        Imported inside the method rather than at module scope: `standards`
+        imports `submittal_review`, which imports `review`, and a top-level
+        import here would make the ingestion worker depend on the whole review
+        surface just to poll a queue that is usually empty.
+
+        A failure is swallowed into the job row by `run_extraction_job` and
+        never raised here - a bad standard must not stop document ingestion,
+        which is the higher-priority work.
+        """
+        try:
+            from . import standards
+            document_id = standards.next_extraction_job()
+            if document_id is None:
+                return False
+            standards.run_extraction_job(document_id)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.last_error = errors.record_failure(exc, stage="standard_extraction")
+            return False
+
     def _run(self) -> None:
         while not self._stop.is_set():
             self.last_beat = time.time()
@@ -216,6 +239,14 @@ class IngestionWorker:
                 doc_id = self._next_document()
                 if doc_id is None:
                     self.current_document = None
+                    # LOWEST PRIORITY, ON THE SAME WORKER. Master plan section
+                    # 24 puts "background standard reprocessing" last in the
+                    # job priority list and allows one ingestion/review worker,
+                    # so standards extraction is drained HERE - only when no
+                    # document needs work - rather than from a second thread
+                    # that would compete for the same 16 GB.
+                    if self._drain_standard_extraction():
+                        continue
                     self._stop.wait(self.poll_seconds)
                     continue
                 self.current_document = doc_id

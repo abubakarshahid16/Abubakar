@@ -150,6 +150,45 @@ def ensure_schema() -> None:
         requirement_columns = {
             row[1] for row in conn.execute("PRAGMA table_info(standard_requirements)")
         }
+        # Phase 3B: the structured shape of a requirement. Added by ALTER for
+        # the same reason chunk_id was - a phase 1/2/3A database has the table
+        # without them.
+        #
+        # PLAIN TEXT AND REAL, NO CHECK CONSTRAINTS, as everywhere else in this
+        # schema: SQLite cannot ALTER-ADD a CHECK, and the vocabularies are
+        # enforced in Pydantic where a bad value is refused with a message.
+        #
+        # `value` is REAL and NULLABLE, and the nullability is load-bearing: an
+        # unknown unit or an unparseable number leaves it NULL, never 0. A 0
+        # here would read as a limit of zero, which is a real and very
+        # different requirement.
+        for _column, _type in (
+            ("requirement_type", "TEXT"),
+            ("field", "TEXT"),
+            ("operator", "TEXT"),
+            ("value", "REAL"),
+            ("unit", "TEXT"),
+            # The raw spellings exactly as the document wrote them, kept beside
+            # the normalised pair. `claims.Measurement` preserves both for the
+            # same reason: a value that could not be normalised must still be
+            # quotable, and a reader checking a citation reads the document's
+            # own words, not this system's canonical form.
+            ("raw_value", "TEXT"),
+            ("raw_unit", "TEXT"),
+            ("condition", "TEXT"),
+            # A JSON array. Acceptable here for the reason equipment_tags is:
+            # an exception list is an immutable snapshot of what one clause
+            # said, nothing joins on it, and nothing filters by it. If 3C ever
+            # needs to query exceptions, it becomes a table then.
+            ("exceptions", "TEXT"),
+            ("discipline", "TEXT"),
+            # Provenance for a value read out of a table rather than a
+            # sentence: which parsed table row it came from.
+            ("table_row", "INTEGER"),
+        ):
+            if requirement_columns and _column not in requirement_columns:
+                conn.execute(
+                    f"ALTER TABLE standard_requirements ADD COLUMN {_column} {_type}")
         if requirement_columns and "chunk_id" not in requirement_columns:
             # No REFERENCES clause on the ALTER: SQLite cannot add a column
             # with a foreign key to an existing table. The constraint is

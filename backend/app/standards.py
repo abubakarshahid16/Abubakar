@@ -23,16 +23,20 @@ THE LIBRARY IS LOGICALLY SEPARATE AND PHYSICALLY THE SAME DATABASE. One SQLite
 file, one set of grant tables, one retrieval path. "Separate library" is a
 statement about what a reader sees, never about where the bytes live.
 
-WHAT IS DELIBERATELY ABSENT (phase 3B)
+PHASE 3B ADDED THE STRUCTURED SHAPE
 
-No conditions, exceptions, numeric limits, units, operators, requirement
-normalisation, applicability tags or conflicting-standard handling. The table
-has no columns for them and none are added here; 3B will ALTER it. Half a
-numeric limit is worse than none: a requirement that carries `value: 90` with
-no operator reads as a limit and is not one.
+Numeric limits, units, conditions, exceptions, applicability tags, the
+conflict report and the verification queue. The parsing itself lives in
+`requirements_3b.py` and the unit handling in `claims.py`; this module is where
+they meet the database.
 
-`confirmed_by` and `confirmed_at` already exist from phase 1, so 3B's
-verification queue has its storage waiting - this phase writes neither.
+All of it is DETERMINISTIC AND MODEL-FREE (master plan section 14). A limit
+that depends on a language model is a limit nobody can reproduce, and the point
+of reading a standard once is that the answer is stable.
+
+`confirmed_by` and `confirmed_at` came from phase 1 and are now written by
+`decide_requirement`, which is what turns a machine's guess into a person's
+statement.
 """
 
 from __future__ import annotations
@@ -42,7 +46,8 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 
-from . import claims, submittal_review
+from . import claims, requirements_3b, submittal_review
+from . import tables as tables_mod
 from .db import connect
 
 #: Mandatory wording. A requirement is a sentence that OBLIGES something.
@@ -252,7 +257,7 @@ def create_requirement(
     *, standard_document_id: str, chunk_id: str, requirement_text: str,
     source_text: str, clause: str | None, page: int | None,
     extraction_method: str = "extracted", confidence: float | None = None,
-    category: str | None = None,
+    category: str | None = None, structured: dict | None = None,
 ) -> dict:
     """Write one requirement. REFUSES a row whose citation does not resolve.
 
@@ -299,17 +304,31 @@ def create_requirement(
         "created_at": now,
         "updated_at": now,
     }
+    # Phase 3B's structured shape. Absent keys stay NULL, which is what an
+    # unrecognised limit looks like - never 0, and never a requirement_type
+    # invented for text the parser did not understand.
+    structured = structured or {}
+    for key in ("requirement_type", "field", "operator", "value", "unit",
+                "raw_value", "raw_unit", "condition", "exceptions",
+                "discipline", "table_row"):
+        row[key] = structured.get(key)
     conn = connect()
     with conn:
         conn.execute(
             """INSERT INTO standard_requirements
                (id, standard_document_id, clause, page, chunk_id,
                 requirement_text, source_text, category, extraction_method,
-                confidence, created_at, updated_at)
+                confidence, created_at, updated_at,
+                requirement_type, field, operator, value, unit,
+                raw_value, raw_unit, condition, exceptions, discipline,
+                table_row)
                VALUES (:id, :standard_document_id, :clause, :page, :chunk_id,
                        :requirement_text, :source_text, :category,
                        :extraction_method, :confidence, :created_at,
-                       :updated_at)""", row)
+                       :updated_at,
+                       :requirement_type, :field, :operator, :value, :unit,
+                       :raw_value, :raw_unit, :condition, :exceptions,
+                       :discipline, :table_row)""", row)
     return row
 
 
@@ -336,10 +355,18 @@ def extract_requirements(
     submittal_review.ensure_schema()
     where, args = _scope_clause(allowed_document_ids, "document_id")
     chunks = connect().execute(
-        "SELECT id, section, page_start, page_end, text FROM chunks" + where +
+        "SELECT id, section, page_start, page_end, text, kind FROM chunks" + where +
         " AND document_id = ? AND retrievable = 1 ORDER BY ordinal",
         [*args, document_id],
     ).fetchall()
+    # The discipline this standard is classified under, stamped on every
+    # requirement it yields. An applicability tag, not a grant: it says what
+    # the requirement is ABOUT, and the grant tables still decide who may read
+    # it (CLAUDE.md rule 5).
+    classification = connect().execute(
+        "SELECT discipline, equipment_type, service FROM document_classification"
+        " WHERE document_id = ?", (document_id,)).fetchone()
+    discipline = classification["discipline"] if classification else None
 
     if replace:
         conn = connect()
@@ -360,10 +387,24 @@ def extract_requirements(
                 # A heading or a table cell that happens to contain "shall".
                 continue
             confidence = _confidence(clause, sentence)
+            # Phase 3B: the structured shape, parsed deterministically. A
+            # sentence with no recognisable limit becomes a `statement`, which
+            # is a true description of it rather than a numeric_limit with a
+            # null value - a shape that reads as a limit nobody recorded.
+            limit = requirements_3b.parse_limit(sentence)
+            exceptions = requirements_3b.parse_exceptions(sentence)
+            structured = {
+                "requirement_type": requirements_3b.classify(sentence, limit),
+                "condition": requirements_3b.parse_condition(sentence),
+                "exceptions": requirements_3b.encode_exceptions(exceptions),
+                "discipline": discipline,
+                **(limit or {}),
+            }
             try:
                 create_requirement(
                     standard_document_id=document_id,
                     chunk_id=chunk["id"],
+                    structured=structured,
                     # The requirement text IS the verbatim sentence in this
                     # phase. They are separate columns because 3B will
                     # normalise one and must not lose the other - a paraphrase
@@ -395,6 +436,315 @@ def extract_requirements(
     }
 
 
+def extract_table_values(
+    document_id: str, *, allowed_document_ids: frozenset[str],
+    actor: dict | None = None,
+) -> dict:
+    """Record one requirement per numeric cell of every parsed table.
+
+    TABLES FIRST, because a requirement set built from the sentences and none
+    of the tables looks complete and is missing the numbers an engineer checks
+    against. A standard states its noise criterion curves, octave band levels
+    and permissible exposure durations in tables, not in prose.
+
+    Each row becomes `table_value` requirements: the row label is the subject,
+    the column header is the field, the header's parenthesised spelling is the
+    unit, and the cell is the value. Every one carries the chunk id and page of
+    the table it came from, so it resolves exactly as a sentence-derived
+    requirement does.
+
+    AN UNPARSED TABLE PRODUCES NOTHING AND IS COUNTED. It lowers completeness
+    rather than passing silently - see `tables.completeness`.
+    """
+    submittal_review.ensure_schema()
+    parses = tables_mod.parse_document_tables(
+        document_id, allowed_document_ids=allowed_document_ids)
+    written = 0
+    for parse in parses:
+        if not parse.parsed or len(parse.rows) < 2:
+            continue
+        header = parse.columns
+        for row_index, row in enumerate(parse.rows[1:], start=1):
+            label = (row[0] if row else "").strip()
+            if not label:
+                continue
+            for column_index, cell in enumerate(row[1:], start=1):
+                if column_index >= len(header):
+                    continue
+                raw_value = (cell or "").strip()
+                # A cell that is not a number is not a value. A label repeated
+                # in a data column, an empty cell, a footnote marker - none of
+                # them is a limit, and recording one would invent a
+                # requirement out of formatting.
+                if requirements_3b.cell_value(raw_value) is None:
+                    continue
+                column = header[column_index]
+                unit = requirements_3b.header_unit(column)
+                measurement = requirements_3b.measure(raw_value, unit)
+                field = requirements_3b.field_name("", column)
+                try:
+                    create_requirement(
+                        standard_document_id=document_id,
+                        chunk_id=parse.chunk_id,
+                        requirement_text=f"{label} - {column}: {raw_value}",
+                        source_text=f"{label} | {column} | {raw_value}",
+                        clause=None, page=parse.page,
+                        extraction_method="extracted",
+                        # A table cell carries no obligation word, so it is
+                        # recorded at the verification threshold: a human
+                        # decides whether this number is a requirement or a
+                        # reference value. It is never presented as confirmed.
+                        confidence=0.5,
+                        structured={
+                            "requirement_type": "table_value",
+                            "field": field,
+                            "condition": label,
+                            "raw_value": raw_value,
+                            "raw_unit": unit,
+                            "value": measurement.normalized_value,
+                            "unit": measurement.normalized_unit,
+                            "table_row": row_index,
+                        })
+                except RequirementError:
+                    continue
+                written += 1
+    stats = tables_mod.completeness(parses)
+    _audit("standard.table_values_extracted", actor, document_id,
+           detail=f"tables={stats['tables_total']} parsed={stats['tables_parsed']} "
+                  f"values={written}")
+    return {"document_id": document_id, "values": written, **stats}
+
+
+def table_report(document_id: str, *,
+                 allowed_document_ids: frozenset[str]) -> dict:
+    """Every table of a standard, parsed or explicitly unparsed, with the rate.
+
+    The unparsed ones are the point. `parsed_fraction` is the honest measure of
+    how much of a standard's tabular content this system actually read, and it
+    is None - not 0 - when the standard has no tables at all.
+    """
+    parses = tables_mod.parse_document_tables(
+        document_id, allowed_document_ids=allowed_document_ids)
+    return {
+        "document_id": document_id,
+        "tables": [p.as_api() for p in parses],
+        **tables_mod.completeness(parses),
+    }
+
+
+# ------------------------------------------------- verification queue (3B)
+
+def verification_queue(*, allowed_document_ids: frozenset[str],
+                       limit: int = 200) -> list[dict]:
+    """Requirements awaiting a human, across every standard the caller may read.
+
+    Filtered IN THE QUERY, and the LIMIT is exactly why that matters: dropping
+    unauthorised rows in Python after a limit is the leak /api/documents
+    already documents.
+    """
+    submittal_review.ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "r.standard_document_id")
+    rows = connect().execute(
+        "SELECT r.*, c.page_start AS chunk_page FROM standard_requirements r"
+        " LEFT JOIN chunks c ON c.id = r.chunk_id" + where +
+        " AND r.confirmed_by IS NULL"
+        " AND (r.confidence IS NULL OR r.confidence < ?)"
+        " ORDER BY r.confidence, r.created_at LIMIT ?",
+        [*args, VERIFICATION_THRESHOLD, limit],
+    ).fetchall()
+    return [{**dict(r), "needs_verification": True,
+             "citation_resolves": r["chunk_page"] is not None} for r in rows]
+
+
+def decide_requirement(
+    requirement_id: str, *, decision: str, allowed_document_ids: frozenset[str],
+    actor: dict | None = None, edits: dict | None = None,
+) -> dict:
+    """An engineer's decision on one extracted requirement.
+
+    `decision` is `confirm`, `edit` or `reject`.
+
+    A CORRECTION SETS extraction_method TO 'human'. That is the whole point of
+    the column: after this, the row is a person's statement and no longer a
+    machine's guess, and nothing downstream may present it as extracted.
+    Confirming sets `confirmed_by`/`confirmed_at`, which `needs_verification`
+    already reads, so a confirmed row leaves the queue whatever its confidence
+    was.
+
+    REJECT DELETES THE ROW. An extraction that is wrong is not evidence of
+    anything and leaving it with a flag would put it in front of the next
+    reader to judge again. The AUDIT is what survives - the record that
+    somebody looked and said no.
+
+    Scoped: a requirement whose standard the caller cannot read is not found,
+    and "not found" is the same answer as "not yours".
+    """
+    submittal_review.ensure_schema()
+    if decision not in {"confirm", "edit", "reject"}:
+        raise RequirementError(f"unknown decision {decision!r}")
+    where, args = _scope_clause(allowed_document_ids, "standard_document_id")
+    row = connect().execute(
+        "SELECT * FROM standard_requirements" + where + " AND id = ?",
+        [*args, requirement_id]).fetchone()
+    if row is None:
+        raise RequirementError("no requirement with that id")
+
+    conn = connect()
+    now = _now()
+    if decision == "reject":
+        with conn:
+            conn.execute("DELETE FROM standard_requirements WHERE id = ?",
+                         (requirement_id,))
+        _audit("standard.requirement_rejected", actor, row["standard_document_id"],
+               detail=f"requirement={requirement_id} clause={row['clause']}")
+        return {"id": requirement_id, "decision": "reject", "deleted": True}
+
+    fields = {
+        "extraction_method": "human",
+        "confirmed_by": (actor or {}).get("id"),
+        "confirmed_at": now,
+        "updated_at": now,
+    }
+    if decision == "edit":
+        for key in ("requirement_text", "clause", "field", "operator", "value",
+                    "unit", "raw_value", "raw_unit", "condition",
+                    "requirement_type", "discipline"):
+            if edits and key in edits:
+                fields[key] = edits[key]
+        if edits and "exceptions" in edits:
+            fields["exceptions"] = requirements_3b.encode_exceptions(
+                edits["exceptions"] or [])
+    assignments = ", ".join(f"{k} = ?" for k in fields)
+    with conn:
+        conn.execute(
+            f"UPDATE standard_requirements SET {assignments} WHERE id = ?",
+            [*fields.values(), requirement_id])
+    _audit(f"standard.requirement_{decision}ed", actor,
+           row["standard_document_id"],
+           detail=f"requirement={requirement_id} clause={row['clause']}")
+    updated = connect().execute(
+        "SELECT * FROM standard_requirements WHERE id = ?",
+        (requirement_id,)).fetchone()
+    return {**dict(updated), "decision": decision}
+
+
+# ------------------------------------------------- background extraction (3B)
+#
+# ONE WORKER, NOT A SECOND ONE. Master plan section 24 says one
+# ingestion/review worker and one heavy job at a time, and section 24's
+# priority list puts "background standard reprocessing" LAST. So extraction
+# does not get a thread of its own: it is drained by the existing
+# `IngestionWorker` only when no document needs work, which is exactly what
+# "lowest priority" means on a single worker.
+#
+# The queue is the EXISTING `jobs` table with a new stage, not a new table -
+# master plan section 25: "Do not create a new table if an existing table can
+# be safely extended." `jobs` already carries document_id, stage, state and
+# timestamps, which is the whole shape needed.
+
+EXTRACTION_STAGE = "extract_requirements"
+
+
+def enqueue_extraction(document_id: str, *, actor: dict | None = None) -> str:
+    """Queue a standard for background extraction. Idempotent per document.
+
+    A second request while one is pending returns the pending job rather than
+    stacking another: re-extraction replaces the same rows, so running it twice
+    concurrently is work nobody asked for on a machine with 16 GB.
+    """
+    import uuid as _uuid
+    submittal_review.ensure_schema()
+    conn = connect()
+    existing = conn.execute(
+        "SELECT id FROM jobs WHERE document_id = ? AND stage = ?"
+        " AND state IN ('queued','running')", (document_id, EXTRACTION_STAGE)
+    ).fetchone()
+    if existing is not None:
+        return existing["id"]
+    job_id = f"job_{_uuid.uuid4().hex[:12]}"
+    now = _now()
+    with conn:
+        conn.execute(
+            """INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at)
+               VALUES (?, ?, ?, 'queued', ?, ?)""",
+            (job_id, document_id, EXTRACTION_STAGE, now, now))
+    _audit("standard.extraction_queued", actor, document_id, detail=f"job={job_id}")
+    return job_id
+
+
+def next_extraction_job() -> str | None:
+    """The oldest queued extraction, or None. Read by the ingestion worker."""
+    row = connect().execute(
+        "SELECT document_id FROM jobs WHERE stage = ? AND state = 'queued'"
+        " ORDER BY started_at LIMIT 1", (EXTRACTION_STAGE,)).fetchone()
+    return row["document_id"] if row else None
+
+
+def run_extraction_job(document_id: str) -> dict:
+    """Run one queued extraction to completion. Called by the worker.
+
+    THE WORKER HAS NO CALLER AND THEREFORE NO SCOPE, so it reads every document
+    id and passes it explicitly. That is the same decision `access.
+    unrestricted_scope()` makes and it is named here for the same reason: a
+    system actor's breadth must be written down at the point it is taken, never
+    defaulted into by omitting an argument. The read paths still require the
+    parameter; nothing here relaxes them.
+    """
+    conn = connect()
+    now = _now()
+    with conn:
+        conn.execute(
+            "UPDATE jobs SET state = 'running', updated_at = ?"
+            " WHERE document_id = ? AND stage = ? AND state = 'queued'",
+            (now, document_id, EXTRACTION_STAGE))
+    every_document = frozenset(
+        r["id"] for r in conn.execute("SELECT id FROM documents"))
+    try:
+        sentences = extract_requirements(
+            document_id, allowed_document_ids=every_document)
+        tabular = extract_table_values(
+            document_id, allowed_document_ids=every_document)
+        state, error = "done", None
+    except Exception as exc:  # noqa: BLE001 - a failed job must not kill the worker
+        sentences, tabular = {}, {}
+        state, error = "failed", type(exc).__name__
+    with conn:
+        conn.execute(
+            "UPDATE jobs SET state = ?, error_code = ?, updated_at = ?"
+            " WHERE document_id = ? AND stage = ?",
+            (state, error, _now(), document_id, EXTRACTION_STAGE))
+    return {"document_id": document_id, "state": state,
+            "requirements": sentences.get("requirements", 0),
+            "table_values": tabular.get("values", 0)}
+
+
+def extraction_job_state(document_id: str, *,
+                         allowed_document_ids: frozenset[str]) -> dict | None:
+    """The state of a standard's extraction job, under the caller's grants."""
+    if document_id not in allowed_document_ids:
+        return None
+    row = connect().execute(
+        "SELECT id, state, error_code, started_at, updated_at FROM jobs"
+        " WHERE document_id = ? AND stage = ? ORDER BY started_at DESC LIMIT 1",
+        (document_id, EXTRACTION_STAGE)).fetchone()
+    return dict(row) if row else None
+
+
+def conflicts(*, allowed_document_ids: frozenset[str]) -> list[dict]:
+    """Fields two standards limit differently. SURFACED, NEVER RESOLVED.
+
+    Only over standards the caller may read, so a conflict with a document
+    they hold no grant for is not disclosed - and is therefore not shown at
+    all, rather than shown with one side missing.
+    """
+    submittal_review.ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "standard_document_id")
+    rows = connect().execute(
+        "SELECT * FROM standard_requirements" + where +
+        " AND value IS NOT NULL AND field IS NOT NULL", args).fetchall()
+    return requirements_3b.find_conflicts([dict(r) for r in rows])
+
+
 def list_requirements(
     document_id: str, *, allowed_document_ids: frozenset[str],
 ) -> list[dict]:
@@ -418,6 +768,9 @@ def list_requirements(
         item = dict(row)
         item["needs_verification"] = needs_verification(row)
         item["citation_resolves"] = row["chunk_page"] is not None
+        # Decoded here so no caller has to know it is JSON in one column, and
+        # a malformed value reads as "none recorded" rather than raising.
+        item["exceptions"] = requirements_3b.decode_exceptions(item.get("exceptions"))
         out.append(item)
     return out
 
