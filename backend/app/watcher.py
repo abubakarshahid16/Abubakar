@@ -56,6 +56,7 @@ from pathlib import Path
 
 from . import access
 from . import admin as admin_mod
+from . import classification as classification_mod
 from . import errors
 from . import upload as upload_mod
 from .config import settings
@@ -96,6 +97,30 @@ _UNREADABLE_CAUSES = {
     "PermissionError": "permission was denied",
     "FileNotFoundError": "it is no longer there",
     "NotADirectoryError": "the configured path is not a directory",
+}
+
+#: SUBFOLDER -> the role a document dropped there is given. THE FOLDER IS THE
+#: ONLY THING THAT DECIDES.
+#:
+#: NOTHING HERE LOOKS AT THE FILENAME, THE EXTENSION OR THE CONTENT, and that
+#: is the entire safety argument. This corpus holds 272 files named `SAES-*`,
+#: so a filename rule would be about 97% right on today's folder - which is
+#: precisely what makes it dangerous. A contractor's reply named
+#: `SAES-A-105-vendor-response.pdf` is a SUBMITTAL, and tagging it
+#: COMPANY_STANDARD would make a vendor's own document the standard its
+#: submittal is reviewed against. The system would then find it perfectly
+#: compliant with itself, cite real pages, and be completely wrong. A rule
+#: that is right 97% of the time and catastrophic the other 3% is not a rule
+#: worth having when moving a file into a folder is the alternative.
+#:
+#: So: a person putting a file in a folder is the decision, and it is the only
+#: one this module will act on. A file in the folder ROOT gets NO role and
+#: still needs tagging by hand - unchanged from before this existed.
+ROLE_FOLDERS: dict[str, str] = {
+    "standards": "COMPANY_STANDARD",
+    "submittals": "CONTRACTOR_SUBMITTAL",
+    "contracts": "CONTRACT_DOCUMENT",
+    "supporting": "SUPPORTING_DOCUMENT",
 }
 
 #: `watch_events.sha256` is NOT NULL, and a file that cannot be opened cannot
@@ -240,6 +265,82 @@ def record_event(filename: str, source_path: str, sha256: str, outcome: str,
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (filename, source_path, sha256, _now(), outcome, document_id, detail),
         )
+
+
+def _key(path: Path, folder: Path) -> str:
+    """The identity of a watched file: its path RELATIVE to the watched folder.
+
+    `standards/SAES-A-105.pdf` for a file in a subfolder, `dropped.pdf` for one
+    in the root - so nothing about a root file's identity changed when
+    subfolders arrived. Forward slashes on every platform, because this string
+    is compared against itself across scans and a separator that varies by OS
+    would make the same file look like two.
+    """
+    try:
+        return path.resolve().relative_to(folder.resolve()).as_posix()
+    except (ValueError, OSError):
+        # Not under the folder after resolution - a symlink or junction
+        # pointing outside it. Fall back to the name: a key that is merely
+        # imprecise is far better than one that raises mid-scan.
+        return path.name
+
+
+def _folder_of(role: str | None) -> str | None:
+    """The subfolder name a role came from, for saying so in an event."""
+    return next((name for name, r in ROLE_FOLDERS.items() if r == role), None)
+
+
+def ensure_role_folders(folder: Path) -> list[str]:
+    """Create the role subfolders. Returns the ones this call actually made.
+
+    Made on every scan rather than once at startup, because the folder is the
+    CLIENT'S and the four subfolders are the entire user interface of this
+    feature. A share that is remounted, restored from a backup, or simply
+    tidied up by somebody loses them, and a convention nobody can see is a
+    convention nobody uses - the person drops the file in the root, gets no
+    role, and concludes the feature does not work.
+
+    Never raises. A share that is read-only still WATCHES perfectly well; it
+    just cannot offer the subfolders, and turning that into a scan failure
+    would trade a working watcher for a missing convenience.
+    """
+    made = []
+    for name in ROLE_FOLDERS:
+        try:
+            path = folder / name
+            if not path.is_dir():
+                path.mkdir(parents=True, exist_ok=True)
+                made.append(name)
+        except OSError:
+            # Read-only share, or a FILE sitting where the folder should be.
+            # Files dropped in the root keep working either way.
+            continue
+    return made
+
+
+def role_for(path: Path, folder: Path) -> str | None:
+    """The role a file at this path gets, from ITS PARENT FOLDER AND NOTHING ELSE.
+
+    Read at the moment the file is processed, never remembered from when it was
+    first noticed. A file moved from `submittals/` into `standards/` between
+    scans is a person changing their mind, and the answer that matters is where
+    it IS, not where it was.
+
+    Returns None for the folder root and for anything unrecognised - and None
+    means NO ROLE, which is the pre-existing behaviour and still requires
+    manual tagging. It must never fall back to a guess.
+    """
+    try:
+        relative = path.resolve().parent.relative_to(folder.resolve())
+    except (ValueError, OSError):
+        # Outside the watched folder, or a path that cannot be resolved (a
+        # broken junction, a share that vanished mid-scan). Unknown location
+        # means unknown role, which is the safe answer.
+        return None
+    parts = relative.parts
+    if len(parts) != 1:
+        return None         # the root itself, or deeper than the convention
+    return ROLE_FOLDERS.get(parts[0].lower())
 
 
 def hash_file(path: Path) -> str:
@@ -416,8 +517,18 @@ class FolderWatcher:
                     f"{FOLDER_UNREADABLE}: no directory exists at the "
                     "configured path")
                 return self._result(STATE_MISSING, configured)
+            ensure_role_folders(folder)
+            # The root, then each role subfolder - and NOTHING deeper. A plain
+            # `rglob` would descend into whatever the client's share happens to
+            # contain, and a folder called `standards/archive/superseded/` would
+            # hand the COMPANY_STANDARD role to documents somebody filed
+            # precisely because they are NOT current. One level is the whole
+            # convention, so one level is all that is walked.
             entries = sorted(
-                p for p in folder.iterdir()
+                p
+                for directory in (folder, *(folder / name for name in ROLE_FOLDERS))
+                if directory.is_dir()
+                for p in directory.iterdir()
                 if p.is_file() and p.suffix.lower() == ".pdf"
             )
         except OSError as exc:
@@ -439,7 +550,15 @@ class FolderWatcher:
         self.last_reachable = True
         self.last_error = None
 
-        present = {p.name for p in entries}
+        # KEYED BY PATH RELATIVE TO THE FOLDER, not by bare filename. Once
+        # subfolders exist, `SAES-A-105.pdf` can be a standard AND a
+        # contractor's copy of it sitting in `submittals/`, and a bare name
+        # would make the second one collide with the first: it would be found
+        # already-handled and skipped without ever being looked at, or worse,
+        # marked handled under the other one's fingerprint. A root file's key
+        # is still just its name, so nothing about the old behaviour moves.
+        keyed = {_key(p, folder): p for p in entries}
+        present = set(keyed)
         # Bounded memory: a file that is gone is a file we have no facts about.
         # Re-appearing means re-observing, which is correct - it may be a
         # different file with the same name.
@@ -447,7 +566,7 @@ class FolderWatcher:
         self._handled = {k: v for k, v in self._handled.items() if k in present}
 
         result = self._result(STATE_OK, configured)
-        for path in entries:
+        for key, path in sorted(keyed.items()):
             try:
                 stat = path.stat()
             except OSError:
@@ -456,19 +575,23 @@ class FolderWatcher:
                 # whatever is actually there.
                 continue
             fingerprint = (stat.st_size, stat.st_mtime_ns)
-            previous = self._seen.get(path.name)
-            self._seen[path.name] = fingerprint
+            previous = self._seen.get(key)
+            self._seen[key] = fingerprint
 
-            if self._handled.get(path.name) == fingerprint:
-                result["already_handled"].append(path.name)
+            if self._handled.get(key) == fingerprint:
+                result["already_handled"].append(key)
                 continue
             if previous != fingerprint:
                 # Either new to us, or still changing. Both mean "not yet".
-                result["unstable"].append(path.name)
+                result["unstable"].append(key)
                 continue
 
-            outcome = self._handle(path, fingerprint)
-            result[outcome].append(path.name)
+            # The role is resolved HERE, one line before the file is handled,
+            # from the path as it stands now. A file moved between subfolders
+            # since the last scan has a new key, so it is re-observed from
+            # scratch and gets the role of the folder it is actually in.
+            outcome = self._handle(path, key, fingerprint, role_for(path, folder))
+            result[outcome].append(key)
 
         # Re-stamped at the END. `_result` stamped the start so the early
         # returns above have a time at all; a pass that ingested a 1,400-page
@@ -495,19 +618,24 @@ class FolderWatcher:
             "already_handled": [],
         }
 
-    def _handle(self, path: Path, fingerprint: tuple[int, int]) -> str:
+    def _handle(self, path: Path, key: str, fingerprint: tuple[int, int],
+                role: str | None) -> str:
         """Decide about one stable file, record it, and never raise.
 
         Returns the outcome, which is also the key the caller counts it under.
         Marked handled whatever happens - a failure re-reported every interval
         is noise that hides the next real one, and replacing the file changes
         its fingerprint and makes it eligible again.
+
+        `role` comes from the subfolder and is None for the folder root. It is
+        passed IN rather than derived here so that the decision has exactly one
+        home and a test can state it directly.
         """
         source = str(path)
         try:
             sha256 = hash_file(path)
         except OSError as exc:
-            self._handled[path.name] = fingerprint
+            self._handled[key] = fingerprint
             record_event(
                 path.name, source, NO_HASH, FAILED,
                 detail=(f"no sha256: the file could not be read "
@@ -516,7 +644,7 @@ class FolderWatcher:
             )
             return FAILED
 
-        self._handled[path.name] = fingerprint
+        self._handled[key] = fingerprint
 
         # The dedup mechanism is `upload.find_by_hash`, which is what
         # `upload.ingest` itself consults - the same question against the same
@@ -530,15 +658,32 @@ class FolderWatcher:
             return FAILED
 
         if existing is not None:
-            if sha256 in self._duplicate_hashes:
+            # A DUPLICATE IN A ROLE FOLDER IS STILL A DECISION, and this is the
+            # case that matters most in practice. Every one of the 272 standards
+            # in this corpus was ingested from the folder ROOT before the
+            # convention existed, so moving them into `standards/` produces 272
+            # duplicates and zero ingests. Applying the role only at ingest
+            # would mean the documented way to tag a library tags nothing at
+            # all, silently, while reporting a successful scan.
+            #
+            # ONLY WHEN THE DOCUMENT HAS NO ROLE. The folder is a convenience,
+            # not an authority: a person who corrected a role in the UI must not
+            # have it re-stamped by a file that happens to still be sitting in a
+            # folder. `set_role(only_if_unset=True)` is that rule, and it lives
+            # in one function so both callers cannot drift apart.
+            tagged = self._apply_role(existing["id"], role, path.name, source, sha256)
+            if sha256 in self._duplicate_hashes and not tagged:
                 # Announced once already, under this or another name. Silence
                 # here is not a lost fact: the event exists and the document
-                # exists.
+                # exists. A role actually applied is a NEW fact, so it is
+                # reported even when the duplicate itself no longer is.
                 return DUPLICATE
             self._duplicate_hashes.add(sha256)
             record_event(
                 path.name, source, sha256, DUPLICATE, document_id=existing["id"],
-                detail="already in the corpus with the same sha256; nothing was copied",
+                detail="already in the corpus with the same sha256; nothing was copied"
+                       + (f"; tagged {role} from the {_folder_of(role)}/ folder"
+                          if tagged else ""),
             )
             return DUPLICATE
 
@@ -567,9 +712,12 @@ class FolderWatcher:
             # Raced with something else that stored the same bytes between the
             # hash above and the write. `ingest` already declined to copy.
             self._duplicate_hashes.add(sha256)
+            tagged = self._apply_role(duplicate_of, role, path.name, source, sha256)
             record_event(path.name, source, sha256, DUPLICATE,
                          document_id=duplicate_of,
-                         detail="already in the corpus with the same sha256; nothing was copied")
+                         detail="already in the corpus with the same sha256; nothing was copied"
+                                + (f"; tagged {role} from the {_folder_of(role)}/ folder"
+                                   if tagged else ""))
             return DUPLICATE
 
         # The second half of the upload route's acceptance, and the ONLY write
@@ -584,12 +732,54 @@ class FolderWatcher:
         # out access the upload route cannot, which is a privilege escalation
         # dressed as a convenience.
         granted = admin_mod.grant_on_upload(row["id"], owner_id)
+        # THE ROLE IS NOT A GRANT (CLAUDE.md rule 5). It is written after
+        # `grant_on_upload` and through a different module on purpose: what a
+        # document IS and who may READ it are two questions, and the line above
+        # is the only one in this file that answers the second.
+        #
+        # `only_if_unset` is False here and it makes no difference - the
+        # document was created three lines ago and cannot already have a role.
+        # It is written out rather than defaulted so the ingest path and the
+        # duplicate path state their rule instead of sharing an assumption.
+        tagged = self._apply_role(row["id"], role, path.name, source, sha256,
+                                  only_if_unset=False)
         record_event(
             path.name, source, sha256, INGESTED, document_id=row["id"],
             detail=(f"queued as job {job_id}" if job_id else "queued")
-            + (f"; granted to {', '.join(granted)}" if granted else ""),
+            + (f"; granted to {', '.join(granted)}" if granted else "")
+            + (f"; role {role} from the {_folder_of(role)}/ folder" if tagged else ""),
         )
         return INGESTED
+
+    @staticmethod
+    def _apply_role(document_id: str | None, role: str | None, filename: str,
+                    source: str, sha256: str, *, only_if_unset: bool = True) -> bool:
+        """Write the subfolder's role. Returns whether the column changed.
+
+        NO ROLE IS NOT AN ERROR. `role is None` means the file was in the
+        folder root, which is the unchanged, documented behaviour: the document
+        is ingested and waits for a human to tag it. It must never become a
+        guess, so this returns early and writes nothing.
+
+        A failure here does NOT fail the document. The bytes are in the corpus,
+        readable and searchable; only the classification is missing, and that
+        is recoverable through the Documents page in a way a lost document is
+        not. So it is recorded as its own event and swallowed - a watcher that
+        reported a fully ingested document as FAILED because one metadata
+        column would not write would send somebody hunting for a document that
+        is already there.
+        """
+        if role is None or document_id is None:
+            return False
+        try:
+            return classification_mod.set_role(
+                document_id, role, only_if_unset=only_if_unset)
+        except Exception as exc:  # noqa: BLE001 - one file must not end the scan
+            errors.record_failure(exc, stage="watch-folder-role")
+            record_event(filename, source, sha256, FAILED, document_id=document_id,
+                         detail=(f"the document was stored but its {role} role could "
+                                 "not be written; tag it on the Documents page"))
+            return False
 
 
 # ------------------------------------------------------------- module handle

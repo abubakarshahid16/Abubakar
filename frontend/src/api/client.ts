@@ -43,6 +43,8 @@ import type {
   ClassificationCoverage,
   ClassificationUpdate,
   DocumentClassification,
+  BulkRoleUpdate,
+  BulkRoleResult,
   ReviewFinding,
   ReviewFindingCreate,
   ReviewFindingUpdate,
@@ -357,6 +359,8 @@ export type {
   ClassificationSource,
   ClassificationUpdate,
   DocumentClassification,
+  BulkRoleUpdate,
+  BulkRoleResult,
   AppliedScope,
   CoverageByType,
   SubjectRow,
@@ -462,6 +466,18 @@ export const classification = {
         body: JSON.stringify(body),
       },
     ),
+  /** Set ONE role on MANY documents. Admin only, same as `confirm`.
+   *
+   *  Answers 207 when some documents were not written, and the result names
+   *  each one in `failed`. `request` treats 207 as success - it is a 2xx and
+   *  the body is the real answer - so callers MUST read `failed` rather than
+   *  assuming `ok` means every document was updated. */
+  setRoleBulk: (body: BulkRoleUpdate) =>
+    request<BulkRoleResult>("/documents/bulk/role", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
 };
 
 export const reports = {

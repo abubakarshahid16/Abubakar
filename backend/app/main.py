@@ -1029,6 +1029,81 @@ def put_document_classification(
     return {**row, "document_id": document_id}
 
 
+@app.post("/api/documents/bulk/role", response_model=schemas.BulkRoleResult,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422,
+                     207: {"model": schemas.BulkRoleResult,
+                           "description": "Some documents were not updated; "
+                                          "`failed` names each one"}})
+def bulk_set_document_role(
+    body: schemas.BulkRoleUpdate,
+    request: Request,
+    response: Response,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """Set one role on many documents. THE SAME PERMISSION, N TIMES.
+
+    THE GATE IS NOT LOOSENED FOR BULK, and that is the only interesting thing
+    about this route. `admin_mod.current_admin` is the identical dependency
+    `put_document_classification` uses, and `require_document(id, scope)` is
+    run for EVERY id rather than once for the first or not at all. A bulk
+    endpoint is the classic place for an authorisation check to become a
+    formality - it is written once, the loop is inside, and nobody notices that
+    the loop does not re-ask. Here the loop IS the asking.
+
+    Unknown and out-of-scope ids get the SAME `not_found` answer, for the
+    reason `require_document` gives: a distinct refusal for "exists but not
+    yours" is an existence oracle, and it would be a worse one here than
+    anywhere else - a caller could probe forty ids per request.
+
+    NOT ALL-OR-NOTHING, DELIBERATELY. The valid documents are written and the
+    invalid ones are named. A bulk action's ids come from a list the person has
+    been looking at for a while, and the common failure is one document deleted
+    in another tab; refusing the other thirty-nine because of it makes them
+    redo the selection to achieve exactly what this request already could. The
+    status goes to 207 when anything failed, so a client that checks only the
+    status code still cannot read a partial write as a complete one.
+
+    It sets the ROLE ALONE (`classification.set_role`), not a classification.
+    Reusing the PUT would replace the whole record and wipe the title, revision
+    and project on every document selected - a bulk action must not destroy
+    metadata that nobody asked it to touch.
+
+    NOT ACCESS CONTROL (rule 5). A role says what a document is for; the grant
+    tables say who may read it, and nothing here writes one.
+    """
+    reject_unknown_params(request, set())
+    # Order-preserving dedup. The same id twice is a UI that double-counted,
+    # not a request to write twice, and leaving it would report the document
+    # once as updated and once as unchanged in the same response.
+    ids = list(dict.fromkeys(body.document_ids))
+
+    updated: list[str] = []
+    unchanged: list[str] = []
+    failed: list[dict] = []
+    for document_id in ids:
+        try:
+            require_document(document_id, scope)
+        except HTTPException:
+            failed.append({"document_id": document_id, "reason": "not_found"})
+            continue
+        changed = classification_mod.set_role(document_id, body.document_role)
+        (updated if changed else unchanged).append(document_id)
+
+    if failed:
+        response.status_code = 207
+    # One audit row for the request, not one per document: this was a single
+    # decision by a single person, and forty rows would bury the next one.
+    # Ids are counted rather than listed - `detail` is response-safe only.
+    admin_mod._audit(
+        "documents.role_bulk_set", actor, "document", None,
+        detail=(f"{body.document_role}: {len(updated)} changed, "
+                f"{len(unchanged)} already held it, {len(failed)} not found "
+                f"of {len(ids)} requested"))
+    return {"document_role": body.document_role, "requested": len(ids),
+            "updated": updated, "unchanged": unchanged, "failed": failed}
+
+
 # ----------------------------------------------------------------- market
 #
 # No network call exists in this build. Both routes are scoped like every

@@ -8,7 +8,7 @@ import { DocumentCard, type DocumentActions } from "../components/DocumentCard";
 import { Drawer } from "../components/Drawer";
 import { DocumentPreview } from "../components/DocumentPreview";
 import { DocumentTechnicalDetails } from "../components/DocumentTechnicalDetails";
-import { MetadataEditor } from "../components/classification/MetadataEditor";
+import { MetadataEditor, ROLE_OPTIONS } from "../components/classification/MetadataEditor";
 import { DocumentFilters, EMPTY_FILTERS, type DocumentFilterState } from "../components/classification/DocumentFilters";
 import { ExcludedViewer } from "../components/ExcludedViewer";
 import { PageImageViewer } from "../components/PageImageViewer";
@@ -18,7 +18,7 @@ import { WorkerPanel } from "../components/WorkerPanel";
 import { useDocumentClassifications } from "../components/classification/useDocumentClassifications";
 import { useTypeVocabularyLoad } from "../components/classification/TypeFilter";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
-import type { ApiError, DocumentClassification, DocumentRecord, WorkerStatus } from "../types/api";
+import type { ApiError, DocumentClassification, DocumentRecord, DocumentRole, WorkerStatus } from "../types/api";
 
 type Load =
   | { state: "loading" }
@@ -264,6 +264,63 @@ export function DocumentsView({
   const classificationsRef = useRef(classifications);
   classificationsRef.current = classifications;
 
+  // ---------------------------------------------------- the bulk selection
+  //
+  // Ids, not rows. The list is re-fetched every few seconds by `usePoll`, so
+  // holding DocumentRecord objects would pin a stale copy of each one; an id
+  // survives a refresh and is also exactly what the endpoint takes.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkRole, setBulkRole] = useState<DocumentRole | "">("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }, []);
+
+  const applyBulkRole = useCallback(async () => {
+    if (!bulkRole || selectedIds.length === 0) return;
+    setBulkBusy(true);
+    const result = await classification.setRoleBulk({
+      document_ids: selectedIds,
+      document_role: bulkRole,
+    });
+    setBulkBusy(false);
+    if (!result.ok) {
+      setNotice(result.error.message);
+      return;
+    }
+    const { updated, unchanged, failed } = result.data;
+    const label =
+      ROLE_OPTIONS.find((o) => o.value === bulkRole)?.label ?? bulkRole;
+    // EVERY NUMBER STATES WHAT IT COUNTS, and a partial write says so first.
+    // "40 documents updated" after a request naming 42 is the message this
+    // whole endpoint was shaped to avoid: it reads as complete success and
+    // the two that failed are never mentioned again.
+    setNotice(
+      [
+        `${updated.length} set to ${label}`,
+        unchanged.length ? `${unchanged.length} already were` : null,
+        failed.length
+          ? `${failed.length} could not be updated and were left unchanged`
+          : null,
+      ].filter(Boolean).join("; ") + ".",
+    );
+    // Only the ones that actually changed leave the selection. A document that
+    // failed stays selected, so the person can see which and try again rather
+    // than reconstructing a selection the screen just discarded.
+    const written = new Set([...updated, ...unchanged]);
+    setSelectedIds((prev) => prev.filter((id) => !written.has(id)));
+    // The classification cache only fetches ids it has not resolved, so a
+    // plain refresh would leave every card showing its old role. Patched per
+    // document from what the server actually reported writing.
+    for (const id of written) {
+      const current = classificationsRef.current[id];
+      if (current) setOneClassification(id, { ...current, document_role: bulkRole });
+    }
+    void refresh();
+  }, [bulkRole, refresh, selectedIds, setOneClassification]);
+
   const toggleType = useCallback((type: string) => {
     setSelectedTypes((prev) =>
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type],
@@ -397,6 +454,52 @@ export function DocumentsView({
         <p role="status" aria-live="polite" className="text-xs text-slateish-400">
           {notice}
         </p>
+      )}
+
+      {/* THE BULK ROLE BAR. Only for an administrator, and only once something
+          is selected - the endpoint 404s everyone else, and a control that
+          always fails is worse than no control. The count is always on screen
+          beside the button, because "Set role" with a selection the reader has
+          scrolled away from is an action whose size they cannot see. */}
+      {isAdmin && selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-end gap-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
+            {selectedIds.length} selected
+          </p>
+          <label className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
+            Set role
+            <select
+              value={bulkRole}
+              aria-label="Role to apply"
+              onChange={(e) => setBulkRole(e.target.value as DocumentRole | "")}
+              className="mt-1 block rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200"
+            >
+              <option value="">Choose a role</option>
+              {ROLE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            // Disabled until a role is chosen. The empty option is not a role
+            // and must not be sendable: an "apply" that clears forty roles
+            // because the select was left alone is not a mistake anybody
+            // should be able to make in one click.
+            disabled={!bulkRole || bulkBusy}
+            onClick={() => void applyBulkRole()}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm disabled:opacity-40"
+          >
+            {bulkBusy ? "Applying..." : `Apply to ${selectedIds.length}`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds([])}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm"
+          >
+            Clear selection
+          </button>
+        </div>
       )}
 
       {/* THE METADATA FILTERS, and note the difference from the type filter
@@ -538,6 +641,8 @@ export function DocumentsView({
                                 types={types}
                                 isAdmin={isAdmin}
                                 onConfirmType={confirmType}
+                                selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
+                                onToggleSelected={isAdmin ? toggleSelected : undefined}
                               />
                             ))}
                           </ul>
@@ -566,6 +671,8 @@ export function DocumentsView({
                             types={types}
                             isAdmin={isAdmin}
                             onConfirmType={confirmType}
+                            selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
+                            onToggleSelected={isAdmin ? toggleSelected : undefined}
                           />
                         ))}
                       </ul>

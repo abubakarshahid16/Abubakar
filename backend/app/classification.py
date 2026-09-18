@@ -53,8 +53,10 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from typing import get_args
 
 from . import access
+from . import schemas
 from .db import connect
 
 # ------------------------------------------------------------------- types
@@ -389,6 +391,82 @@ METADATA_FIELDS = (
     "project", "contractor_vendor", "equipment_type", "service",
     "transmittal_number", "superseded_by",
 )
+
+
+#: Every value `set_role` will accept, and the ONLY vocabulary check that
+#: stands between a caller and the column. It has to live here rather than only
+#: in Pydantic because `set_role`'s other caller is the WATCHER, which reaches
+#: this module directly and never crosses a route - `confirm` documents its own
+#: vocabulary as unchecked and names that a known limitation, and repeating the
+#: limitation for a function a background thread calls unattended would be
+#: choosing it a second time rather than inheriting it.
+#:
+#: DERIVED from `schemas.DocumentRole`, not retyped. Rule 8 - a claim fixed in
+#: one of two homes is this project's most common review finding, and a role
+#: added to the API vocabulary but not to a hand-written tuple here would be
+#: accepted by the route and refused by the watcher.
+ROLES: tuple[str, ...] = get_args(schemas.DocumentRole)
+
+
+class UnknownRole(ValueError):
+    """A role outside `ROLES`. Raised rather than stored, because the column is
+    plain TEXT with no CHECK and a typo there is a document no filter matches -
+    invisible in exactly the way a missing document is not."""
+
+
+def set_role(document_id: str, role: str, *, only_if_unset: bool = False) -> bool:
+    """Set `document_role` ALONE. Returns True if the column actually changed.
+
+    NOT `confirm`, and the difference is the whole reason this exists.
+    `confirm` is a PUT: it replaces the record, so a caller sending only a role
+    CLEARS the title, the revision, the project and the rest. That is correct
+    for an editor sending a whole form and catastrophic for a bulk action whose
+    entire intent is "change one field on forty documents". Bulk-assigning a
+    role through `confirm` would silently erase metadata somebody typed, on
+    every document selected, with nothing in the response to say so.
+
+    So this writes one column and touches nothing else - not the subjects, not
+    the equipment tags, not `confirmed_by`. Setting a role is not confirming a
+    classification, and stamping it as confirmed would claim a human had
+    reviewed the type axis when nobody looked at it.
+
+    A document with no classification row gets one, holding only the role.
+
+    `only_if_unset` is for the WATCHER. A file re-appearing in a role subfolder
+    must never overwrite a role a person set: the folder is a convenience, and
+    a human's correction that a folder undoes on the next scan is a correction
+    that does not survive. With it, a document that already has any role is
+    left exactly as it is and this returns False.
+    """
+    if role not in ROLES:
+        raise UnknownRole(
+            f"{role!r} is not a document role; expected one of {', '.join(ROLES)}")
+    conn = connect()
+    with conn:
+        # ON CONFLICT ... WHERE, rather than a SELECT and then an UPDATE: two
+        # statements would let a concurrent writer land between them, and the
+        # loser would report False having actually been overwritten. `changes()`
+        # after this is the count of rows the database really wrote.
+        #
+        # `IS NOT excluded.document_role` is not decoration. Without it SQLite
+        # counts a row it rewrote with the SAME value as an update, so setting
+        # COMPANY_STANDARD on a document that already held COMPANY_STANDARD
+        # reported a change - and the bulk endpoint would then tell an
+        # administrator it had updated forty documents when it had changed
+        # none. `IS NOT` rather than `<>` because the existing value is usually
+        # NULL, and `NULL <> 'X'` is NULL, which is not true, which would make
+        # the only case that matters the one case that never writes.
+        guard = (" AND document_classification.document_role IS NULL"
+                 if only_if_unset else "")
+        cur = conn.execute(
+            "INSERT INTO document_classification (document_id, suggested_by,"
+            " document_role) VALUES (?, ?, ?)"
+            " ON CONFLICT(document_id) DO UPDATE SET"
+            " document_role = excluded.document_role"
+            " WHERE document_classification.document_role"
+            f" IS NOT excluded.document_role{guard}",
+            (document_id, SOURCE_NONE, role))
+        return cur.rowcount > 0
 
 
 def confirm(document_id: str, *, doc_type: str | None,

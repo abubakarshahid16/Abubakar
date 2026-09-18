@@ -832,6 +832,75 @@ class ClassificationUpdate(BaseModel):
     superseded_by: str | None = None
 
 
+class BulkRoleUpdate(BaseModel):
+    """Set ONE role on MANY documents.
+
+    ONE ROLE, NOT A MAP. A per-document role would let a single request mix
+    standards and submittals, and the confirmation the UI can show for that is
+    "40 documents updated" - which tells a reviewer nothing about what they
+    just asserted. One role per request means the sentence on screen is
+    "40 documents set to COMPANY_STANDARD", and that is a claim somebody can
+    actually check.
+
+    THE VOCABULARY IS ENFORCED HERE, same as `ClassificationUpdate`, and for
+    the same reason: the column is plain TEXT with no CHECK, so this annotation
+    is what stands between a typo and documents no filter will ever match.
+    `document_role` is NOT optional on this model - an omitted role on a bulk
+    write would mean "clear the role on all forty", which no caller should be
+    able to ask for by leaving a field out.
+    """
+
+    document_ids: list[str] = Field(
+        min_length=1,
+        description="the documents to set the role on. An empty list is "
+                    "refused rather than treated as a no-op: it almost always "
+                    "means the UI lost its selection, and answering 200/'0 "
+                    "updated' to that looks like success",
+    )
+    document_role: DocumentRole
+
+
+class BulkRoleFailure(BaseModel):
+    """One document the bulk write did NOT touch, and why."""
+
+    document_id: str
+    reason: Literal["not_found"] = Field(
+        description="`not_found` covers both an id that does not exist and one "
+                    "outside the caller's scope - deliberately the SAME answer, "
+                    "because a distinct 'forbidden' here would turn this "
+                    "endpoint into an existence oracle for documents the caller "
+                    "may not read, which is the leak every single-document read "
+                    "path already refuses"
+    )
+
+
+class BulkRoleResult(BaseModel):
+    """What the bulk write actually did.
+
+    IT REPORTS FAILURES BY ID, NOT AS A COUNT. A bulk endpoint that returns
+    "37 updated" for a request naming 40 documents has told the caller that
+    something went wrong and made it impossible to find out what - and the UI's
+    only honest options are then to say nothing or to re-fetch everything and
+    diff. Every id that did not get the role is named here, so the screen can
+    say which ones and the person can act on it.
+    """
+
+    document_role: DocumentRole
+    requested: int = Field(description="ids in the request, after duplicates "
+                                       "were collapsed")
+    updated: list[str] = Field(
+        description="documents whose role this request CHANGED")
+    unchanged: list[str] = Field(
+        description="documents that already held this exact role. Not a "
+                    "failure and not an update - re-applying the same value is "
+                    "a no-op, and counting it as a change would inflate every "
+                    "confirmation message"
+    )
+    failed: list[BulkRoleFailure] = Field(
+        description="documents that were NOT written, each with a reason. "
+                    "Empty on a fully successful request")
+
+
 class CoverageByType(BaseModel):
     type: str
     in_register: int | None = Field(

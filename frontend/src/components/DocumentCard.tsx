@@ -53,6 +53,8 @@ export function DocumentCard({
   types,
   isAdmin = false,
   onConfirmType,
+  selected,
+  onToggleSelected,
 }: {
   doc: DocumentRecord;
   actions: DocumentActions;
@@ -70,6 +72,11 @@ export function DocumentCard({
   /** Confirms (or changes) this document's type. Absent classification or no
    *  admin means this is never called - see the render logic below. */
   onConfirmType?: (doc: DocumentRecord, docType: string) => void;
+  /** Whether this row is in the bulk selection. `undefined` means the page is
+   *  not offering selection at all and NO checkbox renders - a non-admin must
+   *  not be given a control whose only endpoint 404s them. */
+  selected?: boolean;
+  onToggleSelected?: (id: string) => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showStages, setShowStages] = useState(false);
@@ -85,6 +92,18 @@ export function DocumentCard({
       <div className="flex flex-wrap items-start justify-between gap-3 p-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
+            {/* The accessible name is the FILENAME, not "select" - a screen
+                reader listing forty checkboxes all called "select" describes a
+                form nobody can use. */}
+            {selected !== undefined && onToggleSelected && (
+              <input
+                type="checkbox"
+                checked={selected}
+                aria-label={`Select ${doc.filename}`}
+                onChange={() => onToggleSelected(doc.id)}
+                className="h-4 w-4 shrink-0 accent-signal-500"
+              />
+            )}
             <h3 className="truncate font-medium text-slateish-200">{doc.filename}</h3>
             <span className={`rounded-[var(--radius-xs)] px-2 py-0.5 text-xs ${TONE[status.tone]}`}>
               {status.label}

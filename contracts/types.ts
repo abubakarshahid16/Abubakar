@@ -1638,6 +1638,41 @@ export interface DocumentClassification {
   superseded_by?: string | null;
 }
 
+/** Set ONE role on MANY documents.
+ *
+ *  NOT the PUT above. That one replaces the whole record, so sending a role
+ *  through it would clear the title, revision and project on every document in
+ *  the selection. This writes the role column and nothing else. */
+export interface BulkRoleUpdate {
+  document_ids: string[];
+  document_role: DocumentRole;
+}
+
+/** One document the bulk write did not touch.
+ *
+ *  `not_found` means "unknown id OR not yours" - deliberately the same answer,
+ *  so the endpoint cannot be used to discover which documents exist. */
+export interface BulkRoleFailure {
+  document_id: string;
+  reason: "not_found";
+}
+
+/** What a bulk role write actually did.
+ *
+ *  FAILURES ARE NAMED, NOT COUNTED, and the HTTP status is 207 rather than 200
+ *  when `failed` is non-empty - so neither a client that reads only the body
+ *  nor one that reads only the status can mistake a partial write for a whole
+ *  one. `unchanged` is separate from `updated` because re-applying a role a
+ *  document already holds is not a change, and counting it as one inflates
+ *  every confirmation shown on screen. */
+export interface BulkRoleResult {
+  document_role: DocumentRole;
+  requested: number;
+  updated: string[];
+  unchanged: string[];
+  failed: BulkRoleFailure[];
+}
+
 /** A PUT REPLACES THE WHOLE RECORD. A field left out is CLEARED, not kept -
  *  the same rule `subject_ids` already follows, so an administrator removing a
  *  value can actually remove it. Send the full record. */
