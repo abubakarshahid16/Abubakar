@@ -40,12 +40,26 @@
   `D:\project\Rag_chatbot\.venv\Scripts\python.exe -m pytest -q` (503.12s).
   This is above the 1,553 baseline; the skips and expected failures are the
   suite's recorded cases, not silently converted passes.
-- Live J1–J4 click re-measurement and keyboard-only checks are UNVERIFIED:
-  reloading the local app cleared the in-memory authenticated session and the
-  available browser session has no credentials to re-authenticate. No clicks
-  are being estimated as a pass.
-- Live axe verification for all 8 views and both themes is UNVERIFIED in this
-  pass for the same authenticated-session reason.
+- Live authenticated journey measurements (2026-09-18, disposable local admin
+  account) are now recorded as actual UI actions. Typing and waiting are not
+  counted; route changes through the palette are counted when their command is
+  activated:
+  - J1 guided submittal review: **8 clicks**, from review step 1 through the
+    reports screen (Phase 0 baseline about 18).
+  - J2 document question: **2 clicks** (open Chat from the palette, submit the
+    question).
+  - J3 dashboard follow-up: **2 clicks** (open Dashboard from the palette,
+    follow an actionable item).
+  - J4 administration user lifecycle: **7 clicks** (open Administration,
+    choose discipline, create the temporary user, dismiss its token, and
+    deactivate/confirm deactivation). The temporary account was removed after
+    the check.
+- The authenticated axe audit completed the full matrix: 8 views × 2 themes =
+  16 runs. Every run reported 0 serious and 0 critical violations. The live
+  output and node counts are in `docs/ui-redesign/contrast-phase4-live.json`.
+- Keyboard-only verification passed live: Ctrl+K opened the palette, Tab and
+  Enter activated Chat and Guided review commands, and Enter activated the
+  Guided review's Open documents control.
 
 ## Checks
 

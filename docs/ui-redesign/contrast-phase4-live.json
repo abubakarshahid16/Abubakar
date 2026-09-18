@@ -1,0 +1,130 @@
+[
+  {
+    "view": "Dashboard",
+    "theme": "light",
+    "nodes_scanned": 400,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Documents",
+    "theme": "light",
+    "nodes_scanned": 560,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Chat",
+    "theme": "light",
+    "nodes_scanned": 252,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Analysis",
+    "theme": "light",
+    "nodes_scanned": 201,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Reports",
+    "theme": "light",
+    "nodes_scanned": 109,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Deliverables",
+    "theme": "light",
+    "nodes_scanned": 210,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Ingestion",
+    "theme": "light",
+    "nodes_scanned": 272,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Administration",
+    "theme": "light",
+    "nodes_scanned": 385,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Dashboard",
+    "theme": "dark",
+    "nodes_scanned": 398,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Documents",
+    "theme": "dark",
+    "nodes_scanned": 560,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Chat",
+    "theme": "dark",
+    "nodes_scanned": 252,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Analysis",
+    "theme": "dark",
+    "nodes_scanned": 201,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Reports",
+    "theme": "dark",
+    "nodes_scanned": 109,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Deliverables",
+    "theme": "dark",
+    "nodes_scanned": 210,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Ingestion",
+    "theme": "dark",
+    "nodes_scanned": 272,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  },
+  {
+    "view": "Administration",
+    "theme": "dark",
+    "nodes_scanned": 385,
+    "serious": 0,
+    "critical": 0,
+    "violations": []
+  }
+]
