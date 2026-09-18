@@ -1194,9 +1194,109 @@ DISCIPLINE = (
     ),
 )
 
+#: Extraction quality: the unit gate, the page footer, the dedupe, the
+#: descriptive subject, and the orphaned job nobody would ever see.
+EXTRACTION = (
+    Mutation(
+        id="M93", phase=8,
+        description="keep any word after a number as a unit, so 'locations' "
+                    "becomes a unit again",
+        path=APP / "requirements_3b.py",
+        anchor="    return cleaned if claims.is_unit(cleaned) else None",
+        replacement="    return cleaned",
+        target="tests/test_extraction_quality.py",
+        keyword="not_a_unit_is_not_stored_as_one",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M94", phase=8,
+        description="stop stripping trailing punctuation, restoring the 'g/L.' "
+                    "defect that broke the product's worked example",
+        path=APP / "requirements_3b.py",
+        anchor='    cleaned = text.rstrip(".,;:")',
+        replacement="    cleaned = text",
+        target="tests/test_extraction_quality.py",
+        keyword="full_stop_is_not_part_of_the_unit",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M95", phase=8,
+        description="STRIP THE BRACKET OFF dB(A), reopening the phase 5B "
+                    "defect from the standards side",
+        path=APP / "requirements_3b.py",
+        anchor='and cleaned.count("(") < cleaned.count(")"):',
+        replacement=":",
+        target="tests/test_extraction_quality.py",
+        keyword="db_a_survives_the_unit_gate",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M96", phase=8,
+        description="stop stripping the page footer, putting it back inside "
+                    "quoted requirement text",
+        path=APP / "standards.py",
+        anchor="claims.split_sentences(strip_page_furniture(chunk",
+        replacement="claims.split_sentences((chunk",
+        target="tests/test_extraction_quality.py",
+        keyword="footer_is_removed_before_the_sentence_is_read",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M97", phase=8,
+        description="write the duplicate rows again",
+        path=APP / "standards.py",
+        anchor="            if key in seen:",
+        replacement="            if False:",
+        target="tests/test_extraction_quality.py",
+        keyword="repeated_across_chunks_is_stored_once or second_copy_of_a_confirmed_row",
+    ),
+    Mutation(
+        id="M98", phase=8,
+        description="dedupe on text alone, dropping a citation when one "
+                    "sentence appears under two clauses",
+        path=APP / "standards.py",
+        anchor="            key = (clause, sentence)",
+        replacement="            key = (None, sentence)",
+        target="tests/test_extraction_quality.py",
+        keyword="different_clause_is_kept",
+    ),
+    Mutation(
+        id="M99", phase=8,
+        description="PUT THE DESCRIPTIVE SUBJECT INTO `field`, making the join "
+                    "column read as populated while matching nothing",
+        path=APP / "standards.py",
+        anchor='                "subject": subject_of(sentence),',
+        replacement='                "subject": subject_of(sentence),\n'
+                    '                "field": subject_of(sentence),',
+        target="tests/test_extraction_quality.py",
+        keyword="field_stays_null",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M100", phase=8,
+        description="never recover an orphaned running job",
+        path=APP / "standards.py",
+        anchor="AND state = 'running' AND updated_at < ?",
+        replacement="AND state = 'nonesuch' AND updated_at < ?",
+        target="tests/test_extraction_quality.py",
+        keyword="left_running_by_a_dead_process",
+    ),
+    Mutation(
+        id="M101", phase=8,
+        description="recover jobs of ANY age, re-queueing work a live worker "
+                    "is still doing",
+        path=APP / "standards.py",
+        anchor="    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)",
+        replacement="    cutoff = (datetime.now(timezone.utc) + timedelta(days=3650)",
+        target="tests/test_extraction_quality.py",
+        keyword="started_moments_ago_is_left_alone",
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
+    + EXTRACTION
 )
 
 
