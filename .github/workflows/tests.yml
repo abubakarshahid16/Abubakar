@@ -109,6 +109,10 @@ jobs:
         working-directory: frontend
         run: npx vite build
 
+      - name: Check initial bundle budget
+        working-directory: frontend
+        run: npm run check:budget
+
   accessibility:
     name: accessibility (axe serious/critical gate)
     runs-on: ubuntu-latest
