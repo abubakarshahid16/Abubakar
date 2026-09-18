@@ -178,6 +178,23 @@ export function isSignedIn() {
   return token !== null;
 }
 
+/** Attach the bearer header to a transport this module does not own.
+ *
+ *  THE UPLOAD IS THE ONE REQUEST `request()` CANNOT MAKE. It needs
+ *  XMLHttpRequest for upload progress, which `fetch` cannot report, so the
+ *  upload path has always built its own request - and under
+ *  `AUTH_MODE=demo_required` it sent no Authorization header at all, which
+ *  `POST /api/documents` answers with a 401 (`_require_identity_to_write`).
+ *
+ *  The token is handed to a SETTER rather than returned, so it still has
+ *  exactly one destination: an Authorization header. A `getToken()` would be a
+ *  value any caller could log, put in a URL or store, and the whole reason it
+ *  lives in memory only is that it must not be any of those.
+ */
+export function authorize(setHeader: (name: string, value: string) => void) {
+  if (token) setHeader("Authorization", `Bearer ${token}`);
+}
+
 /** Called when the backend says the token is no good. No auto-retry, no
  *  refresh, no redirect loop - the screen changes and the reader decides. */
 export function onSignedOut(fn: (() => void) | null) {

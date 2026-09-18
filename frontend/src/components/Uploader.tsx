@@ -4,8 +4,15 @@
  * XMLHttpRequest rather than fetch, because fetch cannot report upload
  * progress and a 100 MB specification uploading with no feedback looks
  * identical to a hung application.
+ *
+ * That makes this the one transport `api.request()` does not own, so the
+ * bearer header has to be attached here explicitly - see `api.authorize`.
+ * Without it every upload is a 401 under AUTH_MODE=demo_required, and the
+ * screen reports "Cannot reach the backend" for a server that answered.
  */
 import { useCallback, useRef, useState } from "react";
+
+import { authorize } from "../api/client";
 
 export type UploadState =
   | { phase: "uploading"; percent: number }
@@ -33,6 +40,10 @@ function uploadOne(
     form.append("file", file);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/documents");
+    // After open(), before send(): setRequestHeader throws outside that window.
+    // The token goes in the header and nowhere else - never on the URL, which
+    // is logged by every proxy and kept in browser history.
+    authorize((name, value) => xhr.setRequestHeader(name, value));
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
