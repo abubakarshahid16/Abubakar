@@ -452,8 +452,15 @@ PHASE_3A = (
         id="M31", phase=3,
         description="drop the scope filter from the requirements read",
         path=APP / "standards.py",
-        anchor='    where, args = _scope_clause(allowed_document_ids, "r.standard_document_id")',
-        replacement='    where, args = " WHERE 1 = 1", []',
+        # Disambiguated by the SELECT that follows: `verification_queue` opens
+        # with the same _scope_clause line, and the harness refuses an
+        # ambiguous anchor rather than guessing which read path was meant.
+        anchor='    where, args = _scope_clause(allowed_document_ids, "r.standard_document_id")\n'
+               "    rows = connect().execute(\n"
+               '        "SELECT r.*, c.page_start AS chunk_page, c.section AS chunk_section"',
+        replacement='    where, args = " WHERE 1 = 1", []\n'
+                    "    rows = connect().execute(\n"
+                    '        "SELECT r.*, c.page_start AS chunk_page, c.section AS chunk_section"',
         target="tests/test_standards_library.py",
         keyword="unauthorised_user_sees_no_standard or empty_grant_set",
         tags=("permission",),
@@ -552,8 +559,126 @@ PHASE_3A_UI = (
     ),
 )
 
+#: Phase 3B: tables, limits, units, exceptions, conflicts, the queue.
+#: `phase=4` only because `--phase 3` already selects 3A; the ids are the
+#: stable handle and the tags say what each one is about.
+PHASE_3B = (
+    Mutation(
+        id="M39", phase=4,
+        description="stop reading the unit out of a table header",
+        path=APP / "requirements_3b.py",
+        anchor="    match = _HEADER_UNIT.search(header or \"\")\n    if not match:",
+        replacement="    match = None\n    if not match:",
+        target="tests/test_standards_3b.py",
+        keyword="numeric_value_is_extracted_from_a_real_table",
+        tags=("table", "unit"),
+    ),
+    Mutation(
+        id="M40", phase=4,
+        description="coerce an unknown unit to 0 instead of leaving it None",
+        path=APP / "requirements_3b.py",
+        anchor="    return claims.normalise(raw_value, raw_unit or \"\")",
+        replacement="    m = claims.normalise(raw_value, raw_unit or \"\")\n"
+                    "    from dataclasses import replace as _r\n"
+                    "    return _r(m, normalized_value=m.normalized_value or 0.0)",
+        target="tests/test_standards_3b.py",
+        keyword="unknown_unit_yields_none",
+        tags=("honesty", "unit"),
+    ),
+    Mutation(
+        id="M41", phase=4,
+        description="report an unparsed table as parsed, so completeness lies",
+        path=APP / "tables.py",
+        anchor='                unparsed_reason="no recoverable table geometry on this page",',
+        replacement="                unparsed_reason=None,",
+        target="tests/test_standards_3b.py",
+        keyword="unparsed_table_lowers_completeness",
+        tags=("honesty", "table"),
+    ),
+    Mutation(
+        id="M42", phase=4,
+        description="drop the exception clause, turning a compliant PSV into a finding",
+        path=APP / "requirements_3b.py",
+        anchor="    match = _EXCEPTION.search(sentence)\n    if not match:\n        return []",
+        replacement="    match = None\n    if not match:\n        return []",
+        target="tests/test_standards_3b.py",
+        keyword="psv_exception_is_preserved or exception_is_stored",
+        tags=("honesty", "exception"),
+    ),
+    Mutation(
+        id="M43", phase=4,
+        description="silently resolve a conflict by keeping only the first limit",
+        path=APP / "requirements_3b.py",
+        anchor="        if len(distinct) < 2:\n            continue",
+        replacement="        if True:\n            continue",
+        target="tests/test_standards_3b.py",
+        keyword="limiting_the_same_field_differently_is_a_conflict",
+        tags=("honesty", "conflict"),
+    ),
+    Mutation(
+        id="M44", phase=4,
+        description="leave extraction_method as 'extracted' after a human correction",
+        path=APP / "standards.py",
+        anchor='        "extraction_method": "human",',
+        replacement='        "extraction_method": "extracted",',
+        target="tests/test_standards_3b.py",
+        keyword="correction_flips_extraction_method",
+        tags=("honesty", "provenance"),
+    ),
+    Mutation(
+        id="M45", phase=4,
+        description="drop the scope filter from the verification queue",
+        path=APP / "standards.py",
+        anchor='    where, args = _scope_clause(allowed_document_ids, "r.standard_document_id")\n'
+               '    rows = connect().execute(\n'
+               '        "SELECT r.*, c.page_start AS chunk_page FROM standard_requirements r"\n'
+               '        " LEFT JOIN chunks c ON c.id = r.chunk_id" + where +\n'
+               '        " AND r.confirmed_by IS NULL"',
+        replacement='    where, args = " WHERE 1 = 1", []\n'
+                    '    rows = connect().execute(\n'
+                    '        "SELECT r.*, c.page_start AS chunk_page FROM standard_requirements r"\n'
+                    '        " LEFT JOIN chunks c ON c.id = r.chunk_id" + where +\n'
+                    '        " AND r.confirmed_by IS NULL"',
+        target="tests/test_standards_3b.py",
+        keyword="unauthorised_user_sees_no_requirement or empty_grant_set",
+        tags=("permission",),
+    ),
+    Mutation(
+        id="M46", phase=4,
+        description="make queuing extract synchronously, blocking the request",
+        path=APP / "standards.py",
+        anchor="    if existing is not None:\n        return existing[\"id\"]",
+        replacement="    if existing is not None:\n        return existing[\"id\"]\n"
+                    "    run_extraction_job(document_id)",
+        target="tests/test_standards_3b.py",
+        keyword="queued_and_drained_by_the_existing_worker",
+        tags=("job",),
+    ),
+    Mutation(
+        id="M47", phase=4,
+        description="accept character fragmentation as a real table",
+        path=APP / "tables.py",
+        anchor="                if width > MAX_COLUMNS or _is_fragmented(rows):",
+        replacement="                if False:",
+        target="tests/test_standards_3b.py",
+        keyword="character_fragmentation_is_not_accepted",
+        tags=("table", "honesty"),
+    ),
+    Mutation(
+        id="M48", phase=4,
+        description="record a cross-reference cell ('see 5.2') as a numeric value",
+        path=APP / "requirements_3b.py",
+        anchor="    if not cell or not _CELL_VALUE.match(cell):\n        return None",
+        replacement="    if not cell:\n        return None",
+        target="tests/test_standards_3b.py",
+        keyword="not_a_number_is_not_recorded",
+        tags=("table", "honesty"),
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
+    + PHASE_3B
 )
 
 

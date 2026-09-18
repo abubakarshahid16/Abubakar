@@ -1,0 +1,556 @@
+"""Phase 3B: table extraction, numeric limits, conditions, exceptions, queue.
+
+TABLE EXTRACTION IS TESTED AGAINST A PDF WITH REAL RULED GEOMETRY, drawn here
+rather than shipped, because the repository's corpus contains no standard whose
+tables are machine-readable. That is a measured fact, not an assumption - see
+`docs/AI_SUBMITTAL_REVIEW_PROGRESS.md` section 37 - and the fixture exists so
+that the parser is proven against a table PyMuPDF can actually see.
+
+The worked case throughout is the master plan's own: a 90 dB(A) general noise
+limit with a 115 dB(A) exception for pressure relief valves. An exception that
+is dropped turns a compliant PSV into a false finding.
+
+Mutations: M39-M46, `python scripts/mutation_check.py --phase 4`.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from app import claims, db, requirements_3b, standards, submittal_review, tables
+from app.config import settings
+
+
+@pytest.fixture(autouse=True)
+def temp_storage(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "db_path", tmp_path / "s3b.sqlite")
+    db.reset_connection(); db.init_db(); submittal_review.ensure_schema()
+    yield
+    db.reset_connection()
+
+
+def _ruled_table_pdf(path, header, rows) -> str:
+    """A one-page PDF with a REAL ruled table: drawn lines and placed text.
+
+    The ruling lines are what `find_tables` needs. A scanned page has none,
+    which is exactly why 79% of this corpus's table chunks cannot be parsed.
+    """
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=400)
+    all_rows = [header, *rows]
+    x0, y0, cw, rh = 40, 60, 130, 30
+    for r, row in enumerate(all_rows):
+        for c, cell in enumerate(row):
+            rect = fitz.Rect(x0 + c * cw, y0 + r * rh,
+                             x0 + (c + 1) * cw, y0 + (r + 1) * rh)
+            page.draw_rect(rect, color=(0, 0, 0), width=0.7)
+            page.insert_text((rect.x0 + 4, rect.y0 + 19), str(cell), fontsize=9)
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def _doc(doc_id: str, stored_path: str, filename: str = "STD-1.pdf") -> str:
+    with db.connect() as conn:
+        conn.execute("""INSERT INTO documents
+            (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)
+            VALUES (?,?,?,?,?,'ready',1,?)""",
+            (doc_id, filename, f"sha-{doc_id}", 1, stored_path,
+             "2026-09-18T00:00:00Z"))
+        conn.execute("""INSERT INTO document_classification
+            (document_id,suggested_by,document_role,discipline,document_number)
+            VALUES (?,?,?,?,?)""",
+            (doc_id, "test", standards.COMPANY_STANDARD, "Mechanical",
+             f"NUM-{doc_id}"))
+    return doc_id
+
+
+def _chunk(chunk_id, doc_id, text, *, kind="prose", section=None, page=1, ordinal=0):
+    with db.connect() as conn:
+        conn.execute("""INSERT INTO chunks
+            (id,document_id,filename,ordinal,page_start,page_end,section,kind,
+             text,token_count,content_hash,retrievable)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,1)""",
+            (chunk_id, doc_id, "STD-1.pdf", ordinal, page, page, section, kind,
+             text, len(text.split()), f"h-{chunk_id}"))
+    return chunk_id
+
+
+def _scope(*ids): return frozenset(ids)
+
+
+NOISE = ("The noise level shall not exceed 90 dB(A), except for pressure "
+         "relief valves, which shall not exceed 115 dB(A).")
+
+
+# ============================================================== table extraction
+
+def test_a_numeric_value_is_extracted_from_a_real_table_with_its_unit(tmp_path):
+    """THE MUTATION TARGET (M39). A real ruled table, read end to end."""
+    pdf = _ruled_table_pdf(
+        tmp_path / "t.pdf",
+        ["Pile Use Category", "Southern Pine Creosote (pcf)"],
+        [["Foundation", "12"], ["Marine", "20"]])
+    doc = _doc("doc_t", pdf)
+    _chunk("c1", doc, "table text", kind="table", page=1)
+
+    parses = tables.parse_document_tables("doc_t", allowed_document_ids=_scope(doc))
+    assert len(parses) == 1
+    assert parses[0].parsed is True, parses[0].unparsed_reason
+    assert parses[0].columns[0] == "Pile Use Category"
+
+    standards.extract_table_values("doc_t", allowed_document_ids=_scope(doc))
+    rows = standards.list_requirements("doc_t", allowed_document_ids=_scope(doc))
+    values = {r["raw_value"] for r in rows}
+    assert "12" in values and "20" in values
+    row = next(r for r in rows if r["raw_value"] == "12")
+    assert row["requirement_type"] == "table_value"
+    assert row["field"] == "Southern Pine Creosote"
+    # THE UNIT, taken from the header the document wrote.
+    assert row["raw_unit"] == "pcf"
+    assert row["condition"] == "Foundation"
+    # And it still resolves.
+    assert row["chunk_id"] == "c1"
+    assert row["page"] == 1
+    assert row["citation_resolves"] is True
+
+
+def test_an_unknown_unit_yields_none_and_never_zero(tmp_path):
+    """THE MUTATION TARGET (M40). `pcf` is not in claims.py's table.
+
+    None is the honest answer and 0 is a lie that reads as a limit of zero -
+    a real and very different requirement.
+    """
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf",
+                           ["Category", "Retention (pcf)"], [["Foundation", "12"]])
+    doc = _doc("doc_t", pdf)
+    _chunk("c1", doc, "table", kind="table", page=1)
+    standards.extract_table_values("doc_t", allowed_document_ids=_scope(doc))
+    row = standards.list_requirements("doc_t", allowed_document_ids=_scope(doc))[0]
+    assert row["raw_value"] == "12"
+    assert row["raw_unit"] == "pcf"
+    assert row["value"] is None, "an unknown unit produced a normalised value"
+    assert row["value"] != 0
+    assert row["unit"] is None
+
+
+def test_a_known_unit_is_normalised_by_claims(tmp_path):
+    """The control for the test above: mm IS known, and converts."""
+    measurement = requirements_3b.measure("12", "mm")
+    assert measurement.normalized_value == 12000.0
+    assert measurement.normalized_unit == "um"
+    # And the raw spelling survives, so the document is still quotable.
+    assert measurement.raw_value == "12"
+    assert measurement.raw_unit == "mm"
+
+
+def test_an_unparsed_table_lowers_completeness_rather_than_passing(tmp_path):
+    """THE MUTATION TARGET (M41).
+
+    A PDF with no ruling lines has no recoverable geometry. It is reported as
+    unparsed WITH A REASON and drags the parsed fraction down - it does not
+    quietly contribute nothing and leave the standard looking complete.
+    """
+    import fitz
+    path = tmp_path / "flat.pdf"
+    doc_pdf = fitz.open(); page = doc_pdf.new_page()
+    page.insert_text((50, 100), "12 17 0.8 1.0 Foundation Marine")
+    doc_pdf.save(str(path)); doc_pdf.close()
+
+    doc = _doc("doc_f", str(path))
+    _chunk("c1", doc, "flattened table text", kind="table", page=1)
+    report = standards.table_report("doc_f", allowed_document_ids=_scope(doc))
+    assert report["tables_total"] == 1
+    assert report["tables_parsed"] == 0
+    assert report["tables_unparsed"] == 1
+    assert report["parsed_fraction"] == 0.0
+    assert report["tables"][0]["parsed"] is False
+    assert report["tables"][0]["unparsed_reason"]
+    # And nothing was invented from it.
+    standards.extract_table_values("doc_f", allowed_document_ids=_scope(doc))
+    assert standards.list_requirements("doc_f", allowed_document_ids=_scope(doc)) == []
+
+
+def test_a_standard_with_no_tables_has_a_null_fraction_not_zero(tmp_path):
+    """None is "nothing to read"; 0.0 is "read nothing of what was there"."""
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_n", pdf)
+    _chunk("c1", doc, "just prose", kind="prose", page=1)
+    report = standards.table_report("doc_n", allowed_document_ids=_scope(doc))
+    assert report["tables_total"] == 0
+    assert report["parsed_fraction"] is None
+
+
+def test_character_fragmentation_is_not_accepted_as_a_table(tmp_path):
+    """The measured failure that made the quality gate necessary: a scanned
+    page recovers `['DE','F','I','N','IT','I','O','N']` - the word DEFINITION
+    cut into columns by letter spacing.
+
+    THIS GOES THROUGH `parse_document_tables`, NOT THROUGH THE PREDICATE. The
+    first version of this test called `_is_fragmented` directly, which proved
+    the predicate works and nothing about whether the pipeline uses it -
+    mutation M47 deleted the call site and the test still passed. A unit test
+    of a helper is not a test of the behaviour that depends on it.
+    """
+    pdf = _ruled_table_pdf(tmp_path / "frag.pdf",
+                           ["D", "E", "F", "I"], [["N", "I", "T", "I"]])
+    doc = _doc("doc_frag", pdf)
+    _chunk("c1", doc, "fragments", kind="table", page=1)
+    parses = tables.parse_document_tables("doc_frag", allowed_document_ids=_scope(doc))
+    assert len(parses) == 1
+    assert parses[0].parsed is False, "letter fragments were accepted as a table"
+    assert parses[0].unparsed_reason
+    # And a genuine table on the same code path IS accepted, so the gate is
+    # not simply refusing everything.
+    good = _ruled_table_pdf(tmp_path / "good.pdf",
+                            ["Pile Use Category", "Retention (pcf)"],
+                            [["Foundation", "12"]])
+    doc2 = _doc("doc_good", good, "GOOD.pdf")
+    _chunk("c2", doc2, "table", kind="table", page=1)
+    good_parses = tables.parse_document_tables(
+        "doc_good", allowed_document_ids=_scope(doc2))
+    assert good_parses[0].parsed is True, good_parses[0].unparsed_reason
+
+
+def test_a_cell_that_is_not_a_number_is_not_recorded_as_a_value(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf",
+                           ["Category", "Note (pcf)"], [["Foundation", "see 5.2"]])
+    doc = _doc("doc_t", pdf)
+    _chunk("c1", doc, "table", kind="table", page=1)
+    standards.extract_table_values("doc_t", allowed_document_ids=_scope(doc))
+    assert standards.list_requirements("doc_t", allowed_document_ids=_scope(doc)) == []
+
+
+# ========================================================= limits and exceptions
+
+def test_the_psv_exception_is_preserved_beside_the_general_limit():
+    """THE MUTATION TARGET (M42). The master plan's worked case.
+
+    An exception that is dropped turns a compliant pressure relief valve into
+    a false finding.
+    """
+    limit = requirements_3b.parse_limit(NOISE)
+    assert limit["operator"] == "<="
+    assert limit["raw_value"] == "90"
+    assert limit["raw_unit"] == "dB(A)"
+
+    exceptions = requirements_3b.parse_exceptions(NOISE)
+    assert len(exceptions) == 1
+    assert "pressure relief valve" in exceptions[0]["applies_to"].lower()
+    # THE EXCEPTION CARRIES ITS OWN LIMIT, which is the whole point.
+    assert exceptions[0]["raw_value"] == "115"
+    assert exceptions[0]["operator"] == "<="
+
+
+def test_the_exception_is_stored_and_read_back_on_the_requirement(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_s", pdf)
+    _chunk("c1", doc, NOISE, section="5.3.3 Noise", page=9)
+    standards.extract_requirements("doc_s", allowed_document_ids=_scope(doc))
+    row = standards.list_requirements("doc_s", allowed_document_ids=_scope(doc))[0]
+    assert row["requirement_type"] == "numeric_limit"
+    assert row["raw_value"] == "90"
+    assert len(row["exceptions"]) == 1
+    assert row["exceptions"][0]["raw_value"] == "115"
+    assert "pressure relief valve" in row["exceptions"][0]["applies_to"].lower()
+
+
+def test_a_condition_is_the_circumstance_not_the_subject():
+    """A wrong condition NARROWS a requirement and silently excuses a real
+    deviation - the opposite failure from a wrong limit, and harder to see."""
+    assert requirements_3b.parse_condition(
+        "For new equipment, the noise level shall not exceed 90 dB(A).") == "new equipment"
+    # A purpose is not a condition.
+    assert requirements_3b.parse_condition(
+        "The coating shall be applied for corrosion protection.") is None
+
+
+def test_an_obligation_with_no_recognised_limit_is_a_statement(tmp_path):
+    """No requirement_type is invented for text the parser did not understand."""
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_s", pdf)
+    _chunk("c1", doc, "The surface shall be prepared in accordance with Sa 2.5.",
+           section="5.1 Preparation", page=2)
+    standards.extract_requirements("doc_s", allowed_document_ids=_scope(doc))
+    row = standards.list_requirements("doc_s", allowed_document_ids=_scope(doc))[0]
+    assert row["requirement_type"] == "statement"
+    # NOT a numeric_limit carrying a null value, which reads as a limit nobody
+    # bothered to record.
+    assert row["value"] is None
+    assert row["operator"] is None
+
+
+def test_the_discipline_is_stamped_from_the_classification(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_s", pdf)
+    _chunk("c1", doc, NOISE, section="5.3.3 Noise", page=9)
+    standards.extract_requirements("doc_s", allowed_document_ids=_scope(doc))
+    row = standards.list_requirements("doc_s", allowed_document_ids=_scope(doc))[0]
+    assert row["discipline"] == "Mechanical"
+
+
+# ================================================================== conflicts
+
+def test_two_standards_limiting_the_same_field_differently_is_a_conflict(tmp_path):
+    """THE MUTATION TARGET (M43). Surfaced, never resolved."""
+    a = _doc("doc_a", _ruled_table_pdf(tmp_path / "a.pdf", ["Field (mm)"], [["1"]]),
+             "A.pdf")
+    b = _doc("doc_b", _ruled_table_pdf(tmp_path / "b.pdf", ["Field (mm)"], [["1"]]),
+             "B.pdf")
+    _chunk("ca", a, "x", section="5.1 T", page=1)
+    _chunk("cb", b, "x", section="5.1 T", page=1)
+    for doc, chunk, value in ((a, "ca", 12.0), (b, "cb", 20.0)):
+        standards.create_requirement(
+            standard_document_id=doc, chunk_id=chunk,
+            requirement_text="t", source_text="t", clause="5.1", page=1,
+            structured={"field": "coating thickness", "operator": ">=",
+                        "value": value, "unit": "um",
+                        "requirement_type": "numeric_limit"})
+    found = standards.conflicts(allowed_document_ids=_scope(a, b))
+    assert len(found) == 1
+    assert found[0]["field"] == "coating thickness"
+    assert {r["standard_document_id"] for r in found[0]["requirements"]} == {a, b}
+    # NOT RESOLVED: both sides are returned, neither is marked the winner.
+    assert len(found[0]["requirements"]) == 2
+    assert all("winner" not in r for r in found[0]["requirements"])
+
+
+def test_the_same_limit_in_two_standards_is_not_a_conflict(tmp_path):
+    a = _doc("doc_a", _ruled_table_pdf(tmp_path / "a.pdf", ["A"], [["1"]]), "A.pdf")
+    b = _doc("doc_b", _ruled_table_pdf(tmp_path / "b.pdf", ["A"], [["1"]]), "B.pdf")
+    _chunk("ca", a, "x", page=1); _chunk("cb", b, "x", page=1)
+    for doc, chunk in ((a, "ca"), (b, "cb")):
+        standards.create_requirement(
+            standard_document_id=doc, chunk_id=chunk, requirement_text="t",
+            source_text="t", clause=None, page=1,
+            structured={"field": "thickness", "operator": ">=", "value": 12.0,
+                        "unit": "um"})
+    assert standards.conflicts(allowed_document_ids=_scope(a, b)) == []
+
+
+def test_values_that_cannot_be_compared_are_not_called_a_conflict(tmp_path):
+    """An unknown unit leaves value NULL. Two numbers this system cannot
+    compare are not evidence of disagreement, and claiming one would invent a
+    finding."""
+    a = _doc("doc_a", _ruled_table_pdf(tmp_path / "a.pdf", ["A"], [["1"]]), "A.pdf")
+    b = _doc("doc_b", _ruled_table_pdf(tmp_path / "b.pdf", ["A"], [["1"]]), "B.pdf")
+    _chunk("ca", a, "x", page=1); _chunk("cb", b, "x", page=1)
+    standards.create_requirement(
+        standard_document_id=a, chunk_id="ca", requirement_text="t",
+        source_text="t", clause=None, page=1,
+        structured={"field": "noise", "operator": "<=", "value": None,
+                    "raw_value": "90", "raw_unit": "dB(A)"})
+    standards.create_requirement(
+        standard_document_id=b, chunk_id="cb", requirement_text="t",
+        source_text="t", clause=None, page=1,
+        structured={"field": "noise", "operator": "<=", "value": 85.0,
+                    "unit": "dB"})
+    assert standards.conflicts(allowed_document_ids=_scope(a, b)) == []
+
+
+def test_one_standard_restating_itself_is_not_a_conflict(tmp_path):
+    a = _doc("doc_a", _ruled_table_pdf(tmp_path / "a.pdf", ["A"], [["1"]]), "A.pdf")
+    _chunk("ca", a, "x", page=1)
+    for value in (12.0, 20.0):
+        standards.create_requirement(
+            standard_document_id=a, chunk_id="ca", requirement_text="t",
+            source_text="t", clause=None, page=1,
+            structured={"field": "thickness", "operator": ">=", "value": value,
+                        "unit": "um"})
+    assert standards.conflicts(allowed_document_ids=_scope(a)) == []
+
+
+# ========================================================== verification queue
+
+def _user(uid="u1"):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO users"
+            " (id,email,display_name,password_hash,is_active,created_at)"
+            " VALUES (?,?,?,?,1,?)",
+            (uid, f"{uid}@example.test", uid, "x", "2026-09-18T00:00:00Z"))
+    return uid
+
+
+def _one_low_confidence(tmp_path, doc_id="doc_q"):
+    pdf = _ruled_table_pdf(tmp_path / f"{doc_id}.pdf", ["A"], [["1"]])
+    doc = _doc(doc_id, pdf)
+    _chunk(f"c-{doc_id}", doc, "x", page=1)
+    return doc, standards.create_requirement(
+        standard_document_id=doc, chunk_id=f"c-{doc_id}",
+        requirement_text="The valve shall be rated.", source_text="src",
+        clause=None, page=1, confidence=0.5)
+
+
+def test_a_low_confidence_requirement_is_in_the_queue(tmp_path):
+    doc, row = _one_low_confidence(tmp_path)
+    queue = standards.verification_queue(allowed_document_ids=_scope(doc))
+    assert [q["id"] for q in queue] == [row["id"]]
+    assert queue[0]["needs_verification"] is True
+
+
+def test_an_engineer_correction_flips_extraction_method_to_human_and_audits(tmp_path):
+    """THE MUTATION TARGET (M44). A guess becomes a person's statement."""
+    doc, row = _one_low_confidence(tmp_path)
+    user = _user()
+    before = standards.list_requirements(doc, allowed_document_ids=_scope(doc))[0]
+    assert before["extraction_method"] == "extracted"
+
+    updated = standards.decide_requirement(
+        row["id"], decision="edit", allowed_document_ids=_scope(doc),
+        actor={"id": user, "email": "eng@example.test"},
+        edits={"requirement_text": "The valve shall be rated for 10 bar.",
+               "field": "rating", "operator": ">=", "value": 10.0, "unit": "bar"})
+
+    assert updated["extraction_method"] == "human"
+    assert updated["confirmed_by"] == user
+    assert updated["requirement_text"].endswith("10 bar.")
+    assert updated["value"] == 10.0
+    # AUDITED.
+    audit = db.connect().execute(
+        "SELECT * FROM audit_events WHERE action = 'standard.requirement_edited'"
+    ).fetchone()
+    assert audit is not None, "an engineer correction wrote no audit row"
+    assert audit["resource_id"] == doc
+    # And it leaves the queue.
+    assert standards.verification_queue(allowed_document_ids=_scope(doc)) == []
+
+
+def test_confirming_leaves_the_queue_without_changing_the_text(tmp_path):
+    doc, row = _one_low_confidence(tmp_path)
+    user = _user()
+    updated = standards.decide_requirement(
+        row["id"], decision="confirm", allowed_document_ids=_scope(doc),
+        actor={"id": user, "email": "e@example.test"})
+    assert updated["extraction_method"] == "human"
+    assert updated["requirement_text"] == "The valve shall be rated."
+    assert standards.verification_queue(allowed_document_ids=_scope(doc)) == []
+
+
+def test_rejecting_deletes_the_row_and_keeps_the_audit(tmp_path):
+    doc, row = _one_low_confidence(tmp_path)
+    user = _user()
+    standards.decide_requirement(
+        row["id"], decision="reject", allowed_document_ids=_scope(doc),
+        actor={"id": user, "email": "e@example.test"})
+    assert standards.list_requirements(doc, allowed_document_ids=_scope(doc)) == []
+    audit = db.connect().execute(
+        "SELECT * FROM audit_events WHERE action = 'standard.requirement_rejected'"
+    ).fetchone()
+    assert audit is not None, "the record that somebody looked and said no is gone"
+
+
+def test_an_unknown_decision_is_refused(tmp_path):
+    doc, row = _one_low_confidence(tmp_path)
+    with pytest.raises(standards.RequirementError):
+        standards.decide_requirement(row["id"], decision="approve",
+                                     allowed_document_ids=_scope(doc))
+
+
+# ================================================================ permissions
+
+def test_an_unauthorised_user_sees_no_requirement_no_conflict_no_queue(tmp_path):
+    """THE MUTATION TARGET (M45)."""
+    mine, _ = _one_low_confidence(tmp_path, "doc_mine")
+    theirs, their_row = _one_low_confidence(tmp_path, "doc_theirs")
+    for doc, chunk in ((mine, "c-doc_mine"), (theirs, "c-doc_theirs")):
+        standards.create_requirement(
+            standard_document_id=doc, chunk_id=chunk, requirement_text="t",
+            source_text="t", clause=None, page=1,
+            structured={"field": "thickness", "operator": ">=",
+                        "value": 12.0 if doc == mine else 20.0, "unit": "um"})
+
+    only_mine = _scope(mine)
+    assert standards.list_requirements(theirs, allowed_document_ids=only_mine) == []
+    assert standards.verification_queue(allowed_document_ids=only_mine) and all(
+        q["standard_document_id"] == mine
+        for q in standards.verification_queue(allowed_document_ids=only_mine))
+    # A conflict needs BOTH sides; with only one readable there is nothing to
+    # report - and reporting one side would disclose that the other exists.
+    assert standards.conflicts(allowed_document_ids=only_mine) == []
+    assert standards.table_report(theirs, allowed_document_ids=only_mine)["tables_total"] == 0
+    with pytest.raises(standards.RequirementError):
+        standards.decide_requirement(their_row["id"], decision="confirm",
+                                     allowed_document_ids=only_mine)
+
+
+def test_an_empty_grant_set_sees_nothing(tmp_path):
+    doc, _ = _one_low_confidence(tmp_path)
+    empty = frozenset()
+    assert standards.verification_queue(allowed_document_ids=empty) == []
+    assert standards.conflicts(allowed_document_ids=empty) == []
+    assert standards.table_report(doc, allowed_document_ids=empty)["tables_total"] == 0
+    assert tables.parse_document_tables(doc, allowed_document_ids=empty) == []
+
+
+@pytest.mark.parametrize("call", [
+    lambda: standards.verification_queue(),
+    lambda: standards.conflicts(),
+    lambda: standards.table_report("d"),
+    lambda: standards.extract_table_values("d"),
+    lambda: standards.decide_requirement("r", decision="confirm"),
+    lambda: tables.parse_document_tables("d"),
+])
+def test_a_caller_that_forgets_the_filter_raises_typeerror(call):
+    with pytest.raises(TypeError):
+        call()
+
+
+# =========================================================== background job
+
+def test_extraction_can_be_queued_and_drained_by_the_existing_worker(tmp_path):
+    """THE MUTATION TARGET (M46). One worker, lowest priority."""
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf",
+                           ["Category", "Retention (pcf)"], [["Foundation", "12"]])
+    doc = _doc("doc_j", pdf)
+    _chunk("c1", doc, NOISE, section="5.3.3 Noise", page=1)
+    _chunk("c2", doc, "table", kind="table", page=1)
+
+    job_id = standards.enqueue_extraction(doc)
+    assert job_id
+    state = standards.extraction_job_state(doc, allowed_document_ids=_scope(doc))
+    assert state["state"] == "queued"
+
+    # Queuing does not extract. The work happens on the worker.
+    assert standards.list_requirements(doc, allowed_document_ids=_scope(doc)) == []
+
+    assert standards.next_extraction_job() == doc
+    standards.run_extraction_job(doc)
+
+    rows = standards.list_requirements(doc, allowed_document_ids=_scope(doc))
+    assert rows, "the drained job produced no requirements"
+    assert any(r["requirement_type"] == "numeric_limit" for r in rows)
+    assert any(r["requirement_type"] == "table_value" for r in rows)
+    assert standards.extraction_job_state(
+        doc, allowed_document_ids=_scope(doc))["state"] == "done"
+
+
+def test_queuing_twice_does_not_stack_two_jobs(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["A"], [["1"]])
+    doc = _doc("doc_j", pdf)
+    assert standards.enqueue_extraction(doc) == standards.enqueue_extraction(doc)
+    n = db.connect().execute(
+        "SELECT COUNT(*) FROM jobs WHERE document_id = ? AND stage = ?",
+        (doc, standards.EXTRACTION_STAGE)).fetchone()[0]
+    assert n == 1
+
+
+def test_no_second_worker_was_added():
+    """Section 24 allows ONE ingestion/review worker. The standards queue is
+    drained by that worker, not by a thread of its own."""
+    import inspect
+
+    from app import ingest
+    source = inspect.getsource(ingest)
+    assert "_drain_standard_extraction" in source
+    # One Thread construction in the module, and it is the ingestion worker's.
+    assert source.count("threading.Thread(") == 1
+
+
+def test_the_job_state_is_not_readable_outside_the_callers_grants(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["A"], [["1"]])
+    doc = _doc("doc_j", pdf)
+    standards.enqueue_extraction(doc)
+    assert standards.extraction_job_state(doc, allowed_document_ids=frozenset()) is None
