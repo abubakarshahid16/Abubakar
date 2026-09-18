@@ -46,8 +46,18 @@ carries the client's name; only the owner can rename it.
    "fixed in one of two places" (a flag read in one file, a literal left in
    another). Before closing a fix, grep for the claim.
 9. **"Super user"** is a display label only; the internal identifier stays `admin`.
-10. **Dashboard stays minimal.** No new tiles. The type counts live inside the
-    existing Documents tile.
+10. **Dashboard stays a focused operational dashboard, not a metrics dump.**
+    As of the AI Submittal Review workflow (2026-09), this no longer means
+    "no new tiles" literally - it means no UNNECESSARY tiles. Exactly four
+    primary cards: Contractor Submittals, Active Standards, Reviews in
+    Progress, Needs Attention. One `Upload Datasheet and Run AI Review`
+    button. One compact Recent Reviews table. One warning banner shown only
+    when there is a real issue (low memory, failed OCR, missing standards).
+    Standards Readiness detail lives on the Standards Library page. Recent
+    Intelligence Work (comprehensive analyses, gap analyses, market results)
+    lives on the Analysis Hub. RAM/model/OCR/embeddings/latency/ingestion
+    detail lives on System Health. Nothing else gets added to Dashboard
+    without updating this rule first.
 11. Merge commits, not squash. Conventional prefixes (`feat:`, `fix:`, `test:`,
     `docs:`). Issues, milestones, PRs with `Closes #N`. Free tools only.
 
