@@ -1,0 +1,368 @@
+"""Schema and scoped read paths for the AI submittal review workflow.
+
+PHASE 1 IS FOUNDATION ONLY. This module owns four tables and the queries that
+read them under a caller's grants. It contains no extraction, no applicability
+decision, no comparison and no export - those are later phases, and a table
+existing here is not a claim that anything fills it yet.
+
+WHY EVERY READ PATH TAKES `allowed_document_ids` KEYWORD-ONLY WITH NO DEFAULT
+
+The same reason `search.search` and `keyword.search` do, recorded as entry 11
+of the honesty audit: a default is a filter that can be forgotten. A caller
+that omits the argument here raises TypeError at the call site, which a test
+catches and a reviewer sees. A caller that omits a defaulted argument reads the
+whole corpus and returns rows that look correct.
+
+`deliverables.list_items` is the counter-example this module deliberately does
+NOT copy. Its filter reads
+
+    WHERE document_id IS NULL OR document_id IN (...)
+
+which makes every NULL-document row readable by everyone. A review run always
+has a submittal document, so there is no legitimate NULL here and NULL must
+never mean world-readable. The filter below therefore has no NULL branch, and
+an empty grant set resolves to `WHERE 1 = 0` - the caller is granted nothing,
+so it sees nothing, which is not the same as being granted everything.
+
+FILTERED IN THE QUERY, NEVER IN PYTHON AFTER IT. `metrics._where` carries the
+rule and the reason: post-filtering happens to work while there is no LIMIT and
+"silently becomes a leak the day someone adds one".
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timezone
+
+from . import review
+from .db import connect
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _new_id() -> str:
+    """A random uuid4, matching review.py:317 and deliverables.py:122.
+
+    NOT the `doc_{sha256[:12]}` content hash. That identifier exists so that
+    re-uploading the same bytes is recognised as the same document; a review
+    run, a fact and a requirement are events, and two of them with identical
+    contents are two different things that must not collide.
+    """
+    return str(uuid.uuid4())
+
+
+def _scope_clause(
+    allowed_document_ids: frozenset[str], column: str
+) -> tuple[str, list[str]]:
+    """A WHERE fragment restricting `column` to the caller's grants.
+
+    Shaped after `metrics._where`, with one deliberate difference: there is no
+    `None` meaning corpus-wide. Every table in this module is keyed to a
+    submittal document, so "no restriction" is not a state a caller of this
+    module may express. An admin's breadth arrives as a wide id set from
+    `access.scope_for_user`, through the same parameter as everyone else's.
+
+    An EMPTY set is not "everything". It means the caller holds no grants, and
+    `1 = 0` is the honest translation of that.
+    """
+    if not allowed_document_ids:
+        return " WHERE 1 = 0", []
+    marks = ",".join("?" for _ in allowed_document_ids)
+    return f" WHERE {column} IN ({marks})", sorted(allowed_document_ids)
+
+
+def ensure_schema() -> None:
+    """Create this module's tables. Idempotent, and safe to call repeatedly.
+
+    Module-local rather than in `db.SCHEMA`, following review.py: the workflow
+    tables are created by the code that owns them, so a database that never
+    runs a review never grows them.
+    """
+    # ORDERING, NOT POLITENESS. `review_runs.template_id` references
+    # `review_templates` and `list_run_findings` reads `review_findings.
+    # review_run_id`; both are created by review.ensure_schema(), and this
+    # module's tables are unusable until they exist. With PRAGMA foreign_keys
+    # ON, an INSERT against a table whose parent is missing fails at write
+    # time rather than at create time - so a missing call here would surface
+    # as a confusing runtime error in phase 2, not here.
+    review.ensure_schema()
+    conn = connect()
+    with conn:
+        # ---------------------------------------------------- standards side
+        # One extracted requirement from a company standard. `standard_document_id`
+        # IS a foreign key here, unlike on a finding: a requirement is OWNED by
+        # the standard it was extracted from and is meaningless once that
+        # document is gone, so it cascades. A FINDING that cited the standard
+        # is not owned by it and must outlive it - that is the distinction, and
+        # it is why the two columns of the same name behave differently.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS standard_requirements (
+                id TEXT PRIMARY KEY,
+                standard_document_id TEXT NOT NULL
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                clause TEXT,
+                page INTEGER,
+                requirement_text TEXT NOT NULL,
+                -- The verbatim span this requirement was read from. Kept
+                -- beside the paraphrase so a claim can always be resolved to
+                -- the document - no claim without a resolving citation.
+                source_text TEXT,
+                category TEXT,
+                equipment_type TEXT,
+                service TEXT,
+                -- 'extracted' | 'human' - a guess stays labelled a guess until
+                -- a human confirms it. NULL means no tier recorded.
+                extraction_method TEXT,
+                confidence REAL,
+                confirmed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+                confirmed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_standard_requirements_document "
+            "ON standard_requirements(standard_document_id, created_at DESC)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_standard_requirements_unconfirmed "
+            "ON standard_requirements(confirmed_by, standard_document_id)")
+
+        # ------------------------------------------------------- the run
+        # `submittal_document_id` is NOT NULL and cascades: a run is about one
+        # submittal and has no meaning without it. NOT NULL is also what makes
+        # the scope filter safe - see the module docstring on NULL rows.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS review_runs (
+                id TEXT PRIMARY KEY,
+                submittal_document_id TEXT NOT NULL
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                template_id TEXT REFERENCES review_templates(id) ON DELETE SET NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                -- Why the run ended where it did. A refusal is a result and is
+                -- recorded as one rather than left as an empty finding list.
+                refusal_reason TEXT,
+                model_name TEXT,
+                -- config.config_version() at the time of the run: the hash of
+                -- the settings that could change the answer, the same stamp
+                -- reports.py freezes onto a delivered claim.
+                config_version TEXT,
+                started_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_review_runs_submittal "
+            "ON review_runs(submittal_document_id, status, created_at DESC)")
+
+        # ------------------------------------------------- the submittal side
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS submittal_facts (
+                id TEXT PRIMARY KEY,
+                review_run_id TEXT NOT NULL
+                    REFERENCES review_runs(id) ON DELETE CASCADE,
+                submittal_document_id TEXT NOT NULL
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                field_name TEXT NOT NULL,
+                field_value TEXT,
+                unit TEXT,
+                page INTEGER,
+                section TEXT,
+                -- The span the value was read from. Without it a fact is an
+                -- assertion; with it a reader can go and check.
+                source_text TEXT,
+                extraction_method TEXT,
+                confidence REAL,
+                confirmed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+                confirmed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_submittal_facts_run "
+            "ON submittal_facts(review_run_id, field_name, created_at DESC)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_submittal_facts_document "
+            "ON submittal_facts(submittal_document_id, created_at DESC)")
+
+        # ------------------------------------- which standards applied, and why
+        # A NORMALISED RELATION, not a JSON column on review_runs, and the
+        # reason is the three things this data has to do:
+        #   * it is JOINED - "which runs used this standard" is a question the
+        #     Standards Library will ask, and JSON cannot answer it with an
+        #     index.
+        #   * it is PERMISSION FILTERED - a standard the caller cannot read
+        #     must not be listed, which needs the id in a column.
+        #   * it is AUDITED - `included` flipping to 0 with an
+        #     `exclusion_reason` is a decision someone must be able to review.
+        # JSON stays acceptable for immutable snapshots and exception lists,
+        # which none of these three are.
+        #
+        # `standard_document_id` cascades: the row records that a standard was
+        # CONSIDERED for a run, which is a statement about a document that now
+        # exists. The FINDING that cited it is the record that outlives it.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS review_applicable_standards (
+                id TEXT PRIMARY KEY,
+                review_run_id TEXT NOT NULL
+                    REFERENCES review_runs(id) ON DELETE CASCADE,
+                standard_document_id TEXT NOT NULL
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                selection_reason TEXT,
+                -- 'rule' | 'model' | 'human' - WHICH TIER chose it, kept per
+                -- row for the reason document_classification.suggested_by is:
+                -- a standard a rule selected and a standard a model guessed
+                -- are different facts and must not read alike.
+                selection_method TEXT,
+                confidence REAL,
+                -- 1 = applied to this run, 0 = considered and ruled out. A
+                -- ruled-out standard stays as a ROW rather than being deleted,
+                -- because "we looked at this and decided it did not apply" is
+                -- the answer to the question an engineer actually asks.
+                included INTEGER NOT NULL DEFAULT 1,
+                exclusion_reason TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(review_run_id, standard_document_id)
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_review_applicable_standards_run "
+            "ON review_applicable_standards(review_run_id, included, created_at DESC)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_review_applicable_standards_standard "
+            "ON review_applicable_standards(standard_document_id, included)")
+
+
+# ------------------------------------------------------------- read paths
+#
+# Each takes `allowed_document_ids` keyword-only with NO DEFAULT. Deleting the
+# scope clause from any one of them must make a permission test fail; that is
+# the mutation the tests assert.
+
+
+def list_review_runs(
+    *, allowed_document_ids: frozenset[str],
+    submittal_document_id: str | None = None,
+) -> list[dict]:
+    """Review runs over submittals the caller may read."""
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
+    sql = "SELECT * FROM review_runs" + where
+    if submittal_document_id is not None:
+        # AND, never OR: a caller narrowing to one document may only narrow.
+        sql += " AND submittal_document_id = ?"
+        args = [*args, submittal_document_id]
+    sql += " ORDER BY created_at DESC"
+    return [dict(row) for row in connect().execute(sql, args).fetchall()]
+
+
+def get_review_run(run_id: str, *, allowed_document_ids: frozenset[str]) -> dict | None:
+    """One run, or None when it does not exist OR the caller may not read its
+    submittal. The two are deliberately indistinguishable, the same reason
+    `api_utils.require_document` collapses forbidden into not-found: a 403
+    confirms the row exists."""
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
+    row = connect().execute(
+        "SELECT * FROM review_runs" + where + " AND id = ?", [*args, run_id]
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def list_submittal_facts(
+    *, allowed_document_ids: frozenset[str], review_run_id: str | None = None,
+) -> list[dict]:
+    """Extracted submittal facts, restricted to readable submittals.
+
+    Scoped on `submittal_facts.submittal_document_id` directly rather than by
+    joining through `review_runs`: one column on the row being filtered is one
+    place to get it wrong, and the denormalised id is on the table precisely so
+    this filter never needs a join to be correct.
+    """
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
+    sql = "SELECT * FROM submittal_facts" + where
+    if review_run_id is not None:
+        sql += " AND review_run_id = ?"
+        args = [*args, review_run_id]
+    sql += " ORDER BY created_at DESC, field_name"
+    return [dict(row) for row in connect().execute(sql, args).fetchall()]
+
+
+def list_applicable_standards(
+    review_run_id: str, *, allowed_document_ids: frozenset[str],
+    include_excluded: bool = True,
+) -> list[dict]:
+    """Standards considered for a run, filtered TWICE and on purpose.
+
+    The run's submittal must be readable, AND each standard row is restricted
+    to standards the caller may read. Both, because they are two different
+    documents: a caller granted the submittal is not thereby granted every
+    standard it was compared against, and listing a standard's id would
+    disclose a document they hold no grant for.
+
+    The result is an INTERSECTION with the caller's grants in both directions -
+    never a union. A caller who may read the submittal but not a given standard
+    sees the run without that row, which is narrower, not wider.
+    """
+    ensure_schema()
+    if get_review_run(review_run_id, allowed_document_ids=allowed_document_ids) is None:
+        # Not readable or not there. Same answer for both.
+        return []
+    where, args = _scope_clause(allowed_document_ids, "standard_document_id")
+    sql = "SELECT * FROM review_applicable_standards" + where + " AND review_run_id = ?"
+    args = [*args, review_run_id]
+    if not include_excluded:
+        sql += " AND included = 1"
+    sql += " ORDER BY included DESC, created_at DESC"
+    return [dict(row) for row in connect().execute(sql, args).fetchall()]
+
+
+def list_standard_requirements(
+    *, allowed_document_ids: frozenset[str], standard_document_id: str | None = None,
+) -> list[dict]:
+    """Requirements from standards the caller may read."""
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "standard_document_id")
+    sql = "SELECT * FROM standard_requirements" + where
+    if standard_document_id is not None:
+        sql += " AND standard_document_id = ?"
+        args = [*args, standard_document_id]
+    sql += " ORDER BY created_at DESC"
+    return [dict(row) for row in connect().execute(sql, args).fetchall()]
+
+
+def list_run_findings(
+    review_run_id: str, *, allowed_document_ids: frozenset[str],
+) -> list[dict]:
+    """Findings belonging to a run, restricted to readable submittals.
+
+    Scoped on `review_findings.document_id` - the submittal - and not on
+    `standard_document_id`, which has no foreign key and may name a document
+    that has since been deleted. A finding is the record that a citation was
+    made; it is readable with the submittal it is about.
+    """
+    ensure_schema()
+    if get_review_run(review_run_id, allowed_document_ids=allowed_document_ids) is None:
+        return []
+    where, args = _scope_clause(allowed_document_ids, "document_id")
+    rows = connect().execute(
+        "SELECT * FROM review_findings" + where + " AND review_run_id = ?"
+        " ORDER BY updated_at DESC", [*args, review_run_id]
+    ).fetchall()
+    out = []
+    for row in rows:
+        item = dict(row)
+        for field in ("citation_ids", "governing_sources", "unresolved_evidence"):
+            try:
+                item[field] = json.loads(item.get(field) or "[]")
+            except (TypeError, ValueError):
+                item[field] = []
+        out.append(item)
+    return out

@@ -513,7 +513,43 @@ CREATE TABLE IF NOT EXISTS document_classification (
     register_id   TEXT REFERENCES deliverables_register(id) ON DELETE SET NULL,
     suggested_by  TEXT NOT NULL,
     confirmed_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
-    confirmed_at  TEXT
+    confirmed_at  TEXT,
+    -- ------------------------------------------- AI submittal review, phase 1
+    -- The submittal-review vocabulary. Every column NULLABLE and every NULL an
+    -- answer: this row already exists for every classified document written by
+    -- an earlier build, and none of them can know what they are in a workflow
+    -- that did not exist when they were written. NULL means NOT RECORDED, and
+    -- is rendered as nothing - never as a default role and never as 0.
+    --
+    -- CLASSIFICATION IS STILL NOT ACCESS CONTROL (rule 5). `document_role`
+    -- says what part a document plays in a review; it grants nothing. The
+    -- grant tables decide who may read it, and a role filter may only narrow
+    -- what a caller already holds.
+    --
+    -- PLAIN TEXT, NO CHECK CONSTRAINT. This schema carries exactly one CHECK
+    -- (roles.kind) and adding a second here would be permanent: SQLite cannot
+    -- ALTER-ADD a CHECK, so the next column migration on this table would
+    -- force a full table rebuild. The five legal roles are enforced in
+    -- Pydantic (`schemas.DocumentRole`), where a bad value is rejected at the
+    -- boundary with a message instead of aborting a write deep in a migration.
+    document_role      TEXT,
+    document_number    TEXT,
+    revision           TEXT,
+    effective_date     TEXT,
+    project            TEXT,
+    contractor_vendor  TEXT,
+    equipment_type     TEXT,
+    -- A JSON array as TEXT. Acceptable here because it is a flat list of tags
+    -- nothing joins on, filters by, or audits. The applicable-standards
+    -- relation is a TABLE for exactly the opposite reason.
+    equipment_tags     TEXT,
+    service            TEXT,
+    transmittal_number TEXT,
+    -- A document id, and DELIBERATELY NOT A FOREIGN KEY - the report_documents
+    -- precedent (db.py:212-215). Deleting the superseding document must not
+    -- erase the record that this one was superseded; that record is the reason
+    -- an engineer does not quote a revision that was replaced.
+    superseded_by      TEXT
 );
 
 -- MANY-TO-MANY ON PURPOSE. A firewater layout for the substation has two
@@ -639,6 +675,29 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_page_ocr_document ON page_ocr(document_id)"
     )
+    # --------------------------------------------- AI submittal review, phase 1
+    # The submittal-review vocabulary on an existing classification row. Every
+    # column is nullable with no default, so an existing row keeps every value
+    # it had and gains NULLs that mean NOT RECORDED. Nothing is back-filled and
+    # nothing is guessed: a document classified before this workflow existed
+    # cannot know its role, and inventing one would route a review confidently
+    # to the wrong baseline.
+    #
+    # `r["name"]` and not `row[1]` on purpose - it is the idiom this file
+    # already uses. review.py reads `row[1]` for the same PRAGMA and the two
+    # are deliberately left disagreeing rather than unified in this phase.
+    classification_cols = {
+        r["name"] for r in conn.execute("PRAGMA table_info(document_classification)")
+    }
+    if classification_cols:
+        for _column in (
+            "document_role", "document_number", "revision", "effective_date",
+            "project", "contractor_vendor", "equipment_type", "equipment_tags",
+            "service", "transmittal_number", "superseded_by",
+        ):
+            if _column not in classification_cols:
+                conn.execute(
+                    f"ALTER TABLE document_classification ADD COLUMN {_column} TEXT")
     # ------------------------------------------------------------- access
     # `roles` predates the distinction between a discipline and a capability:
     # every role in a database written before this column was, by construction,

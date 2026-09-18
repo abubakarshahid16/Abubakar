@@ -78,7 +78,32 @@ def ensure_schema() -> None:
                 escalation_level INTEGER NOT NULL DEFAULT 0,
                 created_by TEXT,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                -- ------------------------------- AI submittal review, phase 1
+                -- A SECOND vocabulary beside `status`/`disposition`, never a
+                -- reuse of them. `status` ('open'...) is where a finding is in
+                -- the guided-review workflow and `disposition` is what a human
+                -- decided about it; existing rows depend on both and existing
+                -- code reads both. `compliance_status` answers a different
+                -- question - does the submittal MEET the standard - and
+                -- overloading either column would have made the two answers
+                -- indistinguishable on every row written before today.
+                --
+                -- Plain TEXT, no CHECK, for the reason document_classification
+                -- gives: the six legal values live in `schemas.ComplianceStatus`.
+                review_run_id TEXT,
+                compliance_status TEXT,
+                contractor_page INTEGER,
+                contractor_section TEXT,
+                contractor_evidence_text TEXT,
+                -- NO FOREIGN KEY, the report_documents precedent: deleting a
+                -- standard must not erase the finding that cited it. The
+                -- finding is the record that the citation was made.
+                standard_document_id TEXT,
+                standard_clause TEXT,
+                standard_page INTEGER,
+                requirement_source_text TEXT,
+                ai_rationale TEXT
             )"""
         )
         columns = {row[1] for row in conn.execute("PRAGMA table_info(review_findings)")}
@@ -92,6 +117,21 @@ def ensure_schema() -> None:
             "disposition": "TEXT",
             "approved_by": "TEXT",
             "approved_at": "TEXT",
+            # AI submittal review, phase 1. Nullable with no default: an
+            # existing finding was written by the guided-review workflow and
+            # has no compliance verdict, and NULL says exactly that. A default
+            # of 'COMPLIANT' would be the "not mentioned is never compliant"
+            # honesty invariant broken in a migration.
+            "review_run_id": "TEXT",
+            "compliance_status": "TEXT",
+            "contractor_page": "INTEGER",
+            "contractor_section": "TEXT",
+            "contractor_evidence_text": "TEXT",
+            "standard_document_id": "TEXT",
+            "standard_clause": "TEXT",
+            "standard_page": "INTEGER",
+            "requirement_source_text": "TEXT",
+            "ai_rationale": "TEXT",
         }.items():
             if name not in columns:
                 conn.execute(f"ALTER TABLE review_findings ADD COLUMN {name} {definition}")
@@ -99,6 +139,12 @@ def ensure_schema() -> None:
                      "ON review_findings(document_id, status, updated_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_due "
                      "ON review_findings(due_date, status)")
+        # Created here rather than in the CREATE TABLE above, because on a
+        # database written by an earlier build the column does not exist until
+        # the ALTER block above has run.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_run "
+                     "ON review_findings(review_run_id, compliance_status, "
+                     "updated_at DESC)")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS review_finding_events (
                 id TEXT PRIMARY KEY,

@@ -25,6 +25,49 @@ DocStatus = Literal[
 
 ChunkKind = Literal["prose", "table", "toc", "frontmatter", "index", "references"]
 
+#: What part a document plays in a submittal review.
+#:
+#: THIS IS THE ENFORCEMENT POINT for the five legal roles. The column is plain
+#: TEXT with no CHECK constraint, deliberately - this schema carries exactly
+#: one CHECK (roles.kind), and SQLite cannot ALTER-ADD a CHECK, so a second one
+#: would force a table rebuild at the next column migration. Validating here
+#: instead means a bad value is refused at the API boundary with a message
+#: naming the field, rather than raising sqlite3.IntegrityError from inside a
+#: write. A value that never crosses this boundary is not validated by it, so
+#: any writer that bypasses the API must state its own vocabulary check.
+#:
+#: NOT ACCESS CONTROL (CLAUDE.md rule 5). A role says what a document is for;
+#: the grant tables say who may read it.
+DocumentRole = Literal[
+    "CONTRACTOR_SUBMITTAL",
+    "COMPANY_STANDARD",
+    "CONTRACT_DOCUMENT",
+    "SUPPORTING_DOCUMENT",
+    "CRS_TEMPLATE",
+]
+
+#: Whether a submittal meets one requirement. A SECOND vocabulary beside the
+#: guided-review `status`/`disposition`, never a replacement for them.
+#:
+#: The six are not collapsible to a boolean, and that is the point:
+#:   * MISSING_INFORMATION is NOT NON_COMPLIANT - "the submittal does not say"
+#:     is not "the submittal is wrong", and the honesty invariant that "not
+#:     mentioned is never compliant" has an equal and opposite half.
+#:   * CONDITIONAL carries a verdict that holds only if something else is true.
+#:   * NOT_APPLICABLE means the requirement does not govern this submittal.
+#:   * NEEDS_ENGINEER_REVIEW is the machine declining to answer, which is a
+#:     result and must be storable as one rather than rounded to a guess.
+#: NULL (no value at all) is distinct from every one of these: it means no
+#: verdict was ever recorded, which is what every pre-existing finding row is.
+ComplianceStatus = Literal[
+    "COMPLIANT",
+    "NON_COMPLIANT",
+    "MISSING_INFORMATION",
+    "CONDITIONAL",
+    "NOT_APPLICABLE",
+    "NEEDS_ENGINEER_REVIEW",
+]
+
 
 class ApiError(BaseModel):
     """The only error shape the API returns. Never carries internal detail."""
@@ -426,6 +469,28 @@ class DocumentClassification(BaseModel):
     confirmed_at: str | None
     confirmed: bool
     subjects: list[DocumentSubject]
+    # --------------------------------------------- AI submittal review, phase 1
+    # Every one of these is null on every document classified before this
+    # workflow existed, and null renders as nothing - never as a default role,
+    # never as 0, never as "unknown" dressed up as a value.
+    document_role: DocumentRole | None = None
+    document_number: str | None = None
+    revision: str | None = None
+    effective_date: str | None = None
+    project: str | None = None
+    contractor_vendor: str | None = None
+    equipment_type: str | None = None
+    equipment_tags: list[str] = Field(
+        default_factory=list,
+        description="flat tag list; stored as a JSON array in one TEXT column "
+                    "because nothing joins on it. An empty list means none "
+                    "recorded")
+    service: str | None = None
+    transmittal_number: str | None = None
+    superseded_by: str | None = Field(
+        None, description="the document id that replaced this one, or null. "
+                          "Not a foreign key: deleting the superseding "
+                          "document must not erase the fact of supersession")
 
 
 class ClassificationUpdate(BaseModel):

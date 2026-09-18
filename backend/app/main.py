@@ -44,6 +44,7 @@ from . import deliverables as deliverables_mod
 from . import notifications as notifications_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
+from . import submittal_review as submittal_review_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -62,6 +63,7 @@ async def lifespan(app: FastAPI):
     review_mod.ensure_schema()
     deliverables_mod.ensure_schema()
     risks_mod.ensure_schema()
+    submittal_review_mod.ensure_schema()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()

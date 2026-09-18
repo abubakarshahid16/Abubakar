@@ -47,6 +47,7 @@ person who set it.
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from collections.abc import Iterable, Sequence
@@ -421,6 +422,15 @@ def of_document(document_id: str) -> dict | None:
     if row is None:
         return None
     out = dict(row)
+    # Stored as a JSON array in one TEXT column; decoded here so no caller has
+    # to know that. A row written before this column existed holds NULL, and a
+    # malformed value is read as "none recorded" rather than raising - the same
+    # tolerance review._row applies to its own JSON columns.
+    try:
+        tags = json.loads(out.get("equipment_tags") or "[]")
+    except (TypeError, ValueError):
+        tags = []
+    out["equipment_tags"] = tags if isinstance(tags, list) else []
     out["subjects"] = [dict(r) for r in connect().execute(
         "SELECT s.id, s.name, s.kind, ds.suggested_by, ds.confirmed_by"
         " FROM document_subjects ds JOIN subjects s ON s.id = ds.subject_id"
