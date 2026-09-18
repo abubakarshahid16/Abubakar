@@ -399,7 +399,162 @@ PHASE_2_UI = (
     ),
 )
 
-ALL: tuple[Mutation, ...] = PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI
+#: Phase 3A: the Standards Library.
+PHASE_3A = (
+    Mutation(
+        id="M27", phase=3,
+        description="write a requirement whose citation does not resolve",
+        path=APP / "standards.py",
+        anchor="    if chunk is None:\n"
+               "        raise RequirementError(f\"no chunk {chunk_id!r}: the citation does not resolve\")\n"
+               "    if chunk[\"document_id\"] != standard_document_id:",
+        replacement="    if chunk is None:\n"
+                    "        chunk = {\"document_id\": standard_document_id, \"page_start\": 1, \"page_end\": 9999}\n"
+                    "    if False:",
+        target="tests/test_standards_library.py",
+        keyword="without_a_resolving_citation",
+        tags=("honesty", "citation"),
+    ),
+    Mutation(
+        id="M28", phase=3,
+        description="guess an unnumbered section into the preceding clause "
+                    "instead of marking it low-confidence",
+        path=APP / "standards.py",
+        anchor="    score = 0.9\n    if clause is None:",
+        replacement="    score = 0.9\n    if False:",
+        target="tests/test_standards_library.py",
+        keyword="could_not_identify_is_marked_for_verification",
+        tags=("honesty", "confidence"),
+    ),
+    Mutation(
+        id="M29", phase=3,
+        description="keep selecting a superseded standard for new reviews",
+        path=APP / "standards.py",
+        anchor=" AND c.document_role = ? AND c.superseded_by IS NULL\",",
+        replacement=" AND c.document_role = ?\",",
+        target="tests/test_standards_library.py",
+        keyword="superseded_standard_is_excluded_from_selection",
+        tags=("supersession",),
+    ),
+    Mutation(
+        id="M30", phase=3,
+        description="drop the scope filter from the Standards Library list",
+        path=APP / "standards.py",
+        anchor='    where, args = _scope_clause(allowed_document_ids, "d.id")\n'
+               "    sql = (",
+        replacement='    where, args = " WHERE 1 = 1", []\n'
+                    "    sql = (",
+        target="tests/test_standards_library.py",
+        keyword="unauthorised_user_sees_no_standard or empty_grant_set",
+        tags=("permission",),
+    ),
+    Mutation(
+        id="M31", phase=3,
+        description="drop the scope filter from the requirements read",
+        path=APP / "standards.py",
+        anchor='    where, args = _scope_clause(allowed_document_ids, "r.standard_document_id")',
+        replacement='    where, args = " WHERE 1 = 1", []',
+        target="tests/test_standards_library.py",
+        keyword="unauthorised_user_sees_no_standard or empty_grant_set",
+        tags=("permission",),
+    ),
+    Mutation(
+        id="M32", phase=3,
+        description="stop auditing the supersede action",
+        path=APP / "standards.py",
+        # Disables the audit WITHOUT raising. Calling a name that does not
+        # exist would fail the test with a NameError - the right verdict for
+        # the wrong reason, and indistinguishable from a real detection. The
+        # mutation has to reproduce the DEFECT: the action happens and no
+        # record of it is written.
+        anchor="    conn = connect()\n"
+               "    try:\n"
+               "        with conn:\n"
+               "            conn.execute(\n"
+               '                """INSERT INTO audit_events',
+        replacement="    return\n"
+                    "    conn = connect()\n"
+                    "    try:\n"
+                    "        with conn:\n"
+                    "            conn.execute(\n"
+                    '                """INSERT INTO audit_events',
+        target="tests/test_standards_library.py",
+        keyword="supersession_is_audited",
+        tags=("audit",),
+    ),
+    Mutation(
+        id="M33", phase=3,
+        description="record recommendations ('should') as requirements",
+        path=APP / "standards.py",
+        anchor=r'    r"\b(shall|must|is\s+required\s+to|are\s+required\s+to|is\s+to\s+be"',
+        replacement=r'    r"\b(shall|must|should|is\s+required\s+to|are\s+required\s+to|is\s+to\s+be"',
+        target="tests/test_standards_library.py",
+        keyword="recommendations_are_not_recorded",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M34", phase=3,
+        description="let re-extraction delete a human-confirmed requirement",
+        path=APP / "standards.py",
+        anchor='                " WHERE standard_document_id = ? AND confirmed_by IS NULL",',
+        replacement='                " WHERE standard_document_id = ?",',
+        target="tests/test_standards_library.py",
+        keyword="never_discards_a_confirmed",
+        tags=("data-loss",),
+    ),
+)
+
+#: Phase 3A frontend: what the Standards Library refuses to say.
+PHASE_3A_UI = (
+    Mutation(
+        id="M35", phase=3, runner="vitest",
+        description="render '0 requirements' instead of 'none extracted yet'",
+        path=FRONTEND_SRC / "views" / "StandardsView.tsx",
+        anchor='        {standard.requirement_count === 0\n'
+               '          ? "No requirements extracted yet"',
+        replacement='        {false\n'
+                    '          ? "No requirements extracted yet"',
+        target="src/views/StandardsView.test.tsx",
+        keyword="no requirements have been extracted",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M36", phase=3, runner="vitest",
+        description="guess a clause number when the parser could not identify one",
+        path=FRONTEND_SRC / "views" / "StandardsView.tsx",
+        anchor='                  {row.clause ?? "Clause not identified"}',
+        replacement='                  {row.clause ?? "1.1"}',
+        target="src/views/StandardsView.test.tsx",
+        keyword="clause could not be identified",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M37", phase=3, runner="vitest",
+        description="stop labelling an extracted requirement as unconfirmed",
+        path=FRONTEND_SRC / "views" / "StandardsView.tsx",
+        anchor='                {row.extraction_method === "extracted" && !row.confirmed_by && (',
+        replacement="                {false && (",
+        target="src/views/StandardsView.test.tsx",
+        keyword="labels an extracted requirement",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M38", phase=3, runner="vitest",
+        description="show the supersede control to a non-admin",
+        path=FRONTEND_SRC / "views" / "StandardsView.tsx",
+        anchor="      {isAdmin && (\n"
+               '        <div className="flex flex-col gap-2 border-t border-white/10 pt-2">',
+        replacement="      {true && (\n"
+                    '        <div className="flex flex-col gap-2 border-t border-white/10 pt-2">',
+        target="src/views/StandardsView.test.tsx",
+        keyword="does not offer the supersede control",
+        tags=("permission", "ui"),
+    ),
+)
+
+ALL: tuple[Mutation, ...] = (
+    PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
+)
 
 
 FRONTEND = REPO / "frontend"
