@@ -13,6 +13,7 @@ const titles: Record<ViewId, string> = {
   deliverables: "Deliverables and timeline",
   ingestion: "Ingestion",
   admin: "Administration",
+  review: "Submittal review",
 };
 
 export function titleForView(view: ViewId): string {
@@ -29,7 +30,7 @@ export function parseRoute(pathname: string): AppRoute {
   });
   if (parts.length === 0) return { kind: "view", view: "documents" };
   const view = parts[0] as ViewId;
-  if (!["dashboard", "documents", "chat", "analysis", "reports", "deliverables", "ingestion", "admin"].includes(view)) {
+  if (!["dashboard", "documents", "chat", "analysis", "reports", "deliverables", "ingestion", "admin", "review"].includes(view)) {
     return { kind: "forbidden", path: pathname };
   }
   if (parts.length > 2 || (parts.length === 2 && !parts[1])) {
