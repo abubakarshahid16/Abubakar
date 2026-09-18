@@ -2053,3 +2053,177 @@ All numbers from the same tree state, at ``93359d2` (code and tests; docs follow
 8. **Section 13's formal gap types** (missing certificate, unconfirmed test,
    contradictory values within the submittal) are not detected as distinct
    categories.
+
+
+---
+
+# Document roles: a watched-folder convention and a bulk assignment
+
+Not a phase. A contained fix between 5B and 6, because phase 5A's applicability
+selection and 5B's comparison engine both filter on `document_role`, and **the
+column was NULL on every document in the corpus**.
+
+## 73. THE PREMISE OF THE TASK WAS WRONG, AND THAT IS THE FINDING
+
+The work was requested as "fix the 4 existing untagged documents". Measured
+before building anything:
+
+| | count |
+|---|---|
+| documents in the corpus | **280** |
+| with a `document_role` | **0** |
+| ingested by the watcher | 281 events, 272 files currently in `watch-inbox/` |
+| NOT standards (CVs, proposals, a research paper, a test fixture, the confidential register) | **8** |
+
+So it was not 4, it was all 280 - and the 8 include `Engineering Deliverables.pdf`,
+the client's confidential register. A blanket backfill would have made that
+document a COMPANY_STANDARD, which is to say **a candidate standard for future
+submittal reviews**. Reported before acting rather than after, and the backfill
+was deliberately NOT run: the standards get tagged by being moved into
+`watch-inbox/standards/`, which is a person's decision per file rather than a
+filename rule applied by this system to 280 documents at once.
+
+## 74. The subfolder convention
+
+```
+watch-inbox/standards/   -> COMPANY_STANDARD
+watch-inbox/submittals/  -> CONTRACTOR_SUBMITTAL
+watch-inbox/contracts/   -> CONTRACT_DOCUMENT
+watch-inbox/supporting/  -> SUPPORTING_DOCUMENT
+watch-inbox/            -> no role, unchanged, still tagged by hand
+```
+
+Created on every scan, not once at startup: the folder belongs to the client
+and these four directories are the entire user interface of the feature. A
+share that is remounted or restored loses them, and a convention nobody can see
+is a convention nobody uses.
+
+**THE FOLDER DECIDES. THE FILENAME NEVER DOES.** This corpus holds 272 files
+named `SAES-*`, so a filename rule would be about 97% right on today's folder,
+which is exactly what makes it dangerous. A contractor's reply named
+`SAES-A-105-vendor-response.pdf` is a SUBMITTAL, and tagging it
+COMPANY_STANDARD makes a vendor's own document the standard its submittal is
+reviewed against - the system then finds it perfectly compliant with itself,
+cites real pages, and is completely wrong.
+
+The regression guard is written to fail that specific change: it drops a file
+named `SAES-A-105.pdf` into the folder ROOT and asserts it comes out with **no
+role**. Mutation M73 adds the filename rule and the test goes red.
+
+One level only. `standards/archive/superseded/` would otherwise hand
+COMPANY_STANDARD to documents filed precisely because they are NOT current.
+
+## 75. THE CASE THAT MAKES IT USABLE: duplicates carry the role
+
+Every one of the 272 standards was ingested from the folder root before the
+convention existed. Moving them into `standards/` produces **272 duplicates and
+zero ingests** - so a role applied only at ingest time would have tagged
+exactly none of them, silently, while reporting clean scans. The documented way
+to tag the library would have done nothing at all.
+
+So a duplicate landing in a role folder applies the role to the document it
+duplicates - **only when that document has no role yet**. The folder is a
+convenience, not an authority: a correction a person makes in the UI must not
+be re-stamped by a file that happens to still be sitting in a folder.
+
+## 76. Keyed by relative path, not by filename
+
+Once subfolders exist, `SAES-A-105.pdf` can be both a standard and a
+contractor's copy of it. The watcher's stability and already-handled maps were
+keyed by bare filename, which would make the second file collide with the first
+- found already-handled and skipped without ever being looked at. Keys are now
+`standards/SAES-A-105.pdf`; a root file's key is still just its name, so
+nothing about the previous behaviour moved.
+
+## 77. The bulk endpoint, and the two things it refuses
+
+`POST /api/documents/bulk/role`, admin capability plus scope, **asked per
+document rather than once for the request**. A bulk endpoint is the classic
+place for an authorisation check to become a formality; here the loop IS the
+asking. M79 removes the per-document scope check and M78 removes the admin
+gate, and both are caught.
+
+**It is not the PUT.** `PUT /classification` replaces the whole record, so
+sending a role through it would clear the title, revision, project and subjects
+on every document in the selection - metadata somebody typed, destroyed by an
+action that said it was setting a role. `classification.set_role` writes one
+column and nothing else.
+
+**Failures are named, not counted.** "37 updated" for a request naming 40 tells
+the caller something went wrong and makes it impossible to find out what. Every
+id that was not written is returned with a reason, and the status is 207 rather
+than 200 - so neither a client that reads only the body nor one that reads only
+the status can mistake a partial write for a whole one. Unknown and
+out-of-scope ids get the SAME `not_found` answer, because a distinct
+"forbidden" would let a caller probe forty ids per request for which documents
+exist.
+
+`updated` and `unchanged` are separate: re-applying a role a document already
+holds is not a change, and counting it as one inflates every confirmation on
+screen. That distinction needed a real fix - SQLite's `rowcount` counts a row it
+rewrote with the same value, so the first version reported forty changes having
+made none (M81).
+
+## 78. Mutations - 83/83
+
+| # | Mutation |
+|---|---|
+| M73 | **Guess the role from the filename instead of the subfolder** |
+| M74 | Ingest from a role folder without applying the role |
+| M75 | **Skip the role on a duplicate, so a loaded library can never be tagged** |
+| M76 | Let a folder overwrite a role a person set |
+| M77 | Key watched files by bare filename again |
+| M78 | **Drop the admin gate from the bulk route** |
+| M79 | **Stop re-asking scope inside the bulk loop** |
+| M80 | Report bulk failures as a silent count instead of by id |
+| M81 | Let `set_role` report a change when the value is identical |
+| M82 | Show the bulk selection to a non-admin |
+| M83 | Report a partial bulk write as an unqualified success |
+
+**Two were NOT DETECTED on the first run and both were real:**
+
+  * **M73** was a broken MUTATION, not a vacuous test - it patched a line a
+    file in the folder root never reaches, so it changed nothing for the only
+    case the test is about. Moved above the guard; detected.
+  * **M82** was a genuinely vacuous test. `DocumentsView` renders `DocumentCard`
+    from two places, and the fixture put both documents in the same group, so
+    the other render path never ran and an "expect not.toBeInTheDocument"
+    passed against a branch that did not exist on screen. Recorded as
+    honesty-audit entry 20, with the rule it produces: **an assertion that
+    something is ABSENT must also prove the code path ran.**
+
+## 79. Verification, measured
+
+| | passed | skipped | deselected | xfailed |
+|---|---|---|---|---|
+| Baseline (5B) | 1809 | 27 | 1 | 17 |
+| **After this fix** | ****1833**** | 27 | 1 | 17 |
+
+| Check | Result |
+|---|---|
+| Mutations | **83/83 detected** |
+| New frontend tests | 4 passed (`DocumentsView.bulkRole.test.tsx`) |
+| `tsc --noEmit` | clean |
+| `npm run build` | passes |
+| Frontend suite | **59 failed / 555 passed** - the known-bad 59 exactly, and 551 + 4 new |
+| Frontend runs | TWO. The first gave 62 failed / 552 passed; the three extra all passed in isolation and did not recur. **One run is an uncontrolled observation, so both are stated rather than the convenient one** - the same correction phase 5A's 2-of-3 rate needed. |
+
+## 80. Known limitations
+
+1. **NO DOCUMENT HAS A ROLE YET.** The feature is built and proven; the corpus
+   is still 280 documents with `document_role` NULL. Tagging happens when the
+   standards are moved into `watch-inbox/standards/`, and that has not been
+   done in this change.
+2. **Only four of the five roles have a folder.** `CRS_TEMPLATE` is in the
+   vocabulary and settable through the bulk endpoint, but has no subfolder -
+   nobody drops CRS templates by the hundred.
+3. **An unrecognised subfolder is not walked at all**, so a PDF in
+   `watch-inbox/archive/` is never ingested and no event is recorded for it.
+   That is unchanged from before this feature (subfolders were never scanned),
+   but it is now a place a person might reasonably put a file.
+4. **The bulk UI has no select-all.** Selection is per row, so tagging 272
+   standards through the UI is not practical - which is the point of the
+   subfolder route.
+5. **Nothing reconciles a role with the folder a document came from.** Once
+   set, a role is independent of the file's location; moving a file out of
+   `standards/` does not clear it.

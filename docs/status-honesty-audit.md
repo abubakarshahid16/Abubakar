@@ -409,6 +409,36 @@ next person to write one will be looking at. Entry 12 predicted exactly that
 and it took two more phases to act on it. **A record only works where the
 person about to make the mistake will read it.**
 
+**A twentieth, 2026-09-19 (document roles): a test that covered one of two
+render paths and looked complete.**
+
+`DocumentsView` renders `DocumentCard` from TWO places - once per register type
+group, and once for the "awaiting a type" group. The new bulk-selection test
+gave both of its fixture documents a null `doc_type`, so every assertion landed
+in the awaiting-a-type branch and the typed branch was never rendered at all.
+The test asserted "a non-admin is offered no selection" and passed; mutation
+M82 made the checkbox render for everyone at the typed site and **the test
+still passed**.
+
+Nothing about the test looked partial. It named the right property, asserted
+the right absence, and its fixtures were ordinary. The gap was that "no
+checkbox" is trivially true for a branch that never rendered - and an ABSENCE
+assertion cannot tell the difference between "the feature correctly withheld
+it" and "that code never ran". The fix was one line of fixture: type one
+document and leave the other untyped, so both sites render on every run.
+
+This is the fourth species of vacuous test in this file - **the test was not
+standing where the feature could fail it** - and it is the first instance where
+the missing ground was a second copy of the same JSX rather than a missing
+call. It was caught by the harness and by nothing else, on the first run, which
+is the outcome entry 14's rule was written for.
+
+**A rule that follows: an assertion that something is ABSENT must also prove
+the code path ran.** Assert a sibling element that should be there, or render
+the case twice and differ them. `expect(...).not.toBeInTheDocument()` is the
+easiest passing test in any codebase, and it passes hardest when nothing
+rendered at all.
+
 **A nineteenth, 2026-09-19 (phase 5B): the flagship case was silently
 unevaluable because of a character class.**
 
