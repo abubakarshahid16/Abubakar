@@ -1053,9 +1053,14 @@ ROLES_FIX = (
         id="M81", phase=8,
         description="let set_role report a change when the value is identical",
         path=APP / "classification.py",
-        anchor="            \" WHERE document_classification.document_role\"\n"
-               "            f\" IS NOT excluded.document_role{guard}\",",
-        replacement="            f\" WHERE 1 = 1{guard}\",",
+        # RE-ANCHORED after `set_role` and `set_discipline` were refactored
+        # onto one writer, which turned the column name into an f-string hole.
+        # The old anchor stopped matching and the harness said "anchor matched
+        # 0 times" instead of reporting a pass - the guard working, and the
+        # reason an anchor must match EXACTLY once rather than at least once.
+        anchor='            f" WHERE document_classification.{column}"\n'
+               '            f" IS NOT excluded.{column}{guard}",',
+        replacement='            f" WHERE 1 = 1{guard}",',
         target="tests/test_document_roles.py",
         keyword="separates_documents_it_changed or reports_whether_it_changed",
         tags=("honesty",),
