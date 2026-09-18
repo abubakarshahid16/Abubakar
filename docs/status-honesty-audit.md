@@ -395,6 +395,65 @@ against a screen that had not loaded. The fix has the same shape both times -
 assert something POSITIVE first, so that the negative assertion is made at a
 moment when failing was possible.
 
+**A seventeenth, 2026-09-18 (phase 5A): the `NameError` mutation shortcut,
+taken for a THIRD time.** Entry 10 recorded it, entry 12 recorded it recurring,
+and M62 reached for it again - replacing an audit call with a call to a
+function that does not exist, so the test fails with a `NameError` rather than
+because the audit is missing. Right verdict, wrong reason, and in a report it
+is indistinguishable from a real detection.
+
+Three occurrences of one mistake, by one author, across four phases, with the
+rule written down after the first. What finally changed was not another entry
+in this file: the reasoning now lives **at the mutation**, in a comment the
+next person to write one will be looking at. Entry 12 predicted exactly that
+and it took two more phases to act on it. **A record only works where the
+person about to make the mistake will read it.**
+
+**An eighteenth, 2026-09-18 (phase 5A verification): a production defect found
+by suite flakiness, and a failure rate quoted without checking what else was
+running.**
+
+`submittal_review.ensure_schema()` - called by every read in that module -
+held a conditional `DROP TABLE` / `CREATE TABLE` migrating `submittal_facts`.
+Three full-suite runs of one unchanged tree gave three different results: two
+permission tests failed, then a clean run, then
+`test_access_routes::test_two_concurrent_requests_never_share_scope` failed
+alone. Different victims each run, with no random-order plugin installed and
+no hash-seed sensitivity (probed at seeds 0/1/2), is the signature of lock
+contention rather than of ordering or data pollution - DDL on one SQLite
+connection blocks readers on other connections, and the concurrency test
+failing is what identified the mechanism.
+
+**This was a production defect, not a test defect.** The same DDL would block
+concurrent readers in the running application exactly as it did in the suite;
+the first request after startup to trigger the rebuild could have stalled
+whatever else was in flight. The fix moved the rebuild to
+`migrate_facts_to_per_document()`, called once from `main.lifespan`, and two
+source-assertion tests hold the shape: no `DROP TABLE`/`DROP INDEX` in
+`ensure_schema`'s body, and the migration function is actually called at
+startup. Both are the `test_the_upload_module_guards_the_stored_path` idiom,
+because a behavioural test cannot reliably catch a timing race that only
+appears in some fraction of runs - which is exactly how this one survived a
+prior green suite.
+
+**The retraction is about the number, not the diagnosis.** "2 of 3 runs
+failed" was reported as an observed rate. Whether those three runs had the
+machine to themselves was never checked at the time - a `TaskStop` call on a
+later, unrelated job was later found to leave its child process running, which
+is the kind of thing that goes unnoticed exactly when nobody is looking for it.
+**If a second suite was alive during any of runs 1-3, the observed rate is
+inflated, and inflated in the one direction that looks like the bug**: DDL
+contention manufactures the same symptom the diagnosis was hunting for. This
+does not weaken the diagnosis itself - the mechanism is real independent of
+what else was running, and the concurrency test failing is consistent either
+way - but it means **2-of-3 must be read as an uncontrolled observation, never
+as a measured baseline**, and every later calculation against it (what failure
+rate N clean runs would clear) inherits that uncertainty. Ten clean runs clears
+a true rate of 0.3 comfortably; it does not clear 0.1; and if the true rate is
+lower than 2-of-3 suggested, ten clean runs is weaker evidence than the
+arithmetic implies. State counts and denominators together, and say when a
+denominator was not itself controlled for.
+
 **A fifteenth, 2026-09-18 (phase 4), and it is a correction to entry 14's
 neighbour.** Phase 3B reported "SAES-A-105 IS NOT IN THIS REPOSITORY" and built
 its argument on it. That was true of the REPOSITORY and false of the MACHINE:

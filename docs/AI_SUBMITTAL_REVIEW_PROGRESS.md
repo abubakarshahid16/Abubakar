@@ -1624,3 +1624,232 @@ All numbers below were taken from the same tree state, at commit
    recorded here rather than automated.
 8. **`SAES-A-105.pdf` was measured but not ingested**, so the corpus still has
    no machine-readable engineering standard.
+
+
+---
+
+# Phase 5A (applicability selection)
+
+Which standards apply to a submittal, why, and what is missing. Nothing about
+whether the submittal complies - that is 5B, and keeping the two apart is what
+stops a selection heuristic becoming a compliance verdict.
+
+## 55. The real run, and it is the phase working correctly
+
+Both real KOC datasheets, with `SAES-A-105` loaded as the only library
+standard:
+
+| | KOC pump (M-03) | KOC PSV (I-06) |
+|---|---|---|
+| Library size | 1 | 1 |
+| Standards the sheet cites | 15 | 8 |
+| **Selected** | 1 | 1 |
+| **Missing references** | **15** | **8** |
+| `reference_coverage` | **0.0** | **0.0** |
+| `extraction_coverage` | 0.429 | 0.80 |
+| **completeness** | **0.0** | **0.0** |
+
+Missing on the pump sheet: `API 610`, `API 670`, `ISO 1940`, `ISO 9906`,
+`ISO 10438`, `KOC-MP-008`, `ASTM A995`, `ASTM A276`, `EN 13463` and six more.
+On the PSV sheet: `API RP 520 Pt-1`, `KOC-MP-027`, `NACE MR-0175`,
+`ISO 15156`, `API RP 578`, `ASTM A216`, `ASTM A193`, `ASTM B633`.
+
+**Every standard these datasheets cite is absent from the library, and the
+system says so.** That is the correct answer, not a failure.
+
+The single selected row is `SAES-A-105`, chosen by **discipline match** and
+labelled as exactly that. It has nothing to do with a KOC pump - and
+critically, **it does not mark any citation satisfied**. `reference_coverage`
+stays 0.0 with it on the list. That is the whole phase in one line: something
+was found, and finding it changed nothing about what is missing.
+
+## 56. The guard this phase exists for
+
+Master plan section 23: vector similarity "must never be the sole basis for
+declaring compliance". Section 11 puts explicit references first and semantic
+retrieval fifth. The specific way that goes wrong:
+
+> A datasheet cites API 610. API 610 is not in the library. Retrieval finds a
+> vaguely related pump document. It lands on the list as "applicable". The
+> missing standard disappears, and a review that could not possibly have been
+> performed reads as complete.
+
+So the rule implemented is stronger than "prefer references":
+
+**A SEMANTICALLY RETRIEVED STANDARD MAY NEVER SUBSTITUTE FOR AN EXPLICITLY
+REFERENCED ONE THAT IS ABSENT.**
+
+`_semantic_cannot_cover_a_missing_reference` is a function of its own, doing
+nothing but returning the missing list unchanged and marking every semantic
+row `satisfies_reference: False`, so removing it is a visible act rather than
+an edited condition. Mutation M59 removes it and the test fails. The test
+asserts the retrieved standard WAS selected before asserting the citation is
+still missing, otherwise it would pass on a run where nothing was found at
+all - species four.
+
+## 57. Selection, in section 11's priority order
+
+| Rule | `selection_method` | Confidence ceiling |
+|---|---|---|
+| 1. Named in the datasheet | `referenced` | 0.9 |
+| 2. Equipment type | `equipment_type` | 0.7 |
+| 3. Discipline | `discipline` | 0.5 |
+| 4. Service / conditions | `service` | 0.5 |
+| 5. Semantically retrieved | `semantic` | 0.4 |
+| 6. Contract / project | `project` | 0.4 |
+| An engineer's decision | `manual` | 0.9 |
+
+**The method is recorded per row.** `record_selection` REFUSES a row with no
+reason, an unknown method, or an exclusion with no exclusion reason.
+
+**Confidence is never "high"** (CLAUDE.md rule 4). Each method has a ceiling
+and the value is clamped to it. Even an explicit citation stops at 0.9.
+
+When two rules pick the same standard the STRONGER reason wins. A null
+attribute on either side is not a match - "neither has a discipline recorded"
+is not evidence they belong together.
+
+## 58. What else is recorded
+
+- **Standards considered and EXCLUDED**, each with its `exclusion_reason`.
+- **Missing references, by the identifier the datasheet used** - not a
+  canonical form.
+- **Completeness**, from `reference_coverage` and `extraction_coverage`,
+  **multiplied, not averaged**: a review with every standard present but half
+  the datasheet unread is half a review, and an average would let one good
+  number hide the other. `None` when there is nothing to judge, never 0.
+
+## 59. Permissions
+
+Every read takes `allowed_document_ids` keyword-only with no default, and
+access filters BEFORE ranking. `applicable_standards` filters twice - the
+run's submittal must be readable AND each standard row is restricted to
+standards the caller may read. **Reading a submittal does not grant the
+standards it cites.** An override requires both documents readable and a
+non-empty reason, and writes `review.applicability_override` to
+`audit_events`.
+
+## 60. Mutations - 63/63, after one that reached for a known shortcut
+
+| # | Mutation |
+|---|---|
+| M57 | Stop matching standards the datasheet names |
+| M58 | Silently drop a referenced standard the library lacks |
+| M59 | **Let a semantic hit satisfy a missing reference** |
+| M60 | Select superseded standards again |
+| M61 | Stop recording standards considered and ruled out |
+| M62 | Stop auditing an engineer override |
+| M63 | Drop the confidence ceiling |
+
+All seven detected on the first pass at the test level, and the 22 tests
+passed first run - the first phase where that happened. **But M62's first
+version reached for the `NameError` shortcut a THIRD time**: replacing the
+audit call with a call to a nonexistent function, which fails for the wrong
+reason. That is honesty-audit entries 10 and 12, now a third occurrence.
+Corrected to disable the audit by returning early, with the reasoning written
+at the mutation itself.
+
+## 61. A production defect found by suite flakiness, and a number corrected
+
+While verifying 5A against the full suite, three runs of one unchanged tree
+gave three different results: two permission tests failed, then a clean run,
+then `test_access_routes::test_two_concurrent_requests_never_share_scope`
+failed alone. Different victims each run, no random-order plugin installed,
+no hash-seed sensitivity (probed at seeds 0/1/2) - the signature of lock
+contention, not ordering or data pollution.
+
+**The cause: `submittal_review.ensure_schema()` - called by every read in that
+module - held a conditional `DROP TABLE` / `CREATE TABLE` migrating
+`submittal_facts`.** DDL on one SQLite connection blocks readers on other
+connections. The concurrency test failing is what identified the mechanism.
+
+**This was a production defect, not a test defect.** The same DDL would block
+concurrent readers in the running application exactly as it did in the suite;
+the first request after startup to trigger the rebuild could have stalled
+whatever else was in flight.
+
+**The fix:** the rebuild moved to `migrate_facts_to_per_document()`, called
+once from `main.lifespan` beside the other startup schema calls. Two
+source-assertion tests hold the shape (`test_the_upload_module_guards_the_
+stored_path`'s idiom, because a timing race cannot be caught reliably by a
+behavioural test):
+
+- `test_ensure_schema_contains_no_ddl` - no `DROP TABLE`/`DROP INDEX` in
+  `ensure_schema`'s body, AND the migration function still contains its DROP
+  (so the test cannot pass by the migration being deleted too);
+- `test_the_facts_migration_is_called_at_startup` - `main.lifespan`'s source
+  actually calls it.
+
+Two `ORDER BY created_at DESC` clauses with no tiebreaker were fixed alongside
+this (`_now()` is second-granularity): `list_review_runs` and
+`list_standard_requirements` now order `created_at DESC, id DESC`, matching
+the pattern `review_status_for` already used.
+
+**The retraction: "2 of 3 runs failed" was reported as an observed rate, and
+it should not have been.** Whether those three runs had the machine to
+themselves was never checked at the time. A later, unrelated `TaskStop` call
+was found to leave its child process running past the stop - the kind of thing
+that goes unnoticed exactly when nobody is looking for it - which raises the
+live possibility that a similar overlap affected runs 1-3 undetected.
+**If a second suite was alive during any of those three runs, the observed
+rate is inflated, and inflated in the one direction that looks like the bug**:
+DDL contention manufactures the same symptom the diagnosis was hunting for.
+
+This does not weaken the diagnosis - the mechanism is real independent of what
+else was running, and the concurrency test failing is consistent either way -
+but **2-of-3 must be read as an uncontrolled observation, never as a measured
+baseline**. Recorded as honesty-audit entry 18.
+
+**Ten runs were then taken with the machine verified single-runner
+throughout** (process count checked before starting and mid-run):
+**10 of 10 clean - 1773 passed, 0 failed, every run**, wall times 7-9 minutes
+each. Read against the corrected denominator rather than the original
+arithmetic: ten-for-ten does not retroactively validate 2-of-3 as a rate, but
+it is independent evidence that whatever the true failure rate is now, it is
+low enough that ten single-runner runs did not observe it once.
+
+## 62. Verification, measured
+
+All numbers below were taken from the tree at `01f0545` plus the changes
+described in sections 55-61.
+
+| | passed | skipped | deselected | xfailed |
+|---|---|---|---|---|
+| Baseline (Phase 4) | 1749 | 27 | 1 | 17 |
+| **After 5A, single run** | **1773** | 27 | 1 | 17 |
+| **After the DDL fix, 10 consecutive runs** | **1773 every time** | 27 | 1 | 17 |
+
++24 from baseline is the 22 new applicability tests plus the 2 new source
+assertions.
+
+| Check | Result |
+|---|---|
+| Mutations | **63/63 detected**, re-verified after the DDL fix |
+| `npm run build` | passes |
+| Frontend known-bad set, isolated | 59 failed - unchanged (5A touched no frontend) |
+| `python run.py` -> `GET /api/health` | 200 |
+| `GET /openapi.json` | 200 |
+| CI lint gate | passes |
+| `git diff --check` | clean |
+
+## 63. Known limitations - 5A
+
+1. **Rule 5 is FTS5, not the dense index.** The dense path (`search.search`)
+   exists and was not wired in; on a library of one standard it would add
+   nothing measurable, and an unmeasured retrieval path is exactly what this
+   phase warns against. 5B's call, once there is a library to retrieve from.
+2. **The library is one document.** Every measurement above is against a
+   library of size 1. Load the KOC standards and the numbers change
+   completely - reporting 0.0 now is the point.
+3. **No equipment-type mapping table.** Rule 2 matches on exact string
+   equality; "centrifugal pump" does not match "pump".
+4. **Referenced-standard matching is by identifier only.**
+5. **No relevant-clause extraction.** Section 11 asks for it per standard;
+   5A stores the standard and its reason, not clause-level relevance.
+6. **Exclusion rows are written for the whole library on every run.** Needs a
+   bound before it is realistic on a large library.
+7. **No API routes.** 5A is engine and storage only.
+8. **The concurrency test that surfaced the DDL bug was not itself modified.**
+   `test_two_concurrent_requests_never_share_scope` already existed; it simply
+   had never been exposed to a DROP TABLE in a read path before this phase's
+   schema work.
