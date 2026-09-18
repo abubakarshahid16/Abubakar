@@ -280,21 +280,25 @@ def list_documents(request: Request, response: Response,
     # would silently turn it into that bug. The scope belongs in the WHERE
     # clause on principle, not because this particular query needs it.
     allowed = sorted(scope.allowed_document_ids)
-    if not allowed:
+    if not scope.unrestricted and not allowed:
         response.headers["X-Total-Count"] = "0"
         response.headers["X-Limit"] = str(limit)
         response.headers["X-Offset"] = str(offset)
         return []
-    marks = ",".join("?" * len(allowed))
-    where = [f"id IN ({marks})"]
-    params: list[object] = list(allowed)
+    if scope.unrestricted:
+        where: list[str] = []
+        params: list[object] = []
+    else:
+        marks = ",".join("?" * len(allowed))
+        where = [f"id IN ({marks})"]
+        params = list(allowed)
     if q:
         where.append("LOWER(filename) LIKE ?")
         params.append(f"%{q.strip().lower()}%")
     if status:
         where.append("status = ?")
         params.append(status)
-    where_sql = " AND ".join(where)
+    where_sql = " AND ".join(where) or "1 = 1"
     total = conn.execute(f"SELECT COUNT(*) FROM documents WHERE {where_sql}", params).fetchone()[0]
     order = f"{sort_columns[sort]} {'ASC' if direction == 'asc' else 'DESC'}"
     rows = conn.execute(
