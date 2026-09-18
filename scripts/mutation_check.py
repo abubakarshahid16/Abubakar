@@ -846,9 +846,105 @@ PHASE_5A = (
     ),
 )
 
+#: Phase 5B: the compliance comparison engine. `phase=7` because the lower
+#: numbers are taken; the ids are the stable handle.
+PHASE_5B = (
+    Mutation(
+        id="M64", phase=7,
+        description="stop comparing numbers, so a breach is never caught",
+        path=APP / "comparison.py",
+        anchor="    verdict = claims._compatible(observed, limit)",
+        replacement="    verdict = True",
+        target="tests/test_comparison.py",
+        keyword="numeric_breach_is_caught",
+        tags=("deterministic",),
+    ),
+    Mutation(
+        id="M65", phase=7,
+        description="drop the exception, reporting a false breach against a "
+                    "compliant PSV",
+        path=APP / "comparison.py",
+        anchor="    exception = _applicable_exception(requirement, subject)",
+        replacement="    exception = None",
+        target="tests/test_comparison.py",
+        keyword="psv_at_108_db_is_compliant",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M66", phase=7,
+        description="turn a blank By-Contractor field into NON_COMPLIANT",
+        path=APP / "comparison.py",
+        anchor='            "status": MISSING_INFORMATION,\n            "rationale": f"the submittal leaves this field to be provided ({marker})",',
+        replacement='            "status": NON_COMPLIANT,\n            "rationale": f"the submittal leaves this field to be provided ({marker})",',
+        target="tests/test_comparison.py",
+        keyword="blank_by_contractor_field_is_missing_information",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M67", phase=7,
+        description="store a finding whose citations do not resolve",
+        path=APP / "comparison.py",
+        anchor="    if unresolved:\n        status = NEEDS_ENGINEER_REVIEW",
+        replacement="    if False:\n        status = NEEDS_ENGINEER_REVIEW",
+        target="tests/test_comparison.py",
+        keyword="citation_does_not_resolve or another_document",
+        tags=("citation",),
+    ),
+    Mutation(
+        id="M68", phase=7,
+        description="guess a comparison when the units cannot be compared",
+        path=APP / "comparison.py",
+        anchor="    if verdict is None:\n        return {\n            \"status\": NEEDS_ENGINEER_REVIEW,",
+        replacement="    if verdict is None:\n        verdict = True\n    if False:\n        return {\n            \"status\": NEEDS_ENGINEER_REVIEW,",
+        target="tests/test_comparison.py",
+        keyword="unknown_unit_yields_no_comparison",
+        tags=("honesty", "unit"),
+    ),
+    Mutation(
+        id="M69", phase=7,
+        description="let the model overrule the deterministic comparison",
+        path=APP / "comparison.py",
+        anchor="    if not model_opinion or model_opinion == deterministic:\n        return deterministic, None\n    return deterministic, (",
+        replacement="    if not model_opinion or model_opinion == deterministic:\n        return deterministic, None\n    return model_opinion, (",
+        target="tests/test_comparison.py",
+        keyword="model_disagreeing_does_not_change",
+        tags=("section14", "critical"),
+    ),
+    Mutation(
+        id="M70", phase=7,
+        description="approve a review that examined a fraction of the fields",
+        path=APP / "comparison.py",
+        anchor='    if not completeness.get("sufficient"):',
+        replacement="    if False:",
+        target="tests/test_comparison.py",
+        keyword="low_completeness_forces_manual_review",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M71", phase=7,
+        description="allow a code override with no reason",
+        path=APP / "comparison.py",
+        anchor='    if recommended and code != recommended and not (override_reason or "").strip():',
+        replacement="    if False:",
+        target="tests/test_comparison.py",
+        keyword="overriding_without_a_reason",
+        tags=("audit",),
+    ),
+    Mutation(
+        id="M72", phase=7,
+        description="let completeness average instead of taking the weakest link",
+        path=APP / "comparison.py",
+        anchor="    overall = round(min(parts), 3) if parts else None",
+        replacement="    overall = round(sum(parts) / len(parts), 3) if parts else None",
+        target="tests/test_comparison.py",
+        keyword="weakest_link_not_the_average",
+        tags=("honesty",),
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
-    + PHASE_3B + PHASE_4 + PHASE_5A
+    + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B
 )
 
 
