@@ -7,13 +7,13 @@ export type AppRoute =
 const titles: Record<ViewId, string> = {
   dashboard: "Dashboard",
   documents: "Documents",
-  chat: "Document review chat",
-  analysis: "Engineering analysis",
-  reports: "Reports",
+  chat: "Document Q&A",
+  analysis: "Analysis Hub",
+  reports: "CRS & Reports",
   deliverables: "Deliverables and timeline",
   ingestion: "Ingestion",
   admin: "Administration",
-  review: "Submittal review",
+  review: "AI Submittal Review",
 };
 
 export function titleForView(view: ViewId): string {

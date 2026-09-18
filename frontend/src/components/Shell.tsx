@@ -32,12 +32,12 @@ interface NavItem {
 
 export const NAV: NavItem[] = [
   { id: "dashboard", label: "Dashboard", hint: "Metrics, models, readiness", built: true },
+  { id: "review", label: "AI Submittal Review", hint: "Upload, AI review, findings, CRS", built: true },
   { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
-  { id: "chat", label: "Chat", hint: "Ask questions with citations", built: true },
-  { id: "analysis", label: "Analysis", hint: "Summary, gaps, advice", built: true },
-  { id: "reports", label: "Reports", hint: "Frozen evidence, as PDF", built: true },
+  { id: "analysis", label: "Analysis Hub", hint: "Summary, gaps, advice", built: true },
+  { id: "chat", label: "Document Q&A", hint: "Ask questions with citations", built: true },
+  { id: "reports", label: "CRS & Reports", hint: "Frozen evidence, as PDF", built: true },
   { id: "deliverables", label: "Deliverables", hint: "WBS, revisions, due dates", built: true },
-  { id: "review", label: "Review flow", hint: "Guided document review", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
 ];
 
