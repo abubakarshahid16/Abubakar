@@ -44,6 +44,7 @@ from . import deliverables as deliverables_mod
 from . import notifications as notifications_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
+from . import standards as standards_mod
 from . import submittal_review as submittal_review_mod
 from . import workbook as workbook_mod
 from . import schemas
@@ -1876,6 +1877,125 @@ def document_original(
             "Cache-Control": "private, max-age=0, no-store",
         },
     )
+
+
+# ------------------------------------------------------------- standards
+#
+# THE LIBRARY IS LOGICALLY SEPARATE AND PHYSICALLY THE SAME DATABASE. These
+# routes read the same `documents` and `chunks` rows as everything else, under
+# the same grants, through the same scope. "A dedicated library" is a statement
+# about what a reader sees, never about where the bytes live.
+
+
+@app.get("/api/standards", response_model=list[schemas.StandardSummary],
+         responses=schemas.ERRORS_422)
+def list_standards(
+    request: Request,
+    include_superseded: bool = Query(True),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Every COMPANY_STANDARD the caller may read.
+
+    The role decides what belongs in the library; the grants decide what this
+    caller may see. They are ANDed in the query, so the library is always a
+    subset of what the caller already holds.
+    """
+    reject_unknown_params(request, {"include_superseded"})
+    return standards_mod.list_standards(
+        allowed_document_ids=scope.allowed_document_ids,
+        include_superseded=include_superseded)
+
+
+@app.get("/api/standards/{document_id}/clauses",
+         response_model=list[schemas.StandardClause],
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def standard_clauses(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The clause hierarchy, read from the chunks the document already has."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return standards_mod.clause_hierarchy(
+        document_id, allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.get("/api/standards/{document_id}/requirements",
+         response_model=list[schemas.StandardRequirement],
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def standard_requirements(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return standards_mod.list_requirements(
+        document_id, allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.post("/api/standards/{document_id}/requirements/extract",
+          response_model=schemas.StandardExtraction,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def extract_standard_requirements(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """Re-read a standard and record every obligation it states.
+
+    THE ADMIN CAPABILITY IS REQUIRED. Extraction replaces the unconfirmed rows
+    for a standard, which changes what every later reader sees, so it needs the
+    role that answers for everyone - the same reasoning as classification.
+    Confirmed rows are never deleted.
+    """
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return standards_mod.extract_requirements(
+        document_id, allowed_document_ids=scope.allowed_document_ids, actor=actor)
+
+
+@app.get("/api/standards/{document_id}/revisions",
+         response_model=list[schemas.StandardSummary],
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def standard_revisions(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Every revision of the same standard number the caller may read."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return standards_mod.revision_history(
+        document_id, allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.post("/api/standards/{document_id}/supersede",
+          response_model=schemas.SupersedeRequest,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def supersede_standard(
+    document_id: str,
+    body: schemas.SupersedeRequest,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """Mark a standard as replaced, or clear the mark. ADMIN, and AUDITED.
+
+    A superseded standard stops being SELECTED for new reviews and stays fully
+    readable and citable - an engineer must still be able to open the revision
+    a submittal was reviewed against last year.
+    """
+    require_document(document_id, scope)
+    try:
+        result = standards_mod.supersede(
+            document_id, body.superseded_by,
+            allowed_document_ids=scope.allowed_document_ids, actor=actor)
+    except standards_mod.RequirementError as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc), document_id=document_id)) from exc
+    return {"superseded_by": result["superseded_by"]}
 
 
 @app.get("/api/documents/{document_id}/workbook",

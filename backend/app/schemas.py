@@ -181,6 +181,101 @@ class Document(BaseModel):
     review_status: DocumentReviewStatus = "not_reviewed"
 
 
+class StandardClause(BaseModel):
+    """One clause of a standard, resolving to the chunk it was read from."""
+
+    clause: str
+    parent_clause: str | None = Field(
+        None, description="null for a top-level clause - a real answer, not a "
+                          "missing one: it is the root of the hierarchy")
+    depth: int
+    title: str | None = None
+    page: int
+    chunk_id: str = Field(
+        description="the chunk this clause was read from, so it resolves to a "
+                    "passage a reader can open")
+
+
+class StandardRequirement(BaseModel):
+    """One atomic requirement, with its resolving citation.
+
+    Phase 3A carries no requirement_type, operator, value, unit, condition or
+    exceptions. Those are 3B, and half a numeric limit is worse than none: a
+    row carrying `value: 90` with no operator reads as a limit and is not one.
+    """
+
+    id: str
+    standard_document_id: str
+    clause: str | None = Field(
+        None, description="NULL when the parser could not identify one. Never "
+                          "guessed and never inherited from the preceding "
+                          "clause - an inherited number is a citation that "
+                          "resolves to the wrong place")
+    page: int | None
+    chunk_id: str | None
+    requirement_text: str
+    source_text: str | None = Field(
+        None, description="the verbatim span. Separate from requirement_text "
+                          "because 3B will normalise one and must not lose the "
+                          "other")
+    category: str | None = None
+    extraction_method: str | None = Field(
+        None, description="'extracted' until a human confirms it: a guess "
+                          "stays labelled a guess")
+    confidence: float | None = Field(
+        None, description="A HEURISTIC, not a probability. Its only job is to "
+                          "decide whether a row is presented as a requirement "
+                          "or as one awaiting verification")
+    confirmed_by: str | None = None
+    confirmed_at: str | None = None
+    needs_verification: bool = Field(
+        description="true while a human has not confirmed a row this extractor "
+                    "is unsure of")
+    citation_resolves: bool = Field(
+        description="false when the cited chunk is gone - re-extract. Shown "
+                    "rather than the row being silently dropped")
+    created_at: str
+    updated_at: str
+
+
+class StandardSummary(BaseModel):
+    """One row of the Standards Library list."""
+
+    id: str
+    filename: str
+    status: DocStatus
+    page_count: int | None
+    uploaded_at: str
+    title: str | None = None
+    document_number: str | None = None
+    revision: str | None = None
+    effective_date: str | None = None
+    discipline: str | None = None
+    superseded_by: str | None = None
+    superseded: bool = Field(
+        description="excluded from SELECTION for new reviews, and still fully "
+                    "readable and citable. Two different questions")
+    requirement_count: int = Field(
+        description="0 is a real answer meaning NONE EXTRACTED. It never means "
+                    "'none required' and never renders as readiness")
+    awaiting_verification: int
+
+
+class StandardExtraction(BaseModel):
+    """What one extraction run did. Counts, with their boundary stated."""
+
+    document_id: str
+    chunks_read: int
+    requirements: int
+    awaiting_verification: int
+
+
+class SupersedeRequest(BaseModel):
+    superseded_by: str | None = Field(
+        None, description="the document id that replaces this one, or null to "
+                          "clear the mark")
+
+
 class WorkbookSheet(BaseModel):
     """One sheet of a read-only workbook preview."""
 

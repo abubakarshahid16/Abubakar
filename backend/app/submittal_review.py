@@ -105,6 +105,25 @@ def ensure_schema() -> None:
                     REFERENCES documents(id) ON DELETE CASCADE,
                 clause TEXT,
                 page INTEGER,
+                -- THE RESOLVING CITATION. A requirement is a claim about a
+                -- document, and this project's first honesty invariant is that
+                -- no claim exists without a citation that resolves. The chunk
+                -- is what makes `clause` and `page` checkable: a reader can
+                -- open the exact passage the sentence was read from.
+                --
+                -- It points into the EXISTING chunks - the same rows retrieval
+                -- already searches, already in chunks_fts, already embedded in
+                -- chunk_vectors. A second exact-text or vector store would
+                -- duplicate retrieval and, worse, bypass the
+                -- allowed_document_ids masking that only the existing path
+                -- enforces.
+                --
+                -- ON DELETE CASCADE: re-chunking a document replaces its
+                -- chunks, and a requirement whose chunk is gone cannot be
+                -- resolved any more. Keeping it would leave a claim pointing
+                -- at nothing, which is the state this column exists to
+                -- prevent. Re-extraction rebuilds them.
+                chunk_id TEXT REFERENCES chunks(id) ON DELETE CASCADE,
                 requirement_text TEXT NOT NULL,
                 -- The verbatim span this requirement was read from. Kept
                 -- beside the paraphrase so a claim can always be resolved to
@@ -123,9 +142,27 @@ def ensure_schema() -> None:
                 updated_at TEXT NOT NULL
             )"""
         )
+        # Phase 3A added `chunk_id` to a table Phase 1 created and never wrote
+        # to. The ALTER is still required: a database created by the phase 1 or
+        # phase 2 build has the table without the column, and `CREATE TABLE IF
+        # NOT EXISTS` above is a no-op there. `row[1]` is review.py's PRAGMA
+        # idiom, which this module follows.
+        requirement_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(standard_requirements)")
+        }
+        if requirement_columns and "chunk_id" not in requirement_columns:
+            # No REFERENCES clause on the ALTER: SQLite cannot add a column
+            # with a foreign key to an existing table. The constraint is
+            # therefore present on a freshly created table and absent on a
+            # migrated one - so `standards.create_requirement` enforces the
+            # resolving citation in code, where it holds either way.
+            conn.execute("ALTER TABLE standard_requirements ADD COLUMN chunk_id TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_standard_requirements_document "
             "ON standard_requirements(standard_document_id, created_at DESC)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_standard_requirements_chunk "
+            "ON standard_requirements(chunk_id)")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_standard_requirements_unconfirmed "
             "ON standard_requirements(confirmed_by, standard_document_id)")
