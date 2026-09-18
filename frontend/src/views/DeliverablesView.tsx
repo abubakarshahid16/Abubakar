@@ -86,7 +86,7 @@ export function DeliverablesView() {
   }
 
   return (
-    <main id="deliverables" className="mx-auto w-full max-w-6xl px-4 py-6">
+    <main id="deliverables" className="w-full px-4 py-6">
       <header>
         <p className="text-xs font-semibold uppercase tracking-wider text-signal-400">EPC delivery control</p>
         <h1 className="mt-1 text-2xl font-semibold text-slateish-100">Deliverables &amp; timeline</h1>

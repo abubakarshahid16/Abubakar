@@ -278,7 +278,7 @@ export function AnalysisModeScreen() {
       : [];
 
   return (
-    <div className="aurora-field mx-auto max-w-7xl space-y-6">
+    <div className="aurora-field w-full space-y-6">
       <div aria-hidden className="aurora-a" />
       <div aria-hidden className="aurora-b" />
       <AnalysisHeader />

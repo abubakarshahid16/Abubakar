@@ -2,7 +2,7 @@
   {
     "view": "Dashboard",
     "theme": "light",
-    "nodes_scanned": 394,
+    "nodes_scanned": 392,
     "serious": 0,
     "critical": 0,
     "violations": []
@@ -66,7 +66,7 @@
   {
     "view": "Dashboard",
     "theme": "dark",
-    "nodes_scanned": 394,
+    "nodes_scanned": 392,
     "serious": 0,
     "critical": 0,
     "violations": []
