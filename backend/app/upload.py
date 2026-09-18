@@ -117,7 +117,20 @@ def ingest(src: BinaryIO, raw_filename: str) -> tuple[sqlite3.Row, str | None, s
         return existing, None, existing["id"]
 
     final_path = settings.upload_dir / f"{sha256}.pdf"
-    os.replace(temp_path, final_path)  # atomic within the same volume
+    # THE ORIGINAL IS NEVER REWRITTEN. Storage is content-addressed, so an
+    # existing file at this path holds bytes whose SHA-256 is this name - the
+    # same bytes being uploaded. Replacing it would be a no-op in the good case
+    # and a silent corruption in every other one (a truncated temp file, a
+    # hash collision, a future caller that computes the name differently), and
+    # nothing downstream would report it: extraction, page images and every
+    # citation would simply start describing a different document under the
+    # same id. Master-plan section 27: "Original uploaded files remain
+    # immutable." Keeping the first copy is what makes that a property of the
+    # code rather than a sentence in a document.
+    if final_path.exists():
+        temp_path.unlink(missing_ok=True)
+    else:
+        os.replace(temp_path, final_path)  # atomic within the same volume
 
     doc_id = f"doc_{sha256[:12]}"
     job_id = f"job_{uuid.uuid4().hex[:12]}"
