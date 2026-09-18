@@ -76,3 +76,13 @@ identifier. The UI therefore renders those nodes as factual timeline entries
 without inventing links. The document node links to the existing Documents
 view, and deliverables link to their existing record route. A fully clickable
 citation/baseline chain requires those identifiers and routes from the API.
+
+## Phase 4 verification note
+
+The UI now labels automatic baseline selections and inferred deliverable/risk
+records where the API exposes `automatic`, `origin`, or `source_finding_id`.
+Accept/Edit/Reject for those suggestions is not wired because the current API
+has no mutation contract or audit fields for suggestion decisions. Adding local
+buttons would invent state and violate the evidence boundary. The backend needs
+a decision endpoint (suggestion id, decision, edited value, actor, timestamp)
+before this requirement can be completed honestly.
