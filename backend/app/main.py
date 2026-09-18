@@ -66,6 +66,14 @@ async def lifespan(app: FastAPI):
     deliverables_mod.ensure_schema()
     risks_mod.ensure_schema()
     submittal_review_mod.ensure_schema()
+    # A STRUCTURAL MIGRATION, ONCE, AT A MOMENT SOMEBODY CHOSE. It rebuilds
+    # submittal_facts so `review_run_id` is nullable and facts are per
+    # document. It used to sit inside `ensure_schema`, which every read path
+    # calls - so a DROP/CREATE could fire mid-request, from any thread, and the
+    # table's shape became a function of execution history. That produced
+    # intermittent failures in unrelated tests, including the concurrency test,
+    # because DDL on one SQLite connection blocks readers on the others.
+    submittal_review_mod.migrate_facts_to_per_document()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()

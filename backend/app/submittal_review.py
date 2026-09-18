@@ -260,59 +260,15 @@ def ensure_schema() -> None:
                 updated_at TEXT NOT NULL
             )"""
         )
-        # ------------------------------- phase 4: facts are PER DOCUMENT
-        #
-        # THE DECISION, MADE EXPLICITLY RATHER THAN INHERITED.
-        #
-        # Phase 1 declared `review_run_id` NOT NULL, which makes a fact unable
-        # to exist outside a run and forces a full re-extraction of a datasheet
-        # every time a review is started. Master plan section 24 says the
-        # opposite for a 16 GB machine: "reuse cached extraction and embeddings
-        # for duplicate documents".
-        #
-        # So a fact becomes a property of the DOCUMENT, and `review_run_id`
-        # becomes nullable - recording which run first produced it, or NULL
-        # when it was extracted outside any run. A second review of the same
-        # datasheet reads the facts that are already there.
-        #
-        # This needs a TABLE REBUILD, because SQLite cannot drop a NOT NULL.
-        # It is safe here and nowhere else: the table has never been written to
-        # in any build, which is checked below rather than assumed. If a row
-        # ever exists, the rebuild is skipped and the old shape is kept - data
-        # is never silently dropped to satisfy a schema preference.
-        facts_columns = {
-            row[1]: row for row in conn.execute("PRAGMA table_info(submittal_facts)")
-        }
-        run_column = facts_columns.get("review_run_id")
-        needs_rebuild = (
-            run_column is not None
-            and run_column[3] == 1                      # notnull flag
-            and conn.execute(
-                "SELECT COUNT(*) FROM submittal_facts").fetchone()[0] == 0
-        )
-        if needs_rebuild:
-            conn.execute("DROP TABLE submittal_facts")
-            conn.execute(
-                """CREATE TABLE submittal_facts (
-                    id TEXT PRIMARY KEY,
-                    -- NULLABLE now. Which run first produced this fact, or
-                    -- NULL when it was extracted outside any run.
-                    review_run_id TEXT REFERENCES review_runs(id) ON DELETE SET NULL,
-                    submittal_document_id TEXT NOT NULL
-                        REFERENCES documents(id) ON DELETE CASCADE,
-                    field_name TEXT NOT NULL,
-                    field_value TEXT,
-                    unit TEXT,
-                    page INTEGER,
-                    section TEXT,
-                    source_text TEXT,
-                    extraction_method TEXT,
-                    confidence REAL,
-                    confirmed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-                    confirmed_at TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )""")
+        # Phase 4 made facts PER DOCUMENT by making `review_run_id`
+        # nullable. That needed a table rebuild, and the rebuild does NOT
+        # live here - see `migrate_facts_to_per_document`, which runs once
+        # at startup. A conditional DROP/CREATE inside a function called on
+        # every read makes the table's shape a function of execution
+        # history: an old shape with a leftover row skips it, an old shape
+        # with an empty table fires it, and either way it happens at a
+        # moment no caller chose. Read paths assume the schema; they do not
+        # repair it.
         # The resolving citation, same reasoning as standard_requirements in
         # 3A: a fact without a chunk is an assertion. Plus the normalised
         # shape a comparison engine will read in phase 5.
@@ -410,7 +366,14 @@ def list_review_runs(
         # AND, never OR: a caller narrowing to one document may only narrow.
         sql += " AND submittal_document_id = ?"
         args = [*args, submittal_document_id]
-    sql += " ORDER BY created_at DESC"
+    # A TIEBREAKER, because `_now()` is second-granularity: two runs
+    # created in the same second have no defined order without one, and a
+    # caller comparing this list to an expected sequence gets whichever
+    # order SQLite happened to produce. `review_status_for` below already
+    # orders this way and picks the first row per document, so the two
+    # must agree or "the latest run" means two different things in one
+    # module.
+    sql += " ORDER BY created_at DESC, id DESC"
     return [dict(row) for row in connect().execute(sql, args).fetchall()]
 
 
@@ -486,7 +449,10 @@ def list_standard_requirements(
     if standard_document_id is not None:
         sql += " AND standard_document_id = ?"
         args = [*args, standard_document_id]
-    sql += " ORDER BY created_at DESC"
+    # Same reason as list_review_runs: second-granularity timestamps make
+    # a bare created_at ordering unstable for rows written together, and a
+    # bulk extraction writes many requirements inside one second.
+    sql += " ORDER BY created_at DESC, id DESC"
     return [dict(row) for row in connect().execute(sql, args).fetchall()]
 
 
@@ -562,3 +528,66 @@ def list_run_findings(
                 item[field] = []
         out.append(item)
     return out
+
+
+def migrate_facts_to_per_document() -> None:
+    """Make `submittal_facts.review_run_id` nullable. ONCE, AT STARTUP.
+
+    THE DECISION, MADE EXPLICITLY RATHER THAN INHERITED. Phase 1 declared the
+    column NOT NULL, which makes a fact unable to exist outside a run and
+    forces a full re-extraction of a datasheet every time a review starts.
+    Master plan section 24 asks the opposite on a 16 GB machine: "reuse cached
+    extraction and embeddings for duplicate documents". A datasheet's facts are
+    a property of the datasheet.
+
+    SQLite cannot drop a NOT NULL, so this is a rebuild. It is safe only
+    because the table has never been written to in any build - and that is
+    CHECKED here rather than assumed: if any row exists the rebuild is skipped
+    and the old shape is kept. Data is never dropped to satisfy a schema
+    preference.
+
+    IT LIVES HERE, NOT IN `ensure_schema`, and the distinction is the point. A
+    structural migration is a one-time event with a defined moment; a schema
+    guarantee is something every read may assert. Putting a DROP/CREATE in the
+    function every read calls makes the table's shape depend on execution
+    history and fires it at a moment no caller chose. Called from
+    `main.lifespan` beside the other `ensure_schema()` calls.
+    """
+    ensure_schema()
+    conn = connect()
+    columns = {
+        row[1]: row for row in conn.execute("PRAGMA table_info(submittal_facts)")
+    }
+    run_column = columns.get("review_run_id")
+    if run_column is None or run_column[3] != 1:        # notnull flag
+        return                                          # already nullable
+    if conn.execute("SELECT COUNT(*) FROM submittal_facts").fetchone()[0]:
+        # Rows exist. The old shape is kept and the decision is deferred to
+        # whoever is willing to migrate real data.
+        return
+    with conn:
+        conn.execute("DROP TABLE submittal_facts")
+        conn.execute(
+            """CREATE TABLE submittal_facts (
+                id TEXT PRIMARY KEY,
+                -- NULLABLE now. Which run first produced this fact, or
+                -- NULL when it was extracted outside any run.
+                review_run_id TEXT REFERENCES review_runs(id) ON DELETE SET NULL,
+                submittal_document_id TEXT NOT NULL
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                field_name TEXT NOT NULL,
+                field_value TEXT,
+                unit TEXT,
+                page INTEGER,
+                section TEXT,
+                source_text TEXT,
+                extraction_method TEXT,
+                confidence REAL,
+                confirmed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+                confirmed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""")
+    # The added columns are re-applied by ensure_schema, which is additive and
+    # safe to call again.
+    ensure_schema()
