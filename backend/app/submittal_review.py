@@ -260,6 +260,82 @@ def ensure_schema() -> None:
                 updated_at TEXT NOT NULL
             )"""
         )
+        # ------------------------------- phase 4: facts are PER DOCUMENT
+        #
+        # THE DECISION, MADE EXPLICITLY RATHER THAN INHERITED.
+        #
+        # Phase 1 declared `review_run_id` NOT NULL, which makes a fact unable
+        # to exist outside a run and forces a full re-extraction of a datasheet
+        # every time a review is started. Master plan section 24 says the
+        # opposite for a 16 GB machine: "reuse cached extraction and embeddings
+        # for duplicate documents".
+        #
+        # So a fact becomes a property of the DOCUMENT, and `review_run_id`
+        # becomes nullable - recording which run first produced it, or NULL
+        # when it was extracted outside any run. A second review of the same
+        # datasheet reads the facts that are already there.
+        #
+        # This needs a TABLE REBUILD, because SQLite cannot drop a NOT NULL.
+        # It is safe here and nowhere else: the table has never been written to
+        # in any build, which is checked below rather than assumed. If a row
+        # ever exists, the rebuild is skipped and the old shape is kept - data
+        # is never silently dropped to satisfy a schema preference.
+        facts_columns = {
+            row[1]: row for row in conn.execute("PRAGMA table_info(submittal_facts)")
+        }
+        run_column = facts_columns.get("review_run_id")
+        needs_rebuild = (
+            run_column is not None
+            and run_column[3] == 1                      # notnull flag
+            and conn.execute(
+                "SELECT COUNT(*) FROM submittal_facts").fetchone()[0] == 0
+        )
+        if needs_rebuild:
+            conn.execute("DROP TABLE submittal_facts")
+            conn.execute(
+                """CREATE TABLE submittal_facts (
+                    id TEXT PRIMARY KEY,
+                    -- NULLABLE now. Which run first produced this fact, or
+                    -- NULL when it was extracted outside any run.
+                    review_run_id TEXT REFERENCES review_runs(id) ON DELETE SET NULL,
+                    submittal_document_id TEXT NOT NULL
+                        REFERENCES documents(id) ON DELETE CASCADE,
+                    field_name TEXT NOT NULL,
+                    field_value TEXT,
+                    unit TEXT,
+                    page INTEGER,
+                    section TEXT,
+                    source_text TEXT,
+                    extraction_method TEXT,
+                    confidence REAL,
+                    confirmed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+                    confirmed_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )""")
+        # The resolving citation, same reasoning as standard_requirements in
+        # 3A: a fact without a chunk is an assertion. Plus the normalised
+        # shape a comparison engine will read in phase 5.
+        facts_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(submittal_facts)")
+        }
+        for _column, _type in (
+            ("chunk_id", "TEXT"),
+            ("raw_value", "TEXT"),
+            ("raw_unit", "TEXT"),
+            ("normalized_value", "REAL"),
+            ("normalized_unit", "TEXT"),
+            # TRUE when the datasheet leaves the field for the contractor to
+            # fill and it is still empty. MISSING_INFORMATION, never
+            # NON_COMPLIANT and never a zero.
+            ("is_blank", "INTEGER"),
+            ("blank_marker", "TEXT"),
+            ("field_label", "TEXT"),
+            ("bbox", "TEXT"),
+        ):
+            if facts_columns and _column not in facts_columns:
+                conn.execute(
+                    f"ALTER TABLE submittal_facts ADD COLUMN {_column} {_type}")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_submittal_facts_run "
             "ON submittal_facts(review_run_id, field_name, created_at DESC)")

@@ -855,8 +855,63 @@ def _interval(m: Measurement) -> tuple[float, float, bool, bool] | None:
     return (v, v, True, True)
 
 
+def same_unit(a: Measurement, b: Measurement) -> bool:
+    """True when both measurements are written in the SAME unit spelling.
+
+    Folded, so `dB(A)` and `db(a)` are the same unit and `dB(A)` and `dB` are
+    not - because they are not: A-weighting is part of what the number means.
+    """
+    ua, ub = _fold_unit(a.raw_unit or ""), _fold_unit(b.raw_unit or "")
+    return bool(ua) and ua == ub
+
+
+def _same_unit_view(m: Measurement) -> Measurement | None:
+    """`m` re-expressed so the interval machinery can read it, or None.
+
+    ONLY for a same-unit comparison. The value is the raw number and the unit
+    is its own spelling - nothing is converted, because there is nothing to
+    convert to. Returns None when the number itself cannot be parsed, which is
+    still undecidable rather than a guess.
+    """
+    if m.normalized_value is not None:
+        return m
+    value = parse_value(m.raw_value)
+    if value is None:
+        return None
+    return Measurement(
+        raw_value=m.raw_value, raw_unit=m.raw_unit,
+        normalized_value=value, normalized_unit=_fold_unit(m.raw_unit or ""),
+        comparator=m.comparator,
+    )
+
+
 def _compatible(a: Measurement, b: Measurement) -> bool | None:
-    """True when the values (as ranges) overlap, False when not, None if undecidable."""
+    """True when the values (as ranges) overlap, False when not, None if undecidable.
+
+    SAME-UNIT COMPARISON NEEDS NO DIMENSION, and that unblocks the case this
+    product is written around. `dB` is mapped to `None` in `_UNCONVERTED_UNITS`
+    and that mapping is correct - a decibel is a logarithmic ratio and has no
+    dimension to convert through, so `normalise` rightly leaves it
+    unnormalised. But "is 95 dB(A) above the 90 dB(A) limit" is not a
+    conversion question. It is a comparison of two numbers written on the same
+    scale, and refusing it left the master plan's flagship requirement - a
+    90 dB(A) limit with a 115 dB(A) relief-valve exception - permanently
+    undecidable.
+
+    So when both sides carry the IDENTICAL unit spelling, the raw numbers are
+    compared directly and nothing is converted.
+
+    CONVERSION BETWEEN DIFFERENT UNITS IS UNCHANGED and still refuses:
+    `normalise_strict` raises `UnknownUnit` for a unit outside the table, and
+    two different unconvertible spellings stay undecidable here. That is the
+    `scores.ScaleMismatch` discipline and this does not weaken it - a mismatch
+    is still an error rather than a coercion. What is relaxed is only the case
+    where there is no mismatch to speak of.
+    """
+    if (a.normalized_value is None or b.normalized_value is None) and same_unit(a, b):
+        a, b = _same_unit_view(a), _same_unit_view(b)
+        if a is None or b is None:
+            return None
     ia, ib = _interval(a), _interval(b)
     if ia is None or ib is None:
         return None
