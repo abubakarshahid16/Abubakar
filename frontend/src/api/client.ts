@@ -144,7 +144,7 @@ export interface WatchStatus {
 }
 
 export type Result<T> =
-  | { ok: true; data: T }
+  | { ok: true; data: T; response?: Response }
   | { ok: false; disconnected: true; error: ApiError }
   | { ok: false; disconnected: false; error: ApiError };
 
@@ -716,7 +716,7 @@ async function request<T>(
       },
     };
   }
-  return { ok: true, data: body as T };
+  return { ok: true, data: body as T, response };
 }
 
 export const api = {

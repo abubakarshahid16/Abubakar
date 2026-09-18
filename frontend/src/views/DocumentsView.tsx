@@ -161,6 +161,10 @@ export function DocumentsView({
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [listQuery, setListQuery] = useState("");
+  const [sort, setSort] = useState("uploaded_at");
+  const [direction, setDirection] = useState<"asc" | "desc">("desc");
+  const [totalMatching, setTotalMatching] = useState<number | null>(null);
 
   const { vocabulary, settled: vocabularySettled } = useTypeVocabularyLoad();
 
@@ -168,10 +172,11 @@ export function DocumentsView({
     // These reads are independent. Start both before yielding so a slow
     // metrics snapshot never delays the document list (and teardown cannot
     // leave a later document request behind after the view is gone).
-    const [m, result] = await Promise.all([api.metrics(), api.documents()]);
+    const [m, result] = await Promise.all([api.metrics(), api.documents({ limit: 100, q: listQuery, sort, direction })]);
     setWorker(m.ok ? m.data.worker : null);
     if (result.ok) {
       setLoad({ state: "ready", documents: result.data });
+      setTotalMatching(Number(result.response?.headers?.get?.("X-Total-Count") ?? result.data.length));
     } else {
       setLoad({
         state: "error",
@@ -179,7 +184,16 @@ export function DocumentsView({
         disconnected: result.disconnected,
       });
     }
-  }, []);
+  }, [direction, listQuery, sort]);
+
+  const loadMore = useCallback(async () => {
+    if (load.state !== "ready") return;
+    const result = await api.documents({ limit: 100, offset: load.documents.length, q: listQuery, sort, direction });
+    if (result.ok) {
+      setLoad({ state: "ready", documents: [...load.documents, ...result.data] });
+      setTotalMatching(Number(result.response?.headers?.get?.("X-Total-Count") ?? load.documents.length + result.data.length));
+    }
+  }, [direction, listQuery, load, sort]);
 
   // Poll so ingestion progress is live without the operator refreshing - but
   // only FAST while there is progress to be live about. On an idle corpus the
@@ -311,6 +325,19 @@ export function DocumentsView({
           Upload, inspect, and verify what the system can actually search.
         </p>
       </header>
+
+      <div className="flex flex-wrap items-end gap-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
+        <label className="min-w-56 flex-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
+          Find documents
+          <input value={listQuery} onChange={(e) => setListQuery(e.target.value)} placeholder="Filename contains…" className="mt-1 w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200" />
+        </label>
+        <label className="text-xs font-semibold uppercase tracking-wide text-slateish-400">Sort
+          <select value={sort} onChange={(e) => setSort(e.target.value)} className="mt-1 block rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200">
+            <option value="uploaded_at">Newest</option><option value="filename">Filename</option><option value="status">Status</option>
+          </select>
+        </label>
+        <button type="button" className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm" onClick={() => setDirection((d) => d === "asc" ? "desc" : "asc")}>Order: {direction === "asc" ? "A–Z" : "Newest"}</button>
+      </div>
 
       {/* The worker DETAIL comes from /api/metrics, scoped as of the commit
           that corrected this comment - it previously discarded the scope it
@@ -448,7 +475,7 @@ export function DocumentsView({
                               : `None of the documents you can open is a ${group.name}.`}
                           </p>
                         ) : (
-                          <ul className="space-y-3">
+                          <ul className="virtual-list space-y-3">
                             {group.documents.map((doc) => (
                               <DocumentCard
                                 key={doc.id}
@@ -476,7 +503,7 @@ export function DocumentsView({
                           {awaiting.documents.length}
                         </span>
                       </h3>
-                      <ul className="space-y-3">
+                      <ul className="virtual-list space-y-3">
                         {awaiting.documents.map((doc) => (
                           <DocumentCard
                             key={doc.id}
@@ -489,6 +516,12 @@ export function DocumentsView({
                           />
                         ))}
                       </ul>
+                    </div>
+                  )}
+                  {totalMatching !== null && totalMatching > load.documents.length && (
+                    <div className="flex items-center justify-between border-t border-ink-700 pt-4">
+                      <p className="text-sm text-slateish-400">Showing {load.documents.length} of {totalMatching} documents.</p>
+                      <button type="button" onClick={() => void loadMore()} className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm">Load next 100</button>
                     </div>
                   )}
                 </>

@@ -34,6 +34,14 @@ details:not([open]) > :not(summary) {
   display: none;
 }
 
+/* Long registers keep their rows in the DOM for keyboard navigation, while
+   Chromium skips layout/paint for off-screen cards. The intrinsic size keeps
+   scrollbar geometry stable as rows enter the viewport. */
+.virtual-list > li {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 180px;
+}
+
 /* ── Typeface ───────────────────────────────────────────────────────────────
    IBM Plex: an engineering face with an open licence, three coherent cuts,
    and none of the anonymity of the usual interface default.

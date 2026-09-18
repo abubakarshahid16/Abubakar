@@ -95,7 +95,7 @@ export function ReportsView({
         )}
 
         {reports !== null && reports.length > 0 && (
-          <ul className="space-y-3">
+          <ul className="virtual-list space-y-3">
             {reports.map((r) => (
               <ReportRow key={r.id} report={r} onDownload={onDownload} onVerify={onVerify} />
             ))}

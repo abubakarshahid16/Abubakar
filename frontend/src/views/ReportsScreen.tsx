@@ -69,20 +69,24 @@ type DownloadState =
 export function ReportsScreen() {
   const [reports, setReports] = useState<ReportRecord[] | null>(null);
   const [suppressed, setSuppressed] = useState(0);
+  const [query, setQuery] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState<number | null>(null);
   const [downloadState, setDownloadState] = useState<DownloadState>({ state: "idle" });
 
   const load = useCallback(async () => {
-    const r = await reportsApi.list();
+    const r = await reportsApi.list({ limit: 100, offset, q: query, sort: "created_at", direction: "desc" });
     if (r.ok) {
-      setReports(r.data.reports);
+      setReports((previous) => offset === 0 ? r.data.reports : [...(previous ?? []), ...r.data.reports]);
       setSuppressed(r.data.suppressed_count);
+      setTotal(r.data.total_matching ?? r.data.reports.length);
     } else {
       // An empty list is a real state and a failed request is not the same
       // state; the view shows "still loading" for null and the shell owns a
       // disconnected backend.
       setReports([]);
     }
-  }, []);
+  }, [offset, query]);
 
   useEffect(() => {
     void load();
@@ -162,6 +166,12 @@ export function ReportsScreen() {
         onVerify={verify}
         suppressedCount={suppressed}
       />
+      <div className="flex flex-wrap items-end gap-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
+        <label className="min-w-56 flex-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">Find reports
+          <input value={query} onChange={(e) => { setQuery(e.target.value); setOffset(0); }} placeholder="Question contains…" className="mt-1 w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200" />
+        </label>
+        {total !== null && reports && total > reports.length && <button type="button" onClick={() => setOffset(reports.length)} className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm">Load next 100</button>}
+      </div>
     </div>
   );
 }
