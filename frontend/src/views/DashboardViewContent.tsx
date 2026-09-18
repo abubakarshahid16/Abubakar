@@ -556,9 +556,10 @@ export function DashboardView({
 
       {metrics.warnings.length > 0 && (
         <ul className="mt-4 space-y-1.5">
-          {metrics.warnings.map((w) => (
+          {metrics.warnings.slice(0, 7).map((w) => (
             <MetricWarningRow key={`${w.code}-${w.document_id ?? "all"}-${w.message}`} warning={w} />
           ))}
+          {metrics.warnings.length > 7 && <li className="text-sm text-slateish-400">{metrics.warnings.length - 7} more items are available in the relevant workspace screen.</li>}
         </ul>
       )}
 

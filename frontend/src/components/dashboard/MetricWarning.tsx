@@ -6,9 +6,10 @@ export function MetricWarningRow({ warning }: { warning: MetricWarning }) {
     : warning.severity === "warning"
       ? "border-warn-500/50 bg-warn-500/10 text-warn-500"
       : "border-ink-600 bg-ink-850 text-slateish-400";
+  const href = warning.document_id ? `/documents/${encodeURIComponent(warning.document_id)}` : "/deliverables";
   return <li className={`rounded-[var(--radius-sm)] border px-3 py-2 text-sm ${style}`}>
     <span role={warning.severity === "error" ? "alert" : "status"}>
-      <span className="text-slateish-300">{warning.message}</span>
+      <a href={href} className="text-slateish-300 underline-offset-2 hover:underline">{warning.message}</a>
       <span className="ms-2 font-mono text-xs uppercase tracking-wide text-slateish-500">{warning.code}</span>
     </span>
   </li>;
