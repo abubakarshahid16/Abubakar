@@ -942,9 +942,154 @@ PHASE_5B = (
     ),
 )
 
+#: Document roles: the watched folder's subfolder convention, and the bulk
+#: assignment endpoint. Not a phase - a contained fix between phases 5B and 6.
+#:
+#: M73 IS THE ONE THAT MATTERS. Every other mutation here breaks something a
+#: user would notice. M73 makes the watcher guess a role from the filename,
+#: which on this corpus is right 272 times out of 280 and would look like an
+#: improvement in a diff.
+ROLES_FIX = (
+    Mutation(
+        id="M73", phase=8,
+        description="guess the role from the filename instead of the subfolder",
+        path=APP / "watcher.py",
+        # PATCHED ABOVE THE `len(parts) != 1` GUARD, not below it. The first
+        # version of this mutation replaced the final return, which a file in
+        # the ROOT never reaches - so it changed nothing for the only case the
+        # test is about and reported NOT DETECTED against a test that was
+        # standing exactly where it should. A mutation that cannot reach the
+        # code path is a broken mutation, not a vacuous test, and the harness
+        # saying so is the harness working.
+        anchor="    parts = relative.parts",
+        replacement='    if path.name.upper().startswith("SAES-"):\n'
+                    '        return "COMPANY_STANDARD"\n'
+                    "    parts = relative.parts",
+        target="tests/test_document_roles.py",
+        keyword="root_gets_no_role_even_when_it_looks_like_a_standard",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M74", phase=8,
+        description="ingest from a role subfolder without applying the role",
+        path=APP / "watcher.py",
+        anchor="        tagged = self._apply_role(row[\"id\"], role, path.name, source, sha256,\n"
+               "                                  only_if_unset=False)",
+        replacement="        tagged = False",
+        target="tests/test_document_roles.py",
+        keyword="dropped_in_standards_is_ingested_as_a_company_standard",
+    ),
+    Mutation(
+        id="M75", phase=8,
+        description="skip the role on a duplicate, so an already-ingested "
+                    "library can never be tagged by moving it",
+        path=APP / "watcher.py",
+        anchor='            tagged = self._apply_role(existing["id"], role, path.name, source, sha256)',
+        replacement="            tagged = False",
+        target="tests/test_document_roles.py",
+        keyword="duplicate_dropped_into_standards_tags_the_document",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M76", phase=8,
+        description="let a file in a folder overwrite a role a person set",
+        path=APP / "watcher.py",
+        anchor="source: str, sha256: str, *, only_if_unset: bool = True) -> bool:",
+        replacement="source: str, sha256: str, *, only_if_unset: bool = False) -> bool:",
+        target="tests/test_document_roles.py",
+        keyword="never_overwrites_a_role_a_person_already_set",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M77", phase=8,
+        description="key watched files by bare filename again, so the same "
+                    "name in two subfolders collides",
+        path=APP / "watcher.py",
+        anchor="        return path.resolve().relative_to(folder.resolve()).as_posix()",
+        replacement="        return path.name",
+        target="tests/test_document_roles.py",
+        keyword="same_filename_in_two_subfolders",
+    ),
+    Mutation(
+        id="M78", phase=8,
+        description="DROP THE ADMIN GATE FROM THE BULK ROUTE, so any signed-in "
+                    "caller can re-tag the corpus",
+        path=APP / "main.py",
+        anchor="    scope: access.AccessScope = Depends(access.current_scope),\n"
+               "    actor: dict | None = Depends(admin_mod.current_admin),\n"
+               "):\n"
+               '    """Set one role on many documents. THE SAME PERMISSION, N TIMES.',
+        replacement="    scope: access.AccessScope = Depends(access.current_scope),\n"
+                    "    actor: dict | None = None,\n"
+                    "):\n"
+                    '    """Set one role on many documents. THE SAME PERMISSION, N TIMES.',
+        target="tests/test_document_roles.py",
+        keyword="non_admin_cannot_bulk_set_roles",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M79", phase=8,
+        description="stop re-asking scope inside the bulk loop",
+        path=APP / "main.py",
+        anchor="            require_document(document_id, scope)\n"
+               "        except HTTPException:",
+        replacement="            pass\n"
+                    "        except HTTPException:",
+        target="tests/test_document_roles.py",
+        keyword="outside_the_callers_scope_is_not_written",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M80", phase=8,
+        description="report bulk failures as a silent count instead of by id",
+        path=APP / "main.py",
+        anchor='            failed.append({"document_id": document_id, "reason": "not_found"})',
+        replacement="            pass",
+        target="tests/test_document_roles.py",
+        keyword="names_every_one_that_failed",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M81", phase=8,
+        description="let set_role report a change when the value is identical",
+        path=APP / "classification.py",
+        anchor="            \" WHERE document_classification.document_role\"\n"
+               "            f\" IS NOT excluded.document_role{guard}\",",
+        replacement="            f\" WHERE 1 = 1{guard}\",",
+        target="tests/test_document_roles.py",
+        keyword="separates_documents_it_changed or reports_whether_it_changed",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M82", phase=8, runner="vitest",
+        description="show the bulk selection to a non-admin, whose every "
+                    "apply would 404",
+        path=FRONTEND_SRC / "views" / "DocumentsView.tsx",
+        anchor="                                selected={isAdmin ? selectedIds.includes(doc.id) : undefined}\n"
+               "                                onToggleSelected={isAdmin ? toggleSelected : undefined}",
+        replacement="                                selected={selectedIds.includes(doc.id)}\n"
+                    "                                onToggleSelected={toggleSelected}",
+        target="src/views/DocumentsView.bulkRole.test.tsx",
+        keyword="no selection at all to a non-admin",
+        tags=("permission",),
+    ),
+    Mutation(
+        id="M83", phase=8, runner="vitest",
+        description="report a partial bulk write as an unqualified success",
+        path=FRONTEND_SRC / "views" / "DocumentsView.tsx",
+        anchor="        failed.length\n"
+               "          ? `${failed.length} could not be updated and were left unchanged`\n"
+               "          : null,",
+        replacement="        null,",
+        target="src/views/DocumentsView.bulkRole.test.tsx",
+        keyword="says which documents were not updated",
+        tags=("honesty", "critical"),
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
-    + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B
+    + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX
 )
 
 
