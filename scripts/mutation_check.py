@@ -1166,6 +1166,23 @@ DISCIPLINE = (
         tags=("honesty",),
     ),
     Mutation(
+        id="M92", phase=8,
+        description="ADD `should` TO THE MANDATORY VOCABULARY, recording "
+                    "recommendations as obligations",
+        path=APP / "standards.py",
+        # A BACKSLASH-FREE SLICE of the pattern, on purpose. The full literal
+        # is a raw regex full of `\b` and `\s+`, and three attempts to quote it
+        # as an anchor produced strings that did not match the file - each
+        # reported honestly by the harness as "anchor matched 0 times" rather
+        # than as a passing mutation. This slice occurs exactly once in
+        # standards.py (checked), which is all an anchor has to be.
+        anchor="(shall|must|is",
+        replacement="(shall|should|must|is",
+        target="tests/test_standards_library.py",
+        keyword="mandatory_vocabulary_is_saudi_aramcos_own",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
         id="M91", phase=8,
         description="accept a blank discipline, which reads as classified and "
                     "matches nothing",

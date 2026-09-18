@@ -451,3 +451,37 @@ def test_a_requirement_points_at_a_chunk_retrieval_can_also_see():
     indexed = db.connect().execute(
         "SELECT chunk_id FROM chunks_fts WHERE document_id = ?", (doc,)).fetchall()
     assert row["chunk_id"] in {r["chunk_id"] for r in indexed}
+
+
+# ------------------------------------------------- the mandatory vocabulary
+
+def test_the_mandatory_vocabulary_is_saudi_aramcos_own():
+    """SAES-Z-008 section 4.2 states the client's rule, and this is it.
+
+        must / shall = MANDATORY
+        should       = RECOMMENDED
+        can          = OPTIONAL
+
+    So `should` must never join `_MANDATORY`. Recording a recommendation as a
+    requirement manufactures non-compliance against advice - the vendor is
+    marked in breach of something the standard explicitly did not oblige, and
+    the finding cites a real clause, so it reads as correct all the way down.
+
+    THE EXCLUSIONS ARE ASSERTED THE SAME WAY AS THE INCLUSIONS, against the
+    same function on the same sentence shape. Per honesty-audit entry 20, an
+    "is not matched" claim is only worth anything if the code path ran on that
+    input - and it demonstrably did, because the identical sentence with
+    `shall` in place of `should` matches.
+    """
+    def obliges(word):
+        return bool(standards._MANDATORY.search(
+            f"The vendor {word} provide a material certificate."))
+
+    for word in ("shall", "must", "is required to", "are required to",
+                 "is to be", "are to be"):
+        assert obliges(word), f"{word!r} is mandatory wording and was not matched"
+
+    for word in ("should", "can", "may", "might", "is encouraged to"):
+        assert not obliges(word), (
+            f"{word!r} is NOT mandatory in SAES-Z-008 4.2 and must not be "
+            "recorded as a requirement")
