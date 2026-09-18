@@ -27,6 +27,10 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "ds.sqlite")
     db.reset_connection(); db.init_db(); submittal_review.ensure_schema()
+    # The same two calls main.lifespan makes, in the same order. The
+    # structural migration is a startup step, not something a read path
+    # repairs, so a test that needs the migrated shape asks for it explicitly.
+    submittal_review.migrate_facts_to_per_document()
     yield
     db.reset_connection()
 

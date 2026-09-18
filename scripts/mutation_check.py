@@ -761,9 +761,94 @@ PHASE_4 = (
     ),
 )
 
+#: Phase 5A: applicability selection. `phase=6` because --phase 5 already
+#: selects phase 4; the ids are the stable handle.
+PHASE_5A = (
+    Mutation(
+        id="M57", phase=6,
+        description="stop matching standards the datasheet explicitly names",
+        path=APP / "applicability.py",
+        anchor="        if entry is not None:\n            out[entry[\"id\"]] = {",
+        replacement="        if False:\n            out[entry[\"id\"]] = {",
+        target="tests/test_applicability.py",
+        keyword="named_in_the_datasheet_is_selected or citation_of_a_part",
+        tags=("selection",),
+    ),
+    Mutation(
+        id="M58", phase=6,
+        description="silently drop a referenced standard the library lacks",
+        path=APP / "applicability.py",
+        anchor="        if normalise_identifier(identifier) not in matched_keys",
+        replacement="        if False",
+        target="tests/test_applicability.py",
+        keyword="absent_from_the_library_is_reported_missing",
+        tags=("honesty", "missing"),
+    ),
+    Mutation(
+        id="M59", phase=6,
+        description="let a semantically retrieved standard satisfy a missing "
+                    "reference - THE failure this phase exists to prevent",
+        path=APP / "applicability.py",
+        anchor="    selected, missing = _semantic_cannot_cover_a_missing_reference(selected, missing)",
+        replacement="    missing = [m for m in missing if not selected]",
+        target="tests/test_applicability.py",
+        keyword="semantically_retrieved_standard_does_not_satisfy",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M60", phase=6,
+        description="select superseded standards again",
+        path=APP / "applicability.py",
+        anchor="    ids = standards.selectable_standard_ids(allowed_document_ids=allowed_document_ids)",
+        replacement="    ids = frozenset(r[0] for r in connect().execute(\"SELECT document_id FROM document_classification WHERE document_role = 'COMPANY_STANDARD'\"))",
+        target="tests/test_applicability.py",
+        keyword="superseded_standard_is_not_selected",
+        tags=("supersession",),
+    ),
+    Mutation(
+        id="M61", phase=6,
+        description="stop recording standards considered and ruled out",
+        path=APP / "applicability.py",
+        anchor="        if entry[\"id\"] in selected:\n            continue",
+        replacement="        if True:\n            continue",
+        target="tests/test_applicability.py",
+        keyword="keeps_its_exclusion_reason",
+        tags=("audit",),
+    ),
+    Mutation(
+        id="M62", phase=6,
+        description="stop auditing an engineer override",
+        path=APP / "applicability.py",
+        # Disables the audit WITHOUT raising. Calling a name that does not
+        # exist fails the test with a NameError - the right verdict for the
+        # wrong reason, and indistinguishable from a real detection. That is
+        # honesty-audit entries 10 and 12, and this is the third time the
+        # same shortcut has been reached for, so the reasoning lives here at
+        # the mutation rather than only in the audit file.
+        anchor='    """Durable record of a selection decision. Ids and counts only."""\n'
+               '    conn = connect()',
+        replacement='    """Durable record of a selection decision. Ids and counts only."""\n'
+                    '    return\n'
+                    '    conn = connect()',
+        target="tests/test_applicability.py",
+        keyword="override_writes_an_audit_row",
+        tags=("audit",),
+    ),
+    Mutation(
+        id="M63", phase=6,
+        description="drop the confidence ceiling, allowing a high confidence",
+        path=APP / "applicability.py",
+        anchor="    confidence = min(float(confidence), ceiling)",
+        replacement="    confidence = float(confidence)",
+        target="tests/test_applicability.py",
+        keyword="confidence_is_never_high",
+        tags=("honesty",),
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
-    + PHASE_3B + PHASE_4
+    + PHASE_3B + PHASE_4 + PHASE_5A
 )
 
 

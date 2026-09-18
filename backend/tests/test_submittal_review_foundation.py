@@ -606,3 +606,71 @@ def test_a_classification_with_no_tags_reads_as_an_empty_list():
         conn.execute("""INSERT INTO document_classification
             (document_id,suggested_by) VALUES (?,?)""", ("doc_notags", "test"))
     assert classification.of_document("doc_notags")["equipment_tags"] == []
+
+
+# ----------------------------------------------- the read path holds no DDL
+
+def _ensure_schema_body() -> str:
+    """The source text of `submittal_review.ensure_schema`, and only that.
+
+    Scoped to the FUNCTION rather than the file on purpose:
+    `migrate_facts_to_per_document` legitimately contains a DROP and must keep
+    it. The rule is about where the DDL lives, not whether it exists.
+    """
+    import inspect
+
+    return inspect.getsource(submittal_review.ensure_schema)
+
+
+def test_ensure_schema_contains_no_ddl():
+    """DDL in a read path blocks concurrent readers on other connections.
+
+    `ensure_schema()` is called by every read in this module. While it held a
+    conditional DROP/CREATE of `submittal_facts`, three full-suite runs of one
+    unchanged tree gave three different results: two permission tests failed,
+    then nothing failed, then
+    `test_access_routes::test_two_concurrent_requests_never_share_scope`
+    failed. Different victims each run, with no random-order plugin installed
+    and no hash-seed sensitivity, is the signature of lock contention rather
+    than of ordering or pollution - and the concurrency test failing is what
+    identified it.
+
+    THIS WAS A PRODUCTION DEFECT, not a test defect. The same DDL would block
+    concurrent readers in the running application; the first request after
+    startup that triggered the rebuild could stall whatever else was in
+    flight. The suite is simply what noticed.
+
+    A BEHAVIOURAL TEST CANNOT HOLD THIS LINE, because the failure is a timing
+    race that appears in maybe two runs of three - which is exactly how it
+    survived a full green suite before. So this asserts the SHAPE that made the
+    race possible is gone. The same idiom as
+    `test_the_upload_module_guards_the_stored_path`.
+
+    A structural migration belongs at startup, in `main.lifespan`, where it
+    happens once at a moment somebody chose. Read paths assume the schema; they
+    do not repair it.
+    """
+    body = _ensure_schema_body()
+    assert "DROP TABLE" not in body, \
+        "a DROP in ensure_schema blocks concurrent readers; move it to a " \
+        "startup migration"
+    assert "DROP INDEX" not in body
+    # The migration still owns its rebuild - the rule is about WHERE the DDL
+    # lives, and asserting the positive keeps this test from passing simply
+    # because the migration was deleted too.
+    import inspect
+    migration = inspect.getsource(submittal_review.migrate_facts_to_per_document)
+    assert "DROP TABLE submittal_facts" in migration
+
+
+def test_the_facts_migration_is_called_at_startup():
+    """The migration is only useful if something runs it.
+
+    Asserted against `main.lifespan`'s source rather than by booting the app:
+    the point is that the call sits beside the other schema calls at startup,
+    which is a structural claim about where it lives.
+    """
+    import inspect
+
+    from app import main
+    assert "migrate_facts_to_per_document" in inspect.getsource(main.lifespan)
