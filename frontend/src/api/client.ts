@@ -61,6 +61,10 @@ import type {
   StructuredSearchResult,
   ReviewTraceability,
   WorkbookPreview,
+  StandardSummary,
+  StandardClause,
+  StandardRequirement,
+  StandardExtraction,
 } from "../types/api";
 
 export interface SearchResult {
@@ -823,6 +827,42 @@ export const api = {
    *  and must revoke it. */
   originalFile: (id: string, filename: string): Promise<DownloadResult> =>
     downloadReport(`/documents/${encodeURIComponent(id)}/original`, filename),
+  /** ------------------------------------------- the Standards Library
+   *
+   *  One database, one set of grants, one retrieval path. These read the same
+   *  documents and chunks as everything else, scoped the same way; "library"
+   *  describes what the reader sees. */
+  standards: (opts: { include_superseded?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.include_superseded != null) {
+      q.set("include_superseded", String(opts.include_superseded));
+    }
+    return request<StandardSummary[]>(
+      `/standards${q.toString() ? `?${q}` : ""}`, undefined, isArrayBody);
+  },
+  standardClauses: (id: string) =>
+    request<StandardClause[]>(
+      `/standards/${encodeURIComponent(id)}/clauses`, undefined, isArrayBody),
+  standardRequirements: (id: string) =>
+    request<StandardRequirement[]>(
+      `/standards/${encodeURIComponent(id)}/requirements`, undefined, isArrayBody),
+  standardRevisions: (id: string) =>
+    request<StandardSummary[]>(
+      `/standards/${encodeURIComponent(id)}/revisions`, undefined, isArrayBody),
+  /** Re-read a standard and record every obligation it states. ADMIN. */
+  extractStandardRequirements: (id: string) =>
+    request<StandardExtraction>(
+      `/standards/${encodeURIComponent(id)}/requirements/extract`,
+      { method: "POST" }),
+  /** Mark a standard as replaced, or clear the mark with null. ADMIN, audited. */
+  supersedeStandard: (id: string, superseded_by: string | null) =>
+    request<{ superseded_by: string | null }>(
+      `/standards/${encodeURIComponent(id)}/supersede`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ superseded_by }),
+      }),
   /** A read-only view of a stored workbook: sheets and populated cells.
    *
    *  Read on the SERVER with the Python standard library rather than by a

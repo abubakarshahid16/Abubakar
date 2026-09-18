@@ -118,6 +118,82 @@ export interface DocumentRecord {
   review_status?: DocumentReviewStatus;
 }
 
+// ---------- standards library (phase 3A) ----------
+
+/** One clause of a standard, resolving to the chunk it was read from. */
+export interface StandardClause {
+  clause: string;
+  /** Null for a top-level clause - a real answer, not a missing one. */
+  parent_clause: string | null;
+  depth: number;
+  title: string | null;
+  page: number;
+  chunk_id: string;
+}
+
+/** One atomic requirement, with its resolving citation.
+ *
+ *  Phase 3A carries no requirement_type, operator, value, unit, condition or
+ *  exceptions. Those are 3B: half a numeric limit is worse than none, because
+ *  a row carrying `value: 90` with no operator reads as a limit and is not
+ *  one. */
+export interface StandardRequirement {
+  id: string;
+  standard_document_id: string;
+  /** NULL when the parser could not identify one. NEVER guessed and never
+   *  inherited from the preceding clause - an inherited number is a citation
+   *  that resolves to the wrong place. Render it as "clause not identified". */
+  clause: string | null;
+  page: number | null;
+  chunk_id: string | null;
+  requirement_text: string;
+  /** The verbatim span. Separate from requirement_text because 3B will
+   *  normalise one and must not lose the other. */
+  source_text: string | null;
+  category: string | null;
+  /** 'extracted' until a human confirms it: a guess stays labelled a guess. */
+  extraction_method: string | null;
+  /** A HEURISTIC, not a probability. It decides whether a row is presented as
+   *  a requirement or as one awaiting verification, and nothing else. */
+  confidence: number | null;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  needs_verification: boolean;
+  /** False when the cited chunk is gone - re-extract. Shown rather than the
+   *  row being silently dropped. */
+  citation_resolves: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StandardSummary {
+  id: string;
+  filename: string;
+  status: DocStatus;
+  page_count: number | null;
+  uploaded_at: string;
+  title: string | null;
+  document_number: string | null;
+  revision: string | null;
+  effective_date: string | null;
+  discipline: string | null;
+  superseded_by: string | null;
+  /** Excluded from SELECTION for new reviews, and still fully readable and
+   *  citable. Two different questions. */
+  superseded: boolean;
+  /** 0 means NONE EXTRACTED. It never means "none required", and it never
+   *  renders as readiness. */
+  requirement_count: number;
+  awaiting_verification: number;
+}
+
+export interface StandardExtraction {
+  document_id: string;
+  chunks_read: number;
+  requirements: number;
+  awaiting_verification: number;
+}
+
 /** One sheet of a read-only workbook preview. */
 export interface WorkbookSheet {
   name: string;

@@ -18,6 +18,7 @@ export type ViewId =
   | "reports"
   | "deliverables"
   | "admin"
+  | "standards"
   | "review";
 
 export type ThemeMode = "dark" | "light";
@@ -34,6 +35,7 @@ export const NAV: NavItem[] = [
   { id: "dashboard", label: "Dashboard", hint: "Metrics, models, readiness", built: true },
   { id: "review", label: "AI Submittal Review", hint: "Upload, AI review, findings, CRS", built: true },
   { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
+  { id: "standards", label: "Standards Library", hint: "Clauses, requirements, revisions", built: true },
   { id: "analysis", label: "Analysis Hub", hint: "Summary, gaps, advice", built: true },
   { id: "chat", label: "Document Q&A", hint: "Ask questions with citations", built: true },
   { id: "reports", label: "CRS & Reports", hint: "Frozen evidence, as PDF", built: true },

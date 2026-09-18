@@ -13,6 +13,7 @@ const titles: Record<ViewId, string> = {
   deliverables: "Deliverables and timeline",
   ingestion: "Ingestion",
   admin: "Administration",
+  standards: "Standards Library",
   review: "AI Submittal Review",
 };
 
