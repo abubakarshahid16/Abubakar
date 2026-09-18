@@ -395,6 +395,36 @@ against a screen that had not loaded. The fix has the same shape both times -
 assert something POSITIVE first, so that the negative assertion is made at a
 moment when failing was possible.
 
+**A fifteenth, 2026-09-18 (phase 4), and it is a correction to entry 14's
+neighbour.** Phase 3B reported "SAES-A-105 IS NOT IN THIS REPOSITORY" and built
+its argument on it. That was true of the REPOSITORY and false of the MACHINE:
+the file is in `~/Downloads`, along with the two real KOC datasheets, and phase
+4 found it in about a minute by looking outside the repo. The 3B statement was
+literally accurate and practically misleading - it read as "this file does not
+exist here" when what was true was "nobody has ingested it". **Absence from a
+corpus is not absence from the world**, and the honest sentence names which one
+was searched.
+
+**A sixteenth, same phase: the fourth species of vacuous test.** Mutation M56
+deleted the label guard that stops a value being promoted into a field name,
+and the test meant to cover it passed. The reason is new: the test was defended
+by a DIFFERENT guard. Prose with no number and no blank marker is dropped by
+the fact gate whether or not the label guard exists, so the test never observed
+the thing it was named after.
+
+The four species now on record, and the shape they share:
+
+  * **entry 6** - a migration test run against a table that was never old;
+  * **entry 11** - an absence asserted before the screen could render;
+  * **entry 13** - a helper called directly instead of the behaviour using it;
+  * **entry 16** - a case already held by a different guard, so deleting this
+    one changed nothing the test could see.
+
+All four are the same failure: **the test was not standing where the feature
+could fail it.** Three of the four were found only by mutation, which is the
+argument for the harness and also its limit - it finds them one at a time, and
+only where somebody thought to write the mutation.
+
 **A thirteenth, 2026-09-18 (phase 3B): a unit test wearing a behaviour test's
 name.** `test_character_fragmentation_is_not_accepted_as_a_table` called the
 predicate `tables._is_fragmented(...)` directly. That proves the predicate

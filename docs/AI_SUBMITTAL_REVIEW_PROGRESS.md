@@ -1393,3 +1393,234 @@ real gap and it is listed below rather than implied away.
    matter most for noise are exactly the ones it cannot compare (see 2).
 9. **SAES-A-105 was never tested against**, because it is not in the
    repository. See section 37.
+
+---
+
+# Phase 4 (datasheet intelligence)
+
+## 48. Step zero: the measurement, before any normalisation was written
+
+The files were found outside the repository, in `~/Downloads`, and all three
+are NATIVE TEXT (not scanned):
+
+| File | Pages | What it is |
+|---|---|---|
+| `EF1975-DAS-M-03.pdf` | 7 | KOC centrifugal pump datasheet (recycle brine pumps) |
+| `EF1975-DAS-I-06.pdf` | 5 | KOC pressure safety valve datasheet |
+| `SAES-A-105.pdf` | 14 | Saudi Aramco standard |
+
+**`SAES-A-105.pdf` exists after all.** Phase 3B reported it absent from the
+corpus, which was true of the corpus and is still true - it has never been
+ingested - but the file is on this machine. That correction is recorded in the
+honesty audit.
+
+### What `tables.py` recovers, and why the first number was a trap
+
+| File | Pages with a parsed table | Rate |
+|---|---|---|
+| `EF1975-DAS-M-03.pdf` | 7 of 7 | **100%** |
+| `EF1975-DAS-I-06.pdf` | 5 of 5 | **100%** |
+| `SAES-A-105.pdf` | 3 of 14 | 21% |
+
+**The I-06 figure is worthless, and reading the content is what showed it.**
+Every one of those five "tables" is the two-row title block:
+
+```
+['KUWAIT OIL COMPANY', 'DATA SHEET FOR PRESSURE SAFETY VALVES (PSVs)', 'DOCUMENT NO. EF1975-DAS-I-06']
+['PROJECT NO. EF/1975', '', 'Sheet 2 of 6', 'Rev. 1']
+```
+
+Not one PSV value is in it. Reporting "100% of pages parsed" for a datasheet
+whose every value was missed is exactly honesty-audit entry 14 repeating, and
+the only reason it did not happen is that the content was read before the rate
+was believed.
+
+M-03 is the opposite: the grid is real.
+
+```
+['VAPOR PRESSURE:', 'bar a (psia)', '0.42 (6.09)']
+['SPECIFIC GRAVITY:', '0.974 @ 170 OF']
+```
+
+### The path taken, and why
+
+**Both paths, chosen per page, neither a fallback for the other.**
+
+I-06's data is in TEXT BLOCKS with a numbered label-value shape - master plan
+section 10's "preserve text blocks and coordinates":
+
+```
+5 | Design/Operating pressure | 23.5 / 9 barg (Note - 3) | 46 | Bonnet / Yoke | ...
+8 | Set pressure             | 340 psig (By Contractor, as per Code) | 49 | ...
+```
+
+So `datasheets.py` runs the grid path where a grid exists and
+coordinate-ordered label-value pairing over text blocks where it does not.
+**A form is not a table**, and forcing it through a table parser would have
+produced nothing while reporting success. `tables.py` is imported, not
+duplicated.
+
+## 49. First code change: same-unit comparison, so phase 5 can evaluate its own flagship case
+
+`claims.py` maps `"db": None` and that mapping is CORRECT - a decibel is a
+logarithmic ratio with no dimension to convert through. But the master plan is
+written around a 90 dB(A) limit with a 115 dB(A) relief-valve exception, and as
+built neither was comparable to anything. Phase 5 could not have evaluated the
+one requirement the plan is about.
+
+`_compatible` now compares directly when **both sides carry the identical unit
+spelling**, converting nothing:
+
+| Comparison | Result |
+|---|---|
+| 95 dB(A) vs `<= 90 dB(A)` | **False** - breach detected |
+| 85 dB(A) vs `<= 90 dB(A)` | **True** - compliant |
+| 115 dB(A) vs `<= 90 dB(A)` | **False** - the PSV exception's own limit works |
+| dB(A) vs pcf | **None** - undecidable, unchanged |
+| dB(A) vs dB | **not the same unit** - A-weighting is part of the meaning |
+| `normalise_strict("90","dB(A)")` | still raises `UnknownUnit` |
+| `normalise_strict("90","F")` | still raises - Fahrenheit refused by design |
+| 12 mm | still 12000 um |
+
+The ScaleMismatch discipline is intact: what was relaxed is only the case where
+there is no mismatch to speak of. Mutations M53 and M54 prove both directions.
+
+## 50. The two schema decisions, made rather than inherited
+
+**1. `submittal_facts.chunk_id` added** (PRAGMA + conditional ALTER), same
+reasoning as 3A: a fact without a resolving chunk is an assertion.
+`create_fact` refuses three ways - no chunk, a chunk of another document, a
+page outside the chunk.
+
+**2. `review_run_id` was NOT NULL, and is now NULLABLE. Facts are per
+DOCUMENT and reused across runs.**
+
+Phase 1 made a fact unable to exist outside a run, which forces a full
+re-extraction of a datasheet every time a review starts. Master plan section 24
+asks the opposite on a 16 GB machine: "reuse cached extraction and embeddings
+for duplicate documents". A datasheet's facts are a property of the datasheet,
+not of the review that happened to read it first.
+
+This needed a TABLE REBUILD, because SQLite cannot drop a NOT NULL. It is safe
+here and nowhere else: the table has never been written to in any build, which
+the migration CHECKS rather than assumes - if a row exists the rebuild is
+skipped and the old shape is kept. Data is never dropped to satisfy a schema
+preference.
+
+## 51. Extraction quality, measured on the real sheets - and it is limited
+
+| | facts | blanks | pages | unparsed | fraction |
+|---|---|---|---|---|---|
+| `EF1975-DAS-I-06.pdf` | 37 | 25 | 5 | 1 | 0.80 |
+| `EF1975-DAS-M-03.pdf` | 9 | 8 | 7 | 4 | 0.43 |
+
+What it gets right is genuinely right:
+
+```
+Set pressure                  | 340 psig (By Contractor, as per Code) | BLANK "By Contractor"
+Density at relieving temper.  | 23.55 Kg/m3                           | 23.55  Kg/m3
+Compressibility factor        | 0.892                                 | 0.892
+Max. allow. working pressure  | 23.5 barg By Contractor / Vendor      | BLANK
+MANUFACTURER                  | *___                                  | BLANK "placeholder"
+```
+
+**RECALL IS POOR AND IS NOT DISGUISED.** The PSV sheet has roughly sixty
+numbered rows and 37 facts were recovered; the pump sheet yielded 9 from seven
+pages, with four pages reported unparsed. `parsed_fraction` carries that, and
+`unparsed` names the pages and the reason. This is the "if extraction quality
+is insufficient, report the affected pages and lower completeness" case, and it
+is reported rather than smoothed over.
+
+### Two defects found by running it on the real files
+
+**1. Measurements invented from prose.** `"2nd Stage Desalter"` parsed as value
+2 with unit `nd`; `"10-05-498 & 556-05-513"`, a P&ID reference, as the value 10.
+Using the unit table as the discriminator then DROPPED `"9970 Kg/hr"`, a real
+value whose compound unit is simply not in `claims`. The rule that works is
+about what FOLLOWS: a measurement is the whole cell give or take a
+parenthetical dual unit, and words after the number mean the cell was a
+sentence that happened to start with a digit.
+
+**2. 427 phantom blank fields out of 439.** The first end-to-end run produced
+rows whose "label" was `0.01cP By Contractor` and whose value was empty - every
+stray text block became a required field somebody had failed to fill in. Two
+guards fixed it, and both are measured rather than theoretical:
+
+- `is_field_label` - a label must contain real words, must not itself parse as
+  a measurement, and must not be mostly digits;
+- **an empty adjacent cell is not evidence of anything.** A fact is recorded
+  only where the sheet says something: a value that parses, or a value the
+  sheet EXPLICITLY marks as the contractor's ("By Contractor", "TBA", a drawn
+  rule of underscores). An empty cell beside a label is a pairing artefact of a
+  two-column form, and recording it manufactures findings against a vendor who
+  was never asked.
+
+After both: 37 real facts instead of 439 invented ones.
+
+## 52. Mutations - 56/56, after one NOT detected
+
+| # | Mutation |
+|---|---|
+| M49 | Stop reading the unit off a datasheet value |
+| M50 | Treat a "By Contractor" field as a filled value |
+| M51 | Report a page that yielded nothing as parsed |
+| M52 | Stop detecting referenced standards |
+| M53 | Refuse same-unit comparison again, re-blocking dB(A) |
+| M54 | Compare across different units, breaking ScaleMismatch |
+| M55 | Drop the scope filter from the facts read |
+| M56 | Promote a value into a field label |
+
+**M56 was NOT DETECTED**, and the reason is worth keeping. The prose test that
+was supposed to cover it is actually defended by the FACT GATE, not by the
+label guard: prose with no number and no blank marker is dropped either way. So
+deleting `is_field_label` changed nothing that test could see.
+
+What the label guard actually prevents is **two value cells side by side** -
+the first becomes the "label", the second parses, and a row appears whose field
+name is a number. A test for that case now exists. This is the same lesson as
+entries 6, 11 and 13 in a fourth costume: **the test was not standing where
+the feature could fail it** - it was standing where a different feature was
+holding the line.
+
+## 53. Verification, measured
+
+All numbers below were taken from the same tree state, at commit
+`PHASE4_COMMIT_HASH`.
+
+| | passed | skipped | deselected | xfailed |
+|---|---|---|---|---|
+| Baseline | 1728 | 27 | 1 | 17 |
+| **After Phase 4** | ****1749**** | 27 | 1 | 17 |
+
+| Check | Result |
+|---|---|
+| Mutations | **56/56 detected** |
+| `npm run build` | passes |
+| Frontend known-bad set, isolated | 59 failed - unchanged (Phase 4 touched no frontend) |
+| CI lint gate | passes |
+| `git diff --check` | clean |
+
+## 54. Known limitations - Phase 4
+
+1. **Recall is low.** 37 facts from a ~60-row PSV sheet, 9 from a 7-page pump
+   sheet. Precision is good; coverage is not. The completeness figure and the
+   unparsed page list are the honest signal, and improving recall is the next
+   real piece of work.
+2. **No classification of document or equipment type.** Section 10 asks for it;
+   it is not built. The role already exists on the document from Phase 2.
+3. **Ranges are not parsed.** `-3 to 121OC` and `23.5 / 9 barg` yield nothing -
+   the same gap 3B recorded, now hit on real data where ranges are common.
+4. **No scanned-datasheet path.** All three files are native text, so the OCR
+   route was never exercised. A scanned datasheet would fall to the text-block
+   path with no text and be reported unparsed - honest, but not useful.
+5. **Multi-page tables are not stitched.** Each page is read independently, so
+   a table continuing across a page break yields two partial readings.
+6. **`Kg/hr`, `Kg/m3`, `psig`, `barg`, `dB(A)` and `pcf` do not normalise.**
+   Values and spellings are preserved; comparison across unit systems is not
+   available for them. Same-unit comparison now works for all of them.
+7. **The two real datasheets are NOT in the repository and no test depends on
+   them** (CLAUDE.md rule 3). The test fixtures build their own PDFs; the
+   measurements above were taken by hand against the real files and are
+   recorded here rather than automated.
+8. **`SAES-A-105.pdf` was measured but not ingested**, so the corpus still has
+   no machine-readable engineering standard.
