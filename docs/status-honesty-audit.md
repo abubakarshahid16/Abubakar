@@ -349,6 +349,37 @@ platform" rather than "the build is outstanding". Verified by stashing the two
 phase 2 frontend changes and re-running at `9f75ba5`: the failures are
 unchanged, so they are inherited, not new.
 
+**"63 known pre-existing frontend failures" was itself a flaky number,
+2026-09-18.** The retraction above is sound in substance - the failures are
+inherited from the navigation relabel and the suite was never run on Windows
+after it - but the FIGURE was quoted from one run's summary line as though it
+were a stable property of the branch.
+
+Measured properly: the stable set is **59**, in four files, reproducible when
+those files are run alone. A full parallel run reports 59, 60 or 63 depending
+on which load-sensitive tests happen to time out - the baseline run failed
+`IngestionView.watch`, a later run failed `AnalysisModeScreen` and `LoginView`
+instead, and every one of those passes in isolation.
+
+The lesson is the one this document keeps relearning in new clothes: **a number
+is not a measurement until you can say what it counts** (standing rule 9). Two
+summary lines subtracted from each other look like a delta and are not one when
+the suite is non-deterministic. The way to show "no new failure" is to run the
+touched files in isolation and see them pass, which is what was finally done.
+
+A ninth, in the mutation harness itself and caught by its own output,
+2026-09-18: on a Windows console defaulting to cp1252 the harness could not
+DECODE vitest's box-drawing characters, raised, treated the exception as a
+non-zero exit, and reported **6 of 6 mutations DETECTED without a single test
+having been consulted**. The file whose entire purpose is to catch checks that
+cannot see what they judge had become one. Fixed with explicit UTF-8 decoding
+and an ASCII-flattened summary line.
+
+A tenth, in the same run: a mutation's replacement called a function that does
+not exist, so the test would have failed with a `NameError` - the right verdict
+for the wrong reason, and indistinguishable from a real detection in the
+report. A mutation has to reproduce the DEFECT, not merely break the code.
+
 A seventh, of the same family but caused by tooling rather than by design: a shell
 heredoc silently turned `\b` into the literal byte it names, 0x08, **three
 separate times**. Each produced a regex that could never match, inside a rule

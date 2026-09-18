@@ -481,3 +481,295 @@ The unauthenticated 404 on the new route is the one worth reading twice: under
 `require_document` finds nothing, and the answer says nothing about whether the
 document exists.
 
+
+---
+
+# Phase 2 (continued): the remaining product gaps
+
+Sections 11-19 recorded Phase 2's backend. This records the gaps that were
+still open after it: Excel upload and preview, and the frontend that makes any
+of it reachable.
+
+## 20. XLSX upload: accepted, proven, stored, never indexed
+
+**XLSX only.** Not `.xls` (not OOXML at all), not `.xlsm` (macros), not `.csv`.
+
+### The signature check goes past the magic bytes
+
+`PK\x03\x04` proves "a zip" and nothing more - `.docx`, `.pptx` and `.jar` open
+with the same four bytes. The gate is therefore two-stage:
+
+1. the first block must open as a PDF **or** a zip, otherwise it is refused
+   exactly as before;
+2. a zip is then opened and must contain **`xl/workbook.xml`**, which is the
+   part a renamed `.docx` cannot fake.
+
+### A decompression bomb is refused, not expanded
+
+The upload ceiling bounds the bytes *on the wire* and is no protection at all
+against a 40 KB file that expands to gigabytes. `validate_xlsx` reads the
+**declared** sizes from the zip central directory - decompressing nothing - and
+refuses a workbook claiming more than 256 MB total or more than 5,000 entries.
+A real CRS template is a few hundred kilobytes.
+
+`workbook.py` applies the second half of that bound while actually reading:
+every part is read with a ceiling, and the preview stops at 25 sheets, 500 rows
+and 60 columns, **reporting truncation rather than applying it silently**.
+
+### The stored suffix is derived from the validated type
+
+`upload.py` hardcoded `f"{sha256}.pdf"`. It is now
+`f"{sha256}{_SUFFIX_FOR_KIND[kind]}"`, and the suffix comes from the **bytes**,
+never from what the caller named the file: a workbook uploaded as `.pdf` is
+stored as `.xlsx`, and a PDF uploaded as `.xlsx` is stored as `.pdf`.
+
+This sits directly under the M15 immutability guard, so **M19** exists to prove
+the two still work together - it puts the hardcoded `.pdf` back and the
+immutability test fails.
+
+### The PDF path is unchanged, and that is proven rather than asserted
+
+`backend/tests/test_upload.py` was **not modified** and passes. Two of its
+tests did fail mid-change, and both were fixed in the CODE rather than in the
+test:
+
+- `stream_to_temp` had grown a third return value, breaking a test that
+  unpacks two. The kind is now detected by `detect_kind()` reading four bytes
+  back off the written file, and the signature is untouched.
+- `test_non_pdf_is_rejected_and_leaves_nothing_behind` uploads
+  `b"PK\x03\x04zip"` and expects `not_pdf`. A file that opens with the zip
+  magic and then fails to be a zip at all is now reported as `not_pdf`, not
+  `not_xlsx`: four bytes of coincidence is not a declaration of intent, and
+  calling it a bad *workbook* claims to know more about it than we do. A
+  readable zip that is not a workbook - a real `.docx` - does get `not_xlsx`,
+  where the intent is clear and the precise message is the useful one.
+
+### THE DECISION: a workbook is stored and NEVER indexed
+
+Stated explicitly because the alternative is to arrive at the same place by
+accident.
+
+A CRS template is **a form to be filled, not corpus content**. Extracting it
+would put spreadsheet scaffolding - blank cells, header rows, the word
+"Remarks" - into the retrieval pool, where it can be returned as the answer to
+an engineering question: a citation to a document that asserts nothing.
+
+So an xlsx is written with a new **terminal** status, `stored_not_indexed`, and
+**no extract job**, and `ingest` returns `job_id = None` because a job id is a
+promise that work is happening and none is. It is never extracted, OCR'd,
+chunked, embedded or made retrievable.
+
+The load-bearing detail is that the state is TERMINAL.
+`IngestionWorker._next_document` selects every status outside
+`TERMINAL_STATES | {PARTIALLY_SEARCHABLE}`, so a non-terminal state here would
+have the worker pick the workbook up on every poll forever - exactly what the
+`no_searchable_content` omission once did. `test_the_ingestion_worker_never_
+selects_a_workbook` asserts that against the worker's own query rather than
+against the constant.
+
+Letting it queue and fail in `extract` would have reached the same place, landed
+it in `failed`, and told an operator to go and fix something that is working as
+intended.
+
+A workbook still gets a filename-only classification suggestion, so it appears
+in the needs-classification queue like anything else. Stored and not indexed is
+not the same as invisible.
+
+## 21. The frontend now reaches the Phase 2 backend
+
+Everything here was wired to routes that already existed.
+
+| Surface | File | Notes |
+|---|---|---|
+| Metadata editing + role assignment | `classification/MetadataEditor.tsx` | All 12 fields. Blank means CLEARED, so a PUT replaces the record. |
+| Filters | `classification/DocumentFilters.tsx` | Role, discipline, equipment type, project. |
+| PDF + XLSX preview | `DocumentPreview.tsx` | One route for previewed and downloaded bytes. |
+| Technical details | `DocumentTechnicalDetails.tsx` | Metadata and processing information. |
+| Citation to page | `PageImageViewer.tsx` | New `initialPage`. |
+| Wiring | `views/DocumentsView.tsx`, `DocumentCard.tsx` | Preview and Details actions, filter bar. |
+
+### The filters are applied by the SERVER
+
+Every selection is passed to `GET /api/documents` and nothing is filtered in
+the browser. The route puts them through `classification.restrict`, which
+intersects with the caller's grants and returns a **narrower `AccessScope`**.
+Filtering the returned array instead would mean the server had already sent
+rows the caller was not meant to see, and the filter would be decoration over a
+leak.
+
+Note the screen now carries **two filters with different reach**, and each says
+which it is: the metadata filters go to the server, while the older type filter
+never leaves the browser and only hides rows already fetched.
+
+### Citation to page
+
+`PageImageViewer` always opened at page 1. Following a citation to page 214 of a
+specification landed the reader on the cover sheet - **a citation that does not
+open its own page is not a citation, it is a filename.** It now takes
+`initialPage`, clamped to 1 so a malformed citation cannot render page 0, and
+follows a later citation while already open.
+
+### Nothing is fetched by a bare URL
+
+Preview, download and page images all go through `request()`/`downloadReport`/
+`useAuthedImage`, which put the token in the **Authorization header and never on
+a URL**. A URL reaches browser history, proxy logs and Referer headers. This is
+the fourth surface in this codebase to need that fix; it was built that way from
+the start.
+
+### The workbook is read on the SERVER
+
+`backend/app/workbook.py`, Python standard library only. The obvious
+alternative - SheetJS in the browser - was rejected: the npm `xlsx` package is
+no longer published there by its authors, so `npm install xlsx` fetches a stale
+release with published prototype-pollution advisories, and it would mean a
+third-party parser running over a contractor-supplied file inside the reader's
+browser. **No new frontend dependency was added.**
+
+### Null renders as nothing
+
+`DocumentTechnicalDetails.Field` returns `null` for an unset value - never
+"Unknown", never 0, never a dash that reads like a recorded value. All eleven
+metadata fields are null on every one of the 19 documents in the live corpus.
+**M26** puts "Unknown" back and the test fails.
+
+## 22. Frontend test numbers, and a correction to the 63
+
+**The suite is flaky under parallel load, and the earlier "63 known
+pre-existing" was an artifact of that.** Measured properly:
+
+| Measurement | Result |
+|---|---|
+| Baseline at `9f75ba5`, everything stashed | **575 total, 60 failed, 515 passed** |
+| After this work, one full run | **596 total, 63 failed, 533 passed** |
+| After this work, another full run | 596 total, **59** failed, 537 passed |
+| The 4 consistently failing files, run alone | **59 failed**, every run |
+| The 7 files this work touched or added, run alone | **64 passed, 0 failed** |
+
+The STABLE pre-existing failure set is **59**, in four files:
+`ChatView.test.tsx` (54), `ChatView.comparisonScope.test.tsx` (3),
+`Shell.test.tsx` (1), `glossary.test.ts` (1). Those assert UI terminology
+against the navigation relabel in `f0c70a2`.
+
+Everything above 59 varies between runs. The baseline run failed
+`IngestionView.watch.test.tsx`; a later run failed
+`AnalysisModeScreen.citation`, `AnalysisModeScreen.typeFilter` and
+`LoginView` instead. **All of those pass when run in isolation** (46 passed),
+so they are load-sensitive, not broken - and the baseline exhibits the same
+behaviour.
+
+**Delta from this work: +21 tests, all passing, and no new failure.** That was
+established by running every touched and added file in isolation, not by
+comparing two summary lines - comparing summary lines is what produced the
+wrong 63 in the first place.
+
+The figure "63 known pre-existing" as stated in section 17 is therefore
+**retracted**: it was one flaky run's total, quoted as though it were a stable
+property. Recorded in `docs/status-honesty-audit.md`.
+
+## 23. Mutations
+
+`python scripts/mutation_check.py` - **26/26 detected**. The harness now runs
+**vitest as well as pytest**, because a backend-only harness would have left
+every screen unproven while reporting a perfect score.
+
+| # | Mutation | Runner |
+|---|---|---|
+| M16 | Accept any zip as a workbook | pytest |
+| M17 | Remove the decompression-bomb ceiling | pytest |
+| M18 | Queue a workbook for indexing like a PDF | pytest |
+| M19 | Hardcode the stored suffix back to `.pdf` | pytest |
+| M20 | Accept macro-enabled workbooks | pytest |
+| M21 | Open the page viewer at page 1, ignoring the citation | vitest |
+| M22 | Stop clearing blank metadata fields | vitest |
+| M23 | Send the human role label instead of the contract value | vitest |
+| M24 | Show the metadata form to a non-admin | vitest |
+| M25 | Render a workbook's empty cells instead of populated ones | vitest |
+| M26 | Render "Unknown" for a field that was never recorded | vitest |
+
+### Three defects the harness found in this round
+
+1. **The harness could not read vitest's output.** On a Windows console at
+   cp1252 the decode of vitest's box-drawing characters raised, the harness
+   treated the exception as a non-zero exit, and reported **6/6 DETECTED
+   without a single test having been consulted**. Fixed with explicit UTF-8
+   decoding and an ASCII-flattened summary. A harness that cannot read its
+   runner reports a perfect score by accident - the precise failure it exists
+   to catch, committed in the file that catches it.
+2. **M13's anchor became ambiguous.** The new `document_workbook` route opens
+   with the same two lines as `document_original`, so the anchor matched twice
+   and the harness **refused to run it** rather than guessing. That refusal is
+   the safety property working; the anchor was disambiguated by the line that
+   follows.
+3. **M13's replacement called a function that does not exist.** It would have
+   failed the test with a `NameError` - the right verdict for the wrong reason.
+   It now performs a real unscoped read, so the mutation reproduces the DEFECT
+   (serving a document the caller holds no grant for) rather than merely
+   breaking the route.
+
+## 24. Known limitations after this round
+
+1. **`.xls` and `.csv` are still refused**, by decision. `.xlsm` is refused on
+   its macro part specifically.
+2. **A workbook is never searchable.** Asking a question about a CRS template
+   returns nothing from it. That is the decision in section 20, not a defect.
+3. **The workbook preview is bounded** at 25 sheets / 500 rows / 60 columns and
+   says when it truncated. Cell formatting, merged cells, formulas as written,
+   charts and images are not shown; a formula cell shows its last computed
+   value.
+4. **Citation-to-page is wired in the page viewer, not re-verified on every
+   surface.** `PageImageViewer` now opens at a cited page and the Documents
+   screen uses it. The master-plan requirement that *every* citation in Chat,
+   Analysis, Submittal Review and Reports does so was not audited surface by
+   surface, and is not claimed.
+5. **The 59 pre-existing frontend failures are untouched**, per instruction.
+6. **The frontend suite is flaky under parallel load** (section 22). Any future
+   claim about its totals should quote an isolated run, or say which run it is.
+7. **`equipment_tags` is editable but still not filterable.**
+8. **The role vocabulary is still enforced at the API boundary only.**
+
+## 25. Verification for this round, measured
+
+Backend, `python -m pytest -q` in `backend/` on the project venv:
+
+| | passed | skipped | deselected | xfailed | wall |
+|---|---|---|---|---|---|
+| Baseline (before this round) | 1642 | 27 | 1 | 17 | 457.55s |
+| **After** | **1661** | 27 | 1 | 17 | 645.39s |
+| Delta | **+19** | 0 | 0 | 0 | |
+
++19 is exactly `tests/test_xlsx_upload.py`. **No pre-existing backend test
+changed status, and `tests/test_upload.py` was not modified.**
+
+| Check | Result |
+|---|---|
+| Full backend suite | 1661 passed, 0 regressions |
+| `python scripts/mutation_check.py` | **26/26 detected** |
+| `cd frontend && npm run build` (`tsc -b && vite build`) | passes |
+| Frontend, files touched or added, isolated | **64 passed, 0 failed** |
+| Frontend, the 4 known-bad files, isolated | 59 failed - unchanged, untouched |
+| Frontend, full parallel run | 596 total; failures vary 59-63 by run (section 22) |
+| `python run.py` -> `GET /api/health` | 200 |
+| `GET /openapi.json` | 200 |
+| `GET /api/documents/{id}/workbook` unauthenticated | **404** - scoped, no bytes |
+| `GET /api/documents?document_role=BANANA` | **422** "unknown document role" |
+| `GET /api/documents?document_role=...` unauthenticated | `[]` - empty scope, no leak |
+| CI lint gate (`ruff --select E9,F63,F7,F82`) | passes |
+| `git diff --check` | clean |
+
+## 26. What did not work first time, recorded
+
+1. **Two existing PDF upload tests broke mid-change, and the CODE was fixed
+   rather than the tests.** `stream_to_temp` had grown a third return value;
+   the kind is now detected separately and the signature is untouched. And a
+   zip that fails to be a zip is reported `not_pdf`, not `not_xlsx`. See
+   section 20.
+2. **The mutation harness reported a false 6/6.** See section 23.
+3. **A mutation's replacement called a function that does not exist**, so it
+   would have failed for the wrong reason. See section 23.
+4. **The "63 pre-existing frontend failures" figure was wrong**, including
+   where this document stated it. See section 22, and the retraction in
+   `docs/status-honesty-audit.md`.
+5. **SheetJS was written into the frontend and then removed** in favour of a
+   standard-library reader on the server, once its npm distribution turned out
+   to be stale and carrying advisories. No new frontend dependency was added.
