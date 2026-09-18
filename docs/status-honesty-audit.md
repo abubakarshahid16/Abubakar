@@ -297,6 +297,7 @@ thing it judges**. Five instances, all in this build:
 | 3 | `tsc --noEmit -p tsconfig.json` | `tsconfig.json` is a solution file with `"files": []` and project references, so it type-checked **zero files**. Every "typecheck clean" report was vacuous. | Noticing exit 0 on a file with an unterminated string literal |
 | 4 | "Stale numbers are dropped on refresh", with fake timers | The timers were installed **after** the component had created its interval with real ones. Advancing them fired nothing; the test passed while asserting nothing. | Reading the test back after writing it |
 | 5 | The cross-encoder's own rerank window | `rerank_max_tokens` was 256 against a `chunk_max_tokens` of 480, so a 486-token passage was scored on its first 256 tokens. The answer sat at token 350. It returned **−10.95** — correct about what it was shown, wrong about the passage. | Measuring a hypothesis that turned out to be false, and looking further |
+| 6 | Two **migration** tests, 2026-09-18 (AI submittal review, phase 1) | The fixture calls `db.init_db()`, which builds the table from today's `SCHEMA` — already carrying the new columns. The `ALTER` path therefore never executed, and both tests passed **with the migration deleted**. They asserted the schema, not the migration. | The mutation harness: M6 and M7 reported `*** STILL PASSED ***` while 8 of 10 other mutations failed correctly |
 
 **Number 3 recurred, on 2026-09-05, in this repository, to the person who wrote
 this list.** CI was fixed to run `tsc -b` and carries a comment saying exactly
@@ -319,6 +320,17 @@ before believing it passed.**
 Number 5 is the one to remember: **the evaluation recorded a retrieval failure
 that was really a truncation failure.** The system was not bad at retrieval. Its
 judge had read half the evidence.
+
+**Number 6 is the cheapest lesson here, and it was only cheap because the
+mutation was run.** Both tests were written deliberately, read plausibly, and
+passed — and a reviewer reading them would have seen a legacy row inserted and
+a migration called. What they could not see is that the table under them was
+never old. The fix is to build the pre-migration table from an explicit DDL
+literal and to **assert the old shape first**
+(`assert "document_role" not in before`), so the test fails loudly the day it
+stops testing a migration rather than passing quietly. Standing rule 8 exists
+for exactly this, and the only reason it held is that the mutation step was not
+skipped once the tests were green.
 
 A seventh, of the same family but caused by tooling rather than by design: a shell
 heredoc silently turned `\b` into the literal byte it names, 0x08, **three
