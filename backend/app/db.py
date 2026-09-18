@@ -534,6 +534,13 @@ CREATE TABLE IF NOT EXISTS document_classification (
     -- boundary with a message instead of aborting a write deep in a migration.
     document_role      TEXT,
     document_number    TEXT,
+    -- The HUMAN title, which is not the filename. `documents.filename` is the
+    -- name of the file on disk and is authoritative for identity; a title is
+    -- descriptive metadata about the same document and belongs here with the
+    -- rest of it, not on the core table whose columns decide lifecycle.
+    -- NULL means no title was recorded, and the UI falls back to the filename
+    -- rather than inventing one. (Master-plan section 6 metadata mapping.)
+    title              TEXT,
     revision           TEXT,
     effective_date     TEXT,
     project            TEXT,
@@ -691,9 +698,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     }
     if classification_cols:
         for _column in (
-            "document_role", "document_number", "revision", "effective_date",
-            "project", "contractor_vendor", "equipment_type", "equipment_tags",
-            "service", "transmittal_number", "superseded_by",
+            "document_role", "document_number", "title", "revision",
+            "effective_date", "project", "contractor_vendor", "equipment_type",
+            "equipment_tags", "service", "transmittal_number", "superseded_by",
         ):
             if _column not in classification_cols:
                 conn.execute(

@@ -338,6 +338,50 @@ def list_standard_requirements(
     return [dict(row) for row in connect().execute(sql, args).fetchall()]
 
 
+def review_status_for(
+    document_ids: list[str], *, allowed_document_ids: frozenset[str],
+) -> dict[str, str]:
+    """`{document_id: review status}` for documents the caller may read.
+
+    THE MASTER-PLAN "review status" FIELD, DERIVED AND NEVER STORED. The
+    authority is the latest `review_runs` row for that submittal; a document
+    with no run is `not_reviewed`, which is a real answer rather than a null.
+    A `review_status` column would be a second home for a fact `review_runs`
+    already owns, and the two would disagree the first time a run was
+    retried - CLAUDE.md rule 8.
+
+    Documents the caller may not read are simply absent from the result. That
+    is not the same as `not_reviewed`, and a caller must not render a missing
+    key as "no review": it means "not yours to know".
+    """
+    ensure_schema()
+    visible = [d for d in document_ids if d in allowed_document_ids]
+    if not visible:
+        return {}
+    marks = ",".join("?" for _ in visible)
+    # One row per document: the most recent run wins. Ordered by created_at
+    # and then id so the choice is deterministic when two runs share a second -
+    # the timestamps are second-resolution, so ties are real.
+    rows = connect().execute(
+        f"""SELECT submittal_document_id AS doc, status FROM review_runs
+            WHERE submittal_document_id IN ({marks})
+            ORDER BY created_at DESC, id DESC""",
+        visible,
+    ).fetchall()
+    # First row per document wins, because the query is ordered newest-first.
+    #
+    # NOT `GROUP BY ... MAX(created_at), MAX(id)`: those two maxima are taken
+    # INDEPENDENTLY, so the pair can describe a row that does not exist - which
+    # is exactly what the first version of this function did, and it silently
+    # reported every reviewed document as `not_reviewed`. The permission filter
+    # is still in the query (`visible`); only the newest-per-document choice is
+    # made here, where it is plainly correct.
+    latest: dict[str, str] = {}
+    for row in rows:
+        latest.setdefault(row["doc"], row["status"])
+    return {doc: latest.get(doc, "not_reviewed") for doc in visible}
+
+
 def list_run_findings(
     review_run_id: str, *, allowed_document_ids: frozenset[str],
 ) -> list[dict]:

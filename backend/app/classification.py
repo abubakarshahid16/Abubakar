@@ -376,9 +376,26 @@ def write_suggestion(document_id: str, suggestion: Suggestion, *,
                 (document_id, subject_id, suggested_by))
 
 
+#: The submittal-review metadata an administrator may set, in the order the
+#: columns are declared. Kept as one tuple because it is written in `confirm`,
+#: read in `of_document` and filtered in `narrow_to_scope`, and a field added
+#: to one of those and forgotten in another is exactly the "fixed in one of two
+#: places" defect CLAUDE.md rule 8 names.
+#:
+#: `equipment_tags` is absent on purpose: it is a JSON list, not a scalar, and
+#: is handled separately in `confirm`.
+METADATA_FIELDS = (
+    "document_role", "document_number", "title", "revision", "effective_date",
+    "project", "contractor_vendor", "equipment_type", "service",
+    "transmittal_number", "superseded_by",
+)
+
+
 def confirm(document_id: str, *, doc_type: str | None,
             discipline: str | None, doc_class: str | None,
-            subject_ids: Sequence[str], confirmed_by: str | None) -> dict:
+            subject_ids: Sequence[str], confirmed_by: str | None,
+            metadata: dict | None = None,
+            equipment_tags: Sequence[str] | None = None) -> dict:
     """An administrator's decision. Sets `confirmed_by` and `confirmed_at`.
 
     THE AUTHORITY IS THE ADMIN CAPABILITY, checked at the route rather than
@@ -390,6 +407,19 @@ def confirm(document_id: str, *, doc_type: str | None,
     subject must be able to remove it; merging would make removal impossible
     and leave a document permanently attached to a comparison it does not
     belong in.
+
+    `metadata` and `equipment_tags` carry the submittal-review fields and are
+    REPLACED on the same principle: a PUT sends the whole record, so a field
+    left out is cleared rather than silently kept. `None` for the whole
+    `metadata` argument is different from an empty dict - it means this caller
+    is not touching metadata at all, which is what keeps every pre-phase-2
+    caller (and every existing test) behaving exactly as before.
+
+    THE ROLE VOCABULARY IS NOT CHECKED HERE. It is enforced in Pydantic at the
+    route, because that is where a bad value can be refused with a message
+    naming the field. A direct caller of this function is trusted to have
+    validated, and `docs/AI_SUBMITTAL_REVIEW_PROGRESS.md` records that as a
+    known limitation rather than pretending the column constrains itself.
     """
     now = _now()
     conn = connect()
@@ -404,6 +434,23 @@ def confirm(document_id: str, *, doc_type: str | None,
             " confirmed_at=excluded.confirmed_at",
             (document_id, doc_type, discipline, doc_class, SOURCE_NONE,
              confirmed_by, now))
+        if metadata is not None:
+            # Built from METADATA_FIELDS rather than spelled out, so a column
+            # added to that tuple cannot be written in one place and forgotten
+            # in another.
+            assignments = ", ".join(f"{name} = ?" for name in METADATA_FIELDS)
+            values = [metadata.get(name) for name in METADATA_FIELDS]
+            conn.execute(
+                f"UPDATE document_classification SET {assignments}"
+                " WHERE document_id = ?", [*values, document_id])
+        if equipment_tags is not None:
+            # Stored as a JSON array in one TEXT column. An empty list is
+            # stored as '[]' and reads back as "none recorded", which is the
+            # same answer as NULL and is why the read path tolerates both.
+            conn.execute(
+                "UPDATE document_classification SET equipment_tags = ?"
+                " WHERE document_id = ?",
+                (json.dumps([str(t) for t in equipment_tags]), document_id))
         conn.execute("DELETE FROM document_subjects WHERE document_id = ?",
                      (document_id,))
         for subject_id in subject_ids or ():
@@ -448,14 +495,27 @@ class ScopeFilter:
     types: tuple[str, ...] = ()
     disciplines: tuple[str, ...] = ()
     subject_ids: tuple[str, ...] = ()
+    # ------------------------------------------ AI submittal review, phase 2
+    # Three more axes over the SAME table, deliberately routed through this
+    # same filter object rather than added to the documents route as extra
+    # WHERE clauses. The intersection that makes a filter safe is written once,
+    # in `narrow_to_scope`; a second filtering path would be a second place to
+    # get it wrong, and the one that got it wrong would be the new one.
+    roles: tuple[str, ...] = ()
+    equipment_types: tuple[str, ...] = ()
+    projects: tuple[str, ...] = ()
 
     @property
     def is_empty(self) -> bool:
-        return not (self.types or self.disciplines or self.subject_ids)
+        return not (self.types or self.disciplines or self.subject_ids
+                    or self.roles or self.equipment_types or self.projects)
 
     def as_api(self) -> dict:
         return {"types": list(self.types), "disciplines": list(self.disciplines),
-                "subject_ids": list(self.subject_ids)}
+                "subject_ids": list(self.subject_ids),
+                "roles": list(self.roles),
+                "equipment_types": list(self.equipment_types),
+                "projects": list(self.projects)}
 
 
 def narrow_to_scope(
@@ -495,6 +555,22 @@ def narrow_to_scope(
         marks = ",".join("?" * len(wanted.disciplines))
         clauses.append(f"c.discipline IN ({marks})")
         params.extend(wanted.disciplines)
+    # The phase 2 axes. Each is ANDed with the others - selecting a role and a
+    # discipline means "documents that are both", never "either". An OR here
+    # would widen a filter the more the caller narrowed it, which is the one
+    # way a filter can surprise a reader with MORE than they asked for.
+    if wanted.roles:
+        marks = ",".join("?" * len(wanted.roles))
+        clauses.append(f"c.document_role IN ({marks})")
+        params.extend(wanted.roles)
+    if wanted.equipment_types:
+        marks = ",".join("?" * len(wanted.equipment_types))
+        clauses.append(f"c.equipment_type IN ({marks})")
+        params.extend(wanted.equipment_types)
+    if wanted.projects:
+        marks = ",".join("?" * len(wanted.projects))
+        clauses.append(f"c.project IN ({marks})")
+        params.extend(wanted.projects)
 
     sql = ["SELECT DISTINCT c.document_id FROM document_classification c"]
     if wanted.subject_ids:

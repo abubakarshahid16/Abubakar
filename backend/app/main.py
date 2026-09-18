@@ -260,9 +260,15 @@ def list_documents(request: Request, response: Response,
     direction: str = Query("desc"),
     q: str | None = Query(None, max_length=200),
     status: str | None = Query(None),
+    document_role: list[str] | None = Query(None),
+    discipline: list[str] | None = Query(None),
+    equipment_type: list[str] | None = Query(None),
+    project: list[str] | None = Query(None),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    reject_unknown_params(request, {"limit", "offset", "sort", "direction", "q", "status"})
+    reject_unknown_params(request, {"limit", "offset", "sort", "direction", "q",
+                                    "status", "document_role", "discipline",
+                                    "equipment_type", "project"})
     sort_columns = {"uploaded_at": "uploaded_at", "filename": "filename",
                     "status": "status", "size_bytes": "size_bytes"}
     if sort not in sort_columns:
@@ -274,6 +280,32 @@ def list_documents(request: Request, response: Response,
     if status is not None and status not in schemas.DocStatus.__args__:
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, "unknown document status"))
+    for role in document_role or ():
+        # Refused at the boundary, like every other vocabulary on this route.
+        # An unknown role would otherwise match nothing and read to the user as
+        # "there are no contractor submittals" rather than "that is not a role".
+        if role not in schemas.DocumentRole.__args__:
+            raise HTTPException(status_code=422, detail=errors.safe_error(
+                errors.INVALID_PARAMETER, "unknown document role"))
+    # THE METADATA FILTER, AND THE ONE PLACE IT IS APPLIED.
+    #
+    # It goes through `classification.restrict`, which intersects the matched
+    # ids with the scope and returns a NARROWER scope - never an id set
+    # assembled here. Two consequences that are the whole point:
+    #   * a filter can only ever shrink what this route may see, so no
+    #     combination of query parameters can reveal a document the caller
+    #     holds no grant for (mutation M11 flips the & to a | and this route's
+    #     permission tests fail);
+    #   * a filter that matches NOTHING yields an empty scope rather than
+    #     falling back to the corpus, because the caller asked for a role and
+    #     an empty answer is the honest one (mutation M14).
+    wanted = classification_mod.ScopeFilter(
+        disciplines=tuple(discipline or ()),
+        roles=tuple(document_role or ()),
+        equipment_types=tuple(equipment_type or ()),
+        projects=tuple(project or ()),
+    )
+    scope, metadata_filtered = classification_mod.restrict(scope, wanted)
     conn = connect()
     # Filtered IN THE QUERY, not after it. Selecting every document and
     # dropping the unauthorised ones in Python would work here because there is
@@ -282,12 +314,20 @@ def list_documents(request: Request, response: Response,
     # would silently turn it into that bug. The scope belongs in the WHERE
     # clause on principle, not because this particular query needs it.
     allowed = sorted(scope.allowed_document_ids)
-    if not scope.unrestricted and not allowed:
+    # `unrestricted` means "grants do not narrow this caller"; it does NOT mean
+    # "ignore the id set". A metadata filter narrows an unrestricted scope's
+    # id set while carrying `unrestricted` through untouched (see
+    # classification.restrict), so skipping the IN clause on `unrestricted`
+    # alone would apply the filter for ordinary users and silently drop it for
+    # an administrator - the filter working everywhere except where it is least
+    # likely to be noticed.
+    enumerate_ids = metadata_filtered or not scope.unrestricted
+    if enumerate_ids and not allowed:
         response.headers["X-Total-Count"] = "0"
         response.headers["X-Limit"] = str(limit)
         response.headers["X-Offset"] = str(offset)
         return []
-    if scope.unrestricted:
+    if not enumerate_ids:
         where: list[str] = []
         params: list[object] = []
     else:
@@ -320,9 +360,36 @@ def list_documents(request: Request, response: Response,
                FROM exclusions WHERE scope = 'page' GROUP BY document_id"""
         )
     }
+    # The submittal-review columns the Documents page shows, and the REVIEW
+    # STATUS, which is derived from review_runs rather than stored (see
+    # schemas.ReviewStatus). Fetched for this page of rows only - a join would
+    # be fine here too, but the review tables are owned by another module and
+    # this keeps the authority for "has it been reviewed" in that module.
+    page_ids = [row["id"] for row in rows]
+    review_status = submittal_review_mod.review_status_for(
+        page_ids, allowed_document_ids=frozenset(page_ids))
+    metadata = {}
+    if page_ids:
+        marks = ",".join("?" * len(page_ids))
+        metadata = {
+            r["document_id"]: dict(r)
+            for r in conn.execute(
+                f"""SELECT document_id, document_role, document_number, title,
+                           revision, equipment_type, project, discipline,
+                           superseded_by
+                    FROM document_classification
+                    WHERE document_id IN ({marks})""", page_ids)
+        }
     out = []
     for row in rows:
         doc = upload_mod.to_api(row)
+        meta = metadata.get(row["id"], {})
+        for field in ("document_role", "document_number", "title", "revision",
+                      "equipment_type", "project", "superseded_by"):
+            # Null renders as nothing. Absent metadata and a null column are
+            # the same answer - not recorded - and neither becomes a default.
+            doc[field] = meta.get(field)
+        doc["review_status"] = review_status.get(row["id"], "not_reviewed")
         info = dropped.get(row["id"], {})
         doc["pages_excluded"] = info.get("pages_excluded", 0)
         doc["pages_excluded_characters"] = info.get("characters_dropped", 0)
@@ -941,7 +1008,13 @@ def put_document_classification(
     classification_mod.confirm(
         document_id, doc_type=body.doc_type, discipline=body.discipline,
         doc_class=body.doc_class, subject_ids=body.subject_ids,
-        confirmed_by=(actor or {}).get("id"))
+        confirmed_by=(actor or {}).get("id"),
+        # The submittal-review metadata. `document_role` arrived through
+        # `schemas.DocumentRole`, so an unknown role was already refused with a
+        # 422 naming the field and cannot reach the column.
+        metadata={name: getattr(body, name)
+                  for name in classification_mod.METADATA_FIELDS},
+        equipment_tags=body.equipment_tags)
     row = classification_mod.of_document(document_id) or {}
     return {**row, "document_id": document_id}
 
@@ -1731,6 +1804,77 @@ def document_pages(
             for r in rows
         ],
     }
+
+
+#: Media types for the preview surfaces. A CLOSED MAP with an
+#: `application/octet-stream` default, never `mimetypes.guess_type`: the
+#: filename is user-supplied, and letting it choose the Content-Type is how a
+#: document becomes `text/html` and runs in the reader's origin. Only the types
+#: this product previews are named, and everything else downloads.
+_MEDIA_TYPES = {
+    ".pdf": "application/pdf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+    ".xls": "application/vnd.ms-excel",
+}
+
+
+def _media_type_for(filename: str) -> str:
+    return _MEDIA_TYPES.get(Path(filename).suffix.lower(), "application/octet-stream")
+
+
+@app.get("/api/documents/{document_id}/original",
+         response_class=FileResponse,
+         responses={200: {"content": {"application/octet-stream": {}},
+                          "description": "The original uploaded bytes"},
+                    **schemas.ERRORS_404})
+def document_original(
+    document_id: str,
+    request: Request,
+    download: bool = Query(False),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The ORIGINAL uploaded file, byte for byte.
+
+    Serves the preview surfaces (embedded PDF viewer, workbook preview) and the
+    "download original" action, which are the same bytes and must not be two
+    different answers.
+
+    SCOPED LIKE EVERY OTHER DOCUMENT READ. `require_document` answers 404 for a
+    document outside the caller's scope, so this route cannot become the one
+    place a caller reaches content they hold no grant for - which is exactly
+    what an unauthenticated preview URL would be. Deleting this check is
+    mutation M13.
+
+    `Content-Disposition` is `inline` for preview and `attachment` for
+    download, and the filename is quoted rather than interpolated raw: a
+    filename is user-supplied text and a bare newline in a header is a header
+    injection.
+    """
+    reject_unknown_params(request, {"download"})
+    doc = require_document(document_id, scope)
+    stored = Path(doc["stored_path"])
+    if not stored.exists():
+        # The row outlived its bytes. Said plainly rather than served as an
+        # empty file, which would read as a blank document.
+        return JSONResponse(
+            status_code=404,
+            content={"detail": errors.safe_error(
+                errors.NOT_FOUND, "the stored original is no longer on disk",
+                document_id=document_id)},
+        )
+    safe_name = str(doc["filename"]).replace("\r", " ").replace("\n", " ").replace('"', "'")
+    disposition = "attachment" if download else "inline"
+    return FileResponse(
+        stored,
+        media_type=_media_type_for(safe_name),
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{safe_name}"',
+            # Private: this is document content, and a shared cache holding it
+            # would outlive the grant that allowed the read.
+            "Cache-Control": "private, max-age=0, no-store",
+        },
+    )
 
 
 @app.get("/api/documents/{document_id}/pages/{page_no}/image",

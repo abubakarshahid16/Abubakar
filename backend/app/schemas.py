@@ -46,6 +46,28 @@ DocumentRole = Literal[
     "CRS_TEMPLATE",
 ]
 
+#: Where a DOCUMENT stands in the review workflow.
+#:
+#: MASTER-PLAN SECTION 6 METADATA MAPPING, RESOLVED: "review status" is
+#: **derived, never stored**. There is no `review_status` column and there must
+#: not be one. The authority is `review_runs.status` for the latest run over
+#: that submittal, and a document with no run is `not_reviewed`. A column here
+#: would be a second home for a claim `review_runs` already owns, which is
+#: CLAUDE.md rule 8 - "fix a claim in every home it lives in" - broken at
+#: design time rather than discovered later.
+#:
+#: `not_reviewed` is a real answer and NOT null: the question "has this been
+#: reviewed" has a definite answer for every document, and it is "no".
+#: The remaining values mirror `review_runs.status` exactly, so the two cannot
+#: drift into two vocabularies.
+ReviewStatus = Literal[
+    "not_reviewed",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+]
+
 #: Whether a submittal meets one requirement. A SECOND vocabulary beside the
 #: guided-review `status`/`disposition`, never a replacement for them.
 #:
@@ -131,6 +153,23 @@ class Document(BaseModel):
         "only an administrator can read it. Read from the grant tables, never "
         "inferred from the filename or the content."
     )
+    # ----------------------------------------- AI submittal review, phase 2
+    # The Documents page columns. Every one is null on every document
+    # classified before this workflow existed, and null renders as nothing.
+    document_role: DocumentRole | None = None
+    document_number: str | None = None
+    title: str | None = Field(
+        None, description="the human title. Null means none recorded; the UI "
+                          "falls back to the filename rather than inventing one")
+    revision: str | None = None
+    equipment_type: str | None = None
+    project: str | None = None
+    superseded_by: str | None = Field(
+        None, description="the document id that replaced this one. Null means "
+                          "this document is current")
+    #: DERIVED from the latest review_runs row, never stored. `not_reviewed` is
+    #: a real answer, not a null - see `ReviewStatus`.
+    review_status: ReviewStatus = "not_reviewed"
 
 
 class DocumentPage(BaseModel):
@@ -475,6 +514,10 @@ class DocumentClassification(BaseModel):
     # never as 0, never as "unknown" dressed up as a value.
     document_role: DocumentRole | None = None
     document_number: str | None = None
+    title: str | None = Field(
+        None, description="the human title, which is NOT the filename. Null "
+                          "means none recorded and the UI falls back to the "
+                          "filename rather than inventing one")
     revision: str | None = None
     effective_date: str | None = None
     project: str | None = None
@@ -508,6 +551,30 @@ class ClassificationUpdate(BaseModel):
     discipline: str | None = None
     doc_class: str | None = None
     subject_ids: list[str] = Field(default_factory=list)
+    # ----------------------------------------- AI submittal review, phase 2
+    # THE ENFORCEMENT POINT for the role vocabulary on the way IN. The column
+    # is plain TEXT with no CHECK (see `DocumentRole`), so this annotation is
+    # the only thing standing between a typo and a document that no filter
+    # will ever match. `DocumentRole` and not `str`: widening this field is
+    # mutation M12, and the test that catches it is
+    # test_an_invalid_role_is_rejected.
+    #
+    # Every field is optional and None means "clear it". That is deliberate
+    # and is why the route sends the whole record: a PUT replaces the
+    # classification, the same way `subject_ids` already replaces the subject
+    # set, so an administrator removing a value can actually remove it.
+    document_role: DocumentRole | None = None
+    document_number: str | None = None
+    title: str | None = None
+    revision: str | None = None
+    effective_date: str | None = None
+    project: str | None = None
+    contractor_vendor: str | None = None
+    equipment_type: str | None = None
+    equipment_tags: list[str] = Field(default_factory=list)
+    service: str | None = None
+    transmittal_number: str | None = None
+    superseded_by: str | None = None
 
 
 class CoverageByType(BaseModel):
