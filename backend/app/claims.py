@@ -352,6 +352,13 @@ _COMPARATOR_WORDS: tuple[tuple[str, str], ...] = (
     (r"(?:no|not)\s+(?:be\s+)?less\s+than", ">="),
     (r"(?:no|not)\s+(?:be\s+)?more\s+than", "<="),
     (r"(?:no|not)\s+(?:be\s+)?greater\s+than", "<="),
+    # THE NEGATION IS REQUIRED. Bare "in excess of" is a trigger, not a
+    # limit: "equipment that will generate noise in excess of 85 dB(A) shall
+    # submit Form 7305-ENG" obliges a submission and forbids nothing. Only
+    # the negated form is a comparison. Sits above the bare alternatives so
+    # the whole phrase wins the span, as the _IN_NO_CASE forms do.
+    (r"(?:shall|must|may|should|will)\s+not\s+(?:\w+\s+){0,4}?"
+     r"in\s+excess\s+of", "<="),
     (r"not\s+exceed(?:ing)?", "<="),
     (r"at\s+least", ">="),
     (r"at\s+most", "<="),
