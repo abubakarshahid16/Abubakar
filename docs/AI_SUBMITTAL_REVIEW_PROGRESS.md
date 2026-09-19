@@ -2747,3 +2747,190 @@ were HARNESS_ERROR because the harness takes ONE target path and had been
 given two space-separated ones, so pytest collected nothing - which the
 three-bucket verdict correctly refused to call a pass. M241 was NOT DETECTED
 first because its fixture never inserted the standard (section 96).
+
+---
+
+# Phase 9 — Test debt: the known-bad set, and a flake that was memory
+
+Date: 2026-09-19 · Branch: `feat/phase-1-ui-reaches-backend`
+
+Merged from `cowork/phase-9-test-debt`: two commits made on a VM where npm
+cannot run, so neither had ever been executed. The merge was made with
+`--no-commit`, so an unverified merge never entered history.
+
+## 105. The known-bad set: 58 to 0
+
+Four files asserted a nav button named `/Chat/` that has read "Document Q&A"
+since the product renamed it. Those assertions were left failing for three
+phases rather than edited, because renaming an assertion can hide a
+regression behind it. They were safe to rename now for a specific, checked
+reason: with ONLY the button name changed, **all 54 ChatView tests pass** - so
+the chat behaviour beneath the button is genuinely working.
+
+oxlint's clean result on the four files was PROVEN before it was believed.
+oxlint prints only diagnostics - no summary line - so a clean run and an empty
+run look identical. A real `error`-level violation was planted inside `src/`
+and linted in the same invocation: caught, exit 1; the four files, nothing.
+
+## 106. THE FLAKE WAS MEMORY, AND IT TOOK THREE WRONG TURNS TO SHOW IT
+
+The task: three consecutive full frontend runs, zero failures, identical
+counts. Measured with the JSON reporter, compared per test, not by totals.
+
+| step | what it showed | what it ruled out |
+|---|---|---|
+| first 3 runs | 2 failures, both `Test timed out in 5000ms`, both the FIRST test in their file | assertion failures; a leaked mock firing |
+| isolated runs | comparisonScope #1 takes 1.5-2.5s alone, 1.0-1.4s for #2/#3 doing the identical flow | the test doing too much |
+| **raised `testTimeout` to 15s** | **WRONG.** Next run failed anyway - on a `findBy`'s own 1s budget, in IngestionView.watch | "the budget is just tight" |
+| instrumented the helper | the heading genuinely ABSENT 1.3s after mount, with a mock that resolves on the next microtask | a slow query; the mock |
+| one outlier run | ChatView took 216s (normally 60s); failures in ten unrelated files | anything specific to one test |
+| free RAM, sampled every 0.8s | default workers: lowest **147 MB**; 4 workers: **1,648 MB** | - |
+
+**Root cause:** vitest starts roughly one jsdom worker per core (12 here). The
+machine idles with ~2.6 GB free; the default run drove it to 147 MB, Windows
+paged, and every render stalled for seconds - across both timing budgets at
+once, landing on the first test of heavy files because that is a worker's
+most memory-hungry moment.
+
+**The fix is `maxWorkers: 4`**, and the timeout raise was REVERTED - it
+treated a symptom, and with paging gone the default budgets hold. Capping
+workers costs nothing in wall time on this machine, because the default was
+already spending that time paging. After it:
+
+| run | total | passed | failed | wall |
+|---|---|---|---|---|
+| 1 | 673 | 673 | 0 | 95s |
+| 2 | 673 | 673 | 0 | 84s |
+| 3 | 673 | 673 | 0 | 76s |
+
+Same test ids, same status for every one, in all three.
+
+**On the branch's own fix:** the analysis store's interval really did outlive
+its tests, and clearing it in afterEach is correct. But it was not what
+failed. In nine full runs, no failure was a leaked mock; every one was a
+stall.
+
+---
+
+# Phase 10 — Operations: backup, start script, demo script
+
+Merged from `cowork/phase-10-ops`, committed AS THE BRANCH SHIPPED IT so
+history shows exactly what arrived; every change made here follows in its own
+commit.
+
+## 107. The backup succeeded on the wrong contents - twice
+
+Both reproduced on this machine before either was fixed:
+
+1. **A one-letter typo backed up nothing and called it verified.**
+   `sqlite3.connect` CREATES a database at a path that does not exist, and
+   `integrity_check` passes on an empty file. `backup("rag_inteligence...")`
+   returned, `verify` said `ok: True, tables: {}`, and the typo'd file now
+   existed.
+2. **Two backups in the same second shared a filename.** The second opened
+   the first's file and overwrote it: a 10-row backup became a 3-row one.
+
+The source is now opened READ-ONLY by URI after an existence check; a source
+with no tables is refused; the filename carries microseconds and the
+destination is created exclusively. The guards come in redundant pairs, so
+the mutations (M244-M247) remove whole guards - one half of a pair alone is
+not observable (audit entry 39).
+
+## 108. The restore drill
+
+The live database was counted inside one read transaction BEFORE and AFTER
+the backup, so a difference could be told apart from a write during the
+drill.
+
+| | live | backup |
+|---|---|---|
+| tables | 45 | 45 |
+| total rows | 165,601 | 165,601 |
+| mismatched tables | - | **0** |
+| integrity | - | ok |
+| sidecar files | - | none |
+| live DB changed during the drill | no | |
+
+151 MB, 1.9s. Then the copy was RESTORED - opened through the application's
+own database layer on a second copy, never the live file - and used: startup
+migrations were a no-op, 11 runs listed, and a real review of the drum sheet
+produced **1,580 findings, three times, in 8.4-8.6s**. Count-equal is not the
+same as usable; this showed both.
+
+## 109. The start script, run for real
+
+Launched the way a user launches it, in its own console. Four things reality
+disagreed with:
+
+1. **The backend never started.** `python` was the system Python - also 3.12,
+   so run.py's version check passed - and it died on `No module named
+   'onnxruntime'`. Right version, wrong environment.
+2. **It printed "All started" regardless.**
+3. **It opened the wrong server.** A dev server already on 5173 made Vite
+   silently take 5174 while the script opened 5173.
+4. **It could only run from a double-click:** `timeout /t` refuses without an
+   interactive console.
+
+Plus `.gitattributes`: `* text=auto eol=lf` forced LF on checkout for `.bat`
+too, and cmd.exe's `goto`/`call :label` are unreliable on LF-only batch files.
+Proven after the rule: a fresh checkout is 104 of 104 lines CRLF.
+
+NOT RUN END TO END: the path where the script starts the frontend itself.
+5173 was held by a dev server the owner started from VS Code, and it was not
+stopped to make a test pass. The piece that path depends on - `--strictPort`
+refusing a taken port - was proven in isolation (exit 1, loud).
+
+## 110. The demo script, checked claim by claim - and the defect it found
+
+Kept, and measured: ~8 seconds (8.4-8.6s), 1,580 requirements, citations open
+at the page, nothing loaded from the internet. Corrected: an unsourced
+"6,804 of 6,805", "three contractor formats" (they are synthetic layouts),
+"each caught before reaching a reviewer" (false - the audit exists because
+claims did), "zero fabricated verdicts" (the audit records three, caught by a
+gate), and the PDF to keep handy. Flagged: the unplug-the-cable offer, never
+rehearsed.
+
+**The check found a real defect.** The script named SAES-L-132 as a PDF to
+keep handy; the CRS called SAES-L-132 missing; SAES-L-132 is in the library.
+The "is this cited standard missing?" check compared an identifier against a
+dict keyed by DOCUMENT ID, so every cited standard was always "missing":
+
+| | before | after |
+|---|---|---|
+| drum sheet: cited standards called missing | 15 of 15 | 9 of 15 |
+| Dashboard tile | 21 of 21 | 15 of 21 |
+
+The CRS had told a contractor that six held standards were unavailable.
+Phase 7's "verified by opening the file" checked the rows for presence and
+spelling, never for truth, and every test cited against an empty library,
+where "missing" is always right. Honesty-audit entry 44; the false figures
+retracted in sections 82 and 94 and the phase 6 screenshot README.
+
+## 111. The probe had a false positive of its own
+
+The import-vs-requirements probe flagged `backup_db` as undeclared - it is
+`scripts/backup_db.py`, reached through a test's `sys.path.insert`. Fixed to
+treat anything in the repo's own source roots as first-party, then
+re-validated on a control file: it still flags an unknown package, and still
+maps `yaml` to `PyYAML`.
+
+## 112. Verification, measured - after EACH merge, whole suites
+
+Entries 42 and 43 are why this is two rows rather than one: after each merge
+the WHOLE backend suite and the WHOLE harness ran, never just the new tests.
+
+| | after phase 9 | after phase 10 |
+|---|---|---|
+| Backend suite | 2,354 passed, 0 failed | **2,371 passed, 0 failed** |
+| Mutation harness | 239/239 | **246/246**, 0 not detected, 0 harness error |
+| Working tree after the harness | clean | clean |
+| Frontend suite | 673/673, three consecutive runs | **673/673** |
+| `tsc -b` | clean | clean |
+
+New mutations: M244-M247 (phase 23, the backup's refusals), M248-M250 (phase
+24, which cited standards are missing). M239 re-anchored in the same change
+that moved its line.
+
+The frontend run after phase 10 was made ALONE, not alongside the backend
+suite: phase 9 showed that concurrent load is precisely what makes this
+machine's test runs fail.
