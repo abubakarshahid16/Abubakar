@@ -248,6 +248,22 @@ def ensure_schema() -> None:
                 updated_at TEXT NOT NULL
             )"""
         )
+        # SECTION 15: the AI recommends, the engineer decides, and both are
+        # kept. The recommendation lives in `refusal_reason` where
+        # `_store_run_outcome` writes it; the DECISION gets columns of its
+        # own, because "which reviews are waiting for an engineer" is a
+        # question a dashboard asks in SQL and cannot ask of a JSON blob.
+        for _column, _type in (
+            # One of the four codes in section 15. NULL until an engineer
+            # decides, which is the state "awaiting engineer decision".
+            ("engineer_final_code", "TEXT"),
+            # REQUIRED when the final code differs from the recommendation,
+            # optional when it agrees. Enforced in `record_engineer_code`.
+            ("override_reason", "TEXT"),
+            ("decided_by", "TEXT REFERENCES users(id) ON DELETE SET NULL"),
+            ("decided_at", "TEXT"),
+        ):
+            add_column_if_missing(conn, "review_runs", _column, _type)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_review_runs_submittal "
             "ON review_runs(submittal_document_id, status, created_at DESC)")

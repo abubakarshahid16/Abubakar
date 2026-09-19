@@ -15,6 +15,20 @@ the standards actually in its scope.
 | `PDF-headed.png` | **the proof that `#page=N` works** - headed Chromium renders SAES-E-014 at section 7 "Mechanical Design", which is where the cited clause 7.2.4 lives |
 | `PDF-headless.png` | the identical view in headless Chromium, blank. The embedded PDF viewer does not paint there. Kept so nobody re-investigates a defect that is in the harness, not the app |
 
+## Closing Phase 6: the entry point and the final code
+
+Captured the same day, signed in as an ordinary **non-admin engineer** - which
+is how the admin gate on the final-code route was found (see the commit).
+
+| file | what it shows |
+|---|---|
+| `F-dashboard.png` | CLAUDE.md rule 10 on screen: exactly four cards, each with its denominator (`0 of 2 awaiting review`, `21 of 21 cited standards are not in the library`, `0 running · 8 awaiting an engineer's code`), the Needs Attention tile listing **why** rather than a bare 9, one button, one compact Recent Reviews table |
+| `G-run-from-dashboard.png` | the one button opened in place: pick a loaded submittal and run, with upload sent to the Documents page where upload progress actually lives |
+| `H-review-code.png` | both codes side by side - the system's recommendation with its reason verbatim, including the NOMINAL-estimate note, beside `Not decided yet.` |
+| `I-override-needs-reason.png` | choosing a code that differs from the recommendation makes the reason field appear, marked required |
+| `J-override-refused.png` | pressing Record with no reason: the refusal is shown, not swallowed |
+| `K-decided.png` | after the decision: **both** codes still on screen, the override reason, who decided and when, and the line explaining that this run can no longer be re-run - a new review starts a new run |
+
 ## What is in these images
 
 They are screenshots of the application showing **client document content**:

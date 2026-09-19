@@ -1935,7 +1935,53 @@ class ReviewRunSummary(BaseModel):
     recommended_reason: str | None = None
     #: Why a failed run failed, verbatim. None on a run that did not fail.
     failure_reason: str | None = None
+    #: THE ENGINEER'S DECISION, BESIDE THE MACHINE'S AND NEVER INSTEAD OF IT.
+    #: Section 15: the AI recommends and the engineer decides; both are stored
+    #: so a reader can see what was recommended and what was signed.
+    engineer_final_code: str | None = None
+    override_reason: str | None = None
+    decided_by: str | None = None
+    decided_at: str | None = None
     completeness: dict | None = None
+
+
+class ReviewCodeDecision(BaseModel):
+    """The engineer's final code for a run.
+
+    `override_reason` is REQUIRED when the code differs from the AI's
+    recommendation and optional when it agrees - section 15's "the engineer's
+    final action is governance". The rule is enforced server-side in
+    `comparison.record_engineer_code`, not here, because a client that
+    omitted the field would otherwise decide whether the rule applied.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    code: str
+    override_reason: str | None = Field(default=None, max_length=2000)
+
+
+class ReviewDashboard(BaseModel):
+    """The four cards of master plan section 20, and the recent runs.
+
+    EVERY FIGURE CARRIES ITS POPULATION. `submittals_awaiting_review` is out
+    of `submittals_total`; `standards_referenced_missing` is out of
+    `standards_referenced_total`. A card showing one number without the other
+    is the bare-count defect CLAUDE.md rule 4 forbids.
+    """
+
+    submittals_total: int = 0
+    submittals_awaiting_review: int = 0
+    standards_available: int = 0
+    standards_referenced_total: int = 0
+    standards_referenced_missing: int = 0
+    reviews_running: int = 0
+    reviews_awaiting_decision: int = 0
+    reviews_total: int = 0
+    needs_attention: int = 0
+    #: Why each run counts as needing attention, so the tile is auditable
+    #: rather than a number a reader has to trust.
+    needs_attention_reasons: dict[str, int] = {}
+    recent: list[ReviewRunSummary] = []
 
 
 class ReviewRunList(BaseModel):

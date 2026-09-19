@@ -159,6 +159,22 @@ def test_the_submittal_can_be_reviewed_again_once_the_orphan_is_resolved():
     assert not blocked(), "the submittal is still locked out after the sweep"
 
 
+def test_the_sweep_is_called_at_startup():
+    """A sweep nothing runs resolves nothing.
+
+    Asserted against `main.lifespan`'s source rather than by booting the app -
+    the same idiom as `test_the_facts_migration_is_called_at_startup`, and for
+    the same reason: the claim is structural (the call sits at startup, beside
+    the extraction sweep), and actually booting would start the ingest worker
+    and the folder watcher to prove one line.
+    """
+    import inspect
+
+    from app import main
+    assert "fail_orphaned_review_runs" in inspect.getsource(main.lifespan), \
+        "the sweep exists but nothing calls it, so no orphan is ever resolved"
+
+
 def test_several_orphans_across_documents_are_all_resolved():
     first, second = _document("doc_a"), _document("doc_b")
     _run(first, "running")

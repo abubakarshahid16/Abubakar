@@ -109,6 +109,21 @@ def _fact(submittal_id: str, chunk_id: str, **fields) -> dict:
 def _scope(*ids): return frozenset(ids)
 
 
+def _user(user_id: str = "eng") -> str:
+    """A REAL ENGINEER, because `decided_by` references `users(id)`.
+
+    `reviewer` is written to that column, so a fixture passing an email or a
+    bare initial made the schema refuse the write - the same FK `confirmed_by`
+    has always had. The fixture is what was wrong, not the constraint.
+    """
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO users (id,email,display_name,password_hash,"
+            "created_at) VALUES (?,?,?,'h','2026-09-18T00:00:00Z')",
+            (user_id, f"{user_id}@example.test", user_id))
+    return user_id
+
+
 # ============================================== deterministic numeric verdict
 
 def test_a_numeric_breach_is_caught_with_both_citations():
@@ -491,15 +506,18 @@ def test_the_engineer_can_override_the_recommendation_with_a_reason():
         run, {"code": comparison.CODE_MANUAL, "reason": "low completeness"},
         {"completeness": 0.1})
 
+    engineer = _user()
+
     outcome = comparison.record_engineer_code(
-        run, code=comparison.CODE_APPROVED, reviewer="eng@example.test",
+        run, code=comparison.CODE_APPROVED, reviewer=engineer,
         override_reason="checked the remaining fields by hand",
-        allowed_document_ids=scope, actor={"id": None, "email": "eng@example.test"})
+        allowed_document_ids=scope,
+        actor={"id": engineer, "email": "eng@example.test"})
 
     assert outcome["final_code"] == comparison.CODE_APPROVED
     assert outcome["recommended_code"] == comparison.CODE_MANUAL
     assert outcome["override_reason"]
-    assert outcome["reviewer"] == "eng@example.test"
+    assert outcome["reviewer"] == engineer
     audit = db.connect().execute(
         "SELECT * FROM audit_events WHERE action = 'review.code_recorded'").fetchone()
     assert audit is not None, "the engineer's decision wrote no audit row"
@@ -524,7 +542,7 @@ def test_agreeing_with_the_recommendation_needs_no_reason():
     comparison._store_run_outcome(
         run, {"code": comparison.CODE_MANUAL, "reason": "x"}, {})
     outcome = comparison.record_engineer_code(
-        run, code=comparison.CODE_MANUAL, reviewer="e",
+        run, code=comparison.CODE_MANUAL, reviewer=_user(),
         allowed_document_ids=_scope(sub))
     assert outcome["final_code"] == comparison.CODE_MANUAL
     assert outcome["override_reason"] is None

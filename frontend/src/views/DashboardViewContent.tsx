@@ -7,13 +7,19 @@ import { MetricWarningRow } from "../components/dashboard/MetricWarning";
 import type { ApiError, Metrics, ManagementSummary } from "../types/api";
 import { nf, Stat, Headline, ReadinessPanel, TypeCounts } from "./DashboardPrimitives";
 import { DashboardTechnicalDetails } from "./DashboardTechnicalDetails";
+import { ReviewDashboardPanel } from "../components/review/ReviewDashboardPanel";
 
 export function DashboardView({
   connection,
   onRetryConnection,
+  onOpenReview,
+  onOpenDocuments,
 }: {
   connection: Connection;
   onRetryConnection: () => void;
+  /** Rule 10's primary workflow: the Dashboard's one button leads here. */
+  onOpenReview?: (runId?: string) => void;
+  onOpenDocuments?: () => void;
 }) {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState<{ error: ApiError; disconnected: boolean } | null>(null);
@@ -140,6 +146,16 @@ export function DashboardView({
           {metrics.refresh_seconds}s
         </p>
       </div>
+
+      {/* RULE 10'S PRIMARY WORKFLOW, and the only thing this screen gained.
+          Four cards, one button, one Recent Reviews table - the rule names
+          exactly that, and the whole block lives in one component so a fifth
+          tile cannot appear here without editing the rule first. */}
+      {onOpenReview && onOpenDocuments && (
+        <ReviewDashboardPanel
+          onOpenReview={onOpenReview} onOpenDocuments={onOpenDocuments}
+        />
+      )}
 
       <ReadinessPanel metrics={metrics} />
 

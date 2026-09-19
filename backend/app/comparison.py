@@ -778,6 +778,20 @@ def run_comparison(
         raise ComparisonError("no review run with that id")
     submittal_id = run["submittal_document_id"]
 
+    # AN ENGINEER'S DECISION IS NOT OVERWRITTEN BY A RE-RUN.
+    #
+    # `replace=True` deletes this run's unconfirmed findings and writes new
+    # ones, which is how every fix reaches the corpus - but a run somebody has
+    # signed a final code against is a DECISION, and re-running it underneath
+    # that signature would leave the code attached to findings it was never
+    # made about. A new review is a new row: `POST /api/reviews/run` always
+    # creates one, so nothing is blocked except overwriting history.
+    if replace and run.get("engineer_final_code"):
+        raise ComparisonError(
+            f"this run carries an engineer's final code "
+            f"({run['engineer_final_code']}); start a new review instead of "
+            f"re-running the one the decision was made about")
+
     if replace:
         conn = connect()
         with conn:
@@ -1663,26 +1677,43 @@ def record_engineer_code(
         stored = json.loads(run.get("refusal_reason") or "{}")
     except (TypeError, ValueError):
         stored = {}
+    # THE CODE ITSELF FIRST. An unknown code is not an override of anything,
+    # and reporting it as a missing reason sends the caller to fix the wrong
+    # field - which is what this said until a test asked it for "Looks fine
+    # to me" and was told to supply a reason.
+    if code not in DEFAULT_CODES:
+        raise ComparisonError(
+            f"{code!r} is not one of the review codes: "
+            + ", ".join(DEFAULT_CODES))
     recommended = stored.get("recommended_code")
     if recommended and code != recommended and not (override_reason or "").strip():
         raise ComparisonError(
             "overriding the recommended code requires a reason")
 
+    now = _now()
+    reason = (override_reason or "").strip() or None
+    # THE DECISION GOES IN COLUMNS; THE RECOMMENDATION STAYS WHERE IT WAS.
+    # `refusal_reason` is untouched here, so the AI's original code and its
+    # sentence survive the engineer's decision - section 15 asks for both to
+    # be stored, and a screen that showed only the final one would be hiding
+    # what the machine actually said.
+    conn = connect()
+    with conn:
+        conn.execute(
+            "UPDATE review_runs SET engineer_final_code = ?,"
+            " override_reason = ?, decided_by = ?, decided_at = ?,"
+            " updated_at = ? WHERE id = ?",
+            (code, reason, reviewer, now, now, review_run_id))
     outcome = {
         **stored,
         "final_code": code,
         "reviewer": reviewer,
-        "override_reason": (override_reason or "").strip() or None,
-        "decided_at": _now(),
+        "override_reason": reason,
+        "decided_at": now,
     }
-    conn = connect()
-    with conn:
-        conn.execute(
-            "UPDATE review_runs SET refusal_reason = ?, updated_at = ?"
-            " WHERE id = ?", (json.dumps(outcome), _now(), review_run_id))
     _audit("review.code_recorded", actor, review_run_id,
            detail=f"recommended={recommended} final={code} "
-                  f"overridden={bool(outcome['override_reason'])}")
+                  f"overridden={bool(reason)}")
     return outcome
 
 

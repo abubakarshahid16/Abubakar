@@ -22,6 +22,7 @@ import type {
 } from "../types/api";
 import { FindingDetail } from "../components/review/FindingDetail";
 import { FindingsTable } from "../components/review/FindingsTable";
+import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
 import {
   STATUS_ORDER, completenessLine, statusLabel, statusTone, whenLabel,
   withDenominator,
@@ -32,7 +33,7 @@ type Phase =
   | { kind: "ready" }
   | { kind: "error"; message: string };
 
-export function ReviewRunsView() {
+export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [runs, setRuns] = useState<ReviewRunSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
@@ -55,6 +56,14 @@ export function ReviewRunsView() {
   }, []);
 
   useEffect(() => { void loadRuns(); }, [loadRuns]);
+
+  // ARRIVING FROM THE DASHBOARD BUTTON. The reader pressed something that
+  // said it would run a review; this is the run it started, opened for them
+  // rather than left for them to find in a list.
+  useEffect(() => {
+    if (openRunId && openRunId !== selectedRun) void openRun(openRunId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRunId]);
 
   useEffect(() => {
     // BOTH SIDES OF EVERY CITATION. The submittals fill the run picker; the
@@ -234,6 +243,8 @@ export function ReviewRunsView() {
           {showStandards && (
             <StandardsInScope standards={standards} />
           )}
+
+          <ReviewCodePanel run={run} onDecided={() => { void loadRuns(); }} />
 
           <FindingsTable
             findings={findings} selectedId={selectedFinding}

@@ -11,6 +11,7 @@ from . import classification as classification_mod
 from . import chunker as chunk_mod
 from . import applicability as applicability_mod
 from . import comparison as comparison_mod
+from . import datasheets as datasheets_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import highlight as highlight_mod
@@ -746,6 +747,24 @@ def _require_identity_to_write(scope: access.AccessScope) -> None:
         status_code=401,
         detail=errors.safe_error(errors.UNAUTHENTICATED, "sign in to continue"),
     )
+
+
+def _actor_from_scope(scope: access.AccessScope) -> dict | None:
+    """Who to name in the audit trail for an ENGINEER'S action.
+
+    `admin.current_admin` is the wrong dependency for these: it is a GATE as
+    well as a lookup, and a non-admin gets its deliberately silent 404. That
+    is right for the admin surface and wrong for an engineer's own work - it
+    made recording a final review code (section 15, an engineer's action)
+    impossible for anyone but an admin, and said "not found" while doing it.
+    This resolves the name without deciding anything about permission; the
+    route's own scope has already done that.
+    """
+    if not scope.user_id:
+        return None
+    row = connect().execute("SELECT id, email FROM users WHERE id = ?",
+                            (scope.user_id,)).fetchone()
+    return dict(row) if row else {"id": scope.user_id}
 
 
 # ------------------------------------------------------------------- auth
@@ -1484,6 +1503,214 @@ def export_review_report(
                         filename=f"engineering-review-{body.document_id}.pdf",
                         headers={"Cache-Control": "private, no-store"})
 
+def _document_scope(allowed_document_ids) -> tuple[str, list[str]]:
+    """A WHERE clause restricting documents to the caller's grants.
+
+    An EMPTY grant set is `1 = 0`, never "no restriction" - the
+    deliverables.py defect this codebase keeps re-checking for.
+    """
+    if not allowed_document_ids:
+        return " WHERE 1 = 0", []
+    marks = ",".join("?" for _ in allowed_document_ids)
+    return f" WHERE d.id IN ({marks})", sorted(allowed_document_ids)
+
+
+def _run_summary(run: dict, scope: access.AccessScope) -> dict:
+    """One review run as every screen shows it.
+
+    ONE DEFINITION OF "HOW MANY FINDINGS, OF WHAT". The runs list, the
+    dashboard's recent table and the code-decision response all return this
+    shape, and three copies of it would drift into three different answers to
+    the same question.
+
+    COUNTED IN SQL. Loading every finding to count them read 1,580 rows per
+    run - fourteen thousand across nine runs - to produce six numbers, and
+    the list spent seconds on it before rendering. The run is already scoped
+    by its caller, so these aggregates inherit that scope.
+    """
+    by_status = {
+        row["compliance_status"]: row["n"]
+        for row in connect().execute(
+            "SELECT compliance_status, COUNT(*) AS n FROM review_findings"
+            " WHERE review_run_id = ? AND compliance_status IS NOT NULL"
+            " GROUP BY compliance_status", (run["id"],))
+    }
+    findings_total = connect().execute(
+        "SELECT COUNT(*) AS n FROM review_findings WHERE review_run_id = ?",
+        (run["id"],)).fetchone()["n"]
+    tags = [
+        row["equipment_tag"] for row in connect().execute(
+            "SELECT DISTINCT equipment_tag FROM review_findings"
+            " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
+            " ORDER BY equipment_tag", (run["id"],))
+    ]
+    outcome = comparison_mod.run_outcome(
+        run["id"], allowed_document_ids=scope.allowed_document_ids) or {}
+    document = connect().execute(
+        "SELECT filename FROM documents WHERE id = ?",
+        (run["submittal_document_id"],)).fetchone()
+    return {
+        "review_run_id": run["id"],
+        "submittal_document_id": run["submittal_document_id"],
+        "submittal_filename": document["filename"] if document else None,
+        "equipment_tags": tags,
+        "status": run.get("status") or "pending",
+        "created_at": run.get("created_at"),
+        "completed_at": run.get("completed_at"),
+        "standards_in_scope": connect().execute(
+            "SELECT COUNT(*) AS n FROM review_applicable_standards"
+            " WHERE review_run_id = ? AND included = 1",
+            (run["id"],)).fetchone()["n"],
+        "findings_total": findings_total,
+        "by_status": by_status,
+        "recommended_code": outcome.get("recommended_code"),
+        "recommended_reason": outcome.get("reason"),
+        "failure_reason": outcome.get("error"),
+        # THE ENGINEER'S DECISION BESIDE THE MACHINE'S, never instead of it.
+        "engineer_final_code": run.get("engineer_final_code"),
+        "override_reason": run.get("override_reason"),
+        "decided_by": run.get("decided_by"),
+        "decided_at": run.get("decided_at"),
+        "completeness": outcome.get("completeness"),
+    }
+
+
+@app.post("/api/reviews/runs/{review_run_id}/code",
+          response_model=schemas.ReviewRunSummary,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404,
+                     **schemas.ERRORS_422})
+def decide_review_code(
+    review_run_id: str,
+    body: schemas.ReviewCodeDecision,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The engineer's FINAL review code for a run.
+
+    SECTION 15: the AI performs the review and recommends a code; the
+    engineer's final action is governance, not the initial review. Both are
+    stored - the recommendation is untouched here - so a screen can show what
+    the machine said beside what the engineer decided.
+
+    A reason is REQUIRED when the two differ. That rule lives in
+    `comparison.record_engineer_code` and is enforced there rather than in
+    this signature, because a client that simply omitted the field would
+    otherwise be deciding whether the rule applied to it.
+
+    AN ENGINEER'S ROUTE, NOT AN ADMIN'S. This depended on
+    `admin.current_admin` for the audit actor alone, and that dependency is a
+    gate: every non-admin engineer got its silent 404, so the screen said
+    "not found" about a run it had just listed. Found by signing in as an
+    ordinary engineer and pressing the button.
+    """
+    _require_identity_to_write(scope)
+    actor = _actor_from_scope(scope)
+    reject_unknown_params(request, set())
+    if submittal_review_mod.get_review_run(
+            review_run_id,
+            allowed_document_ids=scope.allowed_document_ids) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    try:
+        comparison_mod.record_engineer_code(
+            review_run_id, code=body.code, reviewer=scope.user_id,
+            override_reason=body.override_reason,
+            allowed_document_ids=scope.allowed_document_ids, actor=actor)
+    except comparison_mod.ComparisonError as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc))) from exc
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids)
+    return _run_summary(run, scope)
+
+
+@app.get("/api/reviews/dashboard", response_model=schemas.ReviewDashboard,
+         responses=schemas.ERRORS_422)
+def review_dashboard(
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The four cards of master plan section 20, under the caller's grants.
+
+    COUNTED IN SQL OVER THE SCOPED SET, never by loading rows to count them -
+    the runs list learned that the hard way when counting 14,000 findings in
+    Python made the page unusable.
+    """
+    reject_unknown_params(request, set())
+    allowed = scope.allowed_document_ids
+    where, args = _document_scope(allowed)
+
+    submittals = [
+        row["id"] for row in connect().execute(
+            "SELECT d.id FROM documents d JOIN document_classification c"
+            " ON c.document_id = d.id" + where +
+            " AND c.document_role = 'CONTRACTOR_SUBMITTAL'", args)
+    ]
+    standards_available = connect().execute(
+        "SELECT COUNT(*) AS n FROM documents d JOIN document_classification c"
+        " ON c.document_id = d.id" + where +
+        " AND c.document_role = 'COMPANY_STANDARD'", args).fetchone()["n"]
+
+    runs = submittal_review_mod.list_review_runs(allowed_document_ids=allowed)
+    reviewed = {run["submittal_document_id"] for run in runs
+                if (run.get("status") or "") == "completed"}
+    running = sum(1 for run in runs if (run.get("status") or "") == "running")
+    awaiting = sum(1 for run in runs
+                   if (run.get("status") or "") == "completed"
+                   and not run.get("engineer_final_code"))
+
+    # NEEDS ATTENTION, AND IT SAYS WHY. A bare tile reading "3" is a number a
+    # reader has to trust; the breakdown is what makes it checkable.
+    reasons: dict[str, int] = {}
+    for run in runs:
+        outcome = comparison_mod.run_outcome(
+            run["id"], allowed_document_ids=allowed) or {}
+        code = run.get("engineer_final_code") or outcome.get("recommended_code")
+        if (run.get("status") or "") == "failed":
+            reasons["the run failed"] = reasons.get("the run failed", 0) + 1
+        elif code == comparison_mod.CODE_REJECTED:
+            reasons["rejected"] = reasons.get("rejected", 0) + 1
+        elif code == comparison_mod.CODE_MANUAL:
+            key = "not enough was read to recommend a code"
+            reasons[key] = reasons.get(key, 0) + 1
+
+    # WHAT THE SUBMITTALS CITE THAT THE LIBRARY DOES NOT HOLD. Read from the
+    # submittals' own chunk text, which is two documents here, rather than by
+    # re-running the applicability selection for a tile.
+    referenced: set[str] = set()
+    missing: set[str] = set()
+    if submittals:
+        library = applicability_mod._library(allowed)
+        for document_id in submittals:
+            text = " ".join(
+                row["text"] or "" for row in connect().execute(
+                    "SELECT text FROM chunks WHERE document_id = ?",
+                    (document_id,)))
+            names = datasheets_mod.referenced_standards(text)
+            matched = applicability_mod._match_referenced(library, names)
+            for name in names:
+                key = applicability_mod.normalise_identifier(name)
+                referenced.add(key)
+                if key not in matched:
+                    missing.add(key)
+
+    recent = [_run_summary(run, scope) for run in runs[:5]]
+    return {
+        "submittals_total": len(submittals),
+        "submittals_awaiting_review": sum(
+            1 for document_id in submittals if document_id not in reviewed),
+        "standards_available": standards_available,
+        "standards_referenced_total": len(referenced),
+        "standards_referenced_missing": len(missing),
+        "reviews_running": running,
+        "reviews_awaiting_decision": awaiting,
+        "reviews_total": len(runs),
+        "needs_attention": sum(reasons.values()),
+        "needs_attention_reasons": reasons,
+        "recent": recent,
+    }
+
+
 @app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
          responses=schemas.ERRORS_422)
 def list_review_runs(
@@ -1504,57 +1731,7 @@ def list_review_runs(
     runs = submittal_review_mod.list_review_runs(
         allowed_document_ids=scope.allowed_document_ids,
         submittal_document_id=document_id)
-    out = []
-    for run in runs:
-        # COUNTED IN SQL. Loading every finding to count them read 1,580 rows
-        # per run - fourteen thousand across nine runs - to produce six
-        # numbers, and the list spent seconds on it before rendering. The run
-        # is already scoped by `list_review_runs` above, so these aggregates
-        # inherit that scope rather than re-deriving it.
-        by_status = {
-            row["compliance_status"]: row["n"]
-            for row in connect().execute(
-                "SELECT compliance_status, COUNT(*) AS n FROM review_findings"
-                " WHERE review_run_id = ? AND compliance_status IS NOT NULL"
-                " GROUP BY compliance_status", (run["id"],))
-        }
-        findings_total = connect().execute(
-            "SELECT COUNT(*) AS n FROM review_findings WHERE review_run_id = ?",
-            (run["id"],)).fetchone()["n"]
-        tags = [
-            row["equipment_tag"] for row in connect().execute(
-                "SELECT DISTINCT equipment_tag FROM review_findings"
-                " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
-                " ORDER BY equipment_tag", (run["id"],))
-        ]
-        outcome = comparison_mod.run_outcome(
-            run["id"], allowed_document_ids=scope.allowed_document_ids) or {}
-        document = connect().execute(
-            "SELECT filename FROM documents WHERE id = ?",
-            (run["submittal_document_id"],)).fetchone()
-        out.append({
-            "review_run_id": run["id"],
-            "submittal_document_id": run["submittal_document_id"],
-            "submittal_filename": document["filename"] if document else None,
-            "equipment_tags": tags,
-            "status": run.get("status") or "pending",
-            "created_at": run.get("created_at"),
-            "completed_at": run.get("completed_at"),
-            "standards_in_scope": connect().execute(
-                "SELECT COUNT(*) AS n FROM review_applicable_standards"
-                " WHERE review_run_id = ? AND included = 1",
-                (run["id"],)).fetchone()["n"],
-            "findings_total": findings_total,
-            "by_status": by_status,
-            "recommended_code": outcome.get("recommended_code"),
-            "recommended_reason": outcome.get("reason"),
-            # WHY A FAILED RUN FAILED, in its own words. A status of "failed"
-            # with no reason beside it sends the reader to the logs for
-            # something the row already knows.
-            "failure_reason": outcome.get("error"),
-            "completeness": outcome.get("completeness"),
-        })
-    return {"runs": out}
+    return {"runs": [_run_summary(run, scope) for run in runs]}
 
 
 @app.get("/api/reviews/runs/{review_run_id}/standards",

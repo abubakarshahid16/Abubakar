@@ -2527,12 +2527,176 @@ EQUIPMENT_TAG = (
 )
 
 
+#: A crashed run, and the engineer's final code (master plan section 15).
+REVIEW_GOVERNANCE = (
+    Mutation(
+        id="M208", phase=17,
+        description="DELETE the orphaned run instead of marking it failed, "
+                    "erasing the only record that anybody ever started it",
+        path=APP / "submittal_review.py",
+        anchor='            "UPDATE review_runs SET status = \'failed\', refusal_reason = ?,"\n'
+               '            " updated_at = ? WHERE status = \'running\'",',
+        replacement='            "DELETE FROM review_runs WHERE ? IS NOT NULL"\n'
+                    '            " AND ? IS NOT NULL AND status = \'running\'",',
+        target="tests/test_orphaned_review_runs.py",
+        keyword="kept_because_a_crashed_run_is_history",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M209", phase=17,
+        description="sweep every run, not only the running ones, rewriting "
+                    "the outcome of every review ever done at each startup",
+        path=APP / "submittal_review.py",
+        anchor='            " updated_at = ? WHERE status = \'running\'",',
+        replacement='            " updated_at = ? WHERE 1 = 1 OR status = \'running\'",',
+        target="tests/test_orphaned_review_runs.py",
+        keyword="not_running_is_left_alone or completed_runs_outcome_survives",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M210", phase=17,
+        description="never call the sweep at startup, so the orphan stays "
+                    "`running` and locks its submittal out of the product",
+        path=APP / "main.py",
+        anchor="        submittal_review_mod.fail_orphaned_review_runs()",
+        replacement="        pass",
+        target="tests/test_orphaned_review_runs.py",
+        keyword="sweep_is_called_at_startup",
+    ),
+    Mutation(
+        id="M211", phase=18,
+        description="LET AN ENGINEER OVERRIDE THE RECOMMENDATION WITH NO "
+                    "REASON, which is the whole of section 15's governance",
+        path=APP / "comparison.py",
+        anchor='    if recommended and code != recommended and not (override_reason or "").strip():',
+        replacement="    if False:",
+        target="tests/test_review_code.py",
+        keyword="overriding_the_recommendation_requires_a_reason",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M212", phase=18,
+        description="OVERWRITE THE RECOMMENDATION WITH THE DECISION, so no "
+                    "reader can ever see what the machine itself said",
+        path=APP / "comparison.py",
+        anchor='            "UPDATE review_runs SET engineer_final_code = ?,"',
+        replacement='            "UPDATE review_runs SET refusal_reason = NULL,"\n'
+                    '            " engineer_final_code = ?,"',
+        target="tests/test_review_code.py",
+        keyword="recommendation_survives_the_decision",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M213", phase=18,
+        description="accept any string at all as a review code",
+        path=APP / "comparison.py",
+        anchor="    if code not in DEFAULT_CODES:",
+        replacement="    if False:",
+        target="tests/test_review_code.py",
+        keyword="not_a_review_code_is_refused",
+    ),
+    Mutation(
+        id="M214", phase=18,
+        description="RE-RUN A DECIDED RUN, leaving the engineer's code "
+                    "attached to findings it was never made about",
+        path=APP / "comparison.py",
+        anchor='    if replace and run.get("engineer_final_code"):',
+        replacement="    if False:",
+        target="tests/test_review_code.py",
+        keyword="re_running_a_decided_run_is_refused",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M215", phase=18,
+        description="block EVERY re-run, not only a decided one, so no fix "
+                    "can ever reach an existing run again",
+        path=APP / "comparison.py",
+        anchor='    if replace and run.get("engineer_final_code"):',
+        replacement="    if replace:",
+        target="tests/test_review_code.py",
+        keyword="without_a_decision_still_re_runs or never_blocked_by_another_runs_decision",
+    ),
+    Mutation(
+        id="M221", phase=18,
+        description="GATE THE ENGINEER'S OWN ACTION ON BEING AN ADMIN, which "
+                    "answers every other engineer with the admin 404",
+        path=APP / "main.py",
+        anchor="    actor = _actor_from_scope(scope)",
+        replacement="    actor = admin_mod.current_admin(request)",
+        target="tests/test_review_code.py",
+        keyword="not_an_admin_can_record_the_final_code",
+        tags=("critical",),
+    ),
+)
+
+
+#: The Dashboard's four cards (CLAUDE.md rule 10, master plan section 20).
+REVIEW_DASHBOARD = (
+    Mutation(
+        id="M216", phase=19,
+        description="COUNT EVERY DOCUMENT ON THE MACHINE in the dashboard's "
+                    "tiles, so a tile reveals what the caller may not read",
+        path=APP / "main.py",
+        anchor="    where, args = _document_scope(allowed)\n\n    submittals = [",
+        replacement='    where, args = " WHERE 1 = 1", []\n\n    submittals = [',
+        target="tests/test_review_dashboard.py",
+        keyword="outside_the_grant_set or empty_grant_set_counts_nothing",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M217", phase=19,
+        description="call every completed run awaiting a decision, so a run "
+                    "an engineer has already signed keeps asking to be signed",
+        path=APP / "main.py",
+        anchor='                   and not run.get("engineer_final_code"))',
+        replacement="                   )",
+        target="tests/test_review_dashboard.py",
+        keyword="takes_the_run_off_the_waiting_list",
+    ),
+    Mutation(
+        id="M218", phase=19,
+        description="SHOW THE NEEDS-ATTENTION NUMBER WITH NO BREAKDOWN, "
+                    "which is a count a reader can only trust, not check",
+        path=APP / "main.py",
+        anchor='        "needs_attention_reasons": reasons,',
+        replacement='        "needs_attention_reasons": {},',
+        target="tests/test_review_dashboard.py",
+        keyword="says_why_and_the_reasons_sum",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M219", phase=19,
+        description="count a review still RUNNING as one that is done, "
+                    "reporting work that has not happened yet",
+        path=APP / "main.py",
+        anchor='    reviewed = {run["submittal_document_id"] for run in runs\n'
+               '                if (run.get("status") or "") == "completed"}',
+        replacement='    reviewed = {run["submittal_document_id"] for run in runs}',
+        target="tests/test_review_dashboard.py",
+        keyword="still_running_does_not_count_as_reviewed or "
+                "no_completed_run_is_awaiting_review",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M220", phase=19,
+        description="put every run ever done in the Recent Reviews table, "
+                    "which is the metrics dump rule 10 forbids",
+        path=APP / "main.py",
+        anchor="    recent = [_run_summary(run, scope) for run in runs[:5]]",
+        replacement="    recent = [_run_summary(run, scope) for run in runs]",
+        target="tests/test_review_dashboard.py",
+        keyword="recent_table_stays_compact",
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
     + EXTRACTION + DATASHEET + MATCHER + TABLE_AND_UNITS + REACHABLE
     + MODEL_TIER + GATE_FALLOUT + REPEATED_FORM
     + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
+    + REVIEW_GOVERNANCE + REVIEW_DASHBOARD
 )
 
 

@@ -39,6 +39,7 @@ import type {
   ReportList,
   ReportRecord,
   ReportVerification,
+  ReviewDashboard,
   ReviewRunStandard,
   ReviewRunSummary,
   PagesResponse,
@@ -268,6 +269,13 @@ export const hasArrayField =
     b !== null &&
     Array.isArray((b as Record<string, unknown>)[field]);
 
+export const hasNumberField =
+  (field: string): ShapeCheck =>
+  (b) =>
+    typeof b === "object" &&
+    b !== null &&
+    typeof (b as Record<string, unknown>)[field] === "number";
+
 export const analysis = {
   summary: (body: AnalysisRequest) =>
     request<AnalysisSummaryResult>("/analysis/summary", {
@@ -349,6 +357,24 @@ export const reviews = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ submittal_document_id: submittalDocumentId }),
     }),
+  /** The four cards of master plan section 20, under the caller's grants.
+   *
+   *  SHAPE-CHECKED, like every other list on this screen. Without it a body
+   *  of the wrong shape reached the cards as `ok`, and `.toLocaleString()` on
+   *  the missing count threw - taking the WHOLE Dashboard down over one
+   *  panel. That is exactly the white screen `ShapeCheck` exists to prevent. */
+  dashboard: () =>
+    request<ReviewDashboard>("/reviews/dashboard", undefined,
+                             hasNumberField("submittals_total")),
+  /** The engineer's final code. A reason is required when it differs from
+   *  the recommendation; the server enforces that, not this call. */
+  decideCode: (runId: string, code: string, overrideReason: string | null) =>
+    request<ReviewRunSummary>(
+      `/reviews/runs/${encodeURIComponent(runId)}/code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, override_reason: overrideReason }),
+      }),
   /** Refuse a pairing so no future run proposes it again. */
   rejectPairing: (findingId: string, reason: string) =>
     request<PairRejection>("/reviews/pairs/reject", {

@@ -376,6 +376,11 @@ export interface ReviewRunSummary {
   recommended_reason: string | null;
   /** Why a failed run failed, verbatim. Null on a run that did not fail. */
   failure_reason?: string | null;
+  /** The engineer's final code, beside the AI's and never instead of it. */
+  engineer_final_code?: string | null;
+  override_reason?: string | null;
+  decided_by?: string | null;
+  decided_at?: string | null;
   completeness: {
     fields_read?: number;
     fields_estimated?: number;
@@ -384,6 +389,29 @@ export interface ReviewRunSummary {
     completeness?: number | null;
     sufficient?: boolean;
   } | null;
+}
+
+/** The four codes of master plan section 15. Configurable there, fixed here
+ *  until the client asks for different ones. */
+export const REVIEW_CODES = [
+  "Approved",
+  "Approved with Comments",
+  "Rejected / Revise and Resubmit",
+  "Manual Review Required",
+] as const;
+
+export interface ReviewDashboard {
+  submittals_total: number;
+  submittals_awaiting_review: number;
+  standards_available: number;
+  standards_referenced_total: number;
+  standards_referenced_missing: number;
+  reviews_running: number;
+  reviews_awaiting_decision: number;
+  reviews_total: number;
+  needs_attention: number;
+  needs_attention_reasons: Record<string, number>;
+  recent: ReviewRunSummary[];
 }
 
 export interface PairRejection {
