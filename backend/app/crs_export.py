@@ -89,6 +89,23 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.row_dimensions[row].height = max(
             15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
 
+    # Recommended review code, when the caller supplies one: a bold merged
+    # summary row two rows below the table, so the seven-column layout the
+    # client's template defines is untouched. The reason renders beside it
+    # verbatim - a code with no reason is an opinion, not a review.
+    code = meta.get("recommended_code")
+    if code:
+        row = 8 + len(findings) + 2
+        ws.merge_cells(start_row=row, start_column=1, end_row=row,
+                       end_column=2)
+        ws.merge_cells(start_row=row, start_column=3, end_row=row,
+                       end_column=7)
+        put(row, 1, "Recommended Review Code:", bold=True)
+        reason = meta.get("recommended_code_reason", "")
+        put(row, 3, f"{code}" + (f" - {reason}" if reason else ""),
+            bold=True, wrap=True)
+        ws.row_dimensions[row].height = max(15, 13 * (len(reason) // 90 + 1))
+
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

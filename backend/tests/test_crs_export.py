@@ -75,3 +75,18 @@ def test_every_data_cell_is_bordered():
     ws = load([{"comment": "c"}])
     for col in range(1, 8):
         assert ws.cell(row=9, column=col).border.top.style == "thin"
+
+
+def test_recommended_code_renders_with_its_reason():
+    ws = load([{"comment": "c"}],
+              dict(META, recommended_code="Manual Review Required",
+                   recommended_code_reason="governing standards not available"))
+    value = ws.cell(row=11, column=3).value
+    assert "Manual Review Required" in value
+    assert "governing standards" in value
+    assert ws.cell(row=11, column=1).value == "Recommended Review Code:"
+
+
+def test_no_code_no_row():
+    ws = load([{"comment": "c"}])
+    assert ws.cell(row=11, column=1).value is None
