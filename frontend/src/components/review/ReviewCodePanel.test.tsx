@@ -67,7 +67,41 @@ describe("both codes, never one", () => {
     // Also in the card: the edit form below pre-fills the same reason, so
     // an unscoped query would match twice and prove neither.
     expect(within(decided).getByText(/both open items are lookup tables/)).toBeInTheDocument();
-    expect(within(decided).getByText(/decided by eng/)).toBeInTheDocument();
+    expect(within(decided).getByText(/decided by/)).toBeInTheDocument();
+  });
+
+  it("names the engineer and keeps the id in the tooltip", () => {
+    // THE SCREEN PRINTED `decided by user_phase6_demo`. An engineer knows
+    // their name; nobody recognises their own row id. The id still travels -
+    // the audit trail is keyed by it - but a reader should not have to read it.
+    render(
+      <ReviewCodePanel
+        run={run({
+          engineer_final_code: "Approved",
+          decided_by: "user_phase6_demo", decided_by_name: "Ali Hassan",
+        })}
+        onDecided={vi.fn()}
+      />,
+    );
+
+    const named = screen.getByText("Ali Hassan");
+    expect(named).toBeInTheDocument();
+    expect(named).toHaveAttribute("title", "user_phase6_demo");
+    expect(screen.queryByText(/decided by user_phase6_demo/)).toBeNull();
+  });
+
+  it("falls back to the id when the engineer's row is gone", () => {
+    // `decided_by` is ON DELETE SET NULL on the user, but a run can still
+    // arrive carrying an id whose name did not resolve. The id is then all
+    // that is known, and showing it beats showing nobody.
+    render(
+      <ReviewCodePanel
+        run={run({ engineer_final_code: "Approved", decided_by: "gone" })}
+        onDecided={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("gone")).toBeInTheDocument();
   });
 
   it("says a run is not decided when it is not", () => {

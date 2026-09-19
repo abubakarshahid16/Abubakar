@@ -1940,7 +1940,12 @@ class ReviewRunSummary(BaseModel):
     #: so a reader can see what was recommended and what was signed.
     engineer_final_code: str | None = None
     override_reason: str | None = None
+    #: The user id, because that is what the foreign key holds.
     decided_by: str | None = None
+    #: And the name that id belongs to, resolved in the run's own join. A
+    #: screen shows this and keeps the id for the tooltip: an engineer knows
+    #: their name, not their primary key. Null when the user row is gone.
+    decided_by_name: str | None = None
     decided_at: str | None = None
     completeness: dict | None = None
 

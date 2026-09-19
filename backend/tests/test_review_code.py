@@ -218,6 +218,67 @@ def test_a_new_run_is_never_blocked_by_another_runs_decision():
         "the first run's decision was disturbed"
 
 
+# ============================== the name, not the primary key (phase 7, 0a)
+
+def test_a_decided_run_carries_the_name_and_not_only_the_id():
+    """THE SCREEN SHOWED `decided by user_phase6_demo`. An engineer knows
+    their name; nobody knows their own row id. Both travel - the id for the
+    audit trail and the tooltip, the name for the sentence."""
+    run_id, scope = _run()
+    comparison.record_engineer_code(
+        run_id, code=comparison.CODE_MANUAL, reviewer="eng",
+        allowed_document_ids=scope)
+
+    run = submittal_review.get_review_run(run_id, allowed_document_ids=scope)
+
+    assert run["decided_by"] == "eng"
+    assert run["decided_by_name"] == "Eng"
+
+
+def test_the_name_arrives_with_the_run_rather_than_a_lookup_per_row():
+    """RESOLVED IN THE JOIN. Listing runs must not cost one user query per
+    row, so the loader itself carries the name - asserted on the LIST path,
+    which is the one that would have multiplied."""
+    run_id, scope = _run()
+    comparison.record_engineer_code(
+        run_id, code=comparison.CODE_MANUAL, reviewer="eng",
+        allowed_document_ids=scope)
+
+    listed = submittal_review.list_review_runs(allowed_document_ids=scope)
+
+    assert [r["decided_by_name"] for r in listed] == ["Eng"]
+
+
+def test_an_undecided_run_has_no_name_rather_than_a_placeholder():
+    """Null renders as nothing (CLAUDE.md rule 4). Not "unknown", and not the
+    empty string dressed as a person."""
+    run_id, scope = _run()
+
+    run = submittal_review.get_review_run(run_id, allowed_document_ids=scope)
+
+    assert run["decided_by"] is None
+    assert run["decided_by_name"] is None
+
+
+def test_a_decision_outlives_the_engineer_who_made_it():
+    """`decided_by` is ON DELETE SET NULL, so a departed engineer's decision
+    stays on the run with no name to show. The LEFT join is what keeps the
+    run readable at all - an inner one would make it vanish."""
+    run_id, scope = _run()
+    comparison.record_engineer_code(
+        run_id, code=comparison.CODE_APPROVED, reviewer="eng",
+        override_reason="checked by hand", allowed_document_ids=scope)
+    with db.connect() as conn:
+        conn.execute("DELETE FROM users WHERE id = 'eng'")
+
+    run = submittal_review.get_review_run(run_id, allowed_document_ids=scope)
+
+    assert run is not None, "the run vanished with its author"
+    assert run["engineer_final_code"] == comparison.CODE_APPROVED
+    assert run["override_reason"] == "checked by hand"
+    assert run["decided_by_name"] is None
+
+
 # ================================ through the route, as a real engineer
 
 def _signed_in_engineer(monkeypatch) -> tuple[TestClient, dict]:
@@ -270,6 +331,8 @@ def test_an_engineer_who_is_not_an_admin_can_record_the_final_code(monkeypatch):
     assert response.status_code == 200, response.text
     assert response.json()["engineer_final_code"] == comparison.CODE_MANUAL
     assert _row(run_id)["decided_by"] == "eng", "signed by nobody"
+    # And the wire carries the name, not only the id the column holds.
+    assert response.json()["decided_by_name"] == "Eng"
 
 
 def test_the_route_still_refuses_an_override_with_no_reason(monkeypatch):

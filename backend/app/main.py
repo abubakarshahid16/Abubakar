@@ -1570,6 +1570,10 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "engineer_final_code": run.get("engineer_final_code"),
         "override_reason": run.get("override_reason"),
         "decided_by": run.get("decided_by"),
+        # THE NAME A READER RECOGNISES, carried by the run's own join rather
+        # than a lookup per row. Null when the decision's user row is gone
+        # (`decided_by` is ON DELETE SET NULL), and null renders as nothing.
+        "decided_by_name": run.get("decided_by_name"),
         "decided_at": run.get("decided_at"),
         "completeness": outcome.get("completeness"),
     }

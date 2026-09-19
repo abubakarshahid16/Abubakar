@@ -536,6 +536,25 @@ def fail_orphaned_review_runs() -> int:
 # the mutation the tests assert.
 
 
+#: Every run, with the NAME of whoever signed it - resolved in the join, not
+#: by a lookup per row. `decided_by` is a user id because it is a foreign key;
+#: an id is not what a reader recognises, and a screen that printed it was
+#: asking an engineer to know their own primary key. LEFT JOIN because the
+#: column is `ON DELETE SET NULL`: a run signed by a since-deleted user keeps
+#: its decision and simply has no name to show.
+#:
+#: EVERY COLUMN THE CALLERS ADD IS QUALIFIED `r.`, and that is not style.
+#: `users` also has `id` and `created_at`, so the unqualified `AND id = ?` and
+#: `ORDER BY created_at DESC, id DESC` these callers already carried became
+#: `ambiguous column name` the moment a second table entered the FROM - eleven
+#: scope tests said so. `submittal_document_id` is unambiguous and is left as
+#: `_scope_clause` writes it, since that helper serves other tables too.
+_RUN_SELECT = (
+    "SELECT r.*, u.display_name AS decided_by_name"
+    " FROM review_runs r LEFT JOIN users u ON u.id = r.decided_by"
+)
+
+
 def list_review_runs(
     *, allowed_document_ids: frozenset[str],
     submittal_document_id: str | None = None,
@@ -543,7 +562,7 @@ def list_review_runs(
     """Review runs over submittals the caller may read."""
     ensure_schema()
     where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
-    sql = "SELECT * FROM review_runs" + where
+    sql = _RUN_SELECT + where
     if submittal_document_id is not None:
         # AND, never OR: a caller narrowing to one document may only narrow.
         sql += " AND submittal_document_id = ?"
@@ -555,7 +574,7 @@ def list_review_runs(
     # orders this way and picks the first row per document, so the two
     # must agree or "the latest run" means two different things in one
     # module.
-    sql += " ORDER BY created_at DESC, id DESC"
+    sql += " ORDER BY r.created_at DESC, r.id DESC"
     return [dict(row) for row in connect().execute(sql, args).fetchall()]
 
 
@@ -567,7 +586,7 @@ def get_review_run(run_id: str, *, allowed_document_ids: frozenset[str]) -> dict
     ensure_schema()
     where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
     row = connect().execute(
-        "SELECT * FROM review_runs" + where + " AND id = ?", [*args, run_id]
+        _RUN_SELECT + where + " AND r.id = ?", [*args, run_id]
     ).fetchone()
     return dict(row) if row is not None else None
 

@@ -91,8 +91,22 @@ export function ReviewCodePanel({ run, onDecided }: ReviewCodePanelProps) {
               <p className="mt-1 font-semibold text-emerald-200">
                 {run.engineer_final_code}
               </p>
+              {/* THE NAME, NOT THE PRIMARY KEY. This printed `decided by
+                  user_phase6_demo`, which asks an engineer to recognise their
+                  own row id. The id stays - it is what the audit trail and
+                  the foreign key hold - but in the tooltip, where somebody
+                  who needs it can find it and nobody else has to read it.
+                  With no name (the user row is gone) the id is all that is
+                  known, and showing it is more honest than showing nothing. */}
               <p className="mt-1 text-xs text-slateish-400">
-                {run.decided_by ? `decided by ${run.decided_by}` : "decided"}
+                {run.decided_by ? (
+                  <>
+                    {"decided by "}
+                    <span title={run.decided_by}>
+                      {run.decided_by_name || run.decided_by}
+                    </span>
+                  </>
+                ) : "decided"}
                 {run.decided_at ? ` on ${whenLabel(run.decided_at)}` : ""}
               </p>
               {run.override_reason && (

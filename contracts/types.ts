@@ -379,7 +379,11 @@ export interface ReviewRunSummary {
   /** The engineer's final code, beside the AI's and never instead of it. */
   engineer_final_code?: string | null;
   override_reason?: string | null;
+  /** The user id the foreign key holds. Shown only in the tooltip. */
   decided_by?: string | null;
+  /** The name that id belongs to, resolved server-side in the run's own
+   *  join. Null when the user row is gone; null renders as nothing. */
+  decided_by_name?: string | null;
   decided_at?: string | null;
   completeness: {
     fields_read?: number;

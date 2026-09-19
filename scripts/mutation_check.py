@@ -2687,6 +2687,39 @@ REVIEW_DASHBOARD = (
         target="tests/test_review_dashboard.py",
         keyword="recent_table_stays_compact",
     ),
+    Mutation(
+        id="M222", phase=19,
+        description="drop the name from the run's join, leaving a screen to "
+                    "print the engineer's primary key at them",
+        path=APP / "submittal_review.py",
+        anchor='    "SELECT r.*, u.display_name AS decided_by_name"',
+        replacement='    "SELECT r.*, NULL AS decided_by_name"',
+        target="tests/test_review_code.py",
+        keyword="carries_the_name_and_not_only_the_id or "
+                "arrives_with_the_run_rather_than_a_lookup_per_row",
+    ),
+    Mutation(
+        id="M223", phase=19,
+        description="INNER-join the decider, so a run signed by a departed "
+                    "engineer disappears along with them",
+        path=APP / "submittal_review.py",
+        anchor=" FROM review_runs r LEFT JOIN users u ON u.id = r.decided_by",
+        replacement=" FROM review_runs r JOIN users u ON u.id = r.decided_by",
+        target="tests/test_review_code.py",
+        keyword="outlives_the_engineer_who_made_it or "
+                "undecided_run_has_no_name_rather_than_a_placeholder",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M224", phase=19,
+        description="stop putting the name on the wire, so the client is "
+                    "back to rendering the id it was given",
+        path=APP / "main.py",
+        anchor='        "decided_by_name": run.get("decided_by_name"),',
+        replacement='        "decided_by_name": None,',
+        target="tests/test_review_code.py",
+        keyword="not_an_admin_can_record_the_final_code",
+    ),
 )
 
 
