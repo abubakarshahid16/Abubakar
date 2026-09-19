@@ -110,6 +110,16 @@ async def lifespan(app: FastAPI):
     # operator who does not know it is off reads "no pairing" as "the machine
     # looked and found nothing".
     _log_match_tier()
+    # A REVIEW RUN LEFT `running` BY A DEAD PROCESS IS FAILED, NOT BUSY. Same
+    # reasoning as the extraction sweep below, and the same moment: this
+    # process has just begun, so a run still marked running belongs to one
+    # that is gone. Left alone it locks its submittal out of `POST
+    # /api/reviews/run` forever, because that route refuses to start a second
+    # run while one is going.
+    try:
+        submittal_review_mod.fail_orphaned_review_runs()
+    except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
+        pass
     # Put back any extraction that was `running` when a previous process died.
     # `next_extraction_job` only ever selects `queued`, so without this an
     # orphaned job is never picked up by anything - the standard is never
@@ -1538,6 +1548,10 @@ def list_review_runs(
             "by_status": by_status,
             "recommended_code": outcome.get("recommended_code"),
             "recommended_reason": outcome.get("reason"),
+            # WHY A FAILED RUN FAILED, in its own words. A status of "failed"
+            # with no reason beside it sends the reader to the logs for
+            # something the row already knows.
+            "failure_reason": outcome.get("error"),
             "completeness": outcome.get("completeness"),
         })
     return {"runs": out}

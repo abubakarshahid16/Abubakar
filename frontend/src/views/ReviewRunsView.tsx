@@ -282,6 +282,11 @@ function RunCard({ run, selected, onOpen }: {
           </span>
         ))}
       </div>
+      {run.failure_reason && (
+        <p className="mt-2 text-sm text-rose-200">
+          This run failed — {run.failure_reason}
+        </p>
+      )}
       {run.recommended_code && (
         <p className="mt-3 text-sm text-slateish-200">
           <span className="font-semibold">{run.recommended_code}</span>

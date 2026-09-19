@@ -374,6 +374,8 @@ export interface ReviewRunSummary {
   recommended_code: string | null;
   /** The recommendation's own words, including the nominal-estimate note. */
   recommended_reason: string | null;
+  /** Why a failed run failed, verbatim. Null on a run that did not fail. */
+  failure_reason?: string | null;
   completeness: {
     fields_read?: number;
     fields_estimated?: number;

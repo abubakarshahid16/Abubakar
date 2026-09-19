@@ -1933,6 +1933,8 @@ class ReviewRunSummary(BaseModel):
     recommended_code: str | None = None
     #: The recommendation's own words. Never re-worded by a screen.
     recommended_reason: str | None = None
+    #: Why a failed run failed, verbatim. None on a run that did not fail.
+    failure_reason: str | None = None
     completeness: dict | None = None
 
 

@@ -477,6 +477,42 @@ def create_review_run(
     return run_id
 
 
+#: What an orphaned run's failure says. One wording, so a reader who meets it
+#: twice recognises it, and so the test can assert the sentence rather than a
+#: paraphrase of it.
+ORPHANED_RUN_REASON = (
+    "orphaned: no process was running it when the server started")
+
+
+def fail_orphaned_review_runs() -> int:
+    """Mark every run still `running` at startup as failed. Returns the count.
+
+    A CRASHED RUN IS HISTORY, NOT GARBAGE. It is not deleted: somebody started
+    it, findings may have been written before it died, and removing the row
+    would erase the only record that it ever happened. It is marked failed,
+    with the reason, so the screen says what became of it.
+
+    WHY STARTUP IS WHERE THIS IS SAFE, and it is the same fact
+    `standards.recover_stale_extraction_jobs` relies on: this process has just
+    begun, so it owns no run, and `run_comparison` is synchronous inside a
+    request - there is no queue and no worker that could be carrying one. A
+    run still marked `running` therefore belongs to a process that is gone.
+
+    Without it the row is worse than a failure: it CLAIMS TO BE BUSY. The
+    review endpoint refuses to start a second run while one is running for the
+    same document, so a single crashed run locks that submittal out of the
+    product permanently, and nothing on screen explains why.
+    """
+    ensure_schema()
+    conn = connect()
+    with conn:
+        cur = conn.execute(
+            "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
+            " updated_at = ? WHERE status = 'running'",
+            (json.dumps({"error": ORPHANED_RUN_REASON}), _now()))
+        return cur.rowcount
+
+
 # ------------------------------------------------------------- read paths
 #
 # Each takes `allowed_document_ids` keyword-only with NO DEFAULT. Deleting the
