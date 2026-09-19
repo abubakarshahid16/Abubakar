@@ -78,3 +78,7 @@ Claude outputs/
 
 # Claude Code per-machine permissions (never shared)
 .claude/settings.local.json
+
+# Filled gold sheets describe client standards - template only (gold/README.md)
+gold/*.csv
+!gold/TEMPLATE.csv

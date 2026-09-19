@@ -74,6 +74,12 @@ _PROHIBITION = re.compile(
 #: it is named here so it has exactly one home.
 VERIFICATION_THRESHOLD = 0.75
 
+#: The confidence a limit is held at when it contradicts its own sentence.
+#: Below `VERIFICATION_THRESHOLD` on purpose, and stated as its own constant so
+#: that raising the threshold can never silently promote a contradicted row
+#: into the library.
+CONTRADICTED_CONFIDENCE = 0.2
+
 #: A sentence shorter than this is a fragment - a table cell, a heading that
 #: happened to contain "shall" - not a requirement anyone can comply with.
 MIN_REQUIREMENT_WORDS = 5
@@ -636,6 +642,7 @@ def extract_requirements(
 
     written = 0
     low_confidence = 0
+    contradicted = 0
     #: (clause, sentence) already written for THIS document. The same clause
     #: repeats across chunks when a page break splits it and both halves carry
     #: the full sentence, which produced 54 of 762 rows (7.1%) that were
@@ -689,6 +696,16 @@ def extract_requirements(
                 # is a true description of it rather than a numeric_limit with a
                 # null value - a shape that reads as a limit nobody recorded.
                 limit = requirements_3b.parse_limit(sentence)
+                # THE SELF-AUDIT. A limit that points the opposite way to its
+                # own sentence is the one failure a reviewer cannot catch by
+                # checking the citation, because the citation is correct. It
+                # is not dropped - dropping it would lose a real obligation
+                # and say nothing - it is held below the verification
+                # threshold, so it reaches a human as something to confirm
+                # rather than the library as a rule to compare against.
+                if requirements_3b.contradicts_source(limit, sentence):
+                    confidence = min(confidence, CONTRADICTED_CONFIDENCE)
+                    contradicted += 1
                 exceptions = requirements_3b.parse_exceptions(sentence)
                 structured = {
                     "requirement_type": requirements_3b.classify(sentence, limit),
@@ -728,12 +745,18 @@ def extract_requirements(
 
     _audit("standard.requirements_extracted", actor, document_id,
            detail=f"chunks={len(chunks)} requirements={written} "
-                  f"awaiting_verification={low_confidence}")
+                  f"awaiting_verification={low_confidence} "
+                  f"contradicted_source={contradicted}")
     return {
         "document_id": document_id,
         "chunks_read": len(chunks),
         "requirements": written,
         "awaiting_verification": low_confidence,
+        # Reported separately from `awaiting_verification`, which it is a
+        # subset of. A run where this is not zero has found the failure class
+        # that cost this corpus 129 rows, and folding it into a larger number
+        # would hide exactly the thing worth looking at.
+        "contradicted_source": contradicted,
     }
 
 

@@ -188,3 +188,21 @@ Extraction succeeds on the 252 when it is run: three of three produced
 requirements, with clause and page attached, and no gate blocked them. A
 backfill is therefore possible. Deciding and performing that backfill is out
 of scope here and is deferred.
+
+## SUPERSEDED, 2026-09-20 — the backfill was done
+
+The deferral above no longer holds, and the cause itself has been fixed in
+code. Recorded here rather than by editing the text, because the investigation
+is a record of what was true when it was written.
+
+All 272 standards were queued through the real admin endpoint and extracted:
+**20 of 272 with rules became 272 of 272**, and 3,158 requirements became
+34,938. The cause - nothing scheduling extraction - is now closed from both
+ends: `ingest._queue_extraction_if_standard` queues a standard when ingestion
+finishes, and `classification._queue_extraction_if_ready` queues one when a
+READY document is given the COMPANY_STANDARD role. Section 2 above says
+`enqueue_extraction` has exactly one caller. It now has three.
+
+What the backfill then exposed is recorded in `status-honesty-audit.md`,
+"The comparator that pointed the wrong way": the count going up was true and
+was not the thing that mattered.

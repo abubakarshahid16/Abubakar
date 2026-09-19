@@ -539,6 +539,73 @@ def parse_limit(sentence: str) -> dict | None:
     }
 
 
+#: Operators that point the OPPOSITE way to each other. `=` and None are
+#: absent deliberately: neither contradicts anything, and a check that fires on
+#: "cannot tell" is a check people learn to ignore.
+_OPPOSITE: dict[str, frozenset[str]] = {
+    "<=": frozenset({">=", ">"}), "<": frozenset({">=", ">"}),
+    ">=": frozenset({"<=", "<"}), ">": frozenset({"<=", "<"}),
+}
+
+
+def contradicts_source(limit: dict | None, sentence: str) -> bool:
+    """True when a parsed limit points the OPPOSITE way to its own sentence.
+
+    THE TRIPWIRE FOR THE WORST FAILURE THIS PARSER HAS. On 2026-09-20, 129 of
+    1,731 stored limits across 79 standards carried an operator reversed from
+    the sentence they cite - "shall not be less than 45 m" stored as `< 45`.
+    Every other field of those rows was right: clause, page, value, unit and
+    the quoted sentence. A reviewer checking the citation would have found the
+    citation correct and moved on. They were found by a person reading fifteen
+    rows at random, which is 0.04% of the corpus.
+
+    So the check that found them runs on every extraction from now on, and a
+    row that fails it does not reach a reviewer as a requirement.
+
+    IT ASKS THE SENTENCE, NOT THE ROW'S OTHER FIELDS. The comparator taken is
+    the one standing immediately before this limit's own value, which is why
+    it is not fooled by a sentence stating two limits - "not less than 63 L/s
+    but not more than 252 L/s" holds both directions, and a check scanning the
+    whole sentence flags the correct row. Measured: scanning the whole
+    sentence reported 129 rows of which 25 were false alarms; this reported 0
+    false alarms on the same corpus after the fix.
+
+    SILENT WHEN IT CANNOT TELL. No phrase before the value, or a phrase this
+    system has no operator for, returns False rather than True. A tripwire
+    that fires on uncertainty is one that gets switched off.
+
+    EVERY OCCURRENCE OF THE VALUE MUST DISAGREE, and every one must be
+    readable. A flattened table states one number in both directions -
+    "Less than or equal to 5 ... Greater than 5 and equal to or less than 10
+    ... Greater than 10" arrives as a single sentence out of a PDF, and so
+    does "up to 50 C, ... for fluid temperature more than 50 C". Reading only
+    the first occurrence reported all four such rows in this corpus, and all
+    four were correct: the row came from a later occurrence.
+
+    An occurrence this system has no comparator for is a READING IT CANNOT
+    RULE OUT, so it silences the check rather than being skipped. That is not
+    hypothetical: "up to" is in this module's `_OPERATOR` and is NOT in
+    `claims._COMPARATOR_WORDS`, so "up to 50 C" reads as no comparator at all
+    and the correct half of that sentence is invisible here. Until those two
+    vocabularies are made one, silence is the honest answer.
+
+    The 129 flipped rows are still caught: each stated its value once, with a
+    comparator, pointing the other way.
+    """
+    if not limit:
+        return False
+    operator, raw_value = limit.get("operator"), limit.get("raw_value")
+    if not operator or raw_value is None or operator not in _OPPOSITE:
+        return False
+    disagreed = False
+    for match in re.finditer(re.escape(str(raw_value)), sentence):
+        implied = claims.comparator_ending(sentence[:match.start()])
+        if implied is None or implied not in _OPPOSITE[operator]:
+            return False          # a reading that does not contradict the row
+        disagreed = True
+    return disagreed
+
+
 def parse_exceptions(sentence: str) -> list[dict]:
     """Exception clauses, each with its own limit when it states one.
 

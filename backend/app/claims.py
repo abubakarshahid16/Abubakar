@@ -404,6 +404,31 @@ def parse_comparator(text: str) -> str | None:
     return None
 
 
+def comparator_ending(text: str) -> str | None:
+    """The operator implied by the comparator phrase at the END of `text`.
+
+    "the level shall not exceed " -> "<=".  "the level is " -> None.
+
+    This is how the pipeline actually reads a comparator - anchored at the end
+    of whatever stands before a number - as opposed to `parse_comparator`,
+    which full-matches a phrase handed to it whole. Exposed so that
+    `requirements_3b.contradicts_source` can ask what the SENTENCE says
+    without reaching into this module's private vocabulary, and so that there
+    is still exactly one comparator vocabulary in this system.
+
+    `min`/`max` are folded to the operators they mean, because a caller
+    comparing this against a stored operator needs the same alphabet.
+    """
+    if not text:
+        return None
+    match = re.search(r"(?:" + _COMPARATOR_RE + r")\s*(?:of\s+)?$",
+                      text, re.IGNORECASE)
+    if match is None:
+        return None
+    symbol = parse_comparator(" ".join(match.group(0).split()))
+    return {"min": ">=", "max": "<="}.get(symbol, symbol)
+
+
 def parse_value(value_str: str) -> float | None:
     """Parse a written number. Comma decimals ("9,0") are decimals - NORSOK
     writes them so. A comma followed by exactly three digits ("1,200") is a

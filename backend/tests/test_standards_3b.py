@@ -352,6 +352,92 @@ def test_the_second_home_reads_the_same_phrases(sentence, comparator):
     assert found[0].comparator == comparator
 
 
+@pytest.mark.parametrize(("sentence", "limit", "contradicts"), [
+    # The shape that cost this corpus 129 rows.
+    ("The clearance shall not be less than 45 m.", {"operator": "<", "raw_value": "45"}, True),
+    ("The clearance shall not be less than 45 m.", {"operator": ">=", "raw_value": "45"}, False),
+    ("In no case shall exceed 100% of the BSL.", {"operator": ">", "raw_value": "100"}, True),
+    # TWO LIMITS IN ONE SENTENCE, both directions. This is the case that makes
+    # the check read the phrase before its OWN value instead of scanning the
+    # sentence: scanning found 129 rows of which 25 were correct rows like
+    # this one, flagged because the other half of their sentence disagreed.
+    ("The flow shall not be less than 63 L/s but shall not exceed 252 L/s.",
+     {"operator": ">=", "raw_value": "63"}, False),
+    ("The flow shall not be less than 63 L/s but shall not exceed 252 L/s.",
+     {"operator": "<=", "raw_value": "63"}, True),
+    # SILENT WHEN IT CANNOT TELL, rather than firing on uncertainty.
+    ("The pressure is 300 kPa.", {"operator": "<=", "raw_value": "300"}, False),
+    ("The level shall not exceed 90 dB(A).", {"operator": "<=", "raw_value": "90"}, False),
+    # A FLATTENED TABLE states one number in BOTH directions. Measured: these
+    # were the only four rows the check reported across 272 standards on its
+    # first run, and every one of them was correct - the row came from the
+    # second occurrence. One reading that supports the row clears it.
+    ("Carbon Steels P-1 Less than or equal to 5 None. Greater than 5 and equal"
+     " to or less than 10 PWHT per the applicable Code.",
+     {"operator": ">", "raw_value": "5"}, False),
+    ("Applicable for fluid internal temperature up to 50 C, it shall be"
+     " adjusted for fluid temperature more than 50 C.",
+     {"operator": "<=", "raw_value": "50"}, False),
+    # ... and it stays silent on that sentence in the OTHER direction too,
+    # because "up to" is in this module's vocabulary and not in `claims`', so
+    # the first occurrence reads as no comparator at all - a reading that
+    # cannot be ruled out. Silence is the honest answer until the two
+    # vocabularies are made one; firing here would be a guess dressed as a
+    # finding.
+    ("Applicable for fluid internal temperature up to 50 C, it shall be"
+     " adjusted for fluid temperature more than 50 C.",
+     {"operator": ">=", "raw_value": "50"}, False),
+])
+def test_a_limit_that_contradicts_its_own_sentence_is_detected(
+        sentence, limit, contradicts):
+    assert requirements_3b.contradicts_source(limit, sentence) is contradicts
+
+
+def test_a_contradicted_limit_is_held_below_the_verification_threshold(tmp_path):
+    """NOT DROPPED, and not published either.
+
+    Dropping it would lose a real obligation and say nothing about it.
+    Publishing it puts a rule in the library that passes a non-compliant value
+    and fails a compliant one, with a correct clause and page attached - the
+    one failure checking the citation cannot catch.
+    """
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_contra", pdf)
+    # A sentence whose own parser gets it RIGHT, so the fixture proves the
+    # wiring rather than a parser bug: the check is driven directly below.
+    _chunk("c1", doc, "The clearance shall not be less than 45 m.",
+           section="9.2.2 Clearance", page=12)
+
+    original = requirements_3b.contradicts_source
+    try:
+        requirements_3b.contradicts_source = lambda limit, sentence: True
+        result = standards.extract_requirements("doc_contra", allowed_document_ids=_scope(doc))
+    finally:
+        requirements_3b.contradicts_source = original
+
+    assert result["contradicted_source"] == 1
+    rows = standards.list_requirements("doc_contra", allowed_document_ids=_scope(doc))
+    assert len(rows) == 1
+    assert rows[0]["confidence"] == standards.CONTRADICTED_CONFIDENCE
+    assert rows[0]["confidence"] < standards.VERIFICATION_THRESHOLD
+    assert standards.needs_verification(rows[0]) is True
+
+
+def test_an_ordinary_limit_is_not_held_back(tmp_path):
+    """The control. A check that holds everything back is not a check."""
+    pdf = _ruled_table_pdf(tmp_path / "t2.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_clean", pdf)
+    _chunk("c1", doc, "The clearance shall not be less than 45 m.",
+           section="9.2.2 Clearance", page=12)
+
+    result = standards.extract_requirements("doc_clean", allowed_document_ids=_scope(doc))
+
+    assert result["contradicted_source"] == 0
+    rows = standards.list_requirements("doc_clean", allowed_document_ids=_scope(doc))
+    assert rows[0]["confidence"] > standards.CONTRADICTED_CONFIDENCE
+    assert rows[0]["operator"] == ">="
+
+
 def test_the_psv_exception_is_preserved_beside_the_general_limit():
     """THE MUTATION TARGET (M42). The master plan's worked case.
 

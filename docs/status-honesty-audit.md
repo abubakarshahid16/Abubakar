@@ -933,7 +933,8 @@ so an empty sweep cannot pass as a clean one.
 standards (`docs/ZERO_REQUIREMENTS_CAUSE.md`). Running it through the real
 admin endpoint for all 272 took the corpus from 3,158 requirements to 34,938,
 and the rules a datasheet value can actually be compared against from **195 to
-1,736**. The count going up was true. It was also not the thing that mattered.
+1,736** (1,746 after `bf4f5ab`, later the same day). The count going up was
+true. It was also not the thing that mattered.
 
 **129 of the 1,731 stored limits, across 79 standards, carried an operator
 pointing the opposite way to the sentence they cite.** "shall not be less than

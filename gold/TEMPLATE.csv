@@ -1,0 +1,4 @@
+standard,clause,page,kind,operator,value,unit,notes
+# Rows beginning with # are ignored. Delete these three or leave them.,,,,,,,
+# SAES-A-105.pdf,5.3.3,9,limit,<=,90,dB(A),general limit - an example
+# SAES-A-105.pdf,5.3.1,8,statement,,,,no number in this clause - an example

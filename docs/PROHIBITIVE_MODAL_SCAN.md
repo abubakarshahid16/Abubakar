@@ -111,3 +111,30 @@ Two honest qualifications:
 submitted for extraction. That does not block this step: extraction runs
 correctly for SAES-A-105 on demand and yields the rows above. What remains
 undone is the corpus-wide backfill, which is deferred.
+
+## SUPERSEDED, 2026-09-20 — and this page understated the clause
+
+The backfill was done: all 272 standards extracted, 1,746 rules now carry a
+comparator a datasheet value can be compared against.
+
+More importantly, **the four rows listed above were the exceptions to a rule
+this page did not notice was missing.** SAES-A-105 5.3.3 states its primary
+limit as "new equipment shall not generate noise in excess of 90 dB(A)" and
+its exceptions as "may not exceed 105/97/105/115 dB(A)". Only the exceptions
+parsed, so the table above reads as the complete content of 5.3.3 when it is
+the four exceptions to a 90 dB(A) ceiling the database did not hold. `bf4f5ab`
+added the negated "in excess of" and "should not exceed" to the vocabulary in
+both homes, with negative controls in `test_standards_3b.py` for the trigger
+sentences that must NOT become rules. Clause 5.3.3 now stores five rows:
+
+```
+  clause   page  op   value  unit
+  5.3.3       9  <=      90  dB(A)   <- the primary limit
+  5.3.3       9  <=      97  dB(A)
+  5.3.3       9  <=     105  dB(A)
+  5.3.3       9  <=     105  dB(A)
+  5.3.3       9  <=     115  dB(A)
+```
+
+The "may not exceed" analysis above is unaffected and still stands; what it
+missed was a different phrasing in the same clause.
