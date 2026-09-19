@@ -18,7 +18,7 @@ const titles: Record<ViewId, string> = {
 };
 
 export function titleForView(view: ViewId): string {
-  return `${titles[view]} · EPC Intelligence`;
+  return `${titles[view]} · RAG Intelligence System`;
 }
 
 export function parseRoute(pathname: string): AppRoute {
