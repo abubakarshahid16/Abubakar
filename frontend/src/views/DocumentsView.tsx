@@ -701,7 +701,16 @@ export function DocumentsView({
         <PageImageViewer doc={drawer.doc} onClose={() => setDrawer({ kind: "none" })} />
       )}
       {drawer.kind === "preview" && (
-        <Drawer title={`Preview - ${drawer.doc.filename}`} onClose={() => setDrawer({ kind: "none" })}>
+        // `wide` and `flush`: a PDF is rendered by the browser's own viewer,
+        // which reflows to whatever width it is given, so the reading-width
+        // panel the other drawers use made an A4 page postcard-sized. `flush`
+        // hands the height to the preview, which fills it.
+        <Drawer
+          title={`Preview - ${drawer.doc.filename}`}
+          size="wide"
+          flush
+          onClose={() => setDrawer({ kind: "none" })}
+        >
           <DocumentPreview doc={drawer.doc} />
         </Drawer>
       )}

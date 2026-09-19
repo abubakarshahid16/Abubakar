@@ -117,13 +117,20 @@ export function DocumentPreview({ doc }: { doc: DocumentRecord }) {
   }, [doc.id, doc.filename]);
 
   return (
-    <section aria-label="Document preview" className="flex flex-col gap-3">
-      <header className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium">{doc.title || doc.filename}</h3>
+    <section
+      aria-label="Document preview"
+      className="flex min-h-0 flex-1 flex-col gap-3 bg-ink-900 p-4"
+    >
+      {/* NO FILENAME HERE. The Drawer's own header already reads
+          "Preview - <filename>", and repeating it underneath gave every
+          preview two titles, one of them truncated differently. The action
+          stays, because "Download original" is the way out of the embedded
+          viewer to the real file. */}
+      <header className="flex items-center justify-end gap-3">
         <button
           type="button"
           onClick={download}
-          className="rounded border border-white/15 px-2 py-1 text-xs"
+          className="rounded border border-ink-600 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700"
         >
           Download original
         </button>
@@ -136,10 +143,20 @@ export function DocumentPreview({ doc }: { doc: DocumentRecord }) {
       )}
 
       {phase.kind === "pdf" && (
+        // THE FRAGMENT IS VIEWER CONFIGURATION, NOT A QUERY. It is read by the
+        // browser's built-in PDF viewer and never sent anywhere - which also
+        // means it is safe on a blob: URL, where a query string would not be.
+        // `toolbar=0` and `navpanes=0` remove the viewer's own chrome, whose
+        // thumbnail rail ate a third of a panel that was already too narrow;
+        // `view=FitH` fits the page to the width rather than opening at 100%
+        // and making the reader scroll horizontally on every document.
+        //
+        // These are hints. A browser that ignores them shows its normal
+        // viewer, which is why "Download original" is not conditional on them.
         <iframe
           title={`Preview of ${doc.filename}`}
-          src={phase.url}
-          className="h-[70vh] w-full rounded bg-white"
+          src={`${phase.url}#toolbar=0&navpanes=0&view=FitH`}
+          className="min-h-0 w-full flex-1 rounded border border-ink-700 bg-white"
         />
       )}
 
@@ -148,7 +165,7 @@ export function DocumentPreview({ doc }: { doc: DocumentRecord }) {
       )}
 
       {phase.kind === "sheet" && phase.sheets.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
           <div role="tablist" aria-label="Sheets" className="flex flex-wrap gap-1">
             {phase.sheets.map((sheet, i) => (
               <button
