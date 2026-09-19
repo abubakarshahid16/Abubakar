@@ -240,3 +240,58 @@ Supplementary, since the standard side is the only citation the run emitted:
 **2,126 passed / 0 failed**, unchanged - as last measured at `3b8d95d`. No
 source file was touched in this task; the working tree was clean throughout.
 Not re-run here, because nothing could have moved it.
+
+---
+
+# Follow-up, same day: the regression fixed
+
+The furniture rule now requires BOTH conditions before calling a repeating
+label a field: two or more distinct non-empty answers, AND non-empty on more
+than half the pages it appears on. Otherwise furniture.
+
+Distinctness alone was not enough. This document's own title block on the drum
+sheet - `AL KHAFJI ONSHORE FACILITY` - is empty on six of the eight pages it
+appears on and catches a stray neighbouring fragment on two (`D` on page 5,
+`2003` on page 7). Two distinct non-empty answers, so condition 1 alone
+promotes it to a field and `2003` becomes a numeric fact. Condition 2 kills
+it at 2 of 8.
+
+| | before the fix | after |
+|---|---|---|
+| PSV facts (EF1975-DAS-I-06) | 0 | **35** |
+| PSV pages unparsed | 5 of 5 | **1 of 5** (page 5 is the notes page) |
+| PSV blank-marked facts | 0 | **25 of 35**, all surviving |
+| drum facts | 48 | **48**, unchanged, junk row dead |
+
+Recall against the 162 hand-counted rows: **21.6%**, from 0%. Phase 4 recovered
+37 from this sheet before the furniture rule existed; 35 of those are back,
+and the two that are not are accounted for below.
+
+**The two PSV fields the rule costs, each measured, neither a surprise:**
+
+- `separable flange material` - reads `NA` on all four valves. One distinct
+  answer, so condition 1 strips it. 4 facts. Same class as `Lifting lever:
+  Required`, the residual documented in `furniture_labels`.
+- `mole wt of relieved fluid` - the extractor pairs it with a value on only
+  two of the four pages, so it fails condition 2 (and condition 1, both its
+  answers being `30.13`). 2 facts. The underlying pairing miss on pages 3-4
+  is a separate defect, not this rule.
+
+**The blank-marker question, checked before the fixtures were written.** A
+field reading exactly `By Contractor` on every page would have one distinct
+answer and would die under condition 1, which would be a real loss: 25 of the
+35 facts are `By Contractor` blanks and they are how the review reports
+MISSING_INFORMATION instead of inventing a breach. On this sheet none does -
+every one carries a purchaser value beside the marker (`340 psig (By
+Contractor, as per Code)` against `145 psig By Contractor, as per Code`), so
+their answers differ per valve. **No blank-marker exemption is needed today**,
+and `test_an_identical_by_contractor_answer_everywhere_is_the_known_residual`
+is where it will show up if a future sheet needs one.
+
+**The diagnostic** no longer says `no label-value pairs recovered from this
+page` unless the pairing layer genuinely produced none. Otherwise it states
+the counts: `9 label-value pairs were recovered and none became a fact (8 by
+value gate, 1 by duplicate)` - which is what page 5, the notes page, now says.
+
+Ranges and the equipment-tag column remain unfixed and are the next two tasks,
+in that order.

@@ -193,12 +193,73 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
 
     Counted per PAGE, not per occurrence: a label appearing five times on one
     page is a five-row section, not furniture.
+
+    AND THE VALUE DECIDES, NOT THE LABEL ALONE. Repetition by itself was wrong
+    and it cost a whole document: `EF1975-DAS-I-06` is FIVE INSTANCES OF ONE
+    FORM, one pressure safety valve per page, so every real field - `Set
+    pressure`, `Relieving temperature`, `Density at relieving temper.` -
+    appears on every page. The page-count rule classified the entire form as a
+    title block and the sheet extracted ZERO facts from 162 rows that carry a
+    value. The same document had yielded 37 facts before this rule existed.
+
+    A title block repeats the SAME TEXT: the document number is the document
+    number on every page. A form field repeats the same LABEL against a
+    DIFFERENT ANSWER, because that is what the form is for. So a label is
+    furniture only when it repeats on enough pages AND says the same thing
+    every time - two or more distinct answers and it is a field, whatever it
+    is called.
+
+    AND EMPTINESS IS THE SECOND HALF OF IT. Distinct answers alone is not
+    enough, measured on the drum sheet: its title block `AL KHAFJI ONSHORE
+    FACILITY` is empty on six of the eight pages it appears on and picks up a
+    stray neighbouring fragment on the other two - `D` on page 5, `2003` on
+    page 7. That is two distinct non-empty answers, so a distinctness test
+    alone promotes the title block to a field and `2003` becomes a fact.
+
+    A form field is ANSWERED. It carries a value on the pages it appears on,
+    because that is what somebody filled the form in for. A header carries
+    text on the odd page where the extractor caught a neighbouring cell. So a
+    repeating label is a FIELD only when BOTH hold:
+
+      1. it has two or more distinct non-empty answers, and
+      2. it is non-empty on MORE THAN HALF the pages it appears on.
+
+    Otherwise it is furniture. `AL KHAFJI ONSHORE FACILITY` fails the second
+    at 2 of 8; `Set pressure` passes both at 4 distinct answers on 4 of 4
+    pages.
+
+    The residual, named so nobody assumes it is covered: a real field whose
+    answer is identical on every page - `Lifting lever: Required` on all five
+    valves - has one distinct answer, fails the first condition, and is still
+    stripped. That is the accepted cost of the rule; it is a smaller loss than
+    the whole form, and it is measured in
+    docs/cold-evaluation-psv-2026-09-19.md rather than guessed at.
     """
     pages_per_label: dict[str, set[int]] = {}
+    answered_pages: dict[str, set[int]] = {}
+    answers_per_label: dict[str, set[str]] = {}
     for page, pairs in pairs_by_page.items():
-        for label, _value in pairs:
-            pages_per_label.setdefault(normalise_field_name(label), set()).add(page)
-    return {name for name, pages in pages_per_label.items() if len(pages) >= threshold}
+        for label, value in pairs:
+            name = normalise_field_name(label)
+            pages_per_label.setdefault(name, set()).add(page)
+            answered_pages.setdefault(name, set())
+            answers_per_label.setdefault(name, set())
+            # Compared as the reader sees it: case and spacing are spelling,
+            # not different answers.
+            answer = " ".join((value or "").split()).lower()
+            if answer:
+                answered_pages[name].add(page)
+                answers_per_label[name].add(answer)
+    furniture = set()
+    for name, pages in pages_per_label.items():
+        if len(pages) < threshold:
+            continue
+        distinct = len(answers_per_label[name])
+        answered = len(answered_pages[name])
+        is_field = distinct >= 2 and answered * 2 > len(pages)
+        if not is_field:
+            furniture.add(name)
+    return furniture
 
 
 def section_heading(chunk_section: str | None) -> str | None:
@@ -785,6 +846,29 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
         return []
 
 
+def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
+    """Why this page produced no facts, in the page's own numbers.
+
+    TWO DIFFERENT FAILURES WORE ONE MESSAGE. "no label-value pairs recovered
+    from this page" is true of a scanned page with no text and of a page whose
+    every pair was filtered out, and those want opposite responses: the first
+    is an OCR question, the second is a rule that is too strict. The second is
+    what happened to every page of EF1975-DAS-I-06, and the message sent the
+    reader looking for a parsing problem that was not there.
+
+    So the sentence is only used when it is TRUE, and otherwise the page says
+    what it recovered and where it went.
+    """
+    if not pairs:
+        return "no label-value pairs recovered from this page"
+    counts = ", ".join(f"{n} by {reason}"
+                       for reason, n in sorted(dropped.items(),
+                                               key=lambda kv: (-kv[1], kv[0]))
+                       if n)
+    return (f"{len(pairs)} label-value pairs were recovered and none became a "
+            f"fact ({counts or 'no reason recorded'})")
+
+
 def extract_facts(
     document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, replace: bool = True,
@@ -865,10 +949,21 @@ def extract_facts(
         chunk = page_chunks[0]
         corpus_text.extend(c["text"] or "" for c in page_chunks)
         page_written = 0
+        # WHY EACH PAIR WAS DROPPED, counted per page. The reason string below
+        # used to say "no label-value pairs recovered" whatever had happened,
+        # so a page whose pairs were all FILTERED read exactly like a page that
+        # could not be parsed at all - and it sent the reader to the wrong half
+        # of the pipeline. On EF1975-DAS-I-06 that message was printed for five
+        # pages from which 190 pairs each had been recovered and discarded.
+        dropped: dict[str, int] = {}
         seen: set[str] = set()
         for label, value in pairs:
             key = f"{normalise_field_name(label)}|{(value or '').strip()}"
-            if not label.strip() or key in seen:
+            if not label.strip():
+                dropped["empty label"] = dropped.get("empty label", 0) + 1
+                continue
+            if key in seen:
+                dropped["duplicate"] = dropped.get("duplicate", 0) + 1
                 continue
             seen.add(key)
             blank, marker = is_blank_value(value)
@@ -892,6 +987,7 @@ def extract_facts(
                 # A timestamp is not a measurement. Left here rather than in
                 # `measure_value` so the cell still reads as what it is
                 # everywhere else; it is only as a FACT that it is wrong.
+                dropped["date"] = dropped.get("date", 0) + 1
                 continue
             if parsed_value is None and marker in (None, "empty")                     and not is_categorical_value(value):
                 # A LABEL WITH FREE TEXT BESIDE IT IS NOT A FACT. "Prepared by:
@@ -899,10 +995,13 @@ def extract_facts(
                 # of a filled-in field and state nothing about the equipment.
                 # A quantity, an explicit blank, or a closed categorical answer
                 # - anything else is a caption.
+                dropped["value gate"] = dropped.get("value gate", 0) + 1
                 continue
             if normalise_field_name(label) in furniture:
-                # Page furniture: this label appeared on three or more pages,
-                # so it is the title block or the footer, not a field.
+                # Page furniture: this label appeared on three or more pages
+                # WITH THE SAME ANSWER EVERY TIME, so it is the title block or
+                # the footer, not a field. See `furniture_labels`.
+                dropped["furniture"] = dropped.get("furniture", 0) + 1
                 continue
             try:
                 create_fact(
@@ -913,16 +1012,15 @@ def extract_facts(
                     confidence=0.6,
                 )
             except FactError:
+                dropped["refused by create_fact"] = dropped.get(
+                    "refused by create_fact", 0) + 1
                 continue
             page_written += 1
             written += 1
             if blank:
                 blanks += 1
         if page_written == 0:
-            unparsed.append({
-                "page": page,
-                "reason": "no label-value pairs recovered from this page",
-            })
+            unparsed.append({"page": page, "reason": _unparsed_reason(pairs, dropped)})
 
     pages_read = len(by_page)
     return {

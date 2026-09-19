@@ -2113,11 +2113,95 @@ GATE_FALLOUT = (
 )
 
 
+#: A form repeated on every page is not a title block, and the diagnostic
+#: that used to hide it.
+REPEATED_FORM = (
+    Mutation(
+        id="M174", phase=13,
+        description="COUNT PAGES ALONE AGAIN, so a form repeated on every "
+                    "page is stripped as a header - EF1975-DAS-I-06 back to "
+                    "zero facts from 162 rows",
+        path=APP / "datasheets.py",
+        anchor="        is_field = distinct >= 2 and answered * 2 > len(pages)",
+        replacement="        is_field = False",
+        target="tests/test_repeated_form.py",
+        keyword="repeated_form_with_per_page_values",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M175", phase=13,
+        description="drop condition 1, so a title block with constant text is "
+                    "promoted to a field",
+        path=APP / "datasheets.py",
+        anchor="        is_field = distinct >= 2 and answered * 2 > len(pages)",
+        replacement="        is_field = answered * 2 > len(pages)",
+        target="tests/test_repeated_form.py",
+        keyword="title_block or both_conditions or one_answer_throughout",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M176", phase=13,
+        description="DROP CONDITION 2, so a mostly-empty title block that "
+                    "caught two stray fragments files them as facts - the "
+                    "`al khafji onshore facility` row returning",
+        path=APP / "datasheets.py",
+        anchor="        is_field = distinct >= 2 and answered * 2 > len(pages)",
+        replacement="        is_field = distinct >= 2",
+        target="tests/test_repeated_form.py",
+        keyword="mostly_empty_label or both_conditions",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M177", phase=13,
+        description="answered on exactly half the pages counts as a field, "
+                    "an off-by-one on the boundary",
+        path=APP / "datasheets.py",
+        anchor="        is_field = distinct >= 2 and answered * 2 > len(pages)",
+        replacement="        is_field = distinct >= 2 and answered * 2 >= len(pages)",
+        target="tests/test_repeated_form.py",
+        keyword="exactly_half",
+    ),
+    Mutation(
+        id="M178", phase=13,
+        description="count an EMPTY cell as an answer, which makes every "
+                    "header look answered on every page",
+        path=APP / "datasheets.py",
+        anchor="            if answer:\n                answered_pages[name].add(page)",
+        replacement="            if True:\n                answered_pages[name].add(page)",
+        target="tests/test_repeated_form.py",
+        keyword="mostly_empty_label or title_block",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M179", phase=13,
+        description="SAY 'no label-value pairs recovered' WHATEVER HAPPENED, "
+                    "so a page whose pairs were all filtered reads like a "
+                    "page that could not be parsed",
+        path=APP / "datasheets.py",
+        anchor="    if not pairs:\n        return \"no label-value pairs recovered from this page\"",
+        replacement="    if True:\n        return \"no label-value pairs recovered from this page\"",
+        target="tests/test_repeated_form.py",
+        keyword="names_the_filters or never_claims",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M180", phase=13,
+        description="report the filter counts in any order, so the biggest "
+                    "cause no longer reads first",
+        path=APP / "datasheets.py",
+        anchor="                               key=lambda kv: (-kv[1], kv[0]))",
+        replacement="                               key=lambda kv: (kv[1], kv[0]))",
+        target="tests/test_repeated_form.py",
+        keyword="ordered_by_size",
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
     + EXTRACTION + DATASHEET + MATCHER + TABLE_AND_UNITS + REACHABLE
-    + MODEL_TIER + GATE_FALLOUT
+    + MODEL_TIER + GATE_FALLOUT + REPEATED_FORM
 )
 
 
