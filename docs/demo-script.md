@@ -10,7 +10,9 @@ out, with review code, page/section, comment, and exact clause per finding.
    hand). Open the app, log in, confirm the Dashboard loads.
 2. Confirm the drum sheet's review run exists on the AI Submittal Review
    page. If not, run it from the Dashboard button - it takes ~8 seconds.
-3. Have both PDFs (SAES-L-132 and the drum datasheet) closed but handy.
+3. Have the drum datasheet and the two standards its findings cite -
+   SAES-D-001 and SAES-E-014 - closed but handy. (SAES-L-132, named here
+   before, is cited by the sheet but no finding opens it.)
 
 ## The demonstration
 
@@ -28,8 +30,7 @@ datasheet, run. ~8 seconds, 1,580 requirements evaluated. Say the number.
 - Open one finding. Show: requirement text, submitted value, the exact
   clause and page on BOTH sides.
 - Click the citation. The standard opens AT the cited page. "Every claim
-  is checkable in two clicks. We have verified 6,804 of 6,805 page
-  references."
+  is checkable in two clicks."
 
 **4. The engineer stays in charge (2 minutes).** Show Confirm and Reject.
 "A rejected pairing is remembered forever - the machine never asks twice."
@@ -43,21 +44,26 @@ review code with its reason." Point at the rows naming missing standards:
 "When a governing spec is not in the library, the system says so by name
 instead of guessing - this is what makes it safe."
 
-**6. Close (1 minute).** "Three different contractor formats read and
-tested. 2,250+ automated checks. Every wrong claim the system ever made
-during development is recorded in an audit file - 41 entries - and each
-one was caught by our own gates before reaching a reviewer."
+**6. Close (1 minute).** "Two real contractor datasheets have been run
+through it, and every run says how much of the sheet it could read - it
+never implies it read more. 2,250+ automated checks. And every claim we
+made while building it that turned out false is recorded in an audit
+file, with how it was found - 44 entries. Some were caught late. That is
+why the file exists."
 
 ## The two questions clients always ask
 
 **"Can it be wrong?"** - "It can miss things, and it says so honestly -
-'needs engineer review', never a guess. What it does not do is invent: in
-testing, zero fabricated verdicts survived to a human. The design rule is
-that unsure always goes to the engineer."
+'needs engineer review', never a guess. In testing, one experimental
+component did produce wrong verdicts; our own evaluation gate caught them
+before any reviewer relied on them, and that component is switched off.
+The design rule is that unsure always goes to the engineer."
 
 **"Does our data go to the cloud / ChatGPT?"** - "No. Everything, including
 the AI model, runs on this machine. Unplug the network cable and the
-demonstration continues identically." (Offer to actually do it.)
+demonstration continues identically." Nothing the screen loads comes
+from the internet, and the model runs on this machine - but REHEARSE THIS
+before offering it live: it has not been tried with the cable out.
 
 ## What NOT to claim
 
