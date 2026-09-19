@@ -1298,10 +1298,121 @@ EXTRACTION = (
     ),
 )
 
+#: The datasheet side: which strings are citations, where a unit lives, and
+#: what is not a fact at all.
+DATASHEET = (
+    Mutation(
+        id="M102", phase=8,
+        description="MATCH A BARE ASME FAMILY LETTER again, reporting "
+                    "'ASME B' as a missing reference nobody can look up",
+        path=APP / "datasheets.py",
+        anchor=r'    r"|ASME\s*B\d{1,2}\.\d{1,3}(?:\.\d{1,3})?"',
+        replacement=r'    r"|ASME\s*[IVXB]+(?:\.\d+)?"',
+        target="tests/test_reference_identifiers.py",
+        keyword="bare_asme_family_letter",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M103", phase=8,
+        description="drop the SAMSS alternative, making ten citations invisible",
+        path=APP / "datasheets.py",
+        anchor=r'    r"|\d{2}-SAMSS-\d{3}"',
+        replacement=r'    r"|(?!x)x-SAMSS-\d{3}"',
+        target="tests/test_reference_identifiers.py",
+        keyword="citation_shape_is_read_whole",
+    ),
+    Mutation(
+        id="M104", phase=8,
+        description="stop zero-padding the library filename, so a standard "
+                    "cannot be matched to itself",
+        path=APP / "applicability.py",
+        anchor='    return f"{match.group(1).upper()}-{match.group(2).upper()}-{int(match.group(3)):03d}"',
+        replacement='    return f"{match.group(1).upper()}-{match.group(2).upper()}-{match.group(3)}"',
+        target="tests/test_reference_identifiers.py",
+        keyword="padded_number or matches_the_citation_key",
+    ),
+    Mutation(
+        id="M105", phase=8,
+        description="stop absorbing the unit column, orphaning it as a field "
+                    "named after a unit",
+        path=APP / "datasheets.py",
+        anchor="            if index < len(parts) and _is_numeric_cell(value):",
+        replacement="            if False:",
+        target="tests/test_datasheet_unit_layouts.py",
+        keyword="unit_in_its_own_column",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M106", phase=8,
+        description="stop taking the unit out of the label, losing it with no "
+                    "trace that it existed",
+        path=APP / "datasheets.py",
+        anchor="        label, carried = _unit_in_label(label)",
+        replacement="        label, carried = label, None",
+        target="tests/test_datasheet_unit_layouts.py",
+        keyword="unit_inside_the_label",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M107", phase=8,
+        description="STRIP THE PARENTHETICAL OFF ANY UNIT, turning dB(A) into "
+                    "decibels-absolute and reopening the phase 5B defect",
+        path=APP / "claims.py",
+        anchor="    if folded in _RECOGNISED_UNITS:\n        return text, None",
+        replacement="    if False:\n        return text, None",
+        target="tests/test_fact_gates.py",
+        keyword="db_a_is_never_split",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M108", phase=8,
+        description="lose the gauge reference, comparing a gauge pressure "
+                    "against an absolute limit",
+        path=APP / "datasheets.py",
+        anchor="    base_unit, unit_reference = claims.split_reference(unit)",
+        replacement="    base_unit, unit_reference = unit, None",
+        target="tests/test_fact_gates.py",
+        keyword="reference_is_stored_on_the_fact_row",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M109", phase=8,
+        description="call a label furniture after ONE page, deleting real "
+                    "fields to remove a header",
+        path=APP / "datasheets.py",
+        anchor="FURNITURE_PAGE_THRESHOLD = 3",
+        replacement="FURNITURE_PAGE_THRESHOLD = 1",
+        target="tests/test_fact_gates.py",
+        keyword="two_pages_is_kept or repeated_many_times_on_one_page",
+    ),
+    Mutation(
+        id="M110", phase=8,
+        description="open the categorical list, letting a signature block back "
+                    "in as a fact",
+        path=APP / "datasheets.py",
+        anchor='    return " ".join((value or "").strip().lower().split()) in _CATEGORICAL_VALUES',
+        replacement='    return bool((value or "").strip())',
+        target="tests/test_fact_gates.py",
+        keyword="free_text_is_not_a_categorical_answer",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M111", phase=8,
+        description="store the chunk's heading as the section even when it is "
+                    "another column's value",
+        path=APP / "datasheets.py",
+        anchor="    return text if is_field_label(text) else None",
+        replacement="    return text",
+        target="tests/test_fact_gates.py",
+        keyword="section_that_is_not_a_label_is_null",
+        tags=("honesty",),
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
-    + EXTRACTION
+    + EXTRACTION + DATASHEET
 )
 
 

@@ -36,36 +36,41 @@ from app.datasheets import measure_value, split_label_value
 #
 # The common shape in a numbered three-column form.
 
-def test_layout_a_unit_in_its_own_column_is_lost():
-    """THE UNIT BECOMES A SEPARATE PAIR AND IS THEN DISCARDED.
+def test_layout_a_unit_in_its_own_column_is_attached_to_the_value():
+    """FIXED. The unit cell is absorbed into the value beside it.
 
-    `split_label_value` pairs cell 1 with cell 2 and then pairs cell 3 with
-    nothing, so the unit is not attached to the value - it is briefly a FIELD
-    whose name is 'barg' and whose value is empty, and the fact gate drops it
-    for having no value.
-
-    So the measured value survives with no unit, and a stray field name is
-    manufactured on the way past.
+    It used to become a separate pair - a FIELD named 'barg' with an empty
+    value, dropped later for having no value, taking the unit with it. Every
+    engineering row on the real submittal lost its unit that way.
     """
     pairs = split_label_value(["Design pressure", "3.5", "barg"])
 
-    assert ("Design pressure", "3.5") in pairs, "the label-value pair was not found"
-    # The unit, orphaned. This is the defect, asserted rather than described.
-    assert ("barg", "") in pairs, (
-        "expected the unit to be orphaned as its own empty-valued pair - if "
-        "this now fails, the extractor has changed and this test should be "
-        "updated to whatever it does instead")
-    # And the value it belongs to carries no unit.
-    assert measure_value("3.5")[1] is None
+    assert pairs == [("Design pressure", "3.5 barg")]
+    assert not any(label == "barg" for label, _v in pairs), (
+        "a field named after a unit was manufactured")
+    assert measure_value("3.5 barg")[1] == "barg"
+
+
+def test_a_trailing_word_that_is_not_a_unit_is_not_absorbed():
+    """THE GUARD on the rule above, and the reason it is safe.
+
+    `| Shell material | SA 516 | Gr 70N |` is a three-column row whose third
+    cell is not a unit. Absorbing it would corrupt the value, so it is left
+    alone - which also proves the absorption is driven by the unit table and
+    not by column position.
+    """
+    pairs = split_label_value(["Shell material", "SA 516", "Gr 70N"])
+
+    assert ("Shell material", "SA 516") in pairs
+    assert ("Shell material", "SA 516 Gr 70N") not in pairs
 
 
 def test_layout_a_with_a_leading_line_number_behaves_the_same():
-    """A numbered form does not change the outcome - the line number is
-    correctly discarded and the unit is still orphaned."""
+    """A numbered form does not change the outcome: the sheet's own line
+    number is discarded and the unit is still attached."""
     pairs = split_label_value(["12", "Design pressure", "3.5", "barg"])
 
-    assert ("Design pressure", "3.5") in pairs
-    assert ("barg", "") in pairs
+    assert pairs == [("Design pressure", "3.5 barg")]
 
 
 # ------------------------------------ layout B: unit appended to the value
@@ -115,51 +120,65 @@ def test_layout_b_will_read_a_tag_number_as_a_unit():
 #
 #   | Design pressure (barg) | 3.5 |
 
-def test_layout_c_unit_inside_the_label_is_lost():
-    """The unit is part of the label text and is never looked for there.
+def test_layout_c_unit_inside_the_label_is_moved_to_the_value():
+    """FIXED. A parenthesised unit is stripped from the label and attached.
 
-    Worse than layout A in one respect: there is no orphaned pair to notice, so
-    nothing anywhere records that a unit was present at all.
+    This was the worst of the three: there was no orphaned pair to notice, so
+    nothing anywhere recorded that a unit had been present at all.
+
+    The label loses the parenthetical, which is correct - `Design pressure
+    (barg)` and `Design pressure` are one field asked once.
     """
     pairs = split_label_value(["Design pressure (barg)", "3.5"])
-    assert pairs == [("Design pressure (barg)", "3.5")]
 
-    value, unit, _measure = measure_value("3.5")
-
-    assert value == "3.5"
-    assert unit is None, "a unit was recovered from the label - behaviour changed"
+    assert pairs == [("Design pressure", "3.5 barg")]
+    assert measure_value("3.5 barg")[1] == "barg"
 
 
-@pytest.mark.parametrize("label", [
-    "Design pressure (barg)",
-    "Design pressure, barg",
-    "Design pressure [kPa]",
+def test_a_parenthetical_that_is_not_a_unit_stays_in_the_label():
+    """THE GUARD, and it matters more than the rule it guards.
+
+    Datasheets end labels with "(Note - 3)" far more often than with a unit.
+    Stripping those would rename the field, and two labels collapsing into one
+    field name is how a value ends up filed under another requirement.
+    """
+    pairs = split_label_value(["Design pressure (Note - 3)", "3.5"])
+
+    assert pairs == [("Design pressure (Note - 3)", "3.5")]
+
+
+@pytest.mark.parametrize("label,expected", [
+    ("Design pressure (barg)", "barg"),
+    ("Design pressure [kPa]", "kPa"),
 ])
-def test_layout_c_in_three_spellings_all_lose_the_unit(label):
-    """Three ways a form writes it, one outcome. Parameterised so a partial
-    fix - brackets but not parentheses - is visible as a partial pass."""
-    _pairs = split_label_value([label, "3.5"])
+def test_layout_c_handles_both_bracket_spellings(label, expected):
+    """Parameterised so a partial fix - parentheses but not square brackets -
+    shows up as a partial pass rather than a green tick."""
+    pairs = split_label_value([label, "3.5"])
 
-    assert measure_value("3.5")[1] is None
+    assert pairs == [("Design pressure", "3.5 " + expected)]
 
 
 # ------------------------------------------------------------- the summary
 
-def test_only_one_of_three_layouts_yields_a_unit():
+def test_all_three_layouts_now_yield_a_unit():
     """The three side by side, so the ratio is stated in one place.
 
-    THIS IS THE NUMBER: one layout of three attaches a unit to its value, and
-    the two that do not are both common in engineering forms.
+    THIS IS THE NUMBER, and it was one of three when this file was written.
+    All three now attach a unit, each for a different reason - which is why
+    each keeps its own test and its own negative guard above rather than being
+    folded into this one.
     """
     layouts = {
-        "unit in its own column": measure_value(
-            dict(split_label_value(["Design pressure", "3.5", "barg"]))["Design pressure"]),
-        "unit appended to value": measure_value(
-            dict(split_label_value(["Design pressure", "3.5 barg"]))["Design pressure"]),
-        "unit inside the label": measure_value(
-            dict(split_label_value(["Design pressure (barg)", "3.5"]))["Design pressure (barg)"]),
+        "unit in its own column": ["Design pressure", "3.5", "barg"],
+        "unit appended to value": ["Design pressure", "3.5 barg"],
+        "unit inside the label": ["Design pressure (barg)", "3.5"],
     }
-    with_unit = {name for name, (_v, unit, _m) in layouts.items() if unit}
+    units = {name: measure_value(split_label_value(cells)[0][1])[1]
+             for name, cells in layouts.items()}
 
-    assert with_unit == {"unit appended to value"}, (
-        f"expected exactly one layout to yield a unit, got {with_unit}")
+    assert units == {
+        "unit in its own column": "barg",
+        "unit appended to value": "barg",
+        "unit inside the label": "barg",
+    }, units
