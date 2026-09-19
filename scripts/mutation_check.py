@@ -1645,7 +1645,7 @@ REACHABLE = (
         # The FIRST version of this mutation broadened the SQL, which returns
         # more rejection ROWS without blocking more facts - the tests passed
         # and were right to. This one implements what the description claims.
-        anchor='        if fact_key(fact) in rejected:',
+        anchor='        if fact_key(fact, tag_scoped=tag_scoped) in rejected:',
         replacement="        if rejected:",
         target="tests/test_findings_reachable.py",
         keyword="does_not_block_another_fact",
@@ -2408,12 +2408,131 @@ MIGRATION_RACE = (
 )
 
 
+#: Anchors whose text carries double quotes, quoted once here.
+TAG_SCOPED = (
+    '    return len({f.get("equipment_tag") for f in facts\n'
+    '                if f.get("equipment_tag")}) >= 2')
+TAG_IN_KEY = (
+    '    if tag_scoped:\n'
+    '        parts.append(_normalise_for_match(fact.get("equipment_tag")))')
+TAG_TAIL = (
+    '    tail = " ".join((match.group("tail") or "").split())\n'
+    '    return tail or " ".join((value or "").split()) or None')
+
+
+
+#: Which equipment a fact describes.
+EQUIPMENT_TAG = (
+    Mutation(
+        id="M199", phase=16,
+        description="read the tag only from the VALUE, so the PSV sheet - "
+                    "which puts the key and the tag in one cell - yields no "
+                    "tag on any page",
+        path=APP / "datasheets.py",
+        anchor=TAG_TAIL,
+        replacement='    return " ".join((value or "").split()) or None',
+        target="tests/test_equipment_tag.py",
+        keyword="tag_row_yields_its_tag_verbatim",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M200", phase=16,
+        description="TIDY THE TAG, producing an identifier that matches "
+                    "nothing anybody searches for",
+        path=APP / "datasheets.py",
+        anchor='    return tail or " ".join((value or "").split()) or None',
+        replacement='    return (tail.split("(")[0].strip() or '
+                    '" ".join((value or "").split()) or None)',
+        target="tests/test_equipment_tag.py",
+        keyword="tag_is_not_tidied",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M201", phase=16,
+        description="let `Tag description` name the equipment, so a fact is "
+                    "stamped with what the equipment IS rather than which "
+                    "one it is",
+        path=APP / "datasheets.py",
+        anchor=r'    r"^\s*(?:tag\s*(?:no\.?|number)|item\s*no\.?)\s*[.:\-]*\s*(?P<tail>.*)$",',
+        replacement=r'    r"^\s*(?:tag|item)\s*\w*\s*[.:\-]*\s*(?P<tail>.*)$",',
+        target="tests/test_equipment_tag.py",
+        keyword="what_is_not_a_tag_row",
+    ),
+    Mutation(
+        id="M202", phase=16,
+        description="STOP STAMPING A ONE-TAG DOCUMENT'S OTHER PAGES, so the "
+                    "drum's facts lose the vessel they describe",
+        path=APP / "datasheets.py",
+        anchor="    if len(mentioned) == 1:",
+        replacement="    if False:",
+        target="tests/test_equipment_tag.py",
+        keyword="one_tag_in_a_document_stamps_every_page",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M203", phase=16,
+        description="INHERIT A TAG ACROSS PAGES THAT NAME DIFFERENT "
+                    "EQUIPMENT, filing one valve's numbers against another",
+        path=APP / "datasheets.py",
+        anchor="    return {page: tags.get(page) for page in pairs_by_page}",
+        replacement="    return {page: (tags.get(page) or next(iter(mentioned), None))\n"
+                    "            for page in pairs_by_page}",
+        target="tests/test_equipment_tag.py",
+        keyword="multi_tag_document_keeps_each_page or several_tags_stay",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M204", phase=16,
+        description="PUT THE TAG IN EVERY FACT KEY, retiring every rejection "
+                    "ever recorded against a single-tag datasheet",
+        path=APP / "comparison.py",
+        anchor=TAG_SCOPED,
+        replacement="    return True",
+        target="tests/test_equipment_tag.py",
+        keyword="single_tag_document_keeps_todays_key or survives_re_extraction",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M205", phase=16,
+        description="leave the tag out of the key on a MULTI-tag sheet, so "
+                    "rejecting one valve's field suppresses every valve's",
+        path=APP / "comparison.py",
+        anchor=TAG_IN_KEY,
+        replacement="    if False:\n        parts.append(None)",
+        target="tests/test_equipment_tag.py",
+        keyword="rejecting_one_tag_does_not_suppress",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M206", phase=16,
+        description="stamp a finding with a tag when there is no fact, "
+                    "claiming the sheet said something it did not",
+        path=APP / "comparison.py",
+        anchor='        "equipment_tag": (fact or {}).get("equipment_tag"),',
+        replacement='        "equipment_tag": (fact or {}).get("equipment_tag") or "unknown",',
+        target="tests/test_equipment_tag.py",
+        keyword="no_fact_names_no_equipment",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M207", phase=16,
+        description="let the tag row become a fact, so a matcher can pair a "
+                    "requirement with an equipment identifier",
+        path=APP / "datasheets.py",
+        anchor="            if tag_from_pair(label, value) is not None:",
+        replacement="            if False:",
+        target="tests/test_equipment_tag.py",
+        keyword="tag_row_never_becomes_a_fact",
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
     + EXTRACTION + DATASHEET + MATCHER + TABLE_AND_UNITS + REACHABLE
     + MODEL_TIER + GATE_FALLOUT + REPEATED_FORM
-    + RANGES_AND_COMPOUNDS + MIGRATION_RACE
+    + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
 )
 
 

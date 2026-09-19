@@ -326,6 +326,11 @@ def ensure_schema() -> None:
             # NULL on an ordinary single value, where `raw_value` carries it.
             ("value_min", "REAL"),
             ("value_max", "REAL"),
+            # WHICH EQUIPMENT THE FACT DESCRIBES, verbatim from the sheet's
+            # own tag row - `2003-47-V-0001A/B`, `PSV-4301 A/B (for GC-9, 10 &
+            # 19)`. NULL when the document does not say, which on a multi-tag
+            # sheet is the honest answer for a page with no tag row.
+            ("equipment_tag", "TEXT"),
             # The section heading this row actually sits under, or NULL. See
             # `datasheets._section_for`: it was previously filled with whatever
             # heading the CHUNK carried, which on a two-column form is another

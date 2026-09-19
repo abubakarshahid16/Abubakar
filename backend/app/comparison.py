@@ -574,6 +574,11 @@ def create_finding(
         "fact_id": (fact or {}).get("id"),
         "matched_phrase": matched_phrase,
         "match_method": match_method,
+        # WHICH EQUIPMENT THE FINDING IS ABOUT, copied from the fact rather
+        # than re-derived: the fact is what was actually compared, and a
+        # finding naming a different valve from the value it quotes would be
+        # worse than one naming none. NULL where the sheet does not say.
+        "equipment_tag": (fact or {}).get("equipment_tag"),
         "created_at": now,
         "updated_at": now,
     }
@@ -587,6 +592,7 @@ def create_finding(
                 standard_document_id, standard_clause, standard_page,
                 requirement_source_text, ai_rationale, unresolved_evidence,
                 requirement_id, fact_id, matched_phrase, match_method,
+                equipment_tag,
                 governing_sources, citation_ids, status, approval_status,
                 created_at, updated_at)
                VALUES (:id, :document_id, :review_run_id, :compliance_status,
@@ -596,7 +602,7 @@ def create_finding(
                        :standard_document_id, :standard_clause, :standard_page,
                        :requirement_source_text, :ai_rationale,
                        :unresolved_evidence, :requirement_id, :fact_id,
-                       :matched_phrase, :match_method,
+                       :matched_phrase, :match_method, :equipment_tag,
                        '[]', '[]', 'open', 'pending',
                        :created_at, :updated_at)""", row)
     return {**row, "unresolved_evidence": unresolved,
@@ -1108,11 +1114,12 @@ def match_by_containment(requirement: dict, facts: list[dict]) -> dict:
         return none
 
     rejected = _rejected_keys_for(requirement)
+    tag_scoped = facts_are_tag_scoped(facts)
     hits: list[dict] = []
     for fact in facts:
         if not fact_has_number(fact):
             continue          # categorical or blank: never matched in this pass
-        if fact_key(fact) in rejected:
+        if fact_key(fact, tag_scoped=tag_scoped) in rejected:
             # A HUMAN ALREADY SAID THIS PAIR IS WRONG. Asking again is how an
             # engineer learns the machine does not listen, and they stop
             # correcting it.
@@ -1242,6 +1249,7 @@ def candidate_facts(requirement: dict, facts: list[dict]) -> list[dict]:
         return []
     requirement_unit = _unit_measure(requirement)
     refused = _rejected_keys_for(requirement)
+    tag_scoped = facts_are_tag_scoped(facts)
     out = []
     for fact in facts:
         if not fact_has_number(fact) or fact.get("is_blank"):
@@ -1249,7 +1257,7 @@ def candidate_facts(requirement: dict, facts: list[dict]) -> list[dict]:
         if not _units_comparable(requirement, fact,
                                  requirement_unit, _unit_measure(fact)):
             continue
-        if fact_key(fact) in refused:
+        if fact_key(fact, tag_scoped=tag_scoped) in refused:
             continue
         out.append(fact)
     out.sort(key=lambda f: (-len(f.get("field_name") or ""),
@@ -1367,8 +1375,9 @@ def match_by_model(requirement: dict, facts: list[dict], *,
     candidates = candidate_facts(requirement, facts)
     if not candidates:
         return _none_match()
+    scoped = facts_are_tag_scoped(candidates)
     key = (requirement_key(requirement),
-           tuple(sorted(fact_key(f) for f in candidates)))
+           tuple(sorted(fact_key(f, tag_scoped=scoped) for f in candidates)))
     if cache is not None and key in cache:
         return dict(cache[key])
 
@@ -1424,18 +1433,66 @@ def requirement_key(requirement: dict) -> str:
     return hashlib.sha256(parts.encode("utf-8")).hexdigest()
 
 
-def fact_key(fact: dict) -> str:
+def facts_are_tag_scoped(facts: list[dict]) -> bool:
+    """Does this document need the equipment tag to tell its facts apart?
+
+    Only when it carries TWO OR MORE. Computed from the facts already in
+    hand rather than queried, because every caller that needs it is already
+    holding the document's facts and a per-fact query would run tens of
+    thousands of times in one review.
+    """
+    return len({f.get("equipment_tag") for f in facts
+                if f.get("equipment_tag")}) >= 2
+
+
+def _document_is_tag_scoped(submittal_document_id: str | None) -> bool:
+    """The same question asked of the database, for the one caller that has
+    a single fact rather than the list: recording a human's rejection."""
+    if not submittal_document_id:
+        return False
+    try:
+        row = connect().execute(
+            "SELECT COUNT(DISTINCT equipment_tag) AS n FROM submittal_facts"
+            " WHERE submittal_document_id = ? AND equipment_tag IS NOT NULL",
+            (submittal_document_id,)).fetchone()
+    except Exception:  # noqa: BLE001 - a database without the column yet
+        return False
+    return bool(row and row["n"] >= 2)
+
+
+def fact_key(fact: dict, *, tag_scoped: bool = False) -> str:
     """The identity of a submitted fact: which submittal, which field.
 
     NOT the value. A rejection says "this requirement is not about this
     field", which stays true when the contractor revises the number - and
     would be forgotten on every resubmission if the value were in the key.
+
+    AND THE EQUIPMENT TAG ONLY WHERE IT DISTINGUISHES SOMETHING. A datasheet
+    covering four pressure safety valves has four `set pressure` rows, and an
+    engineer rejecting a pairing for PSV-4301 has said nothing about
+    PSV-4360 - so there the tag is part of which fact this is.
+
+    On a sheet covering one vessel it is not. Every fact carries the same tag,
+    so adding it to the key changes every key while distinguishing no two
+    facts - and that would silently retire every rejection ever recorded
+    against that document, which is the failure this key exists to prevent
+    (see `requirement_key`). Identity is what tells things apart; a tag that
+    is the same everywhere tells nothing apart.
+
+    The caller decides, because the caller is the one holding the document's
+    facts - `facts_are_tag_scoped` for a list, `_document_is_tag_scoped` for
+    a single row. A document that GAINS a second tag re-keys its facts, which
+    is correct and is the one case where an old rejection stops applying: it
+    was recorded when the system could not tell the two pieces of equipment
+    apart.
     """
-    parts = "|".join((
+    parts = [
         str(fact.get("submittal_document_id") or ""),
         _normalise_for_match(fact.get("field_name")),
-    ))
-    return hashlib.sha256(parts.encode("utf-8")).hexdigest()
+    ]
+    if tag_scoped:
+        parts.append(_normalise_for_match(fact.get("equipment_tag")))
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
 def reject_pair(requirement: dict, fact: dict, *, rejected_by: str | None,
@@ -1451,6 +1508,7 @@ def reject_pair(requirement: dict, fact: dict, *, rejected_by: str | None,
     reason rather than overwriting who said it and when.
     """
     submittal_review.ensure_schema()
+    scoped = _document_is_tag_scoped(fact.get("submittal_document_id"))
     now = _now()
     conn = connect()
     with conn:
@@ -1458,10 +1516,10 @@ def reject_pair(requirement: dict, fact: dict, *, rejected_by: str | None,
             "INSERT OR IGNORE INTO review_pair_rejections"
             " (requirement_key, fact_key, requirement_id, fact_id,"
             "  rejected_by, rejected_at, reason) VALUES (?,?,?,?,?,?,?)",
-            (requirement_key(requirement), fact_key(fact),
+            (requirement_key(requirement), fact_key(fact, tag_scoped=scoped),
              requirement.get("id"), fact.get("id"), rejected_by, now, reason))
     return {"requirement_key": requirement_key(requirement),
-            "fact_key": fact_key(fact),
+            "fact_key": fact_key(fact, tag_scoped=scoped),
             "requirement_id": requirement.get("id"), "fact_id": fact.get("id"),
             "rejected_by": rejected_by, "rejected_at": now, "reason": reason}
 

@@ -161,6 +161,10 @@ def ensure_schema() -> None:
             # No REFERENCES clause: SQLite cannot add a foreign key by ALTER,
             # so a migrated database has none to lean on. `standard_requirements.
             # confirmed_by` carries the same note.
+            # WHICH EQUIPMENT THIS FINDING IS ABOUT, copied from the fact.
+            # NULL where the datasheet does not say, and NULL renders as
+            # nothing - never as a guess at which valve was meant.
+            "equipment_tag": "TEXT",
             "confirmed_by": "TEXT",
             "confirmed_at": "TEXT",
         }.items():

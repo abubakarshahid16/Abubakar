@@ -452,6 +452,92 @@ def split_compound_pair(label: str, value: str) -> list[tuple[str, str]]:
     return list(zip(names, values))
 
 
+# ------------------------------------------------ which equipment is this
+
+#: The label that introduces an equipment tag. Matched at the START of the
+#: label, because a datasheet writes the tag two ways and both must read:
+#:
+#:   `Tag number :` | `2003-47-V-0001A/B`     - label and value, two cells
+#:   `Tag No. PSV-4301 A/B (for GC-9, 10 & 19)` | ``   - all one cell
+#:
+#: The second is the KOC PSV sheet, where the text block carries the key and
+#: the tag together and there is no value beside it. A reader that only
+#: understood the first shape would find no tag on any page of it.
+#:
+#: `Tag description` is deliberately not a key: it names what the equipment
+#: IS, not which one it is.
+_TAG_LABEL = re.compile(
+    r"^\s*(?:tag\s*(?:no\.?|number)|item\s*no\.?)\s*[.:\-]*\s*(?P<tail>.*)$",
+    re.IGNORECASE)
+
+
+def tag_from_pair(label: str, value: str) -> str | None:
+    """The equipment tag this row carries, or None.
+
+    NEVER GUESSED AND NEVER CLEANED beyond collapsing whitespace. A tag is an
+    identifier somebody will type into a search box or read off a P&ID, so
+    `PSV-4301 A/B (for GC-9, 10 & 19)` is stored exactly as the sheet wrote
+    it. Stripping the bracket, the `A/B` or the service note would produce a
+    tag that matches nothing a person would look for.
+    """
+    match = _TAG_LABEL.match(" ".join((label or "").split()))
+    if match is None:
+        return None
+    # The tag sits in whichever half the sheet put it in: after the key when
+    # the whole row is one cell, otherwise in the value beside it.
+    tail = " ".join((match.group("tail") or "").split())
+    return tail or " ".join((value or "").split()) or None
+
+
+def page_tags(pairs_by_page: dict[int, list[tuple[str, str]]]) -> dict[int, str]:
+    """The equipment tag each page states, for the pages that state one.
+
+    A page with two tag rows saying the same thing yields it once; a page
+    whose tag rows disagree yields nothing, because "which equipment is this
+    page about" has no answer there and inventing one is worse than a NULL.
+    """
+    found: dict[int, set[str]] = {}
+    for page, pairs in pairs_by_page.items():
+        for label, value in pairs:
+            tag = tag_from_pair(label, value)
+            if tag:
+                found.setdefault(page, set()).add(tag)
+    return {page: next(iter(tags)) for page, tags in found.items()
+            if len(tags) == 1}
+
+
+def stamp_tags(pairs_by_page: dict[int, list[tuple[str, str]]]) -> dict[int, str | None]:
+    """Which tag each page's facts belong to, page by page.
+
+    TWO RULES, AND THE SECOND IS WHAT MAKES A ONE-VESSEL SHEET USABLE:
+
+      * a page that states its own tag stamps its own facts with it;
+      * a document whose pages state exactly ONE distinct tag stamps EVERY
+        page with it, including the pages that say nothing. The drum sheet
+        names `2003-47-V-0001A/B` once, on its data page, and every fact in
+        the document is about that vessel.
+
+    WHEN THE TAGS DIFFER, NOTHING IS INHERITED. The PSV sheet is four valves
+    on four pages; carrying page 1's tag onto page 2 would file one valve's
+    set pressure against another. A page without a tag row gets NULL, which
+    is the true answer - this system does not know which valve that page is
+    about.
+    """
+    tags = page_tags(pairs_by_page)
+    # COUNTED OVER EVERY TAG THE DOCUMENT MENTIONS, not only the pages that
+    # resolved cleanly. A page naming two different tags yields none of its
+    # own - see `page_tags` - and counting only the resolved pages would make
+    # a document that mentions A-1 and B-2 look like a one-tag sheet and stamp
+    # B-2's page with A-1.
+    mentioned = {tag for pairs in pairs_by_page.values()
+                 for tag in (tag_from_pair(label, value)
+                             for label, value in pairs) if tag}
+    if len(mentioned) == 1:
+        only = next(iter(mentioned))
+        return {page: only for page in pairs_by_page}
+    return {page: tags.get(page) for page in pairs_by_page}
+
+
 def section_heading(chunk_section: str | None) -> str | None:
     """The heading a fact sits under, or None. NEVER A WRONG VALUE.
 
@@ -933,6 +1019,7 @@ def create_fact(
     raw_value: str | None, page: int | None, section: str | None = None,
     source_text: str | None = None, review_run_id: str | None = None,
     confidence: float | None = None, extraction_method: str = "extracted",
+    equipment_tag: str | None = None,
 ) -> dict:
     """Record one fact. REFUSES a fact whose citation does not resolve.
 
@@ -1013,6 +1100,10 @@ def create_fact(
         "normalized_value": measurement.normalized_value if measurement else None,
         "normalized_unit": measurement.normalized_unit if measurement else None,
         "unit": unit,
+        # WHICH EQUIPMENT THIS FACT DESCRIBES, or NULL when the sheet does not
+        # say. A datasheet can carry four valves; a fact that does not know
+        # which one it belongs to is a fact nobody can act on.
+        "equipment_tag": equipment_tag,
         "value_min": value_min,
         "value_max": value_max,
         "is_blank": 1 if blank else 0,
@@ -1034,13 +1125,14 @@ def create_fact(
                 normalized_value, normalized_unit, unit, is_blank,
                 blank_marker, page, section, source_text, extraction_method,
                 confidence, created_at, updated_at, unit_reference,
-                value_min, value_max)
+                value_min, value_max, equipment_tag)
                VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
                        :field_name, :field_label, :field_value, :raw_value,
                        :raw_unit, :normalized_value, :normalized_unit, :unit,
                        :is_blank, :blank_marker, :page, :section, :source_text,
                        :extraction_method, :confidence, :created_at,
-                       :updated_at, :unit_reference, :value_min, :value_max)""", row)
+                       :updated_at, :unit_reference, :value_min, :value_max,
+                       :equipment_tag)""", row)
     return row
 
 
@@ -1163,6 +1255,9 @@ def extract_facts(
             split.extend(split_compound_pair(one_label, one_value))
         pairs_by_page[page] = split
     furniture = furniture_labels(pairs_by_page)
+    # WHICH EQUIPMENT EACH PAGE IS ABOUT, decided over the whole document
+    # because the one-tag rule cannot be seen from a single page.
+    tags = stamp_tags(pairs_by_page)
 
     for page, page_chunks in sorted(by_page.items()):
         pairs = pairs_by_page[page]
@@ -1209,6 +1304,12 @@ def extract_facts(
             # cell beside a label is a pairing artefact of a two-column
             # form, not a statement by the document, and recording it
             # manufactures findings against a vendor who was never asked.
+            if tag_from_pair(label, value) is not None:
+                # THE TAG ROW IS NOT A FACT ABOUT THE EQUIPMENT, it is the
+                # equipment's name. It is read above and stamped onto the
+                # rows that ARE facts.
+                dropped["tag row"] = dropped.get("tag row", 0) + 1
+                continue
             if is_date_value(value):
                 # A timestamp is not a measurement. Left here rather than in
                 # `measure_value` so the cell still reads as what it is
@@ -1236,6 +1337,7 @@ def extract_facts(
                     section=section_heading(chunk["section"]),
                     review_run_id=review_run_id,
                     confidence=0.6,
+                    equipment_tag=tags.get(page),
                 )
             except FactError:
                 dropped["refused by create_fact"] = dropped.get(

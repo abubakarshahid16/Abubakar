@@ -1844,6 +1844,10 @@ class ReviewFinding(BaseModel):
     #: reader can see the reasoning without it being presented as the
     #: contractor-facing text.
     ai_rationale: str | None = None
+    #: WHICH EQUIPMENT THE FINDING IS ABOUT, verbatim from the datasheet's
+    #: own tag row. None where the sheet does not say - a datasheet covering
+    #: four valves has pages that name none, and a null is the true answer.
+    equipment_tag: str | None = None
     #: WHO STOOD BEHIND THE PAIRING. A model-paired finding is a guess until an
     #: engineer says otherwise, and a confirmed finding is never deleted by a
     #: re-run. Both are visible here so a reader can tell a confirmed pairing
