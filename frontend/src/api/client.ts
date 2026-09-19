@@ -375,6 +375,49 @@ export const reviews = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, override_reason: overrideReason }),
       }),
+  /** The run's findings as a Comment Resolution Sheet.
+   *
+   *  NOT `request()`, because the body is a spreadsheet rather than JSON -
+   *  but the token is attached the same way and the failure shape is the
+   *  same `Result`, so a caller handles it exactly like any other call. The
+   *  filename is the SERVER's: one definition of what the file is called. */
+  exportCrs: async (
+    runId: string,
+  ): Promise<Result<{ blob: Blob; filename: string }>> => {
+    const path = `/reviews/runs/${encodeURIComponent(runId)}/crs`;
+    let response: Response;
+    try {
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      response = await fetch(`${BASE}${path}`, { headers });
+    } catch (e) {
+      return disconnected(
+        e instanceof Error ? e.message : "Network request failed.");
+    }
+    if (!response.ok) {
+      let error: ApiError = {
+        code: response.status === 404 ? "not_found" : "internal",
+        message: humanMessage(response.status),
+      };
+      try {
+        const body = await response.json();
+        const raw = body?.detail ?? body;
+        if (raw && typeof raw === "object" && "code" in raw) error = raw as ApiError;
+      } catch {
+        /* keep the fallback */
+      }
+      return { ok: false, disconnected: false, error };
+    }
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const match = /filename="([^"]+)"/.exec(disposition);
+    return {
+      ok: true,
+      data: {
+        blob: await response.blob(),
+        filename: match?.[1] ?? `CRS_${runId}.xlsx`,
+      },
+    };
+  },
   /** Refuse a pairing so no future run proposes it again. */
   rejectPairing: (findingId: string, reason: string) =>
     request<PairRejection>("/reviews/pairs/reject", {

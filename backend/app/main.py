@@ -12,6 +12,8 @@ from . import classification as classification_mod
 from . import chunker as chunk_mod
 from . import applicability as applicability_mod
 from . import comparison as comparison_mod
+from . import crs_export as crs_export_mod
+from . import crs_mapping as crs_mapping_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import extract as extract_mod
@@ -1530,6 +1532,43 @@ def _document_scope(allowed_document_ids) -> tuple[str, list[str]]:
         return " WHERE 1 = 0", []
     marks = ",".join("?" for _ in allowed_document_ids)
     return f" WHERE d.id IN ({marks})", sorted(allowed_document_ids)
+
+
+def _now_date() -> str:
+    """Today, as the CRS prints it. The only date this system actually knows
+    about an export is the day it was made."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _missing_references(submittal_id: str, allowed: frozenset[str]) -> list[str]:
+    """Standards this submittal CITES that the library does not hold.
+
+    Lifted out of the dashboard, which computed exactly this inline, so the
+    CRS gap rows and the Active Standards tile cannot drift into two answers
+    to one question. Read from the submittal's own chunk text rather than by
+    re-running applicability selection.
+    """
+    text = " ".join(
+        row["text"] or "" for row in connect().execute(
+            "SELECT text FROM chunks WHERE document_id = ?", (submittal_id,)))
+    names = datasheets_mod.referenced_standards(text)
+    matched = applicability_mod._match_referenced(
+        applicability_mod._library(allowed), names)
+
+    # MATCHED ON THE NORMALISED KEY, REPORTED IN THE SUBMITTAL'S OWN SPELLING.
+    # `normalise_identifier` strips punctuation so that "32-SAMSS-004" and
+    # "32 SAMSS 004" are one identifier - correct for matching, and wrong for
+    # a document a contractor reads: the first CRS exported this way asked an
+    # engineer to recognise "32SAMSS004". So the key deduplicates and the raw
+    # name is what gets printed.
+    missing: dict[str, str] = {}
+    for name in names:
+        key = applicability_mod.normalise_identifier(name)
+        if key not in matched and key not in missing:
+            missing[key] = name.strip()
+    return [missing[key] for key in sorted(missing)]
 
 
 def _run_summary(run: dict, scope: access.AccessScope) -> dict:
@@ -3060,3 +3099,92 @@ def admin_db_rows(
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no such table"))
     return page
+
+
+@app.get("/api/reviews/runs/{review_run_id}/crs",
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def export_review_crs(
+    review_run_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The run's findings as a Comment Resolution Sheet (.xlsx).
+
+    SCOPED EXACTLY LIKE THE FINDINGS THEMSELVES, and READ ACCESS SUFFICES.
+    Exporting is not a decision - it writes nothing, changes no run and
+    records no judgement - so it asks the same question `GET
+    /api/reviews/findings` asks: may this caller read this submittal. A run
+    they may not read is 404, indistinguishable from one that is not there.
+
+    MASTER PLAN SECTIONS 13 AND 17. `crs_mapping` decides which findings enter
+    a CRS and as what text; `crs_export` renders the client's own template.
+    This route only composes them and supplies the meta, and every field of
+    that meta comes from real data or is left BLANK:
+
+      document_title          the submittal's own filename
+      date_issued             today - the date this file was exported, which
+                              is the only date this system actually knows
+      company_transmittal     BLANK. Nobody has issued one.
+      contractor_transmittal  BLANK. The contractor has not responded.
+      recommended_code        the run's recommendation, and its reason, both
+                              verbatim - never re-worded by this route
+
+    A blank transmittal number renders as NOTHING rather than as a plausible
+    placeholder. A CRS carrying an invented transmittal number is a document
+    that lies about its own provenance to whoever receives it.
+    """
+    reject_unknown_params(request, set())
+    allowed = scope.allowed_document_ids
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=allowed)
+    if run is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+
+    submittal_id = run["submittal_document_id"]
+    document = connect().execute(
+        "SELECT filename FROM documents WHERE id = ?", (submittal_id,)).fetchone()
+    submittal_name = document["filename"] if document else submittal_id
+
+    findings = submittal_review_mod.list_run_findings(
+        review_run_id, allowed_document_ids=allowed)
+
+    # THE STANDARD'S NAME, NOT ITS ID. `crs_mapping` falls back to
+    # `standard_document_id` when no name is given, and a CRS whose
+    # Page/Section column read `doc_a3df49861559` would be asking an engineer
+    # to recognise a hash - the same defect the findings table had.
+    names = {
+        row["id"]: row["filename"] for row in connect().execute(
+            "SELECT id, filename FROM documents")
+    }
+    for finding in findings:
+        finding["standard_name"] = names.get(finding.get("standard_document_id"))
+
+    rows = crs_mapping_mod.build_crs_rows(
+        findings, _missing_references(submittal_id, allowed), submittal_name)
+
+    outcome = comparison_mod.run_outcome(
+        review_run_id, allowed_document_ids=allowed) or {}
+    stamp = _now_date()
+    workbook = crs_export_mod.build_crs(rows, {
+        "document_title": submittal_name,
+        "date_issued": stamp,
+        # Left blank on purpose - see the docstring. Absent, not invented.
+        "company_transmittal": "",
+        "contractor_transmittal": "",
+        "date_responded": "",
+        "recommended_code": run.get("engineer_final_code")
+                            or outcome.get("recommended_code") or "",
+        "recommended_code_reason": (
+            run.get("override_reason") if run.get("engineer_final_code")
+            else outcome.get("reason")) or "",
+    })
+
+    safe = "".join(
+        ch for ch in Path(submittal_name).stem if ch.isalnum() or ch in "-_")
+    filename = f"CRS_{safe or 'submittal'}_{stamp}.xlsx"
+    return Response(
+        content=workbook,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

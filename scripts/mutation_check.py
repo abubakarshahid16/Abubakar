@@ -2876,6 +2876,75 @@ DISCIPLINE_CANONICAL = (
 )
 
 
+#: The CRS export: who may export, and what the file is allowed to say.
+CRS_EXPORT = (
+    Mutation(
+        id="M237", phase=22,
+        description="EXPORT A RUN THE CALLER MAY NOT READ, handing a whole "
+                    "submittal's findings to anybody who guesses a run id",
+        path=APP / "main.py",
+        anchor="    run = submittal_review_mod.get_review_run(\n"
+               "        review_run_id, allowed_document_ids=allowed)\n"
+               "    if run is None:\n"
+               "        raise HTTPException(status_code=404, detail=errors.safe_error(\n"
+               '            errors.NOT_FOUND, "no review run with that id"))',
+        replacement="    run = submittal_review_mod.get_review_run(\n"
+                    "        review_run_id,\n"
+                    "        allowed_document_ids=frozenset(\n"
+                    '            r["id"] for r in connect().execute('
+                    '"SELECT id FROM documents")))\n'
+                    "    if run is None:\n"
+                    "        raise HTTPException(status_code=404, detail=errors.safe_error(\n"
+                    '            errors.NOT_FOUND, "no review run with that id"))',
+        target="tests/test_crs_endpoint.py",
+        keyword="cannot_read_is_not_found or reads_exactly_the_same",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M238", phase=22,
+        description="drop the GAP ROWS, so a run that found no breach exports "
+                    "an empty sheet reading 'nothing to report'",
+        path=APP / "main.py",
+        anchor="        findings, _missing_references(submittal_id, allowed), submittal_name)",
+        replacement="        findings, [], submittal_name)",
+        target="tests/test_crs_endpoint.py",
+        keyword="no_includable_findings_still_exports_its_gap_rows",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M239", phase=22,
+        description="print the NORMALISED key, so a contractor reads "
+                    "'32SAMSS004' and has to guess what was meant",
+        path=APP / "main.py",
+        anchor="            missing[key] = name.strip()",
+        replacement="            missing[key] = key",
+        target="tests/test_crs_endpoint.py",
+        keyword="keeps_the_spelling_the_submittal_used",
+    ),
+    Mutation(
+        id="M240", phase=22,
+        description="INVENT A TRANSMITTAL NUMBER, so the CRS lies about its "
+                    "own provenance to whoever receives it",
+        path=APP / "main.py",
+        anchor='        "company_transmittal": "",',
+        replacement='        "company_transmittal": "KJO-TRX-0001",',
+        target="tests/test_crs_endpoint.py",
+        keyword="transmittal_numbers_are_blank_rather_than_invented",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M241", phase=22,
+        description="write the standard's ID instead of its filename, asking "
+                    "an engineer to recognise a hash in a client document",
+        path=APP / "main.py",
+        anchor='        finding["standard_name"] = names.get(finding.get("standard_document_id"))',
+        replacement='        finding["standard_name"] = None',
+        target="tests/test_crs_endpoint.py",
+        keyword="becomes_a_row_with_its_citation_and_both_texts",
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -2883,7 +2952,7 @@ ALL: tuple[Mutation, ...] = (
     + MODEL_TIER + GATE_FALLOUT + REPEATED_FORM
     + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
-    + DISCIPLINE_CANONICAL
+    + DISCIPLINE_CANONICAL + CRS_EXPORT
 )
 
 

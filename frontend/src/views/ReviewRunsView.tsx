@@ -44,6 +44,34 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
   const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
   const [launch, setLaunch] = useState<{ kind: "idle" } | { kind: "running" } | { kind: "error"; message: string }>({ kind: "idle" });
   const [target, setTarget] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  /** Fetch the CRS with the bearer token and hand it to the browser.
+   *
+   *  A plain `<a href>` would be simpler and would not work: it cannot send
+   *  the Authorization header, so the request arrives unauthenticated and the
+   *  route answers 404 - which would look like a missing run rather than a
+   *  missing token. The filename comes from the SERVER's
+   *  Content-Disposition, so one definition of "what is this file called"
+   *  exists rather than two that can disagree.
+   */
+  async function exportCrs(runId: string) {
+    setExporting(true);
+    setExportError(null);
+    const result = await reviewsApi.exportCrs(runId);
+    setExporting(false);
+    if (!result.ok) {
+      setExportError(result.error.message);
+      return;
+    }
+    const url = URL.createObjectURL(result.data.blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = result.data.filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   const loadRuns = useCallback(async () => {
     const result = await reviewsApi.reviewRuns();
@@ -238,7 +266,25 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
             >
               {run.standards_in_scope} standards in scope — why?
             </button>
+            {/* THE EXPORT. An <a href> cannot carry the bearer token, the
+                same constraint `useAuthedImage` exists for, so the file is
+                fetched with the header and handed to the browser as a blob.
+                READ ACCESS SUFFICES and the server says so: exporting writes
+                nothing, decides nothing and records no judgement. */}
+            <button
+              type="button" onClick={() => void exportCrs(run.review_run_id)}
+              disabled={exporting}
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"
+            >
+              {exporting ? "Preparing…" : "Export CRS (.xlsx)"}
+            </button>
           </div>
+
+          {exportError && (
+            <p role="alert" className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              {exportError}
+            </p>
+          )}
 
           {showStandards && (
             <StandardsInScope standards={standards} />
