@@ -18,7 +18,7 @@ Every routing test that expects RETRIEVAL matters as much as the ones that
 expect the database: a false positive would answer "which standards cover
 coating?" with a library total and never search, which is the worse failure.
 
-Mutations: M251-M258, `python scripts/mutation_check.py --phase 25`.
+Mutations: M251-M263, `python scripts/mutation_check.py --phase 25`.
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def _uploaded_standard(client) -> str:
         page.insert_text((72, 100 + i * 16), line)
     pdf.save(str(path))
     pdf.close()
-    with open(path, "rb") as fh:
+    with path.open("rb") as fh:
         doc_id = client.post(
             "/api/documents", files={"file": ("spec.pdf", fh, "application/pdf")}
         ).json()["document"]["id"]

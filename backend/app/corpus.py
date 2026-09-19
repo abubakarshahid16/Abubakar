@@ -103,6 +103,8 @@ _WHAT_IS_LOADED = re.compile(
 #: Words that ask about the collection without narrowing it. Anything a
 #: question carries BEYOND these is content - "which standards cover
 #: HYDROTESTING" - and makes it a question for retrieval as well.
+# A word list reads as prose; ninety quoted literals would not. SIM905 is a
+# style preference, and this is its only occurrence in the module.
 _NEUTRAL = frozenset("""
     a an the all any every each of in on to for is are was were be been has
     have had do does did you your we our i my me us it its there here this
@@ -112,7 +114,7 @@ _NEUTRAL = frozenset("""
     library system corpus collection database repository machine altogether
     overall exist exists existing got company contractor distinct different
     unique separate individual readable accessible
-""".split())
+""".split())  # noqa: SIM905
 
 
 @dataclass(frozen=True)
