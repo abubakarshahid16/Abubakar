@@ -8,7 +8,7 @@ from pathlib import Path
 
 import fitz
 
-from .db import connect
+from .db import add_column_if_missing, connect
 from .config import settings
 from . import notifications
 
@@ -37,9 +37,11 @@ def ensure_schema() -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )""")
-        columns = {row["name"] for row in conn.execute("PRAGMA table_info(deliverables)")}
-        if "parent_id" not in columns:
-            conn.execute("ALTER TABLE deliverables ADD COLUMN parent_id TEXT REFERENCES deliverables(id) ON DELETE SET NULL")
+        # RACE-SAFE: `review.traceability` calls this on a read path, so two
+        # requests can reach it together. See `db.add_column_if_missing`.
+        add_column_if_missing(
+            conn, "deliverables", "parent_id",
+            "TEXT REFERENCES deliverables(id) ON DELETE SET NULL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_wbs ON deliverables(wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_parent ON deliverables(parent_id, wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_due ON deliverables(due_date, status)")
@@ -49,9 +51,10 @@ def ensure_schema() -> None:
             source_document_id TEXT, created_at TEXT NOT NULL,
             UNIQUE(wbs_code, deliverable_type)
         )""")
-        columns = {row["name"] for row in conn.execute("PRAGMA table_info(deliverable_expectations)")}
-        if "inferred" not in columns: conn.execute("ALTER TABLE deliverable_expectations ADD COLUMN inferred INTEGER NOT NULL DEFAULT 0")
-        if "source_document_id" not in columns: conn.execute("ALTER TABLE deliverable_expectations ADD COLUMN source_document_id TEXT")
+        add_column_if_missing(conn, "deliverable_expectations", "inferred",
+                              "INTEGER NOT NULL DEFAULT 0")
+        add_column_if_missing(conn, "deliverable_expectations",
+                              "source_document_id", "TEXT")
         conn.execute("""CREATE TABLE IF NOT EXISTS deliverable_events (
             id TEXT PRIMARY KEY,
             deliverable_id TEXT NOT NULL REFERENCES deliverables(id) ON DELETE CASCADE,

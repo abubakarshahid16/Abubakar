@@ -36,7 +36,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import review
-from .db import connect
+from .db import add_column_if_missing, connect
 
 
 def _now() -> str:
@@ -201,16 +201,17 @@ def ensure_schema() -> None:
             # and no join can consume them.
             ("subject", "TEXT"),
         ):
-            if requirement_columns and _column not in requirement_columns:
-                conn.execute(
-                    f"ALTER TABLE standard_requirements ADD COLUMN {_column} {_type}")
+            # RACE-SAFE, because this runs on read paths. See
+            # `db.add_column_if_missing`.
+            add_column_if_missing(conn, "standard_requirements", _column, _type)
         if requirement_columns and "chunk_id" not in requirement_columns:
             # No REFERENCES clause on the ALTER: SQLite cannot add a column
             # with a foreign key to an existing table. The constraint is
             # therefore present on a freshly created table and absent on a
             # migrated one - so `standards.create_requirement` enforces the
             # resolving citation in code, where it holds either way.
-            conn.execute("ALTER TABLE standard_requirements ADD COLUMN chunk_id TEXT")
+            add_column_if_missing(
+                conn, "standard_requirements", "chunk_id", "TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_standard_requirements_document "
             "ON standard_requirements(standard_document_id, created_at DESC)")
@@ -331,9 +332,7 @@ def ensure_schema() -> None:
             # column's text.
             ("section_heading", "TEXT"),
         ):
-            if facts_columns and _column not in facts_columns:
-                conn.execute(
-                    f"ALTER TABLE submittal_facts ADD COLUMN {_column} {_type}")
+            add_column_if_missing(conn, "submittal_facts", _column, _type)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_submittal_facts_run "
             "ON submittal_facts(review_run_id, field_name, created_at DESC)")

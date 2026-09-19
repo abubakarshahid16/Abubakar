@@ -13,7 +13,7 @@ from pathlib import Path
 
 import fitz
 
-from .db import connect
+from .db import add_column_if_missing, connect
 from .config import settings
 
 
@@ -164,8 +164,9 @@ def ensure_schema() -> None:
             "confirmed_by": "TEXT",
             "confirmed_at": "TEXT",
         }.items():
-            if name not in columns:
-                conn.execute(f"ALTER TABLE review_findings ADD COLUMN {name} {definition}")
+            # RACE-SAFE, because this runs on read paths. See
+            # `db.add_column_if_missing`.
+            add_column_if_missing(conn, "review_findings", name, definition)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_document "
                      "ON review_findings(document_id, status, updated_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_due "

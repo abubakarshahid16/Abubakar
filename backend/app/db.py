@@ -612,6 +612,55 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def columns_of(conn: sqlite3.Connection, table: str) -> set[str]:
+    """The column names of `table`, empty when there is no such table."""
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def add_column_if_missing(conn: sqlite3.Connection, table: str, column: str,
+                          definition: str) -> bool:
+    """`ALTER TABLE ... ADD COLUMN`, safe when two threads do it at once.
+
+    CHECK-THEN-ALTER IS A RACE AND IT FIRED IN PRODUCTION CODE. Every
+    `ensure_schema` is called from ordinary read paths, so two requests can
+    reach the same migration together: both read `PRAGMA table_info`, both see
+    the column missing, both issue the ALTER, and the loser dies with
+    `sqlite3.OperationalError: duplicate column name`. Measured on
+    `tests/test_access_routes.py`, which failed 3 runs in 10 on that error
+    while the tree was otherwise green.
+
+    NO LOCK, BECAUSE THE DATABASE ALREADY HAS ONE. SQLite serialises the two
+    ALTERs itself; the only thing missing was an answer for the thread that
+    arrives second, and "the column is already there" is that answer. A
+    migration lock table would be a second thing to get wrong, and
+    `busy_timeout` does not help - this is not a busy database, it is a
+    duplicate statement.
+
+    Returns True when THIS call added the column. False means it was already
+    present, whoever put it there, which is all any caller needs.
+
+    THE DUPLICATE ERROR IS THE ONLY ONE SWALLOWED, and even then the column is
+    re-read before the failure is accepted as benign. A swallowed ALTER that
+    did not actually happen would leave the schema short of a column while
+    every caller believed it present - a worse failure than the crash, because
+    it is silent.
+    """
+    existing = columns_of(conn, table)
+    if not existing or column in existing:
+        # No such table - whoever creates it owns its shape - or the column is
+        # already there and there is nothing to do.
+        return False
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column" not in str(exc).lower():
+            raise
+        if column not in columns_of(conn, table):
+            raise
+        return False
+    return True
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Additive column migrations for databases created by an earlier build."""
     have = {r["name"] for r in conn.execute("PRAGMA table_info(chunks)")}
