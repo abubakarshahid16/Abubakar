@@ -170,7 +170,12 @@ export function DashboardView({
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
             <Stat label="Deliverables" value={delivery.deliverables_total} hint="registered in WBS" />
-            <Stat label="Review findings" value={delivery.review_findings_total} hint="AI or engineer findings" />
+            {/* NOT THE AI SUBMITTAL FINDINGS. This counts the WBS
+                register's own review findings, a different table and a
+                different feature. Labelled "Review findings" beside the
+                submittal reviewer, a five-figure total reads as five
+                figures of problems that reviewer found - which it is not. */}
+            <Stat label="WBS review findings" value={delivery.review_findings_total} hint="from the project register, not AI submittal review" />
             <Stat label="Overdue" value={delivery.overdue_alerts} hint="requires follow-up" tone={delivery.overdue_alerts ? "warn" : "good"} />
             <Stat label="Approved" value={delivery.deliverables_by_status?.approved ?? 0} hint="current revisions" tone="good" />
           </div>

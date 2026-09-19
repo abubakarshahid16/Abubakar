@@ -14,7 +14,7 @@
  * NOMINAL, and MISSING_INFORMATION is neither coloured nor worded as a
  * failure.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import type {
@@ -46,6 +46,7 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
   const [target, setTarget] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const findingsRef = useRef<HTMLElement | null>(null);
 
   /** Fetch the CRS with the bearer token and hand it to the browser.
    *
@@ -132,6 +133,18 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
     ]);
     setStandards(listed.ok ? listed.data.standards : []);
   }, [loadFindings]);
+
+  // THE FINDINGS ARE WHY THE READER CLICKED. With a dozen runs listed the
+  // panel rendered thousands of pixels below the fold, so a click looked
+  // like it had done nothing. The panel now renders above the list and the
+  // view moves to it. Guarded: jsdom and older engines have no
+  // scrollIntoView, and the selection still works without one.
+  useEffect(() => {
+    const el = findingsRef.current;
+    if (!selectedRun || el === null) return;
+    if (typeof el.scrollIntoView !== "function") return;
+    el.scrollIntoView({ block: "start" });
+  }, [selectedRun]);
 
   const run = useMemo(
     () => runs.find((item) => item.review_run_id === selectedRun) ?? null,
@@ -235,27 +248,8 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
 
       {phase.kind === "ready" && runs.length === 0 && <EmptyRuns />}
 
-      {phase.kind === "ready" && runs.length > 0 && (
-        <section aria-labelledby="runs-list-title" className="space-y-3">
-          <h2 id="runs-list-title" className="text-lg font-semibold text-slateish-100">
-            {runs.length.toLocaleString()} {runs.length === 1 ? "run" : "runs"}
-          </h2>
-          <ul className="space-y-3">
-            {runs.map((item) => (
-              <li key={item.review_run_id}>
-                <RunCard
-                  run={item}
-                  selected={item.review_run_id === selectedRun}
-                  onOpen={() => void openRun(item.review_run_id)}
-                />
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       {run && (
-        <section className="space-y-4 rounded-[var(--radius-md)] border border-ink-700 bg-ink-900 p-4">
+        <section ref={findingsRef} className="space-y-4 rounded-[var(--radius-md)] border border-ink-700 bg-ink-900 p-4">
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-lg font-semibold text-slateish-100">
               {run.submittal_filename}
@@ -307,6 +301,26 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
           )}
         </section>
       )}
+
+      {phase.kind === "ready" && runs.length > 0 && (
+        <section aria-labelledby="runs-list-title" className="space-y-3">
+          <h2 id="runs-list-title" className="text-lg font-semibold text-slateish-100">
+            {runs.length.toLocaleString()} {runs.length === 1 ? "run" : "runs"}
+          </h2>
+          <ul className="space-y-3">
+            {runs.map((item) => (
+              <li key={item.review_run_id}>
+                <RunCard
+                  run={item}
+                  selected={item.review_run_id === selectedRun}
+                  onOpen={() => void openRun(item.review_run_id)}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
     </main>
   );
 }
@@ -315,6 +329,8 @@ function RunCard({ run, selected, onOpen }: {
   run: ReviewRunSummary; selected: boolean; onOpen: () => void;
 }) {
   const completeness = completenessLine(run);
+  const reasonStatesDenominator =
+    (run.recommended_reason ?? "").includes("NOMINAL ESTIMATE");
   return (
     <button
       type="button" onClick={onOpen}
@@ -350,7 +366,13 @@ function RunCard({ run, selected, onOpen }: {
           {run.recommended_reason ? <span className="text-slateish-400"> — {run.recommended_reason}</span> : null}
         </p>
       )}
-      {completeness && (
+      {/* ONCE, NOT TWICE. When a run was gated for incompleteness the
+          recommendation's own words already carry the nominal
+          denominator, and printing the completeness line under it said
+          the same sentence again. The line is still shown whenever the
+          reason does NOT state it - the denominator is never dropped,
+          only never repeated. */}
+      {completeness && !reasonStatesDenominator && (
         <p className="mt-1 text-xs text-slateish-500">{completeness}</p>
       )}
     </button>

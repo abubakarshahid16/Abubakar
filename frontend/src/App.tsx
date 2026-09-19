@@ -86,7 +86,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     };
   }, []);
   useEffect(() => {
-    document.title = route.kind === "forbidden" ? "Access denied · EPC Intelligence" : titleForView(route.view);
+    document.title = route.kind === "forbidden" ? "Access denied · RAG Intelligence System" : titleForView(route.view);
   }, [route]);
   const { connection, recheck } = useConnection();
   const [session, setSession] = useState<Session>({ s: "checking" });
