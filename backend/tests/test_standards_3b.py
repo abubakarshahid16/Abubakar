@@ -225,6 +225,60 @@ def test_a_cell_that_is_not_a_number_is_not_recorded_as_a_value(tmp_path):
 
 # ========================================================= limits and exceptions
 
+@pytest.mark.parametrize(
+    ("sentence", "operator", "value"),
+    [
+        # The four wordings found flipped in the live corpus, one per spelling
+        # of the negation the pattern used to walk past.
+        ("The closure door clearance shall not be less than 45 m.", ">=", "45"),
+        ("The lifting capacity shall be not less than 900 kg.", ">=", "900"),
+        ("Availability shall be no less than 99.95% per component.", ">=", "99.95"),
+        ("Dead-end lines shall not be greater than 20.7 meters.", "<=", "20.7"),
+        ("The wall thickness shall not be more than 12 mm.", "<=", "12"),
+        # A negation four words away from the comparative it negates. Nothing
+        # between them is a comparator, so the phrase has to match whole.
+        ("The flow, but in no case shall it be less than 190 l/s.", ">=", "190"),
+        ("The pressure, in no case shall it be more than 222 kPa.", "<=", "222"),
+        ("The stress shall in no case shall exceed 100% of the BSL.", "<=", "100"),
+        # ... and the BARE comparisons, which must keep pointing the other way.
+        ("The gap shall be less than 5 mm.", "<", "5"),
+        ("The pressure shall be greater than 300 kPa.", ">", "300"),
+    ],
+)
+def test_a_negated_comparison_is_not_read_as_the_bare_one(sentence, operator, value):
+    """A flipped operator passes a non-compliant value and fails a compliant
+    one, with a citation attached - worse than extracting no rule at all.
+
+    "shall not be less than 45 m" was stored as `< 45`: no alternative in
+    `_LIMIT` covered the "be", so the scan walked past the negation and matched
+    the bare "less than" behind it. 129 of 1,731 stored limits across 79
+    standards carried a flipped operator. The bare rows are here too, because
+    a fix that swallowed them would be the same defect pointing the other way.
+    """
+    limit = requirements_3b.parse_limit(sentence)
+    assert limit is not None, sentence
+    assert limit["operator"] == operator
+    assert limit["raw_value"] == value
+
+
+@pytest.mark.parametrize(
+    ("phrase", "operator"),
+    [
+        ("not be less than", ">="), ("no less than", ">="), ("not less than", ">="),
+        ("not be greater than", "<="), ("no more than", "<="),
+        ("in no case shall it be less than", ">="),
+        ("in no case shall exceed", "<="),
+        ("less than", "<"), ("greater than", ">"),
+    ],
+)
+def test_the_comparator_vocabulary_reads_the_negation_too(phrase, operator):
+    """The same gap lived in `claims`, which anchors this vocabulary at the end
+    of the text before a measurement. Fixed in one home only, a limit parsed
+    through `claims.measurements` would still come out inverted.
+    """
+    assert claims.parse_comparator(phrase) == operator
+
+
 def test_the_psv_exception_is_preserved_beside_the_general_limit():
     """THE MUTATION TARGET (M42). The master plan's worked case.
 
@@ -255,6 +309,77 @@ def test_the_exception_is_stored_and_read_back_on_the_requirement(tmp_path):
     assert len(row["exceptions"]) == 1
     assert row["exceptions"][0]["raw_value"] == "115"
     assert "pressure relief valve" in row["exceptions"][0]["applies_to"].lower()
+
+
+def test_may_not_exceed_is_a_numeric_prohibition_with_no_space_before_unit(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_prohibition", pdf)
+    source = "The safety alarm may not exceed 115dB(A)."
+    _chunk("c-prohibition", doc, source, section="5.3.3 Noise", page=9)
+
+    result = standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    rows = standards.list_requirements(doc, allowed_document_ids=_scope(doc))
+
+    assert result["requirements"] == 1
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["category"] == "prohibition"
+    assert row["clause"] == "5.3.3"
+    assert row["page"] == 9
+    assert row["operator"] == "<="
+    assert row["raw_value"] == "115"
+    assert row["raw_unit"] == "dB(A)"
+    assert row["source_text"] == source
+
+
+def test_numbered_prohibitions_keep_inline_clause_and_spaced_acoustic_unit(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_numbered_prohibition", pdf)
+    source = (
+        "5.3.3 Equipment shall meet the general noise criterion. "
+        "Exceptions are: 1) Fans may not exceed 105 dB(A); "
+        "2) Emergency vents may not exceed 115dB (A)."
+    )
+    _chunk("c-numbered", doc, source, section="5.3.1 Noise", page=9)
+
+    standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    rows = standards.list_requirements(doc, allowed_document_ids=_scope(doc))
+    prohibition = next(row for row in rows if row["raw_value"] == "115")
+
+    assert prohibition["category"] == "prohibition"
+    assert prohibition["clause"] == "5.3.3"
+    assert prohibition["page"] == 9
+    assert prohibition["operator"] == "<="
+    assert prohibition["raw_unit"] == "dB(A)"
+    assert prohibition["source_text"].startswith("2) Emergency vents")
+
+
+def test_must_not_is_recorded_as_a_prohibition(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_must_not", pdf)
+    _chunk("c-must-not", doc, "The vessel must not exceed 12 bar.",
+           section="6.1 Pressure", page=7)
+
+    standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    row = standards.list_requirements(doc, allowed_document_ids=_scope(doc))[0]
+    assert row["category"] == "prohibition"
+    assert row["operator"] == "<="
+    assert row["raw_value"] == "12"
+    assert row["raw_unit"] == "bar"
+
+
+@pytest.mark.parametrize("description", [
+    "This arrangement may not be practical in all locations.",
+    "The final information may not be available before design review.",
+])
+def test_descriptive_may_not_is_not_a_requirement(tmp_path, description):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_description", pdf)
+    _chunk("c-description", doc, description, section="6.2 Commentary", page=8)
+
+    result = standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    assert result["requirements"] == 0
+    assert standards.list_requirements(doc, allowed_document_ids=_scope(doc)) == []
 
 
 def test_a_condition_is_the_circumstance_not_the_subject():

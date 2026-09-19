@@ -155,4 +155,21 @@ describe("on replay", () => {
     expect(v.corpus?.loaded).toBe(272);
     expect(v.counts_bounded).toBe(2);
   });
+
+  it("preserves a persisted truncation flag and defaults an older answer to complete", () => {
+    const message = (payload: Record<string, unknown>) => ({
+      id: "m-truncated", conversation_id: "c1", ordinal: 2, role: "assistant",
+      text: "A bounded answer.", resolved_question: null, carried_terms: [],
+      answer_type: "generated", reason: null, input_kind: null, examples: [],
+      explains_id: null, created_at: "2026-09-20T00:00:00Z", payload,
+    } as unknown as Message);
+
+    const cutOff = viewFromMessage(message({ truncated: true }));
+    const oldComplete = viewFromMessage(message({}));
+
+    expect(cutOff.truncated).toBe(true);
+    expect(oldComplete.truncated).toBe(false);
+    card(cutOff);
+    expect(screen.getByText(/reached its length limit and stops early/i)).toBeInTheDocument();
+  });
 });

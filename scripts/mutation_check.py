@@ -3238,6 +3238,53 @@ CORPUS_QUESTIONS = (
 )
 
 
+PERSISTED_TRUNCATION = (
+    Mutation(
+        id="M264", phase=26,
+        description="drop the truncated state before persisting an answer, so "
+                    "a cut-off reply reopens looking complete",
+        path=APP / "chat.py",
+        anchor='    "corpus", "counts_bounded", "truncated",',
+        replacement='    "corpus", "counts_bounded",',
+        target="tests/test_chat.py",
+        keyword="reopened_conversation_preserves_whether_the_answer_was_truncated",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
+DEMO_POLISH = (
+    Mutation(
+        id="M265", phase=27, runner="vitest",
+        description="restore the duplicate nominal-estimate completeness line "
+                    "when the recommendation already states it",
+        path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
+        anchor="      {completeness && !reasonStatesDenominator && (",
+        replacement="      {completeness && (",
+        target="src/views/ReviewRunsView.test.tsx",
+        keyword="exactly once",
+        tags=("honesty", "ui"),
+    ),
+)
+
+
+STANDARDS_MODAL = (
+    Mutation(
+        id="M266", phase=28,
+        description="drop 'may not exceed' from the requirement gate, so a "
+                    "numeric prohibition disappears before parsing",
+        path=APP / "standards.py",
+        anchor=(
+            '    r"|is\\s+to\\s+be|are\\s+to\\s+be|may\\s+not\\s+exceed\\s+[-+]?\\d)",\n'
+        ),
+        replacement='    r"|is\\s+to\\s+be|are\\s+to\\s+be)",\n',
+        target="tests/test_standards_3b.py",
+        keyword="may_not_exceed_is_a_numeric_prohibition_with_no_space_before_unit",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3246,7 +3293,8 @@ ALL: tuple[Mutation, ...] = (
     + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
     + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
-    + MISSING_REFERENCES + CORPUS_QUESTIONS
+    + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
+    + DEMO_POLISH + STANDARDS_MODAL
 )
 
 

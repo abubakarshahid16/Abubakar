@@ -79,6 +79,54 @@ def test_length_spellings_normalise_to_280_um(value, unit):
     assert m.normalized_value == pytest.approx(280.0)
 
 
+@pytest.mark.parametrize("value,unit,micrometres", [
+    ("1", "cm", 10_000.0),        # 1 cm is 10 mm, exactly
+    ("1", "km", 1_000_000_000.0),
+    ("1", "ft", 304_800.0),       # the foot is DEFINED as 0.3048 m
+    ("1", "feet", 304_800.0),
+    ("1", "mil", 25.4),           # a mil is 0.001 inch, and the inch is defined
+    ("1", "nm", 0.001),
+])
+def test_the_length_spellings_moved_out_of_unconverted_convert_exactly(
+        value, unit, micrometres):
+    """These six were RECOGNISED but not converted, so a limit written in cm
+    was stored with a null value and could not be compared against a datasheet
+    value in mm - while 600 limits in mm, m and inch normalised fine.
+
+    Every factor is exact by definition. A unit whose conversion would need
+    rounding does not belong in this table, which is why °F is still refused
+    by the test below: Fahrenheit to Celsius is affine, not multiplicative.
+    """
+    m = normalise(value, unit)
+    assert m.normalized_unit == "um"
+    assert m.normalized_value == pytest.approx(micrometres)
+
+
+def test_a_length_limit_compares_across_those_spellings():
+    """The point of converting them: before this, `<= 12 cm` against a
+    submitted 150 mm could only be NEEDS_ENGINEER_REVIEW."""
+    from app import comparison
+    requirement = {"requirement_type": "numeric_limit",
+                   "operator": "<=", "raw_value": "12", "raw_unit": "cm"}
+    breach = comparison.compare(
+        requirement, {"raw_value": "150", "raw_unit": "mm", "field_value": "150 mm"})
+    passes = comparison.compare(
+        requirement, {"raw_value": "100", "raw_unit": "mm", "field_value": "100 mm"})
+    assert breach["status"] == comparison.NON_COMPLIANT
+    assert passes["status"] == comparison.COMPLIANT
+
+
+@pytest.mark.parametrize("unit", ["°F", "years", "dB(A)", "ppmw", "NPS"])
+def test_the_units_deliberately_left_unconverted_are_still_refused(unit):
+    """Widening the table must not widen it past what is exact. `years` is a
+    duration the `time` dimension would turn into hours - a 25-year design
+    life becoming 219,000 h, then comparable against a 24 h hold time.
+    `ppmw` and `dB(A)` have sibling spellings that are NOT interchangeable,
+    and NPS is a designation, not a measurement.
+    """
+    assert normalise("5", unit).normalized_value is None
+
+
 def test_fahrenheit_is_refused_not_converted():
     m = normalise("350", "°F")
     assert m.normalized_value is None

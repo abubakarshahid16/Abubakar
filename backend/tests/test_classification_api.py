@@ -711,3 +711,57 @@ def test_existing_documents_are_not_back_classified(corpus):
     _document("doc_old", "Hot Oil System P&ID.pdf", "role_Process (AXENS)")
     # Its title WOULD match the register, and nothing ran over it.
     assert classification.of_document("doc_old") is None
+
+
+# ============================================= extraction follows the role
+
+
+def _extraction_jobs(document_id: str) -> int:
+    """How many rule-extraction jobs exist for this document. Read from the
+    jobs table rather than through `standards`, so the assertion cannot pass
+    because a helper was stubbed."""
+    from app import standards
+    return connect().execute(
+        "SELECT COUNT(*) FROM jobs WHERE document_id = ? AND stage = ?",
+        (document_id, standards.EXTRACTION_STAGE)).fetchone()[0]
+
+
+def test_giving_a_ready_document_the_standard_role_queues_its_rules(corpus):
+    """THE HALF THE INGESTION HOOK CANNOT COVER.
+
+    `ingest._queue_extraction_if_standard` asks whether a document is a
+    COMPANY_STANDARD at the moment ingestion finishes. For an upload the
+    answer is always no: `upload.py` writes the classification row with
+    `document_role` NULL and a person assigns the role afterwards. Measured
+    on the live corpus, 256 of 272 standards carry `suggested_by = 'none'`,
+    which is the bulk role endpoint and not a pattern match at upload. So
+    without this, a standard uploaded through the UI is indexed, searchable,
+    and has no rules - which is the defect that left 252 of 272 empty.
+    """
+    _document("doc_role_first", "SAES-Z-001.pdf", None)
+    assert _extraction_jobs("doc_role_first") == 0
+
+    assert classification.set_role("doc_role_first", "COMPANY_STANDARD") is True
+
+    assert _extraction_jobs("doc_role_first") == 1, \
+        "assigning the standard role left the document with no extraction job"
+
+
+def test_a_role_that_is_not_the_standard_one_queues_nothing(corpus):
+    """The trigger is the ROLE, not the write. A contractor submittal has no
+    rules to extract and must not enter the queue."""
+    _document("doc_submittal", "vendor-sheet.pdf", None)
+    classification.set_role("doc_submittal", "CONTRACTOR_SUBMITTAL")
+    assert _extraction_jobs("doc_submittal") == 0
+
+
+def test_a_document_still_ingesting_is_left_to_the_ingestion_hook(corpus):
+    """Queuing extraction for a document with no chunks yet would extract
+    nothing and record a job that succeeded at doing so. It reaches the
+    ingestion hook on its own when it becomes ready."""
+    _document("doc_busy", "SAES-Z-002.pdf", None)
+    with connect() as conn:
+        conn.execute("UPDATE documents SET status = 'chunking' WHERE id = ?",
+                     ("doc_busy",))
+    classification.set_role("doc_busy", "COMPANY_STANDARD")
+    assert _extraction_jobs("doc_busy") == 0
