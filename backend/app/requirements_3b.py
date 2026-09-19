@@ -95,10 +95,36 @@ _IN_NO_CASE_RE = r"in\s+no\s+case\s+(?:shall|may|should|will)\s+(?:it\s+)?(?:be\
 #: The negated forms therefore come FIRST and absorb "no"/"not", an optional
 #: "be", and the comparative word, so the bare alternatives at the end can
 #: only ever match a comparison that really is bare.
+#: "in excess of" - ONLY when the sentence negates it.
+#:
+#: SAES-A-105 5.3.3 states this standard's PRIMARY limit as "new equipment
+#: shall not generate noise in excess of 90 dB(A)" and its four exceptions as
+#: "may not exceed 105/97/105/115 dB(A)". Only the exceptions parsed, so the
+#: corpus held the exceptions to a rule it did not hold.
+#:
+#: THE NEGATION IS NOT OPTIONAL HERE, and this is the whole subtlety. Bare
+#: "in excess of" is overwhelmingly a TRIGGER, not a limit: "equipment that
+#: will generate noise in excess of 85 dB(A) ... shall submit Form 7305-ENG"
+#: obliges a submission, and "oxygen transfer rates in excess of 1.22 kg/kWh
+#: shall be justified" obliges a justification. Neither forbids the value.
+#: Reading them as limits would invent ceilings no standard states - the
+#: false-rule failure this parser exists to avoid - so only the negated form
+#: is admitted. The trigger sense belongs to `applicability_trigger`, not
+#: here.
+#:
+#: Up to four words may sit between the negation and the phrase, which covers
+#: "shall not generate noise in excess of" and "shall not be in excess of"
+#: while stopping short of "shall not be exposed to continuous occupational
+#: noise levels in excess of those listed in Table 3" - which states no number
+#: of its own and must stay a statement.
+_IN_EXCESS_RE = (r"(?:shall|must|may|should|will)\s+not\s+"
+                 r"(?:\w+\s+){0,4}?in\s+excess\s+of")
+
+
 _LIMIT = re.compile(
     r"(?P<cmp>" + _IN_NO_CASE_RE + r"(?:less|more|greater)\s+than"
     r"|" + _IN_NO_CASE_RE + r"exceed"
-    r"|shall\s+not\s+exceed|must\s+not\s+exceed|may\s+not\s+exceed"
+    r"|" + _IN_EXCESS_RE + r"|(?:shall|must|may|should|will)\s+not\s+exceed"
     r"|(?:no|not)\s+(?:be\s+)?less\s+than"
     r"|(?:no|not)\s+(?:be\s+)?(?:more|greater)\s+than"
     r"|shall\s+exceed|at\s+least"
@@ -129,10 +155,23 @@ _OPERATOR = {
 _NEGATION = re.compile(r"^(?:" + _IN_NO_CASE_RE + r"|(?:no|not)\s+(?:be\s+)?)")
 
 
+#: Any negated "in excess of", however many words sit in its middle.
+_IN_EXCESS_FOLD = re.compile(r"\bnot\b.*\bin\s+excess\s+of\b")
+
+
 def _canonical_comparator(phrase: str) -> str:
     """The phrase as `_OPERATOR` keys it: lowercased, single-spaced, and with
     every spelling of the negation folded onto "not "."""
-    return _NEGATION.sub("not ", " ".join(phrase.lower().split()))
+    folded = " ".join(phrase.lower().split())
+    # "shall not generate noise in excess of" and "shall not be in excess of"
+    # are the same comparison with different prose in the middle; one key
+    # cannot be written for every verb a standard might use, so the whole
+    # negated phrase folds onto "not exceed", which `_OPERATOR` already maps.
+    if _IN_EXCESS_FOLD.search(folded):
+        return "not exceed"
+    folded = re.sub(r"^(?:shall|must|may|should|will)\s+not\s+exceed$",
+                    "not exceed", folded)
+    return _NEGATION.sub("not ", folded)
 
 #: An exception clause. "except for pressure relief valves", "other than ...",
 #: "with the exception of ...". The master plan's worked case is a 90 dB(A)
