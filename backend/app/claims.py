@@ -81,6 +81,10 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     # across dimensions. Leaving them unconverted instead would have stored the
     # number and then refused to compare it with itself.
     "g/l": ("concentration", "g/L", 1.0),
+    # The same unit spelled out. A datasheet writes "g/litre" and a standard
+    # writes "g/L"; they are one unit and must compare.
+    "g/litre": ("concentration", "g/L", 1.0),
+    "g/liter": ("concentration", "g/L", 1.0),
     "g/m2": ("areal_density", "g/m2", 1.0),
     "kj/mm": ("heat_input", "KJ/mm", 1.0),
     "bhn": ("hardness", "BHN", 1.0),
@@ -157,6 +161,11 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     # its A-weighting, and a gate that dropped it on the STANDARDS side would
     # have re-opened that defect from the other direction.
     "db(a)": None, "dba": None,
+    # Ordinary engineering units this corpus writes and the table did not know.
+    # RECOGNISED, NOT CONVERTED: each is the only spelling of its quantity here,
+    # and `NPS` in particular is a DESIGNATION rather than a measurement - NPS 2
+    # is not two of anything - so it must never acquire a conversion.
+    "nps": None, "wt%": None, "ppmw": None, "m3/hr": None, "m3/h": None,
     "psig": "pressure", "barg": "pressure", "mbar": "pressure",
     "s": "time", "sec": "time", "secs": "time", "second": "time", "seconds": "time",
     "d": "time", "day": "time", "days": "time",
@@ -170,9 +179,80 @@ _RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS)
 
 
 def _fold_unit(unit_str: str) -> str:
-    u = unit_str.strip().replace("µ", "u").replace("μ", "u").replace("°", "")
+    # LOWERCASED FIRST. The `deg ` substitution used to run against the
+    # original casing, so "deg C" folded to `degc` and matched while "Deg C" -
+    # the spelling a form actually uses in a column header - fell through to
+    # `deg c` and matched nothing.
+    u = unit_str.strip().lower().replace("µ", "u").replace("μ", "u").replace("°", "")
     u = u.replace("deg ", "deg").replace("degrees", "deg").replace("degree", "deg")
-    return u.lower()
+    # Internal spacing is not identity: "wt %" and "wt%" are one unit. Units
+    # are short tokens and none in the table is distinguished by a space.
+    return re.sub(r"\s+", "", u)
+
+
+#: Pressure spellings that carry a REFERENCE as a suffix, and what they mean.
+#: Written out rather than pattern-matched: `bara` and `barg` differ by one
+#: letter and mean a difference of one atmosphere, so this is not a place for a
+#: clever rule.
+_REFERENCE_SUFFIX = {
+    "barg": ("bar", "gauge"), "bara": ("bar", "absolute"),
+    "psig": ("psi", "gauge"), "psia": ("psi", "absolute"),
+    "kpag": ("kpa", "gauge"), "kpaa": ("kpa", "absolute"),
+    "mpag": ("mpa", "gauge"), "mpaa": ("mpa", "absolute"),
+}
+
+#: The same reference written as a parenthetical: `bar (ga)`, `kPa(a)`.
+_REFERENCE_BRACKET = re.compile(
+    r"^(?P<base>.+?)\s*[\(\[]\s*(?P<ref>ga|g|gauge|a|abs|absolute)\s*[\)\]]$",
+    re.IGNORECASE)
+
+_REFERENCE_WORD = {
+    "ga": "gauge", "g": "gauge", "gauge": "gauge",
+    "a": "absolute", "abs": "absolute", "absolute": "absolute",
+}
+
+
+def split_reference(unit_str: str | None) -> tuple[str | None, str | None]:
+    """`(base unit, 'gauge' | 'absolute' | None)`.
+
+    A GAUGE PRESSURE AND AN ABSOLUTE PRESSURE ARE NOT THE SAME QUANTITY. They
+    differ by one atmosphere, and on this corpus's own submittal the design
+    pressure is written `3.5 bar (ga)` while a standard's limit is plain `bar`.
+    Comparing those two numbers directly is wrong by about 1 bar, silently, in
+    the direction that makes a vessel look compliant.
+
+    So the reference is SPLIT OFF AND KEPT rather than dropped: the unit
+    becomes `bar`, which the table knows, and the fact carries the fact that it
+    was gauge. Nothing here converts between them - that needs an ambient
+    pressure nobody has recorded - it only stops the distinction being lost.
+
+    A unit with no reference comes back unchanged with None, which is every
+    non-pressure unit and plain `bar`.
+    """
+    text = (unit_str or "").strip()
+    if not text:
+        return None, None
+    folded = _fold_unit(text)
+    # THE SUFFIX FORMS COME FIRST. `psig` and `barg` are in the recognised
+    # list as pressures, so a "already a known unit" check placed above this
+    # would return them whole and lose the gauge reference entirely.
+    if folded in _REFERENCE_SUFFIX:
+        return _REFERENCE_SUFFIX[folded]
+    # A UNIT THE TABLE KNOWS AND THAT IS NOT A SUFFIX FORM IS NEVER SPLIT.
+    # `dB(A)` ends in a bracketed "A" and is NOT decibels in absolute - the A
+    # is a weighting curve and part of the unit's identity. Splitting it
+    # re-opened the phase 5B defect from a third direction.
+    if folded in _RECOGNISED_UNITS:
+        return text, None
+    bracket = _REFERENCE_BRACKET.match(text)
+    if bracket is not None:
+        base = bracket.group("base").strip()
+        reference = _REFERENCE_WORD[bracket.group("ref").lower()]
+        # Only when what is left is a unit. "Design pressure (a)" is not a
+        # pressure in absolute, and "0.42 (6.09)" is a dual-unit remainder.
+        if is_unit(base):
+            return base, reference
+    return text, None
 
 
 def is_unit(unit_str: str) -> bool:

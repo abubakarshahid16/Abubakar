@@ -109,6 +109,34 @@ def normalise_identifier(identifier: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", (identifier or "").upper())
 
 
+#: A Saudi Aramco standard number inside a LIBRARY FILENAME. Filenames are not
+#: citations - they carry revision notes, dates and draft markers - so this is
+#: anchored at the start and reads only the number.
+_FILENAME_NUMBER = re.compile(r"^\s*(SAES)[-\s]*([A-Z])[-\s]*(\d{1,4})", re.IGNORECASE)
+
+
+def library_identifier(filename: str) -> str | None:
+    """The standard number a library filename carries, zero-padded. Or None.
+
+    `SAES-B-14 -Final Draft 01-29-23.pdf` is SAES-B-014. The series number is
+    written three digits wide everywhere Saudi Aramco prints it, and one file
+    in this corpus was saved with the leading zero dropped - so the document
+    was in the library, was cited as SAES-B-014, and could not be matched to
+    itself.
+
+    THE PADDING IS DONE HERE AND NOT IN THE CITATION PATTERN, deliberately. A
+    two-digit alternative in `_REFERENCED_STANDARD` would make every "SAES-A-4"
+    in running prose a citation, and far worse, it would match the first two
+    digits of a three-digit number and silently cite the wrong standard. A
+    filename is a name somebody typed once; a citation is a claim about which
+    document governs. Only the first is forgiving.
+    """
+    match = _FILENAME_NUMBER.match(filename or "")
+    if match is None:
+        return None
+    return f"{match.group(1).upper()}-{match.group(2).upper()}-{int(match.group(3)):03d}"
+
+
 class ApplicabilityError(ValueError):
     """A selection could not be recorded. Carries a reason, never a row."""
 
@@ -165,7 +193,12 @@ def _match_referenced(library: list[dict], referenced: list[str]) -> dict[str, d
     """Rule 1: standards the datasheet NAMES that are in the library."""
     by_key: dict[str, dict] = {}
     for entry in library:
-        for candidate in (entry.get("document_number"), entry.get("filename")):
+        for candidate in (entry.get("document_number"),
+                          # The PARSED number before the raw filename: the raw
+                          # form carries revision text, so its key is
+                          # "SAESB14FINALDRAFT..." and matches no citation.
+                          library_identifier(entry.get("filename") or ""),
+                          entry.get("filename")):
             key = normalise_identifier(candidate or "")
             if key:
                 by_key.setdefault(key, entry)

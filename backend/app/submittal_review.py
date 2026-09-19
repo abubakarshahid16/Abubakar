@@ -303,6 +303,21 @@ def ensure_schema() -> None:
             ("blank_marker", "TEXT"),
             ("field_label", "TEXT"),
             ("bbox", "TEXT"),
+            # 'gauge', 'absolute', or NULL when the sheet did not say.
+            #
+            # A PRESSURE WITHOUT ITS REFERENCE IS NOT A NUMBER ANYONE CAN
+            # COMPARE. `3.5 bar (ga)` and `3.5 bar` differ by an atmosphere,
+            # and the difference runs in the direction that makes a vessel look
+            # compliant. The reference is split off the unit so `bar` reaches
+            # the conversion table, and kept here so the distinction survives.
+            # Nothing converts between the two - that needs an ambient pressure
+            # nobody has recorded.
+            ("unit_reference", "TEXT"),
+            # The section heading this row actually sits under, or NULL. See
+            # `datasheets._section_for`: it was previously filled with whatever
+            # heading the CHUNK carried, which on a two-column form is another
+            # column's text.
+            ("section_heading", "TEXT"),
         ):
             if facts_columns and _column not in facts_columns:
                 conn.execute(

@@ -76,10 +76,27 @@ _REFERENCED_STANDARD = re.compile(
     r"|KOC-[A-Z]{2}-\d{3}(?:\s*Pt[-\s]?\d)?"
     r"|NACE\s*MR[-\s]?\d{4}"
     r"|ISO\s*\d{4,5}"
-    r"|ASME\s*[IVXB]+(?:\.\d+)?"
+    # ASME ONLY WITH A COMPLETE IDENTIFIER. The previous alternative was
+    # `ASME\s*[IVXB]+(?:\.\d+)?`, which matched the two characters "ASME B" out
+    # of "ASME B31.3" and reported that as a missing reference. "ASME B" names
+    # no document: it is a whole family of codes, an engineer cannot look it up,
+    # and it can never match a library entry - so it was a citation that was
+    # guaranteed to be unresolvable, reported as though it were a real gap.
+    #
+    # Two complete shapes, and nothing else: a B-series number with its decimal
+    # (B16.5, B31.3), or a section in roman numerals with an optional division
+    # (Sec VIII, Section VIII Div 1).
+    r"|ASME\s*B\d{1,2}\.\d{1,3}(?:\.\d{1,3})?"
+    r"|ASME\s*SEC(?:T|TION)?\.?\s*[IVX]+(?:\s*DIV(?:\.|ISION)?\s*\d+)?"
     r"|ASTM\s*[A-Z]\d{1,4}"
     r"|IEC\s*\d{5}"
-    r"|SAES-[A-Z]-\d{3}"
+    # `\d{3,4}` so a four-digit series (SAES-R-1101) is a citation. The
+    # two-digit form is deliberately NOT here - see `library_identifier`.
+    r"|SAES-[A-Z]-\d{3,4}"
+    # Saudi Aramco material system specifications, which this corpus's own
+    # submittal cites ten times and which were invisible to every rule that
+    # reads this pattern.
+    r"|\d{2}-SAMSS-\d{3}"
     r"|EN\s*\d{3,5}"
     r")\b",
     re.IGNORECASE,
@@ -108,6 +125,93 @@ _VALUE_UNIT = re.compile(
 #: A cell that is nothing but a number - "340", "0.892". Used to decide
 #: whether trailing letters were a unit or the start of prose.
 _BARE_NUMBER = re.compile(r"[-+]?\d[\d.,]*")
+
+#: A trailing "(ga)" / "(a)" / "(abs)" - a pressure REFERENCE, not a dual-unit
+#: alternate. Exactly the reference words and nothing else, so "(6.09)" and
+#: "(Note - 3)" stay remainders.
+_REFERENCE_PARENTHETICAL = re.compile(
+    r"^\(\s*(?:ga|g|gauge|a|abs|absolute)\s*\)$", re.IGNORECASE)
+
+#: How many pages a label must appear on before it is page furniture.
+#:
+#: THREE, not two. A real field can legitimately repeat on two pages of a
+#: multi-section datasheet - "Design pressure" for a shell and again for a
+#: jacket - and killing those would lose real data to remove a title block.
+#: Three is where repetition stops looking like a form and starts looking like
+#: a header.
+FURNITURE_PAGE_THRESHOLD = 3
+
+#: Values that are an ANSWER without being a quantity. A tick-box question
+#: answered "Yes" is a fact about the equipment; the same label with a person's
+#: name beside it is not.
+_CATEGORICAL_VALUES = frozenset({
+    "yes", "no", "n/a", "na", "not applicable", "not required", "none",
+    "applicable", "required",
+})
+
+
+def is_categorical_value(value: str | None) -> bool:
+    """True when a non-numeric value is still a real answer.
+
+    A form asks "Stress relieved: Yes/No" and the answer carries no unit and no
+    number. That is a fact. "Prepared by: A. Engineer" has the same shape and
+    is not - it is a signature block.
+
+    The list is CLOSED, deliberately. Anything open would let a free-text
+    answer back in, and free text beside a label is exactly what produced
+    fields called "emad kishta" and "al khafji onshore facility".
+    """
+    return " ".join((value or "").strip().lower().split()) in _CATEGORICAL_VALUES
+
+
+def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
+                     *, threshold: int = FURNITURE_PAGE_THRESHOLD) -> set[str]:
+    """Normalised label names that repeat across `threshold` or more pages.
+
+    A HEADER IS NOT A FIELD, AND REPETITION IS HOW YOU TELL. A datasheet's
+    title block, its document number, its revision box and its "Company
+    General Use" footer appear on every page; a real field appears where the
+    form asks for it. Nothing here knows what a header looks like - it is
+    counted, not recognised - so it works on a form this system has never
+    seen, which a list of known header strings would not.
+
+    Counted per PAGE, not per occurrence: a label appearing five times on one
+    page is a five-row section, not furniture.
+    """
+    pages_per_label: dict[str, set[int]] = {}
+    for page, pairs in pairs_by_page.items():
+        for label, _value in pairs:
+            pages_per_label.setdefault(normalise_field_name(label), set()).add(page)
+    return {name for name, pages in pages_per_label.items() if len(pages) >= threshold}
+
+
+def section_heading(chunk_section: str | None) -> str | None:
+    """The heading a fact sits under, or None. NEVER A WRONG VALUE.
+
+    `chunks.section` is the heading the CHUNKER found, and on a ruled two-column
+    form it is routinely another column's text. Measured on the real submittal:
+    "concrete bearing stress" was filed under the section `3.5 bar (ga)`, and
+    others under `3 Mark` and `5.7 Extent of positive material identification
+    (PMI) :` - none of which is the section that row belongs to.
+
+    A wrong section is worse than no section. It tells a reader the value came
+    from a part of the document it did not come from, and it does so with the
+    same confidence as a right one.
+
+    So a heading is kept only when it can BE a heading: it must not parse as a
+    measurement, and it must read like a label rather than like data. Anything
+    else is NULL, which is the honest answer for "this form does not tell us".
+    Locating the true heading needs the form's visual structure, and any rule
+    for that written against one sheet's geometry would be a rule about that
+    sheet.
+    """
+    text = (chunk_section or "").strip()
+    if not text:
+        return None
+    if measure_value(text)[0] is not None:
+        return None
+    return text if is_field_label(text) else None
+
 
 def is_field_label(text: str) -> bool:
     """True when `text` can be a FIELD LABEL rather than a value.
@@ -197,9 +301,48 @@ def referenced_standards(text: str) -> list[str]:
     seen: dict[str, str] = {}
     for match in _REFERENCED_STANDARD.finditer(text or ""):
         raw = " ".join(match.group(1).split())
-        key = raw.upper().replace(" ", "")
+        # PUNCTUATION IS NOT IDENTITY. The key dropped spaces only, so
+        # "ASME Sec VIII Div.1" and "ASME Sec.VIII Div.1" - the same code,
+        # written twice in one document - were two references, and the second
+        # one inflated the denominator that reference coverage is measured
+        # against. The digits are the identity; everything else is spelling.
+        key = re.sub(r"[^A-Z0-9]", "", raw.upper())
         seen.setdefault(key, raw)
     return list(seen.values())
+
+
+#: A cell that is a bare number, with an optional comparator and sign. The
+#: test for "is there a value here that a unit could belong to".
+_NUMERIC_CELL = re.compile(r"^\s*[<>=~±]{0,2}\s*[-+]?\d[\d,]*(?:\.\d+)?\s*$")
+
+#: A trailing parenthesised or bracketed token at the end of a label.
+_LABEL_TAIL = re.compile(r"^(?P<label>.+?)\s*[\(\[]\s*(?P<tail>[^()\[\]]{1,14})\s*[\)\]]\s*$")
+
+
+def _is_numeric_cell(text: str) -> bool:
+    return bool(_NUMERIC_CELL.match(text or ""))
+
+
+def _unit_in_label(label: str) -> tuple[str, str | None]:
+    """`(label without the unit, the unit)` - or the label unchanged and None.
+
+    A form writes `Design pressure (barg)` and puts the bare number in the next
+    cell. The unit is real and is in the label; nothing was looking there.
+
+    THE GUARD IS THAT THE PARENTHETICAL MUST BE A UNIT. Datasheets end labels
+    with "(Note - 3)", "(see 5.2)" and "(Note M2)" far more often than with a
+    unit, and stripping those would rename the field - two different labels
+    collapsing into one field name, which is how a value ends up filed under
+    someone else's requirement.
+    """
+    match = _LABEL_TAIL.match(label or "")
+    if match is None:
+        return label, None
+    tail = match.group("tail").strip()
+    base, _reference = claims.split_reference(tail)
+    if not claims.is_unit(base or ""):
+        return label, None
+    return match.group("label").strip(), tail
 
 
 def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
@@ -231,6 +374,31 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
             index += 1
         else:
             index += 2
+            # THE UNIT IN ITS OWN COLUMN. `| Concrete bearing stress | 8300 |
+            # kPa |` is a three-column form, and pairing strictly left to right
+            # made `kPa` the label of an empty-valued pair - a field named
+            # after a unit, dropped later for having no value, taking the unit
+            # with it. Measured on the corpus: every engineering row lost its
+            # unit this way.
+            #
+            # Absorbed ONLY when the value is a number and the next cell is a
+            # unit `claims` recognises. A word that is not a unit stays what it
+            # was, so a genuine two-column form is untouched.
+            if index < len(parts) and _is_numeric_cell(value):
+                nxt = parts[index]
+                base, _reference = claims.split_reference(nxt)
+                if nxt and len(nxt) <= 14 and claims.is_unit(base or ""):
+                    value = f"{value} {nxt}"
+                    index += 1
+        # THE UNIT INSIDE THE LABEL. `| Design pressure (barg) | 3.5 |` puts it
+        # where nothing looked for it, so nothing recorded that a unit existed
+        # at all - worse than the case above, which at least left a trace.
+        #
+        # Stripped only when the parenthetical IS a unit: "(Note - 3)" and
+        # "(see 5.2)" are not, and must stay part of the label.
+        label, carried = _unit_in_label(label)
+        if carried and value and _is_numeric_cell(value):
+            value = f"{value} {carried}"
         if normalise_field_name(label) in _HEADING_WORDS:
             continue
         # THE LABEL MUST BE A LABEL. See is_field_label: without this the
@@ -299,6 +467,25 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     # dual units - "0.42 (6.09)" is bar and psia. Words after the number mean
     # the cell was a sentence that happened to start with a digit.
     remainder = text[match.end():].strip()
+    # A PARENTHETICAL CAN BE PART OF THE UNIT RATHER THAN AN ALTERNATE.
+    # `3.5 bar (ga)` is one measurement in gauge pressure; `0.42 (6.09)` is one
+    # measurement given twice in different units. Both end in brackets, and
+    # treating the first like the second dropped the reference - which is a
+    # whole atmosphere, in the direction that makes a vessel look compliant.
+    #
+    # The discriminator is the WORD inside: only a reference marker is absorbed.
+    if unit and _REFERENCE_PARENTHETICAL.match(remainder):
+        unit = f"{unit} {remainder}"
+    # A UNIT CAN CONTAIN A SPACE. "Deg C" and "wt %" are two tokens and one
+    # unit, and the pattern above stops at the space - so the cell was read as
+    # value `-10`, unit `Deg`, remainder `C`, and thrown away as prose.
+    #
+    # Absorbed ONLY when the two tokens together are a unit `claims` knows, so
+    # "2nd Stage Desalter" is still refused: `nd Stage` is not a unit and the
+    # cell stays what it was, a location.
+    elif unit and remainder and len(remainder) <= 6 and claims.is_unit(f"{unit} {remainder}"):
+        unit = f"{unit} {remainder}"
+        remainder = ""
     if remainder and not remainder.startswith("("):
         return None, None, None
     return value, unit, claims.normalise(value, unit or "")
@@ -355,6 +542,23 @@ def create_fact(
 
     blank, marker = is_blank_value(raw_value)
     value, unit, measurement = (None, None, None) if blank else measure_value(raw_value or "")
+    # THE UNIT AS THE SHEET WROTE IT, AND THE UNIT THE TABLE UNDERSTANDS, kept
+    # apart. `raw_unit` is `bar (ga)` because that is what the document says and
+    # a reader checking a citation reads the document's words; `unit` is `bar`
+    # because that is what `claims` can convert; `unit_reference` is `gauge`
+    # because losing it changes the number by an atmosphere.
+    raw_unit = unit
+    base_unit, unit_reference = claims.split_reference(unit)
+    if unit_reference is not None:
+        # Re-normalised against the BASE, which the table knows. Without this
+        # every gauge pressure kept a null normalised value.
+        measurement = claims.normalise(value or "", base_unit or "")
+    # `unit` HOLDS A UNIT OR NOTHING. A bill-of-materials row reads "6
+    # VEFV1101M" and the tag landed in the unit column - measured at ten of
+    # twenty numeric facts on the real submittal - where it reads as an
+    # engineering unit to anything downstream. The spelling is still kept in
+    # `raw_unit`, because the document did write it.
+    unit = base_unit if claims.is_unit(base_unit or "") else None
     now = _now()
     row = {
         "id": str(uuid.uuid4()),
@@ -365,7 +569,10 @@ def create_fact(
         "field_label": field_label,
         "field_value": (raw_value or "").strip() or None,
         "raw_value": value,
-        "raw_unit": unit,
+        # AS READ, always - even when normalisation fails. The document
+        # said it, and a unit this system cannot convert is still evidence.
+        "raw_unit": raw_unit,
+        "unit_reference": unit_reference,
         "normalized_value": measurement.normalized_value if measurement else None,
         "normalized_unit": measurement.normalized_unit if measurement else None,
         "unit": unit,
@@ -387,13 +594,13 @@ def create_fact(
                 field_label, field_value, raw_value, raw_unit,
                 normalized_value, normalized_unit, unit, is_blank,
                 blank_marker, page, section, source_text, extraction_method,
-                confidence, created_at, updated_at)
+                confidence, created_at, updated_at, unit_reference)
                VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
                        :field_name, :field_label, :field_value, :raw_value,
                        :raw_unit, :normalized_value, :normalized_unit, :unit,
                        :is_blank, :blank_marker, :page, :section, :source_text,
                        :extraction_method, :confidence, :created_at,
-                       :updated_at)""", row)
+                       :updated_at, :unit_reference)""", row)
     return row
 
 
@@ -455,21 +662,41 @@ def extract_facts(
                 (document_id,))
 
     stored_path = chunks[0]["stored_path"]
+    # KEYED BY EVERY PAGE A CHUNK COVERS, not by the page it starts on.
+    #
+    # A chunk spanning pages 1 to 3 was filed under page 1 only, so page 2 was
+    # never a key, never handed to the page parsers, and never reported as
+    # unparsed either - it simply did not exist as far as extraction was
+    # concerned. Any page fully enclosed by a multi-page chunk disappeared the
+    # same way, which is a property of chunking rather than of any one form.
+    #
+    # The enclosing chunk is a valid citation for those pages: `create_fact`
+    # requires the page to fall within the chunk's span, and it does.
     by_page: dict[int, list] = {}
     for chunk in chunks:
-        by_page.setdefault(chunk["page_start"], []).append(chunk)
+        for page_no in range(chunk["page_start"], (chunk["page_end"] or chunk["page_start"]) + 1):
+            by_page.setdefault(page_no, []).append(chunk)
 
     written = blanks = 0
     unparsed: list[dict] = []
     corpus_text: list[str] = []
 
-    for page, page_chunks in sorted(by_page.items()):
-        pairs: list[tuple[str, str]] = []
+    # EVERY PAGE IS PAIRED BEFORE ANY FACT IS WRITTEN, because the furniture
+    # rule is a statement about the DOCUMENT and cannot be decided one page at
+    # a time: a label is a header precisely when it turns up on page after
+    # page, which the first page cannot know.
+    pairs_by_page: dict[int, list[tuple[str, str]]] = {}
+    for page in sorted(by_page):
+        found: list[tuple[str, str]] = []
         for shape in tables.parse_page_tables(stored_path, page):
             for row in shape:
-                pairs.extend(split_label_value(list(row)))
-        pairs.extend(_pairs_from_pdf_page(stored_path, page))
+                found.extend(split_label_value(list(row)))
+        found.extend(_pairs_from_pdf_page(stored_path, page))
+        pairs_by_page[page] = found
+    furniture = furniture_labels(pairs_by_page)
 
+    for page, page_chunks in sorted(by_page.items()):
+        pairs = pairs_by_page[page]
         chunk = page_chunks[0]
         corpus_text.extend(c["text"] or "" for c in page_chunks)
         page_written = 0
@@ -496,13 +723,23 @@ def extract_facts(
             # cell beside a label is a pairing artefact of a two-column
             # form, not a statement by the document, and recording it
             # manufactures findings against a vendor who was never asked.
-            if parsed_value is None and marker in (None, "empty"):
+            if parsed_value is None and marker in (None, "empty")                     and not is_categorical_value(value):
+                # A LABEL WITH FREE TEXT BESIDE IT IS NOT A FACT. "Prepared by:
+                # A. Engineer" and "Facility: Al Khafji" have exactly the shape
+                # of a filled-in field and state nothing about the equipment.
+                # A quantity, an explicit blank, or a closed categorical answer
+                # - anything else is a caption.
+                continue
+            if normalise_field_name(label) in furniture:
+                # Page furniture: this label appeared on three or more pages,
+                # so it is the title block or the footer, not a field.
                 continue
             try:
                 create_fact(
                     submittal_document_id=document_id, chunk_id=chunk["id"],
                     field_label=label.strip(), raw_value=value, page=page,
-                    section=chunk["section"], review_run_id=review_run_id,
+                    section=section_heading(chunk["section"]),
+                    review_run_id=review_run_id,
                     confidence=0.6,
                 )
             except FactError:
