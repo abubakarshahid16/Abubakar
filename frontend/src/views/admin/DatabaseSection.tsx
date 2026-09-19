@@ -46,11 +46,26 @@ export function DatabaseSection({ client, pageSize = 25 }: DatabaseSectionProps)
   useEffect(() => {
     if (!client.dbTables) return;
     void client.dbTables().then((r) => {
-      if (r.ok) { setTables(r.data.tables); setFailure(null); return; }
+      // SHAPE-CHECKED AT THE EDGE, and this is the second time. `ok` means
+      // the request succeeded, NOT that the body is what this screen
+      // expects; an `ok` response carrying the wrong shape put `undefined`
+      // into state, `.map` threw, and the WHOLE Administration page went
+      // blank over one section - the identical failure the Dashboard had
+      // one phase earlier (honesty audit entry 42). A body this component
+      // cannot use is a FAILURE, never "no tables": the second reads as a
+      // claim about the database.
+      if (r.ok && Array.isArray(r.data?.tables)) {
+        setTables(r.data.tables);
+        setFailure(null);
+        return;
+      }
       setTables(null);
-      setFailure(r.disconnected ? { kind: "offline" }
-        : r.error.code === "not_found" ? { kind: "missing" }
-        : { kind: "failed", code: r.error.code, message: r.error.message });
+      setFailure(
+        !r.ok && r.disconnected ? { kind: "offline" }
+        : !r.ok && r.error.code === "not_found" ? { kind: "missing" }
+        : !r.ok ? { kind: "failed", code: r.error.code, message: r.error.message }
+        : { kind: "failed", code: "internal",
+            message: "The backend answered with something this screen cannot read." });
     });
   }, [client]);
 
@@ -61,8 +76,12 @@ export function DatabaseSection({ client, pageSize = 25 }: DatabaseSectionProps)
       client.dbTable?.(name),
       client.dbRows?.(name, pageSize, at),
     ]);
-    setInfo(i && i.ok ? i.data : null);
-    setPage(p && p.ok ? p.data : null);
+    // Same guard on both: a column list that is not a list, or rows that are
+    // not rows, render as nothing rather than throwing mid-render.
+    setInfo(i && i.ok && Array.isArray(i.data?.columns) ? i.data : null);
+    setPage(
+      p && p.ok && Array.isArray(p.data?.rows) && Array.isArray(p.data?.columns)
+        ? p.data : null);
   }, [client, pageSize]);
 
   if (!client.dbTables) return null;

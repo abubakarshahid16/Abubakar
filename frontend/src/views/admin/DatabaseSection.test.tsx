@@ -86,6 +86,32 @@ describe("the table list", () => {
       /does not serve the database explorer/i);
   });
 
+  it("survives an ok response whose body is the wrong shape", async () => {
+    // THE DEFECT THIS TEST EXISTS FOR, AND IT IS THE SECOND TIME. `ok` says
+    // the request succeeded, not that the body is usable. An `ok` with no
+    // `tables` array put undefined into state, `.map` threw, and the WHOLE
+    // Administration page went blank over one section - exactly what the
+    // Dashboard did one phase earlier. Found by `App.admin.test.tsx` going
+    // from green to a completely empty <body>.
+    dbTables.mockResolvedValue({ ok: true, data: { unexpected: true } });
+    const { container } = render(<DatabaseSection client={client()} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /cannot read/i);
+    // And the section is still standing, which is the part that matters.
+    expect(container).not.toBeEmptyDOMElement();
+  });
+
+  it("treats an unusable body as a failure, never as an empty database", async () => {
+    dbTables.mockResolvedValue({ ok: true, data: null });
+    render(<DatabaseSection client={client()} />);
+
+    await screen.findByRole("alert");
+    // "No tables" would be a claim about the database. This screen has not
+    // earned the right to make it.
+    expect(screen.queryByText(/no tables/i)).toBeNull();
+  });
+
   it("distinguishes an unreachable backend from an absent route", async () => {
     dbTables.mockResolvedValue({
       ok: false, disconnected: true,
