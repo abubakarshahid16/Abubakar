@@ -409,6 +409,30 @@ next person to write one will be looking at. Entry 12 predicted exactly that
 and it took two more phases to act on it. **A record only works where the
 person about to make the mistake will read it.**
 
+**A twenty-sixth, 2026-09-19 (matcher): two mutations reported DETECTED having
+run no tests at all.**
+
+M117 and M118 were added with `-k` expressions that matched nothing. pytest
+collected zero tests, exited non-zero because zero were collected, and the
+harness read a non-zero exit as "the tests failed" - which is what DETECTED
+means. Both printed `49 deselected` and no pass or fail count, and both were
+green.
+
+This is the failure M62's comment predicted in writing - "fails for the right
+verdict and the wrong reason" - arriving through a different door. That comment
+warned about a mutation calling a function that does not exist; this was a
+KEYWORD that selects nothing. Same outcome: a mutation that proves nothing,
+reported identically to one that proves something.
+
+**The harness needs to refuse a run that collected zero tests**, the same way
+it already refuses an anchor that matched zero times. It has not been changed
+here - the two mutations were repointed at tests that exist - and that is worth
+recording as a known gap rather than a fixed one.
+
+The rule: **a check that can pass without executing anything must assert it
+executed something.** Entry 14 said this about tools; it applies to the tool
+that verifies the tests.
+
 **A twenty-fifth, 2026-09-19 (datasheet review): "units were not captured" was
 wrong twice over, in opposite directions.**
 
