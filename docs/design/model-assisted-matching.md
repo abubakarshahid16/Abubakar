@@ -221,6 +221,39 @@ system can have. Recall on positives is reported, not gated.
 Holdout: after the tier passes on datasheet 1, datasheet 2 is loaded cold.
 Measure before any fix. Datasheet 3 stays sealed until Phase 6.
 
+### Result of the first run, 2026-09-19, on datasheet 1 — **GATE FAILED**
+
+Machine idle (3.12 GB free, CPU 5.2%), `qwen3.5:4b` resident, 74 calls,
+mean 8.75 s, max 16.87 s, 146 prompt tokens mean. Of 77 requirements in
+matcher scope: 2 paired by containment, 38 had no candidate, 37 reached the
+model, 30 declined, **7 pairings proposed**.
+
+**Six of the seven are false friends**, and every one of them produced a
+COMPLIANT or NON_COMPLIANT verdict with both citations resolving on the PDFs.
+The worst: SAES-W-010 §11.3.1's "at least 25 mm of adjacent base metal"
+(a weld-cleaning distance) paired with a datasheet field extracted as
+`material 2` = 0 mm, which is a CORROSION ALLOWANCE - reported to the
+contractor as NON_COMPLIANT.
+
+One pairing is genuine, and containment could not have found it:
+SAES-L-132 §5.3.2.6 "the operating temperature shall not exceed 80°C"
+against `maximum operating temperature`. The field name is LONGER than the
+requirement subject, and containment tests the field name inside the subject,
+so a more specific field name in a shorter subject is unreachable to it. That
+is the recall this tier is for.
+
+The pattern in the six: the model pairs on the WORD "temperature" regardless
+of which temperature - interpass, forming, tempering, cooling-water outlet,
+a dew-point margin - because the shortlist offers only same-dimension fields
+and every one of those is a temperature. The pre-filter that makes the tier
+safe is also what makes the remaining question hardest. Three further
+observations, recorded but NOT acted on in the task that measured them:
+a clause that is an APPLICABILITY TRIGGER ("temperatures greater than 260°C
+shall be in accordance with...") is not a limit and must not be compared at
+all; a DIFFERENCE ("at least 28°C warmer than the dew point") is not an
+absolute value; and `material 2` is an extraction defect that put a
+meaningless label on the shortlist.
+
 Budget: report calls made, mean and max latency, tokens per call. On
 qwen3.5:4b with ≤ 12 candidates and ≤ 600 prompt tokens, expect tens of calls
 per review, not hundreds. If a review exceeds 100 calls, that is a pre-filter
