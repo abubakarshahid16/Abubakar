@@ -453,8 +453,52 @@ def set_role(document_id: str, role: str, *, only_if_unset: bool = False) -> boo
     if role not in ROLES:
         raise UnknownRole(
             f"{role!r} is not a document role; expected one of {', '.join(ROLES)}")
-    return _set_one_column("document_role", document_id, role,
-                           only_if_unset=only_if_unset)
+    changed = _set_one_column("document_role", document_id, role,
+                              only_if_unset=only_if_unset)
+    if changed and role == "COMPANY_STANDARD":
+        _queue_extraction_if_ready(document_id)
+    return changed
+
+
+def _queue_extraction_if_ready(document_id: str) -> None:
+    """Queue rule extraction for a document that BECOMES a company standard.
+
+    THE OTHER HALF OF THE INGESTION HOOK, and without it that hook is inert
+    for every document a person uploads. `ingest._queue_extraction_if_standard`
+    asks whether a document is a COMPANY_STANDARD at the moment ingestion
+    finishes. For an upload the answer is always no: `upload.py` writes a
+    classification row with `document_role` NULL and the role is assigned
+    afterwards, by an administrator or by the watch folder. Measured on the
+    live corpus - 256 of the 272 standards carry `suggested_by = 'none'`,
+    which is the bulk role endpoint, not a pattern match at upload.
+
+    So the two hooks cover the two orders and neither covers both:
+      role set first, then ingestion finishes  -> the ingest hook queues it
+      ingestion finishes, then role set        -> this queues it
+
+    Only when the document is already READY. A document still chunking will
+    reach the ingest hook on its own, and queuing extraction for a document
+    with no chunks yet would extract nothing and report success.
+
+    Imported inside the function: `standards` pulls in the whole review
+    surface, and this module must not depend on it merely to enqueue - the
+    same reason `ingest` gives for the same import.
+
+    Swallows its own failure. Assigning a role must not fail because
+    downstream work could not be scheduled, and `enqueue_extraction` is
+    idempotent per document, so a later retry costs nothing.
+    """
+    try:
+        from . import states
+        row = connect().execute(
+            "SELECT status FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if row is None or row["status"] != states.READY:
+            return
+        from . import standards
+        standards.enqueue_extraction(document_id)
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        from . import errors
+        errors.record_failure(exc, stage="standard_extraction_enqueue")
 
 
 def set_discipline(document_id: str, discipline: str, *,
