@@ -252,7 +252,7 @@ def test_a_run_with_no_includable_findings_still_exports_its_gap_rows():
     assert "References" in sections, "no gap row was written"
     gap = ws.cell(row=9, column=4).value
     assert "32-SAMSS-004" in gap
-    assert "not available to this review" in gap
+    assert "not in the standards library" in gap
 
 
 def test_a_cited_standard_keeps_the_spelling_the_submittal_used():

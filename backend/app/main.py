@@ -3102,7 +3102,17 @@ def admin_db_rows(
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs",
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+         response_class=Response,
+         # A binary download still declares what it returns. Every other
+         # route here does, `test_every_endpoint_declares_a_typed_success_
+         # response` enforces it, and it is what lets a client know from the
+         # schema alone that this answers with a spreadsheet, not JSON. Same
+         # shape as `/api/documents/{document_id}/original`.
+         responses={200: {"content": {
+                              "application/vnd.openxmlformats-officedocument"
+                              ".spreadsheetml.sheet": {}},
+                          "description": "The Comment Resolution Sheet"},
+                    **schemas.ERRORS_404, **schemas.ERRORS_422})
 def export_review_crs(
     review_run_id: str,
     request: Request,

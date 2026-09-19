@@ -70,9 +70,16 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         rows.append({
             "document_name": submittal_name,
             "page_section": "References",
+            # "NOT IN THE STANDARDS LIBRARY", not "not available". The
+            # second reads as a claim that a CAPABILITY is missing, and
+            # test_copy_matches_reality bans it for exactly that reason; the
+            # first says the narrower thing that is actually true - this one
+            # document was not loaded. It also tells the reader what would fix
+            # it, which "not available" does not.
             "comment": (f"Referenced standard {ref} is cited by this "
-                        "submittal but is not available to this review. "
-                        "Requirements governed by it were not evaluated."),
+                        "submittal but is not in the standards library for "
+                        "this review. Requirements governed by it were not "
+                        "evaluated."),
             "comment_by": "AI Review",
         })
     return rows
