@@ -409,6 +409,34 @@ next person to write one will be looking at. Entry 12 predicted exactly that
 and it took two more phases to act on it. **A record only works where the
 person about to make the mistake will read it.**
 
+**A twenty-fifth, 2026-09-19 (datasheet review): "units were not captured" was
+wrong twice over, in opposite directions.**
+
+I reported, from reading three fact rows, that **"units are dropped on the
+fact side"**. Measured properly over all twenty numeric facts:
+
+  * ten had `unit` NULL - the claim was right for those;
+  * ten had `unit` POPULATED, with values like `VEFV1101M` - equipment tags
+    from a bill-of-materials column, sitting in a column that reads as an
+    engineering unit to everything downstream.
+
+So the honest statement is neither "units are captured" nor "units are
+dropped": **no fact carried a correct unit, and half of them carried a
+confident wrong one.** The second half is the worse failure and my summary had
+no word for it, because I had generalised from three rows that all happened to
+be of the first kind.
+
+Both come from the same place. The sheet writes units in three layouts, and
+the extractor read one of them; the layout it read is also the one where any
+word after a number becomes the unit, which is where the tags came from.
+
+**The rule, and it is the third time this file has needed a version of it: a
+sample of three is not a measurement of twenty.** Before writing "X does not
+happen", count X over the whole population. Entry 20 was an absence asserted
+where the code never ran; entry 24 was a claim read off a truncation; this one
+is a rate inferred from the first three rows that came to hand. Same mistake,
+three surfaces.
+
 **A twenty-fourth, 2026-09-19 (extraction review): a defect reported from a
 truncated string.**
 
