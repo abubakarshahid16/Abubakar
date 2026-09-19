@@ -168,7 +168,17 @@ function mockFetch(analysisAnswers: Record<string, () => Promise<Response>>) {
   return { fetch, bodies };
 }
 
-afterEach(() => vi.unstubAllGlobals());
+// THE STORE OWNS A LIVE setInterval (`signOutWatch`), and only
+// `resetAnalysisScreen` clears it. Resetting in `beforeEach` alone leaves that
+// interval running after this file's last test, firing against whatever fetch
+// is stubbed next - the failure mode vitest.config.ts already documents one
+// layer up ("an unmounting polling view can call the next test's mock"), which
+// is why these tests pass alone and fail under full-suite load. Reset BEFORE
+// the globals are unstubbed, so the interval is dead while its mock still is.
+afterEach(() => {
+  resetAnalysisScreen();
+  vi.unstubAllGlobals();
+});
 beforeEach(() => resetAnalysisScreen());
 
 async function waitForVocabulary() {
