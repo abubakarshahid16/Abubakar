@@ -88,13 +88,38 @@ describe("nominal-estimate reason on a run card", () => {
 
     const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
     const card = within(runButton);
-    // Positive branch proofs: the card, recommendation, and completeness
-    // input all exist, so the absence of a second sentence cannot be vacuous.
+    // Positive branch proofs: the card and its recommendation rendered, so
+    // the absence below is an absence FROM something that exists.
     expect(card.getByText("Manual Review Required")).toBeInTheDocument();
     expect(card.getByText(/The review used a NOMINAL ESTIMATE denominator/))
       .toBeInTheDocument();
-    expect(run().completeness).not.toBeNull();
     expect(card.getAllByText(/NOMINAL ESTIMATE/i)).toHaveLength(1);
-    expect(card.queryByText(/fields read/i)).toBeNull();
+    // THE COMPLETENESS LINE'S OWN WORDS, which `completenessLine` emits as
+    // "4 of approximately 35 fields (a NOMINAL estimate: ...)".
+    //
+    // This asserted `queryByText(/fields read/i)` and was VACUOUS: with
+    // `fields_estimated` set, that line never says "fields read" - it says
+    // "of approximately" - so the assertion held whether or not the branch
+    // rendered. The test below renders the branch, which is what makes this
+    // absence mean something.
+    expect(card.queryByText(/of approximately/i)).toBeNull();
+  });
+
+  it("still shows the completeness line when the reason does NOT state the denominator", async () => {
+    // THE POSITIVE CONTROL FOR THE ABSENCE ABOVE. Same component, same
+    // completeness input, one field changed: the denominator is never
+    // dropped, only never repeated. Without this, "the line is absent" could
+    // mean the line does not exist at all.
+    reviewRuns.mockResolvedValue({
+      ok: true,
+      data: { runs: [run({ recommended_reason: "Not enough was read to recommend a code." })] },
+    });
+    render(<ReviewRunsView />);
+
+    const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
+    const card = within(runButton);
+
+    expect(card.getByText(/of approximately 35 fields/i)).toBeInTheDocument();
+    expect(card.getAllByText(/NOMINAL/i)).toHaveLength(1);
   });
 });
