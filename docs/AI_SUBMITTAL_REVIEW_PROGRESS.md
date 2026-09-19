@@ -2227,3 +2227,181 @@ made none (M81).
 5. **Nothing reconciles a role with the folder a document came from.** Once
    set, a role is independent of the file's location; moving a file out of
    `standards/` does not clear it.
+
+---
+
+# Phase 6 — Findings become visible and actionable
+
+Date: 2026-09-19 · Branch: `feat/phase-1-ui-reaches-backend` · Python 3.12.10
+
+The engine had been writing 1,580 findings per run into a table nobody could
+open. Phase 6 is the screens that reach them, the Dashboard entry point that
+starts a review, and the engineer's signature that closes one. Five commits:
+`ebccf16` (the Review page), `1c18790` (orphaned runs, and the product naming),
+`9715c3d` (the placeholder it replaced), `f78d6da` (the visual record) and
+`e9ee336` (the Dashboard entry point and the final code).
+
+## 81. The Review page, and the honesty rules that shaped it
+
+The run list answers "what has been reviewed and what did it conclude"; a run
+answers "which standards were compared and why each is on the list"; a finding
+answers "what does the clause say, what did the contractor submit, and where
+can I read both". Every count carries its denominator, the recommended code is
+printed in the recommendation's own words including the NOMINAL-estimate note,
+and `MISSING_INFORMATION` is neither coloured nor worded as a failure.
+
+**1,578 of 1,580 findings are "no evidence submitted".** They are collapsed
+behind their own count rather than hidden, because 2 findings in a list of
+1,580 is a different fact from 2 findings.
+
+## 82. The Dashboard entry point (CLAUDE.md rule 10)
+
+`ReviewDashboardPanel` holds the entire block the rule names - four cards, one
+`Upload Datasheet and Run AI Review` button, one compact Recent Reviews table -
+in ONE component, so a fifth tile cannot be added to Dashboard without editing
+the rule first. Rule 10 was itself updated for this workflow before any tile
+was added.
+
+Measured on the real corpus:
+
+| card | value | its denominator |
+|---|---|---|
+| Contractor submittals | 2 | 0 of 2 awaiting review |
+| Active standards | 272 | 21 of 21 cited standards are not in the library |
+| Reviews in progress | 8 | 0 running · 8 awaiting an engineer's code |
+| Needs attention | 9 | 8 not enough was read to recommend a code · 1 the run failed |
+
+The Needs Attention tile lists WHY. A tile reading "9" is a number a reader can
+only trust; the breakdown is what makes it checkable.
+
+Upload itself stays on Documents, where upload progress lives. A second
+uploader on Dashboard would either hide the ingestion wait or duplicate the
+screen that reports it.
+
+## 83. The engineer's final code (master plan section 15)
+
+The AI recommends; the engineer decides; **both are stored and both are
+shown**. The recommendation stays where `_store_run_outcome` wrote it and the
+decision goes in columns of its own - `engineer_final_code`, `override_reason`,
+`decided_by`, `decided_at` - because "which reviews are waiting for an
+engineer" is a question the dashboard asks in SQL and cannot ask of a JSON
+blob.
+
+A reason is REQUIRED when the two differ and optional when they agree, which is
+the difference between overriding a judgement and confirming one. And a run
+carrying a decision is not re-run underneath its signature: `replace=True` is
+how every fix reaches the corpus, but doing it to a signed run would leave the
+code attached to findings it was never made about. A new review is a new row,
+so nothing is blocked except overwriting history.
+
+## 84. THE DEFECT NINE GREEN TESTS COULD NOT SEE
+
+`POST /api/reviews/runs/{id}/code` carried `Depends(admin.current_admin)` for
+the audit actor alone. **That dependency is a gate, not a lookup:** it raises
+the admin surface's deliberately silent 404 for any non-admin. So the only
+caller who could record a final code was an admin, and every engineer got
+"not found" about a run the same screen had just listed.
+
+Nine unit tests were green over it. They could not see it twice over:
+
+1. every one called `comparison.record_engineer_code` directly and **never
+   traversed the route**, where the dependency lives;
+2. `conftest` pins `AUTH_MODE=disabled`, under which `current_admin` waves an
+   **anonymous** caller straight through - so even a route-level test that
+   skipped the login would have passed.
+
+Found by signing in to the running app as an ordinary non-admin engineer and
+pressing the button. Fixed with `_actor_from_scope`, which resolves the name
+without deciding anything about permission - the route's own scope had already
+done that - and three route-level tests that log in with a real token. Mutation
+M221 puts the gate back and is DETECTED.
+
+**Recorded as honesty-audit entry 41, and as row 8 of "the verification that
+verified nothing".** Its lesson became standing rule 15: *a test that never
+crosses the boundary cannot see a guard that lives on it.* Calling the function
+is not exercising the route - dependencies, authentication and the mode the
+suite pins are all outside the function and all decide whether a real caller
+gets through. Where a feature has a user who presses a button, at least one
+test must arrive the way that user does.
+
+## 85. Three more defects, each found by running it rather than reading it
+
+1. **`GET /api/reviews/runs` loaded 14,000 findings to produce six numbers.**
+   Nine runs by 1,580 rows, counted in Python, before the page rendered.
+   Replaced with SQL aggregates: 0.65s.
+2. **`reviews.dashboard()` had no `ShapeCheck`**, so a body of the wrong shape
+   arrived as `ok` and `.toLocaleString()` threw inside the first card - taking
+   the WHOLE Dashboard down over one panel. That is precisely the white screen
+   `ShapeCheck` exists to prevent, and 21 Dashboard tests said so the moment
+   the panel was wired in.
+3. **A stale `running` run locked its submittal out of the product forever.**
+   `run_c9b16f71c398` sat at `running` with no process behind it, and
+   `POST /api/reviews/run` refuses to start a second review while one is
+   going. It was marked failed with a reason, **not deleted** - somebody
+   started it and a crashed run is history - and startup now sweeps any run
+   still `running`, which is safe for the same reason the extraction sweep is:
+   this process has just begun, so it owns none of them.
+
+## 86. Two fixtures that were wrong, not two constraints
+
+`decided_by` and `confirmed_by` are foreign keys to `users(id)`. Two tests in
+`test_comparison.py` passed an email and a bare initial as `reviewer`, and the
+schema refused the write. **The fixture was fixed, not the schema** - a test
+that dodges a foreign key is testing a table shape production does not have.
+
+## 87. Mutations - 13 new, all detected
+
+| phase | ids | what they delete |
+|---|---|---|
+| 17 | M208-M210 | the orphaned-run sweep: delete instead of fail, sweep every status, never call it at startup |
+| 18 | M211-M215, M221 | the final code: override with no reason, overwrite the recommendation, accept any string, re-run a decided run, block every re-run, gate the engineer on being an admin |
+| 19 | M216-M220 | the four cards: unscoped counts, every completed run awaiting a decision, a needs-attention number with no breakdown, a running review counted as done, an unbounded Recent Reviews table |
+
+The full harness is **217/217** at the close of phase 6.
+
+## 88. Verification, measured
+
+| | result |
+|---|---|
+| Backend suite | **2252 passed**, 0 failed, 27 skipped, 17 xfailed, 529s |
+| Mutation harness | **217/217 detected**, 0 not detected, 0 harness error |
+| `tsc -b` | clean |
+| `npm run build` | passes |
+| Frontend suite | 598 passed; **58 failed = the known-bad set exactly**, measured at HEAD and again with the work, identical |
+| New backend tests | 31 (`test_review_code.py` 12, `test_review_dashboard.py` 10, `test_orphaned_review_runs.py` 9) |
+| New frontend tests | 45 across `src/components/review` |
+
+The known-bad set is 58 rather than the long-standing 59 because
+`glossary.test.ts` went green: the ban on the word "submittal" contradicted the
+product's own navigation, which now reads "AI Submittal Review". The test was
+updated to allow it and **keeps every other banned term, the old client name
+above all**. It was not deleted.
+
+## 89. Screenshots, against the real corpus
+
+Fourteen images in `docs/screenshots/phase-6/`, captured signed in as an
+ordinary non-admin engineer - which is how section 84's defect surfaced. They
+show client document content (requirement sentences from the SAES standards,
+one submitted value with its field name and equipment tag) and none of
+`Engineering Deliverables.pdf`, which rule 3 keeps out of the repository
+entirely.
+
+## 90. Known limitations - 6
+
+1. **The model tier is still OFF** and 272 standards stay unqueued. Nothing in
+   this phase changed either.
+2. **The Dashboard still carries its pre-existing blocks** - "What this system
+   can do right now", the EPC delivery overview, the readiness headline.
+   Rule 10 names what the REVIEW block may contain; it has not been applied
+   backwards to the tiles that were already there.
+3. **58 frontend tests fail and are not this phase's.** Four files asserting a
+   nav button named `/Chat/` that now reads "Document Q&A". Measured unchanged
+   before and after, and deliberately not touched: renaming assertions across
+   54 tests could mask a real regression.
+4. **Two demo decisions were written to the live corpus and then cleared.**
+   Recording a code end-to-end needs a signed-in engineer, so a throwaway
+   account was created and deleted; `ON DELETE SET NULL` left two runs signed
+   by nobody. Those four columns were cleared on both runs - the decisions
+   were the verification's, not an engineer's - and the AI recommendations
+   were never touched: 10 intact, 0 decisions remaining.
+5. **No CRS export yet.** That is phase 7.
