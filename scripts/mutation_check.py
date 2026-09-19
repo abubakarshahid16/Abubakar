@@ -3238,6 +3238,21 @@ CORPUS_QUESTIONS = (
 )
 
 
+PERSISTED_TRUNCATION = (
+    Mutation(
+        id="M264", phase=26,
+        description="drop the truncated state before persisting an answer, so "
+                    "a cut-off reply reopens looking complete",
+        path=APP / "chat.py",
+        anchor='    "corpus", "counts_bounded", "truncated",',
+        replacement='    "corpus", "counts_bounded",',
+        target="tests/test_chat.py",
+        keyword="reopened_conversation_preserves_whether_the_answer_was_truncated",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3246,7 +3261,7 @@ ALL: tuple[Mutation, ...] = (
     + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
     + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
-    + MISSING_REFERENCES + CORPUS_QUESTIONS
+    + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
 )
 
 
