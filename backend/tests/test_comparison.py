@@ -674,3 +674,113 @@ def test_the_completeness_denominator_says_it_is_nominal():
     assert "NOMINAL ESTIMATE" in reason
     assert "not a count of this document" in reason
     assert "42" in reason and "385" in reason, "the counts must still be shown"
+
+
+def test_a_confirmed_finding_survives_run_comparison_replace():
+    """THROUGH `run_comparison`, WHICH IS WHERE `replace` ACTUALLY DELETES.
+
+    Re-running a comparison is how every fix to this engine reaches the
+    corpus, so an engineer's confirmation must outlive it. A test that issued
+    the DELETE itself would pass while `run_comparison` still destroyed the
+    row - the pattern this file's own notes call species four.
+    """
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL")
+    sc = _chunk("sc", std); fc = _chunk("fc", sub)
+    run = _run(sub)
+    standards.create_requirement(
+        standard_document_id=std, chunk_id=sc,
+        requirement_text="The noise level shall not exceed 90 dB(A).",
+        source_text="The noise level shall not exceed 90 dB(A).",
+        clause="5.3.3", page=1,
+        structured={"subject": "noise level", "operator": "<=",
+                    "raw_value": "90", "raw_unit": "dB(A)",
+                    "requirement_type": "numeric_limit"})
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Noise level",
+        raw_value="95 dB(A)", page=1)
+    with db.connect() as conn:
+        conn.execute("""INSERT INTO review_applicable_standards
+            (id,review_run_id,standard_document_id,selection_reason,
+             selection_method,included,created_at)
+            VALUES (?,?,?,'cited','referenced',1,'2026-09-18T00:00:00Z')""",
+            (str(uuid.uuid4()), run, std))
+
+    scope = _scope(std, sub)
+    first = comparison.run_comparison(run, allowed_document_ids=scope)
+    assert first["by_status"][comparison.NON_COMPLIANT] == 1
+    kept_id = first["findings"][0]["id"]
+    with db.connect() as conn:
+        conn.execute("INSERT INTO users (id,email,display_name,password_hash,"
+                     "created_at) VALUES ('boss','b@e.test','boss','h',?)",
+                     ("2026-09-19T00:00:00Z",))
+        conn.execute("UPDATE review_findings SET confirmed_by='boss',"
+                     " confirmed_at=? WHERE id=?",
+                     ("2026-09-19T00:00:00Z", kept_id))
+
+    comparison.run_comparison(run, allowed_document_ids=scope, replace=True)
+
+    rows = db.connect().execute(
+        "SELECT id, confirmed_by FROM review_findings WHERE review_run_id=?",
+        (run,)).fetchall()
+    kept = [r for r in rows if r["id"] == kept_id]
+    assert kept, "re-running the comparison destroyed a CONFIRMED finding"
+    assert kept[0]["confirmed_by"] == "boss"
+
+
+def test_a_rejected_pair_survives_re_extraction_of_the_standard():
+    """THE TEST THE KEYING EXISTS FOR.
+
+    `standard_requirements.id` and `submittal_facts.id` are uuid4, regenerated
+    by every `replace=True` extraction - and re-extraction is how every fix to
+    the extractors reaches the corpus. A rejection keyed on those ids matches
+    nothing afterwards: it stops applying SILENTLY, the same wrong pairing is
+    proposed again, and the engineer cannot tell their correction was
+    forgotten rather than ignored.
+
+    So this rejects a pair, re-extracts the standard, and asserts the pairing
+    is still refused - against requirement rows that now have different ids.
+    """
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL")
+    # BOTH SIDES THROUGH THE REAL EXTRACTOR. Building the first requirement by
+    # hand and the second by extraction compares two different code paths, and
+    # any difference between them - a clause the parser derives differently -
+    # looks exactly like the defect under test.
+    with db.connect() as conn:
+        conn.execute("""INSERT INTO chunks
+            (id,document_id,filename,ordinal,page_start,page_end,section,kind,
+             text,token_count,content_hash,retrievable)
+            VALUES ('sc',?,'f.pdf',0,1,1,'5.3.3 Noise','prose',?,1,'h-sc',1)""",
+            (std, "The noise level shall not exceed 90 dB(A)."))
+    sc = "sc"
+    fc = _chunk("fc", sub)
+    standards.extract_requirements(
+        std, allowed_document_ids=_scope(std, sub), replace=True)
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Noise level",
+        raw_value="95 dB(A)", page=1)
+
+    scope = _scope(std, sub)
+    requirement = standards.list_requirements(std, allowed_document_ids=scope)[0]
+    fact = datasheets.list_facts(sub, allowed_document_ids=scope)[0]
+    first_requirement_id, first_fact_id = requirement["id"], fact["id"]
+
+    # It matches before the rejection, so the test stands where it can fail.
+    assert comparison.match_by_containment(
+        requirement, [fact])["fact"]["id"] == first_fact_id
+
+    comparison.reject_pair(requirement, fact, rejected_by=None,
+                           reason="a different piece of equipment")
+    assert comparison.match_by_containment(requirement, [fact])["fact"] is None
+
+    # RE-EXTRACT. Every requirement row is replaced and re-issued a new id.
+    standards.extract_requirements(std, allowed_document_ids=scope, replace=True)
+    again = standards.list_requirements(std, allowed_document_ids=scope)[0]
+    assert again["id"] != first_requirement_id, (
+        "the fixture did not actually re-issue the row id, so this test would "
+        "prove nothing")
+
+    assert comparison.match_by_containment(again, [fact])["fact"] is None, (
+        "the rejection stopped applying after re-extraction - it was keyed on "
+        "a row id that no longer exists")

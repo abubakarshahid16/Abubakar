@@ -1587,10 +1587,93 @@ TABLE_AND_UNITS = (
     ),
 )
 
+#: Findings a reviewer can reach, keep and correct.
+REACHABLE = (
+    Mutation(
+        id="M128", phase=8,
+        description="drop the review_run_id filter, so one run's findings can "
+                    "only be found by fetching every finding ever written",
+        path=APP / "review.py",
+        anchor='        clauses.append("review_run_id = ?")',
+        replacement='        clauses.append("1 = 1 OR ? IS NULL")',
+        target="tests/test_findings_reachable.py",
+        keyword="run_filter_returns_only_that_run",
+    ),
+    Mutation(
+        id="M129", phase=8,
+        description="LET A RUN ID REACH PAST THE GRANT TABLES, returning "
+                    "findings for a submittal the caller may not read",
+        path=APP / "review.py",
+        anchor="    if allowed_document_ids is not None:\n        if not allowed_document_ids:\n            return []",
+        replacement="    if allowed_document_ids is not None:\n        if not allowed_document_ids:\n            allowed_document_ids = None",
+        target="tests/test_findings_reachable.py",
+        keyword="cannot_reach_a_document_the_caller_may_not_read",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M130", phase=8,
+        description="DELETE CONFIRMED FINDINGS ON RE-RUN, destroying an "
+                    "engineer's decision with a routine maintenance action",
+        path=APP / "comparison.py",
+        anchor='                "DELETE FROM review_findings WHERE review_run_id = ?"\n                " AND confirmed_by IS NULL",',
+        replacement='                "DELETE FROM review_findings WHERE review_run_id = ?",',
+        target="tests/test_comparison.py",
+        keyword="confirmed",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M131", phase=8,
+        description="re-propose a pairing a human already rejected",
+        path=APP / "comparison.py",
+        anchor="    rejected = _rejected_keys_for(requirement)",
+        replacement="    rejected = set()",
+        target="tests/test_findings_reachable.py",
+        keyword="rejected_pair_is_never_proposed_again",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M132", phase=8,
+        description="let a rejection block every fact for that requirement, "
+                    "not just the pair",
+        path=APP / "comparison.py",
+        # The FIRST version of this mutation broadened the SQL, which returns
+        # more rejection ROWS without blocking more facts - the tests passed
+        # and were right to. This one implements what the description claims.
+        anchor='        if fact_key(fact) in rejected:',
+        replacement="        if rejected:",
+        target="tests/test_findings_reachable.py",
+        keyword="does_not_block_another_fact",
+    ),
+    Mutation(
+        id="M133", phase=8,
+        description="overwrite an existing rejection, losing who refused the "
+                    "pairing and why",
+        path=APP / "comparison.py",
+        anchor='            "INSERT OR IGNORE INTO review_pair_rejections"',
+        replacement='            "INSERT OR REPLACE INTO review_pair_rejections"',
+        target="tests/test_findings_reachable.py",
+        keyword="keeps_the_first_decision",
+    ),
+    Mutation(
+        id="M134", phase=8,
+        description="KEY A REJECTION ON THE ROW ID, so an engineer's "
+                    "correction stops applying at the next re-extraction",
+        path=APP / "comparison.py",
+        # A single-line, backslash-free slice. The function body contains
+        # escaped quotes and a blank line, and carrying either through a
+        # literal broke the file twice.
+        anchor='        str(requirement.get("standard_document_id") or ""),',
+        replacement='        str(requirement.get("id") or ""),',
+        target="tests/test_comparison.py",
+        keyword="survives_re_extraction",
+        tags=("honesty", "critical"),
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
-    + EXTRACTION + DATASHEET + MATCHER + TABLE_AND_UNITS
+    + EXTRACTION + DATASHEET + MATCHER + TABLE_AND_UNITS + REACHABLE
 )
 
 
