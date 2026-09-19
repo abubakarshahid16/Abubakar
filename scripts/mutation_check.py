@@ -3253,6 +3253,21 @@ PERSISTED_TRUNCATION = (
 )
 
 
+DEMO_POLISH = (
+    Mutation(
+        id="M265", phase=27, runner="vitest",
+        description="restore the duplicate nominal-estimate completeness line "
+                    "when the recommendation already states it",
+        path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
+        anchor="      {completeness && !reasonStatesDenominator && (",
+        replacement="      {completeness && (",
+        target="src/views/ReviewRunsView.test.tsx",
+        keyword="exactly once",
+        tags=("honesty", "ui"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3262,6 +3277,7 @@ ALL: tuple[Mutation, ...] = (
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
     + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
     + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
+    + DEMO_POLISH
 )
 
 
