@@ -1409,10 +1409,96 @@ DATASHEET = (
     ),
 )
 
+#: The containment matcher and the last of the datasheet recall fixes.
+MATCHER = (
+    Mutation(
+        id="M112", phase=8,
+        description="MATCH ON A SUBSTRING instead of whole words, so "
+                    "'design pressure' matches inside 'redesign pressure'",
+        path=APP / "comparison.py",
+        anchor=r'    return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack) is not None',
+        replacement="    return needle in haystack",
+        target="tests/test_containment_match.py",
+        keyword="whole_words",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M113", phase=8,
+        description="pick a candidate arbitrarily when two fields tie, instead "
+                    "of refusing the match",
+        path=APP / "comparison.py",
+        anchor='    if len(best) > 1:',
+        replacement="    if False:",
+        target="tests/test_containment_match.py",
+        keyword="genuine_tie_returns_no_match",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M114", phase=8,
+        description="take the SHORTEST field name, pairing a requirement with "
+                    "the least specific field named in it",
+        path=APP / "comparison.py",
+        anchor='    longest = max(len(h["name"]) for h in hits)',
+        replacement='    longest = min(len(h["name"]) for h in hits)',
+        target="tests/test_containment_match.py",
+        keyword="longest_field_name_wins",
+    ),
+    Mutation(
+        id="M115", phase=8,
+        description="let a CATEGORICAL fact match, reviving the insulation "
+                    "false friend",
+        path=APP / "comparison.py",
+        anchor='        if fact.get("raw_value") in (None, ""):\n            continue',
+        replacement='        if False:\n            continue',
+        target="tests/test_containment_match.py",
+        keyword="categorical_fact_never_matches",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M116", phase=8,
+        description="scope the matcher on the NORMALISED value, silently "
+                    "excluding every unconvertible unit including dB(A)",
+        path=APP / "comparison.py",
+        anchor='    if requirement.get("raw_value") in (None, ""):\n        return none',
+        replacement='    if requirement.get("value") is None:\n        return none',
+        target="tests/test_containment_match.py",
+        keyword="unit_cannot_be_converted_is_still_matched",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M117", phase=8,
+        description="treat a small integer followed by a unit as a line "
+                    "number again, discarding most numeric rows on a page",
+        path=APP / "datasheets.py",
+        anchor=("        if re.fullmatch(r" + chr(34) + chr(92) + "d{1,3}" + chr(34) + ", value) and not _unit_follows(parts, index + 2):"),
+        replacement=("        if re.fullmatch(r" + chr(34) + chr(92) + "d{1,3}" + chr(34) + ", value):"),
+        target="tests/test_fact_gates.py",
+        keyword="line_number or followed_by_a_unit",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M118", phase=8,
+        description="record a date as a measurement, so a signature block "
+                    "becomes a numeric fact",
+        path=APP / "datasheets.py",
+        # ANCHORED ON THE PREDICATE, not on the call site in extract_facts.
+        # The first version mutated the gate, which only runs inside a full PDF
+        # extraction that these fixtures do not drive - so it reported NOT
+        # DETECTED against tests that cover the rule perfectly well at the
+        # level they can reach. The wiring itself is evidenced by the measured
+        # end-to-end run, where the signature fact disappeared.
+        anchor="    return bool(_DATE_VALUE.match(value or \"\"))",
+        replacement="    return False",
+        target="tests/test_fact_gates.py",
+        keyword="a_date_is_not_a_quantity",
+        tags=("honesty",),
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
-    + EXTRACTION + DATASHEET
+    + EXTRACTION + DATASHEET + MATCHER
 )
 
 

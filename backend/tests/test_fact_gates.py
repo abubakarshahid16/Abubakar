@@ -97,6 +97,55 @@ def test_free_text_is_not_a_categorical_answer(value):
     assert datasheets.is_categorical_value(value) is False
 
 
+# ----------------------------------------- a value, or this form's line number
+
+def test_a_small_integer_followed_by_a_unit_is_a_value_not_a_line_number():
+    """THE ROW THIS LOST, MEASURED: 4 facts recovered from 15 numeric rows.
+
+    A numbered form writes `17 | Operating volume : | 10 | m3 | 00`, and a
+    small integer is exactly what its line numbers look like AND exactly what a
+    temperature in °C or a design life in years looks like. Discarding every
+    one of them as a line number threw away most of a page.
+
+    A unit in the next cell is the discriminator, because a line number is
+    never followed by one.
+    """
+    pairs = datasheets.split_label_value(["Operating volume :", "10", "m3"])
+
+    assert pairs == [("Operating volume :", "10 m3")]
+
+
+def test_a_small_integer_followed_by_a_label_is_still_a_line_number():
+    """THE GUARD. A KOC sheet is two forms side by side - "5 | Design pressure
+    | 23.5 barg | 46 | Bonnet material | CS" - and 46 there really is the next
+    pair's line number. It is not followed by a unit, so it still reads as one.
+    """
+    pairs = datasheets.split_label_value(
+        ["Design pressure", "23.5 barg", "46", "Bonnet material", "CS"])
+
+    assert ("Design pressure", "23.5 barg") in pairs
+    assert ("Bonnet material", "CS") in pairs
+    assert not any(label == "46" for label, _v in pairs)
+
+
+# ------------------------------------------------------------ a date
+
+@pytest.mark.parametrize("value", [
+    "2024.08.27", "2024-08-27", "27/08/2024", "27.08.2024",
+])
+def test_a_date_is_not_a_quantity(value):
+    """A signature block's timestamp parsed as a number, so the signatory's
+    name became a field and the date became its value. Nothing downstream can
+    tell that from a specific gravity: a number with no unit."""
+    assert datasheets.is_date_value(value) is True
+
+
+@pytest.mark.parametrize("value", ["3.5", "8300", "1.114", "25", "2.2"])
+def test_a_measurement_is_not_mistaken_for_a_date(value):
+    """The guard: real values with dots and digits must survive."""
+    assert datasheets.is_date_value(value) is False
+
+
 # ------------------------------------------------- gauge and absolute
 
 @pytest.mark.parametrize("spelling", ["bar(ga)", "bar (ga)", "bar(g)", "barg"])

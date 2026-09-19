@@ -598,7 +598,12 @@ def test_a_full_run_writes_findings_into_the_phase_1_columns():
         requirement_text="The noise level shall not exceed 90 dB(A).",
         source_text="The noise level shall not exceed 90 dB(A).",
         clause="5.3.3", page=1,
-        structured={"field": "noise level", "operator": "<=",
+        # `subject`, not `field`: the pipeline pairs a requirement to a fact by
+        # CONTAINMENT of the field name inside the subject. `field` stays NULL
+        # everywhere in production - the measured exact-match rate against it
+        # was 0 of 77 - so a fixture relying on it tested a join the pipeline
+        # no longer performs.
+        structured={"subject": "noise level", "operator": "<=",
                     "raw_value": "90", "raw_unit": "dB(A)",
                     "requirement_type": "numeric_limit"})
     datasheets.create_fact(
