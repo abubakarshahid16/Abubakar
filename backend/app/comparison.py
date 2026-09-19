@@ -44,6 +44,7 @@ reported with its denominator.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -348,6 +349,7 @@ def create_finding(
     fact: dict | None, verdict: dict, comment: str | None = None,
     model_opinion: str | None = None, severity: str = "major",
     category: str = "requirement_deviation",
+    matched_phrase: str | None = None, match_method: str | None = None,
 ) -> dict:
     """Write one finding. REFUSES anything it cannot support.
 
@@ -418,6 +420,13 @@ def create_finding(
         "requirement_source_text": requirement.get("source_text"),
         "ai_rationale": rationale,
         "unresolved_evidence": json.dumps(unresolved),
+        # The pairing, recorded on the finding. `field` on
+        # `standard_requirements` stays NULL and nothing here writes it - the
+        # match is a property of THIS comparison, not of the requirement.
+        "requirement_id": requirement.get("id"),
+        "fact_id": (fact or {}).get("id"),
+        "matched_phrase": matched_phrase,
+        "match_method": match_method,
         "created_at": now,
         "updated_at": now,
     }
@@ -430,6 +439,7 @@ def create_finding(
                 contractor_page, contractor_section, contractor_evidence_text,
                 standard_document_id, standard_clause, standard_page,
                 requirement_source_text, ai_rationale, unresolved_evidence,
+                requirement_id, fact_id, matched_phrase, match_method,
                 governing_sources, citation_ids, status, approval_status,
                 created_at, updated_at)
                VALUES (:id, :document_id, :review_run_id, :compliance_status,
@@ -438,7 +448,9 @@ def create_finding(
                        :contractor_section, :contractor_evidence_text,
                        :standard_document_id, :standard_clause, :standard_page,
                        :requirement_source_text, :ai_rationale,
-                       :unresolved_evidence, '[]', '[]', 'open', 'pending',
+                       :unresolved_evidence, :requirement_id, :fact_id,
+                       :matched_phrase, :match_method,
+                       '[]', '[]', 'open', 'pending',
                        :created_at, :updated_at)""", row)
     return {**row, "unresolved_evidence": unresolved,
             "citation_resolves": not unresolved}
@@ -627,19 +639,73 @@ def run_comparison(
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
-    by_field = {}
-    for fact in facts:
-        by_field.setdefault(fact.get("field_name") or "", fact)
-
     findings: list[dict] = []
+    matches_attempted = matches_made = 0
     for requirement in requirements:
-        fact = _match_fact(requirement, by_field)
+        # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
+        # equality between a requirement's subject and a datasheet caption
+        # matched 0 of 77; containment matched the pairs an engineer picked.
+        if requirement.get("requirement_type") == "numeric_limit" \
+                and requirement.get("raw_value") not in (None, ""):
+            matches_attempted += 1
+        match = match_by_containment(requirement, facts)
+        fact = match["fact"]
         verdict = compare(requirement, fact, subject=subject)
+        if fact is not None:
+            matches_made += 1
+            # THE UNIT GUARD. A match says the two are ABOUT the same thing; it
+            # says nothing about whether their numbers can be compared. A
+            # length against a pressure is not a breach and not a pass - it is
+            # a question for a person, and the finding carries both raw units
+            # so they can see what was compared with what.
+            # `same_unit` compares MEASUREMENTS, and it compares the raw
+            # spellings rather than the normalised ones on purpose - `dB(A)`
+            # and `dB` are different units. The base unit is passed as the raw
+            # spelling here so that a gauge pressure and a plain one still meet
+            # (`bar` both sides); the gauge reference itself is carried on the
+            # fact and is a separate question from whether the units match.
+            # THE RAW SPELLINGS, WITH ANY GAUGE REFERENCE STRIPPED. `unit`
+            # holds the NORMALISED unit, which is NULL for every unit the table
+            # recognises but does not convert - dB(A) among them - so comparing
+            # those columns reported a unit mismatch between two dB(A) values.
+            # `same_unit` is a comparison of spellings and wants the spellings.
+            requirement_unit = claims.Measurement(
+                raw_value=str(requirement.get("raw_value") or ""),
+                raw_unit=claims.split_reference(
+                    requirement.get("raw_unit") or requirement.get("unit"))[0] or "",
+                normalized_value=None, normalized_unit=None, comparator=None)
+            fact_unit = claims.Measurement(
+                raw_value=str(fact.get("raw_value") or ""),
+                raw_unit=claims.split_reference(
+                    fact.get("raw_unit") or fact.get("unit"))[0] or "",
+                normalized_value=None, normalized_unit=None, comparator=None)
+            if not claims.same_unit(requirement_unit, fact_unit):
+                verdict = {
+                    **verdict,
+                    "status": NEEDS_ENGINEER_REVIEW,
+                    "rationale": (
+                        f"{UNIT_MISMATCH}: the requirement is in "
+                        f"{requirement.get('raw_unit') or requirement.get('unit') or 'no unit'} "
+                        f"and the submitted value is in "
+                        f"{fact.get('raw_unit') or fact.get('unit') or 'no unit'}; "
+                        "these are not the same quantity and were not compared"),
+                }
+        elif match["reason"] == AMBIGUOUS_MATCH:
+            verdict = {
+                **verdict,
+                "status": NEEDS_ENGINEER_REVIEW,
+                "rationale": (
+                    f"{AMBIGUOUS_MATCH}: more than one submitted field is named "
+                    f"inside this requirement ({', '.join(match['candidates'])}); "
+                    "no value was chosen, because choosing one arbitrarily "
+                    "would attach a real number to the wrong requirement"),
+            }
         opinion = (model_opinions or {}).get(requirement.get("id"))
         findings.append(create_finding(
             review_run_id=review_run_id, submittal_document_id=submittal_id,
             requirement=requirement, fact=fact, verdict=verdict,
-            model_opinion=opinion))
+            model_opinion=opinion, matched_phrase=match["matched_phrase"],
+            match_method=match["method"]))
 
     coverage = completeness_for_run(
         submittal_id, allowed_document_ids=allowed_document_ids,
@@ -651,6 +717,9 @@ def run_comparison(
         "review_run_id": review_run_id,
         "submittal_document_id": submittal_id,
         "requirements_evaluated": len(requirements),
+        "facts_in_scope": len(facts),
+        "matches_attempted": matches_attempted,
+        "matches_made": matches_made,
         "findings": findings,
         "by_status": {
             status: sum(1 for f in findings if f["compliance_status"] == status)
@@ -660,6 +729,107 @@ def run_comparison(
         "completeness": coverage,
         "recommended_code": recommendation,
     }
+
+
+#: Why a containment match was refused, when it was.
+AMBIGUOUS_MATCH = "ambiguous_match"
+UNIT_MISMATCH = "unit_mismatch"
+
+#: How a match was made. One value today; named so a second method cannot be
+#: added without the finding saying which one produced it.
+METHOD_CONTAINMENT = "containment"
+
+
+def match_by_containment(requirement: dict, facts: list[dict]) -> dict:
+    """The fact a requirement is about, found by CONTAINMENT. Deterministic.
+
+    A requirement's subject is a sentence fragment - "internal design pressure
+    shall be according to the following table" - and a datasheet's field name is
+    the bare noun phrase, "internal design pressure". Measured over 77
+    requirements and 38 field names, EXACT EQUALITY MATCHED NOTHING and
+    containment matched the two pairs an engineer would also pick. So the join
+    is containment, and exact equality is the special case where the subject
+    happens to be exactly the field name - no separate path.
+
+    WHOLE WORDS ONLY. "design pressure" must not match inside "redesign
+    pressure": the second is a different field, and a substring test would file
+    a value under a requirement about something else.
+
+    THE SCOPE IS NARROW ON PURPOSE:
+
+      * only numeric_limit requirements that actually carry a value - a
+        requirement with no number has nothing to compare and matching it would
+        produce a finding whose verdict could only be "unknown";
+      * only facts with a numeric value. A categorical fact ("yes", "N/A")
+        never matches here, and that single rule is what keeps SAES-W-010's
+        PWHT clause away from a field called `insulation` - the word is shared,
+        the quantity is not.
+
+    A TIE IS NOT RESOLVED BY PICKING. Several fields can be contained in one
+    long subject; the longest field name wins because it is the most specific,
+    and a genuine tie returns no match with the candidates named. Choosing
+    arbitrarily would attach a real number to the wrong requirement and there
+    would be nothing on the finding to say it was a guess.
+
+    Returns `{"fact": ..., "matched_phrase": ..., "method": ...}` or
+    `{"fact": None, "reason": ..., "candidates": [...]}`.
+    """
+    none: dict = {"fact": None, "matched_phrase": None, "method": None,
+                  "reason": None, "candidates": []}
+    if requirement.get("requirement_type") != "numeric_limit":
+        return none
+    # THE TEST IS THE RAW NUMBER, NOT THE NORMALISED ONE.
+    #
+    # `value` is NULL for every unit `claims` recognises but does not convert -
+    # dB(A) among them, which is the product's own worked example. Scoping on
+    # it would have excluded the flagship comparison from matching at all,
+    # while looking like a tightening. Two values in the same unit compare
+    # perfectly well without a conversion, and `compare` already refuses the
+    # pairs that cannot.
+    if requirement.get("raw_value") in (None, ""):
+        return none
+    subject = _normalise_for_match(requirement.get("subject"))
+    if not subject:
+        return none
+
+    hits: list[dict] = []
+    for fact in facts:
+        if fact.get("raw_value") in (None, ""):
+            continue          # categorical or blank: never matched in this pass
+        name = _normalise_for_match(fact.get("field_name"))
+        if len(name) < 4:
+            # A one- or two-word fragment is contained in half of everything.
+            continue
+        if _contains_words(subject, name):
+            hits.append({"fact": fact, "name": name})
+    if not hits:
+        return none
+
+    longest = max(len(h["name"]) for h in hits)
+    best = [h for h in hits if len(h["name"]) == longest]
+    if len(best) > 1:
+        return {**none, "reason": AMBIGUOUS_MATCH,
+                "candidates": sorted(h["name"] for h in best)}
+    return {"fact": best[0]["fact"], "matched_phrase": best[0]["name"],
+            "method": METHOD_CONTAINMENT, "reason": None, "candidates": []}
+
+
+def _normalise_for_match(text: str | None) -> str:
+    """Lowercased, punctuation to spaces, whitespace collapsed.
+
+    The SAME shape on both sides, which is the only reason a comparison between
+    them means anything: `datasheets.normalise_field_name` already does this to
+    a field label, and a subject that kept its commas would never contain one.
+    """
+    folded = re.sub(r"[^\w\s]", " ", (text or "").lower())
+    return re.sub(r"\s+", " ", folded).strip()
+
+
+def _contains_words(haystack: str, needle: str) -> bool:
+    """Is `needle` a whole-word sequence inside `haystack`?"""
+    if not needle:
+        return False
+    return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack) is not None
 
 
 def _match_fact(requirement: dict, by_field: dict) -> dict | None:

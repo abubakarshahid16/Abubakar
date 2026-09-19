@@ -166,6 +166,16 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     # and `NPS` in particular is a DESIGNATION rather than a measurement - NPS 2
     # is not two of anything - so it must never acquire a conversion.
     "nps": None, "wt%": None, "ppmw": None, "m3/hr": None, "m3/h": None,
+    # Measured as printed beside a value on a real sheet and absent here, so
+    # the row was read and its unit thrown away. `kg` and `kn` were already
+    # present; these are the rest.
+    #
+    # `years` is a DURATION and deliberately not folded into the `time`
+    # dimension: that dimension converts to hours, and a design life of 25
+    # years becoming 219,000 h would be arithmetically true and useless - it
+    # would then compare against a 24 h hold time.
+    "year": None, "years": None, "tonne": None, "tonnes": None, "te": None,
+    "m3": None, "m2": None,
     "psig": "pressure", "barg": "pressure", "mbar": "pressure",
     "s": "time", "sec": "time", "secs": "time", "second": "time", "seconds": "time",
     "d": "time", "day": "time", "days": "time",

@@ -132,6 +132,18 @@ def ensure_schema() -> None:
             "standard_page": "INTEGER",
             "requirement_source_text": "TEXT",
             "ai_rationale": "TEXT",
+            # HOW THE REQUIREMENT AND THE VALUE WERE PAIRED, on the finding
+            # itself. A finding says a contractor's number does or does not
+            # meet a clause; if the pairing was wrong, the finding is wrong,
+            # and a reader has to be able to see WHICH field was matched and by
+            # WHAT RULE without re-running anything.
+            #
+            # `unresolved_evidence` already exists for a citation that does not
+            # resolve; this is the sibling fact for a match that did.
+            "requirement_id": "TEXT",
+            "fact_id": "TEXT",
+            "matched_phrase": "TEXT",
+            "match_method": "TEXT",
         }.items():
             if name not in columns:
                 conn.execute(f"ALTER TABLE review_findings ADD COLUMN {name} {definition}")

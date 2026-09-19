@@ -150,6 +150,22 @@ _CATEGORICAL_VALUES = frozenset({
 })
 
 
+#: A date, in the spellings a document actually writes one.
+#:
+#: A DATE IS NOT A QUANTITY, and `2024.08.27` parses as one: the value pattern
+#: reads digits and dots, so a signature block's timestamp became a numeric
+#: fact whose field was the signatory's name. Nothing downstream can tell that
+#: from a measurement - it has a number and no unit, exactly like a specific
+#: gravity.
+_DATE_VALUE = re.compile(
+    r"^\s*(?:\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}|\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4})\s*$")
+
+
+def is_date_value(value: str | None) -> bool:
+    """True when the cell is a date rather than a measurement."""
+    return bool(_DATE_VALUE.match(value or ""))
+
+
 def is_categorical_value(value: str | None) -> bool:
     """True when a non-numeric value is still a real answer.
 
@@ -319,6 +335,22 @@ _NUMERIC_CELL = re.compile(r"^\s*[<>=~±]{0,2}\s*[-+]?\d[\d,]*(?:\.\d+)?\s*$")
 _LABEL_TAIL = re.compile(r"^(?P<label>.+?)\s*[\(\[]\s*(?P<tail>[^()\[\]]{1,14})\s*[\)\]]\s*$")
 
 
+def _unit_follows(parts: list[str], index: int) -> bool:
+    """Is the cell at `index` a bare unit token?
+
+    The discriminator between a VALUE and this form's own line numbers: a line
+    number is never followed by a unit, and a measurement in a three-column row
+    always is.
+    """
+    if index >= len(parts):
+        return False
+    candidate = (parts[index] or "").strip()
+    if not candidate or len(candidate) > 14:
+        return False
+    base, _reference = claims.split_reference(candidate)
+    return claims.is_unit(base or "")
+
+
 def _is_numeric_cell(text: str) -> bool:
     return bool(_NUMERIC_CELL.match(text or ""))
 
@@ -367,9 +399,17 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
             continue
         label = part
         value = parts[index + 1] if index + 1 < len(parts) else ""
-        if re.fullmatch(r"\d{1,3}", value):
+        if re.fullmatch(r"\d{1,3}", value) and not _unit_follows(parts, index + 2):
             # The next cell is the NEXT pair's line number, so this label has
             # no value on the sheet - which is a blank, not a missing row.
+            #
+            # UNLESS A UNIT FOLLOWS IT. A small integer is exactly what this
+            # form's line numbers look like AND exactly what a temperature in
+            # °C, a wall thickness in mm or a design life in years looks like.
+            # Discarding every one of them as a line number threw away most of
+            # the numeric rows on a page: measured at 4 facts recovered from 15
+            # numeric rows. A unit in the next cell is what tells the two
+            # apart, because a line number is never followed by one.
             value = ""
             index += 1
         else:
@@ -723,6 +763,11 @@ def extract_facts(
             # cell beside a label is a pairing artefact of a two-column
             # form, not a statement by the document, and recording it
             # manufactures findings against a vendor who was never asked.
+            if is_date_value(value):
+                # A timestamp is not a measurement. Left here rather than in
+                # `measure_value` so the cell still reads as what it is
+                # everywhere else; it is only as a FACT that it is wrong.
+                continue
             if parsed_value is None and marker in (None, "empty")                     and not is_categorical_value(value):
                 # A LABEL WITH FREE TEXT BESIDE IT IS NOT A FACT. "Prepared by:
                 # A. Engineer" and "Facility: Al Khafji" have exactly the shape
