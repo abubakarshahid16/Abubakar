@@ -29,6 +29,7 @@ import type {
   LoadFailure,
 } from "../types/admin";
 import { AdminView } from "./AdminView";
+import { DatabaseSection } from "./admin/DatabaseSection";
 
 const BASE = "/api";
 const GATEWAY_STATUSES = new Set([502, 503, 504]);
@@ -111,6 +112,17 @@ export function makeAdminClient(token: () => string | null): AdminClient {
     // cannot double-grant and revoking something already revoked is not an error.
     grant: (body) => adminRequest("/admin/grants", token(), { method: "PUT", ...json(body) }),
     revoke: (body) => adminRequest("/admin/grants", token(), { method: "DELETE", ...json(body) }),
+    // The explorer: three GETs, no write. Masking of credential-shaped
+    // columns happens on the SERVER, before the value reaches this fetch.
+    dbTables: () => adminRequest("/admin/db/tables", token()),
+    dbTable: (name) =>
+      adminRequest(`/admin/db/tables/${encodeURIComponent(name)}`, token()),
+    dbRows: (name, limit, offset) =>
+      adminRequest(
+        `/admin/db/tables/${encodeURIComponent(name)}/rows`
+        + `?limit=${limit}&offset=${offset}`,
+        token(),
+      ),
   };
 }
 
@@ -269,6 +281,7 @@ export function AdminScreen({
       onRevoke={(body) => void changeGrant(body, false)}
       onRetry={() => void load()}
       busyKey={busyKey}
+      databaseSection={<DatabaseSection client={api} />}
     />
   );
 }

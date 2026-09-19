@@ -1094,7 +1094,7 @@ def list_standards(*, allowed_document_ids: frozenset[str],
     sql = (
         "SELECT d.id, d.filename, d.status, d.page_count, d.uploaded_at,"
         "       c.title, c.document_number, c.revision, c.effective_date,"
-        "       c.discipline, c.superseded_by,"
+        "       c.discipline, c.discipline_canonical, c.superseded_by,"
         "       (SELECT COUNT(*) FROM standard_requirements r"
         "         WHERE r.standard_document_id = d.id) AS requirement_count,"
         "       (SELECT COUNT(*) FROM standard_requirements r"

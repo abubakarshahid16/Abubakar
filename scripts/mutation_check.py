@@ -2813,6 +2813,69 @@ ADMIN_EXPLORER = (
 )
 
 
+#: The discipline overlay: one canonical value, the raw one kept intact.
+DISCIPLINE_CANONICAL = (
+    Mutation(
+        id="M232", phase=21,
+        description="NULL an unmapped spelling instead of copying it through, "
+                    "turning 'nobody reviewed this' into 'has no discipline'",
+        path=APP / "disciplines.py",
+        anchor="    return aliases().get(text, text)",
+        replacement="    return aliases().get(text)",
+        target="tests/test_discipline_canonical.py",
+        keyword="absent_from_the_mapping_copies_through or "
+                "unmapped_spelling_survives_the_backfill",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M233", phase=21,
+        description="OVERWRITE THE RAW SPELLING with the canonical one, "
+                    "destroying the only record of what the document said",
+        path=APP / "disciplines.py",
+        anchor='                "UPDATE document_classification SET discipline_canonical = ?"\n'
+               '                " WHERE document_id = ?", (value, row["document_id"]))',
+        replacement='                "UPDATE document_classification SET discipline_canonical = ?,"\n'
+                    '                " discipline = ? WHERE document_id = ?",\n'
+                    '                (value, value, row["document_id"]))',
+        target="tests/test_discipline_canonical.py",
+        keyword="leaves_raw_BYTE_UNTOUCHED or "
+                "two_spellings_become_one_value",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M234", phase=21,
+        description="filter on the RAW column again, so the same question "
+                    "asked two ways gets two different answers",
+        path=APP / "classification.py",
+        anchor='            f"COALESCE(c.discipline_canonical, c.discipline) IN ({marks})")',
+        replacement='            f"c.discipline IN ({marks})")',
+        target="tests/test_discipline_canonical.py",
+        keyword="finds_both_spellings_whichever_one_is_asked_for",
+    ),
+    Mutation(
+        id="M235", phase=21,
+        description="stop canonicalising the REQUESTED value, so an alias "
+                    "spelling in the query matches nothing at all",
+        path=APP / "classification.py",
+        anchor="        wantedcanon = [disciplines_mod.canonical(d) or d\n"
+               "                       for d in wanted.disciplines]",
+        replacement="        wantedcanon = list(wanted.disciplines)",
+        target="tests/test_discipline_canonical.py",
+        keyword="finds_both_spellings_whichever_one_is_asked_for",
+    ),
+    Mutation(
+        id="M236", phase=21,
+        description="drop the COALESCE, so a row written before the column "
+                    "existed vanishes from every filtered result",
+        path=APP / "classification.py",
+        anchor='            f"COALESCE(c.discipline_canonical, c.discipline) IN ({marks})")',
+        replacement='            f"c.discipline_canonical IN ({marks})")',
+        target="tests/test_discipline_canonical.py",
+        keyword="written_before_the_column_existed_is_still_findable",
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -2820,6 +2883,7 @@ ALL: tuple[Mutation, ...] = (
     + MODEL_TIER + GATE_FALLOUT + REPEATED_FORM
     + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
+    + DISCIPLINE_CANONICAL
 )
 
 

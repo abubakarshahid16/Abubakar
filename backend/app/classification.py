@@ -57,6 +57,7 @@ from typing import get_args
 
 from . import access
 from . import schemas
+from . import disciplines as disciplines_mod
 from .db import connect
 
 # ------------------------------------------------------------------- types
@@ -360,13 +361,20 @@ def write_suggestion(document_id: str, suggestion: Suggestion, *,
             return          # confirmed: a suggestion does not overwrite it
         conn.execute(
             "INSERT INTO document_classification (document_id, doc_type,"
-            " discipline, doc_class, register_id, suggested_by, confirmed_by,"
-            " confirmed_at) VALUES (?,?,?,?,?,?,NULL,NULL)"
+            " discipline, discipline_canonical, doc_class, register_id,"
+            " suggested_by, confirmed_by, confirmed_at)"
+            " VALUES (?,?,?,?,?,?,NULL,NULL)"
             " ON CONFLICT(document_id) DO UPDATE SET"
             " doc_type=excluded.doc_type, discipline=excluded.discipline,"
+            " discipline_canonical=excluded.discipline_canonical,"
             " doc_class=excluded.doc_class, register_id=excluded.register_id,"
             " suggested_by=excluded.suggested_by",
+            # BOTH, ALWAYS, AND DERIVED HERE. The canonical value is computed
+            # at the write rather than by a nightly job, so the two columns
+            # cannot drift: there is no window in which a row has a raw value
+            # and a stale canonical one.
             (document_id, suggestion.doc_type, suggestion.discipline,
+             disciplines_mod.canonical(suggestion.discipline),
              suggestion.doc_class, suggestion.register_id, suggested_by))
         conn.execute(
             "DELETE FROM document_subjects WHERE document_id = ?"
@@ -547,13 +555,16 @@ def confirm(document_id: str, *, doc_type: str | None,
     with conn:
         conn.execute(
             "INSERT INTO document_classification (document_id, doc_type,"
-            " discipline, doc_class, register_id, suggested_by, confirmed_by,"
-            " confirmed_at) VALUES (?,?,?,?,NULL,?,?,?)"
+            " discipline, discipline_canonical, doc_class, register_id,"
+            " suggested_by, confirmed_by, confirmed_at)"
+            " VALUES (?,?,?,?,?,NULL,?,?,?)"
             " ON CONFLICT(document_id) DO UPDATE SET"
             " doc_type=excluded.doc_type, discipline=excluded.discipline,"
+            " discipline_canonical=excluded.discipline_canonical,"
             " doc_class=excluded.doc_class, confirmed_by=excluded.confirmed_by,"
             " confirmed_at=excluded.confirmed_at",
-            (document_id, doc_type, discipline, doc_class, SOURCE_NONE,
+            (document_id, doc_type, discipline,
+             disciplines_mod.canonical(discipline), doc_class, SOURCE_NONE,
              confirmed_by, now))
         if metadata is not None:
             # Built from METADATA_FIELDS rather than spelled out, so a column
@@ -673,9 +684,21 @@ def narrow_to_scope(
         clauses.append(f"c.doc_type IN ({marks})")
         params.extend(wanted.types)
     if wanted.disciplines:
-        marks = ",".join("?" * len(wanted.disciplines))
-        clauses.append(f"c.discipline IN ({marks})")
-        params.extend(wanted.disciplines)
+        # FILTERED ON THE CANONICAL VALUE, and the REQUESTED values are
+        # canonicalised too. A caller asking for "Non-metallic Standards
+        # Committee" and a caller asking for "Nonmetallic Standards Committee"
+        # are asking the same question, and before this they got different
+        # answers depending on which spelling their document happened to use.
+        # COALESCE because a row written before the column existed has NULL
+        # there until the startup backfill runs; falling back to the raw value
+        # means such a row is still findable by its own spelling rather than
+        # silently dropping out of every filtered result.
+        wantedcanon = [disciplines_mod.canonical(d) or d
+                       for d in wanted.disciplines]
+        marks = ",".join("?" * len(wantedcanon))
+        clauses.append(
+            f"COALESCE(c.discipline_canonical, c.discipline) IN ({marks})")
+        params.extend(wantedcanon)
     # The phase 2 axes. Each is ANDed with the others - selecting a role and a
     # discipline means "documents that are both", never "either". An OR here
     # would widen a filter the more the caller narrowed it, which is the one

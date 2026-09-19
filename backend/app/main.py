@@ -13,6 +13,7 @@ from . import chunker as chunk_mod
 from . import applicability as applicability_mod
 from . import comparison as comparison_mod
 from . import datasheets as datasheets_mod
+from . import disciplines as disciplines_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import highlight as highlight_mod
@@ -96,6 +97,21 @@ async def lifespan(app: FastAPI):
     deliverables_mod.ensure_schema()
     risks_mod.ensure_schema()
     submittal_review_mod.ensure_schema()
+    # THE DISCIPLINE OVERLAY. `discipline_canonical` is derived from the raw
+    # value at every write, so this backfill exists only for rows written
+    # before the column did. It is idempotent - it recomputes from `discipline`
+    # rather than from the previous canonical - and it never touches the raw
+    # column, which is the document's own evidence.
+    try:
+        disciplines_mod.backfill()
+    except Exception:  # noqa: BLE001 - an overlay that fails must not stop boot
+        # Imported here, the way `_log_match_tier` above does it: this module
+        # has no module-level `logging`, and the CI gate (F821) is what caught
+        # the version of this line that assumed otherwise.
+        import logging as _logging
+
+        _logging.getLogger("uvicorn.error").exception(
+            "discipline canonicalisation backfill failed")
     # A STRUCTURAL MIGRATION, ONCE, AT A MOMENT SOMEBODY CHOSE. It rebuilds
     # submittal_facts so `review_run_id` is nullable and facts are per
     # document. It used to sit inside `ensure_schema`, which every read path

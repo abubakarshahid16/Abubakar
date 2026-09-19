@@ -25,7 +25,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, admin, auth, db
+from app import access, auth, db
 from app.config import settings
 from app.main import app
 

@@ -335,6 +335,9 @@ export interface AdminViewProps {
   onRetry: () => void;
   /** A row-level action in flight, so the row it belongs to can say so. */
   busyKey: string | null;
+  /** The read-only Database section, passed in already built so this view
+   *  keeps no transport of its own. Absent in tests that do not care. */
+  databaseSection?: React.ReactNode;
 }
 
 export function AdminView(props: AdminViewProps) {
@@ -642,6 +645,8 @@ export function AdminView(props: AdminViewProps) {
           </ul>
         )}
       </section>
+
+      {props.databaseSection}
 
       <p className="text-xs text-slateish-400">
         Reset tokens are shown once and expire after 24 hours. The user enters the token on the sign-in screen.

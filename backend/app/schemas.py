@@ -380,7 +380,13 @@ class StandardSummary(BaseModel):
     document_number: str | None = None
     revision: str | None = None
     effective_date: str | None = None
+    #: WHAT THE STANDARD'S OWN COVER PAGE SAYS. Evidence, never rewritten.
     discipline: str | None = None
+    #: The editorial answer to "are these two the same discipline", derived
+    #: from `discipline` and stored beside it. A screen shows this one and
+    #: keeps the raw spelling in a tooltip when the two differ - an unmapped
+    #: value is simply equal to the raw one, so there is nothing to show.
+    discipline_canonical: str | None = None
     superseded_by: str | None = None
     superseded: bool = Field(
         description="excluded from SELECTION for new reviews, and still fully "

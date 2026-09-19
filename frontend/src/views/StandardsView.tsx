@@ -133,8 +133,25 @@ function StandardRow({
             Active
           </span>
         )}
-        {standard.discipline && (
-          <span className="rounded bg-white/5 px-2 py-0.5 text-xs">{standard.discipline}</span>
+        {/* THE CANONICAL SPELLING, WITH THE DOCUMENT'S OWN IN THE TOOLTIP.
+            "Non-metallic" and "Nonmetallic" are one discipline written two
+            ways, and a library that lists both teaches a reader they are two.
+            The raw value is still reachable, because it is what the cover
+            page actually says - and the tooltip appears ONLY when the two
+            differ, so an unmapped value carries no pointless hover. */}
+        {(standard.discipline_canonical || standard.discipline) && (
+          <span
+            className="rounded bg-white/5 px-2 py-0.5 text-xs"
+            title={
+              standard.discipline
+              && standard.discipline_canonical
+              && standard.discipline !== standard.discipline_canonical
+                ? `the document says "${standard.discipline}"`
+                : undefined
+            }
+          >
+            {standard.discipline_canonical || standard.discipline}
+          </span>
         )}
       </div>
       {standard.title && <p className="mt-1 text-xs opacity-80">{standard.title}</p>}

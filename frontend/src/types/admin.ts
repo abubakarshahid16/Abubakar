@@ -131,6 +131,47 @@ export type AdminResult<T> =
  * without a fetch mock and so the real implementation can move into
  * api/client.ts (where the bearer token lives) without touching the screen.
  */
+// ------------------------------------------ the read-only database explorer
+//
+// A WINDOW, NOT A WORKBENCH. There is no write shape anywhere in this block,
+// deliberately: a screen built against these types cannot discover an edit
+// path, because none is described.
+
+export interface DbTable {
+  name: string;
+  row_count: number;
+}
+
+export interface DbColumn {
+  name: string;
+  type?: string | null;
+  notnull?: boolean;
+  pk?: boolean;
+  /** The column's NAME says it holds credential material, so its values
+   *  arrive masked. The column itself is still listed - hiding it would
+   *  misreport the shape of the table. */
+  sensitive?: boolean;
+}
+
+export interface DbTableInfo {
+  name: string;
+  columns: DbColumn[];
+  row_count: number;
+}
+
+export interface DbRows {
+  name: string;
+  columns: string[];
+  /** Values as stored, except credential-shaped columns, which the SERVER
+   *  replaced before they reached the wire. Never masked here. */
+  rows: unknown[][];
+  offset: number;
+  limit: number;
+  /** The whole table. Without it a page implies completeness it lacks. */
+  total: number;
+  masked_columns?: string[];
+}
+
 export interface AdminClient {
   users(): Promise<AdminResult<AdminUserList>>;
   createUser(body: CreateUserRequest): Promise<AdminResult<CreatedUser>>;
@@ -140,6 +181,11 @@ export interface AdminClient {
   grants(): Promise<AdminResult<AdminGrantList>>;
   grant(body: GrantRequest): Promise<AdminResult<GrantResult>>;
   revoke(body: GrantRequest): Promise<AdminResult<GrantResult>>;
+  /** Three reads and no write. Optional so an injected test double may omit
+   *  them, exactly as `issuePasswordReset` above already is. */
+  dbTables?(): Promise<AdminResult<{ tables: DbTable[] }>>;
+  dbTable?(name: string): Promise<AdminResult<DbTableInfo>>;
+  dbRows?(name: string, limit: number, offset: number): Promise<AdminResult<DbRows>>;
 }
 
 /**

@@ -176,7 +176,12 @@ export interface StandardSummary {
   document_number: string | null;
   revision: string | null;
   effective_date: string | null;
+  /** What the standard's own cover page says. Evidence, never rewritten. */
   discipline: string | null;
+  /** The canonical spelling, derived from `discipline`. A screen shows this
+   *  and keeps the raw one in a tooltip WHEN THEY DIFFER; an unmapped value
+   *  equals the raw one, so there is nothing to show. */
+  discipline_canonical?: string | null;
   superseded_by: string | null;
   /** Excluded from SELECTION for new reviews, and still fully readable and
    *  citable. Two different questions. */
