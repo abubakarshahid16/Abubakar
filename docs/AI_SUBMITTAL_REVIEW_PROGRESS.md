@@ -2405,3 +2405,296 @@ entirely.
    were the verification's, not an engineer's - and the AI recommendations
    were never touched: 10 intact, 0 decisions remaining.
 5. **No CRS export yet.** That is phase 7.
+
+---
+
+# Phase 7 — CRS export
+
+Date: 2026-09-19 · Branch: `feat/phase-1-ui-reaches-backend` · Python 3.12.10
+
+The engine had been producing findings that could only be read on a screen.
+A CRS is what actually leaves the building: the document a contractor receives
+and answers. Merged from `cowork/phase-7-crs-export`, then wired.
+
+## 91. Scanning a branch the pre-commit hook never saw
+
+Cowork commits from a Linux VM where the hook cannot run, so the hook's checks
+were applied here before the merge, plus the project's full lint ruleset:
+
+| check | result |
+|---|---|
+| gitleaks over the range, `.gitleaks.toml` | no leaks found (3 commits, 13.36 KB) |
+| forbidden file types / `.env` | none |
+| ruff, CI gate `E9,F63,F7,F82` | all checks passed |
+| ruff, the full `ruff.toml` ruleset | all checks passed |
+| its own 18 tests, project venv | 18 passed |
+
+**ONE FINDING: `openpyxl` was undeclared.** `crs_export.py` imports it and
+`backend/requirements.txt` did not list it, so the tests failed at COLLECTION
+here - `ModuleNotFoundError`. They passed on the VM only because the package
+happened to be in that venv. Pinned with `et-xmlfile`.
+
+That mattered more than a usual missing pin. This machine is destined to be
+air-gapped, and the requirements file's own comments on `argon2-cffi` and
+`huggingface_hub` say exactly why: a dependency living only in somebody's venv
+is a feature that does not exist on a fresh clone, and the discovery happens
+at setup time on a machine that can no longer reach PyPI.
+
+## 92. The lesson, made mechanical
+
+Reading an import list by eye is how `openpyxl` was missed. Phase 8's merge
+used a probe instead: it resolves every import to the DISTRIBUTION that
+provides it - an import name is not a requirements name (`et-xmlfile` ->
+`et_xmlfile`, `opencv-python` -> `cv2`) - and compares against
+requirements.txt.
+
+It reported ZERO imports for `admin_explorer.py`, which is a suspicious
+result, so it was validated against `crs_export.py` first, where it correctly
+finds openpyxl. The zero was real. **A check that can run against zero inputs
+must be shown to run against more than zero** (standing rule 14), and that
+applies to a check written to enforce a different rule.
+
+## 93. The endpoint, and what its meta is allowed to say
+
+`GET /api/reviews/runs/{id}/crs`, scoped exactly like the findings themselves.
+READ ACCESS SUFFICES, and that is a decision: exporting writes nothing,
+changes no run and records no judgement, so it asks only whether the caller
+may read the submittal. A run they may not read is 404, indistinguishable
+from one that is not there. `test_the_export_writes_nothing` asserts that on
+the row rather than on the verb.
+
+Every meta field is real data or BLANK:
+
+| field | value |
+|---|---|
+| `document_title` | the submittal's own filename |
+| `date_issued` | the export date - the only date this system knows |
+| `company_transmittal` | **blank.** Nobody has issued one |
+| `contractor_transmittal` | **blank.** The contractor has not responded |
+| `recommended_code` + reason | the run's, verbatim, never re-worded |
+
+A blank transmittal number renders as NOTHING rather than a plausible
+placeholder. A CRS carrying an invented transmittal number is a document that
+lies about its own provenance to whoever receives it, and mutation M240 puts
+one there to prove the test notices.
+
+When an engineer has signed a final code, THAT is what the file carries, with
+their override reason - the CRS is what the contractor sees, and by then the
+question has been answered.
+
+## 94. Verified by opening the file, not by trusting the route
+
+Exported from the real drum run (`run_1c201ddaee21`, 1,580 findings) and read
+back with openpyxl:
+
+- **2 rows** for the two findings that need a person, each with its citation
+  (`SAES-D-001.pdf clause 6.2.2 p14 / submittal p4`) and a comment carrying
+  the requirement, the submitted value (`2.2 bar (ga)`) and the rationale
+  (`unit_mismatch: the requirement is in kPa and the submitted value is in
+  bar (ga); these are not the same quantity and were not compared`)
+- **15 rows**, one per cited-and-missing standard, including `32-SAMSS-004`
+- **contractor columns empty throughout** - they belong to the contractor,
+  and pre-filling them would put words in their mouth
+- **the code row**, with its reason verbatim
+- 1,578 MISSING_INFORMATION findings produced **no rows at all**: a thousand
+  lines of "no evidence" is noise, and section 13 covers the gap through the
+  reference rows instead
+
+**ONE DEFECT, FOUND ONLY BY READING THE FILE.** The reference rows said
+`32SAMSS004`. `normalise_identifier` strips punctuation so that "32-SAMSS-004"
+and "32 SAMSS 004" are one identifier - correct for MATCHING, and wrong for a
+document a contractor reads. The key now deduplicates and the submittal's own
+spelling is printed. Fifteen identifiers, all restored: `01-SAMSS-016`,
+`ASME B16.21`, `ASME Sec VIII Div.1`, `NACE MR0175`, `SAES-W-016`.
+
+That defect was invisible to every test that asserted on rows and counts. It
+was visible in one glance at the sheet.
+
+## 95. The button, and the header a link cannot send
+
+`<a href>` cannot carry the bearer token - the same constraint
+`useAuthedImage` exists for - so the file is fetched with the header and
+handed to the browser as a blob. The filename comes from the server's
+`Content-Disposition`, so one definition of "what is this file called" exists
+rather than two that can disagree. Verified by driving the real button in a
+real browser: `CRS_216400C-2003-SP-0810-0003_00_2026-09-19.xlsx`, 18 data
+rows, opened and checked.
+
+## 96. Mutations - M237-M241, phase 22
+
+Export an unreadable run; drop the gap rows so an empty sheet reads "nothing
+to report"; print the normalised key; invent a transmittal number; write the
+standard's id instead of its filename.
+
+**M241 reported NOT DETECTED first.** The fixture never inserted the standard
+document, so `standard_name` resolved to None whether the route looked it up
+or not, and the assertion passed against a route that never tried. The test
+was vacuous for that property. Fixed by inserting a real standard and
+asserting its filename appears and its id does not.
+
+---
+
+# Phase 8 — The admin database explorer, and the discipline aliases
+
+Date: 2026-09-19 · Branch: `feat/phase-1-ui-reaches-backend` · Python 3.12.10
+
+## 97. The explorer: a window, not a workbench
+
+Three GETs and nothing else. No POST, no PATCH, no DELETE, and no request
+model anywhere that accepts a value to store, so no screen built against
+these types can discover an edit path that does not exist. An explorer that
+could write would be a second, unaudited path into every table the real
+endpoints guard with scope checks and honesty invariants.
+
+The UI claim is ASSERTED, not stated. A test sweeps the rendered DOM for any
+input, textarea, select, form, contenteditable, or any button that is not one
+of the four this screen is allowed to have. It fails on a DISABLED Save too -
+a disabled control tells a reader the capability exists and that they lack
+permission, which is a false claim about what this screen is.
+
+Paging reads `rows 26-50 of 274`, never "page 2". A page number is a fact
+about the pager; the range and the total are facts about the data, and only
+the second pair tells a reader whether they are looking at all of it.
+
+## 98. The gate, and standing rule 15 applied on purpose
+
+Every route depends on `admin.current_admin`, which answers a non-admin with
+404 rather than 403 - a 403 confirms the route exists, and this surface names
+every table in the system.
+
+Rule 15 was written in phase 6 after an admin-gated route shipped that no
+engineer could use. It is the reason the tests here look the way they do:
+each route is probed by a REAL non-admin holding a REAL token under
+`demo_required`, which is the only arrangement that can see the gate at all -
+the suite pins `AUTH_MODE=disabled`, where `current_admin` waves an ANONYMOUS
+caller straight through. Each route is probed three ways - non-admin,
+unauthenticated, real admin - because a route that 404s at EVERYONE would
+pass the first two while not existing.
+
+## 99. Masking: a rule on names, not a list of tables
+
+A hardcoded table list is a claim about today's schema, and the next
+migration that puts a `password_hash` somewhere new is what breaks it
+silently. Any column whose lowercased name contains `password`, `hash`,
+`secret`, `token` or `api_key` has its VALUE replaced with the mask; the
+column NAME is never hidden, because dropping it would make the explorer
+misreport the shape of the table.
+
+Masking happens in `admin_explorer.read_rows`, before the value reaches the
+wire. Masking in the UI would be decoration over a disclosure that a
+browser's network tab renders perfectly well.
+
+Three judgements, written into the code rather than left implicit:
+
+1. **`token_count` is a LENGTH, not a credential**, and is exempt BY EXACT
+   NAME. A mask nobody believes is not a control. The exemption cannot
+   spread: `token_count_secret` is still masked.
+2. **A bare `sha256` is `documents.sha256`**, a content digest used to
+   deduplicate uploads, and is not credential material. `content_hash` WOULD
+   be masked, which is arguably the same kind of value - that is the cost of
+   a name rule, and it is the right way round. A false positive costs an
+   admin one unreadable value; a false negative puts a password digest on a
+   screen. `setup_token_sha256` is caught anyway, by "token".
+3. **`token_epoch` is masked**, and probably should not be: it is a token
+   invalidation counter, not a secret, and an admin debugging "why was this
+   user logged out" would want it. It is left masked rather than exempted,
+   because every name added to the exemption list is a hole, and this one
+   costs one integer. Recorded here so the next person can weigh it.
+
+A NULL stays NULL rather than becoming a mask: null renders as nothing, and a
+masked empty would claim a secret is stored where none is, which is itself a
+disclosure about the row.
+
+## 100. The discipline aliases, applied at last
+
+`discipline_aliases.json` sat generated-but-unapplied because collapsing
+spellings is an editorial decision a person makes. It has been made.
+
+`discipline_canonical` is a NEW column derived from `discipline`. The raw
+column is never written: it is what the standard's own cover page says, and
+this system does not rewrite evidence - the same rule that keeps an AI
+recommendation beside an engineer's final code. Normalising in place would
+have been irreversible; "Non-metallic" and "Nonmetallic" are
+indistinguishable once merged.
+
+Measured on the real corpus:
+
+| | |
+|---|---|
+| documents | 274 (272 COMPANY_STANDARD) |
+| rows carrying a discipline | 179 |
+| distinct RAW spellings | 52 |
+| distinct CANONICAL values | **46** |
+| documents whose display CHANGES | **14**, across 9 raw spellings |
+| raw values absent from the mapping | 0 |
+
+The nine merges: `Aviation Fuel Quality` (1) gains "Standards Committee";
+`Compressors, Gears, and...` (1) loses an Oxford comma; `Corrosion Control
+Standards MANAGEMENT Committee` (1); `Electrical Systems Designs &
+Automation Stds Committee` (1) and `...Designs and Automation Standards
+Committee` (5) both become `Electrical Systems Design and Automation
+Standards Committee`; `Engineering Data & Drawing Systems Stds. Committee`
+(1); `Gas Turbines and Diesel Engines STANDS Committee` (1); `Non-metallic`
+(2); `Onshore STRUCTURE` (1).
+
+A raw value absent from the mapping COPIES THROUGH UNCHANGED, never NULL. The
+mapping is an editorial overlay, not a whitelist: blanking an unreviewed
+spelling would turn "nobody has looked at this yet" into "this document has
+no discipline". There are none in this corpus today, and the rule is what
+makes the next unmapped spelling safe.
+
+The canonical value is computed AT EVERY WRITE rather than by a nightly job,
+so the two columns cannot drift. Selection filters on the canonical value AND
+canonicalises what was asked for, with COALESCE to the raw column so a row
+written before the backfill is still findable by its own spelling.
+
+**The UI and the database agreed independently:** 14 chips in the Standards
+Library carry the "the document says ..." tooltip, which is exactly the 14
+rows the backfill reported.
+
+## 101. THE SAME DEFECT, WRITTEN AGAIN ONE PHASE LATER
+
+Phase 6 recorded a missing `ShapeCheck` on `reviews.dashboard()`: an `ok`
+response of the wrong shape reached the cards, `.toLocaleString()` threw, and
+the WHOLE Dashboard went blank over one panel.
+
+`DatabaseSection` did `setTables(r.data.tables)` on any `ok` response. A body
+without a `tables` array put `undefined` into state, `.map` threw during
+render, and the WHOLE Administration page went blank over one section.
+
+Knowing it in phase 6 did not prevent it in phase 8, because the fix had been
+applied to one call site rather than turned into a habit. The section's own
+tests all passed - they mocked well-shaped responses. It was caught by
+`App.admin.test.tsx` going from green to a completely empty `<body>`.
+
+Recorded as honesty-audit entry 42, with the rule: **a `Result.ok` is a fact
+about the transport. Every place a response body becomes component state is a
+boundary, and every one of them needs the check - not just the one where it
+last went wrong.**
+
+Fixed at all three edges, with an unusable body rendering as a FAILURE rather
+than as "no tables" - the second would be a claim about the database.
+
+## 102. Two more defects the gates caught
+
+- **ruff's CI gate (F821)** caught `log.exception` in `lifespan`, where no
+  `log` is bound. `main.py` has no module-level `logging`; the line would
+  have raised at the exact moment a backfill failure needed reporting.
+- **The join broke eleven scope tests** the moment it was added. `users` has
+  both `id` and `created_at`, so `AND id = ?` and `ORDER BY created_at DESC,
+  id DESC` became `ambiguous column name`. Qualification with `r.` is not
+  style here; it is the difference between working and not.
+
+## 103. Mutations - 20 new across four phases
+
+| phase | ids | what they delete |
+|---|---|---|
+| 19 | M222-M224 | the decided-by name: drop it from the join, INNER-join the decider, stop putting it on the wire |
+| 20 | M225-M231 | the explorer: open the table list, open the row reader, stop masking, narrow the rule to equality, let the exemption match as a substring, mask a NULL, drop the column instead of masking it |
+| 21 | M232-M236 | the overlay: NULL an unmapped spelling, overwrite the raw column, filter on raw again, stop canonicalising the request, drop the COALESCE |
+| 22 | M237-M241 | the CRS: export an unreadable run, drop the gap rows, print the normalised key, invent a transmittal number, write the standard's id |
+
+Three needed fixing before they could report anything. M227, M228 and M231
+were HARNESS_ERROR because the harness takes ONE target path and had been
+given two space-separated ones, so pytest collected nothing - which the
+three-bucket verdict correctly refused to call a pass.
