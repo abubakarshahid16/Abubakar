@@ -56,7 +56,9 @@ export function isWorkbook(doc: Pick<DocumentRecord, "filename">): boolean {
  *  Python standard library, bounded, behind the same scope check as every
  *  other document read. */
 
-export function DocumentPreview({ doc }: { doc: DocumentRecord }) {
+export function DocumentPreview(
+  { doc, page }: { doc: DocumentRecord; page?: number | null },
+) {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [active, setActive] = useState(0);
   const workbook = useMemo(() => isWorkbook(doc), [doc]);
@@ -155,7 +157,15 @@ export function DocumentPreview({ doc }: { doc: DocumentRecord }) {
         // viewer, which is why "Download original" is not conditional on them.
         <iframe
           title={`Preview of ${doc.filename}`}
-          src={`${phase.url}#toolbar=0&navpanes=0&view=FitH`}
+          // THE CITED PAGE, WHEN THERE IS ONE. `#page=N` is the PDF open
+          // parameter every embedded viewer this project has met understands,
+          // and it goes FIRST because Chrome's viewer reads the fragment
+          // left to right. A finding that names page 30 and opens page 1
+          // makes the reader hunt for their own evidence.
+          //
+          // A hint, like the three beside it: a viewer that ignores it opens
+          // at page 1 and the page number is still printed beside the button.
+          src={`${phase.url}#${page ? `page=${page}&` : ""}toolbar=0&navpanes=0&view=FitH`}
           className="min-h-0 w-full flex-1 rounded border border-ink-700 bg-white"
         />
       )}

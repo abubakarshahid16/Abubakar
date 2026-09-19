@@ -308,6 +308,90 @@ export interface ReviewFinding {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // ------------------------------------- the compliance shape (phases 5A/5B)
+  //
+  // Every one is optional: a finding raised by hand through
+  // POST /api/reviews/findings has none of them and is still a finding.
+  review_run_id?: string | null;
+  compliance_status?: ComplianceStatus | null;
+  requirement_id?: string | null;
+  fact_id?: string | null;
+  /** The field name the matcher paired, verbatim from the datasheet. */
+  matched_phrase?: string | null;
+  /** `containment` or `model`. Rule and guess must not read alike. */
+  match_method?: string | null;
+  /** Why the engine decided what it did. Shown verbatim, never re-worded. */
+  ai_rationale?: string | null;
+  /** Which equipment the finding is about. Null renders as nothing. */
+  equipment_tag?: string | null;
+  confirmed_by?: string | null;
+  confirmed_at?: string | null;
+  standard_document_id?: string | null;
+  standard_clause?: string | null;
+  standard_page?: number | null;
+  requirement_source_text?: string | null;
+  contractor_page?: number | null;
+  contractor_section?: string | null;
+  contractor_evidence_text?: string | null;
+}
+
+export type ComplianceStatus =
+  | "COMPLIANT"
+  | "NON_COMPLIANT"
+  | "MISSING_INFORMATION"
+  | "CONDITIONAL"
+  | "NOT_APPLICABLE"
+  | "NEEDS_ENGINEER_REVIEW";
+
+/** One standard on a run's list, with the reason it is there, verbatim. */
+export interface ReviewRunStandard {
+  standard_document_id: string;
+  filename: string | null;
+  selection_method: string | null;
+  selection_reason: string | null;
+  confidence: number | null;
+  included: boolean;
+  exclusion_reason: string | null;
+}
+
+/**
+ * A review run as the runs list shows it.
+ *
+ * `by_status` is a map of status to count and `findings_total` is what they
+ * are out of. Both travel together so no screen has to invent a denominator.
+ */
+export interface ReviewRunSummary {
+  review_run_id: string;
+  submittal_document_id: string;
+  submittal_filename: string | null;
+  equipment_tags: string[];
+  status: string;
+  created_at: string | null;
+  completed_at: string | null;
+  standards_in_scope: number;
+  findings_total: number;
+  by_status: Partial<Record<ComplianceStatus, number>>;
+  recommended_code: string | null;
+  /** The recommendation's own words, including the nominal-estimate note. */
+  recommended_reason: string | null;
+  completeness: {
+    fields_read?: number;
+    fields_estimated?: number;
+    pages?: number;
+    extraction_coverage?: number | null;
+    completeness?: number | null;
+    sufficient?: boolean;
+  } | null;
+}
+
+export interface PairRejection {
+  requirement_key: string;
+  fact_key: string;
+  requirement_id: string | null;
+  fact_id: string | null;
+  rejected_by: string | null;
+  rejected_at: string;
+  reason: string | null;
 }
 
 export interface ReviewFindingEvent {

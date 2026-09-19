@@ -1848,6 +1848,17 @@ class ReviewFinding(BaseModel):
     #: own tag row. None where the sheet does not say - a datasheet covering
     #: four valves has pages that name none, and a null is the true answer.
     equipment_tag: str | None = None
+    #: THE CITATIONS, WHICH ARE THE FINDING'S EVIDENCE. §12 refuses a finding
+    #: unless both resolve, so a response that withheld them left the screen
+    #: showing a verdict with no way to check it - the Review page rendered an
+    #: empty Standard / clause column until these were added.
+    standard_document_id: str | None = None
+    standard_clause: str | None = None
+    standard_page: int | None = None
+    requirement_source_text: str | None = None
+    contractor_page: int | None = None
+    contractor_section: str | None = None
+    contractor_evidence_text: str | None = None
     #: WHO STOOD BEHIND THE PAIRING. A model-paired finding is a guess until an
     #: engineer says otherwise, and a confirmed finding is never deleted by a
     #: re-run. Both are visible here so a reader can tell a confirmed pairing
@@ -1874,6 +1885,64 @@ class PairRejection(BaseModel):
     rejected_by: str | None = None
     rejected_at: str
     reason: str | None = None
+
+
+class ReviewRunStandard(BaseModel):
+    """One standard on a run's list, with the reason it is there.
+
+    THE REASON IS VERBATIM. `applicability.select` writes a sentence saying
+    what put the standard on the list - a citation in the submittal, or dense
+    retrieval that "is NOT a citation and not evidence of applicability on its
+    own" - and the screen shows that sentence rather than a word of its own.
+    """
+
+    standard_document_id: str
+    filename: str | None = None
+    selection_method: str | None = None
+    selection_reason: str | None = None
+    confidence: float | None = None
+    included: bool = True
+    exclusion_reason: str | None = None
+
+
+class ReviewRunStandardList(BaseModel):
+    standards: list[ReviewRunStandard]
+
+
+class ReviewRunSummary(BaseModel):
+    """A review run as the runs list shows it.
+
+    EVERY COUNT CARRIES ITS DENOMINATOR (CLAUDE.md rule 4). `by_status` is a
+    map of status to count and `findings_total` is what they are out of, so no
+    screen has to invent the total by summing and no reader sees a bare number.
+    """
+
+    review_run_id: str
+    submittal_document_id: str
+    submittal_filename: str | None = None
+    #: Every distinct equipment tag the run's findings name, in order. Empty
+    #: when the datasheet states none - which renders as nothing, never as a
+    #: guess at what the equipment might be.
+    equipment_tags: list[str] = []
+    status: str
+    created_at: str | None = None
+    completed_at: str | None = None
+    standards_in_scope: int = 0
+    findings_total: int = 0
+    by_status: dict[str, int] = {}
+    recommended_code: str | None = None
+    #: The recommendation's own words. Never re-worded by a screen.
+    recommended_reason: str | None = None
+    completeness: dict | None = None
+
+
+class ReviewRunList(BaseModel):
+    runs: list[ReviewRunSummary]
+
+
+class ReviewRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    submittal_document_id: str
 
 
 class ReviewFindingList(BaseModel):

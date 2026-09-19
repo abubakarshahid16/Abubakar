@@ -1,3 +1,4 @@
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import chunker as chunk_mod
+from . import applicability as applicability_mod
 from . import comparison as comparison_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
@@ -1471,6 +1473,177 @@ def export_review_report(
     return FileResponse(path, media_type="application/pdf",
                         filename=f"engineering-review-{body.document_id}.pdf",
                         headers={"Cache-Control": "private, no-store"})
+
+@app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
+         responses=schemas.ERRORS_422)
+def list_review_runs(
+    request: Request,
+    document_id: str | None = Query(None, description="only this submittal's runs"),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Every review run over a submittal the caller may read.
+
+    The counts are computed here rather than on the screen so that one
+    definition of "how many findings, of what" exists. `findings_total` is the
+    denominator for `by_status`; a screen showing a status count without it
+    would be printing a percentage with no population (CLAUDE.md rule 4).
+    """
+    reject_unknown_params(request, {"document_id"})
+    if document_id is not None:
+        require_document(document_id, scope)
+    runs = submittal_review_mod.list_review_runs(
+        allowed_document_ids=scope.allowed_document_ids,
+        submittal_document_id=document_id)
+    out = []
+    for run in runs:
+        # COUNTED IN SQL. Loading every finding to count them read 1,580 rows
+        # per run - fourteen thousand across nine runs - to produce six
+        # numbers, and the list spent seconds on it before rendering. The run
+        # is already scoped by `list_review_runs` above, so these aggregates
+        # inherit that scope rather than re-deriving it.
+        by_status = {
+            row["compliance_status"]: row["n"]
+            for row in connect().execute(
+                "SELECT compliance_status, COUNT(*) AS n FROM review_findings"
+                " WHERE review_run_id = ? AND compliance_status IS NOT NULL"
+                " GROUP BY compliance_status", (run["id"],))
+        }
+        findings_total = connect().execute(
+            "SELECT COUNT(*) AS n FROM review_findings WHERE review_run_id = ?",
+            (run["id"],)).fetchone()["n"]
+        tags = [
+            row["equipment_tag"] for row in connect().execute(
+                "SELECT DISTINCT equipment_tag FROM review_findings"
+                " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
+                " ORDER BY equipment_tag", (run["id"],))
+        ]
+        outcome = comparison_mod.run_outcome(
+            run["id"], allowed_document_ids=scope.allowed_document_ids) or {}
+        document = connect().execute(
+            "SELECT filename FROM documents WHERE id = ?",
+            (run["submittal_document_id"],)).fetchone()
+        out.append({
+            "review_run_id": run["id"],
+            "submittal_document_id": run["submittal_document_id"],
+            "submittal_filename": document["filename"] if document else None,
+            "equipment_tags": tags,
+            "status": run.get("status") or "pending",
+            "created_at": run.get("created_at"),
+            "completed_at": run.get("completed_at"),
+            "standards_in_scope": connect().execute(
+                "SELECT COUNT(*) AS n FROM review_applicable_standards"
+                " WHERE review_run_id = ? AND included = 1",
+                (run["id"],)).fetchone()["n"],
+            "findings_total": findings_total,
+            "by_status": by_status,
+            "recommended_code": outcome.get("recommended_code"),
+            "recommended_reason": outcome.get("reason"),
+            "completeness": outcome.get("completeness"),
+        })
+    return {"runs": out}
+
+
+@app.get("/api/reviews/runs/{review_run_id}/standards",
+         response_model=schemas.ReviewRunStandardList,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_run_standards(
+    review_run_id: str,
+    request: Request,
+    include_excluded: bool = Query(False),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Which standards this run compared against, and WHY each one is there.
+
+    The reason and the method are passed through unchanged. A semantic match
+    says in its own words that it is not a citation, and a screen that
+    summarised that away would turn "something was retrieved" into "this
+    standard applies" - the substitution section 23 forbids.
+    """
+    reject_unknown_params(request, {"include_excluded"})
+    if submittal_review_mod.get_review_run(
+            review_run_id,
+            allowed_document_ids=scope.allowed_document_ids) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    rows = submittal_review_mod.list_applicable_standards(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids,
+        include_excluded=include_excluded)
+    out = []
+    for row in rows:
+        document = connect().execute(
+            "SELECT filename FROM documents WHERE id = ?",
+            (row["standard_document_id"],)).fetchone()
+        out.append({
+            "standard_document_id": row["standard_document_id"],
+            "filename": document["filename"] if document else None,
+            "selection_method": row.get("selection_method"),
+            "selection_reason": row.get("selection_reason"),
+            "confidence": row.get("confidence"),
+            "included": bool(row.get("included", 1)),
+            "exclusion_reason": row.get("exclusion_reason"),
+        })
+    return {"standards": out}
+
+
+@app.post("/api/reviews/run", response_model=schemas.ReviewRunSummary,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404,
+                     **schemas.ERRORS_422})
+def start_review_run(
+    body: schemas.ReviewRunRequest,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """Select the applicable standards and compare, for one submittal.
+
+    ADMIN-GATED, like queueing a standard for extraction: this writes findings
+    that an engineer will act on, and it re-runs the selection that decides
+    which standards were even considered.
+
+    ONE RUN AT A TIME PER DOCUMENT. A second concurrent run over the same
+    submittal would have both writing findings into the same table for the
+    same document, and `replace=True` deletes the other's work mid-flight. The
+    refusal names the run already going rather than silently queueing behind
+    it.
+    """
+    _require_identity_to_write(scope)
+    reject_unknown_params(request, set())
+    document_id = body.submittal_document_id
+    require_document(document_id, scope)
+    existing = [
+        run for run in submittal_review_mod.list_review_runs(
+            allowed_document_ids=scope.allowed_document_ids,
+            submittal_document_id=document_id)
+        if (run.get("status") or "") == "running"
+    ]
+    if existing:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER,
+            f"a review of this submittal is already running "
+            f"({existing[0]['id']})"))
+
+    run_id = submittal_review_mod.create_review_run(
+        submittal_document_id=document_id,
+        started_by=scope.user_id,
+        allowed_document_ids=scope.allowed_document_ids)
+    try:
+        applicability_mod.select(
+            document_id, allowed_document_ids=scope.allowed_document_ids,
+            review_run_id=run_id, persist=True)
+        comparison_mod.run_comparison(
+            run_id, allowed_document_ids=scope.allowed_document_ids)
+    except Exception as exc:  # noqa: BLE001 - recorded on the run, then shown
+        with connect() as conn:
+            conn.execute(
+                "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
+                " updated_at = ? WHERE id = ?",
+                (json.dumps({"error": str(exc)}), review_mod.now_iso(), run_id))
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, f"the review failed: {exc}")) from exc
+    return list_review_runs(
+        request=request, document_id=document_id, scope=scope,
+    )["runs"][0]
+
 
 @app.get("/api/reviews/findings", response_model=schemas.ReviewFindingList,
          responses=schemas.ERRORS_422)

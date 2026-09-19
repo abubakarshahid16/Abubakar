@@ -441,6 +441,42 @@ def ensure_schema() -> None:
             "ON review_applicable_standards(standard_document_id, included)")
 
 
+def create_review_run(
+    *, submittal_document_id: str, allowed_document_ids: frozenset[str],
+    started_by: str | None = None, template_id: str | None = None,
+) -> str:
+    """Open a review run over one submittal. Returns its id.
+
+    SCOPED LIKE EVERY OTHER PATH: a caller who may not read the submittal may
+    not start a review of it, and gets the same "no such document" a missing
+    one gives rather than a 403 that confirms it exists.
+
+    The run opens as `running` and `comparison._store_run_outcome` moves it to
+    `completed`. That is not bookkeeping: a process that dies mid-review
+    leaves the row saying `running`, which is what stops a second review being
+    started over the same document and is the honest description of what
+    happened.
+    """
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "id")
+    readable = connect().execute(
+        "SELECT id FROM documents" + where + " AND id = ?",
+        [*args, submittal_document_id]).fetchone()
+    if readable is None:
+        raise ValueError("no submittal with that id")
+    run_id = str(uuid.uuid4())
+    now = _now()
+    conn = connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, template_id,"
+            " status, started_by, started_at, created_at, updated_at)"
+            " VALUES (?,?,?,'running',?,?,?,?)",
+            (run_id, submittal_document_id, template_id, started_by, now,
+             now, now))
+    return run_id
+
+
 # ------------------------------------------------------------- read paths
 #
 # Each takes `allowed_document_ids` keyword-only with NO DEFAULT. Deleting the

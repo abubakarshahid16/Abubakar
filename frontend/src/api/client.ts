@@ -35,9 +35,12 @@ import type {
   Progress,
   MarketQueryRequest,
   Metrics,
+  PairRejection,
   ReportList,
   ReportRecord,
   ReportVerification,
+  ReviewRunStandard,
+  ReviewRunSummary,
   PagesResponse,
   ClassificationVocabulary,
   ClassificationCoverage,
@@ -294,10 +297,11 @@ export const reviews = {
     if (params?.active_only !== undefined) query.set("active_only", String(params.active_only));
     return request<{ templates: ReviewTemplate[] }>(`/reviews/templates${query.toString() ? `?${query.toString()}` : ""}`);
   },
-  list: (params?: { document_id?: string; status?: string }) => {
+  list: (params?: { document_id?: string; status?: string; review_run_id?: string }) => {
     const query = new URLSearchParams();
     if (params?.document_id) query.set("document_id", params.document_id);
     if (params?.status) query.set("status", params.status);
+    if (params?.review_run_id) query.set("review_run_id", params.review_run_id);
     return request<{ findings: ReviewFinding[] }>(
       `/reviews/findings${query.toString() ? `?${query.toString()}` : ""}`,
     );
@@ -308,6 +312,13 @@ export const reviews = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  /** Confirm the pairing. The caller is named by the server, never by us. */
+  confirm: (id: string) =>
+    request<ReviewFinding>(`/reviews/findings/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    }),
   update: (id: string, body: ReviewFindingUpdate) =>
     request<ReviewFinding>(`/reviews/findings/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -317,6 +328,34 @@ export const reviews = {
   history: (id: string) =>
     request<{ events: ReviewFindingEvent[] }>(`/reviews/findings/${encodeURIComponent(id)}/history`),
   traceability: (id: string) => request<ReviewTraceability>(`/reviews/findings/${encodeURIComponent(id)}/traceability`),
+  /** Review runs, newest first, over submittals the caller may read. */
+  reviewRuns: (documentId?: string) =>
+    request<{ runs: ReviewRunSummary[] }>(
+      `/reviews/runs${documentId ? `?document_id=${encodeURIComponent(documentId)}` : ""}`,
+      undefined,
+      hasArrayField("runs"),
+    ),
+  /** Which standards a run compared against, and why each one is there. */
+  reviewRunStandards: (runId: string) =>
+    request<{ standards: ReviewRunStandard[] }>(
+      `/reviews/runs/${encodeURIComponent(runId)}/standards`,
+      undefined,
+      hasArrayField("standards"),
+    ),
+  /** Start a review. Admin-gated, and refuses while one is already running. */
+  startReviewRun: (submittalDocumentId: string) =>
+    request<ReviewRunSummary>("/reviews/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ submittal_document_id: submittalDocumentId }),
+    }),
+  /** Refuse a pairing so no future run proposes it again. */
+  rejectPairing: (findingId: string, reason: string) =>
+    request<PairRejection>("/reviews/pairs/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ finding_id: findingId, reason }),
+    }),
   baselineRules: () => request<{ rules: ReviewBaselineRule[] }>("/reviews/baseline-rules"),
   createBaselineRule: (body: Partial<ReviewBaselineRule>) => request<ReviewBaselineRule>("/reviews/baseline-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   updateBaselineRule: (id: string, body: Partial<ReviewBaselineRule>) => request<ReviewBaselineRule>(`/reviews/baseline-rules/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
@@ -783,6 +822,10 @@ export const api = {
    *
    *  The array-valued filters repeat the key (`?document_role=A&document_role=B`),
    *  which is what FastAPI reads as a list. */
+  /** One document by id. Used where a screen holds an id and needs the
+   *  record - a finding's citation names a document, not a row. */
+  document: (id: string) =>
+    request<DocumentRecord>(`/documents/${encodeURIComponent(id)}`),
   documents: (opts: {
     limit?: number; offset?: number; sort?: string; direction?: string;
     q?: string; status?: string;

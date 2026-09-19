@@ -20,7 +20,7 @@ import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
-import { SubmittalReviewView } from "./views/SubmittalReviewView";
+import { ReviewRunsView } from "./views/ReviewRunsView";
 import type { AuthStatus, Me } from "./types/api";
 import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
 
@@ -298,7 +298,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {view === "analysis" && <AnalysisModeScreen />}
           {view === "reports" && <ReportsScreen />}
           {view === "deliverables" && <DeliverablesView />}
-          {view === "review" && <SubmittalReviewView onNavigate={onNavigate} />}
+          {view === "review" && <ReviewRunsView />}
           {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting
               the view to "admin" by any other means - a stale state value, a
               devtools poke - renders nothing at all. The server is the real
