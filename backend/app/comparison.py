@@ -49,7 +49,8 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from . import claims, datasheets, requirements_3b, submittal_review
+from . import claims, datasheets, requirements_3b, schemas, submittal_review
+from .config import settings
 from .db import connect
 
 # ----------------------------------------------------------------- statuses
@@ -428,7 +429,10 @@ def create_finding(
     if unresolved:
         status = NEEDS_ENGINEER_REVIEW
         confidence = CONFIDENCE_UNRESOLVED
-    elif model_opinion:
+    elif model_opinion or match_method == METHOD_MODEL_CHOICE:
+        # A MODEL CHOSE THE PAIRING, so the finding is only as good as that
+        # choice however deterministic the arithmetic on top of it was. 0.5,
+        # label "medium", never "high" (CLAUDE.md rule 4).
         confidence = CONFIDENCE_MODEL_ASSISTED
     else:
         confidence = CONFIDENCE_DETERMINISTIC
@@ -697,6 +701,13 @@ def run_comparison(
         submittal_id, allowed_document_ids=allowed_document_ids)
     findings: list[dict] = []
     matches_attempted = matches_made = 0
+    model_matches = 0
+    model_reasons: dict[str, int] = {}
+    # ONE CACHE AND ONE BUDGET FOR THE WHOLE RUN. The cache answers a repeated
+    # question for free; the budget is the stop that keeps a pre-filter defect
+    # from turning into a review that calls a model thousands of times.
+    model_cache: dict = {}
+    budget = _Budget(settings.match_max_calls_per_run)
     for requirement in requirements:
         # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
         # equality between a requirement's subject and a datasheet caption
@@ -707,9 +718,36 @@ def run_comparison(
             matches_attempted += 1
         match = match_by_containment(requirement, facts)
         fact = match["fact"]
-        verdict = compare(requirement, fact, subject=subject)
+        # COUNTED HERE, BEFORE THE MODEL TIER, so `matches_made` keeps meaning
+        # "paired deterministically". The model's pairings are reported
+        # separately as `model_matches`; folding them into one number would
+        # make a tier that guesses look like the tier that knows.
         if fact is not None:
             matches_made += 1
+
+        # THE MODEL TIER. Second, never first, and only where containment had
+        # nothing to say. A tie is deliberately excluded: AMBIGUOUS_MATCH means
+        # two fields are equally named inside the requirement, which is a
+        # question for a person - handing it to a model would replace "we could
+        # not tell" with an answer nobody checked.
+        model_reason: str | None = None
+        if (fact is None and match["reason"] != AMBIGUOUS_MATCH
+                and requirement.get("requirement_type") in (
+                    "numeric_limit", requirements_3b.TABLE_ROW)
+                and requirement.get("raw_value") not in (None, "")):
+            if not settings.match_enabled:
+                model_reason = MODEL_DISABLED
+            else:
+                chosen = match_by_model(
+                    requirement, facts, cache=model_cache, budget=budget)
+                if chosen["fact"] is not None:
+                    match = chosen
+                    fact = chosen["fact"]
+                    model_matches += 1
+                else:
+                    model_reason = chosen["reason"]
+
+        verdict = compare(requirement, fact, subject=subject)
         # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in
         # NEEDS_ENGINEER_REVIEW, but only one of them is the real reason: the
         # number is not a limit. Reporting "unit_mismatch" against a table row
@@ -733,16 +771,8 @@ def run_comparison(
             # recognises but does not convert - dB(A) among them - so comparing
             # those columns reported a unit mismatch between two dB(A) values.
             # `same_unit` is a comparison of spellings and wants the spellings.
-            requirement_unit = claims.Measurement(
-                raw_value=str(requirement.get("raw_value") or ""),
-                raw_unit=claims.split_reference(
-                    requirement.get("raw_unit") or requirement.get("unit"))[0] or "",
-                normalized_value=None, normalized_unit=None, comparator=None)
-            fact_unit = claims.Measurement(
-                raw_value=str(fact.get("raw_value") or ""),
-                raw_unit=claims.split_reference(
-                    fact.get("raw_unit") or fact.get("unit"))[0] or "",
-                normalized_value=None, normalized_unit=None, comparator=None)
+            requirement_unit = _unit_measure(requirement)
+            fact_unit = _unit_measure(fact)
             if not _units_comparable(requirement, fact, requirement_unit, fact_unit):
                 verdict = {
                     **verdict,
@@ -764,6 +794,22 @@ def run_comparison(
                     "no value was chosen, because choosing one arbitrarily "
                     "would attach a real number to the wrong requirement"),
             }
+        # THE PAIRING NOTE GOES ON LAST, after every verdict adjustment above,
+        # because the unit guard and the tie branch REPLACE the rationale. A
+        # prefix written before them would be silently dropped on exactly the
+        # findings a reader most needs it on.
+        if match["method"] == METHOD_MODEL_CHOICE:
+            verdict = {**verdict, "rationale": (
+                f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
+                f"{verdict.get('rationale') or ''}")}
+        elif model_reason:
+            # WHY NO MODEL PAIRING WAS MADE, in words, on the finding itself.
+            # Without it "the model was off" and "the model was asked and
+            # declined" read identically to an engineer.
+            verdict = {**verdict, "rationale": (
+                f"{verdict.get('rationale') or ''} "
+                f"(model tier: {model_reason})")}
+            model_reasons[model_reason] = model_reasons.get(model_reason, 0) + 1
         opinion = (model_opinions or {}).get(requirement.get("id"))
         findings.append(create_finding(
             review_run_id=review_run_id, submittal_document_id=submittal_id,
@@ -784,6 +830,9 @@ def run_comparison(
         "facts_in_scope": len(facts),
         "matches_attempted": matches_attempted,
         "matches_made": matches_made,
+        "model_matches": model_matches,
+        "model_calls": budget.calls,
+        "model_reasons": model_reasons,
         "findings": findings,
         "by_status": {
             status: sum(1 for f in findings if f["compliance_status"] == status)
@@ -803,6 +852,27 @@ UNIT_MISMATCH = "unit_mismatch"
 #: How a match was made. One value today; named so a second method cannot be
 #: added without the finding saying which one produced it.
 METHOD_CONTAINMENT = "containment"
+
+
+def _unit_measure(row: dict) -> claims.Measurement:
+    """A row's unit as a `Measurement` carrying the RAW SPELLING.
+
+    `unit` holds the NORMALISED unit, which is NULL for every unit `claims`
+    recognises but does not convert - dB(A) among them - so a comparison of
+    those columns reports a mismatch between two dB(A) values. `same_unit`
+    compares spellings and wants the spellings, with any gauge reference
+    stripped: a gauge pressure and a plain one are both `bar`, and whether the
+    reference matters is a separate question from whether the units do.
+
+    ONE HOME FOR THIS. The unit guard in `run_comparison` and the candidate
+    pre-filter in `candidate_facts` must ask the same question, or the model
+    tier would be offered pairs the engine then refuses to compare.
+    """
+    return claims.Measurement(
+        raw_value=str(row.get("raw_value") or ""),
+        raw_unit=claims.split_reference(
+            row.get("raw_unit") or row.get("unit"))[0] or "",
+        normalized_value=None, normalized_unit=None, comparator=None)
 
 
 def _units_comparable(requirement: dict, fact: dict,
@@ -932,6 +1002,267 @@ def match_by_containment(requirement: dict, facts: list[dict]) -> dict:
             "method": METHOD_CONTAINMENT, "reason": None, "candidates": []}
 
 
+# ------------------------------------------------- the model tier (§14, 2nd)
+#
+# THE ONE-SENTENCE RULE, from the design: the model may CHOOSE a fact from a
+# list Python built. It may never NAME one.
+#
+# Everything the model could get wrong is bounded by that. It answers with an
+# INDEX into a list it was handed, so it cannot invent a field; it never sees a
+# value, a unit or a page, so it cannot be pulled toward the pairing that makes
+# the arithmetic work; and it never sets a status, so a wrong pairing produces
+# a wrong QUESTION rather than a wrong verdict.
+
+#: How the pairing was made. `containment` is deterministic and runs first;
+#: `model` means a language model chose from a deterministic shortlist and an
+#: engineer has not confirmed it.
+METHOD_MODEL_CHOICE = "model"
+
+#: At most this many candidates reach the prompt, longest field name first.
+MAX_CANDIDATES = 12
+
+#: Why the tier declined to pair. Every one of these returns containment's
+#: "none" shape, so a failure is indistinguishable downstream from "no match" -
+#: which is what it is.
+MODEL_DISABLED = "model_disabled"
+MODEL_UNAVAILABLE = "model_unavailable"
+MODEL_MALFORMED = "model_malformed"
+MODEL_OUT_OF_RANGE = "model_out_of_range"
+MODEL_NAMED_OTHER = "model_named_other"
+MODEL_UNSTABLE = "model_unstable"
+MODEL_BUDGET = "model_budget"
+MODEL_DECLINED = "model_declined"
+
+#: Every model-paired finding says so in its own first words. A pairing the
+#: machine guessed and a pairing it derived must not read alike - the same rule
+#: `review_applicable_standards.selection_method` follows.
+MODEL_PAIR_PREFIX = "Paired by model; engineer must confirm. Model reason: "
+
+
+class _Budget:
+    """How many model calls this run has left.
+
+    A STOP, NOT A THROTTLE. The design expects tens of calls per review; a run
+    that wants hundreds has a pre-filter defect, and the honest response is to
+    stop asking and say on every remaining finding that the tier stopped -
+    `model_budget` - rather than to carry on at cost or to fall silent.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.calls = 0
+
+    def exhausted(self) -> bool:
+        return self.calls >= self.limit
+
+    def spend(self) -> None:
+        self.calls += 1
+
+PROMPT_TEMPLATE = """\
+You are matching an engineering standard clause to a datasheet field.
+Choose the ONE candidate whose field is the quantity this clause governs.
+If none is clearly the same quantity, answer null. Do not guess.
+
+Standard: {doc_number} clause {clause}
+Clause text: {subject_or_text}
+
+Candidates:
+{candidates}
+
+Answer as JSON only: {{"choice": <index or null>, "reason": "<one short sentence>"}}
+"""
+
+
+def candidate_facts(requirement: dict, facts: list[dict]) -> list[dict]:
+    """The shortlist a model is allowed to choose from. Deterministic.
+
+    BUILT BY PYTHON, BEFORE ANY CALL, and this is the control that makes the
+    tier safe rather than the prompt wording. Three filters:
+
+      * a numeric value. A categorical "yes" has nothing to compare, and the
+        canonical false friend - SAES-W-010's PWHT clause against a field
+        called `insulation` - is excluded here rather than argued with.
+      * UNITS THE ENGINE COULD ACTUALLY COMPARE, by the same
+        `_units_comparable` the unit guard asks: dimension when both sides
+        normalise, spelling when either does not. §2 of the design says
+        `unit_dimension`, and that is right for kPa against bar - but dB(A)
+        has no dimension at all, so a bare dimension test would have made the
+        product's own worked example permanently ineligible for this tier
+        while looking like the stricter rule.
+      * not a pairing an engineer has already refused, by the same identity
+        keys `match_by_containment` uses.
+
+    A FACT MAY APPEAR FOR MANY REQUIREMENTS. Several clauses legitimately
+    govern one field, and excluding a fact once it has been paired would make
+    the result depend on iteration order - see §2 of the design, corrected.
+
+    Capped at `MAX_CANDIDATES`, longest field name first: the most specific
+    names are the ones worth showing, and a list longer than a dozen is a
+    pre-filter defect rather than a hard question.
+    """
+    requirement_unit = _unit_measure(requirement)
+    refused = _rejected_keys_for(requirement)
+    out = []
+    for fact in facts:
+        if fact.get("raw_value") in (None, "") or fact.get("is_blank"):
+            continue
+        if not _units_comparable(requirement, fact,
+                                 requirement_unit, _unit_measure(fact)):
+            continue
+        if fact_key(fact) in refused:
+            continue
+        out.append(fact)
+    out.sort(key=lambda f: (-len(f.get("field_name") or ""),
+                            f.get("field_name") or ""))
+    return out[:MAX_CANDIDATES]
+
+
+def build_prompt(requirement: dict, candidates: list[dict]) -> str:
+    """The rendered prompt. NO VALUE, NO UNIT, NO PAGE - see §3.
+
+    A model that sees the numbers can be pulled toward whichever pairing makes
+    the comparison come out cleanly. Pairing has to be decided on wording
+    alone, so the only things that cross are: which standard and clause, what
+    the clause says, and the candidate FIELD NAMES with their section headings.
+
+    A test renders this and asserts no candidate value, unit or page appears in
+    it, and that the requirement's own operator and value do not either.
+    """
+    text = " ".join(str(
+        requirement.get("subject")
+        or requirement.get("requirement_text") or "").split())[:400]
+    lines = []
+    for index, fact in enumerate(candidates):
+        section = fact.get("section") or "-"
+        lines.append(f"{index}. {fact.get('field_name')}   (section: {section})")
+    return PROMPT_TEMPLATE.format(
+        doc_number=requirement.get("standard_document_id") or "-",
+        clause=requirement.get("clause") or "-",
+        subject_or_text=text,
+        candidates="\n".join(lines))
+
+
+def _none_match(reason: str | None = None) -> dict:
+    """Containment's "no match" shape. Every model failure returns this.
+
+    IDENTICAL DOWNSTREAM TO "nothing matched", because that is what it is. A
+    tier that failed and a tier that declined must produce the same finding;
+    only the recorded `reason` differs, and that is for a person reading the
+    rationale, never for a branch.
+    """
+    return {"fact": None, "matched_phrase": None, "method": None,
+            "reason": reason, "candidates": []}
+
+
+def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, str | None]:
+    """One call. Returns `(PairChoice, None)` or `(None, reason)`."""
+    from . import model_transport
+    body = {
+        "model": settings.answer_model,
+        "prompt": build_prompt(requirement, candidates),
+        "stream": False,
+        # THE ANSWER PATH ALREADY SETS THIS (`answer.py:_call_model`) and the
+        # tier must too. `settings.answer_model` is a THINKING model: without
+        # it Ollama returns the JSON in `thinking` and leaves `response` an
+        # empty string, so every call would have read as `model_malformed` and
+        # the tier would have paired nothing, on every machine, silently.
+        "think": False,
+        # NEW TO THIS CODEBASE. Ollama constrains decoding to valid JSON, which
+        # turns "the model wrote prose" from the common failure into a rare one.
+        "format": "json",
+        # The answer path's reason: pay the cold load once for the run, not
+        # once per requirement.
+        "keep_alive": "30m",
+        "options": {
+            "temperature": 0,
+            "seed": settings.match_seed,
+            "num_ctx": settings.num_ctx,
+            "num_predict": 120,
+            "num_thread": settings.num_thread,
+        },
+    }
+    try:
+        raw = model_transport.post_json(
+            "/api/generate", body, timeout=settings.match_timeout_seconds)
+    except Exception:  # noqa: BLE001 - refused, timed out, or answered wrongly
+        return None, MODEL_UNAVAILABLE
+    try:
+        payload = json.loads((raw or {}).get("response") or "")
+        choice = schemas.PairChoice.model_validate(payload)
+    except Exception:  # noqa: BLE001 - not JSON, or not this shape
+        return None, MODEL_MALFORMED
+    if choice.choice is not None and not 0 <= choice.choice < len(candidates):
+        return None, MODEL_OUT_OF_RANGE
+    if choice.choice is not None:
+        # THE MODEL MAY CHOOSE, NOT NAME. If its sentence names a candidate
+        # other than the one it picked, the index and the words disagree and
+        # there is no way to tell which it meant.
+        chosen = _normalise_for_match(
+            candidates[choice.choice].get("field_name"))
+        reason_text = _normalise_for_match(choice.reason)
+        for index, fact in enumerate(candidates):
+            if index == choice.choice:
+                continue
+            other = _normalise_for_match(fact.get("field_name"))
+            if other and len(other) > 3 and _contains_words(reason_text, other) \
+                    and not _contains_words(chosen, other):
+                return None, MODEL_NAMED_OTHER
+    return choice, None
+
+
+def match_by_model(requirement: dict, facts: list[dict], *,
+                   cache: dict | None = None,
+                   budget: "_Budget | None" = None) -> dict:
+    """Ask the model to choose. Returns containment's shape either way.
+
+    THE VALIDATION CHAIN IS ORDERED and each step is a different failure:
+    unavailable, malformed, out of range, named another, unstable. The last is
+    the interesting one - the same question is asked TWICE with the same seed,
+    and a model that answers differently has not decided anything, so no
+    pairing is made.
+
+    The agreed answer is cached per (requirement identity, candidate identities)
+    for the run, so re-asking the same question costs nothing.
+    """
+    candidates = candidate_facts(requirement, facts)
+    if not candidates:
+        return _none_match()
+    key = (requirement_key(requirement),
+           tuple(sorted(fact_key(f) for f in candidates)))
+    if cache is not None and key in cache:
+        return dict(cache[key])
+
+    # THE BUDGET IS CHECKED AFTER THE CACHE. A question already answered costs
+    # nothing, and refusing it once the budget ran out would make the result
+    # depend on the order requirements happened to be iterated in.
+    if budget is not None and budget.exhausted():
+        return _none_match(MODEL_BUDGET)
+    if budget is not None:
+        budget.spend()
+    first, reason = _ask_model_once(requirement, candidates)
+    if reason is not None:
+        return _none_match(reason)
+    if budget is not None and budget.exhausted():
+        return _none_match(MODEL_BUDGET)
+    if budget is not None:
+        budget.spend()
+    second, reason = _ask_model_once(requirement, candidates)
+    if reason is not None:
+        return _none_match(reason)
+    if first.choice != second.choice:
+        result = _none_match(MODEL_UNSTABLE)
+    elif first.choice is None:
+        result = _none_match(MODEL_DECLINED)
+    else:
+        fact = candidates[first.choice]
+        result = {"fact": fact, "matched_phrase": fact.get("field_name"),
+                  "method": METHOD_MODEL_CHOICE, "reason": first.reason,
+                  "candidates": []}
+    if cache is not None:
+        cache[key] = dict(result)
+    return result
+
+
 def requirement_key(requirement: dict) -> str:
     """The identity of a requirement, independent of its row id.
 
@@ -993,6 +1324,54 @@ def reject_pair(requirement: dict, fact: dict, *, rejected_by: str | None,
             "fact_key": fact_key(fact),
             "requirement_id": requirement.get("id"), "fact_id": fact.get("id"),
             "rejected_by": rejected_by, "rejected_at": now, "reason": reason}
+
+
+def reject_pair_for_finding(
+    finding_id: str, *, rejected_by: str | None, reason: str | None,
+    allowed_document_ids: frozenset[str],
+) -> dict | None:
+    """An engineer refuses the pairing a finding was built on.
+
+    SCOPED EXACTLY LIKE READING THE FINDING, and out of scope is reported as
+    NOT FOUND - a caller who may not read a finding must not be able to learn
+    it exists by being told they may not touch it.
+
+    Returns None when there is no such finding in scope. Raises
+    `ComparisonError` when the finding has no pairing to refuse: a
+    MISSING_INFORMATION finding names no submitted value, and recording a
+    rejection against nothing would sit in the table forever matching no pair.
+
+    Both rows are re-read here rather than trusted from the finding, because
+    the rejection is keyed on their CONTENTS (see `requirement_key`).
+    """
+    submittal_review.ensure_schema()
+    scope, args = _scope_clause(allowed_document_ids, "document_id")
+    finding = connect().execute(
+        "SELECT * FROM review_findings" + scope + " AND id = ?",
+        [*args, finding_id]).fetchone()
+    if finding is None:
+        return None
+    finding = dict(finding)
+    if not finding.get("requirement_id") or not finding.get("fact_id"):
+        raise ComparisonError(
+            "this finding records no pairing, so there is nothing to reject")
+
+    standards_scope, standards_args = _scope_clause(
+        allowed_document_ids, "standard_document_id")
+    requirement = connect().execute(
+        "SELECT * FROM standard_requirements" + standards_scope + " AND id = ?",
+        [*standards_args, finding["requirement_id"]]).fetchone()
+    facts_scope, facts_args = _scope_clause(
+        allowed_document_ids, "submittal_document_id")
+    fact = connect().execute(
+        "SELECT * FROM submittal_facts" + facts_scope + " AND id = ?",
+        [*facts_args, finding["fact_id"]]).fetchone()
+    if requirement is None or fact is None:
+        # The finding outlived one of the rows it paired - a re-extraction
+        # replaced them. There is no identity left to key a rejection on.
+        return None
+    return reject_pair(dict(requirement), dict(fact),
+                       rejected_by=rejected_by, reason=reason)
 
 
 def _rejected_keys_for(requirement: dict) -> set[str]:

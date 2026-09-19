@@ -21,6 +21,11 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+#: The same stamp the API layer writes on a confirmation, so a finding's
+#: timestamps all come from one place and read alike.
+now_iso = _now
+
+
 def ensure_schema() -> None:
     conn = connect()
     with conn:
@@ -496,7 +501,11 @@ def update(finding_id: str, changes: dict, *, actor_user_id: str | None = None) 
     ensure_schema()
     allowed = {"owner_user_id", "due_date", "status", "approval_status",
                "escalation_level", "required_action", "severity", "response_text",
-               "disposition", "approved_by", "approved_at"}
+               "disposition", "approved_by", "approved_at",
+               # NOT REACHABLE FROM A REQUEST BODY. `ReviewFindingUpdate` has
+               # no `confirmed_by` field, so the only thing that can put one
+               # here is the route, which sets it to the authenticated caller.
+               "confirmed_by", "confirmed_at"}
     current = get(finding_id)
     if current is None:
         return None

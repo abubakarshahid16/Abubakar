@@ -292,6 +292,35 @@ class Settings(BaseSettings):
     # nobody reads the slower answer as a regression. Below ~1.5 GB free the
     # 4B model swaps regardless of this value.
     num_ctx: int = 4096
+
+    # -------------------------------- model-assisted requirement matching
+    #
+    # THE SECOND TIER OF §14, AND IT ONLY EVER CHOOSES. The model is handed a
+    # numbered list Python built and may pick one entry or decline; it never
+    # names a field, never sees a value or a unit, and never sets a status.
+    # Containment runs first and the model is consulted only where containment
+    # found nothing.
+
+    #: False turns the tier off entirely and the findings SAY SO in their
+    #: rationale - a review that silently stopped asking would look identical
+    #: to one where the model declined every time.
+    match_enabled: bool = True
+    #: Generous, because a refusal costs more than a wait: a timeout is
+    #: `model_unavailable` and the requirement falls back to
+    #: MISSING_INFORMATION, so a tight bound would quietly convert slow
+    #: hardware into missing pairings.
+    match_timeout_seconds: float = 30.0
+    #: Fixed seed. The determinism check calls twice and refuses to pair when
+    #: the two answers disagree, which is only meaningful if the sampler is
+    #: pinned - with a random seed every requirement would be a coin toss
+    #: tossed twice.
+    match_seed: int = 0
+    #: A CEILING ON A REVIEW, not a tuning knob. §10 of the design expects
+    #: tens of calls per review on this corpus; a review that wants hundreds
+    #: has a pre-filter defect, and the budget makes that visible as
+    #: `model_budget` on the remaining requirements instead of as an hour of
+    #: silence.
+    match_max_calls_per_run: int = 200
     #: Raised from 100 after measuring what the gold questions actually need.
     #: At 100, 5 of 12 Tier 2 generations stopped mid-sentence and one stopped
     #: inside a citation marker. At 250, 0 of 12 did, and the largest answer

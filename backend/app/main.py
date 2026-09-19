@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import chunker as chunk_mod
+from . import comparison as comparison_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import highlight as highlight_mod
@@ -1501,13 +1502,62 @@ def update_review_finding(
     if body.owner_user_id and not scope.unrestricted and not scope.is_admin and body.owner_user_id != scope.user_id:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "review owner not found"))
+    changes = body.model_dump(exclude_unset=True)
+    # CONFIRMATION IS THE CALLER'S OWN. `confirmed` is a flag on the body; the
+    # NAME comes from the authenticated scope and can never be supplied by the
+    # client, because a confirmation that can be attributed to someone else is
+    # worth nothing to the engineer whose name is on it. An anonymous caller
+    # cannot confirm - `_require_identity_to_write` above has already refused.
+    if changes.pop("confirmed", None):
+        if scope.user_id is None:
+            # AN ANONYMOUS CONFIRMATION IS NOT A CONFIRMATION, and accepting
+            # one would be worse than refusing it: `review.update` drops a
+            # None, so the route would answer 200 having recorded nothing and
+            # the engineer would believe the pairing was signed for.
+            raise HTTPException(status_code=401, detail=errors.safe_error(
+                errors.UNAUTHENTICATED,
+                "a confirmation must name the engineer who made it"))
+        changes["confirmed_by"] = scope.user_id
+        changes["confirmed_at"] = review_mod.now_iso()
     updated = review_mod.update(
-        finding_id, body.model_dump(exclude_unset=True), actor_user_id=scope.user_id
+        finding_id, changes, actor_user_id=scope.user_id
     )
     if updated is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id"))
     return updated
+
+
+@app.post("/api/reviews/pairs/reject", response_model=schemas.PairRejection,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def reject_review_pair(
+    body: schemas.PairRejectionCreate,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Refuse a pairing so no future run proposes it again.
+
+    THE CORRECTION AN ENGINEER MAKES MOST OFTEN. A matcher - containment or
+    model - pairs a clause with the wrong field; without this the same wrong
+    pairing returns on every re-run and the engineer learns that correcting
+    the machine achieves nothing.
+
+    Scoped exactly like `GET /api/reviews/findings`. A caller who may not read
+    the finding gets the same 404 as one asking about a finding that does not
+    exist, because a different answer would confirm it does.
+    """
+    _require_identity_to_write(scope)
+    try:
+        rejection = comparison_mod.reject_pair_for_finding(
+            body.finding_id, rejected_by=scope.user_id,
+            reason=body.reason or None,
+            allowed_document_ids=scope.allowed_document_ids)
+    except comparison_mod.ComparisonError as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc))) from exc
+    if rejection is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review finding with that id"))
+    return rejection
 
 
 @app.get("/api/reviews/findings/{finding_id}/history",

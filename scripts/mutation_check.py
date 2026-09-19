@@ -1670,10 +1670,284 @@ REACHABLE = (
     ),
 )
 
+#: The model tier of the matcher. It may CHOOSE, never NAME.
+MODEL_TIER = (
+    Mutation(
+        id="M135", phase=11,
+        description="SHOW THE MODEL THE NUMBERS, so it can be pulled toward "
+                    "whichever pairing makes the arithmetic come out",
+        path=APP / "comparison.py",
+        anchor="""        lines.append(f"{index}. {fact.get('field_name')}   (section: {section})")""",
+        replacement="""        lines.append(f"{index}. {fact.get('field_name')} = {fact.get('raw_value')} {fact.get('raw_unit')}   (section: {section})")""",
+        target="tests/test_model_matching.py",
+        keyword="prompt_carries_no_value",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M158", phase=11,
+        description="LET THE THINKING MODEL THINK, so Ollama answers into "
+                    "`thinking` and every call reads as model_malformed",
+        path=APP / "comparison.py",
+        anchor='        "think": False,',
+        replacement='        "think": True,',
+        target="tests/test_model_matching.py",
+        keyword="turns_thinking_off",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M136", phase=11,
+        description="send the whole clause instead of 400 characters",
+        path=APP / "comparison.py",
+        anchor='        or requirement.get("requirement_text") or "").split())[:400]',
+        replacement='        or requirement.get("requirement_text") or "").split())',
+        target="tests/test_model_matching.py",
+        keyword="capped_at_four_hundred",
+    ),
+    Mutation(
+        id="M137", phase=11,
+        description="OFFER CATEGORICAL AND BLANK FACTS as candidates, which is "
+                    "how the insulation false friend reaches a model",
+        path=APP / "comparison.py",
+        anchor='        if fact.get("raw_value") in (None, "") or fact.get("is_blank"):\n            continue\n        if not _units_comparable(',
+        replacement='        if False:\n            continue\n        if not _units_comparable(',
+        target="tests/test_model_matching.py",
+        keyword="categorical_fact_never_enters or blank_fact_never_enters",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M138", phase=11,
+        description="offer facts in ANY unit, so a length can be paired with a "
+                    "pressure limit",
+        path=APP / "comparison.py",
+        anchor="        if not _units_comparable(requirement, fact,\n                                 requirement_unit, _unit_measure(fact)):\n            continue",
+        replacement="        if False:\n            continue",
+        target="tests/test_model_matching.py",
+        keyword="another_dimension_never_enters",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M139", phase=11,
+        description="compare unit SPELLINGS in the pre-filter, dropping the "
+                    "kPa-against-bar pairing the engine can evaluate exactly",
+        path=APP / "comparison.py",
+        anchor='    if both_normalised:\n        left = claims.unit_dimension(requirement_unit.raw_unit or "")',
+        replacement='    if False:\n        left = claims.unit_dimension(requirement_unit.raw_unit or "")',
+        target="tests/test_model_matching.py",
+        keyword="another_spelling_is_still_a_candidate",
+    ),
+    Mutation(
+        id="M140", phase=11,
+        description="let a pairing an engineer refused back into the model's "
+                    "shortlist",
+        path=APP / "comparison.py",
+        anchor="    refused = _rejected_keys_for(requirement)",
+        replacement="    refused = set()",
+        target="tests/test_model_matching.py",
+        keyword="rejected_pair_never_enters",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M141", phase=11,
+        description="remove the candidate cap, so one prompt can carry every "
+                    "numeric field on the sheet",
+        path=APP / "comparison.py",
+        anchor="    return out[:MAX_CANDIDATES]",
+        replacement="    return out",
+        target="tests/test_model_matching.py",
+        keyword="capped_at_twelve",
+    ),
+    Mutation(
+        id="M142", phase=11,
+        description="PAIR A LONE CANDIDATE WITHOUT ASKING, turning 'only one "
+                    "field was eligible' into a finding about the contractor",
+        path=APP / "comparison.py",
+        anchor="    candidates = candidate_facts(requirement, facts)\n    if not candidates:",
+        replacement=(
+            "    candidates = candidate_facts(requirement, facts)\n"
+            "    if len(candidates) == 1:\n"
+            "        only = candidates[0]\n"
+            '        return {"fact": only, "matched_phrase": only.get("field_name"),\n'
+            '                "method": METHOD_MODEL_CHOICE, "reason": "only candidate",\n'
+            '                "candidates": []}\n'
+            "    if not candidates:"),
+        target="tests/test_model_matching.py",
+        keyword="one_candidate_is_still_asked",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M143", phase=11,
+        description="ACCEPT AN INDEX OUTSIDE THE SHORTLIST, letting a model "
+                    "reach a fact that was never offered to it",
+        path=APP / "comparison.py",
+        anchor="    if choice.choice is not None and not 0 <= choice.choice < len(candidates):",
+        replacement="    if choice.choice is not None and choice.choice >= len(candidates):",
+        target="tests/test_model_matching.py",
+        keyword="negative_index",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M144", phase=11,
+        description="trust the index when the model's own sentence names a "
+                    "DIFFERENT field - it may choose, never name",
+        path=APP / "comparison.py",
+        anchor="                return None, MODEL_NAMED_OTHER",
+        replacement="                pass",
+        target="tests/test_model_matching.py",
+        keyword="naming_a_different_candidate",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M145", phase=11,
+        description="ASK ONCE INSTEAD OF TWICE, so a coin toss becomes a finding",
+        path=APP / "comparison.py",
+        anchor="    second, reason = _ask_model_once(requirement, candidates)",
+        replacement="    second, reason = first, None",
+        target="tests/test_model_matching.py",
+        keyword="disagree_make_no_pairing",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M146", phase=11,
+        description="drop the per-run budget, so a pre-filter defect becomes "
+                    "an unbounded number of model calls",
+        path=APP / "comparison.py",
+        anchor="    if budget is not None and budget.exhausted():\n        return _none_match(MODEL_BUDGET)\n    if budget is not None:\n        budget.spend()\n    first, reason",
+        replacement="    if budget is not None:\n        budget.spend()\n    first, reason",
+        target="tests/test_model_matching.py",
+        keyword="budget",
+    ),
+    Mutation(
+        id="M147", phase=11,
+        description="ASK THE MODEL EVEN WHERE CONTAINMENT ALREADY DECIDED, "
+                    "replacing evidence with a guess",
+        path=APP / "comparison.py",
+        anchor='        if (fact is None and match["reason"] != AMBIGUOUS_MATCH',
+        replacement='        if (match["reason"] != AMBIGUOUS_MATCH',
+        target="tests/test_model_matching.py",
+        keyword="containment_takes_precedence",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M148", phase=11,
+        description="HAND A TIE TO THE MODEL, replacing 'we could not tell' "
+                    "with an answer nobody checked",
+        path=APP / "comparison.py",
+        anchor='and match["reason"] != AMBIGUOUS_MATCH\n',
+        replacement='and match["reason"] != "no tie ever"\n',
+        target="tests/test_model_matching.py",
+        keyword="tie_never_reaches_the_model",
+        tags=("honesty", "critical"),
+    ),
+    # M149 WAS WITHDRAWN, NOT SOLVED. It flipped a model-paired finding from
+    # CONFIDENCE_MODEL_ASSISTED (0.5) to CONFIDENCE_DETERMINISTIC (0.9) and no
+    # test could see it: `_confidence_label` has two bands and "high" is
+    # forbidden, so 0.5 and 0.9 both print "medium", and the label is the only
+    # confidence a finding stores. The design's §11 item - "confidence 0.5 and
+    # label medium" - is therefore only half observable. What actually
+    # distinguishes a model pairing on screen is `match_method` and the
+    # rationale prefix, and those are M147 and M150. Recorded in
+    # docs/status-honesty-audit.md rather than proved by a vacuous assertion.
+    Mutation(
+        id="M150", phase=11,
+        description="drop the 'paired by model' prefix, so a guessed pairing "
+                    "and a derived one read alike",
+        path=APP / "comparison.py",
+        anchor="""                f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. \"""",
+        replacement="""                f"{match.get('reason') or ''}. \"""",
+        target="tests/test_model_matching.py",
+        keyword="says_who_paired_it",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M151", phase=11,
+        description="say nothing on the finding when the tier was off or the "
+                    "model could not answer",
+        path=APP / "comparison.py",
+        anchor="        elif model_reason:",
+        replacement="        elif False:",
+        target="tests/test_model_matching.py",
+        keyword="turned_off or unavailable_model_says_so or declined_pairing",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M152", phase=11,
+        description="IGNORE match_enabled, so the off switch does nothing",
+        path=APP / "comparison.py",
+        anchor="            if not settings.match_enabled:",
+        replacement="            if False:",
+        target="tests/test_model_matching.py",
+        keyword="turned_off",
+    ),
+    Mutation(
+        id="M153", phase=11,
+        description="TAKE THE CONFIRMER FROM THE REQUEST BODY, so one person "
+                    "can sign a pairing in another's name",
+        # THE PROTECTION IS THE SCHEMA, so that is what this mutates. The
+        # route cannot read a confirmer out of a field that does not exist;
+        # mutating the route alone proved nothing, because `getattr` on an
+        # absent field is None whatever the client sent.
+        path=APP / "schemas.py",
+        anchor="    approved_at: str | None = None\n    #: CONFIRM THE PAIRING.",
+        replacement="    approved_at: str | None = None\n    confirmed_by: str | None = None\n    #: CONFIRM THE PAIRING.",
+        target="tests/test_model_matching.py",
+        keyword="body_naming_a_confirmer",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M154", phase=11,
+        description="accept an anonymous confirmation, which records nothing "
+                    "and answers 200",
+        path=APP / "main.py",
+        anchor="        if scope.user_id is None:",
+        replacement="        if False:",
+        target="tests/test_model_matching.py",
+        keyword="confirmation_with_no_identity",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M155", phase=11,
+        description="LET AN OUT-OF-SCOPE CALLER REJECT A PAIRING, and learn "
+                    "the finding exists by the answer",
+        # THE DENY IS LAYERED: the finding, the requirement and the fact are
+        # each scoped, so neutralising one alone changes no answer - which is
+        # the point of writing it three times. This mutates the deny itself,
+        # where an empty grant set stops meaning nothing and starts meaning
+        # everything (the deliverables.py defect, in this file).
+        path=APP / "comparison.py",
+        anchor='    if not allowed_document_ids:\n        return " WHERE 1 = 0", []',
+        replacement='    if not allowed_document_ids:\n        return " WHERE 1 = 1", []',
+        target="tests/test_model_matching.py",
+        keyword="out_of_scope_caller",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M156", phase=11,
+        description="record a rejection against a finding with no pairing, "
+                    "which matches no pair and is never applied",
+        path=APP / "comparison.py",
+        anchor='    if not finding.get("requirement_id") or not finding.get("fact_id"):',
+        replacement="    if False:",
+        target="tests/test_model_matching.py",
+        keyword="no_pairing_is_refused",
+    ),
+    Mutation(
+        id="M157", phase=11,
+        description="stop the rejection reaching the rejection writer, so the "
+                    "correction loop is broken end to end",
+        path=APP / "comparison.py",
+        anchor="    return reject_pair(dict(requirement), dict(fact),",
+        replacement="    return dict(finding) or reject_pair(dict(requirement), dict(fact),",
+        target="tests/test_model_matching.py",
+        keyword="stops_it_being_proposed_again",
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
     + EXTRACTION + DATASHEET + MATCHER + TABLE_AND_UNITS + REACHABLE
+    + MODEL_TIER
 )
 
 

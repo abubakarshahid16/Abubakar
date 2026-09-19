@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 DocStatus = Literal[
     "queued",
@@ -830,6 +830,32 @@ class ClassificationUpdate(BaseModel):
     service: str | None = None
     transmittal_number: str | None = None
     superseded_by: str | None = None
+
+
+class PairChoice(BaseModel):
+    """The model's answer when asked which candidate a clause governs.
+
+    THE MODEL CHOOSES; IT NEVER NAMES. `choice` is an INDEX into a list Python
+    built, so the model cannot invent a field that was not offered - the worst
+    failure available to it is picking the wrong number, which the validation
+    chain then checks against the list it was given.
+
+    `extra="forbid"` because a model asked for JSON will happily return extra
+    keys, and a response carrying a `field_name` or a `value` it was never
+    shown is a response that did not follow the contract. Refusing it is
+    `model_malformed`, and the requirement falls back to MISSING_INFORMATION.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The candidate index, or None for "none of these". Null is offered
+    #: explicitly in the prompt so declining is a sanctioned answer rather than
+    #: something the model has to invent a way to say.
+    choice: int | None = None
+    #: One short sentence. Bounded because it is stored on the finding and
+    #: shown to an engineer, and an unbounded field lets a model write an essay
+    #: into a column meant for a reason.
+    reason: str = Field(default="", max_length=200)
 
 
 class BulkRoleUpdate(BaseModel):
@@ -1756,6 +1782,12 @@ class ReviewFindingUpdate(BaseModel):
     disposition: ReviewDisposition | None = None
     approved_by: str | None = None
     approved_at: str | None = None
+    #: CONFIRM THE PAIRING. A flag, not a name: `confirmed_by` is the CALLER,
+    #: taken from the authenticated scope and never from this body, because a
+    #: confirmation that can name someone else is not a confirmation. There is
+    #: no way to un-confirm through this route - a wrong pairing is REJECTED,
+    #: which is a different act with a different record.
+    confirmed: bool | None = None
 
 
 class ReviewFinding(BaseModel):
@@ -1812,6 +1844,32 @@ class ReviewFinding(BaseModel):
     #: reader can see the reasoning without it being presented as the
     #: contractor-facing text.
     ai_rationale: str | None = None
+    #: WHO STOOD BEHIND THE PAIRING. A model-paired finding is a guess until an
+    #: engineer says otherwise, and a confirmed finding is never deleted by a
+    #: re-run. Both are visible here so a reader can tell a confirmed pairing
+    #: from an unexamined one.
+    confirmed_by: str | None = None
+    confirmed_at: str | None = None
+
+
+class PairRejectionCreate(BaseModel):
+    """An engineer says a finding's requirement is not about that field."""
+
+    model_config = ConfigDict(extra="forbid")
+    finding_id: str
+    reason: str = Field(default="", max_length=500)
+
+
+class PairRejection(BaseModel):
+    """What was recorded. The KEYS, not the row ids, decide whether it applies."""
+
+    requirement_key: str
+    fact_key: str
+    requirement_id: str | None = None
+    fact_id: str | None = None
+    rejected_by: str | None = None
+    rejected_at: str
+    reason: str | None = None
 
 
 class ReviewFindingList(BaseModel):

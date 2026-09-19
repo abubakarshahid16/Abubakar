@@ -1,9 +1,22 @@
 # Model-assisted requirement-to-fact matching (master plan §14, second tier)
 
-Status: DESIGN. Written by Cowork 2026-09-19 against `comparison.py` as it
-stood mid-containment task; line numbers are approximate and several have since
-moved. Sections 7 and 8 describe work that is now BUILT and say so inline -
-everything else remains unimplemented at the time of writing.
+Status: BUILT, except where §9 says otherwise. Written by Cowork 2026-09-19
+against `comparison.py` as it stood mid-containment task; line numbers are
+approximate and several have since moved.
+
+Two things differ from the text below and the text is left as written so the
+difference is visible:
+
+1. §2 says the pre-filter compares `claims.unit_dimension`. As built it asks
+   `_units_comparable` - the same question the unit guard asks - which is
+   dimension when both sides normalise and SPELLING when either does not.
+   dB(A) has no dimension at all, so a bare dimension test would have made
+   this product's own worked example permanently ineligible for the tier
+   while looking like the stricter rule.
+2. §11's "confidence 0.5 and label medium" is only half observable: a finding
+   stores the LABEL, and 0.5 and 0.9 both print `medium`. See entry 35 of
+   `docs/status-honesty-audit.md`. What distinguishes a model pairing is
+   `match_method` and the rationale prefix.
 
 ## 0. The one-sentence rule
 
