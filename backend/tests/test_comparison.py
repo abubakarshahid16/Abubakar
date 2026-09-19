@@ -658,3 +658,19 @@ def test_re_running_a_comparison_does_not_double_the_findings():
         "SELECT COUNT(*) FROM review_findings WHERE review_run_id = ?",
         (run,)).fetchone()[0]
     assert count == 1
+
+
+def test_the_completeness_denominator_says_it_is_nominal():
+    """"42 of approximately 385 fields" reads like somebody counted the sheet.
+
+    Nobody did. 385 is the page count times a nominal 35 slots per page, a
+    figure taken from OTHER datasheets - an estimate of an estimate. A reader
+    who believes it was measured here also believes 42/385 means something
+    about this document's coverage.
+    """
+    reason = comparison._insufficient_reason(
+        {"fields_read": 42, "fields_estimated": 385, "pages": 11})
+
+    assert "NOMINAL ESTIMATE" in reason
+    assert "not a count of this document" in reason
+    assert "42" in reason and "385" in reason, "the counts must still be shown"

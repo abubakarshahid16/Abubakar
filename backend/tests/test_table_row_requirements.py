@@ -34,8 +34,30 @@ from app import comparison, requirements_3b
     "Ratings shall be as tabulated.",
     "See Table 12 for the applicable values.",
 ])
-def test_a_sentence_that_defers_to_a_table_is_a_table_row(sentence):
+def test_a_sentence_that_defers_to_a_table_has_the_table_shape(sentence):
+    """`is_table_row` reads the SHAPE. Whether that shape becomes the
+    `table_row` type also depends on a number having been parsed - see
+    `classify` below, which is where the two are combined."""
     assert requirements_3b.is_table_row(sentence) is True
+
+
+def test_a_sentence_mentioning_a_table_with_no_number_stays_a_statement():
+    """THE REFINEMENT, and the reason for it.
+
+    `table_row` exists for ONE failure: a number lifted out of a lookup and
+    stored as a limit. A sentence that merely mentions a table states an
+    obligation and no quantity - it was already a `statement`, and there is no
+    number in it to misread.
+
+    Classifying those as table rows moved 71 requirements into a status
+    meaning "an engineer must read this table", which is neither true nor
+    useful and buries the few rows that do need reading.
+    """
+    sentence = "Inspection shall follow the procedure in Table 4."
+
+    assert requirements_3b.is_table_row(sentence) is True, "the shape is there"
+    assert requirements_3b.parse_limit(sentence) is None, "but no number is"
+    assert requirements_3b.classify(sentence, None) == "statement"
 
 
 # ---------------------------------------------------- a row boundary
@@ -124,20 +146,27 @@ def test_compare_refuses_a_table_row_and_quotes_the_row():
     assert "Up to 6,900 kPa (1,000 psi)" in verdict["rationale"]
 
 
-def test_a_table_row_is_refused_even_when_no_value_was_submitted():
-    """Checked BEFORE the absent-fact branch: a table row is not a limit
-    whether or not anything was submitted against it, and reporting it as
-    MISSING_INFORMATION would blame the contractor for the parser."""
+@pytest.mark.parametrize("fact", [
+    None,
+    {"is_blank": 1, "blank_marker": "By Contractor"},
+])
+def test_a_table_row_with_nothing_submitted_is_missing_information(fact):
+    """AN UNMATCHED TABLE ROW IS AN UNMATCHED REQUIREMENT.
+
+    Only a table row with a submitted value beside it is something an engineer
+    can act on: the pairing is real and the comparison is not safe to make.
+    With nothing submitted there is no pairing and nothing to read - raising
+    every such row to NEEDS_ENGINEER_REVIEW fills the queue with rows carrying
+    no value, and buries the few that do.
+    """
     requirement = {
         "requirement_type": requirements_3b.TABLE_ROW,
         "source_text": "Up to 6,900 kPa",
         "subject": "internal design pressure",
     }
 
-    verdict = comparison.compare(requirement, None, subject=None)
-
-    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
-    assert comparison.TABLE_ROW_REASON in verdict["rationale"]
+    assert comparison.compare(requirement, fact,
+                              subject=None)["status"] == comparison.MISSING_INFORMATION
 
 
 def test_a_real_limit_still_produces_a_verdict():
@@ -151,3 +180,88 @@ def test_a_real_limit_still_produces_a_verdict():
 
     assert comparison.compare(requirement, fact,
                               subject=None)["status"] == comparison.NON_COMPLIANT
+
+
+# ------------------------------------------------------------ the unit guard
+
+def _units(requirement_unit, fact_unit, requirement_value="6900", fact_value="2.2"):
+    """The guard as `run_comparison` calls it, with the same shapes."""
+    from app import claims
+    requirement = {"raw_value": requirement_value, "raw_unit": requirement_unit,
+                   "unit": requirement_unit, "operator": "<="}
+    fact = {"raw_value": fact_value, "raw_unit": fact_unit, "unit": fact_unit,
+            "is_blank": 0}
+
+    def measure(unit, value):
+        return claims.Measurement(
+            raw_value=value, raw_unit=claims.split_reference(unit)[0] or "",
+            normalized_value=None, normalized_unit=None, comparator=None)
+
+    return comparison._units_comparable(
+        requirement, fact, measure(requirement_unit, requirement_value),
+        measure(fact_unit, fact_value))
+
+
+def test_a_kpa_rule_and_a_bar_value_compare():
+    """BOTH ARE PRESSURES AND `claims` CONVERTS THEM EXACTLY.
+
+    The spelling test alone refused this, sending a comparison the engine can
+    do perfectly to a human instead. Both normalise, so the question is
+    dimension.
+    """
+    assert _units("kPa", "bar") is True
+
+
+def test_millimetres_and_metres_compare():
+    assert _units("mm", "m", "300", "1") is True
+
+
+def test_the_same_unweighted_unit_compares():
+    assert _units("dB(A)", "dB(A)", "90", "95") is True
+
+
+def test_a_weighted_unit_and_an_unweighted_one_are_refused():
+    """DIMENSION IS THE WRONG QUESTION HERE, and this is why the fallback
+    exists. `dB(A)` and `dB` both have NO dimension, so a dimension test would
+    call them equal - they are not: A-weighting is part of what the number
+    means, and phase 5B exists because it was once dropped.
+    """
+    assert _units("dB(A)", "dB", "90", "95") is False
+
+
+def test_a_pressure_and_a_temperature_are_refused():
+    assert _units("kPa", "degC", "6900", "60") is False
+
+
+def test_an_unconvertible_pair_falls_back_to_the_spelling():
+    """`years` has no conversion, so neither side normalises and the spelling
+    is the only safe test. Two values in years compare; years against hours
+    does not."""
+    assert _units("years", "years", "25", "30") is True
+    assert _units("years", "hours", "25", "30") is False
+
+
+def test_a_table_row_is_matchable_so_the_reviewable_case_can_arise():
+    """A TABLE ROW MUST BE MATCHABLE OR THE REFUSAL BRANCH IS DEAD CODE.
+
+    `compare` raises a table row to NEEDS_ENGINEER_REVIEW only when a value was
+    matched against it. A matcher that skipped table rows would mean no table
+    row ever HAS a matched fact, so every one would be reported as the
+    contractor's missing information and the branch would never run.
+
+    Matching is not comparing: the comparison is still refused and the row
+    still quoted. The match is what tells the engineer which submitted value
+    the row bears on.
+    """
+    requirement = {
+        "requirement_type": requirements_3b.TABLE_ROW,
+        "raw_value": "6900", "raw_unit": "kPa",
+        "subject": "internal design pressure shall be according to the table",
+    }
+    facts = [{"id": "f1", "field_name": "internal design pressure",
+              "raw_value": "3.5", "raw_unit": "bar", "unit": "bar"}]
+
+    match = comparison.match_by_containment(requirement, facts)
+
+    assert match["fact"]["id"] == "f1"
+    assert match["matched_phrase"] == "internal design pressure"

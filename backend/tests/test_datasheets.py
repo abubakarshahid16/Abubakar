@@ -151,18 +151,37 @@ def test_blanks_only_returns_the_missing_information(tmp_path):
 
 
 def test_an_unknown_unit_yields_none_and_never_zero(tmp_path):
-    """Kg/m3 is a real unit and is NOT in claims.py's table."""
-    doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", ROWS))
+    """A unit the table does not know gives None - never 0, never a guess.
+
+    THIS TEST USED TO USE Kg/m3, WHICH IS NOW IN THE TABLE. It was added as a
+    density with an identity conversion, so it normalises and this assertion
+    correctly went red. Re-pointed at `cP`, which is genuinely absent, rather
+    than loosened - the property under test is the honesty rule, not the
+    particular unit that happened to demonstrate it.
+
+    Both halves are asserted on the same sheet so the test cannot pass by
+    everything normalising OR by nothing doing.
+    """
+    rows_with_viscosity = [*ROWS, ("Viscosity at 40 C", "12.4 cP")]
+    doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", rows_with_viscosity))
     datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
     rows = {r["field_name"]: r for r in
             datasheets.list_facts(doc, allowed_document_ids=_scope(doc))}
-    density = rows["density at relieving temper"]
+
+    viscosity = rows["viscosity at 40 c"]
     # The value and the spelling survive...
-    assert density["raw_value"] == "23.55"
-    assert density["raw_unit"] == "Kg/m3"
+    assert viscosity["raw_value"] == "12.4"
+    assert viscosity["raw_unit"] == "cP"
     # ...and the normalised pair is None, not 0.
-    assert density["normalized_value"] is None
-    assert density["normalized_unit"] is None
+    assert viscosity["normalized_value"] is None
+    assert viscosity["normalized_unit"] is None
+
+    # AND A UNIT THE TABLE DOES KNOW STILL NORMALISES, on the same sheet.
+    # Without this the test would pass against a build that normalised nothing.
+    density = rows["density at relieving temper"]
+    assert density["raw_unit"] == "Kg/m3"
+    assert density["normalized_value"] == 23.55
+    assert density["normalized_unit"] == "kg/m3"
 
 
 def test_prose_is_not_recorded_as_a_measurement(tmp_path):

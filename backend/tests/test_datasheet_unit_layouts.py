@@ -1,10 +1,11 @@
 """Where a datasheet puts the unit, and which of those the extractor reads.
 
-THESE TESTS RECORD CURRENT BEHAVIOUR, INCLUDING BEHAVIOUR THAT IS WRONG. Two
-of the three layouts below lose the unit, and the tests assert that they lose
-it. That is deliberate: a defect with a test around it is a defect somebody can
-see, and the test is what will go red when it is fixed - at which point the
-assertion is updated to the new truth, in the same commit as the fix.
+THESE TESTS RECORD CURRENT BEHAVIOUR. They were written when two of the three
+layouts LOST the unit and asserted that they lost it - a defect with a test
+around it is a defect somebody can see - on the stated contract that the
+assertion would be rewritten in the same commit as the fix. That has now
+happened twice: all three layouts attach a unit, and the tag-as-unit case is
+refused.
 
 Do not "repair" a failing assertion here by loosening it. If one of these
 starts failing, the extractor changed and the question is whether it changed
@@ -112,9 +113,11 @@ def test_layout_b_no_longer_reads_a_tag_number_as_a_unit():
     THE TEST IS SHAPE, NOT MEMBERSHIP, and that distinction is the whole fix.
     This module cannot simply demand a recognised unit the way
     `requirements_3b.unit_token` does: its own docstring protects "9970 Kg/hr",
-    a real value whose compound unit is not in the table. An identifier is long
-    and mixes letters with digits; a unit is short, and the few carrying a
-    digit are already in the table.
+    a real value whose compound unit is not in the table.
+
+    The shape is a SOLIDUS and a digit/letter mix, not length. An earlier
+    version used length and discarded `kg/cm2`, `kg/cm2g` and `lb/ft3` - see
+    the compound-unit tests at the end of this file.
     """
     assert measure_value("6 VEFV1101M")[:2] == (None, None), (
         "the tag is still being stored as a unit")
@@ -192,3 +195,52 @@ def test_all_three_layouts_now_yield_a_unit():
         "unit appended to value": "barg",
         "unit inside the label": "barg",
     }, units
+
+
+# ------------------------------------------------ compound engineering units
+
+@pytest.mark.parametrize("unit", [
+    "kg/cm2", "kg/cm2g", "N/mm2", "kN/m2", "kg/m3", "lb/ft3", "W/m2K", "kJ/kgK",
+])
+def test_a_compound_engineering_unit_is_recognised(unit):
+    """THE IDENTIFIER RULE MUST NOT EAT REAL UNITS.
+
+    The first version of that rule discarded anything unrecognised longer than
+    five characters carrying a digit. That is `kg/cm2`, `kg/cm2g` and `lb/ft3` -
+    a pressure, a gauge pressure and a density - and the five that survived did
+    so only by being short enough, not by being understood.
+
+    All eight are now in `claims`, so the rule cannot reach them at all.
+    """
+    from app import claims
+    base, _reference = claims.split_reference(unit)
+
+    assert claims.is_unit(base) is True
+    assert measure_value(f"5 {unit}")[:2] == ("5", unit)
+
+
+@pytest.mark.parametrize("unit,dimension", [
+    ("kg/cm2", "pressure"), ("N/mm2", "pressure"), ("kN/m2", "pressure"),
+    ("kg/m3", "density"), ("lb/ft3", "density"),
+    ("W/m2K", "heat_transfer"), ("kJ/kgK", "specific_heat"),
+])
+def test_each_compound_unit_lands_in_the_right_dimension(unit, dimension):
+    """A dimension is what stops a density being compared against a pressure,
+    so a unit filed under the wrong one is worse than an unrecognised one."""
+    from app import claims
+    assert claims.unit_dimension(unit) == dimension
+
+
+def test_a_gauge_compound_pressure_splits_like_barg_does():
+    """`kg/cm2g` differs from `kg/cm2` by an atmosphere, exactly as barg does,
+    and the reference has to survive the same way."""
+    from app import claims
+    assert claims.split_reference("kg/cm2g") == ("kg/cm2", "gauge")
+
+
+def test_an_equipment_tag_is_still_refused():
+    """THE GUARD ON THE RULE ABOVE. Widening the unit table must not widen what
+    counts as a unit: a tag has no solidus and mixes several digits with
+    several letters, and no engineering unit here does."""
+    assert measure_value("6 VEFV1101M")[:2] == (None, None)
+    assert measure_value("12 VEFV1107M")[:2] == (None, None)

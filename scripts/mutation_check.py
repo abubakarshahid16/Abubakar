@@ -1495,10 +1495,102 @@ MATCHER = (
     ),
 )
 
+#: Table rows, the dimension-aware unit guard, and the identifier rule.
+TABLE_AND_UNITS = (
+    Mutation(
+        id="M119", phase=8,
+        description="STOP CLASSIFYING TABLE ROWS, restoring a limit of "
+                    "<= 6,900 kPa that the standard never states",
+        path=APP / "requirements_3b.py",
+        anchor="    if is_table_row(sentence):\n        return TABLE_ROW",
+        replacement="    if False:\n        return TABLE_ROW",
+        target="tests/test_table_row_requirements.py",
+        keyword="classify_prefers_table_row",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M120", phase=8,
+        description="classify a real limit as a table row, so a requirement "
+                    "that states its own number stops being checked",
+        path=APP / "requirements_3b.py",
+        anchor="    if _COMPARATOR_PRESENT.search(text):\n        return False",
+        replacement="    if False:\n        return False",
+        target="tests/test_table_row_requirements.py",
+        keyword="states_its_own_limit_stays_a_numeric_limit or cites_a_table_is_still_a_limit",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M121", phase=8,
+        description="let compare() treat a table row as a limit again",
+        path=APP / "comparison.py",
+        # ANCHORED ON THE SECOND LINE of the condition. The first ends in a
+        # backslash continuation, and every attempt to carry that through a
+        # string literal produced an anchor that did not match the file -
+        # which the harness reported as "matched 0 times" rather than as a
+        # pass. Disabling the fact half disables the branch just as well.
+        anchor='            and fact is not None and not fact.get("is_blank"):',
+        replacement="            and False:",
+        target="tests/test_table_row_requirements.py",
+        keyword="compare_refuses_a_table_row",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M122", phase=8,
+        description="drop the row text from the finding, leaving a verdict "
+                    "with no way to see the table",
+        path=APP / "comparison.py",
+        anchor='                f"The row reads: {fragment}"),',
+        replacement='                ""),',
+        target="tests/test_table_row_requirements.py",
+        keyword="quotes_the_row",
+    ),
+    Mutation(
+        id="M123", phase=8,
+        description="compare units by SPELLING only, refusing a kPa rule "
+                    "against a bar value the engine can convert",
+        path=APP / "comparison.py",
+        anchor="    if both_normalised:",
+        replacement="    if False:",
+        target="tests/test_table_row_requirements.py",
+        keyword="kpa_rule_and_a_bar_value",
+    ),
+    Mutation(
+        id="M124", phase=8,
+        description="compare units by DIMENSION always, so dB(A) and dB - "
+                    "which share no dimension - are treated as the same unit",
+        path=APP / "comparison.py",
+        anchor="    return claims.same_unit(requirement_unit, fact_unit)",
+        replacement="    return True",
+        target="tests/test_table_row_requirements.py",
+        keyword="weighted_unit_and_an_unweighted_one or unconvertible_pair",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M126", phase=8,
+        description="accept an equipment tag as a unit again",
+        path=APP / "datasheets.py",
+        anchor="    return digits >= 2 and letters >= 3",
+        replacement="    return False",
+        target="tests/test_datasheet_unit_layouts.py",
+        keyword="equipment_tag_is_still_refused or no_longer_reads_a_tag_number",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M127", phase=8,
+        description="present the nominal field denominator as a measured count",
+        path=APP / "comparison.py",
+        anchor='                f"NOMINAL ESTIMATE of {total} ({pages} pages x "',
+        replacement='                f"{total} ({pages} pages x "',
+        target="tests/test_comparison.py",
+        keyword="denominator",
+        tags=("honesty",),
+    ),
+)
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
-    + EXTRACTION + DATASHEET + MATCHER
+    + EXTRACTION + DATASHEET + MATCHER + TABLE_AND_UNITS
 )
 
 
