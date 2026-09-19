@@ -1,4 +1,4 @@
-import type { AnswerPassage, EvidenceRemoved, AnswerType, Message } from "../../types/api";
+import type { AnswerPassage, CorpusFact, EvidenceRemoved, AnswerType, Message } from "../../types/api";
 import { PassageLocation } from "./EvidencePanel";
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
@@ -17,6 +17,10 @@ export interface AnswerView {
   evidence_removed: EvidenceRemoved[];
   seconds: number | null;
   examples: string[];
+  /** The library's answer, from the database. See contracts/types.ts. */
+  corpus?: CorpusFact | null;
+  /** Counts of documents in generated prose re-bounded to what was retrieved. */
+  counts_bounded?: number;
 }
 
 /**
@@ -63,6 +67,8 @@ export function viewFromMessage(m: Message): AnswerView {
     evidence_removed: p.evidence_removed ?? [],
     seconds: p.seconds ?? null,
     examples: p.examples ?? [],
+    corpus: p.corpus ?? null,
+    counts_bounded: p.counts_bounded ?? 0,
   };
 }
 

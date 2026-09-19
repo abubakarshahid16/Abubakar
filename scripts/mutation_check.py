@@ -3090,6 +3090,154 @@ MISSING_REFERENCES = (
 )
 
 
+#: Document Q&A answered "there are 12 distinct standards" from three retrieved
+#: passages, of a library holding 272. Both halves of the fix, both sides.
+CORPUS_QUESTIONS = (
+    # ----------------------------------------- part 1: the count is bounded
+    Mutation(
+        id="M251", phase=25,
+        description="PUT THE DEFECT BACK: drop the guard on generated text, so "
+                    "'there are 12 distinct standards' reaches the reader as a "
+                    "fact about the library",
+        path=APP / "answer.py",
+        anchor="    text, counts_bounded = corpus_mod.bound_counts(text, len(passages))",
+        replacement="    counts_bounded = 0",
+        target="tests/test_corpus_questions.py",
+        keyword="counting_question_names_its_boundary",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M252", phase=25,
+        description="the guard finds the count and bounds nothing - the rule "
+                    "itself, not only its wiring",
+        path=APP / "corpus.py",
+        anchor="        if match is None or _BOUNDED.search(sentence):",
+        replacement="        if match is None or True:",
+        target="tests/test_corpus_questions.py",
+        keyword="every_unbounded_count_of_documents_is_bounded",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M253", phase=25,
+        description="stop honouring 'retrieved', rewriting a model that had "
+                    "ALREADY named its boundary",
+        path=APP / "corpus.py",
+        anchor="        if match is None or _BOUNDED.search(sentence):",
+        replacement="        if match is None:",
+        target="tests/test_corpus_questions.py",
+        keyword="already_names_its_boundary or bounded_by_their_citation",
+    ),
+    # --------------------------------- part 2: the library answers itself
+    Mutation(
+        id="M254", phase=25,
+        description="SEND A LIBRARY QUESTION TO RETRIEVAL AGAIN - the routing "
+                    "that let three passages answer for 272 standards",
+        path=APP / "answer.py",
+        anchor="    corpus_q = corpus_mod.classify(question) if document_id is None else None",
+        replacement="    corpus_q = None",
+        target="tests/test_corpus_questions.py",
+        keyword="answered_without_searching",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M255", phase=25,
+        description="COUNT DOCUMENTS OUTSIDE THE GRANT SET, so a corpus "
+                    "answer reveals how many standards you may not read",
+        path=APP / "corpus.py",
+        anchor="            WHERE d.id IN ({marks})",
+        replacement="            WHERE 1 = 1 OR d.id IN ({marks})",
+        target="tests/test_corpus_questions.py",
+        keyword="outside_the_grant_set",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M256", phase=25,
+        description="call a standard still being processed 'loaded'",
+        path=APP / "corpus.py",
+        anchor='        slot["loaded" if r["status"] in _LOADED else "not_loaded"] += r["n"]',
+        replacement='        slot["loaded"] += r["n"]',
+        target="tests/test_corpus_questions.py",
+        keyword="still_processing_is_not_counted_as_loaded",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M257", phase=25,
+        description="answer a question about BOTH with the library alone, so "
+                    "'how many standards cover hydrotesting' never searches",
+        path=APP / "corpus.py",
+        anchor="    return CorpusQuestion(kind=kind, role=role, qualified=bool(content),",
+        replacement="    return CorpusQuestion(kind=kind, role=role, qualified=False,",
+        target="tests/test_corpus_questions.py",
+        keyword="gets_both_in_separate_fields or marked_for_both",
+    ),
+    Mutation(
+        id="M258", phase=25,
+        description="consult the library for a question scoped to ONE "
+                    "document, where 'how many standards' means what it cites",
+        path=APP / "answer.py",
+        anchor="    corpus_q = corpus_mod.classify(question) if document_id is None else None",
+        replacement="    corpus_q = corpus_mod.classify(question)",
+        target="tests/test_corpus_questions.py",
+        keyword="scoped_to_one_document",
+    ),
+    Mutation(
+        id="M259", phase=25,
+        description="drop `corpus` from the persisted payload - which the "
+                    "screen renders LIVE as well as on replay",
+        path=APP / "chat.py",
+        anchor='    "corpus", "counts_bounded",',
+        replacement='    "counts_bounded",',
+        target="tests/test_corpus_questions.py",
+        keyword="keeps_it_on_replay",
+    ),
+    # ------------------------------------------------ on screen, vitest
+    Mutation(
+        id="M260", phase=25, runner="vitest",
+        description="HIDE THE LIBRARY'S HALF of a two-part answer, leaving "
+                    "the documents' answer to stand for both",
+        path=FRONTEND_SRC / "components" / "chat" / "AnswerCardView.tsx",
+        anchor='  const twoPart = view.corpus != null && view.answer_type !== "metadata";',
+        replacement="  const twoPart = false;",
+        target="src/components/chat/corpusAnswer.test.tsx",
+        keyword="two labelled parts",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M261", phase=25, runner="vitest",
+        description="wrap a metadata answer in a second library block, "
+                    "saying the same sentence twice",
+        path=FRONTEND_SRC / "components" / "chat" / "AnswerCardView.tsx",
+        anchor='  const twoPart = view.corpus != null && view.answer_type !== "metadata";',
+        replacement="  const twoPart = view.corpus != null;",
+        target="src/components/chat/corpusAnswer.test.tsx",
+        keyword="once, not twice",
+        tags=("ui",),
+    ),
+    Mutation(
+        id="M262", phase=25, runner="vitest",
+        description="lose `corpus` between the persisted message and the view",
+        path=FRONTEND_SRC / "components" / "chat" / "AnswerCardContent.tsx",
+        anchor="    corpus: p.corpus ?? null,",
+        replacement="    corpus: null,",
+        target="src/components/chat/corpusAnswer.test.tsx",
+        keyword="carries both fields",
+        tags=("ui",),
+    ),
+    Mutation(
+        id="M263", phase=25,
+        description="let Markdown around the number hide the count again - "
+                    "the REAL model's '**five** distinct standards' slipped "
+                    "past the first version of the guard",
+        path=APP / "corpus.py",
+        anchor='COUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + _MD + r"\\s+" + _MD',
+        replacement='COUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + r"\\s+" + _MD',
+        target="tests/test_corpus_questions.py",
+        keyword="real_models_own_words or markdown_around_the_count",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3098,7 +3246,7 @@ ALL: tuple[Mutation, ...] = (
     + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
     + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
-    + MISSING_REFERENCES
+    + MISSING_REFERENCES + CORPUS_QUESTIONS
 )
 
 

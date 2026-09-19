@@ -1356,6 +1356,22 @@ export interface GenerateReport {
   message_id: string;
 }
 
+/** A count of the library, from the database, under the caller's grants.
+ *  `text` carries its own boundary - "272 company standards are loaded and
+ *  readable by you" - so it cannot be shown without it. */
+export interface CorpusFact {
+  text: string;
+  /** document_role counted; null means every role */
+  role: string | null;
+  loaded: number;
+  /** in scope but still processing, or failed */
+  not_loaded: number;
+  kind: "count" | "list";
+  source: "database";
+  /** the question also asked about content, answered separately by retrieval */
+  qualified: boolean;
+}
+
 export interface AnswerResult {
   question: string;
   answer_type: AnswerType;
@@ -1394,6 +1410,14 @@ export interface AnswerResult {
   coverage: Coverage | null;
   /** guidance only: real questions drawn from the loaded documents */
   examples: string[];
+  /** The LIBRARY's answer, counted from the database. On a metadata answer it
+   *  IS the answer; on any other answer_type the question also asked about
+   *  content, and this is the separate database half of a two-part reply. */
+  corpus?: CorpusFact | null;
+  /** Sentences in a generated answer whose count of documents was re-bounded
+   *  to the passages retrieved - the model sees a few passages, never the
+   *  library, so any such count is a count of them. */
+  counts_bounded?: number;
   retrieval_mode: string;
   reranked: boolean;
   candidates_considered: number;

@@ -481,6 +481,10 @@ _PAYLOAD_KEYS = (
     # answer with the partial-coverage warning silently gone - worse than
     # never having shipped the field.
     "coverage", "evidence_removed",
+    # The same reason, twice more. Reopened without `corpus`, a two-part reply
+    # would lose its database half; without `counts_bounded`, a re-bounded
+    # count would lose the note that says it was.
+    "corpus", "counts_bounded",
 )
 
 
