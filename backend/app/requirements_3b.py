@@ -130,6 +130,84 @@ def header_unit(header: str) -> str | None:
     return candidate
 
 
+#: The sentence DEFERS to a table rather than stating a limit itself.
+#:
+#: "The internal design pressure shall be according to the following table"
+#: carries a mandatory verb and a number, and the number is a ROW BOUNDARY of
+#: the table that follows - "Up to 6,900 kPa". Read as a limit it says design
+#: pressure must not exceed 6,900 kPa, which the standard does not say.
+_TABLE_REFERENCE = re.compile(
+    r"\b(?:according\s+to|per|see|as\s+(?:given|shown|tabulated|specified)\s+in|"
+    r"in\s+accordance\s+with)\s+(?:the\s+)?(?:following\s+)?table\b"
+    r"|\bthe\s+following\s+table\b"
+    r"|\bas\s+tabulated\b"
+    r"|\btable\s+\d+(?:\.\d+)*\b",
+    re.IGNORECASE)
+
+#: A TABLE ROW, not a sentence: a boundary phrase with no obligation in it.
+#: "Up to 6,900 kPa (1,000 psi)" is a column heading for a lookup, and it is
+#: only ever a requirement by being read out of context.
+_BOUNDARY_FRAGMENT = re.compile(
+    r"\b(?:up\s+to|over|above|below|under)\s+[-+]?\d"
+    r"|\b[-+]?\d[\d.,]*\s*(?:to|–|—)\s*[-+]?\d[\d.,]*\s*[A-Za-z%°]"
+    # The unit sits between the number and the phrase - "6,900 kPa and above" -
+    # so one optional unit-shaped token is allowed to intervene.
+    r"|\b\d[\d.,]*\s*(?:[A-Za-z%°/()]{1,10}\s*)?"
+    r"(?:and\s+(?:above|below|over|under|greater|less))\b",
+    re.IGNORECASE)
+
+
+def is_table_row(sentence: str) -> bool:
+    """True when this text is a table reference or a table row, not a limit.
+
+    TWO SHAPES, MEASURED ON THE CORPUS:
+
+      * the sentence carries a mandatory verb AND defers to a table. SAES-D-001
+        6.2.2 and SAES-E-014 7.2.4 are both of this kind, and both matched a
+        real submitted pressure in the first end-to-end review. Neither states
+        a limit; both point at a lookup whose rows the extractor then read as
+        one.
+
+      * the fragment has NO mandatory verb and is shaped like a row boundary.
+        "Up to 6,900 kPa", "15 to 25 mm", "1,100 kPa and above" are cells, and
+        a cell that happens to contain a number is not an obligation.
+
+    A sentence that states its own limit is untouched, whatever else is in it:
+    "shall not exceed 5 g/L" is a requirement even if a table appears later in
+    the clause, because the obligation and the number are in the same sentence.
+    """
+    text = " ".join((sentence or "").split())
+    if not text:
+        return False
+    # A SENTENCE THAT STATES ITS OWN COMPARATOR STATES ITS OWN LIMIT, whatever
+    # else it mentions. "shall not exceed 5 g/L (see Table 3)" is a real
+    # requirement that happens to cite a table, and this check comes first so
+    # such a sentence can never be reclassified away.
+    if _COMPARATOR_PRESENT.search(text):
+        return False
+    # Otherwise the number belongs to a table if the text either defers to one
+    # or is shaped like one of its rows. The boundary shape is searched
+    # ANYWHERE in the text, not just at the start: a table flattened into prose
+    # by the extractor reads "Maximum Operating Pressure (MOP) Design Pressure
+    # Up to 6,900 kPa ... and above", where the boundary phrase is in the
+    # middle and the row it belongs to is the whole line.
+    return bool(_TABLE_REFERENCE.search(text) or _BOUNDARY_FRAGMENT.search(text))
+
+
+#: Mandatory wording, duplicated from `standards` deliberately: importing it
+#: would make this module depend on the one that depends on it.
+_MANDATORY_HERE = re.compile(
+    r"\b(shall|must|is\s+required\s+to|are\s+required\s+to|is\s+to\s+be"
+    r"|are\s+to\s+be)\b", re.IGNORECASE)
+
+#: A comparator phrase the sentence states for ITSELF.
+_COMPARATOR_PRESENT = re.compile(
+    r"\b(?:not\s+exceed|no\s+greater\s+than|no\s+more\s+than|less\s+than|"
+    r"greater\s+than|at\s+least|at\s+most|minimum\s+of|maximum\s+of|"
+    r"or\s+less|or\s+more|not\s+less\s+than|not\s+more\s+than)\b",
+    re.IGNORECASE)
+
+
 def subject_phrase(sentence: str) -> str | None:
     """The text before the comparator, or None when there is no comparator.
 
@@ -274,12 +352,26 @@ def parse_condition(sentence: str) -> str | None:
     return condition or None
 
 
+#: A requirement whose number belongs to a LOOKUP TABLE, not to a limit.
+TABLE_ROW = "table_row"
+
+
 def classify(sentence: str, limit: dict | None) -> str:
     """What kind of requirement this is. Never invented.
 
     A sentence with a recognised limit is a `numeric_limit`; everything else is
     a `statement`, which is a true description rather than a guess at one.
+
+    UNLESS THE NUMBER BELONGS TO A TABLE. Checked before the limit, because
+    such a sentence DOES parse as a limit and that is the whole problem:
+    SAES-D-001 6.2.2 says design pressure "shall be according to the following
+    table", the parser read the table's first row boundary - "Up to 6,900 kPa" -
+    and stored a limit of <= 6,900 kPa that the standard never states. In the
+    first end-to-end review it matched a real submitted pressure, and only a
+    mismatch of unit spellings stopped it becoming a confident wrong verdict.
     """
+    if is_table_row(sentence):
+        return TABLE_ROW
     return "numeric_limit" if limit else "statement"
 
 

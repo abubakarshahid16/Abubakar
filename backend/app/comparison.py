@@ -48,7 +48,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from . import claims, datasheets, submittal_review
+from . import claims, datasheets, requirements_3b, submittal_review
 from .db import connect
 
 # ----------------------------------------------------------------- statuses
@@ -202,6 +202,23 @@ def compare(requirement: dict, fact: dict | None, *,
       4. units cannot be compared -> NEEDS_ENGINEER_REVIEW (never a guess)
       5. the numbers compare      -> COMPLIANT or NON_COMPLIANT
     """
+    # BEFORE ANY OTHER BRANCH, INCLUDING THE ABSENT-FACT ONE. A table row is
+    # not a limit whether or not a value was submitted against it, and a
+    # reviewer needs to see the row rather than a verdict about it.
+    if requirement.get("requirement_type") == requirements_3b.TABLE_ROW:
+        fragment = " ".join(
+            (requirement.get("source_text")
+             or requirement.get("requirement_text") or "").split())
+        return {
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": (
+                f"{TABLE_ROW_REASON}: this requirement's number belongs to a "
+                f"lookup table, not to a limit, so no comparison was made. "
+                f"The row reads: {fragment}"),
+            "limit": None, "observed": _describe(_measurement_from_fact(fact), fact)
+            if fact else None,
+            "exception_applied": None,
+        }
     if fact is None:
         return {
             "status": MISSING_INFORMATION,
@@ -733,6 +750,7 @@ def run_comparison(
 
 #: Why a containment match was refused, when it was.
 AMBIGUOUS_MATCH = "ambiguous_match"
+TABLE_ROW_REASON = "table_row"
 UNIT_MISMATCH = "unit_mismatch"
 
 #: How a match was made. One value today; named so a second method cannot be

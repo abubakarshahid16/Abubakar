@@ -526,6 +526,22 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     elif unit and remainder and len(remainder) <= 6 and claims.is_unit(f"{unit} {remainder}"):
         unit = f"{unit} {remainder}"
         remainder = ""
+    # A TAG IS NOT A UNIT, AND THE SHAPE IS THE TELL.
+    #
+    # A bill-of-materials row reads "6 VEFV1101M" in ONE cell - the row index
+    # and the equipment tag together - so the column rule never saw a unit
+    # column and this pattern took the tag as the unit. Ten of the twenty
+    # numeric facts on a real submittal were that.
+    #
+    # The datasheet side cannot simply demand a recognised unit the way
+    # `requirements_3b.unit_token` does: this module's own docstring protects
+    # "9970 Kg/hr", a real value whose compound unit is not in the table, and
+    # refusing it would lose the number. So the test is SHAPE, not membership.
+    # An identifier is long and mixes letters with digits; a unit is short, and
+    # the few that carry a digit (m3, g/m2, dB(A)) are in the table already.
+    if unit and not claims.is_unit(claims.split_reference(unit)[0] or "") \
+            and len(unit) > 5 and any(ch.isdigit() for ch in unit):
+        return None, None, None
     if remainder and not remainder.startswith("("):
         return None, None, None
     return value, unit, claims.normalise(value, unit or "")
