@@ -21,11 +21,43 @@ import sys
 
 
 def backup(live_path: str, backup_dir: str) -> str:
-    """One consistent snapshot, timestamped, verified before returning."""
-    src = sqlite3.connect(live_path)
-    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest_path = str(pathlib.Path(backup_dir) /
-                    f"rag_intelligence-{stamp}.sqlite")
+    """One consistent snapshot, timestamped, verified before returning.
+
+    Refuses rather than succeeding on the wrong contents. Both of the guards
+    below exist because the first version did exactly that, reproduced on the
+    production machine on 2026-09-19 before either was fixed:
+
+    * A ONE-LETTER TYPO IN THE SOURCE PATH was backed up as an empty
+      database and verified ok. `sqlite3.connect` CREATES a file that does
+      not exist - so the tool made an empty database at the typo, copied it,
+      and `integrity_check` passed, because an empty file is internally
+      consistent. The source is now opened READ-ONLY by URI, which refuses a
+      missing file and can never write to the live database either.
+    * TWO BACKUPS IN THE SAME SECOND SHARED A FILENAME, and the second opened
+      the first's file and overwrote it: a 10-row backup silently became a
+      3-row one. The stamp now carries microseconds, and the destination is
+      created exclusively - a name collision raises instead of writing.
+    """
+    source = pathlib.Path(live_path)
+    if not source.is_file():
+        raise FileNotFoundError(f"no database at {live_path}")
+    src = sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True)
+    tables = src.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
+        " AND name NOT LIKE 'sqlite_%'").fetchone()[0]
+    if tables == 0:
+        src.close()
+        raise RuntimeError(
+            f"refusing to back up {live_path}: it has no tables - an empty "
+            "database is never what a backup of this system should contain")
+
+    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    dest_file = pathlib.Path(backup_dir) / f"rag_intelligence-{stamp}.sqlite"
+    # EXCLUSIVE create: if the name exists, fail loudly rather than let
+    # sqlite open the existing backup and write over it.
+    with open(dest_file, "xb"):
+        pass
+    dest_path = str(dest_file)
     dest = sqlite3.connect(dest_path)
     with dest:
         src.backup(dest)  # WAL-safe online copy of EVERYTHING

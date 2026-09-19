@@ -2982,6 +2982,67 @@ CRS_EXPORT = (
 )
 
 
+#: The WAL-safe backup: every way it used to succeed on the wrong contents.
+#: THE GUARDS COME IN REDUNDANT PAIRS - an existence check AND a read-only
+#: open; microseconds in the name AND an exclusive create. Deleting one half
+#: of a pair is not observable (audit entry 39), so each mutation below
+#: removes a whole guard, or removes one half to prove the other half turns
+#: a silent failure into a loud one.
+BACKUP = (
+    Mutation(
+        id="M244", phase=23,
+        description="BACK UP A MISTYPED PATH: drop the existence check AND "
+                    "the read-only open, so sqlite creates an empty database "
+                    "at the typo and verify calls it ok",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor="    if not source.is_file():\n"
+               '        raise FileNotFoundError(f"no database at {live_path}")\n'
+               '    src = sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True)',
+        replacement="    src = sqlite3.connect(live_path)",
+        target="tests/test_backup_db.py",
+        keyword="missing_source_is_refused_rather_than_created",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M245", phase=23,
+        description="back up a database with NO TABLES and report it verified",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor="    if tables == 0:",
+        replacement="    if False:",
+        target="tests/test_backup_db.py",
+        keyword="source_with_no_tables_is_refused",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M246", phase=23,
+        description="drop the microseconds - the exclusive create must then "
+                    "turn a same-second collision into a LOUD failure",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")',
+        replacement='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")',
+        target="tests/test_backup_db.py",
+        keyword="same_second_never_overwrite",
+    ),
+    Mutation(
+        id="M247", phase=23,
+        description="SILENTLY OVERWRITE THE EARLIER BACKUP: drop the "
+                    "microseconds AND the exclusive create",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")\n'
+               '    dest_file = pathlib.Path(backup_dir) / f"rag_intelligence-{stamp}.sqlite"\n'
+               "    # EXCLUSIVE create: if the name exists, fail loudly rather than let\n"
+               "    # sqlite open the existing backup and write over it.\n"
+               '    with open(dest_file, "xb"):\n'
+               "        pass",
+        replacement='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")\n'
+                    '    dest_file = pathlib.Path(backup_dir) / f"rag_intelligence-{stamp}.sqlite"',
+        target="tests/test_backup_db.py",
+        keyword="same_second_never_overwrite",
+        tags=("critical",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -2989,7 +3050,7 @@ ALL: tuple[Mutation, ...] = (
     + MODEL_TIER + GATE_FALLOUT + REPEATED_FORM
     + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
-    + DISCIPLINE_CANONICAL + CRS_EXPORT
+    + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
 )
 
 
