@@ -15,6 +15,14 @@
 *.sh        text eol=lf
 .githooks/* text eol=lf
 
+# And the mirror image: Windows batch files are CRLF everywhere. The catch-all
+# above (`* text=auto eol=lf`) forces LF on CHECKOUT too, so without this rule
+# a fresh clone received scripts/start-system.bat with LF endings - and
+# cmd.exe's `goto` and `call :label` are not reliable on LF-only batch files.
+# Found 2026-09-19, when the start script was first run for real.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 # Source and config: LF, explicitly, so no heuristic has to decide.
 *.py    text eol=lf
 *.ts    text eol=lf
