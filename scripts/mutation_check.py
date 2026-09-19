@@ -1553,6 +1553,48 @@ def _run_tests(mutation: Mutation) -> tuple[int, str]:
     return proc.returncode, (lines[-1] if lines else "(no output)")
 
 
+#: How many tests a run actually executed, out of its summary line. `None` when
+#: the line cannot be read at all, which is itself a harness failure.
+#: Words that mean a test RAN. `deselected` and `skipped` deliberately absent:
+#: a deselected test was never collected and a skipped one never executed, so
+#: neither is evidence that the mutation was observed by anything.
+_PYTEST_COUNTS = re.compile(r"(\d+)\s+(passed|failed|error|errors|xfailed|xpassed)")
+#: The same idea for pytest's "no tests ran" shapes, which carry only words
+#: that mean nothing executed. Matched so the verdict can say so precisely
+#: rather than "could not read a count".
+_PYTEST_NOTHING = re.compile(r"\b\d+\s+(?:deselected|skipped)\b|no tests ran")
+_VITEST_COUNTS = re.compile(r"(\d+)\s+(failed|passed)")
+
+
+def _tests_collected(runner: str, summary: str) -> int | None:
+    """The number of tests the run executed, from its own summary.
+
+    THE HARNESS MUST NOT TRUST THE EXIT CODE ALONE. pytest exits 5 when it
+    collects NOTHING - a `-k` expression that matches no test - and 5 is
+    non-zero, which this file used to read as "the tests failed", which is what
+    DETECTED means. Two mutations passed that way having executed no test at
+    all, printing "49 deselected" with no pass or fail count, and were
+    indistinguishable from the hundred that proved something.
+
+    So the verdict now needs evidence that tests RAN. This reads the count out
+    of the runner's own summary line; a summary with no counts in it returns
+    None and the run is a harness error, not a result.
+    """
+    text = summary or ""
+    if runner == "vitest":
+        if "Tests" not in text:
+            return None
+        found = _VITEST_COUNTS.findall(text)
+        return sum(int(n) for n, _word in found) if found else 0
+    found = _PYTEST_COUNTS.findall(text)
+    if found:
+        # "1 failed, 20 deselected" counts the 1 and not the 20, which is the
+        # whole point: deselected tests did not run.
+        return sum(int(n) for n, _word in found)
+    # Nothing executed, said in pytest's own words.
+    return 0 if _PYTEST_NOTHING.search(text) else None
+
+
 def run(mutation: Mutation) -> tuple[str, str]:
     """Apply, test, restore. Returns `(verdict, summary)`."""
     path = mutation.path
@@ -1574,6 +1616,16 @@ def run(mutation: Mutation) -> tuple[str, str]:
     finally:
         shutil.copyfile(backup, path)
         os.remove(backup)
+    # A VERDICT NEEDS TESTS TO HAVE RUN. Checked before the exit code is read,
+    # because a run that executed nothing has no verdict to give - whatever it
+    # exited with.
+    ran = _tests_collected(mutation.runner, summary)
+    if ran is None:
+        return "HARNESS_ERROR", f"could not read a test count from: {summary}"
+    if ran == 0:
+        return "HARNESS_ERROR", (
+            f"the run executed NO tests ({summary}) - the target or keyword "
+            f"selects nothing, so this mutation proves nothing")
     return ("DETECTED" if code != 0 else "NOT DETECTED"), summary
 
 
@@ -1614,16 +1666,28 @@ def main() -> int:
         results.append((m, verdict, summary))
 
     print("\n" + "=" * 78)
-    failures = [r for r in results if r[1] != "DETECTED"]
-    print(f"{len(results) - len(failures)}/{len(results)} mutations detected")
-    if failures:
+    detected = [r for r in results if r[1] == "DETECTED"]
+    harness = [r for r in results if r[1] in ("HARNESS_ERROR", "ERROR")]
+    vacuous = [r for r in results if r[1] == "NOT DETECTED"]
+    print(f"{len(detected)}/{len(results)} mutations detected"
+          f"  |  {len(vacuous)} not detected  |  {len(harness)} harness error")
+    if harness:
+        # REPORTED SEPARATELY AND FIRST. A harness error is not a result in
+        # either direction: the mutation did not run, or ran nothing, so it
+        # says nothing about the tests. Counting it as detected is how two
+        # mutations came to pass while executing no tests at all.
+        print("\nHARNESS ERROR - these mutations produced no evidence:")
+        for m, verdict, summary in harness:
+            print(f"  {m.id} [{verdict}] {m.description}")
+            print(f"       {summary}")
+    if vacuous:
         print("\nNOT DETECTED - the tests do not observe these features:")
-        for m, verdict, summary in failures:
+        for m, verdict, summary in vacuous:
             print(f"  {m.id} [{verdict}] {m.description}")
             print(f"       {summary}")
         print("\nA mutation that is not detected means the test is VACUOUS.")
         print("Record it per CLAUDE.md rule 7 and fix the test, not the harness.")
-    return 1 if failures else 0
+    return 1 if (harness or vacuous) else 0
 
 
 if __name__ == "__main__":
