@@ -2685,16 +2685,61 @@ than as "no tables" - the second would be a claim about the database.
   id DESC` became `ambiguous column name`. Qualification with `r.` is not
   style here; it is the difference between working and not.
 
-## 103. Mutations - 20 new across four phases
+## 103. THE FINAL SUITE PASS FAILED, AND THAT IS WHERE THE REAL DEFECTS WERE
+
+Everything above was green when it was committed, file by file. The one
+full-suite pass at the end of the session reported **25 failed, 29 errors**
+and a mutation harness at **236/237 with one HARNESS ERROR**. Both were real.
+
+**1. Every document ingest would have failed to classify.** Adding
+`discipline_canonical` to the suggestion `INSERT` gave it nine columns and
+eight VALUES: `8 values for 9 columns`. Fourteen discipline tests were green
+over it, because every one inserted its rows with SQL and none went through
+`classification.write_suggestion` - the path every ingest takes. The live app
+survived only because no document was uploaded during the session.
+
+**2. The column existed only after an optional startup step.** It was added
+by `disciplines.ensure_schema()`, which `lifespan` called and `init_db` did
+not, so a write path depended on a migration it never called. 29 unrelated
+test setups failed on it. It now lives in `db.py`'s own table definition and
+migration, where every other column of that table does.
+
+**3. M1 had been silently inert for three phases.** Phase 7's step 0a
+replaced `"SELECT * FROM review_runs"` with the `_RUN_SELECT` join, and M1 -
+the scope filter on `list_review_runs`, a PERMISSION mutation - anchored on
+the old line. The harness reported it as a HARNESS ERROR rather than a pass,
+which is the three-bucket verdict doing exactly its job; but after that
+change only the new mutations were run, never the whole harness, so nobody
+looked. Re-anchored; DETECTED.
+
+**One root, recorded as honesty-audit entry 43: each check looked only at the
+new thing.** After changing a line, run the WHOLE harness, because an existing
+mutation may have been standing on it. And a test that inserts its fixture
+with SQL cannot see a defect in the code that normally does the inserting.
+
+Three tests now go through the real write paths, and one builds an OLD-SHAPE
+database so the migration is actually exercised - audit entry 6 is about two
+migration tests that passed with the migration deleted, because their fixture
+built the table from today's schema.
+
+**And one mutation withdrawn, with the reason kept.** M243 first deleted the
+column from the `CREATE TABLE` and was NOT DETECTED - correctly. On a fresh
+database the migration loop adds it too, so the two creators are redundant
+and removing either alone changes nothing observable. It now targets the
+migration, on the old-shape database, where the difference can be seen.
+
+## 104. Mutations - 22 new across four phases, and one repaired
 
 | phase | ids | what they delete |
 |---|---|---|
 | 19 | M222-M224 | the decided-by name: drop it from the join, INNER-join the decider, stop putting it on the wire |
 | 20 | M225-M231 | the explorer: open the table list, open the row reader, stop masking, narrow the rule to equality, let the exemption match as a substring, mask a NULL, drop the column instead of masking it |
-| 21 | M232-M236 | the overlay: NULL an unmapped spelling, overwrite the raw column, filter on raw again, stop canonicalising the request, drop the COALESCE |
+| 21 | M232-M236, M242-M243 | the overlay: NULL an unmapped spelling, overwrite the raw column, filter on raw again, stop canonicalising the request, drop the COALESCE, drop a VALUE from the ingest INSERT, drop the migration |
 | 22 | M237-M241 | the CRS: export an unreadable run, drop the gap rows, print the normalised key, invent a transmittal number, write the standard's id |
+| 1 | M1 | **repaired**: re-anchored after the join; inert since step 0a |
 
 Three needed fixing before they could report anything. M227, M228 and M231
 were HARNESS_ERROR because the harness takes ONE target path and had been
 given two space-separated ones, so pytest collected nothing - which the
-three-bucket verdict correctly refused to call a pass.
+three-bucket verdict correctly refused to call a pass. M241 was NOT DETECTED
+first because its fixture never inserted the standard (section 96).

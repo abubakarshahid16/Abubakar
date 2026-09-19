@@ -39,8 +39,12 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "disc.sqlite")
     db.reset_connection()
+    # `init_db` ALONE, deliberately. This fixture used to call
+    # `disciplines.ensure_schema()` too, which added the column whatever
+    # `init_db` did - so the test asserting that `init_db` creates it could
+    # not have failed. Every test here now runs on the schema production
+    # callers actually get.
     db.init_db()
-    disciplines.ensure_schema()
     yield
     db.reset_connection()
 
@@ -165,6 +169,117 @@ def test_two_spellings_become_one_value_which_is_the_whole_point():
         "SELECT discipline FROM document_classification")}
     assert canon == {"Nonmetallic Standards Committee"}
     assert len(raw) == 2, "the raw spellings were merged away"
+
+
+# ============================================ through the real write paths
+#
+# THE TESTS ABOVE INSERT ROWS WITH SQL, AND THAT HID A DEFECT. The suggestion
+# write in `classification.py` gained a ninth column and kept eight VALUES,
+# so every document ingest would have failed to classify with "8 values for 9
+# columns". Nothing above could see it, because nothing above went through
+# the code that writes. The same shape of miss as standing rule 15, one layer
+# down: a test that never calls the write path cannot see a defect in it.
+
+
+def test_a_suggestion_is_written_with_its_canonical_beside_it():
+    """THE PATH EVERY INGEST TAKES."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,"
+            "status,page_count,uploaded_at) VALUES ('d1','d1.pdf','s',1,"
+            "'d1.pdf','ready',1,?)", (NOW,))
+
+    classification.write_suggestion(
+        "d1",
+        classification.Suggestion(discipline="Non-metallic Standards Committee"),
+        suggested_by="test")
+
+    row = _row("d1")
+    assert row["discipline"] == "Non-metallic Standards Committee"
+    assert row["discipline_canonical"] == "Nonmetallic Standards Committee"
+
+
+def test_an_administrators_confirmation_writes_both_as_well():
+    """The other write path. Two INSERTs carry the column, so both are
+    exercised - a fix to one would otherwise leave the other broken."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,"
+            "status,page_count,uploaded_at) VALUES ('d1','d1.pdf','s',1,"
+            "'d1.pdf','ready',1,?)", (NOW,))
+
+    classification.confirm(
+        "d1", doc_type=None, discipline="Onshore Structure Standards Committee",
+        doc_class=None, subject_ids=(), confirmed_by=None)
+
+    row = _row("d1")
+    assert row["discipline"] == "Onshore Structure Standards Committee"
+    assert row["discipline_canonical"] == "Onshore Structures Standards Committee"
+
+
+def test_the_column_exists_without_the_startup_backfill_having_run():
+    """`init_db` alone must produce it. It used to exist only after
+    `disciplines.ensure_schema()`, so a write path depended on a migration it
+    never called - and 29 test setups failed on it."""
+    columns = {r["name"] for r in db.connect().execute(
+        "PRAGMA table_info(document_classification)")}
+
+    assert "discipline_canonical" in columns
+
+
+def test_an_existing_database_gains_the_column_through_the_migration(
+        tmp_path, monkeypatch):
+    """THE MIGRATION, ON A DATABASE THAT PREDATES IT.
+
+    Honesty audit entry 6: two migration tests once passed with the migration
+    DELETED, because their fixture built the table from today's schema - the
+    column was already there and the ALTER never ran. So this builds the
+    table in its OLD shape first, with no `discipline_canonical`, and only
+    then lets `init_db` see it.
+
+    It is also the only way to observe the migration at all. On a fresh
+    database the CREATE TABLE and the migration loop BOTH add the column, so
+    deleting either one alone changes nothing - M243, which deleted the
+    CREATE TABLE line, was withdrawn for exactly that reason.
+    """
+    # EVERYTHING CURRENT EXCEPT THIS ONE TABLE. A first attempt built a bare
+    # `documents(id)` and `init_db` then failed on `documents.status` - a
+    # fixture too minimal to be a real old database. So: build today's schema,
+    # then put `document_classification` back into its pre-phase-8 shape.
+    monkeypatch.setattr(settings, "db_path", tmp_path / "old.sqlite")
+    db.reset_connection()
+    db.init_db()
+    with db.connect() as conn:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("DROP TABLE document_classification")
+        conn.execute(
+            "CREATE TABLE document_classification ("
+            " document_id TEXT PRIMARY KEY, doc_type TEXT, discipline TEXT,"
+            " doc_class TEXT, register_id TEXT, suggested_by TEXT NOT NULL,"
+            " confirmed_by TEXT, confirmed_at TEXT)")
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,"
+            "status,page_count,uploaded_at) VALUES ('old','old.pdf','s',1,"
+            "'old.pdf','ready',1,?)", (NOW,))
+        conn.execute(
+            "INSERT INTO document_classification (document_id, discipline,"
+            " suggested_by) VALUES ('old', 'Non-metallic Standards Committee',"
+            " 'test')")
+        conn.execute("PRAGMA foreign_keys = ON")
+    before = {r["name"] for r in db.connect().execute(
+        "PRAGMA table_info(document_classification)")}
+    assert "discipline_canonical" not in before, "the fixture is not the old shape"
+
+    db.init_db()
+
+    after = {r["name"] for r in db.connect().execute(
+        "PRAGMA table_info(document_classification)")}
+    assert "discipline_canonical" in after
+    # And the old row survived the ALTER with its evidence intact.
+    row = db.connect().execute(
+        "SELECT discipline FROM document_classification WHERE document_id='old'"
+    ).fetchone()
+    assert row["discipline"] == "Non-metallic Standards Committee"
 
 
 # ============================================================ the filter

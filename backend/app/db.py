@@ -505,7 +505,15 @@ CREATE TABLE IF NOT EXISTS subjects (
 CREATE TABLE IF NOT EXISTS document_classification (
     document_id   TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
     doc_type      TEXT,
+    -- WHAT THE COVER PAGE SAYS. Evidence, never rewritten - see disciplines.py.
     discipline    TEXT,
+    -- The editorial canonical spelling, derived from `discipline` at every
+    -- write. It lives HERE, in the table's own definition, because
+    -- classification.py writes it: a column that existed only after an
+    -- optional startup step was a write path depending on a migration it did
+    -- not call, and every caller of `init_db` without that step - 29 test
+    -- setups among them - failed with "no column named discipline_canonical".
+    discipline_canonical TEXT,
     -- P&ID, DATASHEET, SLD, PHILOSOPHY... A CHIP ONLY. Measured: 88%
     -- derivable and nobody searches by it, so it is recorded and displayed
     -- and is deliberately NOT a filter axis.
@@ -750,6 +758,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "document_role", "document_number", "title", "revision",
             "effective_date", "project", "contractor_vendor", "equipment_type",
             "equipment_tags", "service", "transmittal_number", "superseded_by",
+            # Phase 8's overlay, added where every other column of this table
+            # is migrated. `disciplines.backfill` fills it for old rows.
+            "discipline_canonical",
         ):
             if _column not in classification_cols:
                 conn.execute(

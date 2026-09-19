@@ -363,7 +363,11 @@ def write_suggestion(document_id: str, suggestion: Suggestion, *,
             "INSERT INTO document_classification (document_id, doc_type,"
             " discipline, discipline_canonical, doc_class, register_id,"
             " suggested_by, confirmed_by, confirmed_at)"
-            " VALUES (?,?,?,?,?,?,NULL,NULL)"
+            # Nine columns, seven bound values and two NULLs. This read
+            # `(?,?,?,?,?,?,NULL,NULL)` - eight - when `discipline_canonical`
+            # was added, and every document ingest would have failed to
+            # classify: "8 values for 9 columns".
+            " VALUES (?,?,?,?,?,?,?,NULL,NULL)"
             " ON CONFLICT(document_id) DO UPDATE SET"
             " doc_type=excluded.doc_type, discipline=excluded.discipline,"
             " discipline_canonical=excluded.discipline_canonical,"

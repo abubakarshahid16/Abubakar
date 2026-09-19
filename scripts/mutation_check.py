@@ -107,10 +107,18 @@ PHASE_1 = (
         id="M1", phase=1,
         description="delete the scope filter from list_review_runs",
         path=APP / "submittal_review.py",
+        # RE-ANCHORED 2026-09-19. Phase 7's step 0a replaced
+        # `"SELECT * FROM review_runs"` with the `_RUN_SELECT` join, and this
+        # anchor stopped matching. The harness reported it as a HARNESS ERROR
+        # rather than a pass - which is the three-bucket verdict doing its
+        # job - but it went unrun for three phases because only the new
+        # mutations were run after that change, never the whole harness.
+        # A permission mutation, silently inert. See the phase 8 progress
+        # entry.
         anchor='    where, args = _scope_clause(allowed_document_ids, "submittal_document_id")\n'
-               '    sql = "SELECT * FROM review_runs" + where',
+               '    sql = _RUN_SELECT + where',
         replacement='    where, args = "", []\n'
-                    '    sql = "SELECT * FROM review_runs" + where',
+                    '    sql = _RUN_SELECT + where',
         target="tests/test_submittal_review_foundation.py",
         keyword="unauthorised_user_cannot_read_another_users_review_run or empty_grant_set",
         tags=("permission",),
@@ -2872,6 +2880,35 @@ DISCIPLINE_CANONICAL = (
         replacement='            f"c.discipline_canonical IN ({marks})")',
         target="tests/test_discipline_canonical.py",
         keyword="written_before_the_column_existed_is_still_findable",
+    ),
+    Mutation(
+        id="M242", phase=21,
+        description="DROP A VALUE from the suggestion INSERT - the exact "
+                    "defect that would have failed every document ingest",
+        path=APP / "classification.py",
+        anchor='            " VALUES (?,?,?,?,?,?,?,NULL,NULL)"',
+        replacement='            " VALUES (?,?,?,?,?,?,NULL,NULL)"',
+        target="tests/test_discipline_canonical.py",
+        keyword="suggestion_is_written_with_its_canonical_beside_it",
+        tags=("critical",),
+    ),
+    # M243 AS FIRST WRITTEN WAS WITHDRAWN, and the reason is kept here.
+    # It deleted `discipline_canonical TEXT,` from the CREATE TABLE and was
+    # NOT DETECTED - correctly. On a fresh database the migration loop adds
+    # the column too, so the two creators are redundant and deleting either
+    # one alone changes nothing observable (audit entry 39: first ask whether
+    # the OUTPUT can distinguish the versions at all). It now targets the one
+    # creator that CAN be observed: the migration, on an old-shape database.
+    Mutation(
+        id="M243", phase=21,
+        description="drop the MIGRATION, so a database that predates the "
+                    "column never gains it and every classification write fails",
+        path=APP / "db.py",
+        anchor='            "discipline_canonical",\n',
+        replacement="",
+        target="tests/test_discipline_canonical.py",
+        keyword="existing_database_gains_the_column_through_the_migration",
+        tags=("critical",),
     ),
 )
 
