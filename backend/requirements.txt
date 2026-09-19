@@ -36,6 +36,16 @@ huggingface_hub==1.30.0
 # Ollama client (plain HTTP, no SDK needed)
 httpx==0.28.1
 
+# CRS export (phase 7). Pure Python, no network at runtime: it writes an
+# .xlsx and nothing else. UNDECLARED when `crs_export.py` arrived on
+# cowork/phase-7-crs-export, which is worth a comment rather than a silent
+# line - this machine is destined to be air-gapped, so a dependency that is
+# only in somebody's venv is a feature that does not exist on a fresh clone.
+# `et-xmlfile` is openpyxl's own transitive, pinned here for the same reason
+# rapidocr's set is: an unpinned transitive can change under a passing suite.
+openpyxl==3.1.5
+et-xmlfile==2.0.0
+
 # Tests
 pytest==8.4.2
 pytest-asyncio==1.4.0
