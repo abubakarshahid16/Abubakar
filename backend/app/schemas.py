@@ -2627,4 +2627,58 @@ class AdminGrantResult(BaseModel):
     granted: bool
 
 
+# ------------------------------------------- the read-only database explorer
+#
+# A WINDOW, NOT A WORKBENCH. There is no write model anywhere in this block,
+# and that is the design rather than an omission: nothing here accepts a value
+# to store, so no client - and no future screen built against these types -
+# can discover an edit path that does not exist.
+
+
+class AdminDbTable(BaseModel):
+    name: str
+    row_count: int
+
+
+class AdminDbTableList(BaseModel):
+    tables: list[AdminDbTable]
+
+
+class AdminDbColumn(BaseModel):
+    name: str
+    type: str | None = None
+    notnull: bool = False
+    pk: bool = False
+    #: True when this column's NAME says it holds credential material. The
+    #: column is still listed - hiding it would misreport the table's shape -
+    #: and its values arrive masked.
+    sensitive: bool = False
+
+
+class AdminDbTableInfo(BaseModel):
+    name: str
+    columns: list[AdminDbColumn]
+    row_count: int
+
+
+class AdminDbRows(BaseModel):
+    """A page of rows, with the denominator that makes the page honest.
+
+    `total` is the whole table; `limit`/`offset` say which slice this is. A
+    screen showing rows with no total would imply completeness it does not
+    have (CLAUDE.md rule 4).
+    """
+
+    name: str
+    columns: list[str]
+    #: Values as stored, EXCEPT credential-shaped columns, which arrive as the
+    #: mask string. The masking happens in `admin_explorer.read_rows`, before
+    #: the value reaches this model or the wire.
+    rows: list[list]
+    offset: int
+    limit: int
+    total: int
+    masked_columns: list[str] = []
+
+
 ERRORS_409 = {409: {"model": ErrorEnvelope, "description": "Conflicts with existing state"}}

@@ -2723,13 +2723,103 @@ REVIEW_DASHBOARD = (
 )
 
 
+#: The read-only database explorer: who may look, and what they may see.
+ADMIN_EXPLORER = (
+    Mutation(
+        id="M225", phase=20,
+        description="OPEN THE TABLE LIST TO ANY SIGNED-IN CALLER, which hands "
+                    "every table name in the system to a non-admin",
+        path=APP / "main.py",
+        anchor="def admin_db_tables(request: Request,\n"
+               "                    actor: dict | None = Depends(admin_mod.current_admin)):",
+        replacement="def admin_db_tables(request: Request,\n"
+                    "                    actor: dict | None = None):",
+        target="tests/test_admin_db_routes.py",
+        keyword="real_non_admin_with_a_real_token or unauthenticated_caller",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M226", phase=20,
+        description="open the ROW reader to any caller - the same hole one "
+                    "route further in, where the data actually is",
+        path=APP / "main.py",
+        anchor="    limit: int = Query(50, ge=1, description=\"rows to return; capped server-side\"),\n"
+               "    offset: int = Query(0, ge=0, description=\"rows to skip\"),\n"
+               "    actor: dict | None = Depends(admin_mod.current_admin),",
+        replacement="    limit: int = Query(50, ge=1, description=\"rows to return; capped server-side\"),\n"
+                    "    offset: int = Query(0, ge=0, description=\"rows to skip\"),\n"
+                    "    actor: dict | None = None,",
+        target="tests/test_admin_db_routes.py",
+        keyword="real_non_admin_with_a_real_token or unauthenticated_caller",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M227", phase=20,
+        description="STOP MASKING ENTIRELY, putting every stored password "
+                    "hash on the wire",
+        path=APP / "admin_explorer.py",
+        anchor="    rows = [mask_row(columns, list(r)) for r in cur.fetchall()]",
+        replacement="    rows = [list(r) for r in cur.fetchall()]",
+        target="tests/test_admin_db_routes.py",
+        keyword="password_hash_never_reaches_the_wire",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M228", phase=20,
+        description="narrow the rule to EQUALITY, so `password_hash` and "
+                    "`setup_token_sha256` sail through unmasked",
+        path=APP / "admin_explorer.py",
+        anchor="    return any(part in name for part in SENSITIVE_NAME_PARTS)",
+        replacement="    return name in SENSITIVE_NAME_PARTS",
+        target="tests/test_admin_explorer.py",
+        keyword="credential_shaped_name_is_masked",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M229", phase=20,
+        description="let the token_count exemption match as a SUBSTRING, a "
+                    "hole shaped like a naming convention",
+        path=APP / "admin_explorer.py",
+        anchor="    if name in NOT_CREDENTIALS:",
+        replacement="    if any(x in name for x in NOT_CREDENTIALS):",
+        target="tests/test_admin_explorer.py",
+        keyword="exemption_is_by_exact_name_and_does_not_spread",
+    ),
+    Mutation(
+        id="M230", phase=20,
+        description="mask a NULL too, claiming a secret is stored where none "
+                    "is - itself a disclosure about the row",
+        path=APP / "admin_explorer.py",
+        anchor="        MASK if (is_sensitive(name) and value is not None) else value",
+        replacement="        MASK if is_sensitive(name) else value",
+        target="tests/test_admin_explorer.py",
+        keyword="null_stays_null_rather_than_becoming_a_mask",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M231", phase=20,
+        description="DROP the sensitive column from the listing instead of "
+                    "masking it, so the explorer misreports the table's shape",
+        path=APP / "admin_explorer.py",
+        anchor='            "pk": bool(r[5]), "sensitive": is_sensitive(r[1])}\n'
+               '            for r in conn.execute(f\'PRAGMA table_info("{table}")\')]',
+        replacement='            "pk": bool(r[5]), "sensitive": is_sensitive(r[1])}\n'
+                    '            for r in conn.execute(f\'PRAGMA table_info("{table}")\')\n'
+                    '            if not is_sensitive(r[1])]',
+        target="tests/test_admin_explorer.py",
+        keyword="marks_the_column_without_hiding_it",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
     + EXTRACTION + DATASHEET + MATCHER + TABLE_AND_UNITS + REACHABLE
     + MODEL_TIER + GATE_FALLOUT + REPEATED_FORM
     + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
-    + REVIEW_GOVERNANCE + REVIEW_DASHBOARD
+    + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
 )
 
 

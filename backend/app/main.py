@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Respo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+from . import admin_explorer as explorer_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import chunker as chunk_mod
@@ -2975,3 +2976,71 @@ def admin_revoke_grant(body: admin_mod.GrantRequest,
     `admin.revoke_grant`, where that is stated at the line it happens.
     """
     return admin_mod.revoke_grant(body, actor)
+
+
+# ------------------------------------------ the read-only database explorer
+#
+# THE SAME GATE AS EVERY OTHER ADMIN ROUTE, and that is the point: this is the
+# single most interesting surface on the API to probe, because it names every
+# table in the system. `admin.current_admin` answers a non-admin with 404, so
+# a caller who is not an admin cannot even learn that these routes exist.
+#
+# A WINDOW, NOT A WORKBENCH. Three GETs and nothing else - no POST, no PATCH,
+# no DELETE, and no request model anywhere that accepts a value to store. An
+# explorer that could write would be a second, unaudited path into every table
+# the real endpoints guard with scope checks and honesty invariants.
+#
+# CREDENTIAL MATERIAL IS MASKED IN `admin_explorer`, before it reaches the
+# wire. Not in the UI: a browser's network tab renders a JSON response just
+# fine, so masking on the client would be decoration over a disclosure.
+
+
+@app.get("/api/admin/db/tables", response_model=schemas.AdminDbTableList,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_db_tables(request: Request,
+                    actor: dict | None = Depends(admin_mod.current_admin)):
+    """Every user table with its row count. SQLite internals excluded."""
+    reject_unknown_params(request, set())
+    return {"tables": explorer_mod.list_tables(connect())}
+
+
+@app.get("/api/admin/db/tables/{name}", response_model=schemas.AdminDbTableInfo,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_db_table(name: str, request: Request,
+                   actor: dict | None = Depends(admin_mod.current_admin)):
+    """One table's columns, with type, nullability and whether its values are
+    masked.
+
+    An unknown table is 404 - the same answer a non-admin gets for the whole
+    route - so probing for a table name tells a caller nothing they did not
+    already have.
+    """
+    reject_unknown_params(request, set())
+    info = explorer_mod.table_info(connect(), name)
+    if info is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no such table"))
+    return info
+
+
+@app.get("/api/admin/db/tables/{name}/rows", response_model=schemas.AdminDbRows,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_db_rows(
+    name: str,
+    request: Request,
+    limit: int = Query(50, ge=1, description="rows to return; capped server-side"),
+    offset: int = Query(0, ge=0, description="rows to skip"),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """A page of rows, with the whole table's count beside it.
+
+    The cap lives in `admin_explorer.MAX_ROWS` and is applied there whatever
+    this route is asked for, so a caller cannot page the entire corpus into
+    one response by asking loudly.
+    """
+    reject_unknown_params(request, {"limit", "offset"})
+    page = explorer_mod.read_rows(connect(), name, limit=limit, offset=offset)
+    if page is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no such table"))
+    return page
