@@ -80,19 +80,22 @@ _HEADER_UNIT = re.compile(r"\(([^)]{1,16})\)\s*$")
 #: The comparator words are `claims.parse_comparator`'s vocabulary; the number
 #: and unit are handed to `claims.normalise`, which owns both.
 _LIMIT = re.compile(
-    r"(?P<cmp>shall\s+not\s+exceed|shall\s+exceed|not\s+less\s+than|at\s+least"
+    r"(?P<cmp>shall\s+not\s+exceed|must\s+not\s+exceed|may\s+not\s+exceed"
+    r"|shall\s+exceed|not\s+less\s+than|at\s+least"
     r"|no\s+more\s+than|not\s+more\s+than|maximum|minimum|max|min|up\s+to"
     r"|greater\s+than|less\s+than)\s*"
     r"(?:of\s+)?"
     r"(?P<value>[-+]?\d[\d.,]*)\s*"
-    r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9()/%µμ°.\-]{0,15})?",
+    r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9()/%µμ°.\-]{0,15}"
+    r"(?:\s*\([A-Za-z]\))?)?",
     re.IGNORECASE,
 )
 
 #: How a comparator phrase maps onto an operator. `claims.parse_comparator`
 #: handles the bare forms; these are the multi-word ones a specification uses.
 _OPERATOR = {
-    "shall not exceed": "<=", "no more than": "<=", "not more than": "<=",
+    "shall not exceed": "<=", "must not exceed": "<=", "may not exceed": "<=",
+    "no more than": "<=", "not more than": "<=",
     "up to": "<=", "maximum": "<=", "max": "<=", "less than": "<",
     "not less than": ">=", "at least": ">=", "minimum": ">=", "min": ">=",
     "greater than": ">", "shall exceed": ">",
@@ -353,8 +356,9 @@ def is_applicability_trigger(sentence: str) -> bool:
 #: Mandatory wording, duplicated from `standards` deliberately: importing it
 #: would make this module depend on the one that depends on it.
 _MANDATORY_HERE = re.compile(
-    r"\b(shall|must|is\s+required\s+to|are\s+required\s+to|is\s+to\s+be"
-    r"|are\s+to\s+be)\b", re.IGNORECASE)
+    r"\b(shall|must\s+not|must|is\s+required\s+to|are\s+required\s+to"
+    r"|is\s+to\s+be|are\s+to\s+be|may\s+not\s+exceed\s+[-+]?\d)",
+    re.IGNORECASE)
 
 #: A comparator phrase the sentence states for ITSELF.
 _COMPARATOR_PRESENT = re.compile(
@@ -407,6 +411,12 @@ def unit_token(candidate: str | None) -> str | None:
     if not text:
         return None
     cleaned = text.rstrip(".,;:")
+    # PDF extraction commonly separates an acoustic weighting suffix from its
+    # unit: `dB (A)`. It is still the single recognised unit `dB(A)`, not a dB
+    # value followed by unrelated prose. Collapse only this terminal,
+    # single-letter parenthesised qualifier; arbitrary internal whitespace is
+    # not normalised.
+    cleaned = re.sub(r"\s+(?=\([A-Za-z]\)$)", "", cleaned)
     # A CLOSING BRACKET IS ONLY PUNCTUATION WHEN NOTHING OPENED IT. "dB(A)" is
     # one unit and "dB" is a different one, so stripping the bracket off the
     # end turns the corpus's noise limits into a unit nobody recognises - the

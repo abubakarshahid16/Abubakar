@@ -257,6 +257,77 @@ def test_the_exception_is_stored_and_read_back_on_the_requirement(tmp_path):
     assert "pressure relief valve" in row["exceptions"][0]["applies_to"].lower()
 
 
+def test_may_not_exceed_is_a_numeric_prohibition_with_no_space_before_unit(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_prohibition", pdf)
+    source = "The safety alarm may not exceed 115dB(A)."
+    _chunk("c-prohibition", doc, source, section="5.3.3 Noise", page=9)
+
+    result = standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    rows = standards.list_requirements(doc, allowed_document_ids=_scope(doc))
+
+    assert result["requirements"] == 1
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["category"] == "prohibition"
+    assert row["clause"] == "5.3.3"
+    assert row["page"] == 9
+    assert row["operator"] == "<="
+    assert row["raw_value"] == "115"
+    assert row["raw_unit"] == "dB(A)"
+    assert row["source_text"] == source
+
+
+def test_numbered_prohibitions_keep_inline_clause_and_spaced_acoustic_unit(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_numbered_prohibition", pdf)
+    source = (
+        "5.3.3 Equipment shall meet the general noise criterion. "
+        "Exceptions are: 1) Fans may not exceed 105 dB(A); "
+        "2) Emergency vents may not exceed 115dB (A)."
+    )
+    _chunk("c-numbered", doc, source, section="5.3.1 Noise", page=9)
+
+    standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    rows = standards.list_requirements(doc, allowed_document_ids=_scope(doc))
+    prohibition = next(row for row in rows if row["raw_value"] == "115")
+
+    assert prohibition["category"] == "prohibition"
+    assert prohibition["clause"] == "5.3.3"
+    assert prohibition["page"] == 9
+    assert prohibition["operator"] == "<="
+    assert prohibition["raw_unit"] == "dB(A)"
+    assert prohibition["source_text"].startswith("2) Emergency vents")
+
+
+def test_must_not_is_recorded_as_a_prohibition(tmp_path):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_must_not", pdf)
+    _chunk("c-must-not", doc, "The vessel must not exceed 12 bar.",
+           section="6.1 Pressure", page=7)
+
+    standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    row = standards.list_requirements(doc, allowed_document_ids=_scope(doc))[0]
+    assert row["category"] == "prohibition"
+    assert row["operator"] == "<="
+    assert row["raw_value"] == "12"
+    assert row["raw_unit"] == "bar"
+
+
+@pytest.mark.parametrize("description", [
+    "This arrangement may not be practical in all locations.",
+    "The final information may not be available before design review.",
+])
+def test_descriptive_may_not_is_not_a_requirement(tmp_path, description):
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_description", pdf)
+    _chunk("c-description", doc, description, section="6.2 Commentary", page=8)
+
+    result = standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    assert result["requirements"] == 0
+    assert standards.list_requirements(doc, allowed_document_ids=_scope(doc)) == []
+
+
 def test_a_condition_is_the_circumstance_not_the_subject():
     """A wrong condition NARROWS a requirement and silently excuses a real
     deviation - the opposite failure from a wrong limit, and harder to see."""

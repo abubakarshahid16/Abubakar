@@ -3268,6 +3268,23 @@ DEMO_POLISH = (
 )
 
 
+STANDARDS_MODAL = (
+    Mutation(
+        id="M266", phase=28,
+        description="drop 'may not exceed' from the requirement gate, so a "
+                    "numeric prohibition disappears before parsing",
+        path=APP / "standards.py",
+        anchor=(
+            '    r"|is\\s+to\\s+be|are\\s+to\\s+be|may\\s+not\\s+exceed\\s+[-+]?\\d)",\n'
+        ),
+        replacement='    r"|is\\s+to\\s+be|are\\s+to\\s+be)",\n',
+        target="tests/test_standards_3b.py",
+        keyword="may_not_exceed_is_a_numeric_prohibition_with_no_space_before_unit",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3277,7 +3294,7 @@ ALL: tuple[Mutation, ...] = (
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
     + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
     + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
-    + DEMO_POLISH
+    + DEMO_POLISH + STANDARDS_MODAL
 )
 
 

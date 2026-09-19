@@ -57,14 +57,17 @@ from .db import connect
 #: permission. Both are 3B's problem if they are anyone's - this phase records
 #: obligations only and says so.
 _MANDATORY = re.compile(
-    r"\b(shall|must|is\s+required\s+to|are\s+required\s+to|is\s+to\s+be"
-    r"|are\s+to\s+be)\b",
+    r"\b(shall|must\s+not|must|is\s+required\s+to|are\s+required\s+to"
+    r"|is\s+to\s+be|are\s+to\s+be|may\s+not\s+exceed\s+[-+]?\d)",
     re.IGNORECASE,
 )
 
 #: A negated obligation is still an obligation, and is kept because "shall not
 #: be painted" is a requirement whose violation is a real finding.
-_PROHIBITION = re.compile(r"\bshall\s+not\b|\bmust\s+not\b", re.IGNORECASE)
+_PROHIBITION = re.compile(
+    r"\bshall\s+not\b|\bmust\s+not\b|\bmay\s+not\s+exceed\s+[-+]?\d",
+    re.IGNORECASE,
+)
 
 #: Below this, a requirement is presented as AWAITING VERIFICATION rather than
 #: as a fact. The number is a threshold on a heuristic, not a measurement, and
@@ -74,6 +77,16 @@ VERIFICATION_THRESHOLD = 0.75
 #: A sentence shorter than this is a fragment - a table cell, a heading that
 #: happened to contain "shall" - not a requirement anyone can comply with.
 MIN_REQUIREMENT_WORDS = 5
+
+# A clause heading found in extracted source, rather than inferred from the
+# chunk. This is intentionally narrower than `clause_number`: a sentence that
+# merely starts with a quantity such as "90 dB" must never become clause 90.
+_INLINE_CLAUSE = re.compile(r"^\s*(?P<clause>\d+(?:\.\d+)+)\b")
+
+# Numbered exception lists often survive PDF extraction as one sentence. Only
+# short list labels are candidates; this excludes embedded three-digit
+# parenthetical references found in the measured passage.
+_NUMBERED_ITEM = re.compile(r"(?<!\w)(?P<number>\d{1,2})[.)]\s+")
 
 #: The role a document must hold before this module will touch it.
 COMPANY_STANDARD = "COMPANY_STANDARD"
@@ -460,6 +473,31 @@ def _confidence(clause: str | None, sentence: str) -> float:
     return round(max(0.1, min(1.0, score)), 2)
 
 
+def _requirement_parts(sentence: str) -> list[str]:
+    """Return atomic numbered obligations when extraction joined a list.
+
+    Splitting is deliberately gated on a complete 1..N sequence with at least
+    two items. A lone numbered reference or a non-sequential group is returned
+    unchanged. The list marker remains in `source_text`, preserving the exact
+    extracted evidence.
+    """
+    markers = list(_NUMBERED_ITEM.finditer(sentence))
+    numbers = [int(marker.group("number")) for marker in markers]
+    if len(markers) < 2 or numbers != list(range(1, len(markers) + 1)):
+        return [sentence]
+
+    parts: list[str] = []
+    prefix = sentence[:markers[0].start()].strip()
+    if prefix:
+        parts.append(prefix)
+    for index, marker in enumerate(markers):
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(sentence)
+        part = sentence[marker.start():end].strip()
+        if part:
+            parts.append(part)
+    return parts
+
+
 def needs_verification(row: dict | sqlite3.Row) -> bool:
     """True while a human has not confirmed a row this module is unsure of.
 
@@ -627,58 +665,66 @@ def extract_requirements(
         # The running footer is removed BEFORE splitting. After the split it is
         # already inside a sentence, having joined the tail of one page to the
         # head of the next.
-        for sentence in claims.split_sentences(strip_page_furniture(chunk["text"])):
-            if not _MANDATORY.search(sentence):
-                continue
-            if len(sentence.split()) < MIN_REQUIREMENT_WORDS:
-                # A heading or a table cell that happens to contain "shall".
-                continue
-            key = (clause, sentence)
-            if key in seen:
-                continue
-            seen.add(key)
-            confidence = _confidence(clause, sentence)
-            # Phase 3B: the structured shape, parsed deterministically. A
-            # sentence with no recognisable limit becomes a `statement`, which
-            # is a true description of it rather than a numeric_limit with a
-            # null value - a shape that reads as a limit nobody recorded.
-            limit = requirements_3b.parse_limit(sentence)
-            exceptions = requirements_3b.parse_exceptions(sentence)
-            structured = {
-                "requirement_type": requirements_3b.classify(sentence, limit),
-                "condition": requirements_3b.parse_condition(sentence),
-                "exceptions": requirements_3b.encode_exceptions(exceptions),
-                "discipline": discipline,
-                # Descriptive, for a human reading the list. NOT `field` - see
-                # `subject_of`, which explains at length why these two must not
-                # become the same column.
-                "subject": subject_of(sentence),
-                **(limit or {}),
-            }
-            try:
-                create_requirement(
-                    standard_document_id=document_id,
-                    chunk_id=chunk["id"],
-                    structured=structured,
-                    # The requirement text IS the verbatim sentence in this
-                    # phase. They are separate columns because 3B will
-                    # normalise one and must not lose the other - a paraphrase
-                    # that replaces its source is a claim with no citation.
-                    requirement_text=sentence,
-                    source_text=sentence,
-                    clause=clause,
-                    page=chunk["page_start"],
-                    extraction_method="extracted",
-                    confidence=confidence,
-                    category="prohibition" if _PROHIBITION.search(sentence) else None,
-                )
-            except RequirementError:
-                # A chunk that vanished between the read and the write. Skipped
-                # rather than written without a resolving citation.
-                continue
-            written += 1
-            if confidence < VERIFICATION_THRESHOLD:
-                low_confidence += 1
+        for joined_sentence in claims.split_sentences(strip_page_furniture(chunk["text"])):
+            # Some extracted chunks begin under an earlier section but retain
+            # later clause headings in their text. Track only an explicit
+            # dotted heading and only within this chunk; never inherit context
+            # from another chunk or manufacture a clause from a bare number.
+            inline_clause = _INLINE_CLAUSE.match(joined_sentence)
+            if inline_clause:
+                clause = inline_clause.group("clause")
+            for sentence in _requirement_parts(joined_sentence):
+                if not _MANDATORY.search(sentence):
+                    continue
+                if len(sentence.split()) < MIN_REQUIREMENT_WORDS:
+                    # A heading or a table cell that happens to contain "shall".
+                    continue
+                key = (clause, sentence)
+                if key in seen:
+                    continue
+                seen.add(key)
+                confidence = _confidence(clause, sentence)
+                # Phase 3B: the structured shape, parsed deterministically. A
+                # sentence with no recognisable limit becomes a `statement`, which
+                # is a true description of it rather than a numeric_limit with a
+                # null value - a shape that reads as a limit nobody recorded.
+                limit = requirements_3b.parse_limit(sentence)
+                exceptions = requirements_3b.parse_exceptions(sentence)
+                structured = {
+                    "requirement_type": requirements_3b.classify(sentence, limit),
+                    "condition": requirements_3b.parse_condition(sentence),
+                    "exceptions": requirements_3b.encode_exceptions(exceptions),
+                    "discipline": discipline,
+                    # Descriptive, for a human reading the list. NOT `field` - see
+                    # `subject_of`, which explains at length why these two must not
+                    # become the same column.
+                    "subject": subject_of(sentence),
+                    **(limit or {}),
+                }
+                try:
+                    create_requirement(
+                        standard_document_id=document_id,
+                        chunk_id=chunk["id"],
+                        structured=structured,
+                        # The requirement text IS the verbatim sentence in this
+                        # phase. They are separate columns because 3B will
+                        # normalise one and must not lose the other - a paraphrase
+                        # that replaces its source is a claim with no citation.
+                        requirement_text=sentence,
+                        source_text=sentence,
+                        clause=clause,
+                        page=chunk["page_start"],
+                        extraction_method="extracted",
+                        confidence=confidence,
+                        category="prohibition" if _PROHIBITION.search(sentence) else None,
+                    )
+                except RequirementError:
+                    # A chunk that vanished between the read and the write. Skipped
+                    # rather than written without a resolving citation.
+                    continue
+                written += 1
+                if confidence < VERIFICATION_THRESHOLD:
+                    low_confidence += 1
 
     _audit("standard.requirements_extracted", actor, document_id,
            detail=f"chunks={len(chunks)} requirements={written} "
