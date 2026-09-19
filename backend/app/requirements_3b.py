@@ -79,10 +79,30 @@ _HEADER_UNIT = re.compile(r"\(([^)]{1,16})\)\s*$")
 #: "shall not exceed 90 dB(A)", "shall be at least 12 mm", "maximum 2.5 pcf".
 #: The comparator words are `claims.parse_comparator`'s vocabulary; the number
 #: and unit are handed to `claims.normalise`, which owns both.
+#: A negation that sits several words away from the comparative it negates:
+#: "but in no case shall it be less than 190 L/s". Nothing between "no" and
+#: "less than" is a comparator, so a pattern that only widens around the word
+#: "not" walks past this one too and reads `< 190` for a MINIMUM.
+_IN_NO_CASE_RE = r"in\s+no\s+case\s+(?:shall|may|should|will)\s+(?:it\s+)?(?:be\s+)?"
+
+#:
+#: THE NEGATION MUST BE PART OF THE MATCH. "shall not be less than 45 m" was
+#: read as `< 45`: no alternative covered the "be", so the scan walked past
+#: the negation and matched the bare "less than" that follows it. A flipped
+#: operator is worse than a missing rule - it passes a non-compliant value and
+#: fails a compliant one, with a citation attached. 129 of 1,731 stored limits
+#: across 79 standards carried a flipped operator before this was widened.
+#: The negated forms therefore come FIRST and absorb "no"/"not", an optional
+#: "be", and the comparative word, so the bare alternatives at the end can
+#: only ever match a comparison that really is bare.
 _LIMIT = re.compile(
-    r"(?P<cmp>shall\s+not\s+exceed|must\s+not\s+exceed|may\s+not\s+exceed"
-    r"|shall\s+exceed|not\s+less\s+than|at\s+least"
-    r"|no\s+more\s+than|not\s+more\s+than|maximum|minimum|max|min|up\s+to"
+    r"(?P<cmp>" + _IN_NO_CASE_RE + r"(?:less|more|greater)\s+than"
+    r"|" + _IN_NO_CASE_RE + r"exceed"
+    r"|shall\s+not\s+exceed|must\s+not\s+exceed|may\s+not\s+exceed"
+    r"|(?:no|not)\s+(?:be\s+)?less\s+than"
+    r"|(?:no|not)\s+(?:be\s+)?(?:more|greater)\s+than"
+    r"|shall\s+exceed|at\s+least"
+    r"|maximum|minimum|max|min|up\s+to"
     r"|greater\s+than|less\s+than)\s*"
     r"(?:of\s+)?"
     r"(?P<value>[-+]?\d[\d.,]*)\s*"
@@ -93,13 +113,26 @@ _LIMIT = re.compile(
 
 #: How a comparator phrase maps onto an operator. `claims.parse_comparator`
 #: handles the bare forms; these are the multi-word ones a specification uses.
+#: Keyed by the CANONICAL phrase - see `_canonical_comparator`, which folds
+#: "no less than" and "not be less than" onto "not less than" so one key
+#: covers every spelling `_LIMIT` admits.
 _OPERATOR = {
     "shall not exceed": "<=", "must not exceed": "<=", "may not exceed": "<=",
-    "no more than": "<=", "not more than": "<=",
+    "not more than": "<=", "not greater than": "<=", "not exceed": "<=",
     "up to": "<=", "maximum": "<=", "max": "<=", "less than": "<",
     "not less than": ">=", "at least": ">=", "minimum": ">=", "min": ">=",
     "greater than": ">", "shall exceed": ">",
 }
+
+#: The leading negation of a negated comparison: "no", "not", "not be", and
+#: the long-range "in no case shall it be".
+_NEGATION = re.compile(r"^(?:" + _IN_NO_CASE_RE + r"|(?:no|not)\s+(?:be\s+)?)")
+
+
+def _canonical_comparator(phrase: str) -> str:
+    """The phrase as `_OPERATOR` keys it: lowercased, single-spaced, and with
+    every spelling of the negation folded onto "not "."""
+    return _NEGATION.sub("not ", " ".join(phrase.lower().split()))
 
 #: An exception clause. "except for pressure relief valves", "other than ...",
 #: "with the exception of ...". The master plan's worked case is a 90 dB(A)
@@ -451,7 +484,7 @@ def parse_limit(sentence: str) -> dict | None:
     match = _LIMIT.search(sentence)
     if not match:
         return None
-    phrase = " ".join(match.group("cmp").lower().split())
+    phrase = _canonical_comparator(match.group("cmp"))
     operator = _OPERATOR.get(phrase)
     if operator is None:
         return None

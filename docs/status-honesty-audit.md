@@ -927,6 +927,61 @@ so an empty sweep cannot pass as a clean one.
 
 ---
 
+## The comparator that pointed the wrong way
+
+2026-09-20. Requirement extraction had never been scheduled for 252 of the 272
+standards (`docs/ZERO_REQUIREMENTS_CAUSE.md`). Running it through the real
+admin endpoint for all 272 took the corpus from 3,158 requirements to 34,938,
+and the rules a datasheet value can actually be compared against from **195 to
+1,736**. The count going up was true. It was also not the thing that mattered.
+
+**129 of the 1,731 stored limits, across 79 standards, carried an operator
+pointing the opposite way to the sentence they cite.** "shall not be less than
+45 m" was stored as `< 45`. The pattern that finds a comparator listed
+`not less than` but nothing covering `not **be** less than`, so the scan walked
+past the negation and matched the bare `less than` behind it. `no less than`
+failed the same way. A third wording, "but in no case shall it be less than
+190 L/s", puts four words between the negation and the comparative and defeated
+even the widened pattern; three more rows were inverted that way.
+
+A flipped comparator is worse than a missing rule, and it is worse in a
+specific way this project has a name for: it is a **false claim with a
+citation attached**. The row quotes the standard correctly, names the right
+clause and page, and asserts the opposite of what the clause says. A
+non-compliant value passes; a compliant one is failed. Nothing in the pipeline
+downstream can detect it, because every field except the operator is right.
+
+**How it was caught: by reading fifteen rows.** The verification that had been
+planned was "do the standards have requirements now", and the answer to that
+was 272/272 — a true statement, from a correct query, that would have carried a
+broken comparator column into a client demo. It surfaced only because the
+request was to show three real requirements from five random standards with
+their source text, and the source text disagreed with the operator beside it
+in four of the fifteen. The user found the same defect independently on a copy.
+
+The same gap existed in `claims._COMPARATOR_WORDS` as in
+`requirements_3b._LIMIT` - standing rule 8, a claim living in two homes, and
+fixing one would have left every limit parsed through `claims.measurements`
+still inverted.
+
+Two rows remain knowingly wrong and are NOT this defect: SAES-L-410 18.5.3 and
+SAES-L-850 5.18.2 store `<= 8` (no unit) for "the bend radius shall be not less
+than eight diameters (8D) for lines up to 8-inch NPS". The limit is spelled in
+words, which the number pattern cannot see, so the match landed on the
+applicability condition instead. Wrong span, not wrong direction, and recorded
+here rather than fixed at the same time.
+
+### The rule this produces
+
+**A count going up is not evidence that what it counts is right.** Row counts,
+coverage figures and "n of n" totals measure presence. Correctness has to be
+read, and it has to be read against the source the row cites, not against the
+row's own other fields - every other field of these 129 was correct. Where a
+stored field decides a verdict, at least one verification must put that field
+beside the sentence it came from and compare them by eye.
+
+---
+
 ## Document status
 
 Single source of truth: `documents.status`. Legal transitions are declared in

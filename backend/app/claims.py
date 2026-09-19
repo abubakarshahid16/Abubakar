@@ -311,10 +311,25 @@ def unit_dimension(unit_str: str) -> str | None:
 
 
 # ------------------------------------------------------------------ comparators
+#: Order matters twice over: `parse_comparator` full-matches these in turn, and
+#: `_COMPARATOR_RE` joins them into one alternation that other patterns anchor.
+#: The NEGATED forms must stay ahead of the bare ones and must absorb the whole
+#: negation - "no"/"not", an optional "be" - or a phrase like "shall not be
+#: less than 45 m" falls through to the bare "less than" that follows it and is
+#: read as `< 45`, the exact inversion of what the standard says. The same gap
+#: in `requirements_3b._LIMIT` flipped 129 stored limits across 79 standards.
+#: "but in no case shall it be less than 190 L/s" - the negation and the
+#: comparative are four words apart, and everything between them is ordinary
+#: prose, so only an alternative that spans the whole phrase keeps the sense.
+_IN_NO_CASE = r"in\s+no\s+case\s+(?:shall|may|should|will)\s+(?:it\s+)?(?:be\s+)?"
+
 _COMPARATOR_WORDS: tuple[tuple[str, str], ...] = (
-    (r"not\s+less\s+than", ">="),
-    (r"not\s+more\s+than", "<="),
-    (r"not\s+greater\s+than", "<="),
+    (_IN_NO_CASE + r"less\s+than", ">="),
+    (_IN_NO_CASE + r"(?:more|greater)\s+than", "<="),
+    (_IN_NO_CASE + r"exceed(?:ing)?", "<="),
+    (r"(?:no|not)\s+(?:be\s+)?less\s+than", ">="),
+    (r"(?:no|not)\s+(?:be\s+)?more\s+than", "<="),
+    (r"(?:no|not)\s+(?:be\s+)?greater\s+than", "<="),
     (r"not\s+exceed(?:ing)?", "<="),
     (r"at\s+least", ">="),
     (r"at\s+most", "<="),

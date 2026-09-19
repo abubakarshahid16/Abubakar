@@ -225,6 +225,60 @@ def test_a_cell_that_is_not_a_number_is_not_recorded_as_a_value(tmp_path):
 
 # ========================================================= limits and exceptions
 
+@pytest.mark.parametrize(
+    ("sentence", "operator", "value"),
+    [
+        # The four wordings found flipped in the live corpus, one per spelling
+        # of the negation the pattern used to walk past.
+        ("The closure door clearance shall not be less than 45 m.", ">=", "45"),
+        ("The lifting capacity shall be not less than 900 kg.", ">=", "900"),
+        ("Availability shall be no less than 99.95% per component.", ">=", "99.95"),
+        ("Dead-end lines shall not be greater than 20.7 meters.", "<=", "20.7"),
+        ("The wall thickness shall not be more than 12 mm.", "<=", "12"),
+        # A negation four words away from the comparative it negates. Nothing
+        # between them is a comparator, so the phrase has to match whole.
+        ("The flow, but in no case shall it be less than 190 l/s.", ">=", "190"),
+        ("The pressure, in no case shall it be more than 222 kPa.", "<=", "222"),
+        ("The stress shall in no case shall exceed 100% of the BSL.", "<=", "100"),
+        # ... and the BARE comparisons, which must keep pointing the other way.
+        ("The gap shall be less than 5 mm.", "<", "5"),
+        ("The pressure shall be greater than 300 kPa.", ">", "300"),
+    ],
+)
+def test_a_negated_comparison_is_not_read_as_the_bare_one(sentence, operator, value):
+    """A flipped operator passes a non-compliant value and fails a compliant
+    one, with a citation attached - worse than extracting no rule at all.
+
+    "shall not be less than 45 m" was stored as `< 45`: no alternative in
+    `_LIMIT` covered the "be", so the scan walked past the negation and matched
+    the bare "less than" behind it. 129 of 1,731 stored limits across 79
+    standards carried a flipped operator. The bare rows are here too, because
+    a fix that swallowed them would be the same defect pointing the other way.
+    """
+    limit = requirements_3b.parse_limit(sentence)
+    assert limit is not None, sentence
+    assert limit["operator"] == operator
+    assert limit["raw_value"] == value
+
+
+@pytest.mark.parametrize(
+    ("phrase", "operator"),
+    [
+        ("not be less than", ">="), ("no less than", ">="), ("not less than", ">="),
+        ("not be greater than", "<="), ("no more than", "<="),
+        ("in no case shall it be less than", ">="),
+        ("in no case shall exceed", "<="),
+        ("less than", "<"), ("greater than", ">"),
+    ],
+)
+def test_the_comparator_vocabulary_reads_the_negation_too(phrase, operator):
+    """The same gap lived in `claims`, which anchors this vocabulary at the end
+    of the text before a measurement. Fixed in one home only, a limit parsed
+    through `claims.measurements` would still come out inverted.
+    """
+    assert claims.parse_comparator(phrase) == operator
+
+
 def test_the_psv_exception_is_preserved_beside_the_general_limit():
     """THE MUTATION TARGET (M42). The master plan's worked case.
 
