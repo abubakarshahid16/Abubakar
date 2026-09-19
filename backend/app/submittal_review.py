@@ -315,6 +315,16 @@ def ensure_schema() -> None:
             # Nothing converts between the two - that needs an ambient pressure
             # nobody has recorded.
             ("unit_reference", "TEXT"),
+            # A RANGE HAS TWO NUMBERS AND NEITHER IS "THE" VALUE. `-3 to 55 C`
+            # is an ambient band; averaging it invents a number the sheet does
+            # not state, and picking one silently answers a question nobody
+            # asked. Both ends are kept and `comparison.compare` chooses the
+            # end the RULE asks about - the maximum for "shall not exceed",
+            # the minimum for "shall be at least".
+            #
+            # NULL on an ordinary single value, where `raw_value` carries it.
+            ("value_min", "REAL"),
+            ("value_max", "REAL"),
             # The section heading this row actually sits under, or NULL. See
             # `datasheets._section_for`: it was previously filled with whatever
             # heading the CHUNK carried, which on a two-column form is another

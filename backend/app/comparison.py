@@ -159,6 +159,51 @@ def _measurement_from_fact(fact: dict) -> claims.Measurement | None:
     return claims.normalise(str(raw_value), fact.get("raw_unit") or "")
 
 
+def fact_has_number(fact: dict) -> bool:
+    """Does this fact carry a number a matcher could pair a limit with?
+
+    A RANGE COUNTS. Its `raw_value` is NULL - there is no single value - and
+    a matcher testing that column alone skipped every range, so the ambient
+    band and the design/operating pair could never be paired and `compare`
+    could never reach the code that reads them.
+    """
+    return (fact.get("raw_value") not in (None, "")
+            or fact_range(fact) is not None)
+
+
+def fact_range(fact: dict) -> tuple[float, float] | None:
+    """`(min, max)` when the submitted value is a range, else None."""
+    low, high = fact.get("value_min"), fact.get("value_max")
+    if low is None or high is None:
+        return None
+    return float(low), float(high)
+
+
+def _range_side(operator: str | None) -> str | None:
+    """Which end of a range the rule is asking about.
+
+    DETERMINISTIC AND CONSERVATIVE, AND IT NEVER AVERAGES. A range is two
+    numbers the document actually states; the mean of them is a number it
+    does not, and comparing that mean would answer a question nobody asked
+    with a figure nobody wrote.
+
+    An upper limit - "shall not exceed 55 C" - is about the TOP of the band,
+    because that is where the range would breach it. A lower limit - "shall be
+    at least -10 C" - is about the BOTTOM, for the same reason. Each is the
+    worst case for the rule at hand, which is the only safe reading of a
+    value that spans.
+
+    An EXACT-EQUALITY rule has no such side. "shall be 50 C" against "-3 to
+    55 C" is a question for a person: the band contains the value and is not
+    equal to it, and neither COMPLIANT nor NON_COMPLIANT is true.
+    """
+    if operator in ("<=", "<"):
+        return "max"
+    if operator in (">=", ">"):
+        return "min"
+    return None
+
+
 def _applicable_exception(requirement: dict, subject: str | None) -> dict | None:
     """The exception that governs this subject instead of the general limit.
 
@@ -295,6 +340,32 @@ def compare(requirement: dict, fact: dict | None, *,
     limit = _measurement_from_requirement(governing)
     observed = _measurement_from_fact(fact)
 
+    # A RANGE IS COMPARED AT THE END THE RULE ASKS ABOUT, never at its mean.
+    spread = fact_range(fact)
+    if spread is not None:
+        side = _range_side(governing.get("operator"))
+        if side is None:
+            quoted = " ".join((fact.get("field_value") or "").split())
+            return {
+                "status": NEEDS_ENGINEER_REVIEW,
+                "rationale": (
+                    f"{RANGE_VS_EQUALITY}: the submitted value is a range and "
+                    f"the requirement asks for one exact value, so no "
+                    f"comparison was made. The submittal states: {quoted}"),
+                "limit": _describe(limit, governing), "observed": None,
+                "exception_applied": exception,
+            }
+        chosen = spread[1] if side == "max" else spread[0]
+        observed = claims.normalise(
+            _plain(chosen), fact.get("raw_unit") or fact.get("unit") or "")
+        # THE FINDING MUST NAME THE NUMBER THAT WAS COMPARED, and say that it
+        # came from a range. "the submitted value 55 C" over a sheet reading
+        # "-3 to 55 C" is a half-truth a reviewer cannot check.
+        fact = {**fact, "raw_value": _plain(chosen),
+                "compared_end": side,
+                "compared_from": " ".join(
+                    (fact.get("field_value") or "").split())}
+
     if limit is None:
         return {
             "status": NEEDS_ENGINEER_REVIEW,
@@ -334,6 +405,10 @@ def compare(requirement: dict, fact: dict | None, *,
     if exception is not None:
         note = (f"; the exception for {exception.get('applies_to')!r} governs "
                 f"instead of the general limit")
+    if fact.get("compared_end"):
+        end = "highest" if fact["compared_end"] == "max" else "lowest"
+        note = (f"; compared at the {end} of the submitted range "
+                f"{fact['compared_from']}") + note
     return {
         "status": status,
         "rationale": (
@@ -346,6 +421,11 @@ def compare(requirement: dict, fact: dict | None, *,
         "observed": _describe(observed, fact),
         "exception_applied": exception,
     }
+
+
+def _plain(number: float) -> str:
+    """`55.0` as `55`, because that is what the document wrote."""
+    return str(int(number)) if float(number).is_integer() else str(number)
 
 
 def _describe(measurement: claims.Measurement | None, source: dict) -> dict | None:
@@ -897,6 +977,10 @@ TABLE_ROW_REASON = "table_row"
 #: the requirement's number is a MARGIN from a reference the submittal does
 #: not carry. See `requirements_3b.RELATIVE_LIMIT`.
 RELATIVE_LIMIT_REASON = "relative_limit"
+#: Why a numeric comparison was refused although both sides carried numbers:
+#: the submitted value is a RANGE and the requirement asks for one exact
+#: value. See `_range_side`.
+RANGE_VS_EQUALITY = "range_against_exact_value"
 UNIT_MISMATCH = "unit_mismatch"
 
 #: How a match was made. One value today; named so a second method cannot be
@@ -1026,7 +1110,7 @@ def match_by_containment(requirement: dict, facts: list[dict]) -> dict:
     rejected = _rejected_keys_for(requirement)
     hits: list[dict] = []
     for fact in facts:
-        if fact.get("raw_value") in (None, ""):
+        if not fact_has_number(fact):
             continue          # categorical or blank: never matched in this pass
         if fact_key(fact) in rejected:
             # A HUMAN ALREADY SAID THIS PAIR IS WRONG. Asking again is how an
@@ -1160,7 +1244,7 @@ def candidate_facts(requirement: dict, facts: list[dict]) -> list[dict]:
     refused = _rejected_keys_for(requirement)
     out = []
     for fact in facts:
-        if fact.get("raw_value") in (None, "") or fact.get("is_blank"):
+        if not fact_has_number(fact) or fact.get("is_blank"):
             continue
         if not _units_comparable(requirement, fact,
                                  requirement_unit, _unit_measure(fact)):

@@ -262,6 +262,196 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
     return furniture
 
 
+# ------------------------------------------- degrees, ranges, compounds
+
+#: `121OC` is 121 °C. The PSV sheet renders the degree sign as a capital or
+#: lower-case O, and the extracted text carries it literally.
+#:
+#: ONLY IMMEDIATELY AFTER A DIGIT, with nothing between. `doc`, `bloc` and
+#: `Proc.` end in the same two letters and are words; `121OC` cannot be
+#: anything but a temperature. The lookbehind is what keeps the rule from
+#: rewriting prose.
+_DEGREE_GLYPH = re.compile(r"(?<=\d)[Oo]([CF])\b")
+
+
+def normalise_degree_glyph(text: str | None) -> str:
+    """`121OC` -> `121°C`. Everything else untouched."""
+    return _DEGREE_GLYPH.sub(r"°\1", text or "")
+
+
+#: `-3 to 55 C`, `4-28 cP`, `0 to 100%`.
+#:
+#: THE HYPHEN IS ONLY A RANGE BETWEEN TWO NUMBERS, and the whole cell must be
+#: the range. `10-05-497` is a P&ID reference: it starts like a range and then
+#: carries `-497`, which lands in `rest` and refuses the match. A parenthetical
+#: remainder is allowed for the same reason `measure_value` allows one - a
+#: datasheet writes `(Note - 3)` after a real quantity.
+_RANGE = re.compile(
+    r"^\s*(?P<lo>[-+]?\d[\d.,]*)\s*(?:to|through|\.\.\.|–|—|-)\s*"
+    r"(?P<hi>[-+]?\d[\d.,]*)\s*"
+    r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?\s*(?P<rest>.*)$",
+    re.IGNORECASE)
+
+
+def parse_range(raw: str | None) -> tuple[str, str, str | None] | None:
+    """`(low, high, unit)` when the cell is a range, else None.
+
+    A RANGE IS TWO NUMBERS AND ONE UNIT, and both numbers are kept. Nothing
+    here averages them or picks one: an ambient of `-3 to 55 C` has no single
+    value, and inventing one is how a range becomes a wrong verdict.
+
+    The low must not exceed the high. That is what stops `10-05` - the first
+    half of a drawing number - reading as a range from ten to five, and a
+    genuinely descending range is refused rather than silently reordered.
+
+    A RANGE WITHOUT A UNIT IS NOT A RANGE HERE. The drum sheet lists its own
+    contents - `Mechanical Notes` against `8 to 9`, meaning sheets 8 to 9 -
+    and a unitless pair of small integers beside a prose label is a cross
+    reference, not a quantity. Requiring the unit loses nothing that could
+    ever have been compared: `compare` needs a dimension to compare within,
+    so a unitless range would reach it and be refused anyway. The raw text is
+    kept either way, and the cell falls through to the ordinary value gate
+    exactly as it did before ranges existed.
+
+    The unit may arrive three ways and all three count: written on the range
+    itself (`4-28 cP`), distributed from the other half of a compound value
+    by `split_compound_pair` (`23.5 / 11.03 barg`), or recovered by the
+    degree-glyph rule (`-3 to 121OC`). A bare symbol is a unit: `0 to 100%`
+    is a percentage range and parses.
+    """
+    text = normalise_degree_glyph(" ".join((raw or "").split()))
+    if not text:
+        return None
+    match = _RANGE.match(text)
+    if not match:
+        return None
+    rest = (match.group("rest") or "").strip()
+    if rest and not rest.startswith("("):
+        return None
+    # Named apart from `measure_value`'s local of the same shape: two
+    # identical lines in one module make a mutation ambiguous, and the
+    # harness reports that as no evidence rather than as a pass.
+    range_unit = (match.group("unit") or "").strip() or None
+    if range_unit and _looks_like_an_identifier(range_unit):
+        return None
+    if range_unit is None:
+        return None
+    low, high = match.group("lo"), match.group("hi")
+    left, right = claims.parse_value(low), claims.parse_value(high)
+    if left is None or right is None or left > right:
+        return None
+    return low, high, range_unit
+
+
+#: A separator that joins two field names into one label. `&` must stand
+#: alone between spaces - `P&ID` is one word and splitting it produced a field
+#: called `P` - while `/` is written tight in `Design/Operating pressure`.
+_COMPOUND_SEPARATORS = (("/", r"\s*/\s*"), ("&", r"\s+&\s+"))
+
+#: Anything inside brackets is not a split point. `Specific heat ratio
+#: (Cp/Cv)` carries a solidus that belongs to the ratio, and splitting on it
+#: turned a real value into an unparsed compound.
+_BRACKETED = re.compile(r"\([^()]*\)|\[[^\[\]]*\]")
+
+
+def _outside_brackets(text: str) -> str:
+    """The text with every bracketed span blanked, for separator counting."""
+    return _BRACKETED.sub(lambda m: " " * len(m.group(0)), text or "")
+
+
+def compound_label_parts(label: str) -> tuple[str, list[str]] | None:
+    """`(separator, [name, name])` when the label names two fields, else None.
+
+    A datasheet writes two questions on one line: `Design/Operating pressure`
+    is the design pressure and the operating pressure, and
+    `Ambient Temperature & Rel. humidity` is two different quantities sharing
+    a row. Recorded as one field, the row is unusable: the value is a pair and
+    no comparison can be made against it.
+
+    THE SHARED WORD TRAVELS. `Design/Operating pressure` splits into `Design`
+    and `Operating pressure`, and the first half is not a field name until the
+    noun is carried across - the split is `Design pressure` and `Operating
+    pressure`. It travels the other way too: `Back press. Constant/Variable`
+    gives `Back press. Constant` and `Back press. Variable`. Which way is
+    decided by which side is a bare word, because that is the side missing the
+    noun.
+    """
+    text = " ".join((label or "").split())
+    if not text:
+        return None
+    masked = _outside_brackets(text)
+    for sep, pattern in _COMPOUND_SEPARATORS:
+        hits = [m for m in re.finditer(pattern, masked)]
+        if len(hits) != 1:
+            continue
+        cut = hits[0]
+        left = text[:cut.start()].strip()
+        right = text[cut.end():].strip()
+        if not left or not right:
+            continue
+        left_words, right_words = left.split(), right.split()
+        if len(left_words) == 1 and len(right_words) > 1:
+            # The noun is on the right: "Design" + "Operating pressure".
+            left = f"{left} {right_words[-1]}"
+        elif len(right_words) == 1 and len(left_words) > 1:
+            # The noun is on the left: "Back press. Constant" + "Variable".
+            right = f"{' '.join(left_words[:-1])} {right}"
+        if not is_field_label(left) or not is_field_label(right):
+            return None
+        return sep, [left, right]
+    return None
+
+
+def _part_unit(text: str) -> str | None:
+    """The unit of one half of a compound value, range or single."""
+    found = parse_range(text)
+    if found is not None:
+        return found[2]
+    return measure_value(text)[1]
+
+
+def split_compound_pair(label: str, value: str) -> list[tuple[str, str]]:
+    """One label-value pair in, one or two out.
+
+    TWO FACTS ONLY WHEN THE VALUE AGREES WITH THE LABEL. The label says two
+    fields and the value must say two answers, separated the same way and the
+    same number of times. `Design/Operating pressure` against
+    `23.5 / 11.03 barg` is a pair of pressures; the same label against a
+    single `23.5 barg` is a cell this function will not guess at, and it comes
+    back as one pair whose value `create_fact` then refuses to parse.
+
+    A TRAILING UNIT DISTRIBUTES, AND ONLY WHEN NOTHING ELSE CARRIES ONE.
+    `23.5 / 11.03 barg` is two pressures in barg, so the unit reaches both.
+    `10.15psig/97.18psig` already gives each half its own and nothing is
+    added. A unit invented onto a half that had one of its own would be the
+    worst outcome available here.
+    """
+    parts = compound_label_parts(label)
+    if parts is None:
+        return [(label, value)]
+    sep, names = parts
+    pattern = dict(_COMPOUND_SEPARATORS)[sep]
+    text = " ".join((value or "").split())
+    # Cut the ORIGINAL text at the offsets found in the masked copy, so a
+    # bracketed note that was masked for counting is still carried onto its
+    # own half. ONE COUNT DECIDES, below: an earlier length check here was a
+    # second guard on the same question, and a rule with two homes is a rule
+    # whose mutation proves nothing.
+    cuts = [m.start() for m in re.finditer(pattern, _outside_brackets(text))]
+    ends = [m.end() for m in re.finditer(pattern, _outside_brackets(text))]
+    values, start = [], 0
+    for cut, end in zip(cuts, ends):
+        values.append(text[start:cut].strip())
+        start = end
+    values.append(text[start:].strip())
+    if len(values) != len(names) or not all(values):
+        return [(label, value)]
+    units = [_part_unit(v) for v in values]
+    if units[-1] and not any(units[:-1]):
+        values = [f"{v} {units[-1]}" for v in values[:-1]] + [values[-1]]
+    return list(zip(names, values))
+
+
 def section_heading(chunk_section: str | None) -> str | None:
     """The heading a fact sits under, or None. NEVER A WRONG VALUE.
 
@@ -651,7 +841,9 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     `340 psig` and `9970 Kg/hr` are both recorded exactly as written whether or
     not this system can convert them.
     """
-    text = (raw or "").strip()
+    # `121OC` IS A TEMPERATURE, and the sheet writes the degree sign as a
+    # letter. Rewritten here so every caller sees the same cell.
+    text = normalise_degree_glyph((raw or "").strip())
     if not text:
         return None, None, None
     match = _VALUE_UNIT.match(text)
@@ -768,6 +960,25 @@ def create_fact(
 
     blank, marker = is_blank_value(raw_value)
     value, unit, measurement = (None, None, None) if blank else measure_value(raw_value or "")
+    # A RANGE, KEPT AS TWO NUMBERS. `parse_range` returns None for an ordinary
+    # cell, so a single value is untouched and its min/max stay NULL.
+    value_min = value_max = None
+    found = None if blank else parse_range(raw_value)
+    if found is not None:
+        low, high, range_unit = found
+        value, unit = None, range_unit
+        value_min, value_max = claims.parse_value(low), claims.parse_value(high)
+        measurement = None
+    # A COMPOUND LABEL WHOSE VALUE DID NOT SPLIT IS NOT PARSED AT ALL.
+    #
+    # `Design/Operating pressure` names two quantities. When the cell beside
+    # it carries one number, there is no way to tell which of the two it
+    # answers, and recording it against the compound label would attach a real
+    # number to a field that is half wrong. The row is kept - the sheet does
+    # say something - with its text and no parsed value.
+    if not blank and compound_label_parts(field_label) is not None:
+        value, unit, measurement = None, None, None
+        value_min = value_max = None
     # THE UNIT AS THE SHEET WROTE IT, AND THE UNIT THE TABLE UNDERSTANDS, kept
     # apart. `raw_unit` is `bar (ga)` because that is what the document says and
     # a reader checking a citation reads the document's words; `unit` is `bar`
@@ -802,6 +1013,8 @@ def create_fact(
         "normalized_value": measurement.normalized_value if measurement else None,
         "normalized_unit": measurement.normalized_unit if measurement else None,
         "unit": unit,
+        "value_min": value_min,
+        "value_max": value_max,
         "is_blank": 1 if blank else 0,
         "blank_marker": marker,
         "page": page if page is not None else chunk["page_start"],
@@ -820,13 +1033,14 @@ def create_fact(
                 field_label, field_value, raw_value, raw_unit,
                 normalized_value, normalized_unit, unit, is_blank,
                 blank_marker, page, section, source_text, extraction_method,
-                confidence, created_at, updated_at, unit_reference)
+                confidence, created_at, updated_at, unit_reference,
+                value_min, value_max)
                VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
                        :field_name, :field_label, :field_value, :raw_value,
                        :raw_unit, :normalized_value, :normalized_unit, :unit,
                        :is_blank, :blank_marker, :page, :section, :source_text,
                        :extraction_method, :confidence, :created_at,
-                       :updated_at, :unit_reference)""", row)
+                       :updated_at, :unit_reference, :value_min, :value_max)""", row)
     return row
 
 
@@ -941,7 +1155,13 @@ def extract_facts(
             for row in shape:
                 found.extend(split_label_value(list(row)))
         found.extend(_pairs_from_pdf_page(stored_path, page))
-        pairs_by_page[page] = found
+        # SPLIT BEFORE THE FURNITURE COUNT, so a repeated compound row is
+        # counted as the two fields it becomes rather than as one label that
+        # exists nowhere in the output.
+        split: list[tuple[str, str]] = []
+        for one_label, one_value in found:
+            split.extend(split_compound_pair(one_label, one_value))
+        pairs_by_page[page] = split
     furniture = furniture_labels(pairs_by_page)
 
     for page, page_chunks in sorted(by_page.items()):
@@ -968,6 +1188,12 @@ def extract_facts(
             seen.add(key)
             blank, marker = is_blank_value(value)
             parsed_value, _unit, _measure = measure_value(value or "")
+            # A RANGE IS A QUANTITY. `measure_value` reads one number and a
+            # unit, so `-3 to 55 C` comes back as nothing at all - and the
+            # gate below would drop it as free text. The whole point of
+            # `parse_range` is that the cell IS a value, stated as two.
+            if parsed_value is None and parse_range(value) is not None:
+                parsed_value = "range"
             # WHAT COUNTS AS A FACT. This is the line that stops the
             # extractor inventing them.
             #

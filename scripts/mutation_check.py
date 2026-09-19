@@ -1448,8 +1448,8 @@ MATCHER = (
         description="let a CATEGORICAL fact match, reviving the insulation "
                     "false friend",
         path=APP / "comparison.py",
-        anchor='        if fact.get("raw_value") in (None, ""):\n            continue',
-        replacement='        if False:\n            continue',
+        anchor="        if not fact_has_number(fact):\n            continue",
+        replacement="        if False:\n            continue",
         target="tests/test_containment_match.py",
         keyword="categorical_fact_never_matches",
         tags=("honesty",),
@@ -1714,7 +1714,7 @@ MODEL_TIER = (
         description="OFFER CATEGORICAL AND BLANK FACTS as candidates, which is "
                     "how the insulation false friend reaches a model",
         path=APP / "comparison.py",
-        anchor='        if fact.get("raw_value") in (None, "") or fact.get("is_blank"):\n            continue\n        if not _units_comparable(',
+        anchor='        if not fact_has_number(fact) or fact.get("is_blank"):\n            continue\n        if not _units_comparable(',
         replacement='        if False:\n            continue\n        if not _units_comparable(',
         target="tests/test_model_matching.py",
         keyword="categorical_fact_never_enters or blank_fact_never_enters",
@@ -2197,11 +2197,179 @@ REPEATED_FORM = (
 )
 
 
+#: Two numbers in one cell, and two fields in one label.
+RANGES_AND_COMPOUNDS = (
+    Mutation(
+        id="M181", phase=14,
+        description="stop splitting compound labels, so Design/Operating "
+                    "pressure stays one unusable field",
+        path=APP / "datasheets.py",
+        anchor="    parts = compound_label_parts(label)\n    if parts is None:",
+        replacement="    parts = None\n    if parts is None:",
+        target="tests/test_ranges_and_compounds.py",
+        keyword="compound_label_with_a_matching_value",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M182", phase=14,
+        description="SPLIT A COMPOUND LABEL WHOSE VALUE DID NOT SPLIT, "
+                    "attaching one number to a field that is half wrong",
+        path=APP / "datasheets.py",
+        anchor="    if len(values) != len(names) or not all(values):",
+        replacement="    if False:",
+        target="tests/test_ranges_and_compounds.py",
+        keyword="mismatched_separator_count",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M183", phase=14,
+        description="parse the value of a compound label that never split, "
+                    "recording a number against two fields at once",
+        path=APP / "datasheets.py",
+        anchor="    if not blank and compound_label_parts(field_label) is not None:",
+        replacement="    if False:",
+        target="tests/test_ranges_and_compounds.py",
+        keyword="did_not_split_stores_no_parsed_value",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M184", phase=14,
+        description="DISTRIBUTE A UNIT ONTO A HALF THAT HAS ITS OWN, "
+                    "inventing psig onto a number already in psig",
+        path=APP / "datasheets.py",
+        anchor="    if units[-1] and not any(units[:-1]):",
+        replacement="    if units[-1]:",
+        target="tests/test_ranges_and_compounds.py",
+        keyword="never_added_to_a_half",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M185", phase=14,
+        description="split on a separator inside brackets, so (Cp/Cv) tears "
+                    "a real value in half",
+        path=APP / "datasheets.py",
+        anchor="    masked = _outside_brackets(text)",
+        replacement="    masked = text",
+        target="tests/test_ranges_and_compounds.py",
+        keyword="not_compound_is_left_alone",
+    ),
+    Mutation(
+        id="M186", phase=14,
+        description="let `&` split a tight word, so P&ID Reference becomes a "
+                    "field called P",
+        path=APP / "datasheets.py",
+        anchor='_COMPOUND_SEPARATORS = (("/", r"\\s*/\\s*"), ("&", r"\\s+&\\s+"))',
+        replacement='_COMPOUND_SEPARATORS = (("/", r"\\s*/\\s*"), ("&", r"\\s*&\\s*"))',
+        target="tests/test_ranges_and_compounds.py",
+        keyword="not_compound_is_left_alone",
+    ),
+    Mutation(
+        id="M187", phase=14,
+        description="READ A UNITLESS PAIR AS A RANGE, so the drum sheet's "
+                    "table of contents becomes two facts",
+        path=APP / "datasheets.py",
+        anchor="    if range_unit is None:\n        return None",
+        replacement="    if False:\n        return None",
+        target="tests/test_ranges_and_compounds.py",
+        keyword="unitless_range",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M188", phase=14,
+        description="drop the low-above-high guard, so 10-05 reads as a "
+                    "range from ten to five",
+        path=APP / "datasheets.py",
+        anchor="    if left is None or right is None or left > right:",
+        replacement="    if left is None or right is None:",
+        target="tests/test_ranges_and_compounds.py",
+        keyword="descending_pair_is_refused",
+    ),
+    Mutation(
+        id="M189", phase=14,
+        description="accept a range with prose after it, so a P&ID reference "
+                    "becomes a quantity",
+        path=APP / "datasheets.py",
+        anchor='    if rest and not rest.startswith("("):\n        return None',
+        replacement="    if False:\n        return None",
+        target="tests/test_ranges_and_compounds.py",
+        keyword="prose_after_a_range_refuses_it",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M190", phase=14,
+        description="REWRITE THE DEGREE GLYPH ANYWHERE, turning any word "
+                    "ending in oc into a temperature",
+        path=APP / "datasheets.py",
+        anchor=r'_DEGREE_GLYPH = re.compile(r"(?<=\d)[Oo]([CF])\b")',
+        replacement=r'_DEGREE_GLYPH = re.compile(r"[Oo]([CF])\b")',
+        target="tests/test_ranges_and_compounds.py",
+        keyword="word_ending_in_oc",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M191", phase=14,
+        description="COMPARE A RANGE AT ITS MEAN, inventing a number the "
+                    "document does not state",
+        path=APP / "comparison.py",
+        anchor='        chosen = spread[1] if side == "max" else spread[0]',
+        replacement="        chosen = (spread[0] + spread[1]) / 2",
+        target="tests/test_ranges_and_compounds.py",
+        keyword="mean_of_a_range or upper_limit or lower_limit",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M192", phase=14,
+        description="swap the ends, so an upper limit is judged against the "
+                    "bottom of the band",
+        path=APP / "comparison.py",
+        anchor='    if operator in ("<=", "<"):\n        return "max"',
+        replacement='    if operator in ("<=", "<"):\n        return "min"',
+        target="tests/test_ranges_and_compounds.py",
+        keyword="upper_limit_is_compared",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M193", phase=14,
+        description="give an exact-equality rule an end of the range to "
+                    "compare, answering a question nobody can answer",
+        path=APP / "comparison.py",
+        anchor='    if operator in (">=", ">"):\n        return "min"\n    return None',
+        replacement='    if operator in (">=", ">"):\n        return "min"\n    return "max"',
+        target="tests/test_ranges_and_compounds.py",
+        keyword="exact_equality_rule",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M194", phase=14,
+        description="let the matcher skip a range fact, leaving every range "
+                    "unpaired and the comparison code dead",
+        path=APP / "comparison.py",
+        anchor='    return (fact.get("raw_value") not in (None, "")\n            or fact_range(fact) is not None)',
+        replacement='    return fact.get("raw_value") not in (None, "")',
+        target="tests/test_ranges_and_compounds.py",
+        keyword="range_fact_can_be_matched",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M195", phase=14,
+        description="drop the range from the value gate, so every range is "
+                    "discarded as free text before it reaches create_fact",
+        path=APP / "datasheets.py",
+        anchor="            if parsed_value is None and parse_range(value) is not None:",
+        replacement="            if False:",
+        target="tests/test_ranges_and_compounds.py",
+        keyword="survives_the_value_gate",
+        tags=("critical",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
     + EXTRACTION + DATASHEET + MATCHER + TABLE_AND_UNITS + REACHABLE
     + MODEL_TIER + GATE_FALLOUT + REPEATED_FORM
+    + RANGES_AND_COMPOUNDS
 )
 
 
