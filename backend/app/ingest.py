@@ -650,6 +650,40 @@ class IngestionWorker:
                     "UPDATE jobs SET state = 'done', updated_at = ? WHERE document_id = ?",
                     (_now(), doc_id),
                 )
+            _queue_extraction_if_standard(doc_id)
+
+
+def _queue_extraction_if_standard(document_id: str) -> None:
+    """Queue rule extraction when a COMPANY_STANDARD finishes ingesting.
+
+    THE STEP THAT WAS NEVER CONNECTED. `standards.enqueue_extraction` had
+    exactly one caller - the admin endpoint - so a standard nobody pressed
+    the button for stayed searchable and ruleless forever. On 2026-09-20
+    that was 252 of 272 standards: the database held 274 jobs with stage
+    'chunk' and 5 with stage 'extract_requirements'. Nothing had failed.
+    The work was never asked for. A standard whose text is indexed but
+    whose obligations were never read looks entirely successful on the
+    Documents page and cannot answer one compliance question.
+
+    Imported inside the function for the reason `_drain_standard_extraction`
+    already gives: `standards` pulls in the whole review surface, and
+    ingestion must not depend on it merely to enqueue.
+
+    Swallows its own failure. Extraction is downstream work, and a standard
+    that could not be queued must not un-ingest a document that indexed
+    correctly. `enqueue_extraction` is idempotent per document, so a retry,
+    or an admin pressing Extract later, costs nothing.
+    """
+    try:
+        from . import classification
+        record = classification.of_document(document_id)
+        role = (record or {}).get("document_role")
+        if role != "COMPANY_STANDARD":
+            return
+        from . import standards
+        standards.enqueue_extraction(document_id)
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        errors.record_failure(exc, stage="standard_extraction_enqueue")
 
 
 def get_worker() -> IngestionWorker:
