@@ -54,26 +54,34 @@ the same client sign-off P0-5 already requires for the clause column. Do not
 add a visible column without asking first - flag it as an open question in
 your report rather than deciding it silently.
 
-## 4. FEED scope note
+## 4. FEED scope deliverables - NOT a CRS field. Superseded.
 
-USER DECISION (mine, since Usman said he wasn't sure): a single line in the
-header block, not a per-row column. A per-row FEED-document trace would
-require linking every requirement back to a specific FEED document, which
-nothing in the system does today, and is a much bigger and riskier build for
-a request that is still vague.
+The earlier text here recommended a header note. WITHDRAWN. The user
+clarified the client's meaning: the contractor must prepare and submit
+every document listed in the FEED scope deliverables, as required under
+the contract. That is a deliverables checklist, not text on the CRS.
 
-Add one more header row (or fold into an existing one - check whether row 5
-"Document Title:" has room, or add a new row 8, renumbering the column
-headers down by one and updating every hardcoded row-8/row-9 reference in
-`crs_export.py` accordingly, INCLUDING `code = meta.get("recommended_code")`
-block's `row = 8 + len(findings) + 2`, and the `WIDTHS`/`HEADERS` code path -
-grep for the literal `8` before touching this):
+The system ALREADY HAS the engine for this: `deliverables.py` -
+deliverables register (planned/submitted/approved, due dates, document_id
+link), `deliverable_expectations` + `expected_missing()` (expected vs
+registered gap), and `infer_expectations()` (drafts the expected list from
+contract text mentioning submit/deliverable). The dashboard tile
+"Deliverables registered in WBS" is this module. What is missing is the
+DATA: the FEED deliverables list has never been loaded.
 
-    "Contractor submittals are per the project scope FEED documents."
+Do nothing on this item until the user supplies the FEED scope document
+that lists the contract deliverables. When it arrives:
 
-Static text is fine unless `meta` already carries something more specific
-(project name, scope reference) - if it does, use that instead of a fixed
-sentence.
+1. Load it as expectations, one row per required document, with due dates
+   where the contract states them. Try `infer_expectations()` first and
+   report what it caught / missed against the list, with denominators.
+2. When a contractor submittal is uploaded, link it to its expectation row
+   so status moves planned -> submitted. Check whether that link already
+   happens on upload or needs wiring.
+3. A missing-deliverables view/export: expected / received / outstanding.
+   That is what the client wants to see.
+
+No CRS change for this item.
 
 ## Required before merging any of this
 
