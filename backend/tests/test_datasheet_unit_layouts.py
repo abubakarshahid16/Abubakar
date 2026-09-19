@@ -101,19 +101,29 @@ def test_layout_b_reads_a_unit_it_cannot_convert():
     assert measure.normalized_value is None
 
 
-def test_layout_b_will_read_a_tag_number_as_a_unit():
-    """THE COST OF LAYOUT B, and it is being paid on the real corpus.
+def test_layout_b_no_longer_reads_a_tag_number_as_a_unit():
+    """FIXED, and this test is the record of what it used to do.
 
-    Any word after the number is taken as the unit, so a bill-of-materials row
-    reading "6 VEFV1101M" stores a unit of 'VEFV1101M' - an equipment tag in a
-    unit column. `standards` gained a gate against exactly this (`claims.is_unit`)
-    and the datasheet side has not.
+    A bill-of-materials row reads "6 VEFV1101M" in ONE cell - a row index and
+    an equipment tag - so the column rule never saw a unit column and any word
+    after the number became the unit. Ten of the twenty numeric facts on the
+    real submittal were that.
+
+    THE TEST IS SHAPE, NOT MEMBERSHIP, and that distinction is the whole fix.
+    This module cannot simply demand a recognised unit the way
+    `requirements_3b.unit_token` does: its own docstring protects "9970 Kg/hr",
+    a real value whose compound unit is not in the table. An identifier is long
+    and mixes letters with digits; a unit is short, and the few carrying a
+    digit are already in the table.
     """
-    _value, unit, _measure = measure_value("6 VEFV1101M")
+    assert measure_value("6 VEFV1101M")[:2] == (None, None), (
+        "the tag is still being stored as a unit")
+    assert claims.is_unit("VEFV1101M") is False
 
-    assert unit == "VEFV1101M", "the tag is stored as a unit"
-    assert claims.is_unit(unit) is False, (
-        "`claims` knows this is not a unit - nothing is asking it here")
+    # THE GUARD, on the same call. An unrecognised unit that is SHORT is still
+    # a unit and its number must survive - without this the test would pass
+    # against a rule that rejected every unit the table does not know.
+    assert measure_value("9970 Kg/hr")[:2] == ("9970", "Kg/hr")
 
 
 # ----------------------------------------- layout C: unit inside the label

@@ -409,6 +409,32 @@ next person to write one will be looking at. Entry 12 predicted exactly that
 and it took two more phases to act on it. **A record only works where the
 person about to make the mistake will read it.**
 
+**A twenty-seventh, 2026-09-19 (table rows): a limit the standard never states,
+matched against a real submitted value.**
+
+SAES-D-001 6.2.2 says the internal design pressure "shall be according to the
+following table". The table's first row boundary reads "Up to 6,900 kPa (1,000
+psi)". The extractor read that as a requirement of **<= 6,900 kPa** - a limit
+that appears nowhere in the standard - and in the first end-to-end review it
+MATCHED the submittal's maximum operating pressure. SAES-E-014 7.2.4 is the
+same table and did the same thing.
+
+Two things stopped it becoming a confident wrong verdict, and neither was
+understanding: the unit spellings differed (kPa against bar (ga)), so the unit
+guard refused the comparison. The very next task on the list was to relax that
+guard to compare by dimension - which would have converted bar to kPa and
+produced a clean PASS against a threshold that is not a threshold.
+
+So the honest reading of the first review's "0 NON_COMPLIANT" is not that
+nothing failed. It is that **74 of 1,580 requirements were numbers lifted out
+of lookup tables**, and the only thing between them and a verdict was a
+spelling mismatch that was scheduled for removal.
+
+The rule: **a number is not a limit until something says what it bounds.** A
+sentence that defers to a table states no limit of its own, and a row boundary
+is a cell. Both are now `table_row`, refused by `compare` with the row quoted
+so an engineer reads the table rather than a verdict about it.
+
 **A twenty-sixth, 2026-09-19 (matcher): two mutations reported DETECTED having
 run no tests at all.**
 

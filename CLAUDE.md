@@ -40,7 +40,7 @@ carries the client's name; only the owner can rename it.
    when its feature is deleted — prove it by mutation. Vacuous tests are this
    project's documented recurring defect (`docs/status-honesty-audit.md`).
 7. **When something this project stated turns out false, record the retraction**
-   in `docs/status-honesty-audit.md`. It is at 31 entries. Several findings in
+   in `docs/status-honesty-audit.md`. It is at 32 entries. Several findings in
    `docs/code-review/` belong there.
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
@@ -93,7 +93,7 @@ carries the client's name; only the owner can rename it.
 | Full state, decisions, what's next | `docs/HANDOVER.md` |
 | Architecture as the code actually is | `docs/architecture.md` |
 | The 134 review findings, prioritised | `docs/code-review/README.md` |
-| Recorded false claims (31) | `docs/status-honesty-audit.md` |
+| Recorded false claims (32) | `docs/status-honesty-audit.md` |
 | Review any change against the project's own failure modes | `/review` (`.claude/commands/review.md`) |
 | Demo script and safe questions | `docs/HANDOVER.md` § Demo |
 | Run it | `backend`: `python run.py` · `frontend`: `npm run dev` · Ollama must be up |
