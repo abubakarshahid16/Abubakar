@@ -144,6 +144,20 @@ def ensure_schema() -> None:
             "fact_id": "TEXT",
             "matched_phrase": "TEXT",
             "match_method": "TEXT",
+            # A HUMAN'S DECISION ABOUT THIS FINDING, and the reason re-running
+            # a comparison cannot destroy it.
+            #
+            # `run_comparison(replace=True)` deletes the run's findings before
+            # writing new ones, and every fix to the engine reaches the corpus
+            # BY re-running it. Without this an engineer's confirmation would
+            # last exactly until the next maintenance action, silently. The
+            # same rule `standard_requirements` already follows.
+            #
+            # No REFERENCES clause: SQLite cannot add a foreign key by ALTER,
+            # so a migrated database has none to lean on. `standard_requirements.
+            # confirmed_by` carries the same note.
+            "confirmed_by": "TEXT",
+            "confirmed_at": "TEXT",
         }.items():
             if name not in columns:
                 conn.execute(f"ALTER TABLE review_findings ADD COLUMN {name} {definition}")
@@ -425,6 +439,7 @@ def get(finding_id: str) -> dict | None:
 
 
 def list_findings(*, document_id: str | None = None, status: str | None = None,
+                  review_run_id: str | None = None,
                   allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
     ensure_schema()
     clauses: list[str] = []
@@ -432,6 +447,17 @@ def list_findings(*, document_id: str | None = None, status: str | None = None,
     if document_id:
         clauses.append("document_id = ?")
         args.append(document_id)
+    if review_run_id:
+        # ONE RUN'S FINDINGS. A comparison run produces one finding per
+        # requirement - 1,580 on this corpus - so without this the only way to
+        # see a run's output through the API is to fetch every finding ever
+        # written and filter in the client.
+        #
+        # FILTERED IN THE QUERY, never after it. `metrics._where` carries the
+        # reason: post-filtering works until someone adds a LIMIT, and then it
+        # silently returns the wrong page.
+        clauses.append("review_run_id = ?")
+        args.append(review_run_id)
     if status:
         clauses.append("status = ?")
         args.append(status)

@@ -1785,6 +1785,33 @@ class ReviewFinding(BaseModel):
     created_by: str | None
     created_at: str
     updated_at: str
+    # ------------------------------------- AI submittal review, phases 5A/5B
+    #
+    # THE COMPLIANCE SHAPE, ADDED AND NOTHING REMOVED. This model was the
+    # phase-1 approval-workflow view of a finding, and the columns phase 5B
+    # writes were invisible through it: a run produced 1,580 findings, the API
+    # returned them, and a caller could not tell which run they belonged to,
+    # what the engine decided, or which submitted value was matched.
+    #
+    # Every one is OPTIONAL and defaults to None, because a finding raised by
+    # hand through `POST /api/reviews/findings` has none of them and is still
+    # a finding.
+    review_run_id: str | None = None
+    compliance_status: ComplianceStatus | None = None
+    #: WHICH REQUIREMENT AND WHICH SUBMITTED VALUE. A finding says a
+    #: contractor's number does or does not meet a clause; if the pairing was
+    #: wrong the finding is wrong, so the reader gets the pairing.
+    requirement_id: str | None = None
+    fact_id: str | None = None
+    #: The field name found inside the requirement's subject, and the rule that
+    #: found it. `containment` is the only method today; it is recorded so a
+    #: second one cannot be added without the finding saying which ran.
+    matched_phrase: str | None = None
+    match_method: str | None = None
+    #: Why the engine decided what it did, kept SEPARATE from `finding` so a
+    #: reader can see the reasoning without it being presented as the
+    #: contractor-facing text.
+    ai_rationale: str | None = None
 
 
 class ReviewFindingList(BaseModel):

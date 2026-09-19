@@ -74,6 +74,9 @@ async def lifespan(app: FastAPI):
     # intermittent failures in unrelated tests, including the concurrency test,
     # because DDL on one SQLite connection blocks readers on the others.
     submittal_review_mod.migrate_facts_to_per_document()
+    # Same reasoning, same place: a conditional rebuild belongs at startup and
+    # never in a function every read path calls.
+    submittal_review_mod.migrate_pair_rejections_to_stable_keys()
     # Put back any extraction that was `running` when a previous process died.
     # `next_extraction_job` only ever selects `queued`, so without this an
     # orphaned job is never picked up by anything - the standard is never
@@ -1444,14 +1447,23 @@ def list_review_findings(
     request: Request,
     document_id: str | None = Query(None),
     status: schemas.ReviewStatus | None = Query(None),
+    review_run_id: str | None = Query(
+        None, description="only this comparison run's findings"),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """List review findings only for documents the caller may read."""
-    reject_unknown_params(request, {"document_id", "status"})
+    """List review findings only for documents the caller may read.
+
+    `review_run_id` NARROWS, IT DOES NOT WIDEN. The document scope is applied
+    exactly as before and independently: a run id belonging to a submittal the
+    caller cannot read returns nothing, rather than becoming a way to reach
+    findings the grant tables withhold. That is CLAUDE.md rule 5's shape - a
+    filter may only ever intersect with what a caller may already see.
+    """
+    reject_unknown_params(request, {"document_id", "status", "review_run_id"})
     if document_id is not None:
         require_document(document_id, scope)
     return {"findings": review_mod.list_findings(
-        document_id=document_id, status=status,
+        document_id=document_id, status=status, review_run_id=review_run_id,
         allowed_document_ids=scope.allowed_document_ids,
     )}
 
