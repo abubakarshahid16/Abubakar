@@ -279,6 +279,79 @@ def test_the_comparator_vocabulary_reads_the_negation_too(phrase, operator):
     assert claims.parse_comparator(phrase) == operator
 
 
+@pytest.mark.parametrize(("sentence", "operator", "value", "unit"), [
+    # SAES-A-105 5.3.3 - the standard's PRIMARY limit. The corpus held its
+    # four exceptions ("may not exceed 105/97/105/115 dB(A)") and not the rule
+    # they are exceptions to.
+    ("New equipment shall not generate noise in excess of 90 dB(A) at a"
+     " distance of one meter.", "<=", "90", "dB(A)"),
+    # The same comparison with different prose in the middle.
+    ("The design pressure shall not be in excess of 6,900 kPa.",
+     "<=", "6,900", "kPa"),
+    # `claims` already read this through its bare "not exceed"; `_LIMIT` did not.
+    ("The coating thickness should not exceed 12 mm.", "<=", "12", "mm"),
+])
+def test_a_negated_in_excess_of_is_the_limit_it_states(
+        sentence, operator, value, unit):
+    limit = requirements_3b.parse_limit(sentence)
+    assert limit is not None, sentence
+    assert limit["operator"] == operator
+    assert limit["raw_value"] == value
+    assert limit["raw_unit"] == unit
+
+
+@pytest.mark.parametrize("sentence", [
+    # THE NEGATIVE CONTROLS, AND THE REAL RISK IN THE CHANGE. Bare "in excess
+    # of" is a TRIGGER: it says what to do WHEN a value is exceeded, and
+    # forbids nothing. Reading one as a limit invents a ceiling no standard
+    # states - a false rule, which is worse than a missing one because it
+    # fails a compliant submittal with a citation attached.
+    #
+    # 1. Obliges a SUBMISSION, not a maximum.
+    "Equipment that will generate noise in excess of 85 dB(A) shall have a"
+    " Noise Control Data Sheet, Form 7305-ENG, submitted for review.",
+    # 2. Obliges a JUSTIFICATION, not a maximum.
+    "Oxygen transfer rates in excess of 1.22 kg/kWh shall be justified.",
+    # 3. NEGATED, and still not a rule: it states no number of its own, the
+    #    limit being in a table it points at.
+    #
+    #    WHAT ACTUALLY HOLDS THIS ONE BACK is the requirement that a digit
+    #    follow the comparator, NOT the four-word bound between the negation
+    #    and the phrase - seven words sit in this sentence, but "of those
+    #    listed" is what stops it. Proven by mutation: widening the gap to
+    #    twelve words leaves this test green. Said plainly here because a
+    #    comment claiming the wrong guard is how a check gets deleted later
+    #    on the grounds that something else covers it.
+    "Personnel shall not be exposed to continuous occupational noise levels"
+    " in excess of those listed in Table 3.",
+])
+def test_a_bare_in_excess_of_is_a_trigger_and_never_becomes_a_rule(sentence):
+    assert requirements_3b.parse_limit(sentence) is None, sentence
+
+
+@pytest.mark.parametrize(("sentence", "comparator"), [
+    ("New equipment shall not generate noise in excess of 90 dB.", "<="),
+    ("The design pressure shall not be in excess of 6900 kPa.", "<="),
+    ("The coating thickness should not exceed 12 mm.", "<="),
+    # The negative control again, through the OTHER home: the trigger sentence
+    # must yield a measurement with NO comparator, not a maximum.
+    ("Equipment that will generate noise in excess of 85 dB shall have a"
+     " data sheet submitted for review.", None),
+    ("Oxygen transfer rates in excess of 1.22 kg shall be justified.", None),
+])
+def test_the_second_home_reads_the_same_phrases(sentence, comparator):
+    """Both homes, because eddf080 established that one is never enough.
+
+    Through `extract_measurements` rather than `parse_comparator`: the latter
+    full-matches a phrase handed to it, while the real path anchors the
+    vocabulary at the end of the text before a number. A test of the first
+    would pass or fail for reasons the pipeline never encounters.
+    """
+    found = claims.extract_measurements(sentence)
+    assert len(found) == 1, f"expected one measurement in {sentence!r}"
+    assert found[0].comparator == comparator
+
+
 def test_the_psv_exception_is_preserved_beside_the_general_limit():
     """THE MUTATION TARGET (M42). The master plan's worked case.
 
