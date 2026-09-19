@@ -370,9 +370,21 @@ def classify(sentence: str, limit: dict | None) -> str:
     first end-to-end review it matched a real submitted pressure, and only a
     mismatch of unit spellings stopped it becoming a confident wrong verdict.
     """
+    if not limit:
+        # NO NUMBER, NO TABLE ROW. A sentence that merely MENTIONS a table -
+        # "inspection shall follow the procedure in Table 4" - states an
+        # obligation and no quantity, and it was already a `statement`. Calling
+        # it a table row moved 71 requirements out of `statement` into a status
+        # that says "an engineer must read this table", which is neither true
+        # nor useful: there is no number in it to misread.
+        #
+        # `table_row` exists for exactly one failure - a number lifted out of a
+        # lookup and stored as a limit - so it applies only where a number was
+        # actually lifted.
+        return "statement"
     if is_table_row(sentence):
         return TABLE_ROW
-    return "numeric_limit" if limit else "statement"
+    return "numeric_limit"
 
 
 def field_name(sentence: str, header: str | None = None) -> str | None:

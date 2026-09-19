@@ -93,6 +93,23 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     # sign. A RATE, not a temperature - 5 C/hr is a heating rate and must never
     # compare against a 5 C limit, which is why it is its own dimension.
     "c/hr": ("temperature_rate", "C/hr", 1.0),
+    # COMPOUND ENGINEERING UNITS. Every conversion here is exact by definition,
+    # which is the same bar `m` and `inch` had to clear: 1 N/mm2 IS 1 MPa,
+    # 1 kN/m2 IS 1 kPa, and 1 kgf/cm2 is 0.0980665 MPa by the definition of the
+    # kilogram-force. None is a rounding.
+    "kg/cm2": ("pressure", "MPa", 0.0980665),
+    "kgf/cm2": ("pressure", "MPa", 0.0980665),
+    "n/mm2": ("pressure", "MPa", 1.0),
+    "kn/m2": ("pressure", "MPa", 0.001),
+    # Density. The pound and the foot are defined exactly, so 1 lb/ft3 is
+    # 16.018463... kg/m3 exactly and the two spellings compare.
+    "kg/m3": ("density", "kg/m3", 1.0),
+    "lb/ft3": ("density", "kg/m3", 16.018463373960142),
+    # Single-member dimensions: the only spelling of each quantity here, so the
+    # conversion is the identity and the dimension still does its job - two
+    # values in W/m2K compare and W/m2K against kg/m3 does not.
+    "w/m2k": ("heat_transfer", "W/m2K", 1.0),
+    "kj/kgk": ("specific_heat", "kJ/kgK", 1.0),
     # pressure -> MPa
     "mpa": ("pressure", "MPa", 1.0),
     "bar": ("pressure", "MPa", 0.1),
@@ -130,6 +147,7 @@ _DIMENSION_UNIT = {
     "time": "h", "voltage": "V", "current": "A",
     "concentration": "g/L", "areal_density": "g/m2", "heat_input": "KJ/mm",
     "hardness": "BHN", "speed": "kph", "temperature_rate": "C/hr",
+    "density": "kg/m3", "heat_transfer": "W/m2K", "specific_heat": "kJ/kgK",
 }
 
 #: Units extraction recognises but the table does NOT convert, with the
@@ -209,6 +227,10 @@ _REFERENCE_SUFFIX = {
     "psig": ("psi", "gauge"), "psia": ("psi", "absolute"),
     "kpag": ("kpa", "gauge"), "kpaa": ("kpa", "absolute"),
     "mpag": ("mpa", "gauge"), "mpaa": ("mpa", "absolute"),
+    # The same suffix on a compound pressure. "kg/cm2g" is a gauge reading
+    # and differs from "kg/cm2" by an atmosphere, exactly as barg does.
+    "kg/cm2g": ("kg/cm2", "gauge"), "kg/cm2a": ("kg/cm2", "absolute"),
+    "kgf/cm2g": ("kgf/cm2", "gauge"), "kgf/cm2a": ("kgf/cm2", "absolute"),
 }
 
 #: The same reference written as a parenthetical: `bar (ga)`, `kPa(a)`.

@@ -335,6 +335,47 @@ _NUMERIC_CELL = re.compile(r"^\s*[<>=~±]{0,2}\s*[-+]?\d[\d,]*(?:\.\d+)?\s*$")
 _LABEL_TAIL = re.compile(r"^(?P<label>.+?)\s*[\(\[]\s*(?P<tail>[^()\[\]]{1,14})\s*[\)\]]\s*$")
 
 
+def _looks_like_an_identifier(token: str) -> bool:
+    """Is this an equipment tag rather than a unit?
+
+    A bill-of-materials row reads "6 VEFV1101M" in one cell, so the unit-column
+    rule never sees a unit column and any trailing word becomes the unit. Ten
+    of twenty numeric facts on a real submittal were that.
+
+    THIS CANNOT SIMPLY DEMAND A RECOGNISED UNIT the way the standards side does:
+    this module's own docstring protects "9970 Kg/hr", a real value whose unit
+    is not in the table, and refusing it would lose the number.
+
+    THE FIRST VERSION USED LENGTH, AND THAT WAS LUCK. It discarded anything
+    unrecognised longer than five characters carrying a digit - which is
+    `kg/cm2`, `kg/cm2g` and `lb/ft3`, all real pressures and densities. The
+    five that survived did so only by being short enough, not by being
+    understood. Those eight compound units are now in `claims`, and the test
+    here no longer turns on length:
+
+    A tag mixes SEVERAL digits with SEVERAL letters: `VEFV1101M` is four digits
+    and five letters. A compound unit carries at most one digit - kg/cm2,
+    N/mm2, W/m2K, lb/ft3, m3/hr - and the two-digit threshold is what separates
+    them.
+
+    A first version also required the absence of a solidus, on the theory that
+    compound units contain one and tags do not. Mutation M125 showed that
+    condition was DEAD: not one of the eight compound units carries two digits,
+    so the digit test alone already protects every one of them, and a condition
+    no test can distinguish is a condition that should not be there.
+
+    A token `claims` recognises is never an identifier, whatever its shape.
+    """
+    text = (token or "").strip()
+    if not text:
+        return False
+    if claims.is_unit(claims.split_reference(text)[0] or ""):
+        return False
+    digits = sum(1 for ch in text if ch.isdigit())
+    letters = sum(1 for ch in text if ch.isalpha())
+    return digits >= 2 and letters >= 3
+
+
 def _unit_follows(parts: list[str], index: int) -> bool:
     """Is the cell at `index` a bare unit token?
 
@@ -539,8 +580,7 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     # refusing it would lose the number. So the test is SHAPE, not membership.
     # An identifier is long and mixes letters with digits; a unit is short, and
     # the few that carry a digit (m3, g/m2, dB(A)) are in the table already.
-    if unit and not claims.is_unit(claims.split_reference(unit)[0] or "") \
-            and len(unit) > 5 and any(ch.isdigit() for ch in unit):
+    if unit and _looks_like_an_identifier(unit):
         return None, None, None
     if remainder and not remainder.startswith("("):
         return None, None, None

@@ -89,6 +89,19 @@ DEFAULT_CODES = (
 #: that review would be gated, and it should be.
 COMPLETENESS_THRESHOLD = 0.6
 
+#: Label-value slots a datasheet page is ASSUMED to carry.
+#:
+#: A NOMINAL FIGURE, NOT A MEASUREMENT OF ANY PARTICULAR DOCUMENT. It came from
+#: eyeballing other datasheets, and every denominator built on it - "42 of 385"
+#: - is therefore an estimate of an estimate. It exists so a coverage figure is
+#: never shown without SOMETHING to divide by, because a bare percentage with
+#: no denominator is the thing this project refuses to print.
+#:
+#: It must never be used to compute a pass, and `_insufficient_reason` states
+#: in words that the denominator is nominal so a reader cannot mistake it for a
+#: count of the sheet in front of them.
+FIELDS_PER_PAGE_NOMINAL = 35
+
 #: Confidence ceilings. NEVER "high" (CLAUDE.md rule 4). A deterministic
 #: numeric comparison is the strongest thing here and still stops at 0.9,
 #: because the comparison is only as good as the extraction that fed it.
@@ -205,7 +218,17 @@ def compare(requirement: dict, fact: dict | None, *,
     # BEFORE ANY OTHER BRANCH, INCLUDING THE ABSENT-FACT ONE. A table row is
     # not a limit whether or not a value was submitted against it, and a
     # reviewer needs to see the row rather than a verdict about it.
-    if requirement.get("requirement_type") == requirements_3b.TABLE_ROW:
+    # ONLY WHEN A VALUE WAS ACTUALLY MATCHED AGAINST IT. A table row nobody
+    # submitted anything against is an unmatched requirement like any other,
+    # and MISSING_INFORMATION is the true description of it. Raising every one
+    # to NEEDS_ENGINEER_REVIEW would fill a reviewer's queue with rows carrying
+    # nothing to act on, and bury the few that do.
+    #
+    # The one an engineer CAN act on is a table row with a submitted value
+    # beside it: the pairing is real, the comparison is not safe to make, and
+    # the row is what they need to see.
+    if requirement.get("requirement_type") == requirements_3b.TABLE_ROW \
+            and fact is not None and not fact.get("is_blank"):
         fragment = " ".join(
             (requirement.get("source_text")
              or requirement.get("requirement_text") or "").split())
@@ -522,10 +545,7 @@ def completeness_for_run(
     pages = (row["page_count"] if row else None) or 0
 
     fields_read = len(facts)
-    # A datasheet page carries on the order of this many label-value slots.
-    # Measured roughly against the real KOC sheets rather than assumed, and
-    # used ONLY to give the reader a denominator - never to compute a pass.
-    fields_estimated = pages * 35 if pages else None
+    fields_estimated = pages * FIELDS_PER_PAGE_NOMINAL if pages else None
     extraction = (
         round(min(fields_read / fields_estimated, 1.0), 3)
         if fields_estimated else None)
@@ -610,8 +630,17 @@ def _insufficient_reason(completeness: dict) -> str:
     read = completeness.get("fields_read")
     total = completeness.get("fields_estimated")
     if total:
-        return (f"the review examined {read} of approximately {total} fields; "
-                "that is not enough of the submittal to recommend a code")
+        pages = completeness.get("pages")
+        # THE DENOMINATOR SAYS WHERE IT COMES FROM. "approximately 385 fields"
+        # reads like somebody counted the sheet. Nobody did: it is the page
+        # count times a nominal 35 slots per page, a figure taken from OTHER
+        # datasheets entirely. A reader who thinks 385 was measured here will
+        # also think 42/385 means something about this document's coverage.
+        return (f"the review examined {read} fields; the denominator is a "
+                f"NOMINAL ESTIMATE of {total} ({pages} pages x "
+                f"{FIELDS_PER_PAGE_NOMINAL} fields per page, not a count of "
+                f"this document), and that is not enough of the submittal to "
+                f"recommend a code")
     return ("the submittal could not be read well enough to recommend a code")
 
 
@@ -662,7 +691,8 @@ def run_comparison(
         # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
         # equality between a requirement's subject and a datasheet caption
         # matched 0 of 77; containment matched the pairs an engineer picked.
-        if requirement.get("requirement_type") == "numeric_limit" \
+        if requirement.get("requirement_type") in (
+                "numeric_limit", requirements_3b.TABLE_ROW) \
                 and requirement.get("raw_value") not in (None, ""):
             matches_attempted += 1
         match = match_by_containment(requirement, facts)
@@ -670,6 +700,13 @@ def run_comparison(
         verdict = compare(requirement, fact, subject=subject)
         if fact is not None:
             matches_made += 1
+        # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in
+        # NEEDS_ENGINEER_REVIEW, but only one of them is the real reason: the
+        # number is not a limit. Reporting "unit_mismatch" against a table row
+        # tells a reviewer to go and reconcile kPa with bar, which would leave
+        # them comparing a design pressure against a lookup boundary once the
+        # units agreed.
+        if fact is not None and requirement.get("requirement_type") != requirements_3b.TABLE_ROW:
             # THE UNIT GUARD. A match says the two are ABOUT the same thing; it
             # says nothing about whether their numbers can be compared. A
             # length against a pressure is not a breach and not a pass - it is
@@ -696,7 +733,7 @@ def run_comparison(
                 raw_unit=claims.split_reference(
                     fact.get("raw_unit") or fact.get("unit"))[0] or "",
                 normalized_value=None, normalized_unit=None, comparator=None)
-            if not claims.same_unit(requirement_unit, fact_unit):
+            if not _units_comparable(requirement, fact, requirement_unit, fact_unit):
                 verdict = {
                     **verdict,
                     "status": NEEDS_ENGINEER_REVIEW,
@@ -758,6 +795,42 @@ UNIT_MISMATCH = "unit_mismatch"
 METHOD_CONTAINMENT = "containment"
 
 
+def _units_comparable(requirement: dict, fact: dict,
+                      requirement_unit: claims.Measurement,
+                      fact_unit: claims.Measurement) -> bool:
+    """May these two numbers be compared at all?
+
+    BY DIMENSION WHEN BOTH SIDES NORMALISE, BY SPELLING WHEN EITHER DOES NOT.
+
+    The spelling test alone was too strict: a limit in kPa and a value in bar
+    are both pressures, `claims` converts between them exactly, and refusing
+    them sent a comparison the engine could do to a human instead. Dimension
+    equality is the right question there, and `_compatible` does the conversion.
+
+    But dimension is the WRONG question when a unit has no conversion. `dB(A)`
+    and `dB` share no dimension at all (both are None), and `°F` and `°C` share
+    one while being unconvertible by deliberate design - "a wrong temperature
+    conversion is a safety defect". For those the only safe test is that the
+    spellings match, which is what `same_unit` asks.
+
+    So: if both sides normalised, compare dimensions. If either did not, fall
+    back to the spelling. That keeps kPa-against-bar working and keeps
+    dB(A)-against-dB refused.
+    """
+    requirement_measure = _measurement_from_requirement(requirement)
+    fact_measure = _measurement_from_fact(fact)
+    both_normalised = (
+        requirement_measure is not None
+        and fact_measure is not None
+        and requirement_measure.normalized_value is not None
+        and fact_measure.normalized_value is not None)
+    if both_normalised:
+        left = claims.unit_dimension(requirement_unit.raw_unit or "")
+        right = claims.unit_dimension(fact_unit.raw_unit or "")
+        return left is not None and left == right
+    return claims.same_unit(requirement_unit, fact_unit)
+
+
 def match_by_containment(requirement: dict, facts: list[dict]) -> dict:
     """The fact a requirement is about, found by CONTAINMENT. Deterministic.
 
@@ -794,7 +867,18 @@ def match_by_containment(requirement: dict, facts: list[dict]) -> dict:
     """
     none: dict = {"fact": None, "matched_phrase": None, "method": None,
                   "reason": None, "candidates": []}
-    if requirement.get("requirement_type") != "numeric_limit":
+    # NUMERIC LIMITS AND TABLE ROWS. Both carry a parsed number, and a table
+    # row has to be matchable or the one case a reviewer can act on never
+    # arises: `compare` raises a table row to NEEDS_ENGINEER_REVIEW only when a
+    # value was matched against it, so a matcher that skipped table rows would
+    # leave that branch permanently dead and every table row reported as the
+    # contractor's missing information.
+    #
+    # Matching one is not comparing it. `compare` still refuses the comparison
+    # and quotes the row; the match is what tells the engineer WHICH submitted
+    # value the row bears on.
+    if requirement.get("requirement_type") not in ("numeric_limit",
+                                                   requirements_3b.TABLE_ROW):
         return none
     # THE TEST IS THE RAW NUMBER, NOT THE NORMALISED ONE.
     #
