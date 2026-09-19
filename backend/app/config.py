@@ -301,10 +301,27 @@ class Settings(BaseSettings):
     # Containment runs first and the model is consulted only where containment
     # found nothing.
 
+    #: OFF BY DEFAULT, AND IT FAILED ITS OWN GATE TO GET HERE.
+    #:
+    #: Measured on datasheet 1, 2026-09-19 (§10 of
+    #: docs/design/model-assisted-matching.md): 37 requirements reached the
+    #: model, it declined 30 and proposed 7 pairings. SIX WERE FALSE FRIENDS
+    #: and three of those produced a NON_COMPLIANT verdict against the
+    #: contractor - a weld-cleaning distance paired with a corrosion
+    #: allowance, an interpass temperature with a service temperature, a
+    #: cooling-water outlet with a vessel design temperature. Every one of
+    #: them cited correctly, which is what makes a wrong pairing dangerous
+    #: rather than obviously broken.
+    #:
+    #: The design's hard gate is zero false pairings, so the tier does not run
+    #: until it is redesigned. The code stays: it is tested, it is honest
+    #: about why it declined, and the one genuine pairing it found is recall
+    #: containment structurally cannot reach.
+    #:
     #: False turns the tier off entirely and the findings SAY SO in their
     #: rationale - a review that silently stopped asking would look identical
     #: to one where the model declined every time.
-    match_enabled: bool = True
+    match_enabled: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow

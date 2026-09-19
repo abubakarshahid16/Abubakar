@@ -44,6 +44,35 @@ REQUIREMENT_TYPES = (
     "table_value",
 )
 
+#: A sentence whose obligation is "go and read that other document", stated
+#: under a condition that happens to contain a number.
+#:
+#: SAES-D-001 9.2.5 is the worked case: "temperatures greater than 260°C
+#: (500°F) shall be in accordance with PIP VEFV1100". The parser read
+#: "greater than 260" as a limit of `> 260 °C`, the model tier paired it with
+#: a datasheet field reading 60 °C, and the engine reported the contractor
+#: NON_COMPLIANT for not exceeding 260 °C. The standard states no such
+#: requirement: it says that IF the temperature is above 260 °C, a different
+#: document governs.
+#:
+#: The 260 is the THRESHOLD OF APPLICABILITY, not a limit on anything. Never
+#: compared.
+APPLICABILITY_TRIGGER = "applicability_trigger"
+
+#: A limit stated as a DIFFERENCE from something else: "at least 28°C warmer
+#: than the calculated dew point".
+#:
+#: SAES-D-001 14.3 is the worked case. The parser read `>= 28 °C`, the model
+#: tier paired it with an internal design temperature of 95 °C, and the engine
+#: reported COMPLIANT - 95 >= 28 - which is arithmetic against a number that
+#: is not a temperature at all but a margin between two of them. The reference
+#: value (a dew point computed from the process stream) is nowhere in the
+#: submittal, so no comparison can be made without a person.
+#:
+#: Matched but never compared: `compare` raises it to NEEDS_ENGINEER_REVIEW
+#: and quotes the sentence.
+RELATIVE_LIMIT = "relative_limit"
+
 #: A unit spelling sitting in a table header: "Southern Pine Creosote (pcf)".
 _HEADER_UNIT = re.compile(r"\(([^)]{1,16})\)\s*$")
 
@@ -192,6 +221,133 @@ def is_table_row(sentence: str) -> bool:
     # Up to 6,900 kPa ... and above", where the boundary phrase is in the
     # middle and the row it belongs to is the whole line.
     return bool(_TABLE_REFERENCE.search(text) or _BOUNDARY_FRAGMENT.search(text))
+
+
+#: "shall be in accordance with", "refer to", "shall conform to". The wording
+#: a specification uses to hand the question to another document.
+_DEFERRAL = re.compile(
+    r"\b(?:in\s+accordance\s+with|according\s+to|as\s+specified\s+in"
+    r"|as\s+defined\s+in|as\s+given\s+in|refer\s+to|shall\s+conform\s+to"
+    r"|conform\s+to|comply\s+with|shall\s+follow|follow|as\s+per|per)\b",
+    re.IGNORECASE)
+
+#: A NAMED DOCUMENT, not a table and not a quantity. Two shapes, both taken
+#: from the corpus: a standard's designation (PIP VEFV1100, SAES-D-001,
+#: ASME VIII, API 650, ISO 15156, NACE MR0175) and an internal cross-reference
+#: (paragraph 7.4.4, clause 5.2, section 11).
+#:
+#: The designation needs TWO OR MORE CAPITALS so an ordinary capitalised word
+#: at the start of a sentence is not read as a document.
+#: A DESIGNATION'S OWN PARTS ARE NOT QUANTITIES. "ASME Section VIII Division
+#: 2", "ASTM A516 Grade 70", "clause 5.2" - the numbers in these name pieces
+#: of a document, and leaving them behind made the bare-number test below
+#: reject a real trigger because "Division 2" still had a digit in it.
+_DOCUMENT_PART = (r"paragraph|clause|section|appendix|annex|division|div"
+                  r"|part|chapter|revision|rev|edition|class|grade|type|level")
+#: CASE MATTERS ON THE FIRST ARM AND NOT ON THE SECOND, so the flag is scoped
+#: rather than applied to the pattern. `[A-Z]{2,}` under `re.IGNORECASE`
+#: matches any two letters, which would make every word in the sentence a
+#: document reference and the check below would pass on anything.
+_DOCUMENT_REF = re.compile(
+    r"\b[A-Z]{2,}[A-Z0-9]*(?:[-\s][A-Z0-9]+){0,3}\b"
+    rf"|(?i:\b(?:{_DOCUMENT_PART})\s+(?:\d+(?:\.\d+)*|[IVXLC]+)\b)")
+
+#: A number that is the sentence's OWN quantity: a digit that is not part of a
+#: document designation. Applied after the designations have been removed.
+_BARE_NUMBER = re.compile(r"\d")
+
+#: A limit stated as a difference from a reference: "at least 28°C warmer
+#: than the dew point", "within 5 % of the design value".
+#:
+#: The relative word comes AFTER the value, which is what separates this from
+#: an ordinary limit: "greater than 5 mm" is a limit and "5 mm greater than
+#: the nominal" is a margin. `within N unit of X` is the same shape written
+#: the other way round and is included explicitly.
+#: The tail of a relative limit, ANCHORED AT THE PARSED VALUE: the number
+#: itself, its unit, an optional bracketed conversion - "28°C (50°F)" - and
+#: then the comparative word.
+#:
+#: Anchoring is the whole correctness of this check. Searched anywhere in the
+#: sentence it fired on SAES-L-XXX 11.1.3, "In areas within 100 m of a
+#: platform structure, submarine cable shall be buried a minimum of 1 m": the
+#: parsed limit is the 1 m burial depth, which is an ordinary absolute limit,
+#: and the relative phrase belongs to a CONDITION about where the rule
+#: applies. A sentence may contain a relative phrase and still state a plain
+#: limit, so what matters is whether the phrase follows THE NUMBER THAT WAS
+#: TAKEN AS THE LIMIT.
+_RELATIVE_TAIL = re.compile(
+    r"[-+]?\d[\d.,]*\s*"
+    r"(?:[A-Za-z%µμ°][A-Za-z0-9()/%µμ°.\-]{0,15})?\s*"
+    r"(?:\([^)]{1,20}\)\s*)?"
+    r"(?:warmer|cooler|hotter|colder|higher|lower|greater|less|more|"
+    r"thicker|thinner|longer|shorter|wider|narrower)\s+than\b",
+    re.IGNORECASE)
+
+
+def is_relative_limit(sentence: str) -> bool:
+    """True when the number taken as the limit is a DIFFERENCE from something.
+
+    "at least 28°C warmer than the calculated dew point" states a margin. The
+    thing it is a margin from is not on the datasheet and usually is not a
+    fixed quantity at all, so comparing the 28 against any submitted number is
+    arithmetic with no meaning - and it produced a confident COMPLIANT in the
+    model tier's evaluation.
+
+    "shall be at least 300 mm" is untouched: nothing follows the number, so
+    the number is the limit.
+
+    NOT IMPLEMENTED, AND NAMED SO NOBODY ASSUMES IT IS: the "within 5 % of the
+    design value" spelling. `within` is not a comparator `_LIMIT` recognises,
+    so such a sentence yields no limit and is already a `statement` before
+    this check is reached. An arm for it here could never fire, and this
+    project deletes dead branches rather than carrying them (M125).
+    """
+    text = " ".join((sentence or "").split())
+    if not text:
+        return False
+    match = _LIMIT.search(text)
+    if not match:
+        return False
+    return bool(_RELATIVE_TAIL.match(text[match.start("value"):]))
+
+
+def is_applicability_trigger(sentence: str) -> bool:
+    """True when the obligation is "another document governs", under a
+    condition that carries the number.
+
+    THREE THINGS MUST ALL HOLD, and each one is what stops a real requirement
+    being reclassified away:
+
+      * the text after the mandatory verb DEFERS - "shall be in accordance
+        with", "refer to";
+      * it defers to a NAMED DOCUMENT, not to a table. A table deferral is
+        `table_row`, which already exists and is checked first;
+      * that remainder states NO quantity of its own. "for design temperatures
+        above 260°C, wall thickness shall be at least 12 mm" carries a real
+        limit after the verb and stays `numeric_limit`, however conditional
+        its opening is.
+
+    The document designations are removed before looking for the remaining
+    number, because `PIP VEFV1100`, `API 650` and `ISO 15156` all contain
+    digits and none of them is a quantity.
+    """
+    text = " ".join((sentence or "").split())
+    if not text:
+        return False
+    verb = _MANDATORY_HERE.search(text)
+    if not verb:
+        return False
+    remainder = text[verb.end():]
+    if not _DEFERRAL.search(remainder):
+        return False
+    if _TABLE_REFERENCE.search(remainder):
+        # A table is not another document. `table_row` is that case and is
+        # decided before this one.
+        return False
+    if not _DOCUMENT_REF.search(remainder):
+        return False
+    without_documents = _DOCUMENT_REF.sub(" ", remainder)
+    return not _BARE_NUMBER.search(without_documents)
 
 
 #: Mandatory wording, duplicated from `standards` deliberately: importing it
@@ -384,6 +540,14 @@ def classify(sentence: str, limit: dict | None) -> str:
         return "statement"
     if is_table_row(sentence):
         return TABLE_ROW
+    # THE NUMBER IS THE THRESHOLD, NOT THE LIMIT. Checked before
+    # `numeric_limit` for the same reason `table_row` is: the sentence DOES
+    # parse as a limit, and that is the defect. See `APPLICABILITY_TRIGGER`.
+    if is_applicability_trigger(sentence):
+        return APPLICABILITY_TRIGGER
+    # THE NUMBER IS A MARGIN, NOT A VALUE. Same reasoning again.
+    if is_relative_limit(sentence):
+        return RELATIVE_LIMIT
     return "numeric_limit"
 
 

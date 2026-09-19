@@ -418,6 +418,56 @@ def _unit_in_label(label: str) -> tuple[str, str | None]:
     return match.group("label").strip(), tail
 
 
+#: A pointer to somewhere else on the sheet: "Figure 1", "Table 3", "Note 5",
+#: "Detail A", "Sheet 2 of 4". Never the name of a field.
+#: A DOTTED CLAUSE NUMBER IS THE SAME KIND OF POINTER. The drum sheet's
+#: weight rows read `19 | 4.2.1 | Fabricated weight (L1) : | 4410 | kg`, so
+#: after the line number is dropped the clause reference takes the label
+#: position and the real label becomes its value - the same defect as
+#: `Figure 1`, in a different spelling, and it cost three weights.
+#:
+#: TWO DOTS MINIMUM, deliberately: `4.2.1` is a clause and `1.6` is a
+#: corrosion allowance, and a rule that could not tell them apart would throw
+#: away values.
+_CROSS_REFERENCE = re.compile(
+    r"(?:figure|fig\.?|table|note|detail|drawing|dwg\.?|sheet|item|ref\.?)"
+    r"\s*[-:]?\s*[A-Za-z0-9]{1,4}(?:\s+of\s+\d{1,3})?"
+    r"|\d{1,3}(?:\.\d+){2,}",
+    re.IGNORECASE)
+
+#: A cell that is ONLY a bracketed qualifier.
+_PARENTHETICAL_ONLY = re.compile(r"\(([^()]{1,60})\)")
+
+
+def _join_continuations(parts: list[str]) -> list[str]:
+    """Attach a bracket-only cell to the cell it qualifies.
+
+    A LINE THAT IS ONLY A PARENTHETICAL IS A CONTINUATION, NOT A LABEL. The
+    drum sheet writes a corrosion allowance over two lines:
+
+        Design corrosion allowance for removable internal parts
+        (material 2)
+
+    and the text-block path reads each line as its own cell. `(material 2)`
+    then became a label in its own right, paired with the `0` beneath it, and
+    `normalise_field_name` dropped the brackets - producing a field called
+    `material 2` whose value was 0 mm. That is not a field on any datasheet;
+    it is the tail of one.
+
+    Merged into whatever precedes it, whatever that is: a qualifier on a value
+    ("3.5", "(ga)") belongs to the value for the same reason. A parenthetical
+    with nothing before it is left alone, because there is nothing to attach
+    it to.
+    """
+    out: list[str] = []
+    for part in parts:
+        if out and out[-1] and _PARENTHETICAL_ONLY.fullmatch(part):
+            out[-1] = f"{out[-1]} {part}"
+            continue
+        out.append(part)
+    return out
+
+
 def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
     """Label-value pairs out of one row of a form.
 
@@ -426,13 +476,32 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
     leading line numbers are dropped. Pairing is strictly left to right, which
     is the order the sheet is read in.
     """
-    parts = [c.strip() for c in cells if c is not None]
+    parts = _join_continuations([c.strip() for c in cells if c is not None])
     pairs: list[tuple[str, str]] = []
     index = 0
     while index < len(parts):
         part = parts[index]
         # A bare line number introduces the pair that follows it.
         if re.fullmatch(r"\d{1,3}", part):
+            index += 1
+            continue
+        # SO DOES A CROSS-REFERENCE CELL, for the same reason: it is a pointer
+        # to somewhere else on the sheet, not the name of a field.
+        #
+        # MEASURED DEFECT. The drum sheet's corrosion-allowance rows read
+        # `Figure 1 | Design corrosion allowance for removable internal parts
+        # (material 2) | 0 | mm`. Pairing strictly left to right made
+        # `Figure 1` the label and the real label its value, so the row's only
+        # surviving fact was named after the fragment left over - the field
+        # that the model tier then paired with a weld-cleaning distance and
+        # reported NON_COMPLIANT against the contractor.
+        #
+        # A NARROW CLASS, deliberately: "Figure 1", "Table 3", "Note 5",
+        # "Detail A", "Sheet 2". Nothing else is dropped, because a rule of
+        # the form "the value looks like a label, so re-anchor" also discards
+        # `Insulation | None`, where `None` is a real answer that happens to
+        # read like a word.
+        if _CROSS_REFERENCE.fullmatch(part):
             index += 1
             continue
         if not part:

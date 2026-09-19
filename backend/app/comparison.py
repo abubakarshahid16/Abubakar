@@ -244,6 +244,28 @@ def compare(requirement: dict, fact: dict | None, *,
             if fact else None,
             "exception_applied": None,
         }
+    # A MARGIN IS NOT A VALUE, and the thing it is a margin from is not on the
+    # datasheet. "at least 28°C warmer than the calculated dew point" compared
+    # against an internal design temperature of 95°C returned COMPLIANT in the
+    # model tier's evaluation - arithmetic on a number that is not a
+    # temperature at all. Same placement as the table row, and for the same
+    # reason: the sentence is what the engineer needs, not a verdict about it.
+    if requirement.get("requirement_type") == requirements_3b.RELATIVE_LIMIT \
+            and fact is not None and not fact.get("is_blank"):
+        fragment = " ".join(
+            (requirement.get("source_text")
+             or requirement.get("requirement_text") or "").split())
+        return {
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": (
+                f"{RELATIVE_LIMIT_REASON}: this requirement states a "
+                f"DIFFERENCE from another quantity, not a value, so it was "
+                f"not compared against the submitted number. "
+                f"The requirement reads: {fragment}"),
+            "limit": None,
+            "observed": _describe(_measurement_from_fact(fact), fact),
+            "exception_applied": None,
+        }
     if fact is None:
         return {
             "status": MISSING_INFORMATION,
@@ -712,9 +734,7 @@ def run_comparison(
         # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
         # equality between a requirement's subject and a datasheet caption
         # matched 0 of 77; containment matched the pairs an engineer picked.
-        if requirement.get("requirement_type") in (
-                "numeric_limit", requirements_3b.TABLE_ROW) \
-                and requirement.get("raw_value") not in (None, ""):
+        if is_matchable(requirement):
             matches_attempted += 1
         match = match_by_containment(requirement, facts)
         fact = match["fact"]
@@ -732,9 +752,7 @@ def run_comparison(
         # not tell" with an answer nobody checked.
         model_reason: str | None = None
         if (fact is None and match["reason"] != AMBIGUOUS_MATCH
-                and requirement.get("requirement_type") in (
-                    "numeric_limit", requirements_3b.TABLE_ROW)
-                and requirement.get("raw_value") not in (None, "")):
+                and is_matchable(requirement)):
             if not settings.match_enabled:
                 model_reason = MODEL_DISABLED
             else:
@@ -844,9 +862,41 @@ def run_comparison(
     }
 
 
+#: The requirement types a matcher may pair a submitted value with, and the
+#: ONE HOME for that claim: `match_by_containment`, `candidate_facts` and
+#: `run_comparison` all ask this rather than each carrying its own tuple.
+#:
+#: Three types, and only one of them is ever COMPARED:
+#:   * `numeric_limit` - a real limit, compared.
+#:   * `table_row`     - matched so the engineer sees which submitted value the
+#:                       row bears on; `compare` refuses it and quotes the row.
+#:   * `relative_limit` - the same, for a margin from a reference the submittal
+#:                       does not carry.
+#:
+#: `applicability_trigger` is deliberately ABSENT. Its number is the threshold
+#: at which another document takes over, so there is nothing for a submitted
+#: value to be measured against and pairing one could only produce a verdict.
+MATCHABLE_TYPES = frozenset({
+    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT})
+
+
+def is_matchable(requirement: dict) -> bool:
+    """May a matcher pair a submitted value with this requirement at all?
+
+    THE TYPE AND THE NUMBER, TOGETHER. A requirement with no parsed number has
+    nothing for a value to be paired against, whatever its type says.
+    """
+    return (requirement.get("requirement_type") in MATCHABLE_TYPES
+            and requirement.get("raw_value") not in (None, ""))
+
+
 #: Why a containment match was refused, when it was.
 AMBIGUOUS_MATCH = "ambiguous_match"
 TABLE_ROW_REASON = "table_row"
+#: Why a numeric comparison was refused although both numbers were present:
+#: the requirement's number is a MARGIN from a reference the submittal does
+#: not carry. See `requirements_3b.RELATIVE_LIMIT`.
+RELATIVE_LIMIT_REASON = "relative_limit"
 UNIT_MISMATCH = "unit_mismatch"
 
 #: How a match was made. One value today; named so a second method cannot be
@@ -957,8 +1007,7 @@ def match_by_containment(requirement: dict, facts: list[dict]) -> dict:
     # Matching one is not comparing it. `compare` still refuses the comparison
     # and quotes the row; the match is what tells the engineer WHICH submitted
     # value the row bears on.
-    if requirement.get("requirement_type") not in ("numeric_limit",
-                                                   requirements_3b.TABLE_ROW):
+    if not is_matchable(requirement):
         return none
     # THE TEST IS THE RAW NUMBER, NOT THE NORMALISED ONE.
     #
@@ -1100,6 +1149,13 @@ def candidate_facts(requirement: dict, facts: list[dict]) -> list[dict]:
     names are the ones worth showing, and a list longer than a dozen is a
     pre-filter defect rather than a hard question.
     """
+    # THE SAME SCOPE THE CONTAINMENT MATCHER USES, asked the same way. The
+    # tier is only ever called from inside that scope today, so this is a
+    # guard rather than a behaviour - but a shortlist is the one thing a model
+    # can act on, and a helper that built one for a requirement no matcher may
+    # pair would be a loaded gun left for the next caller.
+    if not is_matchable(requirement):
+        return []
     requirement_unit = _unit_measure(requirement)
     refused = _rejected_keys_for(requirement)
     out = []

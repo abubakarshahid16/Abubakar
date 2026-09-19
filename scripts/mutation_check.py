@@ -1528,8 +1528,14 @@ TABLE_AND_UNITS = (
         # string literal produced an anchor that did not match the file -
         # which the harness reported as "matched 0 times" rather than as a
         # pass. Disabling the fact half disables the branch just as well.
-        anchor='            and fact is not None and not fact.get("is_blank"):',
-        replacement="            and False:",
+        # NOW ALSO CARRYING THE TYPE, because the relative-limit branch added
+        # in the next task repeats this line verbatim and the anchor started
+        # matching twice - reported as a harness error, which is what it was:
+        # the mutation did not run and proved nothing either way.
+        anchor=('    if requirement.get("requirement_type") == '
+                'requirements_3b.TABLE_ROW \\\n'
+                '            and fact is not None and not fact.get("is_blank"):'),
+        replacement="    if False:",
         target="tests/test_table_row_requirements.py",
         keyword="compare_refuses_a_table_row",
         tags=("honesty", "critical"),
@@ -1943,11 +1949,175 @@ MODEL_TIER = (
 )
 
 
+#: The three defects the model tier's failed gate exposed, plus the default
+#: it was turned off by.
+GATE_FALLOUT = (
+    Mutation(
+        id="M159", phase=12,
+        description="SHIP THE MODEL TIER ON AGAIN, after it failed its hard "
+                    "gate with six false pairings in seven",
+        path=APP / "config.py",
+        anchor="    match_enabled: bool = False",
+        replacement="    match_enabled: bool = True",
+        target="tests/test_model_matching.py",
+        keyword="shipped_default_is_off",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M160", phase=12,
+        description="print the same startup line whatever the tier's state, "
+                    "so an operator cannot tell whether it ran",
+        path=APP / "main.py",
+        anchor="    if settings.match_enabled:",
+        replacement="    if False:",
+        target="tests/test_model_matching.py",
+        keyword="startup_line_names_the_tier",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M161", phase=12,
+        description="TREAT AN APPLICABILITY TRIGGER AS A LIMIT - the "
+                    "SAES-D-001 9.2.5 defect, reinstated",
+        path=APP / "requirements_3b.py",
+        anchor="    if is_applicability_trigger(sentence):\n        return APPLICABILITY_TRIGGER",
+        replacement="    if False:\n        return APPLICABILITY_TRIGGER",
+        target="tests/test_trigger_and_relative.py",
+        keyword="defers_to_another_document_is_a_trigger",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M162", phase=12,
+        description="let the trigger check swallow a sentence that states its "
+                    "OWN quantity, deleting real requirements",
+        path=APP / "requirements_3b.py",
+        anchor="    without_documents = _DOCUMENT_REF.sub(\" \", remainder)\n    return not _BARE_NUMBER.search(without_documents)",
+        replacement="    return True",
+        target="tests/test_trigger_and_relative.py",
+        keyword="states_its_own_quantity_is_not_a_trigger",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M163", phase=12,
+        description="let the trigger check swallow a table deferral, undoing "
+                    "the table_row work",
+        path=APP / "requirements_3b.py",
+        anchor="    if _TABLE_REFERENCE.search(remainder):\n        # A table is not another document.",
+        replacement="    if False:\n        # A table is not another document.",
+        target="tests/test_trigger_and_relative.py",
+        keyword="predicate_itself_refuses_a_deferral_to_a_table",
+    ),
+    Mutation(
+        id="M164", phase=12,
+        description="call a sentence a trigger although it names no document",
+        path=APP / "requirements_3b.py",
+        anchor="    if not _DOCUMENT_REF.search(remainder):\n        return False",
+        replacement="    if False:\n        return False",
+        target="tests/test_trigger_and_relative.py",
+        keyword="states_its_own_quantity_is_not_a_trigger",
+    ),
+    Mutation(
+        id="M165", phase=12,
+        description="PAIR AN APPLICABILITY TRIGGER, so its threshold is "
+                    "compared as though it were a limit",
+        path=APP / "comparison.py",
+        anchor='MATCHABLE_TYPES = frozenset({\n    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT})',
+        replacement='MATCHABLE_TYPES = frozenset({\n    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT,\n    requirements_3b.APPLICABILITY_TRIGGER})',
+        target="tests/test_trigger_and_relative.py",
+        keyword="outside_the_matcher",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M166", phase=12,
+        description="TREAT A MARGIN AS AN ABSOLUTE LIMIT - the SAES-D-001 "
+                    "14.3 defect, reinstated",
+        path=APP / "requirements_3b.py",
+        anchor="    if is_relative_limit(sentence):\n        return RELATIVE_LIMIT",
+        replacement="    if False:\n        return RELATIVE_LIMIT",
+        target="tests/test_trigger_and_relative.py",
+        keyword="margin_from_a_reference",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M167", phase=12,
+        description="search the whole sentence for the relative phrase instead "
+                    "of anchoring it at the parsed limit, deleting a real one",
+        path=APP / "requirements_3b.py",
+        anchor="    return bool(_RELATIVE_TAIL.match(text[match.start(\"value\"):]))",
+        replacement="    return bool(_RELATIVE_TAIL.search(text))",
+        target="tests/test_trigger_and_relative.py",
+        keyword="comparative_phrase_before_the_limit",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M168", phase=12,
+        description="COMPARE A RELATIVE LIMIT, producing arithmetic against a "
+                    "number that is a margin and not a value",
+        path=APP / "comparison.py",
+        anchor="    if requirement.get(\"requirement_type\") == requirements_3b.RELATIVE_LIMIT \\\n            and fact is not None and not fact.get(\"is_blank\"):",
+        replacement="    if False:",
+        target="tests/test_trigger_and_relative.py",
+        keyword="compare_refuses_a_relative_limit",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M169", phase=12,
+        description="drop relative limits from the matcher, leaving the "
+                    "refusal branch dead and every one of them missing "
+                    "information",
+        path=APP / "comparison.py",
+        anchor='MATCHABLE_TYPES = frozenset({\n    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT})',
+        replacement='MATCHABLE_TYPES = frozenset({\n    "numeric_limit", requirements_3b.TABLE_ROW})',
+        target="tests/test_trigger_and_relative.py",
+        keyword="relative_limit_is_matchable",
+    ),
+    Mutation(
+        id="M170", phase=12,
+        description="LET A BRACKET-ONLY LINE BECOME A FIELD OF ITS OWN - the "
+                    "`material 2` defect, reinstated",
+        path=APP / "datasheets.py",
+        anchor="        if out and out[-1] and _PARENTHETICAL_ONLY.fullmatch(part):",
+        replacement="        if False:",
+        target="tests/test_field_name_truncation.py",
+        keyword="bracket_only",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M171", phase=12,
+        description="let a cross-reference cell take the label position, so "
+                    "the real label becomes its value",
+        path=APP / "datasheets.py",
+        anchor="        if _CROSS_REFERENCE.fullmatch(part):\n            index += 1\n            continue",
+        replacement="        if False:\n            index += 1\n            continue",
+        target="tests/test_field_name_truncation.py",
+        keyword="cross_reference or dotted_clause or bracket_only_line",
+        tags=("critical",),
+    ),
+    # M172 WAS WITHDRAWN, NOT SOLVED. It relaxed the clause-reference rule
+    # from two dots to one, so `1.6` would be skipped as a pointer - and no
+    # test could see it, because `is_field_label` already refuses a bare
+    # number at the label position. Skipping the cell and pairing it into a
+    # rejected pair emit the same nothing. The two-dot bound is kept because
+    # the rule should be TRUE and not merely harmless, but it changes no
+    # output today, and an assertion that claimed otherwise would be the
+    # vacuous kind. Recorded in docs/status-honesty-audit.md.
+    Mutation(
+        id="M173", phase=12,
+        description="widen the cross-reference rule until it swallows fields "
+                    "whose names merely contain the word",
+        path=APP / "datasheets.py",
+        anchor=r'    r"\s*[-:]?\s*[A-Za-z0-9]{1,4}(?:\s+of\s+\d{1,3})?"',
+        replacement=r'    r".*"',
+        target="tests/test_field_name_truncation.py",
+        keyword="merely_contains_a_reference_word",
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
     + EXTRACTION + DATASHEET + MATCHER + TABLE_AND_UNITS + REACHABLE
-    + MODEL_TIER
+    + MODEL_TIER + GATE_FALLOUT
 )
 
 

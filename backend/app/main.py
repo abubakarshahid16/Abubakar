@@ -53,6 +53,31 @@ from .config import settings
 from .db import connect, init_db
 
 
+def _log_match_tier() -> None:
+    """Say at boot whether the model tier of the matcher is running.
+
+    `uvicorn.error` is the logger that prints "Application startup complete",
+    so this lands in the stream the operator is already watching - the same
+    reasoning as `auth.install`'s AUTH_MODE line.
+    """
+    import logging
+
+    log = logging.getLogger("uvicorn.error")
+    if settings.match_enabled:
+        log.warning(
+            "MATCH_ENABLED=true - the model tier of the requirement matcher is "
+            "ON. It FAILED its hard gate on 2026-09-19 (six of seven pairings "
+            "were false friends, three of them reported NON_COMPLIANT against "
+            "the contractor). Every pairing it makes is labelled "
+            "match_method=model and must be confirmed by an engineer.")
+    else:
+        log.info(
+            "MATCH_ENABLED=false - requirement matching is deterministic "
+            "containment only; the model tier is OFF pending redesign (see "
+            "docs/design/model-assisted-matching.md section 10). Findings say "
+            "so in their rationale.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
@@ -78,6 +103,11 @@ async def lifespan(app: FastAPI):
     # Same reasoning, same place: a conditional rebuild belongs at startup and
     # never in a function every read path calls.
     submittal_review_mod.migrate_pair_rejections_to_stable_keys()
+    # SAY WHICH MATCHER IS RUNNING, at boot, where the operator is already
+    # looking. The tier being off changes what a review can find, and an
+    # operator who does not know it is off reads "no pairing" as "the machine
+    # looked and found nothing".
+    _log_match_tier()
     # Put back any extraction that was `running` when a previous process died.
     # `next_extraction_job` only ever selects `queued`, so without this an
     # orphaned job is never picked up by anything - the standard is never

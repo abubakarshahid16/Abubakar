@@ -122,6 +122,55 @@ def fact(field_name, **over):
 CANDIDATES = [fact("shell design pressure"), fact("hydrotest pressure")]
 
 
+# ============================================== what a deployment gets
+
+def test_the_shipped_default_is_off():
+    """THE TIER FAILED ITS HARD GATE AND MUST NOT RUN UNTIL IT IS REDESIGNED.
+
+    Measured on datasheet 1: 7 pairings proposed, SIX false friends, three of
+    them reporting NON_COMPLIANT against the contractor with both citations
+    resolving. The design's gate is zero false pairings.
+
+    A fresh `Settings()` is the claim, not the module singleton: this file's
+    own fixture turns the tier ON, and `conftest` pins it off for every other
+    file, so an assertion against `settings.match_enabled` would be asserting
+    whichever fixture ran last. `_env_file=None` is the important half -
+    without it pydantic-settings reads `backend/.env` and the test would
+    assert the developer's local configuration rather than what ships.
+    """
+    from app.config import Settings
+
+    assert Settings(_env_file=None).match_enabled is False, (
+        "the model tier ships ON again - it failed its hard gate on "
+        "2026-09-19 and no redesign has been evaluated since")
+
+
+def test_the_startup_line_names_the_tier_and_its_state(caplog):
+    """An operator who does not know the tier is off reads "no pairing" as
+    "the machine looked and found nothing"."""
+    import logging
+
+    from app import main
+
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        monkey = settings.match_enabled
+        try:
+            settings.match_enabled = False
+            main._log_match_tier()
+            off = caplog.text
+            caplog.clear()
+            settings.match_enabled = True
+            main._log_match_tier()
+            on = caplog.text
+        finally:
+            settings.match_enabled = monkey
+
+    assert "MATCH_ENABLED=false" in off and "OFF pending redesign" in off
+    # AND THE OTHER STATE SAYS THE OPPOSITE, so this cannot pass against a
+    # line that prints the same words whatever the setting is.
+    assert "MATCH_ENABLED=true" in on and "FAILED its hard gate" in on
+
+
 # ================================================= what the model may see
 
 def test_the_prompt_carries_no_value_no_unit_and_no_page():
