@@ -212,7 +212,7 @@ function mockApi(routes: Routes = {}) {
 
 async function openChat() {
   render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /Chat/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /Document Q&A/ }));
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -276,7 +276,7 @@ describe("chat navigation", () => {
     mockApi();
     render(<App />);
     const nav = await screen.findByRole("navigation", { name: "Main" });
-    const chat = within(nav).getByRole("button", { name: /Chat/ });
+    const chat = within(nav).getByRole("button", { name: /Document Q&A/ });
     expect(within(chat).queryByText("not built")).toBeNull();
   });
 });

@@ -174,7 +174,7 @@ function mockApi(question: string) {
 async function ask(question: string) {
   mockApi(question);
   render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /Chat/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /Document Q&A/ }));
   await userEvent.type(screen.getByLabelText("Your question"), question);
   await userEvent.click(screen.getByRole("button", { name: "Ask" }));
   // The quoted answer is on screen before anything is asserted about the
