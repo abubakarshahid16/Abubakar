@@ -2952,9 +2952,12 @@ CRS_EXPORT = (
         id="M239", phase=22,
         description="print the NORMALISED key, so a contractor reads "
                     "'32SAMSS004' and has to guess what was meant",
-        path=APP / "main.py",
-        anchor="            missing[key] = name.strip()",
-        replacement="            missing[key] = key",
+        # RE-ANCHORED IN THE SAME CHANGE THAT MOVED ITS LINE (audit entry 43
+        # was a mutation going silently inert under exactly such a move). The
+        # rule now lives in applicability.missing_references.
+        path=APP / "applicability.py",
+        anchor="            missing.append(name.strip())",
+        replacement="            missing.append(key)",
         target="tests/test_crs_endpoint.py",
         keyword="keeps_the_spelling_the_submittal_used",
     ),
@@ -2982,6 +2985,259 @@ CRS_EXPORT = (
 )
 
 
+#: The WAL-safe backup: every way it used to succeed on the wrong contents.
+#: THE GUARDS COME IN REDUNDANT PAIRS - an existence check AND a read-only
+#: open; microseconds in the name AND an exclusive create. Deleting one half
+#: of a pair is not observable (audit entry 39), so each mutation below
+#: removes a whole guard, or removes one half to prove the other half turns
+#: a silent failure into a loud one.
+BACKUP = (
+    Mutation(
+        id="M244", phase=23,
+        description="BACK UP A MISTYPED PATH: drop the existence check AND "
+                    "the read-only open, so sqlite creates an empty database "
+                    "at the typo and verify calls it ok",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor="    if not source.is_file():\n"
+               '        raise FileNotFoundError(f"no database at {live_path}")\n'
+               '    src = sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True)',
+        replacement="    src = sqlite3.connect(live_path)",
+        target="tests/test_backup_db.py",
+        keyword="missing_source_is_refused_rather_than_created",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M245", phase=23,
+        description="back up a database with NO TABLES and report it verified",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor="    if tables == 0:",
+        replacement="    if False:",
+        target="tests/test_backup_db.py",
+        keyword="source_with_no_tables_is_refused",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M246", phase=23,
+        description="drop the microseconds - the exclusive create must then "
+                    "turn a same-second collision into a LOUD failure",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")',
+        replacement='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")',
+        target="tests/test_backup_db.py",
+        keyword="same_second_never_overwrite",
+    ),
+    Mutation(
+        id="M247", phase=23,
+        description="SILENTLY OVERWRITE THE EARLIER BACKUP: drop the "
+                    "microseconds AND the exclusive create",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")\n'
+               '    dest_file = pathlib.Path(backup_dir) / f"rag_intelligence-{stamp}.sqlite"\n'
+               "    # EXCLUSIVE create: if the name exists, fail loudly rather than let\n"
+               "    # sqlite open the existing backup and write over it.\n"
+               '    with open(dest_file, "xb"):\n'
+               "        pass",
+        replacement='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")\n'
+                    '    dest_file = pathlib.Path(backup_dir) / f"rag_intelligence-{stamp}.sqlite"',
+        target="tests/test_backup_db.py",
+        keyword="same_second_never_overwrite",
+        tags=("critical",),
+    ),
+)
+
+
+#: A gap row must be TRUE, not just present. The dashboard and the CRS both
+#: reported every cited standard missing, because their check compared an
+#: identifier against a dict keyed by document id.
+MISSING_REFERENCES = (
+    Mutation(
+        id="M248", phase=24,
+        description="PUT THE DEFECT BACK: call every cited standard missing, "
+                    "so the CRS tells a contractor held standards are absent",
+        path=APP / "applicability.py",
+        anchor="        if not _match_referenced(library, [name]):",
+        replacement="        if True:",
+        target="tests/test_crs_endpoint.py",
+        keyword="library_holds_gets_no_gap_row",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M249", phase=24,
+        description="the same defect, seen from the Dashboard tile that read "
+                    "'21 of 21 cited standards are not in the library'",
+        path=APP / "applicability.py",
+        anchor="        if not _match_referenced(library, [name]):",
+        replacement="        if True:",
+        target="tests/test_review_dashboard.py",
+        keyword="library_holds_is_not_counted_missing",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M250", phase=24,
+        description="read identifiers back out of ONE combined match, keyed "
+                    "by document - so two spellings of a held standard collide "
+                    "and the loser is reported missing",
+        path=APP / "applicability.py",
+        anchor="        if not _match_referenced(library, [name]):\n"
+               "            missing.append(name.strip())",
+        replacement="        held = {normalise_identifier(v[\"identifier\"])\n"
+                    "                for v in _match_referenced(library, referenced).values()}\n"
+                    "        if key not in held:\n"
+                    "            missing.append(name.strip())",
+        target="tests/test_applicability.py",
+        keyword="two_spellings_of_one_held_standard",
+    ),
+)
+
+
+#: Document Q&A answered "there are 12 distinct standards" from three retrieved
+#: passages, of a library holding 272. Both halves of the fix, both sides.
+CORPUS_QUESTIONS = (
+    # ----------------------------------------- part 1: the count is bounded
+    Mutation(
+        id="M251", phase=25,
+        description="PUT THE DEFECT BACK: drop the guard on generated text, so "
+                    "'there are 12 distinct standards' reaches the reader as a "
+                    "fact about the library",
+        path=APP / "answer.py",
+        anchor="    text, counts_bounded = corpus_mod.bound_counts(text, len(passages))",
+        replacement="    counts_bounded = 0",
+        target="tests/test_corpus_questions.py",
+        keyword="counting_question_names_its_boundary",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M252", phase=25,
+        description="the guard finds the count and bounds nothing - the rule "
+                    "itself, not only its wiring",
+        path=APP / "corpus.py",
+        anchor="        if match is None or _BOUNDED.search(sentence):",
+        replacement="        if match is None or True:",
+        target="tests/test_corpus_questions.py",
+        keyword="every_unbounded_count_of_documents_is_bounded",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M253", phase=25,
+        description="stop honouring 'retrieved', rewriting a model that had "
+                    "ALREADY named its boundary",
+        path=APP / "corpus.py",
+        anchor="        if match is None or _BOUNDED.search(sentence):",
+        replacement="        if match is None:",
+        target="tests/test_corpus_questions.py",
+        keyword="already_names_its_boundary or bounded_by_their_citation",
+    ),
+    # --------------------------------- part 2: the library answers itself
+    Mutation(
+        id="M254", phase=25,
+        description="SEND A LIBRARY QUESTION TO RETRIEVAL AGAIN - the routing "
+                    "that let three passages answer for 272 standards",
+        path=APP / "answer.py",
+        anchor="    corpus_q = corpus_mod.classify(question) if document_id is None else None",
+        replacement="    corpus_q = None",
+        target="tests/test_corpus_questions.py",
+        keyword="answered_without_searching",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M255", phase=25,
+        description="COUNT DOCUMENTS OUTSIDE THE GRANT SET, so a corpus "
+                    "answer reveals how many standards you may not read",
+        path=APP / "corpus.py",
+        anchor="            WHERE d.id IN ({marks})",
+        replacement="            WHERE 1 = 1 OR d.id IN ({marks})",
+        target="tests/test_corpus_questions.py",
+        keyword="outside_the_grant_set",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M256", phase=25,
+        description="call a standard still being processed 'loaded'",
+        path=APP / "corpus.py",
+        anchor='        slot["loaded" if r["status"] in _LOADED else "not_loaded"] += r["n"]',
+        replacement='        slot["loaded"] += r["n"]',
+        target="tests/test_corpus_questions.py",
+        keyword="still_processing_is_not_counted_as_loaded",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M257", phase=25,
+        description="answer a question about BOTH with the library alone, so "
+                    "'how many standards cover hydrotesting' never searches",
+        path=APP / "corpus.py",
+        anchor="    return CorpusQuestion(kind=kind, role=role, qualified=bool(content),",
+        replacement="    return CorpusQuestion(kind=kind, role=role, qualified=False,",
+        target="tests/test_corpus_questions.py",
+        keyword="gets_both_in_separate_fields or marked_for_both",
+    ),
+    Mutation(
+        id="M258", phase=25,
+        description="consult the library for a question scoped to ONE "
+                    "document, where 'how many standards' means what it cites",
+        path=APP / "answer.py",
+        anchor="    corpus_q = corpus_mod.classify(question) if document_id is None else None",
+        replacement="    corpus_q = corpus_mod.classify(question)",
+        target="tests/test_corpus_questions.py",
+        keyword="scoped_to_one_document",
+    ),
+    Mutation(
+        id="M259", phase=25,
+        description="drop `corpus` from the persisted payload - which the "
+                    "screen renders LIVE as well as on replay",
+        path=APP / "chat.py",
+        anchor='    "corpus", "counts_bounded",',
+        replacement='    "counts_bounded",',
+        target="tests/test_corpus_questions.py",
+        keyword="keeps_it_on_replay",
+    ),
+    # ------------------------------------------------ on screen, vitest
+    Mutation(
+        id="M260", phase=25, runner="vitest",
+        description="HIDE THE LIBRARY'S HALF of a two-part answer, leaving "
+                    "the documents' answer to stand for both",
+        path=FRONTEND_SRC / "components" / "chat" / "AnswerCardView.tsx",
+        anchor='  const twoPart = view.corpus != null && view.answer_type !== "metadata";',
+        replacement="  const twoPart = false;",
+        target="src/components/chat/corpusAnswer.test.tsx",
+        keyword="two labelled parts",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M261", phase=25, runner="vitest",
+        description="wrap a metadata answer in a second library block, "
+                    "saying the same sentence twice",
+        path=FRONTEND_SRC / "components" / "chat" / "AnswerCardView.tsx",
+        anchor='  const twoPart = view.corpus != null && view.answer_type !== "metadata";',
+        replacement="  const twoPart = view.corpus != null;",
+        target="src/components/chat/corpusAnswer.test.tsx",
+        keyword="once, not twice",
+        tags=("ui",),
+    ),
+    Mutation(
+        id="M262", phase=25, runner="vitest",
+        description="lose `corpus` between the persisted message and the view",
+        path=FRONTEND_SRC / "components" / "chat" / "AnswerCardContent.tsx",
+        anchor="    corpus: p.corpus ?? null,",
+        replacement="    corpus: null,",
+        target="src/components/chat/corpusAnswer.test.tsx",
+        keyword="carries both fields",
+        tags=("ui",),
+    ),
+    Mutation(
+        id="M263", phase=25,
+        description="let Markdown around the number hide the count again - "
+                    "the REAL model's '**five** distinct standards' slipped "
+                    "past the first version of the guard",
+        path=APP / "corpus.py",
+        anchor='COUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + _MD + r"\\s+" + _MD',
+        replacement='COUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + r"\\s+" + _MD',
+        target="tests/test_corpus_questions.py",
+        keyword="real_models_own_words or markdown_around_the_count",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -2989,7 +3245,8 @@ ALL: tuple[Mutation, ...] = (
     + MODEL_TIER + GATE_FALLOUT + REPEATED_FORM
     + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
-    + DISCIPLINE_CANONICAL + CRS_EXPORT
+    + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
+    + MISSING_REFERENCES + CORPUS_QUESTIONS
 )
 
 

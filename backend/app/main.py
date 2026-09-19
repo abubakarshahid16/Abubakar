@@ -1554,21 +1554,17 @@ def _missing_references(submittal_id: str, allowed: frozenset[str]) -> list[str]
         row["text"] or "" for row in connect().execute(
             "SELECT text FROM chunks WHERE document_id = ?", (submittal_id,)))
     names = datasheets_mod.referenced_standards(text)
-    matched = applicability_mod._match_referenced(
+    # THE RULE LIVES IN applicability.missing_references, and is only CALLED
+    # here. This helper used to carry its own copy, which compared an
+    # identifier against a dict keyed by document id - so every cited
+    # standard was "missing", and the CRS told a contractor that six standards
+    # held in the library were unavailable. See that function's docstring.
+    #
+    # Reported in the submittal's own spelling ("32-SAMSS-004", never
+    # "32SAMSS004"); ordered by the normalised key so the CRS rows are stable.
+    missing = applicability_mod.missing_references(
         applicability_mod._library(allowed), names)
-
-    # MATCHED ON THE NORMALISED KEY, REPORTED IN THE SUBMITTAL'S OWN SPELLING.
-    # `normalise_identifier` strips punctuation so that "32-SAMSS-004" and
-    # "32 SAMSS 004" are one identifier - correct for matching, and wrong for
-    # a document a contractor reads: the first CRS exported this way asked an
-    # engineer to recognise "32SAMSS004". So the key deduplicates and the raw
-    # name is what gets printed.
-    missing: dict[str, str] = {}
-    for name in names:
-        key = applicability_mod.normalise_identifier(name)
-        if key not in matched and key not in missing:
-            missing[key] = name.strip()
-    return [missing[key] for key in sorted(missing)]
+    return sorted(missing, key=applicability_mod.normalise_identifier)
 
 
 def _run_summary(run: dict, scope: access.AccessScope) -> dict:
@@ -1747,12 +1743,14 @@ def review_dashboard(
                     "SELECT text FROM chunks WHERE document_id = ?",
                     (document_id,)))
             names = datasheets_mod.referenced_standards(text)
-            matched = applicability_mod._match_referenced(library, names)
+            # THE SAME RULE THE CRS USES, from its one home. This inline copy
+            # compared identifiers against document ids and reported every
+            # cited standard missing: the tile read "21 of 21 cited standards
+            # are not in the library" from phase 6 until this line.
             for name in names:
-                key = applicability_mod.normalise_identifier(name)
-                referenced.add(key)
-                if key not in matched:
-                    missing.add(key)
+                referenced.add(applicability_mod.normalise_identifier(name))
+            for name in applicability_mod.missing_references(library, names):
+                missing.add(applicability_mod.normalise_identifier(name))
 
     recent = [_run_summary(run, scope) for run in runs[:5]]
     return {

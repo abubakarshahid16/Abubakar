@@ -410,3 +410,68 @@ def test_re_running_selection_does_not_duplicate_rows():
         " WHERE review_run_id = ? AND standard_document_id = ?",
         (run, std)).fetchone()[0]
     assert count == 1
+
+
+# =============================== which cited standards the library lacks
+#
+# FOUND 2026-09-19, by fact-checking a demo script against the database. The
+# dashboard and the CRS each checked "is this cited standard missing?" by
+# comparing an IDENTIFIER against a dict keyed by DOCUMENT ID, so the answer
+# was always yes: 15 of 15 on the drum sheet, when six are in the library.
+# No test had ever cited a standard that IS in the library, so the "not
+# missing" direction was never exercised - these are those tests.
+
+from app.applicability import missing_references  # noqa: E402
+
+_LIBRARY = [
+    {"id": "doc_l132", "filename": "SAES-L-132.pdf", "document_number": None},
+    {"id": "doc_a133", "filename": "SAES-A-133.pdf", "document_number": None},
+    {"id": "doc_api520", "filename": "x.pdf", "document_number": "API RP 520"},
+]
+
+
+def test_a_cited_standard_the_library_holds_is_not_missing():
+    """THE DIRECTION NOTHING TESTED. Before the fix this returned both."""
+    assert missing_references(_LIBRARY, ["SAES-L-132", "32-SAMSS-004"]) \
+        == ["32-SAMSS-004"]
+
+
+def test_a_standard_missing_from_the_library_is_reported_in_its_own_spelling():
+    assert missing_references(_LIBRARY, ["32-SAMSS-004"]) == ["32-SAMSS-004"]
+
+
+def test_two_spellings_of_one_held_standard_are_both_matched():
+    """WHY IT ASKS PER NAME. `_match_referenced` is keyed by DOCUMENT, so two
+    citations that reach the same standard collide in one combined result and
+    only the last one's identifier survives. Read identifiers back out of
+    that and the other citation is reported missing - the same defect, one
+    level down.
+
+    THE EXAMPLE MATTERS, and the first one chosen was wrong. "SAES-L-132" vs
+    "SAES L 132" normalise to the SAME key, so the survivor still matches
+    both, and mutation M250 reported NOT DETECTED - correctly. The collision
+    only loses a citation when two DIFFERENT keys reach one standard, which
+    the prefix rule allows: "API RP 520 Pt-1" and "API RP 520" are both the
+    standard numbered API RP 520. Order matters too - the second overwrites
+    the first, so the first is the one that would be lost.
+    """
+    assert missing_references(_LIBRARY, ["SAES-L-132", "SAES L 132"]) == []
+    assert missing_references(_LIBRARY, ["API RP 520 Pt-1", "API RP 520"]) == []
+
+
+def test_a_citation_of_part_of_a_held_standard_is_not_missing():
+    """The prefix rule selection already uses: "API RP 520 Pt-1" cites the
+    standard numbered "API RP 520". Asked of the same matcher, so the two
+    cannot disagree about what counts as held."""
+    assert missing_references(_LIBRARY, ["API RP 520 Pt-1"]) == []
+
+
+def test_each_missing_standard_is_reported_once():
+    assert missing_references(
+        _LIBRARY, ["32-SAMSS-004", "32 SAMSS 004", "32-SAMSS-004"]) \
+        == ["32-SAMSS-004"]
+
+
+def test_an_empty_library_reports_everything_cited():
+    assert missing_references([], ["SAES-L-132", "32-SAMSS-004"]) \
+        == ["SAES-L-132", "32-SAMSS-004"]

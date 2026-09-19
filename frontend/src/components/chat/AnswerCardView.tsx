@@ -3,7 +3,7 @@ import { Citation, Highlighted, PassageLocation } from "./EvidencePanel";
 import { ProvenanceMark, isRecognised, provenanceDetail } from "./Provenance";
 import { ComparisonScopeNotice as ComparisonScopeNoticeView } from "./ComparisonScopeNotice";
 import { type AnswerView, type UpgradeFailure, asksForComparison, documentsAnsweredFrom, sourcesOf, asSentence, formatDuration, Chip, ChipMark, CitedProse, Label, ReportAction, UpgradeFailureNotice } from "./AnswerCardContent";
-import { GuidanceAnswer, MetadataAnswer } from "./AnswerNonDocument";
+import { CorpusPart, CountsBoundedNote, GuidanceAnswer, MetadataAnswer } from "./AnswerNonDocument";
 import { InsufficientAnswer } from "./AnswerInsufficient";
 import type { AnswerPassage } from "../../types/api";
 
@@ -16,7 +16,40 @@ function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
   );
 }
 
-export function AnswerCard({
+/**
+ * One answer, and - when the question asked about the LIBRARY as well as its
+ * content - the library's half above it, clearly separated.
+ *
+ * "How many standards cover hydrotesting" is two questions. The library's
+ * count comes from the database ("272 company standards are loaded and
+ * readable by you"); what covers hydrotesting comes from retrieval. They are
+ * rendered as two labelled parts, never one sentence, because blending them is
+ * how "there are 12 distinct standards" happened: a count of three retrieved
+ * passages, read as a count of the library.
+ *
+ * No hooks here, deliberately: the body keeps every hook it had, in the order
+ * it had them, so wrapping it changes nothing about how it renders.
+ */
+export function AnswerCard(props: Parameters<typeof AnswerCardBody>[0]) {
+  const { view } = props;
+  const twoPart = view.corpus != null && view.answer_type !== "metadata";
+  const bounded = (view.counts_bounded ?? 0) > 0;
+  if (!twoPart && !bounded) return <AnswerCardBody {...props} />;
+  return (
+    <div className="space-y-3">
+      {twoPart && view.corpus && <CorpusPart fact={view.corpus} />}
+      {twoPart && (
+        <p className="text-xs uppercase tracking-wide text-slateish-500">
+          From the documents
+        </p>
+      )}
+      <AnswerCardBody {...props} />
+      {bounded && <CountsBoundedNote count={view.counts_bounded ?? 0} />}
+    </div>
+  );
+}
+
+function AnswerCardBody({
   view,
   onSelectSource,
   activeSource,

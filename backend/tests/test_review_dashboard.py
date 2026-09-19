@@ -260,3 +260,24 @@ def test_the_recent_table_stays_compact():
 
     assert body["reviews_total"] == 6
     assert len(body["recent"]) == 5
+
+
+def test_a_cited_standard_the_library_holds_is_not_counted_missing():
+    """THE TILE READ "21 OF 21 CITED STANDARDS ARE NOT IN THE LIBRARY" -
+    because its check compared identifiers against document ids and called
+    everything missing. One held, one not: the tile must say 1 of 2."""
+    submittal = _document("doc_sub", "CONTRACTOR_SUBMITTAL")
+    held = _document("doc_l132", "COMPANY_STANDARD")
+    with db.connect() as conn:
+        conn.execute("UPDATE documents SET filename='SAES-L-132.pdf'"
+                     " WHERE id='doc_l132'")
+        conn.execute(
+            "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,"
+            "page_end,text,token_count,content_hash)"
+            " VALUES ('c1',?,'sub.pdf',0,1,1,?,10,'h1')",
+            (submittal, "Design per SAES-L-132 and 32-SAMSS-004."))
+
+    body = _dashboard(submittal, held)
+
+    assert body["standards_referenced_total"] == 2
+    assert body["standards_referenced_missing"] == 1

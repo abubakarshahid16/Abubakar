@@ -86,7 +86,11 @@ def test_document_count_is_answered_as_scoped_metadata():
         allowed_document_ids=frozenset({first}),
     )
     assert result["answer_type"] == "metadata"
-    assert result["answer"] == "There are 1 uploaded document in your accessible corpus."
+    # The sentence this asserted before - "There are 1 uploaded document in
+    # your accessible corpus." - carried a grammar bug, and came from a check
+    # that only knew the words "documents" and "files". The library question
+    # now has one home, corpus.py, and states its boundary in its own words.
+    assert result["answer"] == "1 document is loaded and readable by you."
     assert result["passages"] == []
 
 

@@ -2215,6 +2215,24 @@ class EvidenceRemoved(BaseModel):
     characters_dropped: int
 
 
+class CorpusFact(BaseModel):
+    """A count of the library, from the database, under the caller's grants.
+
+    `text` carries its own boundary - "272 company standards are loaded and
+    readable by you" - so it cannot be quoted without it.
+    """
+
+    text: str
+    role: str | None = Field(None, description="document_role counted; null means every role")
+    loaded: int
+    not_loaded: int = Field(0, description="in scope but still processing, or failed")
+    kind: Literal["count", "list"]
+    source: Literal["database"] = "database"
+    qualified: bool = Field(
+        False, description="the question also asked about content, so retrieval "
+        "answered that part separately")
+
+
 class AnswerResult(BaseModel):
     question: str
     answer_type: AnswerType = Field(
@@ -2262,6 +2280,19 @@ class AnswerResult(BaseModel):
     )
     examples: list[str] = Field(
         [], description="real questions drawn from the loaded documents"
+    )
+    corpus: CorpusFact | None = Field(
+        None,
+        description="the LIBRARY's answer, counted from the database - present "
+        "for a question about the collection itself. On a metadata answer it IS "
+        "the answer; on any other answer_type the question also asked about "
+        "content, and this is the separate, database half of a two-part reply",
+    )
+    counts_bounded: int = Field(
+        0,
+        description="sentences in a generated answer whose count of documents "
+        "was re-bounded to the passages retrieved. The model sees a few "
+        "passages, never the library, so any such count is a count of them",
     )
     retrieval_mode: str
     reranked: bool
