@@ -349,3 +349,60 @@ def test_the_filename_names_the_submittal_and_the_date():
     disposition = response.headers["content-disposition"]
     assert "CRS_216400C-2003-SP-0810-0003_00_" in disposition
     assert disposition.endswith('.xlsx"')
+
+
+# ================================ a gap row must be TRUE, not just present
+#
+# THE CRS SAID SIX HELD STANDARDS WERE UNAVAILABLE. Its missing-reference
+# check compared an identifier against a dict keyed by document id, so every
+# cited standard became a gap row. Every test above cited a standard against
+# an EMPTY library, where "missing" is always right - so none could see it.
+
+
+def _standard(doc_id: str, filename: str) -> str:
+    """A standard the review may be run against: COMPANY_STANDARD, current."""
+    _submittal(doc_id, filename)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_classification (document_id,document_role,"
+            "suggested_by) VALUES (?,'COMPANY_STANDARD','test')", (doc_id,))
+    return doc_id
+
+
+def _cites(doc_id: str, text: str) -> None:
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,"
+            "page_end,text,token_count,content_hash)"
+            " VALUES (?,?,'drum.pdf',0,1,1,?,10,?)",
+            (f"c-{doc_id}", doc_id, text, f"h-{doc_id}"))
+
+
+def test_a_cited_standard_the_library_holds_gets_no_gap_row():
+    """THE DEFECT. SAES-L-132 is held; 32-SAMSS-004 is not. Only the second
+    may appear, because the first would tell a contractor a governing
+    standard was missing when it was not."""
+    doc = _submittal()
+    held = _standard("doc_l132", "SAES-L-132.pdf")
+    run_id = _run(doc)
+    _cites(doc, "Design per SAES-L-132 and 32-SAMSS-004.")
+
+    ws = _sheet(_client(doc, held).get(f"/api/reviews/runs/{run_id}/crs"))
+
+    gaps = "\n".join(str(v) for v in _cells(ws, 4) if v)
+    assert "32-SAMSS-004" in gaps
+    assert "SAES-L-132" not in gaps, "a held standard was reported missing"
+
+
+def test_a_held_standard_the_caller_cannot_read_is_missing_to_them():
+    """SCOPED, deliberately. "Not in the library FOR THIS REVIEW" means the
+    library this caller may read - a standard they hold no grant for was not
+    reviewed against, and the row saying so is true."""
+    doc = _submittal()
+    _standard("doc_l132", "SAES-L-132.pdf")
+    run_id = _run(doc)
+    _cites(doc, "Design per SAES-L-132.")
+
+    ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
+
+    assert "SAES-L-132" in "\n".join(str(v) for v in _cells(ws, 4) if v)

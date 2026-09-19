@@ -2267,7 +2267,7 @@ Measured on the real corpus:
 | card | value | its denominator |
 |---|---|---|
 | Contractor submittals | 2 | 0 of 2 awaiting review |
-| Active standards | 272 | 21 of 21 cited standards are not in the library |
+| Active standards | 272 | ~~21 of 21 cited standards are not in the library~~ - **FALSE, retracted: 15 of 21.** Honesty-audit entry 44: the check called every cited standard missing |
 | Reviews in progress | 8 | 0 running · 8 awaiting an engineer's code |
 | Needs attention | 9 | 8 not enough was read to recommend a code · 1 the run failed |
 
@@ -2492,7 +2492,11 @@ back with openpyxl:
   the requirement, the submitted value (`2.2 bar (ga)`) and the rationale
   (`unit_mismatch: the requirement is in kPa and the submitted value is in
   bar (ga); these are not the same quantity and were not compared`)
-- **15 rows**, one per cited-and-missing standard, including `32-SAMSS-004`
+- ~~**15 rows**, one per cited-and-missing standard~~ - **FALSE, retracted.** 15 rows, and
+  SIX of them named standards the library holds (SAES-A-133, SAES-A-206,
+  SAES-L-109, SAES-L-132, SAES-W-010, SAES-W-016). The rows were checked for
+  presence and spelling, never for truth. After the fix: **9 rows**, all
+  genuinely missing. Honesty-audit entry 44
 - **contractor columns empty throughout** - they belong to the contractor,
   and pre-filling them would put words in their mouth
 - **the code row**, with its reason verbatim

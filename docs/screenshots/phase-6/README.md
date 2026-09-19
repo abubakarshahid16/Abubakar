@@ -22,7 +22,7 @@ is how the admin gate on the final-code route was found (see the commit).
 
 | file | what it shows |
 |---|---|
-| `F-dashboard.png` | CLAUDE.md rule 10 on screen: exactly four cards, each with its denominator (`0 of 2 awaiting review`, `21 of 21 cited standards are not in the library`, `0 running · 8 awaiting an engineer's code`), the Needs Attention tile listing **why** rather than a bare 9, one button, one compact Recent Reviews table |
+| `F-dashboard.png` | CLAUDE.md rule 10 on screen: exactly four cards, each with its denominator (`0 of 2 awaiting review`, `21 of 21 cited standards are not in the library` - **that number is FALSE and is retracted**: the check called every cited standard missing, and the true figure is 15 of 21 (honesty-audit entry 44). The image is kept as the record of what the screen said, `0 running · 8 awaiting an engineer's code`), the Needs Attention tile listing **why** rather than a bare 9, one button, one compact Recent Reviews table |
 | `G-run-from-dashboard.png` | the one button opened in place: pick a loaded submittal and run, with upload sent to the Documents page where upload progress actually lives |
 | `H-review-code.png` | both codes side by side - the system's recommendation with its reason verbatim, including the NOMINAL-estimate note, beside `Not decided yet.` |
 | `I-override-needs-reason.png` | choosing a code that differs from the recommendation makes the reason field appear, marked required |

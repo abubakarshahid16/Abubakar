@@ -221,6 +221,49 @@ def _match_referenced(library: list[dict], referenced: list[str]) -> dict[str, d
     return out
 
 
+def missing_references(library: list[dict], referenced: list[str]) -> list[str]:
+    """The standards a submittal CITES that the library does not hold.
+
+    ONE HOME FOR THIS RULE, because two copies of it were both wrong. The
+    dashboard (phase 6) and the CRS export (phase 7) each did:
+
+        matched = _match_referenced(library, names)
+        missing = [n for n in names if normalise_identifier(n) not in matched]
+
+    - and `_match_referenced` is keyed by DOCUMENT ID ("doc_a3df..."), not by
+    identifier ("SAESL132"). An identifier never equals a document id, so
+    EVERY cited standard was reported missing, always. On the drum sheet that
+    was 15 of 15, when six - SAES-A-133, SAES-A-206, SAES-L-109, SAES-L-132,
+    SAES-W-010, SAES-W-016 - are in the library. The dashboard printed "21 of
+    21 cited standards are not in the library", and the CRS told a contractor
+    six standards were unavailable that were sitting in the library.
+
+    Asked PER NAME, of `_match_referenced` itself, rather than by reading the
+    identifiers back out of one combined result: that result is keyed by
+    document, so when two citations reach the SAME standard under DIFFERENT
+    keys - the prefix rule makes "API RP 520 Pt-1" and "API RP 520" both the
+    standard numbered API RP 520 - only the last one's identifier survives,
+    and the other would be reported missing. The same defect, one level down.
+    (Two spellings that normalise to the same key cannot collide this way;
+    the survivor still matches both.) Per name reuses the exact matching rule
+    (exact key, then prefix) and cannot drift from what selection considers a
+    match.
+
+    Returns the cited names in the submittal's own spelling, one per standard,
+    in citation order.
+    """
+    missing: list[str] = []
+    seen: set[str] = set()
+    for name in referenced:
+        key = normalise_identifier(name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        if not _match_referenced(library, [name]):
+            missing.append(name.strip())
+    return missing
+
+
 def _match_attribute(library: list[dict], profile: dict, field: str,
                      method: str) -> dict[str, dict]:
     """Rules 2, 3, 4 and 6: a shared classification attribute.

@@ -2952,9 +2952,12 @@ CRS_EXPORT = (
         id="M239", phase=22,
         description="print the NORMALISED key, so a contractor reads "
                     "'32SAMSS004' and has to guess what was meant",
-        path=APP / "main.py",
-        anchor="            missing[key] = name.strip()",
-        replacement="            missing[key] = key",
+        # RE-ANCHORED IN THE SAME CHANGE THAT MOVED ITS LINE (audit entry 43
+        # was a mutation going silently inert under exactly such a move). The
+        # rule now lives in applicability.missing_references.
+        path=APP / "applicability.py",
+        anchor="            missing.append(name.strip())",
+        replacement="            missing.append(key)",
         target="tests/test_crs_endpoint.py",
         keyword="keeps_the_spelling_the_submittal_used",
     ),
@@ -3043,6 +3046,50 @@ BACKUP = (
 )
 
 
+#: A gap row must be TRUE, not just present. The dashboard and the CRS both
+#: reported every cited standard missing, because their check compared an
+#: identifier against a dict keyed by document id.
+MISSING_REFERENCES = (
+    Mutation(
+        id="M248", phase=24,
+        description="PUT THE DEFECT BACK: call every cited standard missing, "
+                    "so the CRS tells a contractor held standards are absent",
+        path=APP / "applicability.py",
+        anchor="        if not _match_referenced(library, [name]):",
+        replacement="        if True:",
+        target="tests/test_crs_endpoint.py",
+        keyword="library_holds_gets_no_gap_row",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M249", phase=24,
+        description="the same defect, seen from the Dashboard tile that read "
+                    "'21 of 21 cited standards are not in the library'",
+        path=APP / "applicability.py",
+        anchor="        if not _match_referenced(library, [name]):",
+        replacement="        if True:",
+        target="tests/test_review_dashboard.py",
+        keyword="library_holds_is_not_counted_missing",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M250", phase=24,
+        description="read identifiers back out of ONE combined match, keyed "
+                    "by document - so two spellings of a held standard collide "
+                    "and the loser is reported missing",
+        path=APP / "applicability.py",
+        anchor="        if not _match_referenced(library, [name]):\n"
+               "            missing.append(name.strip())",
+        replacement="        held = {normalise_identifier(v[\"identifier\"])\n"
+                    "                for v in _match_referenced(library, referenced).values()}\n"
+                    "        if key not in held:\n"
+                    "            missing.append(name.strip())",
+        target="tests/test_applicability.py",
+        keyword="two_spellings_of_one_held_standard",
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3051,6 +3098,7 @@ ALL: tuple[Mutation, ...] = (
     + RANGES_AND_COMPOUNDS + MIGRATION_RACE + EQUIPMENT_TAG
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
     + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
+    + MISSING_REFERENCES
 )
 
 
