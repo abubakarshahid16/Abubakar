@@ -1,0 +1,7 @@
+submittal,equipment_tag,field,value,unit,page,standard,clause,notes
+# Rows beginning with # are ignored. Delete these four or leave them.
+# standard = a file name + clause -> this rule governs this field.
+# standard = NONE (clause empty)  -> nothing applicable governs this field. This row is not optional.
+# standard = blank                -> not sure; the row is skipped and nothing is scored against it.
+# 216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,internal design pressure,3.5,bar (ga),4,SAES-D-001.pdf,6.2.3,an example - the design pressure table
+# 216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,maximum operating pressure,2.2,bar (ga),4,NONE,,an example - the table's input, not something it limits

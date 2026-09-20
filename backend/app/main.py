@@ -3099,6 +3099,108 @@ def admin_db_rows(
     return page
 
 
+# ---------------------------------------------- the Comment Resolution Sheet
+#
+# ONE COMPOSITION, TWO RENDERINGS. The .xlsx a client receives and the preview
+# an engineer reads on screen are the same content: `_crs_content` decides
+# what the sheet says, `crs_export.build_crs_view` shapes it, and the export
+# draws that view into the client's template. Two code paths that could
+# disagree about what the CRS says is the defect this project has been
+# fighting - a preview showing something other than the delivered file would
+# be worse than no preview at all.
+
+
+def _crs_content(review_run_id: str, scope: access.AccessScope
+                 ) -> tuple[list[dict], dict, str, str]:
+    """One run's CRS rows and meta, with the scope question asked once.
+
+    Returns (rows, meta, submittal filename, date stamp). A run the caller may
+    not read, or one that is not there, raises 404 here - the same answer for
+    both, because a different one would confirm the run exists.
+
+    MASTER PLAN SECTIONS 13 AND 17. `crs_mapping` decides which findings enter
+    a CRS and as what text; `crs_export` renders it. This composes them and
+    supplies the meta, and every field of that meta comes from real data or is
+    left BLANK:
+
+      document_title          the submittal's own filename
+      submittal_number        the submittal's own transmittal number from
+                              `document_classification`, captured at upload,
+                              and BLANK when it carried none
+      date_issued             today - the date this file was exported, which
+                              is the only date this system actually knows
+      company_transmittal     BLANK. Nobody has issued one.
+      contractor_transmittal  BLANK. The contractor has not responded.
+      recommended_code        the run's recommendation, and its reason, both
+                              verbatim - never re-worded here
+
+    A blank transmittal number renders as NOTHING rather than as a plausible
+    placeholder. A CRS carrying an invented transmittal number is a document
+    that lies about its own provenance to whoever receives it.
+    """
+    allowed = scope.allowed_document_ids
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=allowed)
+    if run is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+
+    submittal_id = run["submittal_document_id"]
+    # LEFT JOIN, not an inner one: a submittal that was never classified has
+    # no metadata row, and it must still export - with its number blank.
+    document = connect().execute(
+        "SELECT d.filename AS filename, c.transmittal_number AS transmittal_number"
+        " FROM documents d"
+        " LEFT JOIN document_classification c ON c.document_id = d.id"
+        " WHERE d.id = ?", (submittal_id,)).fetchone()
+    submittal_name = document["filename"] if document else submittal_id
+    # THE SUBMITTAL'S OWN NUMBER, as captured on its metadata at upload. Not
+    # the company's transmittal and not the contractor's - those name the
+    # covering transmittals and are blank below. A submittal that carried no
+    # number leaves this blank; it is never filled with a placeholder.
+    submittal_number = (document["transmittal_number"]
+                        if document is not None else None) or ""
+
+    findings = submittal_review_mod.list_run_findings(
+        review_run_id, allowed_document_ids=allowed)
+
+    # THE STANDARD'S NAME, NOT ITS ID. `crs_mapping` falls back to
+    # `standard_document_id` when no name is given, and a CRS whose
+    # Page/Section column read `doc_a3df49861559` would be asking an engineer
+    # to recognise a hash - the same defect the findings table had.
+    names = {
+        row["id"]: row["filename"] for row in connect().execute(
+            "SELECT id, filename FROM documents")
+    }
+    for finding in findings:
+        finding["standard_name"] = names.get(finding.get("standard_document_id"))
+
+    rows = crs_mapping_mod.build_crs_rows(
+        findings, _missing_references(submittal_id, allowed), submittal_name)
+
+    outcome = comparison_mod.run_outcome(
+        review_run_id, allowed_document_ids=allowed) or {}
+    stamp = _now_date()
+    meta = {
+        "document_title": submittal_name,
+        "submittal_number": submittal_number,
+        # Never printed. Half of the key each row's stable reference is
+        # minted from, so re-exporting this run quotes the same references.
+        "review_run_id": review_run_id,
+        "date_issued": stamp,
+        # Left blank on purpose - see above. Absent, not invented.
+        "company_transmittal": "",
+        "contractor_transmittal": "",
+        "date_responded": "",
+        "recommended_code": run.get("engineer_final_code")
+                            or outcome.get("recommended_code") or "",
+        "recommended_code_reason": (
+            run.get("override_reason") if run.get("engineer_final_code")
+            else outcome.get("reason")) or "",
+    }
+    return rows, meta, submittal_name, stamp
+
+
 @app.get("/api/reviews/runs/{review_run_id}/crs",
          response_class=Response,
          # A binary download still declares what it returns. Every other
@@ -3124,69 +3226,16 @@ def export_review_crs(
     /api/reviews/findings` asks: may this caller read this submittal. A run
     they may not read is 404, indistinguishable from one that is not there.
 
-    MASTER PLAN SECTIONS 13 AND 17. `crs_mapping` decides which findings enter
-    a CRS and as what text; `crs_export` renders the client's own template.
-    This route only composes them and supplies the meta, and every field of
-    that meta comes from real data or is left BLANK:
-
-      document_title          the submittal's own filename
-      date_issued             today - the date this file was exported, which
-                              is the only date this system actually knows
-      company_transmittal     BLANK. Nobody has issued one.
-      contractor_transmittal  BLANK. The contractor has not responded.
-      recommended_code        the run's recommendation, and its reason, both
-                              verbatim - never re-worded by this route
-
-    A blank transmittal number renders as NOTHING rather than as a plausible
-    placeholder. A CRS carrying an invented transmittal number is a document
-    that lies about its own provenance to whoever receives it.
+    THE CONTENT IS `_crs_content`'S, NOT THIS ROUTE'S, and the preview route
+    beside it reads the very same composition - which is why the two cannot
+    say different things about the same run. What is left here is the
+    rendering and the filename: `crs_export.build_crs` draws the client's own
+    template, and the meta - including the deliberately BLANK transmittal
+    numbers - is documented where it is built.
     """
     reject_unknown_params(request, set())
-    allowed = scope.allowed_document_ids
-    run = submittal_review_mod.get_review_run(
-        review_run_id, allowed_document_ids=allowed)
-    if run is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no review run with that id"))
-
-    submittal_id = run["submittal_document_id"]
-    document = connect().execute(
-        "SELECT filename FROM documents WHERE id = ?", (submittal_id,)).fetchone()
-    submittal_name = document["filename"] if document else submittal_id
-
-    findings = submittal_review_mod.list_run_findings(
-        review_run_id, allowed_document_ids=allowed)
-
-    # THE STANDARD'S NAME, NOT ITS ID. `crs_mapping` falls back to
-    # `standard_document_id` when no name is given, and a CRS whose
-    # Page/Section column read `doc_a3df49861559` would be asking an engineer
-    # to recognise a hash - the same defect the findings table had.
-    names = {
-        row["id"]: row["filename"] for row in connect().execute(
-            "SELECT id, filename FROM documents")
-    }
-    for finding in findings:
-        finding["standard_name"] = names.get(finding.get("standard_document_id"))
-
-    rows = crs_mapping_mod.build_crs_rows(
-        findings, _missing_references(submittal_id, allowed), submittal_name)
-
-    outcome = comparison_mod.run_outcome(
-        review_run_id, allowed_document_ids=allowed) or {}
-    stamp = _now_date()
-    workbook = crs_export_mod.build_crs(rows, {
-        "document_title": submittal_name,
-        "date_issued": stamp,
-        # Left blank on purpose - see the docstring. Absent, not invented.
-        "company_transmittal": "",
-        "contractor_transmittal": "",
-        "date_responded": "",
-        "recommended_code": run.get("engineer_final_code")
-                            or outcome.get("recommended_code") or "",
-        "recommended_code_reason": (
-            run.get("override_reason") if run.get("engineer_final_code")
-            else outcome.get("reason")) or "",
-    })
+    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope)
+    workbook = crs_export_mod.build_crs(rows, meta)
 
     safe = "".join(
         ch for ch in Path(submittal_name).stem if ch.isalnum() or ch in "-_")
@@ -3196,3 +3245,34 @@ def export_review_crs(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/reviews/runs/{review_run_id}/crs/preview",
+         response_model=schemas.CrsPreview,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def preview_review_crs(
+    review_run_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The same Comment Resolution Sheet, as JSON a browser can render.
+
+    A SIBLING OF THE DOWNLOAD, NOT A SECOND OPINION. Both routes compose
+    through `_crs_content` and shape through `crs_export.build_crs_view`; the
+    export then draws that view into the client's template. So the table an
+    engineer reads on screen and the file the client receives cannot disagree
+    about a row, a citation, a label or the recommended code - and
+    `test_the_preview_rows_are_the_rows_in_the_workbook` holds them to it.
+
+    THE SAME SCOPE AS THE EXPORT, AND READ ACCESS SUFFICES. Previewing writes
+    nothing, changes no run and records no judgement, so it asks the question
+    the export asks: may this caller read this submittal. A run they may not
+    read is 404, indistinguishable from one that is not there.
+
+    The contractor's two columns come back EMPTY rather than missing. They
+    belong to the contractor; the sheet has seven columns whether or not
+    anyone has answered yet, and a reader has to see the space they will fill.
+    """
+    reject_unknown_params(request, set())
+    rows, meta, _submittal_name, _stamp = _crs_content(review_run_id, scope)
+    return crs_export_mod.build_crs_view(rows, meta)

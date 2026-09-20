@@ -1893,6 +1893,65 @@ class PairRejection(BaseModel):
     reason: str | None = None
 
 
+class CrsHeaderField(BaseModel):
+    """One labelled line of the CRS header block, rows 3-7 of the sheet.
+
+    THE LABEL TRAVELS WITH THE VALUE. The template's wording is the client's,
+    down to the double space in "CONTRACTOR  Transmittal No.:", and a screen
+    that re-typed it would be showing its own words over their document.
+    """
+
+    label: str
+    value: str
+
+
+class CrsPreviewRow(BaseModel):
+    """One comment row of the CRS, exactly as the workbook writes it.
+
+    `contractor_response` and `final_resolution` are ALWAYS empty. They belong
+    to the contractor, and they are carried rather than omitted because the
+    sheet has seven columns whether or not anyone has answered yet - a reader
+    has to see the space the contractor will fill.
+    """
+
+    item_no: int
+    #: The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
+    #: across re-exports of the same review, so a contractor can quote it
+    #: back. It is carried here as its own field AND printed as the comment's
+    #: first line - the client's template has seven columns and this adds no
+    #: eighth one.
+    row_ref: str = ""
+    document_name: str
+    page_section: str
+    comment: str
+    comment_by: str
+    contractor_response: str = ""
+    final_resolution: str = ""
+
+
+class CrsPreview(BaseModel):
+    """The Comment Resolution Sheet as a browser can render it.
+
+    THE SAME CONTENT AS THE .xlsx, FROM THE SAME BUILDER. Both this and the
+    download come from `crs_export.build_crs_view` over the rows
+    `crs_mapping.build_crs_rows` returns; the export then draws that view into
+    the client's template. A preview that could disagree with the file the
+    client receives would be worse than no preview at all, so there is no
+    second path that could decide something different.
+    """
+
+    title: str
+    subtitle: str
+    header: list[CrsHeaderField]
+    columns: list[str]
+    rows: list[CrsPreviewRow]
+    #: Empty when the run has no recommendation, and rendered as nothing
+    #: rather than as a placeholder code.
+    recommended_code: str = ""
+    recommended_code_reason: str = ""
+    recommended_code_label: str
+
+
 class ReviewRunStandard(BaseModel):
     """One standard on a run's list, with the reason it is there.
 

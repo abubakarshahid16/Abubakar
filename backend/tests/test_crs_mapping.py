@@ -54,3 +54,18 @@ def test_absent_fields_leak_nothing():
     bare = {"compliance_status": "NON_COMPLIANT"}
     row = build_crs_rows([bare], [], "s.pdf")[0]
     assert "None" not in row["comment"] and "None" not in row["page_section"]
+
+
+def test_a_rows_identity_is_carried_but_never_printed():
+    """`crs_export` mints the sheet's reference from the finding's own stored
+    id; the id itself is a uuid an engineer cannot read back, so it travels
+    beside the row and appears in none of its text."""
+    rows = build_crs_rows(
+        [{"id": "f-1", "compliance_status": "NON_COMPLIANT",
+          "ai_rationale": "unit_mismatch"}], ["32-SAMSS-004"], "drum.pdf")
+
+    assert rows[0]["finding_id"] == "f-1"
+    assert "f-1" not in rows[0]["comment"] + rows[0]["page_section"]
+    # A gap row has no finding behind it; the standard it names is what makes
+    # it the same row on the next export.
+    assert rows[1]["finding_id"] == "missing-reference:32-SAMSS-004"

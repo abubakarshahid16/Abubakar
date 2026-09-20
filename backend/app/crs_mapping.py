@@ -61,6 +61,11 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         if f.get("confirmed_by"):
             by = f"AI Review, confirmed by {f['confirmed_by']}"
         rows.append({
+            # THE FINDING'S OWN STORED ID, carried so `crs_export` can mint a
+            # per-row reference that survives a re-export. It is never
+            # printed: `review_findings.id` is a uuid an engineer cannot read
+            # back, and the sheet shows the short reference derived from it.
+            "finding_id": f.get("id") or "",
             "document_name": submittal_name,
             "page_section": _citation(f),
             "comment": _comment_text(f),
@@ -68,6 +73,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         })
     for ref in missing_references:
         rows.append({
+            # A gap row has no finding behind it, so its identity is the
+            # standard it names - stable for as long as that standard is
+            # still cited and still missing.
+            "finding_id": f"missing-reference:{ref}",
             "document_name": submittal_name,
             "page_section": "References",
             # "NOT IN THE STANDARDS LIBRARY", not "not available". The
