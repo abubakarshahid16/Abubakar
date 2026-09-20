@@ -78,19 +78,24 @@ function sheet(over: Partial<CrsPreview> = {}): CrsPreview {
     rows: [
       {
         item_no: 1,
+        // Shaped as `crs_export.sheet` composes it: the reference is the
+        // comment's FIRST LINE, not an eighth column, and the row carries it
+        // separately so a re-export can quote the same one back.
+        row_ref: "RF-4A2C1B",
         document_name: "drum.pdf",
         page_section: "SAES-D-001.pdf clause 6.2.2 p14 / submittal p4",
-        comment: "Requirement: The design pressure shall be 6,900 kPa.",
+        comment: "Ref: RF-4A2C1B\nRequirement: The design pressure shall be 6,900 kPa.",
         comment_by: "AI Review",
         contractor_response: "",
         final_resolution: "",
       },
       {
         item_no: 2,
+        row_ref: "RF-9E17D0",
         document_name: "drum.pdf",
         page_section: "References",
-        comment: "Referenced standard 32-SAMSS-004 is cited by this submittal "
-                 + "but is not in the standards library for this review.",
+        comment: "Ref: RF-9E17D0\nReferenced standard 32-SAMSS-004 is cited by "
+                 + "this submittal but is not in the standards library for this review.",
         comment_by: "AI Review",
         contractor_response: "",
         final_resolution: "",
