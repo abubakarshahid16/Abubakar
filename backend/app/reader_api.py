@@ -44,7 +44,7 @@ module outside `SOCKET_ALLOWLIST` that constructs an HTTP client; the
 allowlist is two files, each its own reviewed outbound lane, and this task may
 not edit an existing file to add a third. So the request is built here -
 destination, headers, body, timeout, the two egress flags and the key from the
-environment - and handed to an INJECTED transport (`call_claude(...,
+process environment or `backend/.env` - and handed to an INJECTED transport (`call_claude(...,
 transport=...)`). When this lane is adopted, its client belongs in a new
 `reader_transport.py` added to that allowlist with its reason, and this file
 does not change. See `build_request` for what leaves and what checks it first.
@@ -58,7 +58,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .config import model_host_of
+from .config import model_host_of, settings
 
 # --------------------------------------------------------------- vocabulary
 
@@ -577,9 +577,11 @@ class ReaderRefused(RuntimeError):
     standard with no requirements in it."""
 
 
-#: THE KEY IS READ FROM THE ENVIRONMENT AND FROM NOWHERE ELSE. No default, no
-#: file, nothing in the repository: `.gitleaks.toml` exists because a key in a
-#: source tree is a key that has been published.
+#: THE KEY IS READ FROM THE PROCESS ENVIRONMENT, OR FROM `backend/.env` VIA
+#: `settings.anthropic_api_key`, AND FROM NOWHERE ELSE. No default, no
+#: literal, nothing in the repository: `.gitleaks.toml` exists because a key
+#: in a source tree is a key that has been published, and `backend/.env` is
+#: gitignored, untracked and has never been committed on any branch.
 API_KEY_ENV = "ANTHROPIC_API_KEY"
 
 DEFAULT_BASE_URL = "https://api.anthropic.com"
@@ -593,15 +595,50 @@ def _flag(env, name: str) -> bool:
     return str(env.get(name, "")).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _sources(env):
+    """The mapping to read, and the `Settings` fallback behind it - or None.
+
+    A CALLER THAT INJECTS AN ENVIRONMENT IS OBEYED EXACTLY. Every test in
+    `test_reader_api.py` passes a plain dict, and a hidden fallback to
+    `backend/.env` would make those tests pass or fail according to whether
+    the developer running them happens to have a key on disk. A suite whose
+    result depends on an untracked file is not a suite.
+
+    Only the default path - `env is None`, meaning "the real process" - looks
+    behind `os.environ` at the settings model.
+    """
+    if env is None:
+        return os.environ, settings
+    return env, None
+
+
+def _flag_or(env, name: str, fallback: bool | None) -> bool:
+    """`name` from the environment, else the settings value behind it.
+
+    THE ENVIRONMENT WINS WHEN IT SAYS ANYTHING AT ALL, including "0". An
+    operator must be able to switch this lane off from the shell of the
+    process they are about to start, without editing a file the running
+    deployment shares. `or`-ing the two would have made the file's `true`
+    unkillable, which is the wrong direction for a flag that permits client
+    document text to leave the machine.
+    """
+    raw = env.get(name)
+    if raw is None or str(raw).strip() == "":
+        return bool(fallback)
+    return _flag(env, name)
+
+
 @dataclass(frozen=True)
 class ReaderSettings:
     """This lane's settings, READ FROM THE ENVIRONMENT, OFF BY DEFAULT.
 
-    WHY THEY ARE NOT IN `config.Settings`: this task may add files and may not
-    edit one, and `config.py` is an existing file. They belong there when the
-    lane is adopted - the names are chosen to move across unchanged, and
-    `Settings` already ignores unknown environment keys, so adding them later
-    breaks nothing that is deployed now.
+    THEY ARE NOW ALSO IN `config.Settings`, and they had to be. This dataclass
+    read `os.environ`, and `backend/.env` never reaches `os.environ` -
+    pydantic-settings populates the model and exports nothing. So the file
+    that rule 2 names as the only home for a key could not hold this one, and
+    `extra="ignore"` dropped the two flags with no error and no log line. The
+    environment still wins where it says anything; the settings model is the
+    fallback behind it. See `_sources` and `_flag_or`.
 
     TWO FLAGS, ON THE `market_live_enabled` / `market_allow_public_egress`
     PRECEDENT. One says "the feature is built and switched on", the other says
@@ -631,10 +668,13 @@ class ReaderSettings:
 
     @classmethod
     def from_env(cls, env=None) -> ReaderSettings:
-        env = os.environ if env is None else env
+        env, fallback = _sources(env)
         return cls(
-            enabled=_flag(env, "STANDARDS_READER_ENABLED"),
-            allow_public_egress=_flag(env, "STANDARDS_READER_ALLOW_PUBLIC_EGRESS"),
+            enabled=_flag_or(env, "STANDARDS_READER_ENABLED",
+                             fallback and fallback.standards_reader_enabled),
+            allow_public_egress=_flag_or(
+                env, "STANDARDS_READER_ALLOW_PUBLIC_EGRESS",
+                fallback and fallback.standards_reader_allow_public_egress),
             base_url=env.get("STANDARDS_READER_BASE_URL") or DEFAULT_BASE_URL,
             model=env.get("STANDARDS_READER_MODEL") or cls.model,
             timeout_seconds=float(env.get("STANDARDS_READER_TIMEOUT_SECONDS") or 30.0),
@@ -654,7 +694,7 @@ def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None) -
     coin toss tossed twice - the lesson `settings.match_seed` was written for.
     """
     cfg = ReaderSettings.from_env(env) if cfg is None else cfg
-    env = os.environ if env is None else env
+    env, fallback = _sources(env)
     if not cfg.enabled:
         raise ReaderRefused(
             "the standards reader is switched off (STANDARDS_READER_ENABLED)")
@@ -669,8 +709,15 @@ def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None) -
         raise ReaderRefused(
             f"reader host {host!r} is not in allowed_hosts {cfg.allowed_hosts!r}")
     api_key = str(env.get(API_KEY_ENV) or "").strip()
+    if not api_key and fallback is not None:
+        api_key = str(fallback.anthropic_api_key or "").strip()
     if not api_key:
-        raise ReaderRefused(f"no API key in the environment ({API_KEY_ENV})")
+        # THE KEY IS NEVER IN THE MESSAGE. Naming where it was looked for is
+        # the whole diagnostic; echoing what was found there would put a
+        # secret in a log the moment somebody sets a malformed one.
+        raise ReaderRefused(
+            f"no API key: set {API_KEY_ENV} in the process environment, or "
+            f"anthropic_api_key in backend/.env")
     headers = {
         "x-api-key": api_key,
         "anthropic-version": ANTHROPIC_VERSION,

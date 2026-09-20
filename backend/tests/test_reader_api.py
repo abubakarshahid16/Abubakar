@@ -21,9 +21,12 @@ corpus rather than invented examples:
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 
 import pytest
 
+from app import reader_api as app_reader_api
 from app.reader_api import (
     API_KEY_ENV,
     ReaderRefused,
@@ -413,11 +416,125 @@ def test_a_response_with_no_text_is_malformed_not_empty():
 def test_the_module_imports_and_reads_with_no_api_key_present(monkeypatch):
     """No key anywhere in the code or the tests, and the module must import
     and do its whole job without one - which is what every other test in this
-    file is doing."""
-    monkeypatch.delenv(API_KEY_ENV, raising=False)
-    import importlib
+    file is doing.
 
+    LOADED AS A SEPARATE MODULE OBJECT, NOT `importlib.reload`. Reloading the
+    shared `app.reader_api` mints a NEW `ReaderRefused` class and leaves it in
+    `sys.modules`, so every later test whose `pytest.raises(ReaderRefused)`
+    was bound at import time stops catching the exception the module now
+    raises. That was invisible while this was the last test in the file and
+    broke the moment one was added after it. A fresh private instance proves
+    the same thing and leaves nothing behind.
+    """
+    import importlib.util
+
+    monkeypatch.delenv(API_KEY_ENV, raising=False)
+    # The name must be package-qualified: `reader_api` uses relative imports
+    # (`from .config import ...`), and those resolve through `__package__`,
+    # which a bare module name leaves empty.
+    spec = importlib.util.spec_from_file_location(
+        "app.reader_api_isolated", Path(app_reader_api.__file__))
+    isolated = importlib.util.module_from_spec(spec)
+    # `@dataclass` resolves its own module through `sys.modules[__module__]`
+    # while the class body executes, so the entry has to exist during the
+    # load. `monkeypatch.setitem` removes it afterwards, which is the whole
+    # point of doing this instead of `reload`.
+    monkeypatch.setitem(sys.modules, spec.name, isolated)
+    spec.loader.exec_module(isolated)
+
+    assert isolated.ReaderSettings().enabled is False
+    assert only(isolated.read_sentence(CEMENT, fake([limit()])))["value"] == "370"
+    # And the shared module is untouched: same class object as at import.
+    assert app_reader_api.ReaderRefused is ReaderRefused
+
+
+# ================================== the key and the flags reach backend/.env
+
+def test_the_key_is_found_in_backend_env_when_the_process_has_none(monkeypatch):
+    """THE DEFECT THIS FALLBACK EXISTS FOR.
+
+    `backend/.env` NEVER REACHES `os.environ`: pydantic-settings populates the
+    `Settings` model and exports nothing. Measured on 2026-09-20 - `AUTH_MODE`
+    is in that file, `settings.auth_mode` is `demo_required`, and
+    `"AUTH_MODE" in os.environ` is False. So a key placed in the file rule 2
+    names as its only home was invisible here and the reader refused, while
+    the two flags could not be switched on from that file at all.
+    """
     from app import reader_api
-    importlib.reload(reader_api)
-    assert reader_api.ReaderSettings().enabled is False
-    assert only(reader_api.read_sentence(CEMENT, fake([limit()])))["value"] == "370"
+    from app.config import settings as live
+
+    monkeypatch.delenv(API_KEY_ENV, raising=False)
+    monkeypatch.setattr(live, "anthropic_api_key", "sk-from-the-env-file")
+    cfg = ReaderSettings(enabled=True, allow_public_egress=True)
+
+    request = reader_api.build_request("anything", cfg=cfg)
+
+    assert request["headers"]["x-api-key"] == "sk-from-the-env-file"
+
+
+def test_both_flags_can_be_switched_on_from_backend_env(monkeypatch):
+    from app.config import settings as live
+
+    monkeypatch.delenv("STANDARDS_READER_ENABLED", raising=False)
+    monkeypatch.delenv("STANDARDS_READER_ALLOW_PUBLIC_EGRESS", raising=False)
+    monkeypatch.setattr(live, "standards_reader_enabled", True)
+    monkeypatch.setattr(live, "standards_reader_allow_public_egress", True)
+
+    cfg = ReaderSettings.from_env()
+
+    assert cfg.enabled is True and cfg.allow_public_egress is True
+
+
+def test_the_process_environment_can_still_switch_the_lane_off(monkeypatch):
+    """AN EXPLICIT "0" BEATS THE FILE, and that direction is the point.
+
+    `or`-ing the two sources would make a `true` in a shared deployment file
+    unkillable from the shell of the process about to start - the wrong way
+    round for the flag that permits a client's clause text to leave the
+    machine.
+    """
+    from app.config import settings as live
+
+    monkeypatch.setattr(live, "standards_reader_enabled", True)
+    monkeypatch.setattr(live, "standards_reader_allow_public_egress", True)
+    monkeypatch.setenv("STANDARDS_READER_ENABLED", "0")
+    monkeypatch.setenv("STANDARDS_READER_ALLOW_PUBLIC_EGRESS", "0")
+
+    cfg = ReaderSettings.from_env()
+
+    assert cfg.enabled is False and cfg.allow_public_egress is False
+
+
+def test_an_injected_environment_is_obeyed_exactly_and_never_falls_back(monkeypatch):
+    """THE HERMETICITY GUARANTEE, and it is what keeps this file honest.
+
+    Every other test here passes a plain dict. If an injected environment
+    fell through to `backend/.env`, this suite would pass or fail according
+    to whether the developer running it happens to have a key on disk - a
+    result that depends on an untracked file is not a result.
+    """
+    from app.config import settings as live
+
+    monkeypatch.setattr(live, "anthropic_api_key", "sk-must-not-be-used")
+    monkeypatch.setattr(live, "standards_reader_enabled", True)
+    monkeypatch.setattr(live, "standards_reader_allow_public_egress", True)
+
+    assert ReaderSettings.from_env({}).enabled is False
+    cfg = ReaderSettings(enabled=True, allow_public_egress=True)
+    with pytest.raises(ReaderRefused):
+        build_request("anything", cfg=cfg, env={})
+
+
+def test_the_refusal_names_both_places_and_never_the_key(monkeypatch):
+    """A refusal that echoed what it found would log a secret the first time
+    somebody sets a malformed one."""
+    from app.config import settings as live
+
+    monkeypatch.setattr(live, "anthropic_api_key", "")
+    cfg = ReaderSettings(enabled=True, allow_public_egress=True)
+    with pytest.raises(ReaderRefused) as raised:
+        build_request("anything", cfg=cfg, env={})
+    message = str(raised.value)
+    assert API_KEY_ENV in message
+    assert "backend/.env" in message
+    assert "sk-" not in message

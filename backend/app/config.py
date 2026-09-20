@@ -634,6 +634,44 @@ class Settings(BaseSettings):
     #: one careless edit.
     market_allow_public_egress: bool = False
 
+    # ------------------------------------------------- the standards reader
+    #
+    # THE SAME TWO-FLAG SHAPE AS THE MARKET LANE ABOVE, and here it guards
+    # more: what leaves is CLAUSE TEXT FROM THE CLIENT'S STANDARDS, not a
+    # human-typed search phrase. Both flags must be true before
+    # `reader_api.build_request` will build anything. A fresh install calls
+    # nothing.
+    #
+    # WHY THESE MOVED HERE. `reader_api.ReaderSettings.from_env` read them
+    # from `os.environ`, and `backend/.env` NEVER REACHES `os.environ` -
+    # pydantic-settings populates this model and exports nothing. Measured:
+    # `AUTH_MODE` is in that file, `settings.auth_mode` is `demo_required`,
+    # and `"AUTH_MODE" in os.environ` is False. So a key placed in the file
+    # rule 2 names as its only home was invisible to the reader, which
+    # refused with "no API key in the environment" - and the two flags could
+    # not be switched on from that file at all. `extra="ignore"` meant the
+    # keys were dropped with no error and no log line, which is the same
+    # shape as the defect recorded above `model_config`.
+    #
+    # The alternative was `load_dotenv`, one line, which would copy EVERY
+    # secret in that file into the process environment - `AUTH_SECRET`
+    # included, where it is not today. Three fields is more code and keeps
+    # the blast radius at three names.
+    standards_reader_enabled: bool = False
+
+    #: The second half of the switch: does this DEPLOYMENT permit standards
+    #: text to leave the machine. Distinct from the flag above for the same
+    #: reason the market lane keeps its two apart.
+    standards_reader_allow_public_egress: bool = False
+
+    #: FROM `backend/.env` AND FROM NOWHERE ELSE. Never a default, never a
+    #: literal, never logged and never echoed in an error - `.gitleaks.toml`
+    #: exists because a key in a source tree is a key that has been
+    #: published. It stays on this model rather than being exported to
+    #: `os.environ`, so it cannot be inherited by a subprocess or read out of
+    #: a dump of one.
+    anthropic_api_key: str = ""
+
     #: THE ONE HOST ALLOWLIST. Every outbound URL any tier builds is checked
     #: against this and refused if its host is not here. One list, in one
     #: place, so "where can this talk to" has a single answer that can be read
