@@ -1158,7 +1158,26 @@ def _compatible(a: Measurement, b: Measurement) -> bool | None:
     `scores.ScaleMismatch` discipline and this does not weaken it - a mismatch
     is still an error rather than a coercion. What is relaxed is only the case
     where there is no mismatch to speak of.
+
+    TWO DIFFERENT DIMENSIONS ARE NOT A FAILED COMPARISON, THEY ARE NO
+    COMPARISON. Both sides normalising successfully is not enough: `1.6 mm`
+    normalises to 1600 um and `60 degC` to 60 C, and comparing those numbers
+    returned False - which `comparison.compare` renders as NON_COMPLIANT, the
+    rationale reading "the submitted value 60 degC is outside the required
+    >= 1.6 mm". A length is not outside a temperature limit; there is no limit
+    to be outside of. False here is a confident wrong answer, which is the one
+    outcome this module exists to prevent, so the dimensions are checked before
+    any interval arithmetic and a mismatch returns None - undecidable - and
+    abstains upstream.
+
+    The guard is deliberately placed AHEAD of the same-unit shortcut. Identical
+    spellings always share a dimension, so it cannot interfere with the dB(A)
+    case, and putting it first means no later edit to the interval logic can
+    reach past it.
     """
+    dim_a, dim_b = a.dimension, b.dimension
+    if dim_a is not None and dim_b is not None and dim_a != dim_b:
+        return None
     if (a.normalized_value is None or b.normalized_value is None) and same_unit(a, b):
         a, b = _same_unit_view(a), _same_unit_view(b)
         if a is None or b is None:
