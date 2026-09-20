@@ -51,6 +51,61 @@ DECIMAL_TOKEN_BOOST = 2.0
 #: Two chunks whose texts share this proportion of tokens are near-duplicates.
 DUPLICATE_OVERLAP = 0.85
 
+#: Below this cross-encoder score a passage is not about the question at all.
+#:
+#: A structural-engineering question retrieved "7.42 Which of the following
+#: models do you think would produce very accurate results?" from a
+#: differential-equations textbook, on the bare word "models". RRF fuses ranks,
+#: so a document's WORST candidates still enter the field when nothing better
+#: exists in it, and the reranker then scores them honestly at the bottom - and
+#: nothing read that score.
+#:
+#: SET FROM MEASUREMENT, not from taste. eval/rerank-distribution.json holds
+#: the per-query score field for 35 questions (30 answerable, 5 unanswerable)
+#: against the test corpus:
+#:
+#:   correct passage, answerable queries   -8.01 .. 9.67   (min -8.01)
+#:   top candidate, unanswerable queries   -9.99 .. -1.41
+#:   field minimum, every query           -11.44 .. -4.40
+#:
+#: The two populations OVERLAP badly at the top end - an unanswerable query's
+#: best candidate reached -1.41 and a correct answer sank to -8.01 - so no
+#: floor can separate "off topic" from "correct" on score alone, and any floor
+#: high enough to catch that -1.41 would refuse a right answer. What the floor
+#: CAN do safely is cut the tail that no query ever answers from: -9.5 sits
+#: 1.5 points below the worst correct passage ever measured and above the
+#: field minimum of every one of the 35 queries, so on this evidence it drops
+#: only material the reader was never going to be shown as an answer.
+#:
+#: It is therefore a NOISE CUT, not a topicality gate. The per-document cap
+#: below is what actually stops one off-topic book crowding the field.
+RELEVANCE_FLOOR = -9.5
+
+#: How many passages one document may contribute to the returned field.
+#:
+#: A verbose document contributes candidates in proportion to its length, not
+#: its relevance, and the summary layer now reads document by document - so one
+#: book supplying eight of ten passages does not merely add noise, it decides
+#: what the answer is about.
+#:
+#: THREE, and only when the field spans more than one document. On a
+#: single-document corpus - which is every one of the 35 measured queries -
+#: capping would cut a correct answer to tidy nothing, so the cap stands down
+#: entirely. This is the same reasoning as MIN_CORPUS_FOR_COMMONNESS in
+#: lexical.py: a proportion of a corpus does not transfer to a corpus too small
+#: to take proportions of.
+MAX_PASSAGES_PER_DOCUMENT = 3
+
+#: When the floor would empty the field, this many top passages are kept
+#: anyway and the result is marked low confidence.
+#:
+#: A FALSE REFUSAL IS THE WORSE DEFECT. A weak answer the reader can see and
+#: judge beats "I cannot answer that" on a corpus that contains the answer, and
+#: the floor is a measured noise cut, not a verdict. So it can never be the
+#: reason a question goes unanswered: it removes passages only while passages
+#: remain.
+LOW_CONFIDENCE_KEEP = 3
+
 #: A passage whose heading names a DIFFERENT member of the designator the
 #: question asked about is not merely less relevant - it is about something
 #: else. Quoting coating system 4's film thickness for a question about system
@@ -409,6 +464,8 @@ EVICTION_REASONS = (
     "empty_after_tokenisation",   # no tokens to compare, so nothing to rank
     "near_duplicate",             # a better-scoring chunk carries the same text
     "displaced_before_rerank",    # ranked below the shortlist cut
+    "below_relevance_floor",      # the cross-encoder scored it off-topic
+    "document_cap",               # its document had already supplied its share
 )
 
 
@@ -459,6 +516,95 @@ def deduplicate(
         if not duplicate:
             kept.append(c)
             kept_tokens.append(tokens)
+    return kept
+
+
+def apply_relevance_floor(
+    candidates: list[Candidate],
+    floor: float | None = None,
+    dropped: list[dict] | None = None,
+    keep: int | None = None,
+) -> tuple[list[Candidate], bool]:
+    """Cut the tail the cross-encoder scored as off-topic.
+
+    Returns (survivors, low_confidence).
+
+    Three rules, and the third is the important one:
+
+    1. Only RERANKED candidates are judged. A candidate with no rerank score
+       was never scored against the floor, and a floor applied to an RRF value
+       of 0.012 is a number from the wrong scale - the mistake that let a
+       leftover candidate outrank properly scored ones before the shortlist
+       became the pool.
+    2. The floor is compared against `rerank_score`, not `score`. `score`
+       carries the conflict penalty, which is deliberately the size of the
+       whole field's spread; a penalised passage would fail any floor, and
+       being about coating system 4 is not the same defect as being about
+       differential equations.
+    3. IT CAN NEVER EMPTY THE FIELD. If nothing clears the floor the top
+       `keep` passages are returned unchanged and low_confidence is True. A
+       false refusal is a tracked defect on this product and a weak answer is
+       not; the caller is told the field is weak rather than told there is
+       nothing.
+
+    Candidates are expected in score order - `search` sorts before calling.
+    """
+    floor = RELEVANCE_FLOOR if floor is None else floor
+    keep = LOW_CONFIDENCE_KEEP if keep is None else keep
+    scored = [c for c in candidates if c.rerank_score is not None]
+    if not scored:
+        return candidates, False
+
+    survivors = [
+        c for c in candidates
+        if c.rerank_score is None or c.rerank_score >= floor
+    ]
+    if not survivors:
+        # Rule 3. Nothing is dropped and nothing is recorded as dropped,
+        # because nothing was: the reader is shown the best of a weak field.
+        return candidates[:keep], True
+
+    if dropped is not None:
+        kept = {c.chunk_id for c in survivors}
+        for c in candidates:
+            if c.chunk_id not in kept:
+                dropped.append(_eviction(
+                    c.chunk_id, c.document_id, c.rrf, "below_relevance_floor"
+                ))
+    return survivors, False
+
+
+def apply_document_cap(
+    candidates: list[Candidate],
+    cap: int | None = None,
+    dropped: list[dict] | None = None,
+) -> list[Candidate]:
+    """Stop one document supplying the whole field.
+
+    Applied only when the field ALREADY spans more than one document. On a
+    single-document corpus every passage comes from the same file by
+    definition, and capping there would cut a correct multi-passage answer to
+    fix a crowding problem that cannot occur - see MAX_PASSAGES_PER_DOCUMENT.
+
+    Order is preserved exactly: each document keeps its own best `cap`
+    passages and its surplus is dropped. Rebalancing WHICH document leads is
+    `analysis.interleave_by_document`'s job and is deliberately not duplicated
+    here - the cap decides how much a document may say, not who speaks first.
+    """
+    cap = MAX_PASSAGES_PER_DOCUMENT if cap is None else cap
+    if cap < 1 or len({c.document_id for c in candidates}) < 2:
+        return candidates
+    seen: collections.Counter[str] = collections.Counter()
+    kept: list[Candidate] = []
+    for c in candidates:
+        if seen[c.document_id] >= cap:
+            if dropped is not None:
+                dropped.append(_eviction(
+                    c.chunk_id, c.document_id, c.rrf, "document_cap"
+                ))
+            continue
+        seen[c.document_id] += 1
+        kept.append(c)
     return kept
 
 
@@ -675,9 +821,14 @@ def search(
     question = normalise_question(question)
 
     t = Timer()
+    # Filled in by keyword.search when a word the corpus does not contain was
+    # retried against the spelling the index does have. Reported, never
+    # hidden: the reader is told what was actually searched.
+    corrections: dict[str, str] = {}
     keyword_hits = keyword.search(
         question, limit=candidates, document_id=document_id,
         allowed_document_ids=allowed_document_ids,
+        corrections=corrections,
     )
     timings["keyword_ms"] = round(t.elapsed * 1000, 2)
 
@@ -812,6 +963,7 @@ def search(
     # mention. Ordering again, never a score.
     precedence_note = apply_heading_precedence(pool) if reranked else None
 
+
     # Separation from the winner, computed against the WHOLE candidate field
     # and carried on each hit.
     #
@@ -827,6 +979,17 @@ def search(
         for c in pool:
             if c.rerank_score is not None:
                 c.separation = scores.separation(top_score, c.rerank_score, field).value
+
+    # THEN the two rules that decide what the field is allowed to CONTAIN.
+    # Both run last: after every reordering, because each takes the order as
+    # given, and after `separation`, which is computed against the whole scored
+    # field on purpose - measuring a passage's distance from the winner using
+    # only the passages that survived a cut is the degenerate denominator that
+    # made every second place come out at exactly 1.000.
+    low_confidence = False
+    if pool:
+        pool, low_confidence = apply_relevance_floor(pool, dropped=evicted)
+        pool = apply_document_cap(pool, dropped=evicted)
 
     # A per-document census of what survived, for coverage reporting. Built
     # from the final pool, so `best_rerank_score` is None on the unreranked
@@ -860,6 +1023,16 @@ def search(
         "timings": timings,
         # Stated so a reordering is auditable rather than mysterious.
         "heading_precedence": precedence_note,
+        # The field cleared nothing but the floor's own exemption: every
+        # passage here scored below RELEVANCE_FLOOR and is shown anyway,
+        # because refusing a question the corpus may answer is the worse
+        # defect. A caller presenting these must say so.
+        "low_confidence": low_confidence,
+        "relevance_floor": RELEVANCE_FLOOR,
+        "document_cap": MAX_PASSAGES_PER_DOCUMENT,
+        # {word as typed: word as the corpus spells it}, when a keyword miss
+        # was retried tolerantly. Empty for a query that needed no help.
+        "spelling_corrections": corrections,
         # A dropped candidate now has a reason attached. `total` still counts
         # what survived, so a candidate below `limit` is accounted for by the
         # difference between `total` and the number of hits, not by this list:
