@@ -321,9 +321,19 @@ def test_the_prompt_states_the_traps_it_was_written_for():
 
 def test_a_fresh_install_calls_nothing(monkeypatch):
     """OFF BY DEFAULT, and the default is what a client machine runs. Both
-    flags absent means the request is never even built."""
+    flags absent means the request is never even built.
+
+    Absent from the ENVIRONMENT AND false on the SETTINGS MODEL: `from_env`
+    falls back to `backend/.env` when the environment says nothing, so
+    clearing the environment alone left this test reading the developer's
+    file - and the day both flags were switched on there for the first real
+    call, it went red. A fresh install has neither, which is what is
+    simulated here."""
+    from app.config import settings as live
     monkeypatch.delenv("STANDARDS_READER_ENABLED", raising=False)
     monkeypatch.delenv("STANDARDS_READER_ALLOW_PUBLIC_EGRESS", raising=False)
+    monkeypatch.setattr(live, "standards_reader_enabled", False)
+    monkeypatch.setattr(live, "standards_reader_allow_public_egress", False)
     cfg = ReaderSettings.from_env()
     assert cfg.enabled is False and cfg.allow_public_egress is False
     with pytest.raises(ReaderRefused, match="switched off"):

@@ -129,11 +129,22 @@ def transport():
             response = client.post(url, headers=sent_headers, content=payload)
 
         if response.status_code >= 400:
-            # The status and the HOST. Never the URL, never the body, never
-            # the headers: the key is in the headers and this string reaches
-            # a log.
+            # The status, the HOST, and the API's error TYPE. Never the URL,
+            # never the headers - the key is in the headers and this string
+            # reaches a log - and never the error MESSAGE, which is free text
+            # the provider writes and could echo a request field. The type is
+            # a fixed enum (`authentication_error`, `invalid_request_error`,
+            # `rate_limit_error`...) and is what a reader of the log needs:
+            # the first real call failed with a bare "400" that took a second
+            # probe to read as "credit balance too low".
+            kind = ""
+            try:
+                err = response.json().get("error", {})
+                kind = str(err.get("type") or "") if isinstance(err, dict) else ""
+            except ValueError:
+                pass
             raise httpx.HTTPStatusError(
-                f"{response.status_code} from {host}",
+                f"{response.status_code} from {host}" + (f" ({kind})" if kind else ""),
                 request=response.request, response=response)
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise TransportRefused(

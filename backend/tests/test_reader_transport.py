@@ -68,17 +68,29 @@ def lane_open(monkeypatch):
 
 # ------------------------------------------------------------- gate 1
 
-def test_with_the_flags_off_there_is_no_transport_at_all(monkeypatch):
-    """OFF MEANS NO CLIENT EXISTS. None, not a callable that refuses."""
+@pytest.fixture
+def lane_shut(monkeypatch):
+    """Both flags absent from the environment AND false on the settings
+    model. The second half is not optional: `ReaderSettings.from_env` falls
+    back to `backend/.env` when the environment says nothing, so a test that
+    only cleared the environment would pass or fail according to what the
+    developer running it has in that file. It did - the day both flags were
+    switched on there for the first real call, these two tests went red."""
+    from app.config import settings as live
     monkeypatch.delenv("STANDARDS_READER_ENABLED", raising=False)
     monkeypatch.delenv("STANDARDS_READER_ALLOW_PUBLIC_EGRESS", raising=False)
+    monkeypatch.setattr(live, "standards_reader_enabled", False)
+    monkeypatch.setattr(live, "standards_reader_allow_public_egress", False)
+
+
+def test_with_the_flags_off_there_is_no_transport_at_all(lane_shut):
+    """OFF MEANS NO CLIENT EXISTS. None, not a callable that refuses."""
     assert reader_transport.available() is False
     assert reader_transport.transport() is None
 
 
-def test_one_flag_is_not_enough(monkeypatch):
+def test_one_flag_is_not_enough(lane_shut, monkeypatch):
     monkeypatch.setenv("STANDARDS_READER_ENABLED", "1")
-    monkeypatch.delenv("STANDARDS_READER_ALLOW_PUBLIC_EGRESS", raising=False)
     assert reader_transport.transport() is None
 
 
@@ -124,13 +136,20 @@ def test_the_request_is_a_post_with_no_redirects_no_proxy_and_no_cookies(lane_op
 
 
 def test_the_key_never_reaches_a_log_or_an_error(lane_open, caplog):
-    """A 4xx names the status and the host, not the URL, not the headers."""
-    FakeClient.response = FakeResponse(status=401)
+    """A 4xx names the status, the host and the API's error TYPE - not the
+    URL, not the headers, and not the provider's free-text message. The
+    first real call answered a bare 400 that needed a second probe to read
+    as "credit balance too low"; the type is the part that is safe to keep."""
+    FakeClient.response = FakeResponse(status=401, payload={
+        "type": "error",
+        "error": {"type": "authentication_error",
+                  "message": "invalid x-api-key: sk-test-not-real"}})
     send = reader_transport.transport()
     with caplog.at_level(logging.WARNING), pytest.raises(httpx.HTTPStatusError) as raised:
         send(URL, headers=HEADERS, body=BODY, timeout=5.0)
-    assert "401 from api.anthropic.com" in str(raised.value)
-    assert "sk-test-not-real" not in str(raised.value)
+    text = str(raised.value)
+    assert "401 from api.anthropic.com (authentication_error)" == text
+    assert "sk-test-not-real" not in text, "the provider's message was echoed"
     assert "sk-test-not-real" not in caplog.text
 
 
