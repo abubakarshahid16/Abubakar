@@ -1119,3 +1119,76 @@ asserts no client error ever reports `internal`.
    who presses a button, at least one test must arrive the way that user does —
    signed in as they are, under the mode production runs in. Nine tests of the
    engineer's final code were green while no engineer could record one.
+
+## Phase 0, 2026-09-20: five claims this project made that the machine refuted
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-20, during the Phase 0
+recovery. Evidence and locators for all five are in
+`.cowork/CURRENT_STATE_AND_BLOCKERS.md` sections 9.1–9.8. Nothing here was
+deleted from the files that made the claims; it is relabelled there.
+
+**First: "`claims.py` and `keyword.py` contain unresolved conflict markers, and
+the backend could not start."** Stated in `.cowork/CURRENT_STATE_AND_BLOCKERS.md`
+section 4, in V3 section 5.1, and in the Phase 0 prompt built from them. Measured:
+**zero** conflict markers in either file, both parse as valid Python 3.12, no
+marker anywhere in `backend/app/`, and the backend starts and serves
+`/api/health` in about three seconds. What was true instead: both files had been
+hand-resolved in the working tree and never `git add`-ed, so the index kept three
+stages while the files on disk were clean. Three consumers repeated the claim
+because each read it from the one before.
+
+**Second: the merge that was not a merge.** Section 8 found `.git/AUTO_MERGE`
+with no `MERGE_HEAD` and reasoned to "most likely a STALE file left by a merge
+whose conflicts were resolved and committed". Both premises were right and the
+conclusion was wrong: unmerged index entries *with* no `MERGE_HEAD` is the
+signature of `git stash apply`, which writes `AUTO_MERGE` and never writes
+`MERGE_HEAD`. There was no merge, stale or otherwise — an unfinished
+`git stash apply` was sitting in the index. The inference was labelled as an
+inference, which is why it cost nothing; had it been labelled a fact, the next
+agent would have deleted a file that was load-bearing.
+
+**Third: "272 or 273 standards."** It is **272**, and the question was decidable
+in one query the whole time: `SELECT document_role, COUNT(*) FROM
+document_classification GROUP BY 1` → `COMPANY_STANDARD` 272,
+`CONTRACTOR_SUBMITTAL` 3, 275 rows in `documents`. The discrepancy survived
+several documents because nobody ran it. Note also that the role does not live
+where two audits looked for it: `documents` has no role column.
+
+**Fourth: "216400C previously selected standards, then selected zero."** Two
+different documents were compressed into one bug. 216400C has **never** selected
+zero: it went 10 → 10 → **6**, with findings 1,609 → 815, between
+2026-09-20T09:01Z and 10:04Z. The run that selected zero is **EF1975-DAS-M-03**,
+a different submittal, which also extracted **0** `submittal_facts`. A bug report
+naming the wrong document sends the fix to the wrong code.
+
+**Fifth, and this one is the recurring defect itself: a guard test that guards
+nothing.** `test_exact_glossary_phrase_outranks_repeated_scattered_words` reads as
+the test for the "prioritize exact glossary phrases" feature of commit `8d30838`.
+During Phase 0 that feature was found disconnected — `build_phrase_query` defined,
+unit-tested, and called by nothing. The test was failing, which looked like the
+test catching exactly that. It was not: it was failing on an unrelated `TypeError`
+from a missing access-scope argument. With the feature reconnected and then
+deliberately disabled again (`phrase = ""`), the test **passed**. bm25 already
+ranks the glossary chunk first, so this test would pass with the feature deleted.
+It has never protected anything. Entry fourteen and the eighth already say a test
+must be watched failing; this one *was* watched failing, for the wrong reason,
+which is a failure mode neither entry covers.
+
+### The rule this produces
+
+16. **A test watched failing is evidence only once you know which assertion
+   failed.** "It goes red when the feature is broken" is the claim; "it went red
+   while the feature was broken" is what a failing run shows, and the two differ
+   whenever anything else in the path can also throw. Read the failure, not the
+   exit status: if the test died before reaching its assertion — an import error,
+   a `TypeError` in a helper, a fixture that never loaded — it has told you
+   nothing about the feature. The proof is the other direction: with everything
+   else working, remove the feature alone and require the assertion itself to
+   fail.
+
+17. **A claim repeated by three documents still has one source.** Each of the
+   five above was carried forward by consumers who cited the document before
+   them, and agreement between them was read as corroboration. Before acting on
+   an inherited fact, find the command that produced it. Where no document can
+   name one — no query, no path, no timestamp, no output — the fact is a rumour
+   with footnotes, however many files repeat it.
