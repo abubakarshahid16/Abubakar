@@ -40,6 +40,7 @@ import type {
   ReportRecord,
   ReportVerification,
   ReviewDashboard,
+  CrsPreview,
   ReviewRunStandard,
   ReviewRunSummary,
   PagesResponse,
@@ -375,6 +376,19 @@ export const reviews = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, override_reason: overrideReason }),
       }),
+  /** The same Comment Resolution Sheet, as JSON, for the on-screen preview.
+   *
+   *  A SIBLING OF `exportCrs`, NOT A SUBSTITUTE. The server builds both from
+   *  one builder, so this cannot show a row the downloaded file does not
+   *  have. Shape-checked like every other list on this screen: a body of the
+   *  wrong shape reaching the table as `ok` is how one bad response takes a
+   *  whole view down. */
+  previewCrs: (runId: string) =>
+    request<CrsPreview>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,
+      undefined,
+      hasArrayField("rows"),
+    ),
   /** The run's findings as a Comment Resolution Sheet.
    *
    *  NOT `request()`, because the body is a spreadsheet rather than JSON -

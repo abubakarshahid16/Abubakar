@@ -349,6 +349,61 @@ export type ComplianceStatus =
   | "NEEDS_ENGINEER_REVIEW";
 
 /** One standard on a run's list, with the reason it is there, verbatim. */
+/** One labelled line of the CRS header block, rows 3-7 of the sheet.
+ *
+ * The label travels with the value because the wording is the CLIENT's, down
+ * to the double space in "CONTRACTOR  Transmittal No.:". A screen that
+ * re-typed it would be showing its own words over their document.
+ */
+export interface CrsHeaderField {
+  label: string;
+  value: string;
+}
+
+/**
+ * One comment row of the CRS, exactly as the workbook writes it.
+ *
+ * `contractor_response` and `final_resolution` are ALWAYS empty strings. They
+ * belong to the contractor, and they are carried rather than omitted because
+ * the sheet has seven columns whether or not anyone has answered yet.
+ */
+export interface CrsPreviewRow {
+  item_no: number;
+  /** The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
+   *  across re-exports of the same review, so a contractor can quote it back -
+   *  unlike item_no, which is 1..N and renumbers on every export. It is also
+   *  printed as the first line of `comment`, because the client's template has
+   *  seven columns and this adds no eighth one. */
+  row_ref: string;
+  document_name: string;
+  page_section: string;
+  comment: string;
+  comment_by: string;
+  contractor_response: string;
+  final_resolution: string;
+}
+
+/**
+ * The Comment Resolution Sheet as a browser can render it.
+ *
+ * THE SAME CONTENT AS THE .xlsx, FROM THE SAME BUILDER. The preview route and
+ * the download compose through one function on the server, so what an
+ * engineer reads on screen is what the client receives - a preview that could
+ * disagree with the delivered file would be worse than no preview at all.
+ */
+export interface CrsPreview {
+  title: string;
+  subtitle: string;
+  header: CrsHeaderField[];
+  columns: string[];
+  rows: CrsPreviewRow[];
+  /** Empty when the run has no recommendation - rendered as nothing, never
+   *  as a placeholder code. */
+  recommended_code: string;
+  recommended_code_reason: string;
+  recommended_code_label: string;
+}
+
 export interface ReviewRunStandard {
   standard_document_id: string;
   filename: string | null;

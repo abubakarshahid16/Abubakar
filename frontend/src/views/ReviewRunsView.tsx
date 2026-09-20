@@ -18,7 +18,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import type {
-  DocumentRecord, ReviewFinding, ReviewRunStandard, ReviewRunSummary,
+  CrsPreview, DocumentRecord, ReviewFinding, ReviewRunStandard,
+  ReviewRunSummary,
 } from "../types/api";
 import { FindingDetail } from "../components/review/FindingDetail";
 import { FindingsTable } from "../components/review/FindingsTable";
@@ -46,6 +47,9 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
   const [target, setTarget] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<CrsPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const findingsRef = useRef<HTMLElement | null>(null);
 
   /** Fetch the CRS with the bearer token and hand it to the browser.
@@ -72,6 +76,38 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
     link.download = result.data.filename;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  /** Show the CRS in the application, or hide it again.
+   *
+   *  THE DELIVERABLE WITHOUT LEAVING THE APPLICATION. Downloading the .xlsx
+   *  and opening Excel was the only way to see what this system produces,
+   *  which in front of a client means leaving the screen to show the screen's
+   *  own output. The download is untouched: this is a second way to LOOK at
+   *  the same sheet, never a second answer about what it says - the server
+   *  builds both from one builder.
+   *
+   *  Fetched on open rather than with the run, because most visits to a run
+   *  are about its findings, and a sheet nobody asked to see is a request
+   *  nobody asked for. */
+  async function togglePreview(runId: string) {
+    if (preview) {
+      setPreview(null);
+      setPreviewError(null);
+      return;
+    }
+    setPreviewing(true);
+    setPreviewError(null);
+    const result = await reviewsApi.previewCrs(runId);
+    setPreviewing(false);
+    if (!result.ok) {
+      // SHOWN AS THE API RETURNED IT, like the export error beside it. A 404
+      // here means this caller may not read the submittal, and inventing a
+      // friendlier sentence would hide which of the two it was.
+      setPreviewError(result.error.message);
+      return;
+    }
+    setPreview(result.data);
   }
 
   const loadRuns = useCallback(async () => {
@@ -123,6 +159,11 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
     setSelectedRun(runId);
     setSelectedFinding(null);
     setShowStandards(false);
+    // THE SHEET BELONGS TO THE RUN THAT WAS OPEN. Leaving it on screen while
+    // a different run loads shows one submittal's comments under another
+    // submittal's name - the reader has no way to tell it is stale.
+    setPreview(null);
+    setPreviewError(null);
     // THE STANDARDS ARE LOADED WITH THE RUN, not only when the "why?" panel
     // is opened, because the findings table needs their FILENAMES. A table
     // that printed `doc_a3df49861559` where the standard's name belongs is
@@ -272,6 +313,17 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
             >
               {exporting ? "Preparing…" : "Export CRS (.xlsx)"}
             </button>
+            {/* THE SAME SHEET, ON SCREEN. It reads from a sibling route that
+                the server builds from the same builder as the file above, so
+                this is the deliverable rather than a summary of it. */}
+            <button
+              type="button" onClick={() => void togglePreview(run.review_run_id)}
+              disabled={previewing}
+              aria-expanded={preview !== null}
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"
+            >
+              {previewing ? "Loading…" : preview ? "Hide CRS preview" : "Preview CRS"}
+            </button>
           </div>
 
           {exportError && (
@@ -279,6 +331,14 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
               {exportError}
             </p>
           )}
+
+          {previewError && (
+            <p role="alert" className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              {previewError}
+            </p>
+          )}
+
+          {preview && <CrsPreviewSheet preview={preview} />}
 
           {showStandards && (
             <StandardsInScope standards={standards} />
@@ -376,6 +436,97 @@ function RunCard({ run, selected, onOpen }: {
         <p className="mt-1 text-xs text-slateish-500">{completeness}</p>
       )}
     </button>
+  );
+}
+
+/** The Comment Resolution Sheet as the workbook lays it out.
+ *
+ *  RECOGNISABLY THE WORKBOOK: the header block over the seven columns the
+ *  client's template defines, the rows in the order the sheet numbers them,
+ *  and the recommended review code on its own line underneath. Every value
+ *  comes from the route verbatim - the labels are the client's wording, not
+ *  this screen's, so nothing here re-types what their document says.
+ */
+function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
+  return (
+    <section
+      aria-label="Comment Resolution Sheet preview"
+      className="space-y-3 overflow-x-auto rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-4"
+    >
+      <div className="space-y-1 text-center">
+        {/* The title carries the newline the sheet merges across row 1. */}
+        <p className="whitespace-pre-line text-sm font-semibold text-slateish-100">
+          {preview.title}
+        </p>
+        <p className="text-sm font-semibold text-slateish-100">{preview.subtitle}</p>
+      </div>
+
+      <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]">
+        {preview.header.map((field) => (
+          <div key={field.label} className="contents">
+            <dt className="text-xs font-semibold text-slateish-200">{field.label}</dt>
+            {/* BLANK IS BLANK. The transmittal numbers are empty because
+                nobody has issued one, and a placeholder here would be this
+                screen inventing provenance the document does not have. */}
+            <dd className="text-xs text-slateish-300">{field.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <table className="w-full min-w-[56rem] border-collapse text-xs">
+        <thead>
+          <tr>
+            {preview.columns.map((column) => (
+              <th
+                key={column} scope="col"
+                className="border border-ink-600 bg-ink-800 px-2 py-1 text-left font-semibold text-slateish-200"
+              >
+                {column}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {preview.rows.map((row) => (
+            <tr key={row.item_no}>
+              <td className="border border-ink-600 px-2 py-1 text-center align-top text-slateish-300">
+                {row.item_no}
+              </td>
+              <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
+                {row.document_name}
+              </td>
+              <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
+                {row.page_section}
+              </td>
+              <td className="whitespace-pre-line border border-ink-600 px-2 py-1 align-top text-slateish-200">
+                {row.comment}
+              </td>
+              <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
+                {row.comment_by}
+              </td>
+              {/* THE CONTRACTOR'S TWO COLUMNS, EMPTY AND PRESENT. They are
+                  theirs to fill in the file they receive; dropping them here
+                  would hide the shape of the document, and writing anything
+                  in them would put words in their mouth. */}
+              <td className="border border-ink-600 px-2 py-1 align-top" />
+              <td className="border border-ink-600 px-2 py-1 align-top" />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* NULL RENDERS AS NOTHING. A run with no recommendation shows no line
+          at all rather than an empty or placeholder code. */}
+      {preview.recommended_code && (
+        <p className="text-xs text-slateish-200">
+          <span className="font-semibold">{preview.recommended_code_label}</span>{" "}
+          <span className="font-semibold">{preview.recommended_code}</span>
+          {preview.recommended_code_reason
+            ? <span className="text-slateish-400"> — {preview.recommended_code_reason}</span>
+            : null}
+        </p>
+      )}
+    </section>
   );
 }
 
