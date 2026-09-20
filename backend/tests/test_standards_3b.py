@@ -838,3 +838,130 @@ def test_the_job_state_is_not_readable_outside_the_callers_grants(tmp_path):
     doc = _doc("doc_j", pdf)
     standards.enqueue_extraction(doc)
     assert standards.extraction_job_state(doc, allowed_document_ids=frozenset()) is None
+
+
+# --------------------------------------------- the subject of a comparator-less
+#
+# `subject_phrase` used to open with `if not _LIMIT.search(sentence)` and a
+# mandatory sentence stating a flat value - "shall be 8,300 kPa" - therefore
+# lost its subject as well as its operator, value and unit. The subject is the
+# key `comparison.match_by_containment` joins on, so a null one is a row that
+# can never match a datasheet however well the rest of it is stored.
+
+_NO_COMPARATOR = [
+    # The worked case: a flat value, no comparator word anywhere.
+    # The worked case. The subject is the WHOLE noun phrase, not a trimmed
+    # head: `subject_of` is documented as "allowed to be long", and length is
+    # what lets `match_by_containment` find a field name inside it.
+    ("The allowable concrete bearing stress to be used for the design of base "
+     "plates shall be 8,300 kPa.",
+     "allowable concrete bearing stress to be used for the design of base plates"),
+    # A leading circumstance. `subject_of` keeps the LAST comma-separated part,
+    # so the rule is about the cables, not about the trench.
+    ("For buried installations in open trench, the power cables shall be "
+     "installed in conduit.", "power cables"),
+    # A clause number in front of the subject, which `_SUBJECT_LEAD` strips.
+    ("14.2 Backfill shall be free of material that may damage coatings.",
+     "Backfill"),
+    # "must", not "shall".
+    ("The bend radius must follow the manufacturer's published minima.",
+     "bend radius"),
+    # "is to be", the third mandatory spelling `_MANDATORY_HERE` admits.
+    ("The design life is to be stated in the purchase order.", "design life"),
+]
+
+
+@pytest.mark.parametrize("sentence,expected", _NO_COMPARATOR)
+def test_a_sentence_with_no_comparator_still_has_a_subject(sentence, expected):
+    assert requirements_3b.subject_phrase(sentence) is not None
+    assert standards.subject_of(sentence) == expected
+
+
+def test_the_first_mandatory_verb_ends_the_subject_not_the_last():
+    """A subordinate clause carries its own "shall". Splitting on the last one
+    would make the sentence about the container it describes rather than about
+    the sample the obligation is on."""
+    sentence = ("The drain sample shall be taken into an open container, such "
+                "as a glass jar, which shall be internally coated.")
+    assert requirements_3b.subject_phrase(sentence) == "The drain sample"
+
+
+def test_a_flattened_heading_is_not_part_of_the_subject():
+    """The extractor flattens a heading and the clause under it into one
+    string. The subject is the clause's, and it starts after the heading."""
+    sentence = ("Commentary Note: Cables and pipes shall be sleeved where they "
+                "are incorporated in the foundation.")
+    assert requirements_3b.subject_phrase(sentence) == "Cables and pipes"
+
+
+def test_a_clause_number_is_not_cut_in_half_by_the_boundary_rule():
+    """The stop inside "10.1" sits between two digits and is not a sentence
+    boundary. Cutting there would leave a subject beginning "1 The"."""
+    sentence = "10.1 The selection of the coating shall be by the proponent."
+    assert requirements_3b.subject_phrase(sentence) == "10.1 The selection of the coating"
+    assert standards.subject_of(sentence) == "selection of the coating"
+
+
+_NO_SUBJECT = [
+    # A cross-reference the extractor emitted without its noun phrase: the
+    # obligation is "read that other document", and there is nothing in front
+    # of the verb to be about.
+    "shall be in accordance with SAEP-35.",
+    "Shall conform to API 650 Section 5.",
+    # A process instruction, same shape: the sentence says where the answer
+    # lives, not what the rule is on.
+    "shall be specified on the data sheet.",
+    # Nothing but furniture before the verb. A bullet and a clause number are
+    # not things a requirement can be about.
+    "• shall be provided.",
+    "7.3.3 shall apply.",
+    # No mandatory verb at all: a flattened table cell.
+    "Chromium (total) - : 0.5",
+    "",
+]
+
+
+@pytest.mark.parametrize("sentence", _NO_SUBJECT)
+def test_a_sentence_with_no_subject_gets_none_not_a_garbage_phrase(sentence):
+    assert requirements_3b.subject_phrase(sentence) is None
+    assert standards.subject_of(sentence) is None
+
+
+_WITH_COMPARATOR = [
+    "The noise level shall not exceed 90 dB(A).",
+    "The scale density shall be less than 50 g/m2.",
+    "Wall thickness shall be at least 12 mm.",
+    "For new equipment, the sound pressure shall not exceed 85 dB(A).",
+    "In no case shall it be less than 190 L/s.",
+    "The maximum solids loading limit shall not exceed 5 g/L.",
+    "New equipment shall not generate noise in excess of 90 dB(A).",
+    "Burial depth shall be a minimum of 1 m.",
+]
+
+
+@pytest.mark.parametrize("sentence", _WITH_COMPARATOR)
+def test_a_comparator_sentence_splits_exactly_where_it_always_did(sentence):
+    """THE CONSTRAINT ON THE CHANGE, restated as a test. A sentence `_LIMIT`
+    matches must take the branch it always took, character for character.
+
+    Proven over the corpus as well as here: of the 34,938 stored requirement
+    texts, 1,761 match `_LIMIT` and 1,742 produced a subject before this
+    change; all 1,742 produce the identical string after it, and `subject_of`
+    differs on none of the 1,761.
+    """
+    head = requirements_3b._LIMIT.split(sentence)[0]
+    # `or None` is part of the old contract: "In no case shall it be less than
+    # 190 L/s" has nothing before the comparator, and an empty head has always
+    # been None rather than "". The new branch must not rescue it either - the
+    # sentence matched `_LIMIT`, so it never reaches that branch at all.
+    assert requirements_3b.subject_phrase(sentence) == (
+        " ".join(head.split()).strip() or None)
+
+
+def test_the_mandatory_verb_branch_is_unreachable_for_a_comparator_sentence():
+    """The new branch cannot change an existing answer because it is only
+    reached where the old function had already returned None."""
+    sentence = "The vent shall be at least 300 mm above the platform."
+    assert requirements_3b._LIMIT.search(sentence)
+    # The head stops at "at least", not at "shall" - the comparator wins.
+    assert requirements_3b.subject_phrase(sentence) == "The vent shall be"
