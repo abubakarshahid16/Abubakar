@@ -336,15 +336,39 @@ def looks_like_a_trigger(sentence: str) -> bool:
 
 # -------------------------------------------------------------------- parse
 
+#: A whole answer wrapped in one markdown code fence, optionally tagged
+#: ("```json"). Anchored at both ends: a fence that does not enclose the entire
+#: answer is not unwrapped, because then there is prose around the JSON and
+#: the model did not answer with JSON and nothing else.
+_FENCE = re.compile(r"\A\s*```[A-Za-z0-9_-]*[ \t]*\r?\n(?P<body>.*?)\r?\n?```\s*\Z", re.DOTALL)
+
+
+def _unfenced(raw) -> str:
+    """The answer with one enclosing code fence removed, else the answer."""
+    if not isinstance(raw, str):
+        return raw
+    match = _FENCE.match(raw)
+    return match.group("body") if match else raw
+
+
 def parse_response(raw: str) -> tuple[list[dict], str | None]:
     """Strict parse. Anything malformed yields no proposals AND A REASON.
 
     A reason, never a guess: `extraction_llm.parse_response`'s rule, kept,
     because the alternative - repairing half-JSON - is the module inventing
     content and calling it the model's.
+
+    A MARKDOWN CODE FENCE IS UNWRAPPED, AND THAT IS NOT REPAIR. The first
+    real call - SAES-A-105, 35 sentences - came back 35 times as
+    `model_malformed`: every answer was complete, well-formed JSON inside
+    "```json ... ```", which the prompt's "JSON and nothing else" did not
+    stop. Removing the fence removes a wrapper the model put around the
+    whole answer; what is inside is still parsed strictly, and a fence
+    around broken JSON is still malformed. Nothing is hunted for between
+    braces, nothing truncated is completed.
     """
     try:
-        body = json.loads(raw)
+        body = json.loads(_unfenced(raw))
     except (json.JSONDecodeError, TypeError):
         return [], Reason.MODEL_MALFORMED.value
     # A single proposal answered as a bare object is common enough to accept

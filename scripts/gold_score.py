@@ -135,7 +135,10 @@ def read_stored(conn: sqlite3.Connection, filenames: set[str]) -> dict[str, list
             "SELECT id FROM documents WHERE lower(filename) = lower(?)",
             (name,)).fetchone()
         if doc is None:
-            out[name] = []
+            # None, not []: a document that is not in the database and a
+            # document with no rows are different facts. The first cannot be
+            # scored; the second scores zero recall, which is a result.
+            out[name] = None
             continue
         out[name] = [
             {"clause": clause_key(r["clause"]), "page": r["page"],
@@ -230,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for name in sorted({g["standard"] for g in gold}):
         rows = [g for g in gold if g["standard"] == name]
-        if not stored.get(name):
+        if stored.get(name) is None:
             print(f"  {name:<34}   NOT IN THE DATABASE - not scored")
             continue
         s = score_standard(rows, stored[name])

@@ -319,6 +319,36 @@ def test_the_prompt_states_the_traps_it_was_written_for():
 
 # ------------------------------------------------------ the outbound lane
 
+@pytest.mark.parametrize("wrapped", [
+    "```json\n{BODY}\n```",
+    "```\n{BODY}\n```",
+    "  ```json\r\n{BODY}\r\n```  \n",
+])
+def test_a_fenced_answer_is_unwrapped_and_still_parsed_strictly(wrapped):
+    """THE FIRST REAL CALL. 35 sentences of SAES-A-105 came back 35 times as
+    model_malformed: every answer was well-formed JSON inside a ```json
+    fence. The fence is a wrapper around the whole answer, not content, and
+    removing it is not the module inventing anything."""
+    raw = wrapped.replace("{BODY}", json.dumps({"proposals": [limit()]}))
+    proposals, err = parse_response(raw)
+    assert err is None
+    assert len(proposals) == 1 and proposals[0]["value"] == "370"
+
+
+@pytest.mark.parametrize("raw", [
+    # broken JSON inside a fence is still broken
+    "```json\n{\"proposals\": [\n```",
+    # prose around the JSON: the fence does not enclose the whole answer, so
+    # nothing is hunted for between braces
+    "Here is the reading:\n```json\n{\"proposals\": []}\n```\nHope this helps.",
+    # a fence that never closes
+    "```json\n{\"proposals\": []}",
+])
+def test_unwrapping_a_fence_does_not_weaken_the_strict_parse(raw):
+    proposals, err = parse_response(raw)
+    assert proposals == [] and err == Reason.MODEL_MALFORMED.value
+
+
 def test_a_fresh_install_calls_nothing(monkeypatch):
     """OFF BY DEFAULT, and the default is what a client machine runs. Both
     flags absent means the request is never even built.
