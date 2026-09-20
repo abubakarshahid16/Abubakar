@@ -1,0 +1,26 @@
+submittal,equipment_tag,field,value,unit,page,standard,clause,notes
+# PREPARED BY CLAUDE (Cowork) 2026-09-20 FROM THE EXTRACTED DATASHEET FACTS AND REQUIREMENT TEXT - NOT BY AN ENGINEER.
+# Covers the 21 fields of doc_2ec2934f8d3f that carry both a value and a unit. Fields with no unit are NOT marked up.
+# Scope of the search: the 10 standards marked included on the latest review run (A-133 A-206 D-001 D-008 E-014 L-109 L-132 L-310 W-010 W-016) plus a keyword search of all 272.
+# Only 3 pairings are recorded. Where the governing clause was not certain the row says NONE and the notes say what an engineer should check. Treat every row as provisional.
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,normal operating pressure,2,bar (ga),4,NONE,,stated by the contractor as process data - no applicable clause puts a limit on it
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,maximum operating pressure,2.2,bar (ga),4,NONE,,"CHECK THIS FIRST. SAES-D-001 6.2.3 reads MOP as the INPUT to the design-pressure table; the quantity it limits is the internal design pressure, not the MOP. If an engineer disagrees this row becomes D-001 6.2.3 and two of the current matcher's false pairings become correct"
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,normal operating temperature,30,°C,4,NONE,,process data - the current matcher files this under SAES-X-500 6.6.3 which is electrolyte resistivity in ohm-cm
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,maximum operating temperature,60,°C,4,NONE,,process data - it is an input to the design temperature rule not something a clause limits
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,internal design pressure,3.5,bar (ga),4,SAES-D-001.pdf,6.2.3,"clause states ""The internal design pressure shall be according to the following table"" - named quantity, same field"
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,internal maximum design temperature,95,°C,4,NONE,,"SAES-D-001 section 6.3 covers design temperature but no clause of it is in the database carrying this rule; the clause number could not be confirmed so nothing is claimed"
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,external maximum design temperature,149,°C,4,NONE,,"UNSURE - SAES-D-001 6.2.7 specifies steam-out design at 149°C (300°F) and the value is identical, but that clause governs an external PRESSURE of 50 kPa. Please confirm or reject"
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,design corrosion allowance for removable internal parts material 2,0,mm,4,NONE,,"look at SAES-A-133 7.1.2.1 (minimum C.A. 1.6 mm) and SAES-D-001 6.7.1.3 - neither was clearly about REMOVABLE internals, so nothing is claimed"
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,design corrosion allowance for welded internal parts material 2,0,mm,4,NONE,,"SAES-D-001 6.7.1.3 says welded attachments take the same C.A. as the pressure boundary, which may govern this field - not confident enough to record it"
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,external design corrosion allowance,0,mm,4,NONE,,no applicable clause found that sets an external corrosion allowance
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,vessel support corrosion allowance,0,mm,4,NONE,,"SAES-K-502 9.2.8 and SAES-Q-005 5.8.6 give 3 mm for anchor bolts, which is not the vessel support - not the same field"
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,design life,25,years,4,SAES-L-132.pdf,4.2.2,"clause states ""a minimum design life of 20 years"" and L-132 is an applicable standard - this is the clause the SAES-P-103 battery pairing should have been"
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,concrete bearing stress,8300,kPa,4,SAES-D-001.pdf,9.1.6,"clause states the allowable concrete bearing stress shall be 8,300 kPa (1200 psi) - same quantity, same number"
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,fabricated weight l1,4410,kg,5,NONE,,a weight the contractor reports for the civil and lifting design - no clause limits it
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,empty weight l2,6460,kg,5,NONE,,as above
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,operating weight l3,21670,kg,5,NONE,,as above - SAES-M-001 7.2.2 names operating weight only as a load case symbol
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,hydrotest weight l4,21720,kg,5,NONE,,as above
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,transverse shear at support base,12810,N,5,NONE,,a reaction the contractor reports for the foundation design - no clause limits it
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,longitudinal shear at support base,11190,N,5,NONE,,as above
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,transverse moment at support base,13970,Nm,5,NONE,,as above
+216400C-2003-SP-0810-0003_00.pdf,2003-47-V-0001A/B,longitudinal moment at support base,12200,Nm,5,NONE,,as above
