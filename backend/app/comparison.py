@@ -49,7 +49,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from . import claims, datasheets, requirements_3b, schemas, submittal_review
+from . import claims, datasheets, match_rules, requirements_3b, schemas, submittal_review
 from .config import settings
 from .db import connect
 
@@ -821,8 +821,14 @@ def run_comparison(
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
+    # THE SHEET'S KIND, ONCE PER RUN. The classification's word when an
+    # engineer or the classifier gave one; the field names otherwise.
+    from . import classification as classification_mod
+    stored = classification_mod.of_document(submittal_id) or {}
+    sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     findings: list[dict] = []
     matches_attempted = matches_made = 0
+    rule_refusals: dict[str, int] = {}
     model_matches = 0
     model_reasons: dict[str, int] = {}
     # ONE CACHE AND ONE BUDGET FOR THE WHOLE RUN. The cache answers a repeated
@@ -836,8 +842,10 @@ def run_comparison(
         # matched 0 of 77; containment matched the pairs an engineer picked.
         if is_matchable(requirement):
             matches_attempted += 1
-        match = match_by_containment(requirement, facts)
+        match = match_by_containment(requirement, facts, sheet_kind=sheet)
         fact = match["fact"]
+        for refusal in match.get("refused", ()):
+            rule_refusals[refusal["reason"]] = rule_refusals.get(refusal["reason"], 0) + 1
         # COUNTED HERE, BEFORE THE MODEL TIER, so `matches_made` keeps meaning
         # "paired deterministically". The model's pairings are reported
         # separately as `model_matches`; folding them into one number would
@@ -951,6 +959,8 @@ def run_comparison(
         "model_matches": model_matches,
         "model_calls": budget.calls,
         "model_reasons": model_reasons,
+        "sheet_kind": sheet,
+        "rule_refusals": rule_refusals,
         "findings": findings,
         "by_status": {
             status: sum(1 for f in findings if f["compliance_status"] == status)
@@ -992,6 +1002,9 @@ def is_matchable(requirement: dict) -> bool:
 
 #: Why a containment match was refused, when it was.
 AMBIGUOUS_MATCH = "ambiguous_match"
+#: Every containment hit was refused by a `match_rules` rule. The `refused`
+#: list on the result names each hit and the rule that removed it.
+REFUSED_BY_RULE = "refused_by_rule"
 TABLE_ROW_REASON = "table_row"
 #: Why a numeric comparison was refused although both numbers were present:
 #: the requirement's number is a MARGIN from a reference the submittal does
@@ -1065,7 +1078,8 @@ def _units_comparable(requirement: dict, fact: dict,
     return claims.same_unit(requirement_unit, fact_unit)
 
 
-def match_by_containment(requirement: dict, facts: list[dict]) -> dict:
+def match_by_containment(requirement: dict, facts: list[dict], *,
+                         sheet_kind: str | None = None) -> dict:
     """The fact a requirement is about, found by CONTAINMENT. Deterministic.
 
     A requirement's subject is a sentence fragment - "internal design pressure
@@ -1096,11 +1110,30 @@ def match_by_containment(requirement: dict, facts: list[dict]) -> dict:
     arbitrarily would attach a real number to the wrong requirement and there
     would be nothing on the finding to say it was a guess.
 
+    THREE RULES RUN BEFORE LONGEST-WINS. `match_rules` refuses a hit whose
+    unit is in another dimension, whose sentence names a different kind of
+    equipment than this sheet, or whose field is the INPUT of a lookup table
+    rather than the quantity the table constrains. They run before the tie is
+    resolved, not after, because the third one changes which field wins: on
+    "the internal design pressure shall be according to the following table:
+    Maximum Operating Pressure ...", longest-wins picked `maximum operating
+    pressure` (the input) over `internal design pressure` (the constrained
+    quantity), and a filter applied afterwards could only have turned that
+    wrong pairing into silence. Measured on gold/PAIRS-216400C.csv: 8 false
+    pairings and 0 correct before; the rules are what made the correct one
+    reachable.
+
+    `sheet_kind` is the equipment domain of the datasheet (see
+    `match_rules.sheet_kind`); when the caller has none it is read from the
+    field names, and when that is undecidable the domain rule never refuses.
+
     Returns `{"fact": ..., "matched_phrase": ..., "method": ...}` or
-    `{"fact": None, "reason": ..., "candidates": [...]}`.
+    `{"fact": None, "reason": ..., "candidates": [...]}`. Either shape carries
+    `refused`, a list of `{"name", "reason"}` for every hit a rule removed, so
+    a run can count what each rule did.
     """
     none: dict = {"fact": None, "matched_phrase": None, "method": None,
-                  "reason": None, "candidates": []}
+                  "reason": None, "candidates": [], "refused": []}
     # NUMERIC LIMITS AND TABLE ROWS. Both carry a parsed number, and a table
     # row has to be matchable or the one case a reviewer can act on never
     # arises: `compare` raises a table row to NEEDS_ENGINEER_REVIEW only when a
@@ -1147,13 +1180,30 @@ def match_by_containment(requirement: dict, facts: list[dict]) -> dict:
     if not hits:
         return none
 
-    longest = max(len(h["name"]) for h in hits)
-    best = [h for h in hits if len(h["name"]) == longest]
+    # THE RULES, BEFORE THE TIE. See the docstring: rule 3 is what lets the
+    # constrained quantity win over the table's input.
+    sheet = sheet_kind if sheet_kind is not None else match_rules.sheet_kind(facts)
+    refused: list[dict] = []
+    allowed: list[dict] = []
+    for hit in hits:
+        reason = match_rules.refusal(requirement, hit["fact"], sheet=sheet)
+        if reason is None:
+            allowed.append(hit)
+        else:
+            refused.append({"name": hit["name"], "reason": reason})
+    if not allowed:
+        return {**none, "reason": REFUSED_BY_RULE if refused else None,
+                "refused": refused}
+
+    longest = max(len(h["name"]) for h in allowed)
+    best = [h for h in allowed if len(h["name"]) == longest]
     if len(best) > 1:
         return {**none, "reason": AMBIGUOUS_MATCH,
-                "candidates": sorted(h["name"] for h in best)}
+                "candidates": sorted(h["name"] for h in best),
+                "refused": refused}
     return {"fact": best[0]["fact"], "matched_phrase": best[0]["name"],
-            "method": METHOD_CONTAINMENT, "reason": None, "candidates": []}
+            "method": METHOD_CONTAINMENT, "reason": None, "candidates": [],
+            "refused": refused}
 
 
 # ------------------------------------------------- the model tier (§14, 2nd)
