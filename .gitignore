@@ -112,3 +112,13 @@ Claude outputs/
 # Filled gold sheets describe client standards - template only (gold/README.md)
 gold/*.csv
 !gold/TEMPLATE.csv
+!gold/PAIRS-TEMPLATE.csv
+# EXCEPTIONS, tracked although this rule forbids them - listed so that the rule
+# and the repository agree about what is in Git. Both were committed before
+# anyone checked them against the rule (99591dd, cdf156b) and are already on
+# GitHub. Owner decision 2026-09-21: ACCEPTED RISK (private repository, content
+# already published, and untracking would not remove it from history). Recorded
+# as B27 in .cowork/CURRENT_STATE_AND_BLOCKERS.md, left open to be revisited.
+# Every OTHER filled sheet stays ignored. Do not add to this list.
+!gold/SAES-A-105.csv
+!gold/PAIRS-216400C.csv
