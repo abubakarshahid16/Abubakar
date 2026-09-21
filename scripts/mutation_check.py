@@ -1446,8 +1446,11 @@ MATCHER = (
         description="take the SHORTEST field name, pairing a requirement with "
                     "the least specific field named in it",
         path=APP / "comparison.py",
-        anchor='    longest = max(len(h["name"]) for h in hits)',
-        replacement='    longest = min(len(h["name"]) for h in hits)',
+        # Re-anchored 2026-09-21: the match_rules integration (ba73a8c) now
+        # takes the longest over the hits its rules ALLOWED, and the old
+        # anchor on `hits` matched nothing - silently disarming this mutation.
+        anchor='    longest = max(len(h["name"]) for h in allowed)',
+        replacement='    longest = min(len(h["name"]) for h in allowed)',
         target="tests/test_containment_match.py",
         keyword="longest_field_name_wins",
     ),
