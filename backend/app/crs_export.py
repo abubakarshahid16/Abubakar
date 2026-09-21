@@ -28,10 +28,26 @@ from openpyxl.styles import Alignment, Border, Font, Side
 ARIAL = "Arial"
 THIN = Side(style="thin")
 BOX = Border(top=THIN, bottom=THIN, left=THIN, right=THIN)
-HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
-           "Comment By", "Contractor's Response", "Final Resolution"]
-WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0,
-          "G": 15.0}
+#: NINE COLUMNS, in the client's order. "Submittal No." and "Ref No." became
+#: columns of their own at the client's request: the submittal number was only
+#: in the header block, and the reference was only the comment's first line.
+#: Both are still where they were - the header line stays, and the reference
+#: is still stable across re-exports - but a reader can now sort and filter on
+#: either, which a line inside a comment cell does not allow.
+HEADERS = ["Item No", "Submittal No.", "Ref No.", "Document Name",
+           "Page No./Section", "COMPANY Comments", "Comment By",
+           "Contractor's Response", "Final Resolution"]
+
+#: Column letters, derived from `HEADERS` so a tenth column cannot land
+#: without a width and so the two names can never disagree about the order.
+COLUMN_LETTERS = tuple(chr(ord("A") + i) for i in range(len(HEADERS)))
+LAST_COLUMN = COLUMN_LETTERS[-1]
+#: The index (1-based) of the columns the renderer treats specially.
+ITEM_NO_COLUMN = HEADERS.index("Item No") + 1
+COMMENT_COLUMN = HEADERS.index("COMPANY Comments") + 1
+
+WIDTHS = {"A": 11.7, "B": 18.0, "C": 12.0, "D": 25.8, "E": 21.8, "F": 93.5,
+          "G": 23.0, "H": 25.0, "I": 15.0}
 
 #: Printed on row 1 when the caller names no company. The client's own
 #: template carries it; it is not a guess about who issued the sheet.
@@ -73,9 +89,14 @@ RECOMMENDED_CODE_LABEL = "Recommended Review Code:"
 #: or not anyone has answered yet - a reader must see the space they will fill.
 CONTRACTOR_COLUMNS = ("contractor_response", "final_resolution")
 
-#: Prefix of the per-row system-generated number the client asked for, and
-#: the label it prints under. "Ref:" reads as what it is - a handle to quote
-#: back - where a bare code in the comment would read as part of the comment.
+#: Prefix of the per-row system-generated number the client asked for.
+#:
+#: `ROW_REF_LABEL` IS NO LONGER PRINTED IN THE COMMENT. The reference used to
+#: be the comment's first line, "Ref: RF-4A2C1B", because the template had
+#: seven columns and widening it needed the client's sign-off. They asked for
+#: the ninth column, so the reference moved into "Ref No." and the comment now
+#: starts with its own text. The label is kept because `crs_mapping` strips
+#: any surviving "Ref:" line from text drafted against the old shape.
 ROW_REF_PREFIX = "RF-"
 ROW_REF_LABEL = "Ref"
 
@@ -136,10 +157,11 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
       title                    row 1, company and project
       subtitle                 row 2, the document's own name
       header                   rows 3-7 as {label, value} pairs, in order
-      columns                  the seven column headers, row 8
+      columns                  the nine column headers, row 8
       rows                     one per finding, item_no assigned 1..N HERE,
-                               each carrying the stable `row_ref` that its
-                               comment's first line prints
+                               each carrying the stable `row_ref` its own
+                               "Ref No." column prints and the submittal
+                               number repeated from the header block
       recommended_code         "" when the caller supplies none
       recommended_code_label   the label the summary row prints
       recommended_code_reason  "" when there is none
@@ -176,16 +198,19 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         seen.add(ref)
         rows.append({
             "item_no": n,
+            # THE SUBMITTAL'S OWN NUMBER, REPEATED ON EVERY ROW. The row
+            # carries it when the mapper supplied one, and the sheet's own
+            # meta otherwise, so both renderings print the same value the
+            # header block prints. Blank stays blank: a CRS carrying a
+            # plausible-looking number lies about its own provenance.
+            "submittal_number": (finding.get("submittal_number")
+                                 or meta.get("submittal_number", "") or ""),
             "row_ref": ref,
             "document_name": finding.get("document_name", ""),
             "page_section": finding.get("page_section", ""),
-            # The reference is the comment's FIRST LINE rather than an eighth
-            # column: the client's template has seven columns, and widening it
-            # without their sign-off is what the project's own audits warned
-            # against. Same shape as the Requirement/Submitted/Equipment lines
-            # `crs_mapping._comment_text` already writes.
-            "comment": f"{ROW_REF_LABEL}: {ref}" + (f"\n{comment}" if comment
-                                                    else ""),
+            # The reference is a COLUMN now, not the comment's first line, so
+            # the comment starts with its own text.
+            "comment": comment,
             "comment_by": finding.get("comment_by", ""),
             "contractor_response": "",
             "final_resolution": "",
@@ -239,16 +264,19 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
             vertical="top", wrap_text=wrap)
         return cell
 
-    # Header block, rows 1-7, merges as measured from the template.
-    ws.merge_cells("A1:G1")
+    # Header block, rows 1-7, merges as measured from the template and
+    # widened to the last column so a nine-column table is not overhung by a
+    # seven-column title.
+    ws.merge_cells(f"A1:{LAST_COLUMN}1")
     put(1, 1, view["title"], bold=True, size=12, center=True, wrap=True)
     ws.row_dimensions[1].height = 30
-    ws.merge_cells("A2:G2")
+    ws.merge_cells(f"A2:{LAST_COLUMN}2")
     put(2, 1, view["subtitle"], bold=True, size=12, center=True)
     for offset, field in enumerate(view["header"]):
         row = 3 + offset
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
-        ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=7)
+        ws.merge_cells(start_row=row, start_column=3, end_row=row,
+                       end_column=len(HEADERS))
         put(row, 1, field["label"], bold=True)
         put(row, 3, field["value"])
 
@@ -261,11 +289,14 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     for entry in view["rows"]:
         row = COLUMN_HEADER_ROW + entry["item_no"]
         comment = entry["comment"]
-        values = [entry["item_no"], entry["document_name"],
+        # IN `HEADERS` ORDER. The contractor's two stay last and stay empty.
+        values = [entry["item_no"], entry["submittal_number"],
+                  entry["row_ref"], entry["document_name"],
                   entry["page_section"], comment, entry["comment_by"],
                   entry["contractor_response"], entry["final_resolution"]]
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i == 4), center=(i == 1))
+            cell = put(row, i, value, wrap=(i == COMMENT_COLUMN),
+                       center=(i == ITEM_NO_COLUMN))
             cell.border = BOX
         ws.row_dimensions[row].height = max(
             15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
@@ -280,7 +311,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.merge_cells(start_row=row, start_column=1, end_row=row,
                        end_column=2)
         ws.merge_cells(start_row=row, start_column=3, end_row=row,
-                       end_column=7)
+                       end_column=len(HEADERS))
         put(row, 1, view["recommended_code_label"], bold=True)
         reason = view["recommended_code_reason"]
         put(row, 3, f"{code}" + (f" - {reason}" if reason else ""),

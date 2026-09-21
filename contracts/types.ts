@@ -369,11 +369,16 @@ export interface CrsHeaderField {
  */
 export interface CrsPreviewRow {
   item_no: number;
+  /** The submittal's own number, repeated on every row so the table can be
+   *  sorted and filtered on it. The same value the header block's
+   *  "Submittal No.:" line shows - that line stays; this is a second home for
+   *  it, at the client's request, not a replacement. Blank stays blank. */
+  submittal_number: string;
   /** The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
    *  across re-exports of the same review, so a contractor can quote it back -
-   *  unlike item_no, which is 1..N and renumbers on every export. It is also
-   *  printed as the first line of `comment`, because the client's template has
-   *  seven columns and this adds no eighth one. */
+   *  unlike item_no, which is 1..N and renumbers on every export. It now has
+   *  its OWN "Ref No." column; it used to be the first line of `comment`,
+   *  because the template had seven columns. The client asked for nine. */
   row_ref: string;
   document_name: string;
   page_section: string;

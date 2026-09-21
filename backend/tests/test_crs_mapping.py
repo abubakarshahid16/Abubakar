@@ -69,3 +69,32 @@ def test_a_rows_identity_is_carried_but_never_printed():
     # A gap row has no finding behind it; the standard it names is what makes
     # it the same row on the next export.
     assert rows[1]["finding_id"] == "missing-reference:32-SAMSS-004"
+
+
+def test_model_notes_never_reach_the_client_comment():
+    """The client's sheet carries the company's comment, not the machine's
+    notes to the engineer. A recheck note lives in ai_rationale for the
+    engineer's screen and is stripped from the CRS comment column."""
+    from app import crs_mapping
+    finding = {
+        "id": "f1", "compliance_status": "NON_COMPLIANT",
+        "standard_document_id": "SAES-D-001.pdf", "clause": "6.2.3",
+        "requirement_source_text": "The design pressure shall be 3.5 bar.",
+        "contractor_evidence_text": "2.2 bar",
+        "ai_rationale": ("Submitted 2.2 bar is below the required 3.5 bar.\n"
+                         "Rechecked by model; engineer must confirm. Model agrees."),
+    }
+    rows = crs_mapping.build_crs_rows([finding], [], "sheet.pdf")
+    assert rows, "a NON_COMPLIANT finding must produce a row"
+    comment = rows[0]["comment"]
+    assert "Submitted 2.2 bar is below the required 3.5 bar." in comment
+    assert "model" not in comment.lower()
+    assert "claude" not in comment.lower()
+
+
+def test_the_pairing_note_is_removed_but_the_rationale_stays():
+    from app import crs_mapping
+    text = ("Paired by model; engineer must confirm. Model reason: the field "
+            "names the same quantity. Submitted 2.2 bar is below 3.5 bar. "
+            "(model tier: model_declined)")
+    assert crs_mapping._client_facing(text) == "Submitted 2.2 bar is below 3.5 bar."

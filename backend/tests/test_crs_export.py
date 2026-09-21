@@ -8,8 +8,12 @@ import io
 
 import openpyxl
 
-from app.crs_export import (COLUMN_HEADER_ROW, FIRST_DATA_ROW,
+from app.crs_export import (COLUMN_HEADER_ROW, COMMENT_COLUMN, FIRST_DATA_ROW,
                             HEADER_FIELDS, HEADERS, build_crs)
+
+#: 1-based index of the two columns the client asked for.
+SUBMITTAL_NO_COLUMN = HEADERS.index("Submittal No.") + 1
+REF_NO_COLUMN = HEADERS.index("Ref No.") + 1
 
 META = {"project": "DORRA", "document_title": "Doc T",
         "date_issued": "2026-09-19"}
@@ -22,14 +26,14 @@ def load(findings, meta=META):
 def test_headers_match_the_client_template_exactly():
     ws = load([])
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 8)] == HEADERS
+            for c in range(1, len(HEADERS) + 1)] == HEADERS
 
 
 def test_the_contractor_columns_are_always_empty():
     ws = load([{"document_name": "d", "page_section": "p",
                 "comment": "c", "comment_by": "b"}])
-    assert ws.cell(row=FIRST_DATA_ROW, column=6).value in (None, "")
-    assert ws.cell(row=FIRST_DATA_ROW, column=7).value in (None, "")
+    assert ws.cell(row=FIRST_DATA_ROW, column=len(HEADERS) - 1).value in (None, "")
+    assert ws.cell(row=FIRST_DATA_ROW, column=len(HEADERS)).value in (None, "")
 
 
 def test_item_numbers_are_assigned_1_to_n_with_no_gaps():
@@ -67,7 +71,7 @@ def test_empty_findings_yield_a_valid_sheet_with_no_data_rows():
 def test_merges_match_the_template_shape():
     ws = load([])
     merges = {str(r) for r in ws.merged_cells.ranges}
-    for merge in ("A1:G1", "A2:G2", "A3:B3", "C3:G3", "A7:B7", "C7:G7"):
+    for merge in ("A1:I1", "A2:I2", "A3:B3", "C3:I3", "A7:B7", "C7:I7"):
         assert merge in merges
 
 
@@ -79,7 +83,7 @@ def test_a_long_comment_gets_a_taller_row():
 
 def test_every_data_cell_is_bordered():
     ws = load([{"comment": "c"}])
-    for col in range(1, 8):
+    for col in range(1, len(HEADERS) + 1):
         assert ws.cell(row=FIRST_DATA_ROW, column=col).border.top.style == "thin"
 
 
@@ -123,7 +127,13 @@ def _header_row(key: str) -> int:
 
 
 def _comment(ws, item_no: int = 1) -> str:
-    return ws.cell(row=COLUMN_HEADER_ROW + item_no, column=4).value
+    return ws.cell(row=COLUMN_HEADER_ROW + item_no, column=COMMENT_COLUMN).value
+
+
+def _ref(ws, item_no: int = 1) -> str:
+    """The row's "Ref No." cell. Its own column since the client asked for
+    nine; it used to be the first line of the comment."""
+    return ws.cell(row=COLUMN_HEADER_ROW + item_no, column=REF_NO_COLUMN).value
 
 
 def test_the_submittal_number_is_printed_in_the_header_block():
@@ -153,17 +163,17 @@ def test_a_submittal_with_no_number_prints_nothing_not_none():
     assert ws.cell(row=_header_row("submittal_number"), column=3).value in (None, "")
 
 
-def test_the_row_reference_is_the_first_line_of_the_comment_cell():
-    """ITEM 3, AND NO EIGHTH COLUMN. The client's template has seven columns;
-    the reference rides in the COMPANY Comments text, above the comment
-    itself, in the shape the Requirement/Submitted lines already use."""
+def test_the_row_reference_has_its_own_column_and_leaves_the_comment_alone():
+    """ITEM 3, NOW A COLUMN. The client asked for nine columns, so the
+    reference moved out of the COMPANY Comments text into "Ref No." and the
+    comment starts with its own first line."""
     ws = load([FINDING], SUB)
-    lines = _comment(ws).split("\n")
-    assert lines[0].startswith("Ref: RF-"), lines[0]
-    assert lines[1] == "Requirement: 6,900 kPa"
-    assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value is None
+    assert str(_ref(ws)).startswith("RF-")
+    assert "Ref:" not in str(_comment(ws))
+    assert _comment(ws).split("\n")[0] == "Requirement: 6,900 kPa"
+    assert ws.cell(row=COLUMN_HEADER_ROW, column=len(HEADERS) + 1).value is None
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 8)] == HEADERS
+            for c in range(1, len(HEADERS) + 1)] == HEADERS
 
 
 def test_re_exporting_the_same_review_prints_the_same_reference():
@@ -191,9 +201,8 @@ def test_a_finding_that_genuinely_changes_gets_a_different_reference():
     """THE OTHER HALF OF THE BARGAIN. A rewritten comment is a different
     comment, and quoting it back under the old number would attach the
     contractor's answer to text they never read."""
-    before = _comment(load([FINDING], SUB)).split("\n")[0]
-    after = _comment(load([dict(FINDING, comment="Submitted: 690 kPa")],
-                          SUB)).split("\n")[0]
+    before = _ref(load([FINDING], SUB))
+    after = _ref(load([dict(FINDING, comment="Submitted: 690 kPa")], SUB))
     assert before != after
 
 
@@ -210,8 +219,8 @@ def test_confirming_a_finding_does_not_renumber_it():
 def test_the_same_finding_in_a_different_run_gets_a_different_reference():
     """The run is half the key: two reviews of one submittal are two sheets,
     and one number meaning both would make a reply ambiguous."""
-    one = _comment(load([FINDING], SUB)).split("\n")[0]
-    two = _comment(load([FINDING], dict(SUB, review_run_id="run_2"))).split("\n")[0]
+    one = _ref(load([FINDING], SUB))
+    two = _ref(load([FINDING], dict(SUB, review_run_id="run_2")))
     assert one != two
 
 
@@ -220,7 +229,7 @@ def test_two_identical_rows_still_get_two_distinct_references():
     reference. Identical text is re-minted rather than repeated."""
     twin = dict(FINDING, finding_id="")
     ws = load([twin, dict(twin)], SUB)
-    assert _comment(ws, 1).split("\n")[0] != _comment(ws, 2).split("\n")[0]
+    assert _ref(ws, 1) != _ref(ws, 2)
 
 
 def test_a_row_with_no_comment_still_carries_its_reference():
@@ -228,5 +237,37 @@ def test_a_row_with_no_comment_still_carries_its_reference():
     not open with a stray blank line."""
     ws = load([{"document_name": "d", "page_section": "References",
                 "comment": "", "finding_id": "missing-reference:X"}], SUB)
-    value = _comment(ws)
-    assert value.startswith("Ref: RF-") and "\n" not in value
+    assert str(_ref(ws)).startswith("RF-")
+    assert _comment(ws) in (None, "")
+
+
+def test_the_submittal_number_repeats_on_every_row():
+    """THE CLIENT'S REQUEST. The number is in the header block AND in a column
+    of its own on every row, so the table can be sorted and filtered on it
+    without reading the block above. Both homes carry the same value."""
+    rows = [FINDING, dict(FINDING, finding_id="f-2", comment="Submitted: 13 mm"),
+            dict(FINDING, finding_id="f-3", comment="Submitted: 9 mm")]
+    ws = load(rows, SUB)
+
+    header_value = ws.cell(row=_header_row("submittal_number"), column=3).value
+    assert header_value == "SUB-2024-0417"
+    printed = [ws.cell(row=COLUMN_HEADER_ROW + n, column=SUBMITTAL_NO_COLUMN).value
+               for n in range(1, len(rows) + 1)]
+    assert printed == [header_value] * len(rows), printed
+
+
+def test_a_submittal_with_no_number_leaves_the_column_blank():
+    """BLANK STAYS BLANK, in the column as in the header block. A CRS carrying
+    an invented number lies about its own provenance."""
+    ws = load([FINDING], {"project": "X", "review_run_id": "run_1"})
+    assert ws.cell(row=COLUMN_HEADER_ROW + 1,
+                   column=SUBMITTAL_NO_COLUMN).value in (None, "")
+
+
+def test_the_contractor_columns_are_still_the_last_two():
+    """The two new columns went in at 2 and 3, so the contractor's pair must
+    still be columns 8 and 9 - and still empty."""
+    assert HEADERS[-2:] == ["Contractor's Response", "Final Resolution"]
+    ws = load([FINDING], SUB)
+    for column in (len(HEADERS) - 1, len(HEADERS)):
+        assert ws.cell(row=COLUMN_HEADER_ROW + 1, column=column).value in (None, "")

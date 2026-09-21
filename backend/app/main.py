@@ -190,6 +190,11 @@ app.add_middleware(
 # The watched-folder status route lives in its own module so this file stays
 # the only place routing is declared, without this file growing a feature.
 app.include_router(watch_api_mod.router)
+# The four model-assisted review routes. Same rule: declared in their own
+# module, included here, and every one of them answers 409 until the reader's
+# two egress flags are on.
+from . import claude_api as claude_api_mod  # noqa: E402
+app.include_router(claude_api_mod.router)
 
 
 @app.middleware("http")
@@ -1565,6 +1570,39 @@ def _missing_references(submittal_id: str, allowed: frozenset[str]) -> list[str]
     missing = applicability_mod.missing_references(
         applicability_mod._library(allowed), names)
     return sorted(missing, key=applicability_mod.normalise_identifier)
+
+
+def _reference_pages(submittal_id: str, identifiers: list[str]) -> dict[str, int]:
+    """The page each cited identifier FIRST appears on, for those found.
+
+    A CRS gap row used to say "References" and nothing else, which sent a
+    reader to search the whole submittal for the citation the row is about.
+    This reads the page out of the chunk that actually contains the
+    identifier - the first by ordinal, so the answer is the earliest mention
+    and is stable between exports.
+
+    NEVER INVENTED. An identifier no chunk contains is simply absent from the
+    mapping, and `crs_mapping` then prints "References" exactly as before. The
+    submittal's own spelling is matched first; the normalised spelling is
+    tried only as a fallback, because "32-SAMSS-004" and "32SAMSS004" are one
+    citation printed two ways.
+    """
+    if not identifiers:
+        return {}
+    chunks = connect().execute(
+        "SELECT page_start, text FROM chunks WHERE document_id = ?"
+        " ORDER BY ordinal", (submittal_id,)).fetchall()
+    found: dict[str, int] = {}
+    for identifier in identifiers:
+        folded = applicability_mod.normalise_identifier(identifier)
+        for chunk in chunks:
+            text = chunk["text"] or ""
+            if identifier in text or (
+                    folded and folded in applicability_mod.normalise_identifier(text)):
+                if chunk["page_start"] is not None:
+                    found[identifier] = chunk["page_start"]
+                break
+    return found
 
 
 def _run_summary(run: dict, scope: access.AccessScope) -> dict:
@@ -3175,8 +3213,10 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
     for finding in findings:
         finding["standard_name"] = names.get(finding.get("standard_document_id"))
 
+    missing = _missing_references(submittal_id, allowed)
     rows = crs_mapping_mod.build_crs_rows(
-        findings, _missing_references(submittal_id, allowed), submittal_name)
+        findings, missing, submittal_name, submittal_number,
+        _reference_pages(submittal_id, missing))
 
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=allowed) or {}

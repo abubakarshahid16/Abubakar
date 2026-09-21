@@ -473,7 +473,9 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
         ))}
       </dl>
 
-      <table className="w-full min-w-[56rem] border-collapse text-xs">
+      {/* Nine columns now, so the minimum widens with them; the section
+          scrolls horizontally rather than crushing the comment column. */}
+      <table className="w-full min-w-[72rem] border-collapse text-xs">
         <thead>
           <tr>
             {preview.columns.map((column) => (
@@ -491,6 +493,14 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
             <tr key={row.item_no}>
               <td className="border border-ink-600 px-2 py-1 text-center align-top text-slateish-300">
                 {row.item_no}
+              </td>
+              {/* BLANK IS BLANK here too: a submittal uploaded without a
+                  number shows an empty cell, never a placeholder. */}
+              <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
+                {row.submittal_number}
+              </td>
+              <td className="whitespace-nowrap border border-ink-600 px-2 py-1 align-top text-slateish-300">
+                {row.row_ref}
               </td>
               <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
                 {row.document_name}
