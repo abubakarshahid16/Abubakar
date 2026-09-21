@@ -261,15 +261,17 @@ working one. No key in `.env.example` is a real credential.
 
 ```bash
 cd backend
-python -m pytest -q      # 1174 passed, 3 skipped, 17 xfailed; 3-11 min (see below)
+python -m pytest -q      # expected counts: SETUP.md section 5 (two figures, with and without .env)
 ```
 
-**The count is stable; the duration is not.** Three CI runs of this exact
-suite reported 1,174 passed every time, in 3m18s, 4m57s and 10m48s - the same
-work, three times the wall clock, on the same runner type. Locally it took
+**The count is stable; the duration is not.** The expected count lives in
+`SETUP.md` section 5 and nowhere else, so it cannot go stale in two places. As
+an illustration from early September 2026, when the suite was much smaller:
+three CI runs reported the same count every time, in 3m18s, 4m57s and 10m48s -
+the same work, three times the wall clock, on the same runner type. Locally it took
 5m44s idle and over 11 minutes with the dev server, Ollama and a second test
 run competing. So treat the count as the thing to check and the duration as
-weather. If your run reports 1,174 in twelve minutes, nothing is wrong.
+weather. If your run matches SETUP.md's count in twelve minutes, nothing is wrong.
 
 Run it from `backend/`, not from the repository root. `pytest.ini` lives there,
 and so does `.env` - which the application reads for `AUTH_MODE`. The suite pins

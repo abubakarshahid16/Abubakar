@@ -53,6 +53,9 @@ Every other branch on GitHub, one line each:
 | `wip/crs-export-b3-b4` | **NOT merge-ready.** The client's nine-column CRS export and the Claude router, with 16 failing tests (B3, B4, B5, B8). Do not merge. |
 | `recovery/phase0-head` | Frozen safety copy of HEAD as found at the Phase 0 recovery (2026-09-20). Read-only. |
 | `recovery/phase0-stash` | Frozen copy of the stash `agent-work-untested-parked` from Phase 0. Holds one patch not in `main`. Read-only. |
+| `cowork/layer1-llm-extraction` | **Not merged, untested.** One Cowork commit (2026-09-19): a Layer 1 pre-build where an LLM reads datasheet fields and Python verifies them (`extraction_llm.py`, `extraction_score.py`, a test, a design note). Pushed 2026-09-21 only so it no longer lives on one laptop. |
+| `docs/setup-new-machine` | Carried this SETUP.md into `main` (merged; the pre-commit hook blocks direct commits to `main`). History only. |
+| `docs/setup-branches-and-readme-count` | Carried this branch-table update and the README test-count fix into `main` (merged). History only. |
 | `feat/metadata-statistics` | Old feature branch; its change is already in `main` (patch-equivalent). History only. |
 | `feat/stage-3-analysis-summary` | Old feature branch (PR #62); already in `main`. History only. |
 | `fix/extraction-and-facets` | Old fix branch; fully merged into `main`. History only. |
