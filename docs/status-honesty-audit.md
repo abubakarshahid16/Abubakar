@@ -1192,3 +1192,27 @@ which is a failure mode neither entry covers.
    an inherited fact, find the command that produced it. Where no document can
    name one — no query, no path, no timestamp, no output — the fact is a rumour
    with footnotes, however many files repeat it.
+
+## GitHub transfer, 2026-09-21: an audit finding that was itself false
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-21, during Step 2 of the
+GitHub transfer.
+
+**"README.md never tells a fresh machine to run `npm install` for the frontend."**
+Reported as a Part 0.4a hygiene finding of `.cowork/EXECUTE-GITHUB-TRANSFER.md`,
+and carried by the owner into the Step 2 order as "README.md: add the missing
+frontend npm install step". Measured when the fix was about to be written: the
+README's *Getting started*, Step 3 "Frontend", already runs `cd frontend`,
+`npm ci`, `npx tsc -b` and `npm run test`. `npm ci` is the stricter install from
+the lockfile. The audit had searched for the literal string `npm install` and
+read its absence as the absence of the step. **No README change was made**; adding
+a second, looser install step would have been a regression. This is rule 17's
+failure one hop earlier: the claim had a source command, and the command
+answered a narrower question than the one the finding asked.
+
+### The rule this produces
+
+18. **A search that finds nothing proves only that its pattern is absent.** Before
+   reporting "X is missing", name every form X could take (`npm install`,
+   `npm ci`, `npm i`, `pnpm install`) and read the section where X would live.
+   A grep is a lead, not a verdict.

@@ -19,7 +19,7 @@ from __future__ import annotations
 import sys
 
 #: The version every pin in requirements.txt was resolved against.
-#: onnxruntime 1.24.1 and numpy 2.3.4 ship per-minor-version wheels, so a
+#: onnxruntime 1.29.0 and numpy 2.5.3 ship per-minor-version wheels, so a
 #: different 3.x resolves to different binaries - or to none at all, and the
 #: failure then surfaces from inside a wheel as an opaque import error rather
 #: than as "you are on the wrong Python". Checked here, before anything heavy

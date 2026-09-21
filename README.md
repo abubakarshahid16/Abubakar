@@ -125,7 +125,7 @@ reaches the network again except your own Ollama on localhost.
 
 | Requirement | Version | Why it is pinned |
 |---|---|---|
-| **Python** | **3.12 exactly** | Every pin in `backend/requirements.txt` was resolved against 3.12. `onnxruntime==1.24.1` and `numpy==2.3.4` ship per-minor-version wheels, so another 3.x installs different binaries or none. `run.py` refuses to start on the wrong minor and tells you so. |
+| **Python** | **3.12 exactly** | Every pin in `backend/requirements.txt` was resolved against 3.12. `onnxruntime==1.29.0` and `numpy==2.5.3` ship per-minor-version wheels, so another 3.x installs different binaries or none. `run.py` refuses to start on the wrong minor and tells you so. |
 | **Node** | 24.x (built on 24.18.0) | `npm ci` installs from the committed lockfile. |
 | **Ollama** | running, with `qwen3.5:4b` pulled | **The one prerequisite `fetch_models.py` cannot get for you** — see below. Needed only for Tier 2 ("Explain") answers; Tier 1 quotations work without it, verified by pointing the backend at a dead port. |
 | **RAM** | ~16 GB | See *If you have less* below. |
