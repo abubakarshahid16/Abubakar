@@ -45,6 +45,25 @@ test-results/
 # `git add -A` run with different permissions would sweep them in.
 .audit_tmp*/
 
+# Project memory (.cowork): DEFAULT-DENY. Most of it is evidence - client
+# document names and hashes, prompts, model answers, DB row ids - which rule 6
+# above keeps out of Git; it travels by direct copy. Only policy and plan files
+# are allowed, each named here. A new .cowork file is therefore ignored until
+# someone decides it is safe, instead of committed until someone notices.
+# Transport of each file: .cowork/README-INDEX.md.
+.cowork/*
+!.cowork/NORTH-STAR.md
+!.cowork/README-INDEX.md
+!.cowork/CLIENT_FEEDBACK_REQUIREMENTS_ADDENDUM.md
+!.cowork/EXECUTE-B24-B23.md
+!.cowork/EXECUTE-COMMIT-B24-B23.md
+!.cowork/EXECUTE-GITHUB-TRANSFER.md
+!.cowork/EXECUTE-RAM-OPTIMISATION.md
+!.cowork/LAPTOP-MODEL-UPGRADE-9B.md
+!.cowork/RAM-OPTIMISATION.md
+# Tracked since 44f66ec, before this rule; carries no document identifier.
+!.cowork/PROMPT-crs-client-fields.md
+
 # Windows / macOS noise
 Thumbs.db
 desktop.ini
