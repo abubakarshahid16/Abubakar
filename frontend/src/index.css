@@ -13,11 +13,10 @@
    time, and the quoted passage IS the product. Sustained reading of dense
    technical prose is harder on a dark ground.
 
-   THE DEFECT THIS FIXES. --color-slateish-400 (#7d90a4) on #070b10 is
-   4.1:1 - below the AA floor for the sizes it carries (hints, timestamps,
-   captions, every `hint` line in the sidebar). It is now 5.1:1 as the
-   tertiary, with a genuine secondary at 8.6:1 above it. That single value
-   accounts for most of "I can't read it carefully".
+   CONTRAST GUARANTEE. The light tertiary/quiet pair now measures 6.4:1 / 5.8:1
+   on the light ground; the dark pair measures 7.0:1 / 6.0:1 on the dark
+   ground. All readable text is at least 12px, so these values clear the AA
+   normal-text floor at their actual sizes.
 
    NAMING. `ink-*` still means "surface" and `slateish-*` still means
    "text". On a light ground the ramps run the other way: ink-800 is now
@@ -27,6 +26,21 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @import "tailwindcss";
+
+/* Keep collapsed disclosures out of document flow. Tailwind's preflight does
+   not provide the user-agent details rule in every browser, so relying on it
+   can leave closed panels contributing their full height to the page. */
+details:not([open]) > :not(summary) {
+  display: none;
+}
+
+/* Long registers keep their rows in the DOM for keyboard navigation, while
+   Chromium skips layout/paint for off-screen cards. The intrinsic size keeps
+   scrollbar geometry stable as rows enter the viewport. */
+.virtual-list > li {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 180px;
+}
 
 /* ── Typeface ───────────────────────────────────────────────────────────────
    IBM Plex: an engineering face with an open licence, three coherent cuts,
@@ -66,6 +80,20 @@
 }
 
 @theme {
+  /* Phase 2 foundations: every spacing step is a 4px multiple, shared motion
+     timings keep feedback predictable, and the radius scale is reusable. */
+  --spacing-1: 0.25rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-5: 1.25rem;
+  --spacing-6: 1.5rem;
+  --spacing-8: 2rem;
+  --spacing-10: 2.5rem;
+  --spacing-12: 3rem;
+  --duration-fast: 100ms;
+  --duration-standard: 200ms;
+  --duration-slow: 300ms;
   /* ── Surfaces. Warm paper, not #fff: a pure white ground glares under
      long prose. Ordered deepest-sunken to most-raised.                  */
   --color-ink-950: #04070a;  /* sunken wells, table stripes             */
@@ -94,9 +122,19 @@
   --color-signal-300: #6fd6c7;
 
   /* ── Semantic. Darkened for a light ground; each clears AA as text.   */
-  --color-warn-500: #c98a12;
+  --color-warn-500: #b06b3e;
   --color-danger-500: #c4453b;
   --color-info-500: #3d7fbf;
+
+  /* ── Radius scale. The shipped UI had none - every card, chip and
+     button used a 2px "rounded" default, which is what reads as a
+     20-year-old enterprise tool. A real scale, used consistently, is
+     most of what "modern" actually is: it has nothing to do with color. */
+  --radius-xs: 6px;    /* chips, badges, small controls              */
+  --radius-sm: 10px;   /* buttons, inputs                             */
+  --radius-md: 14px;   /* cards, panels                                */
+  --radius-lg: 20px;   /* modals, large surfaces                      */
+  --radius-full: 999px; /* pills                                       */
 }
 
 /* ── Dark, for a later toggle ───────────────────────────────────────────────
@@ -120,14 +158,14 @@
   --color-slateish-100: #F7F9FA;
   --color-slateish-200: #EDEFF1;
   --color-slateish-300: #AAB3BA;
-  --color-slateish-400: #7D878F;
-  --color-slateish-500: #626C74;
+  --color-slateish-400: #9AA5AD;
+  --color-slateish-500: #8C98A2;
 
   --color-signal-500: #4FC9B5;
   --color-signal-400: #4FC9B5;
   --color-signal-300: #6FDBC9;
 
-  --color-warn-500: #E5AC44;
+  --color-warn-500: #F0A97A;
   --color-danger-500: #EA7A6E;
   --color-info-500: #6FB1E8;
 
@@ -147,14 +185,14 @@
   --color-slateish-100: #101820;
   --color-slateish-200: #1f2933;
   --color-slateish-300: #4b5563;
-  --color-slateish-400: #667382;
-  --color-slateish-500: #7a8592;
+  --color-slateish-400: #4f5b68;
+  --color-slateish-500: #536170;
 
   --color-signal-500: #0e6b60;
   --color-signal-400: #0e6b60;
   --color-signal-300: #0a544b;
 
-  --color-warn-500: #8a5808;
+  --color-warn-500: #7b4628;
   --color-danger-500: #a02f26;
   --color-info-500: #175c97;
 
@@ -168,15 +206,82 @@
   color-scheme: dark;
   --focus: #6fb3e0;
 
+  /* ── Elevation. Layered, soft, and tinted toward the accent rather than
+     pure black - a flat 1px border reads as a spreadsheet; a card that
+     lifts off the page with a soft shadow and a faint accent-tinted glow
+     at its edge reads as a product. Three steps: resting, raised (hover),
+     and floating (popovers, active/focused panels).                    */
+  /* A drop shadow alone is nearly invisible card-on-card at this
+     darkness - measured on screen, not just in theory. Every step below
+     therefore carries its own top inset highlight (a hairline of light
+     catching the card's top edge, the way a real raised surface would)
+     plus a slightly lighter, larger-radius ambient shadow so the card
+     visibly separates from the page behind it instead of reading as a
+     flat rectangle with a border. */
+  --shadow-resting: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 6px 16px rgba(0, 0, 0, 0.45);
+  --shadow-raised: 0 1px 0 rgba(255, 255, 255, 0.08) inset, 0 0 0 1px rgba(79, 201, 181, 0.18),
+    0 10px 28px rgba(0, 0, 0, 0.5);
+  --shadow-floating: 0 1px 0 rgba(255, 255, 255, 0.08) inset, 0 0 0 1px rgba(79, 201, 181, 0.16),
+    0 20px 48px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 0 0 1px rgba(79, 201, 181, 0.45), 0 0 28px rgba(79, 201, 181, 0.28);
+
   /* ── Type scale. The shipped UI had none: headings, body and labels sat
      within 4px of each other, so nothing led the eye. Five steps at a
      ~1.28 ratio. Reference these from components rather than scattering
      arbitrary px values.                                                */
-  --t-xs: 0.719rem;   /* 11.5px - uppercase labels, timestamps          */
+  --t-xs: 0.75rem;    /* 12px   - uppercase labels, timestamps          */
   --t-sm: 0.813rem;   /* 13px   - secondary text, controls              */
   --t-md: 0.938rem;   /* 15px   - body                                  */
   --t-lg: 1.25rem;    /* 20px   - view headings                         */
   --t-xl: 1.688rem;   /* 27px   - page title                            */
+  --density-gap: 0.5rem;
+  --density-card-padding: 0.75rem;
+}
+
+:root[data-density="compact"] {
+  --density-gap: 0.25rem;
+  --density-card-padding: 0.5rem;
+}
+
+.density-compact .surface-card,
+.density-compact section {
+  padding: var(--density-card-padding);
+  gap: var(--density-gap);
+}
+
+/* One focus treatment for keyboard users, including controls that previously
+   had no bespoke focus-visible class. Both theme focus tokens clear 3:1. */
+:where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 3px solid var(--focus) !important;
+  outline-offset: 2px;
+}
+
+/* WCAG target floor. Text links may opt into inline flow with the class below;
+   otherwise every interactive control keeps a comfortable 44px hit area. */
+:where(button, a, input, select, textarea, [role="button"]) {
+  min-height: 44px;
+}
+.inline-target {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Keep legacy arbitrary utility names compatible while enforcing the
+   product-wide 12px readability floor. */
+.text-\[10px\],
+.text-\[11px\] {
+  font-size: 0.75rem !important;
 }
 
 /* min-height, not height. A fixed 100% with taller content inside let the
@@ -290,6 +395,144 @@ table {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-slateish-500);
+}
+
+/* ── Living background. Two large blurred colour fields drifting on slow,
+   independent loops (44s / 60s) behind a screen's content - felt as
+   ambience, not seen as motion, so it never competes with reading dense
+   spec text. This is the exact system approved in the redesign mockup
+   (canvas "RAG App — Redesign Direction"): calm depth, not a hero
+   animation. Apply `.aurora-field` to a screen's outer relatively/
+   absolutely positioned wrapper, then drop `.aurora-a` and `.aurora-b`
+   as its first two children. */
+@keyframes aurora-a {
+  0%   { transform: translate3d(-4%, -3%, 0) scale(1); }
+  50%  { transform: translate3d(3%, 4%, 0) scale(1.12); }
+  100% { transform: translate3d(-4%, -3%, 0) scale(1); }
+}
+@keyframes aurora-b {
+  0%   { transform: translate3d(3%, 2%, 0) scale(1.05); }
+  50%  { transform: translate3d(-3%, -4%, 0) scale(0.95); }
+  100% { transform: translate3d(3%, 2%, 0) scale(1.05); }
+}
+@keyframes card-tilt-in {
+  0%   { transform: perspective(1200px) rotateX(6deg) translateY(14px); opacity: 0; }
+  100% { transform: perspective(1200px) rotateX(0) translateY(0); opacity: 1; }
+}
+.aurora-field {
+  position: relative;
+  isolation: isolate;
+  /* The decorative blobs intentionally extend beyond the field. Clip them at
+     the shared view boundary so their blur/transform cannot create a second,
+     empty scroll region below otherwise short pages. */
+  overflow: hidden;
+}
+.aurora-a,
+.aurora-b {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+.aurora-a {
+  top: -18%;
+  left: -12%;
+  width: 68%;
+  height: 110%;
+  background: radial-gradient(circle, rgba(79, 201, 181, 0.30), transparent 68%);
+  filter: blur(70px);
+  animation: aurora-a 44s ease-in-out infinite;
+}
+.aurora-b {
+  bottom: -22%;
+  right: -14%;
+  width: 72%;
+  height: 115%;
+  background: radial-gradient(circle, rgba(109, 177, 232, 0.24), transparent 70%);
+  filter: blur(80px);
+  animation: aurora-b 60s ease-in-out infinite;
+}
+/* The page behind the cards needs its own base tint too - the aurora
+   glow disappears the instant it passes behind an opaque card, which is
+   most of the screen. A faint fixed backdrop wash keeps the atmosphere
+   readable everywhere, not just in the gaps between cards. */
+.aurora-field {
+  background: radial-gradient(circle at 15% 0%, rgba(79, 201, 181, 0.05), transparent 45%),
+    radial-gradient(circle at 100% 100%, rgba(109, 177, 232, 0.05), transparent 45%);
+}
+.aurora-field > :not(.aurora-a):not(.aurora-b) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Real, restrained 3D: a card tilts up into place once, then lifts a
+   couple of degrees toward the reader on hover instead of sitting
+   perfectly flat. Never stacked on more than one card at a time in a
+   dense list - it is for the one or two things on screen that deserve
+   to feel present, not a treatment for every row. */
+.card-3d {
+  animation: card-tilt-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-style: preserve-3d;
+}
+.card-3d:hover {
+  transform: perspective(1200px) rotateX(1.5deg) rotateY(-1.5deg) translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-a,
+  .aurora-b,
+  .card-3d {
+    animation: none !important;
+  }
+  .card-3d:hover {
+    transform: none;
+  }
+}
+
+/* ── Elevation utilities. Prefer these over ad-hoc box-shadow / rounded-*
+   values scattered per component - one scale, applied consistently, is
+   what makes the surfaces feel like one designed system rather than a
+   pile of boxes. */
+.surface-card {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-resting);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 40%);
+  transition: box-shadow 160ms ease, transform 160ms ease, border-color 160ms ease;
+}
+.surface-card:hover {
+  box-shadow: var(--shadow-raised);
+}
+.surface-floating {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-floating);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 45%);
+}
+.surface-glow {
+  box-shadow: var(--shadow-glow);
+}
+
+/* A subtle animated accent gradient for headline moments (the answer
+   card's top edge, the active nav item) - static color alone reads flat;
+   a slow-moving gradient reads alive without being distracting. */
+.accent-edge {
+  position: relative;
+}
+.accent-edge::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    var(--color-signal-500), var(--color-info-500), var(--color-signal-500)
+  );
+  background-size: 200% 100%;
+  animation: accent-drift 6s linear infinite;
+  opacity: 0.85;
+}
+@keyframes accent-drift {
+  to { background-position: 200% 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

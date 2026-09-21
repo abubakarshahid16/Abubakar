@@ -17,8 +17,6 @@
  */
 import type { AnalysisResult, DocumentedFinding } from "../../types/analysis";
 
-const CITATION = /\[S(\d+)\]/g;
-
 /**
  * WHY THE MARKER READS "S4" AND NOT "4".
  *
@@ -48,7 +46,7 @@ function markerLabel(n: number): string {
 }
 
 function chipClass(): string {
-  return "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 align-baseline font-mono text-[11px] leading-none bg-ink-700 text-slateish-300 ring-1 ring-ink-500 hover:bg-ink-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400";
+  return "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] px-1 align-baseline font-mono text-xs leading-none bg-ink-700 text-slateish-300 ring-1 ring-ink-500 hover:bg-ink-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400";
 }
 
 /**
@@ -90,7 +88,7 @@ function DeadChip({ n }: { n: number }) {
       title="citation not among supplied sources"
       aria-label={`Citation ${n} is not among the supplied sources`}
       data-citation-marker={n}
-      className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 align-baseline font-mono text-[11px] leading-none line-through bg-danger-500/10 text-danger-500 ring-1 ring-danger-500/40"
+      className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] px-1 align-baseline font-mono text-xs leading-none line-through bg-danger-500/10 text-danger-500 ring-1 ring-danger-500/40"
     >
       {markerLabel(n)}
     </span>
@@ -108,10 +106,10 @@ export function CitedText({
   onCite: (evidenceId: string) => void;
 }) {
   const parts: React.ReactNode[] = [];
+  const citation = /\[S(\d+)\]/g;
   let last = 0;
   let match: RegExpExecArray | null;
-  CITATION.lastIndex = 0;
-  while ((match = CITATION.exec(text)) !== null) {
+  while ((match = citation.exec(text)) !== null) {
     if (match.index > last) parts.push(text.slice(last, match.index));
     const n = Number(match[1]);
     const id = evidenceIds[n - 1];
@@ -140,19 +138,19 @@ function Finding({
     <li className="text-sm text-slateish-200">
       <span>{finding.claim}</span>
       {finding.citation_ids.length > 0 && (
-        <span className="ml-1 inline-flex flex-wrap items-baseline">
+        <span className="ms-1 inline-flex flex-wrap items-baseline">
           {finding.citation_ids.map((id, i) => (
             <Chip key={id} n={i + 1} label={`source ${i + 1}`} onClick={() => onCite(id)} />
           ))}
         </span>
       )}
       {userStated && (
-        <span className="ml-2 rounded border border-warn-500/50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-warn-500">
+        <span className="ms-2 rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-warn-500">
           stated by the user — not documentary evidence
         </span>
       )}
       {finding.text_source === "recognised" && (
-        <span className="ml-2 text-[11px] uppercase tracking-wider text-slateish-500">
+        <span className="ms-2 text-xs uppercase tracking-wider text-slateish-500">
           from recognised (OCR) text
         </span>
       )}
@@ -187,18 +185,18 @@ export function SummaryCard({
   return (
     <section
       aria-labelledby="summary-card-heading"
-      className="rounded-lg border border-warn-500/40 bg-warn-500/[0.06] p-4"
+      className="card-3d accent-edge relative surface-card rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05] p-4"
     >
       {result.summary !== null ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p
               id="summary-card-heading"
-              className="text-[11px] font-semibold uppercase tracking-wider text-warn-500"
+              className="text-xs font-semibold uppercase tracking-wider text-info-500"
             >
               Written by the model — not the document's words
             </p>
-            <span className="font-mono text-[11px] text-slateish-500">
+            <span className="font-mono text-xs text-slateish-500">
               Summary of {n} passage{n === 1 ? "" : "s"}
             </span>
           </div>
@@ -208,10 +206,26 @@ export function SummaryCard({
           </p>
 
           {result.summary_truncated && (
-            <p className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
+            <p className="mt-2 rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
               This summary reached its length limit and stops early — the model had
               more to say. The passages it cites are complete; open them for the rest.
             </p>
+          )}
+          {(result.evidence_removed ?? []).length > 0 && (
+            <div role="status" className="mt-2 rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
+              <p>
+                {(result.evidence_removed ?? []).length === 1
+                  ? "One source was shortened or left out before the summary was written."
+                  : `${(result.evidence_removed ?? []).length} sources were shortened or left out before the summary was written.`}
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {(result.evidence_removed ?? []).map((item) => (
+                  <li key={`${item.index}-${item.filename ?? "source"}`}>
+                    {item.filename ?? "A source"}{item.page_start !== null ? ` · page ${item.page_start}` : ""} — {item.action === "dropped" ? "not used" : `${item.characters_dropped.toLocaleString()} characters omitted`}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </>
       ) : (
@@ -236,7 +250,7 @@ export function SummaryCard({
           <button
             type="button"
             onClick={onSuggestCorrection}
-            className="rounded border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700"
+            className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700"
           >
             Suggest correction
           </button>

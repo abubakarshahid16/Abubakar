@@ -1,0 +1,9 @@
+import type { ReactNode } from "react";
+import type { AnalysisMode } from "../../components/analysis/ModeSelector";
+import { enginesFor } from "./analysisModel";
+type Engines = ReturnType<typeof enginesFor>;
+function RunChip({ active, children }: { active: boolean; children: ReactNode }) { return <span className={["inline-flex items-center gap-1.5 rounded-[var(--radius-xs)] border px-2 py-1 text-xs", active ? "border-signal-500/50 bg-signal-500/10 text-signal-300" : "border-ink-600 bg-ink-850 text-slateish-500"].join(" ")}>{children}<span className="font-mono text-xs uppercase tracking-wide">{active ? "On" : "Off"}</span></span>; }
+export function RunPlan({ mode, engines }: { mode: AnalysisMode; engines: Engines }) {
+  const modeText = mode === "quote" ? "Quote: mechanical evidence comparison" : mode === "focused" ? "Focused: generated synthesis over top passages" : "Comprehensive: wider synthesis request";
+  return <section aria-label="Selected analysis work" className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">Selected work</p><span className="text-xs text-slateish-500">{modeText}</span></div><div className="mt-2 flex flex-wrap gap-2">{engines.summary && <RunChip active>Summary</RunChip>}{engines.recommendation && <RunChip active>AI recommendation</RunChip>}{engines.gaps && <RunChip active>Gap analysis</RunChip>}{engines.market && <RunChip active>Public market sample</RunChip>}{!engines.summary && !engines.recommendation && !engines.market && <RunChip active={false}>Summary, recommendation and market</RunChip>}</div><p className="mt-2 text-xs text-slateish-400">Recommendation, gaps and public evidence stay separate. Review and approval by a qualified engineer is required.</p></section>;
+}

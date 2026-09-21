@@ -281,8 +281,20 @@ class HostNotAllowed(ValueError):
 
 
 def _host_of(url: str) -> str:
-    rest = url.split("://", 1)[-1]
-    return rest.split("/", 1)[0].split("@")[-1].split(":", 1)[0].lower()
+    match = re.match(r"^(https?)://([^/?#]+)", url.strip(), re.IGNORECASE)
+    if match is None:
+        raise HostNotAllowed("market URL must be an absolute HTTP(S) URL")
+    authority = match.group(2)
+    if "@" in authority:
+        raise HostNotAllowed("market URL must not contain embedded credentials")
+    if authority.startswith("["):
+        end = authority.find("]")
+        host = authority[1:end] if end > 0 else ""
+    else:
+        host = authority.rsplit(":", 1)[0] if ":" in authority else authority
+    if not host:
+        raise HostNotAllowed("market URL must name a host")
+    return host.rstrip(".").lower()
 
 
 def check_host(url: str) -> str:

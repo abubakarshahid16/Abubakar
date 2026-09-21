@@ -34,16 +34,16 @@ export function RecommendationCard({
   return (
     <details
       open
-      className="rounded-lg border border-warn-500/50 bg-warn-500/[0.06]"
+      className="card-3d accent-edge relative surface-card rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05]"
     >
-      <summary className="cursor-pointer list-item px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-warn-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-warn-500">
+      <summary className="cursor-pointer list-item px-4 py-3 text-xs font-semibold uppercase tracking-wider text-info-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-info-500">
         AI Advisory — not a documented requirement
       </summary>
 
-      <div className="border-t border-warn-500/30 px-4 pb-4">
+      <div className="border-t border-info-500/20 px-4 pb-4">
         <p
           role="note"
-          className="mt-3 rounded border border-warn-500/60 bg-warn-500/[0.12] px-3 py-2 text-sm font-semibold text-warn-500"
+          className="mt-3 rounded-[var(--radius-xs)] border border-warn-500/60 bg-warn-500/[0.12] px-3 py-2 text-sm font-semibold text-warn-500"
         >
           {REVIEW_SENTENCE}
         </p>
@@ -59,7 +59,7 @@ export function RecommendationCard({
               ? "Based on documents only"
               : "Based on documents and public market sample"}
             {r.basis === "documents_and_public_market" && (
-              <span className="ml-2 text-xs font-semibold uppercase tracking-wider text-warn-500">
+              <span className="ms-2 text-xs font-semibold uppercase tracking-wider text-warn-500">
                 market rows are sample data, not live
               </span>
             )}
@@ -73,7 +73,7 @@ export function RecommendationCard({
               <span className="font-semibold">{r.confidence}</span>
             )}
             {r.checks.length > 0 && (
-              <span className="ml-2 text-xs text-slateish-500">
+              <span className="ms-2 text-xs text-slateish-500">
                 {fired} of {r.checks.length} check{r.checks.length === 1 ? "" : "s"} fired
               </span>
             )}
@@ -90,7 +90,7 @@ export function RecommendationCard({
                 <li key={c.label} className="flex items-baseline gap-2 text-sm">
                   <span
                     className={[
-                      "w-16 shrink-0 font-mono text-[11px]",
+                      "w-16 shrink-0 font-mono text-xs",
                       c.fired ? "text-warn-500" : "text-slateish-500",
                     ].join(" ")}
                   >

@@ -56,6 +56,80 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     "micrometer": ("length", "um", 1.0),
     "micrometers": ("length", "um", 1.0),
     "mm": ("length", "um", 1000.0),
+    # Added after measuring the standards corpus: `m` and `inch` were already
+    # RECOGNISED as length but had no conversion, so "buried with a minimum of
+    # 1 m" parsed and then stored a null value - the number was read, believed,
+    # and thrown away. Both factors are exact by definition, which is the only
+    # reason they may be added here rather than left unconverted: 1 m is
+    # 1,000,000 um and 1 inch is 25,400 um, neither is a rounding.
+    "m": ("length", "um", 1_000_000.0),
+    "metre": ("length", "um", 1_000_000.0),
+    "metres": ("length", "um", 1_000_000.0),
+    "meter": ("length", "um", 1_000_000.0),
+    "meters": ("length", "um", 1_000_000.0),
+    "inch": ("length", "um", 25_400.0),
+    "inches": ("length", "um", 25_400.0),
+    "in": ("length", "um", 25_400.0),
+    # MOVED OUT OF `_UNCONVERTED_UNITS` on 2026-09-20, after the corpus was
+    # measured. They were left unconverted there for a reason that was true
+    # when written and is not true now: "there is no second spelling of any of
+    # them in this corpus to convert BETWEEN". There is. 600 stored limits
+    # already normalise to um through `mm`, `m` and `inch`, so a limit written
+    # in cm could not be compared against a datasheet value in mm, and two
+    # standards stating the same length in different spellings could not be
+    # seen to agree.
+    #
+    # Every factor here is exact by definition - 1 ft is 0.3048 m and 1 mil is
+    # 0.001 inch, both defined rather than measured - which is the same bar
+    # `m` and `inch` had to clear. Nothing that needs rounding is added.
+    "cm": ("length", "um", 10_000.0),
+    "km": ("length", "um", 1_000_000_000.0),
+    "ft": ("length", "um", 304_800.0),
+    "feet": ("length", "um", 304_800.0),
+    "foot": ("length", "um", 304_800.0),
+    "mil": ("length", "um", 25.4),
+    "mils": ("length", "um", 25.4),
+    "nm": ("length", "um", 0.001),
+    # EACH ITS OWN DIMENSION, WITH A FACTOR OF 1. Measured as missing from the
+    # standards corpus, and every one of them is the ONLY spelling of its
+    # quantity that appears there - there is no second unit to convert between,
+    # so the "conversion" is the identity and the dimension has one member.
+    #
+    # That is not a trick to fill the column. A dimension with one member still
+    # does the job a dimension exists for: two values in g/L compare, and a
+    # value in g/L and a value in mm do NOT, because `_compatible` refuses
+    # across dimensions. Leaving them unconverted instead would have stored the
+    # number and then refused to compare it with itself.
+    "g/l": ("concentration", "g/L", 1.0),
+    # The same unit spelled out. A datasheet writes "g/litre" and a standard
+    # writes "g/L"; they are one unit and must compare.
+    "g/litre": ("concentration", "g/L", 1.0),
+    "g/liter": ("concentration", "g/L", 1.0),
+    "g/m2": ("areal_density", "g/m2", 1.0),
+    "kj/mm": ("heat_input", "KJ/mm", 1.0),
+    "bhn": ("hardness", "BHN", 1.0),
+    "kph": ("speed", "kph", 1.0),
+    # "degC/hr" and "C/hr" both fold to this; `_fold_unit` drops the degree
+    # sign. A RATE, not a temperature - 5 C/hr is a heating rate and must never
+    # compare against a 5 C limit, which is why it is its own dimension.
+    "c/hr": ("temperature_rate", "C/hr", 1.0),
+    # COMPOUND ENGINEERING UNITS. Every conversion here is exact by definition,
+    # which is the same bar `m` and `inch` had to clear: 1 N/mm2 IS 1 MPa,
+    # 1 kN/m2 IS 1 kPa, and 1 kgf/cm2 is 0.0980665 MPa by the definition of the
+    # kilogram-force. None is a rounding.
+    "kg/cm2": ("pressure", "MPa", 0.0980665),
+    "kgf/cm2": ("pressure", "MPa", 0.0980665),
+    "n/mm2": ("pressure", "MPa", 1.0),
+    "kn/m2": ("pressure", "MPa", 0.001),
+    # Density. The pound and the foot are defined exactly, so 1 lb/ft3 is
+    # 16.018463... kg/m3 exactly and the two spellings compare.
+    "kg/m3": ("density", "kg/m3", 1.0),
+    "lb/ft3": ("density", "kg/m3", 16.018463373960142),
+    # Single-member dimensions: the only spelling of each quantity here, so the
+    # conversion is the identity and the dimension still does its job - two
+    # values in W/m2K compare and W/m2K against kg/m3 does not.
+    "w/m2k": ("heat_transfer", "W/m2K", 1.0),
+    "kj/kgk": ("specific_heat", "kJ/kgK", 1.0),
     # pressure -> MPa
     "mpa": ("pressure", "MPa", 1.0),
     "bar": ("pressure", "MPa", 0.1),
@@ -85,9 +159,15 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
 }
 
 #: Canonical unit per dimension, for the human-readable facet string.
+#: Indexed directly by `facet_label`, so a dimension added to `_UNIT_TABLE`
+#: without an entry here is a KeyError at render time rather than a wrong
+#: label. Kept adjacent for that reason.
 _DIMENSION_UNIT = {
     "length": "um", "pressure": "MPa", "temperature": "C", "percent": "%",
     "time": "h", "voltage": "V", "current": "A",
+    "concentration": "g/L", "areal_density": "g/m2", "heat_input": "KJ/mm",
+    "hardness": "BHN", "speed": "kph", "temperature_rate": "C/hr",
+    "density": "kg/m3", "heat_transfer": "W/m2K", "specific_heat": "kJ/kgK",
 }
 
 #: Units extraction recognises but the table does NOT convert, with the
@@ -97,8 +177,45 @@ _DIMENSION_UNIT = {
 #: arbitrary word after a number ("no. 9 has") is NOT a measurement.
 _UNCONVERTED_UNITS: dict[str, str | None] = {
     "f": "temperature", "degf": "temperature", "k": "temperature",
-    "mil": "length", "mils": "length", "cm": "length", "m": "length", "km": "length",
-    "ft": "length", "inch": "length", "inches": "length", "nm": "length",
+    # `mil`, `mils`, `cm`, `km`, `ft` and `nm` USED TO BE HERE and are now in
+    # `_UNIT_TABLE` - see the note beside them. Temperature stays: Fahrenheit
+    # to Celsius is affine, and a table of multiplicative factors cannot
+    # express it. A factor for °F would be wrong at every value but zero.
+    # Measured in the standards corpus and added so the extractor STOPS
+    # treating them as non-units - the gate in `requirements_3b.parse_limit`
+    # now refuses any token that is not recognised here, and without these
+    # entries a real "5 g/L" limit would be discarded along with "3 locations".
+    #
+    # RECOGNISED, NOT CONVERTED, and deliberately so. There is no second
+    # spelling of any of them in this corpus to convert BETWEEN, and inventing
+    # a conversion for an energy-per-length or a hardness number to satisfy a
+    # column would be the wrong kind of completeness. They carry a dimension
+    # where the dimension is certain and None where it is not.
+    # A TENTH ENTRY, BEYOND THE NINE THAT WERE MEASURED AS MISSING, and it is
+    # here to prevent a regression rather than to add coverage. `db` was
+    # already recognised and `db(a)` was not, so the new unit gate - which
+    # discards any token `claims` does not know - would have thrown away the
+    # A-weighting on every noise limit in the corpus: 16 chunks across 8
+    # documents, and the worked example the master plan is written around.
+    # `datasheets.py` was fixed in phase 5B precisely so that "95 dB(A)" keeps
+    # its A-weighting, and a gate that dropped it on the STANDARDS side would
+    # have re-opened that defect from the other direction.
+    "db(a)": None, "dba": None,
+    # Ordinary engineering units this corpus writes and the table did not know.
+    # RECOGNISED, NOT CONVERTED: each is the only spelling of its quantity here,
+    # and `NPS` in particular is a DESIGNATION rather than a measurement - NPS 2
+    # is not two of anything - so it must never acquire a conversion.
+    "nps": None, "wt%": None, "ppmw": None, "m3/hr": None, "m3/h": None,
+    # Measured as printed beside a value on a real sheet and absent here, so
+    # the row was read and its unit thrown away. `kg` and `kn` were already
+    # present; these are the rest.
+    #
+    # `years` is a DURATION and deliberately not folded into the `time`
+    # dimension: that dimension converts to hours, and a design life of 25
+    # years becoming 219,000 h would be arithmetically true and useless - it
+    # would then compare against a 24 h hold time.
+    "year": None, "years": None, "tonne": None, "tonnes": None, "te": None,
+    "m3": None, "m2": None,
     "psig": "pressure", "barg": "pressure", "mbar": "pressure",
     "s": "time", "sec": "time", "secs": "time", "second": "time", "seconds": "time",
     "d": "time", "day": "time", "days": "time",
@@ -112,9 +229,96 @@ _RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS)
 
 
 def _fold_unit(unit_str: str) -> str:
-    u = unit_str.strip().replace("µ", "u").replace("μ", "u").replace("°", "")
+    # LOWERCASED FIRST. The `deg ` substitution used to run against the
+    # original casing, so "deg C" folded to `degc` and matched while "Deg C" -
+    # the spelling a form actually uses in a column header - fell through to
+    # `deg c` and matched nothing.
+    u = unit_str.strip().lower().replace("µ", "u").replace("μ", "u").replace("°", "")
     u = u.replace("deg ", "deg").replace("degrees", "deg").replace("degree", "deg")
-    return u.lower()
+    # Internal spacing is not identity: "wt %" and "wt%" are one unit. Units
+    # are short tokens and none in the table is distinguished by a space.
+    return re.sub(r"\s+", "", u)
+
+
+#: Pressure spellings that carry a REFERENCE as a suffix, and what they mean.
+#: Written out rather than pattern-matched: `bara` and `barg` differ by one
+#: letter and mean a difference of one atmosphere, so this is not a place for a
+#: clever rule.
+_REFERENCE_SUFFIX = {
+    "barg": ("bar", "gauge"), "bara": ("bar", "absolute"),
+    "psig": ("psi", "gauge"), "psia": ("psi", "absolute"),
+    "kpag": ("kpa", "gauge"), "kpaa": ("kpa", "absolute"),
+    "mpag": ("mpa", "gauge"), "mpaa": ("mpa", "absolute"),
+    # The same suffix on a compound pressure. "kg/cm2g" is a gauge reading
+    # and differs from "kg/cm2" by an atmosphere, exactly as barg does.
+    "kg/cm2g": ("kg/cm2", "gauge"), "kg/cm2a": ("kg/cm2", "absolute"),
+    "kgf/cm2g": ("kgf/cm2", "gauge"), "kgf/cm2a": ("kgf/cm2", "absolute"),
+}
+
+#: The same reference written as a parenthetical: `bar (ga)`, `kPa(a)`.
+_REFERENCE_BRACKET = re.compile(
+    r"^(?P<base>.+?)\s*[\(\[]\s*(?P<ref>ga|g|gauge|a|abs|absolute)\s*[\)\]]$",
+    re.IGNORECASE)
+
+_REFERENCE_WORD = {
+    "ga": "gauge", "g": "gauge", "gauge": "gauge",
+    "a": "absolute", "abs": "absolute", "absolute": "absolute",
+}
+
+
+def split_reference(unit_str: str | None) -> tuple[str | None, str | None]:
+    """`(base unit, 'gauge' | 'absolute' | None)`.
+
+    A GAUGE PRESSURE AND AN ABSOLUTE PRESSURE ARE NOT THE SAME QUANTITY. They
+    differ by one atmosphere, and on this corpus's own submittal the design
+    pressure is written `3.5 bar (ga)` while a standard's limit is plain `bar`.
+    Comparing those two numbers directly is wrong by about 1 bar, silently, in
+    the direction that makes a vessel look compliant.
+
+    So the reference is SPLIT OFF AND KEPT rather than dropped: the unit
+    becomes `bar`, which the table knows, and the fact carries the fact that it
+    was gauge. Nothing here converts between them - that needs an ambient
+    pressure nobody has recorded - it only stops the distinction being lost.
+
+    A unit with no reference comes back unchanged with None, which is every
+    non-pressure unit and plain `bar`.
+    """
+    text = (unit_str or "").strip()
+    if not text:
+        return None, None
+    folded = _fold_unit(text)
+    # THE SUFFIX FORMS COME FIRST. `psig` and `barg` are in the recognised
+    # list as pressures, so a "already a known unit" check placed above this
+    # would return them whole and lose the gauge reference entirely.
+    if folded in _REFERENCE_SUFFIX:
+        return _REFERENCE_SUFFIX[folded]
+    # A UNIT THE TABLE KNOWS AND THAT IS NOT A SUFFIX FORM IS NEVER SPLIT.
+    # `dB(A)` ends in a bracketed "A" and is NOT decibels in absolute - the A
+    # is a weighting curve and part of the unit's identity. Splitting it
+    # re-opened the phase 5B defect from a third direction.
+    if folded in _RECOGNISED_UNITS:
+        return text, None
+    bracket = _REFERENCE_BRACKET.match(text)
+    if bracket is not None:
+        base = bracket.group("base").strip()
+        reference = _REFERENCE_WORD[bracket.group("ref").lower()]
+        # Only when what is left is a unit. "Design pressure (a)" is not a
+        # pressure in absolute, and "0.42 (6.09)" is a dual-unit remainder.
+        if is_unit(base):
+            return base, reference
+    return text, None
+
+
+def is_unit(unit_str: str) -> bool:
+    """Is this spelling a unit at all?
+
+    Separate from `unit_dimension`, which answers None BOTH for "not a unit"
+    and for "a unit whose dimension is not certain" - `ppm` and `locations`
+    are indistinguishable through it. A caller deciding whether a word after a
+    number is a unit needs those to be different answers, and this is that
+    question asked directly.
+    """
+    return _fold_unit(unit_str) in _RECOGNISED_UNITS
 
 
 def unit_dimension(unit_str: str) -> str | None:
@@ -129,10 +333,32 @@ def unit_dimension(unit_str: str) -> str | None:
 
 
 # ------------------------------------------------------------------ comparators
+#: Order matters twice over: `parse_comparator` full-matches these in turn, and
+#: `_COMPARATOR_RE` joins them into one alternation that other patterns anchor.
+#: The NEGATED forms must stay ahead of the bare ones and must absorb the whole
+#: negation - "no"/"not", an optional "be" - or a phrase like "shall not be
+#: less than 45 m" falls through to the bare "less than" that follows it and is
+#: read as `< 45`, the exact inversion of what the standard says. The same gap
+#: in `requirements_3b._LIMIT` flipped 129 stored limits across 79 standards.
+#: "but in no case shall it be less than 190 L/s" - the negation and the
+#: comparative are four words apart, and everything between them is ordinary
+#: prose, so only an alternative that spans the whole phrase keeps the sense.
+_IN_NO_CASE = r"in\s+no\s+case\s+(?:shall|may|should|will)\s+(?:it\s+)?(?:be\s+)?"
+
 _COMPARATOR_WORDS: tuple[tuple[str, str], ...] = (
-    (r"not\s+less\s+than", ">="),
-    (r"not\s+more\s+than", "<="),
-    (r"not\s+greater\s+than", "<="),
+    (_IN_NO_CASE + r"less\s+than", ">="),
+    (_IN_NO_CASE + r"(?:more|greater)\s+than", "<="),
+    (_IN_NO_CASE + r"exceed(?:ing)?", "<="),
+    (r"(?:no|not)\s+(?:be\s+)?less\s+than", ">="),
+    (r"(?:no|not)\s+(?:be\s+)?more\s+than", "<="),
+    (r"(?:no|not)\s+(?:be\s+)?greater\s+than", "<="),
+    # THE NEGATION IS REQUIRED. Bare "in excess of" is a trigger, not a
+    # limit: "equipment that will generate noise in excess of 85 dB(A) shall
+    # submit Form 7305-ENG" obliges a submission and forbids nothing. Only
+    # the negated form is a comparison. Sits above the bare alternatives so
+    # the whole phrase wins the span, as the _IN_NO_CASE forms do.
+    (r"(?:shall|must|may|should|will)\s+not\s+(?:\w+\s+){0,4}?"
+     r"in\s+excess\s+of", "<="),
     (r"not\s+exceed(?:ing)?", "<="),
     (r"at\s+least", ">="),
     (r"at\s+most", "<="),
@@ -176,6 +402,31 @@ def parse_comparator(text: str) -> str | None:
         if re.fullmatch(pattern, t, re.IGNORECASE):
             return symbol
     return None
+
+
+def comparator_ending(text: str) -> str | None:
+    """The operator implied by the comparator phrase at the END of `text`.
+
+    "the level shall not exceed " -> "<=".  "the level is " -> None.
+
+    This is how the pipeline actually reads a comparator - anchored at the end
+    of whatever stands before a number - as opposed to `parse_comparator`,
+    which full-matches a phrase handed to it whole. Exposed so that
+    `requirements_3b.contradicts_source` can ask what the SENTENCE says
+    without reaching into this module's private vocabulary, and so that there
+    is still exactly one comparator vocabulary in this system.
+
+    `min`/`max` are folded to the operators they mean, because a caller
+    comparing this against a stored operator needs the same alphabet.
+    """
+    if not text:
+        return None
+    match = re.search(r"(?:" + _COMPARATOR_RE + r")\s*(?:of\s+)?$",
+                      text, re.IGNORECASE)
+    if match is None:
+        return None
+    symbol = parse_comparator(" ".join(match.group(0).split()))
+    return {"min": ">=", "max": "<="}.get(symbol, symbol)
 
 
 def parse_value(value_str: str) -> float | None:
@@ -855,8 +1106,82 @@ def _interval(m: Measurement) -> tuple[float, float, bool, bool] | None:
     return (v, v, True, True)
 
 
+def same_unit(a: Measurement, b: Measurement) -> bool:
+    """True when both measurements are written in the SAME unit spelling.
+
+    Folded, so `dB(A)` and `db(a)` are the same unit and `dB(A)` and `dB` are
+    not - because they are not: A-weighting is part of what the number means.
+    """
+    ua, ub = _fold_unit(a.raw_unit or ""), _fold_unit(b.raw_unit or "")
+    return bool(ua) and ua == ub
+
+
+def _same_unit_view(m: Measurement) -> Measurement | None:
+    """`m` re-expressed so the interval machinery can read it, or None.
+
+    ONLY for a same-unit comparison. The value is the raw number and the unit
+    is its own spelling - nothing is converted, because there is nothing to
+    convert to. Returns None when the number itself cannot be parsed, which is
+    still undecidable rather than a guess.
+    """
+    if m.normalized_value is not None:
+        return m
+    value = parse_value(m.raw_value)
+    if value is None:
+        return None
+    return Measurement(
+        raw_value=m.raw_value, raw_unit=m.raw_unit,
+        normalized_value=value, normalized_unit=_fold_unit(m.raw_unit or ""),
+        comparator=m.comparator,
+    )
+
+
 def _compatible(a: Measurement, b: Measurement) -> bool | None:
-    """True when the values (as ranges) overlap, False when not, None if undecidable."""
+    """True when the values (as ranges) overlap, False when not, None if undecidable.
+
+    SAME-UNIT COMPARISON NEEDS NO DIMENSION, and that unblocks the case this
+    product is written around. `dB` is mapped to `None` in `_UNCONVERTED_UNITS`
+    and that mapping is correct - a decibel is a logarithmic ratio and has no
+    dimension to convert through, so `normalise` rightly leaves it
+    unnormalised. But "is 95 dB(A) above the 90 dB(A) limit" is not a
+    conversion question. It is a comparison of two numbers written on the same
+    scale, and refusing it left the master plan's flagship requirement - a
+    90 dB(A) limit with a 115 dB(A) relief-valve exception - permanently
+    undecidable.
+
+    So when both sides carry the IDENTICAL unit spelling, the raw numbers are
+    compared directly and nothing is converted.
+
+    CONVERSION BETWEEN DIFFERENT UNITS IS UNCHANGED and still refuses:
+    `normalise_strict` raises `UnknownUnit` for a unit outside the table, and
+    two different unconvertible spellings stay undecidable here. That is the
+    `scores.ScaleMismatch` discipline and this does not weaken it - a mismatch
+    is still an error rather than a coercion. What is relaxed is only the case
+    where there is no mismatch to speak of.
+
+    TWO DIFFERENT DIMENSIONS ARE NOT A FAILED COMPARISON, THEY ARE NO
+    COMPARISON. Both sides normalising successfully is not enough: `1.6 mm`
+    normalises to 1600 um and `60 degC` to 60 C, and comparing those numbers
+    returned False - which `comparison.compare` renders as NON_COMPLIANT, the
+    rationale reading "the submitted value 60 degC is outside the required
+    >= 1.6 mm". A length is not outside a temperature limit; there is no limit
+    to be outside of. False here is a confident wrong answer, which is the one
+    outcome this module exists to prevent, so the dimensions are checked before
+    any interval arithmetic and a mismatch returns None - undecidable - and
+    abstains upstream.
+
+    The guard is deliberately placed AHEAD of the same-unit shortcut. Identical
+    spellings always share a dimension, so it cannot interfere with the dB(A)
+    case, and putting it first means no later edit to the interval logic can
+    reach past it.
+    """
+    dim_a, dim_b = a.dimension, b.dimension
+    if dim_a is not None and dim_b is not None and dim_a != dim_b:
+        return None
+    if (a.normalized_value is None or b.normalized_value is None) and same_unit(a, b):
+        a, b = _same_unit_view(a), _same_unit_view(b)
+        if a is None or b is None:
+            return None
     ia, ib = _interval(a), _interval(b)
     if ia is None or ib is None:
         return None

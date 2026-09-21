@@ -35,6 +35,10 @@ export interface DocumentActions {
   onInspect: (doc: DocumentRecord) => void;
   onExcluded: (doc: DocumentRecord) => void;
   onPages: (doc: DocumentRecord) => void;
+  /** The ORIGINAL file - a PDF viewer, or a read-only workbook. */
+  onPreview: (doc: DocumentRecord) => void;
+  /** Metadata and processing information, in a drawer rather than on the card. */
+  onDetails: (doc: DocumentRecord) => void;
   onExtract: (doc: DocumentRecord) => void;
   onChunk: (doc: DocumentRecord) => void;
   onEmbed: (doc: DocumentRecord) => void;
@@ -49,6 +53,8 @@ export function DocumentCard({
   types,
   isAdmin = false,
   onConfirmType,
+  selected,
+  onToggleSelected,
 }: {
   doc: DocumentRecord;
   actions: DocumentActions;
@@ -66,6 +72,11 @@ export function DocumentCard({
   /** Confirms (or changes) this document's type. Absent classification or no
    *  admin means this is never called - see the render logic below. */
   onConfirmType?: (doc: DocumentRecord, docType: string) => void;
+  /** Whether this row is in the bulk selection. `undefined` means the page is
+   *  not offering selection at all and NO checkbox renders - a non-admin must
+   *  not be given a control whose only endpoint 404s them. */
+  selected?: boolean;
+  onToggleSelected?: (id: string) => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showStages, setShowStages] = useState(false);
@@ -77,12 +88,24 @@ export function DocumentCard({
   const busy = actions.busy === doc.id;
 
   return (
-    <li className="rounded-lg border border-ink-700 bg-ink-850">
+    <li className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850">
       <div className="flex flex-wrap items-start justify-between gap-3 p-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
+            {/* The accessible name is the FILENAME, not "select" - a screen
+                reader listing forty checkboxes all called "select" describes a
+                form nobody can use. */}
+            {selected !== undefined && onToggleSelected && (
+              <input
+                type="checkbox"
+                checked={selected}
+                aria-label={`Select ${doc.filename}`}
+                onChange={() => onToggleSelected(doc.id)}
+                className="h-4 w-4 shrink-0 accent-signal-500"
+              />
+            )}
             <h3 className="truncate font-medium text-slateish-200">{doc.filename}</h3>
-            <span className={`rounded px-2 py-0.5 text-[11px] ${TONE[status.tone]}`}>
+            <span className={`rounded-[var(--radius-xs)] px-2 py-0.5 text-xs ${TONE[status.tone]}`}>
               {status.label}
             </span>
             {/* THE REGISTER TYPE. NEUTRAL only when `confirmed` is true - a
@@ -96,21 +119,21 @@ export function DocumentCard({
               (classification.doc_type === null ? (
                 <span
                   data-testid="type-chip"
-                  className="rounded border border-ink-600 px-2 py-0.5 text-[11px] text-slateish-400"
+                  className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-400"
                 >
                   Awaiting a type
                 </span>
               ) : classification.confirmed ? (
                 <span
                   data-testid="type-chip"
-                  className="rounded bg-ink-700 px-2 py-0.5 text-[11px] text-slateish-300"
+                  className="rounded-[var(--radius-xs)] bg-ink-700 px-2 py-0.5 text-xs text-slateish-300"
                 >
                   {classification.doc_type}
                 </span>
               ) : (
                 <span
                   data-testid="type-chip"
-                  className="rounded border border-warn-500/40 bg-warn-500/10 px-2 py-0.5 text-[11px] text-warn-500"
+                  className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/10 px-2 py-0.5 text-xs text-warn-500"
                   title={`Suggested by ${classification.suggested_by}, not yet confirmed.`}
                 >
                   {`${classification.doc_type}? \u00b7 guessed from ${sourceLabel(classification.suggested_by)}`}
@@ -128,7 +151,7 @@ export function DocumentCard({
                 <span
                   key={d}
                   data-testid="discipline"
-                  className="rounded border border-signal-500/40 bg-signal-500/10 px-2 py-0.5 text-[11px] text-signal-400"
+                  className="rounded-[var(--radius-xs)] border border-signal-500/40 bg-signal-500/10 px-2 py-0.5 text-xs text-signal-400"
                 >
                   {d}
                 </span>
@@ -136,7 +159,7 @@ export function DocumentCard({
             ) : (
               <span
                 data-testid="discipline"
-                className="rounded border border-ink-600 px-2 py-0.5 text-[11px] text-slateish-400"
+                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-400"
                 title="No discipline holds this document. Only an administrator can read it."
               >
                 Admin only
@@ -150,7 +173,7 @@ export function DocumentCard({
                 the day it shipped. */}
             {doc.needs_ocr_pages > doc.recognised_pages && (
               <span
-                className="rounded bg-warn-500/15 px-2 py-0.5 text-[11px] text-warn-500"
+                className="rounded-[var(--radius-xs)] bg-warn-500/15 px-2 py-0.5 text-xs text-warn-500"
                 title="Scanned pages with no extractable text that recognition has not yet read."
               >
                 {doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR
@@ -158,7 +181,7 @@ export function DocumentCard({
             )}
             {doc.equation_pages > 0 && (
               <span
-                className="rounded bg-info-500/15 px-2 py-0.5 text-[11px] text-info-500"
+                className="rounded-[var(--radius-xs)] bg-info-500/15 px-2 py-0.5 text-xs text-info-500"
                 title="Mathematics did not survive extraction on these pages. Use the page image."
               >
                 {doc.equation_pages} equation-heavy
@@ -170,7 +193,7 @@ export function DocumentCard({
 
           {doc.chunk_count > 0 && doc.embedded_count < doc.chunk_count && (
             <div
-              className="mt-2 h-1.5 w-full max-w-md overflow-hidden rounded bg-ink-700"
+              className="mt-2 h-1.5 w-full max-w-md overflow-hidden rounded-[var(--radius-xs)] bg-ink-700"
               role="progressbar"
               aria-label={`Embedding ${doc.filename}`}
               aria-valuenow={Math.round(progress * 100)}
@@ -178,7 +201,7 @@ export function DocumentCard({
               aria-valuemax={100}
             >
               <div
-                className="h-full bg-info-500 transition-all"
+                className="h-full bg-info-500 motion-safe:transition-all"
                 style={{ width: `${progress * 100}%` }}
               />
             </div>
@@ -208,7 +231,16 @@ export function DocumentCard({
               "inspect" and "stages" are developer vocabulary. */}
           <Action label="Passages" onClick={() => actions.onInspect(doc)} primary />
           <Action label="Excluded" onClick={() => actions.onExcluded(doc)} />
-          <Action label="Pages" onClick={() => actions.onPages(doc)} />
+          <Action label="Preview" onClick={() => actions.onPreview(doc)} />
+          {/* "Pages" renders the EXTRACTED pages this system indexed;
+              "Preview" shows the ORIGINAL file. Two different questions - what
+              did the system read, and what did the contractor send - and
+              collapsing them would hide every extraction defect this project
+              exists to surface. A workbook has no rendered pages at all. */}
+          {doc.status !== "stored_not_indexed" && (
+            <Action label="Pages" onClick={() => actions.onPages(doc)} />
+          )}
+          <Action label="Details" onClick={() => actions.onDetails(doc)} />
           {/* Re-running a stage is a maintenance operation, not a reading one.
               On a 1,400-page document each of these is minutes of compute, and
               they sat one keystroke apart from the reading controls where a
@@ -266,7 +298,7 @@ export function DocumentCard({
                       setChangingType(false);
                       onConfirmType?.(doc, t);
                     }}
-                    className="rounded border border-ink-600 px-2 py-1 text-slateish-300 hover:bg-ink-700"
+                    className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1 text-slateish-300 hover:bg-ink-700"
                   >
                     {t}
                   </button>
@@ -364,7 +396,7 @@ export function DocumentCard({
             type="button"
             onClick={() => actions.onExcluded(doc)}
             className={[
-              "mt-2 rounded border px-3 py-1 text-xs",
+              "mt-2 rounded-[var(--radius-xs)] border px-3 py-1 text-xs",
               (doc.pages_excluded_with_clause_headings ?? 0) > 0
                 ? "border-danger-500/60 text-danger-500 hover:bg-danger-500/15"
                 : "border-ink-500 text-slateish-300 hover:bg-ink-700",
@@ -391,7 +423,7 @@ export function DocumentCard({
           <button
             type="button"
             onClick={() => actions.onExcluded(doc)}
-            className="mt-2 rounded border border-warn-500/60 px-3 py-1 text-xs text-warn-500 hover:bg-warn-500/15"
+            className="mt-2 rounded-[var(--radius-xs)] border border-warn-500/60 px-3 py-1 text-xs text-warn-500 hover:bg-warn-500/15"
           >
             See what was excluded
           </button>
@@ -441,7 +473,7 @@ function Action({
       disabled={disabled}
       aria-expanded={expanded}
       className={[
-        "rounded border px-2.5 py-1 text-xs transition-colors disabled:opacity-40",
+        "rounded-[var(--radius-xs)] border px-2.5 py-1 text-xs motion-safe:transition-colors disabled:opacity-40",
         primary
           ? "border-signal-500/60 text-signal-400 hover:bg-signal-500/15"
           : danger

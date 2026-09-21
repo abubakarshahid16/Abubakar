@@ -15,6 +15,7 @@ import type {
   AdminUser,
 } from "../types/admin";
 import { AdminView, type AdminViewProps } from "./AdminView";
+import { management, reviews } from "../api/client";
 
 /** A user who has NEVER signed in. The null rule cannot be tested on a
  *  fixture that carries a timestamp - the assertion would pass on a component
@@ -240,5 +241,21 @@ describe("row isolation", () => {
     expect(warned.textContent).toContain("No discipline");
     expect(clean.textContent).not.toContain("No discipline");
     expect(clean.textContent).not.toContain("new@example.com");
+  });
+});
+
+describe("engineering review controls", () => {
+  it("renders baseline rules and submits a new rule", async () => {
+    vi.spyOn(reviews, "baselineRules").mockResolvedValue({ ok: true, data: { rules: [{ id: "r1", submittal_doc_type: "Drawing", submittal_discipline: null, baseline_doc_type: "Specification", baseline_discipline: null, priority: 1, active: true, created_at: "2026-01-01" }] } });
+    const create = vi.spyOn(reviews, "createBaselineRule").mockResolvedValue({ ok: true, data: { id: "r2", submittal_doc_type: "Report", submittal_discipline: null, baseline_doc_type: "Specification", baseline_discipline: null, priority: 0, active: true, created_at: "2026-01-01" } });
+    vi.spyOn(management, "emailSummary").mockResolvedValue({ ok: true, data: { sent: true } });
+    const user = userEvent.setup();
+    render(<AdminView {...props()} />);
+    expect(await screen.findByText("Specification")).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "Submittal document type" }), "Report");
+    await user.type(screen.getByRole("textbox", { name: "Baseline document type" }), "Specification");
+    await user.click(screen.getByRole("button", { name: "Add rule" }));
+    expect(create).toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 });

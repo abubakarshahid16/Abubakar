@@ -3,8 +3,13 @@
 # Source: EXECUTION.md section 9 "Files that must be ignored" (verbatim block),
 # plus platform additions marked below.
 #
-# RULE (EXECUTION.md section 6): no client PDFs, extracted text, embeddings,
-# chats, model weights, secrets, or production metrics may ever enter Git.
+# RULE - instruction 6 in section 0 of RAG-INTELLIGENCE-POC-EXECUTION.md, verbatim:
+#   "Never put client PDFs, extracted text, SQLite files, vectors, generated
+#    reports, secrets, user data, prompts or answers in Git, GitHub Actions
+#    artifacts, logs, screenshots or issue bodies."
+# Section 3.1 of the same file extends it to document filenames and hashes.
+# (This header previously cited "section 6" with a paraphrase; section 6 of that
+# file is governed learning. Corrected 2026-09-21.)
 # ==============================================================================
 
 # --- section 9 verbatim ---
@@ -33,6 +38,31 @@ test-results/
 # --- additions (not in section 9; required for this environment) ---
 # Synthetic CI fixtures are the ONLY PDFs allowed in Git. Re-include explicitly.
 !tests/fixtures/synthetic/*.pdf
+
+# Scratch folders left by audit runs (pytest basetemp and similar). Ignored
+# explicitly because their subfolders can be permission-denied, which makes git
+# unable to see them at all - invisible is not the same as ignored, and a later
+# `git add -A` run with different permissions would sweep them in.
+.audit_tmp*/
+
+# Project memory (.cowork): DEFAULT-DENY. Most of it is evidence - client
+# document names and hashes, prompts, model answers, DB row ids - which rule 6
+# above keeps out of Git; it travels by direct copy. Only policy and plan files
+# are allowed, each named here. A new .cowork file is therefore ignored until
+# someone decides it is safe, instead of committed until someone notices.
+# Transport of each file: .cowork/README-INDEX.md.
+.cowork/*
+!.cowork/NORTH-STAR.md
+!.cowork/README-INDEX.md
+!.cowork/CLIENT_FEEDBACK_REQUIREMENTS_ADDENDUM.md
+!.cowork/EXECUTE-B24-B23.md
+!.cowork/EXECUTE-COMMIT-B24-B23.md
+!.cowork/EXECUTE-GITHUB-TRANSFER.md
+!.cowork/EXECUTE-RAM-OPTIMISATION.md
+!.cowork/LAPTOP-MODEL-UPGRADE-9B.md
+!.cowork/RAM-OPTIMISATION.md
+# Tracked since 44f66ec, before this rule; carries no document identifier.
+!.cowork/PROMPT-crs-client-fields.md
 
 # Windows / macOS noise
 Thumbs.db
@@ -78,3 +108,17 @@ Claude outputs/
 
 # Claude Code per-machine permissions (never shared)
 .claude/settings.local.json
+
+# Filled gold sheets describe client standards - template only (gold/README.md)
+gold/*.csv
+!gold/TEMPLATE.csv
+!gold/PAIRS-TEMPLATE.csv
+# EXCEPTIONS, tracked although this rule forbids them - listed so that the rule
+# and the repository agree about what is in Git. Both were committed before
+# anyone checked them against the rule (99591dd, cdf156b) and are already on
+# GitHub. Owner decision 2026-09-21: ACCEPTED RISK (private repository, content
+# already published, and untracking would not remove it from history). Recorded
+# as B27 in .cowork/CURRENT_STATE_AND_BLOCKERS.md, left open to be revisited.
+# Every OTHER filled sheet stays ignored. Do not add to this list.
+!gold/SAES-A-105.csv
+!gold/PAIRS-216400C.csv

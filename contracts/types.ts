@@ -14,6 +14,40 @@ export type DocStatus =
   | "partially_searchable"   // keyword search works, vectors still arriving
   | "ready"                  // keyword + vector both complete
   | "no_searchable_content"  // finished, but nothing is searchable - NOT ready
+  // A workbook: stored and previewable, DELIBERATELY never indexed. Not a
+  // failure and not a document that is still working - a CRS template is a
+  // form to be filled, not corpus content, so nothing in it should ever come
+  // back as the answer to an engineering question. Terminal.
+  | "stored_not_indexed"
+  | "failed";
+
+/** The five roles a document can play in a submittal review.
+ *
+ *  NOT ACCESS CONTROL (CLAUDE.md rule 5): a role says what a document is FOR;
+ *  the grant tables say who may read it. */
+export type DocumentRole =
+  | "CONTRACTOR_SUBMITTAL"
+  | "COMPANY_STANDARD"
+  | "CONTRACT_DOCUMENT"
+  | "SUPPORTING_DOCUMENT"
+  | "CRS_TEMPLATE";
+
+/** Where a DOCUMENT stands in the review workflow.
+ *
+ *  DERIVED from the latest review run, never stored. `not_reviewed` is a REAL
+ *  ANSWER and not a null: "has this been reviewed" has a definite answer for
+ *  every document, and it is no.
+ *
+ *  Named apart from `ReviewStatus` (line 181) deliberately: that one is where
+ *  a single FINDING stands in the guided-review workflow (`open`,
+ *  `resolved`...). Two different questions about two different things, and
+ *  collapsing them into one name is how a finding's state ends up rendered on
+ *  a document card. */
+export type DocumentReviewStatus =
+  | "not_reviewed"
+  | "pending"
+  | "running"
+  | "completed"
   | "failed";
 
 /** A document can answer questions in these states - never block on embedding. */
@@ -65,6 +99,129 @@ export interface DocumentRecord {
   pages_excluded_with_clause_headings?: number;
   uploaded_at: string;       // ISO 8601
   indexed_at: string | null;
+  /** ---------------------------------- AI submittal review, phase 2
+   *  Every one of these is NULL on every document classified before this
+   *  workflow existed - all 19 in the live corpus at the time of writing.
+   *  NULL RENDERS AS NOTHING: never 0, never "Unknown", never a dash that
+   *  reads like a recorded value. */
+  document_role?: DocumentRole | null;
+  document_number?: string | null;
+  /** The human title, which is NOT the filename. Null means none recorded and
+   *  the UI falls back to the filename rather than inventing one. */
+  title?: string | null;
+  revision?: string | null;
+  equipment_type?: string | null;
+  project?: string | null;
+  /** The document id that replaced this one. Null means this one is current. */
+  superseded_by?: string | null;
+  /** Derived from the latest review run. Absent only from an older backend. */
+  review_status?: DocumentReviewStatus;
+}
+
+// ---------- standards library (phase 3A) ----------
+
+/** One clause of a standard, resolving to the chunk it was read from. */
+export interface StandardClause {
+  clause: string;
+  /** Null for a top-level clause - a real answer, not a missing one. */
+  parent_clause: string | null;
+  depth: number;
+  title: string | null;
+  page: number;
+  chunk_id: string;
+}
+
+/** One atomic requirement, with its resolving citation.
+ *
+ *  Phase 3A carries no requirement_type, operator, value, unit, condition or
+ *  exceptions. Those are 3B: half a numeric limit is worse than none, because
+ *  a row carrying `value: 90` with no operator reads as a limit and is not
+ *  one. */
+export interface StandardRequirement {
+  id: string;
+  standard_document_id: string;
+  /** NULL when the parser could not identify one. NEVER guessed and never
+   *  inherited from the preceding clause - an inherited number is a citation
+   *  that resolves to the wrong place. Render it as "clause not identified". */
+  clause: string | null;
+  page: number | null;
+  chunk_id: string | null;
+  requirement_text: string;
+  /** The verbatim span. Separate from requirement_text because 3B will
+   *  normalise one and must not lose the other. */
+  source_text: string | null;
+  category: string | null;
+  /** 'extracted' until a human confirms it: a guess stays labelled a guess. */
+  extraction_method: string | null;
+  /** A HEURISTIC, not a probability. It decides whether a row is presented as
+   *  a requirement or as one awaiting verification, and nothing else. */
+  confidence: number | null;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  needs_verification: boolean;
+  /** False when the cited chunk is gone - re-extract. Shown rather than the
+   *  row being silently dropped. */
+  citation_resolves: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StandardSummary {
+  id: string;
+  filename: string;
+  status: DocStatus;
+  page_count: number | null;
+  uploaded_at: string;
+  title: string | null;
+  document_number: string | null;
+  revision: string | null;
+  effective_date: string | null;
+  /** What the standard's own cover page says. Evidence, never rewritten. */
+  discipline: string | null;
+  /** The canonical spelling, derived from `discipline`. A screen shows this
+   *  and keeps the raw one in a tooltip WHEN THEY DIFFER; an unmapped value
+   *  equals the raw one, so there is nothing to show. */
+  discipline_canonical?: string | null;
+  superseded_by: string | null;
+  /** Excluded from SELECTION for new reviews, and still fully readable and
+   *  citable. Two different questions. */
+  superseded: boolean;
+  /** 0 means NONE EXTRACTED. It never means "none required", and it never
+   *  renders as readiness. */
+  requirement_count: number;
+  awaiting_verification: number;
+}
+
+export interface StandardExtraction {
+  document_id: string;
+  chunks_read: number;
+  requirements: number;
+  awaiting_verification: number;
+}
+
+/** One sheet of a read-only workbook preview. */
+export interface WorkbookSheet {
+  name: string;
+  /** POPULATED ROWS ONLY, row-major. Ragged rows are normal - a sheet is not
+   *  a rectangle. An empty cell is an empty string and renders as NOTHING,
+   *  never as 0. */
+  rows: string[][];
+  /** The preview stopped short of this sheet's full extent. Stated rather
+   *  than applied silently: a preview that quietly stops at row 500 lies
+   *  about what the file holds. */
+  truncated?: boolean;
+}
+
+export interface WorkbookPreview {
+  sheets: WorkbookSheet[];
+  truncated?: boolean;
+}
+
+export interface DocumentPage {
+  items: DocumentRecord[];
+  total_matching: number;
+  limit: number;
+  offset: number;
 }
 
 export interface UploadAccepted {
@@ -133,11 +290,16 @@ export interface ReviewFinding {
   id: string;
   document_id: string;
   baseline_document_id: string | null;
+  template_id: string | null;
+  discipline: string | null;
+  confidence: "low" | "medium" | null;
   category: ReviewCategory;
   severity: ReviewSeverity;
   requirement: string;
   finding: string;
   required_action: string;
+  governing_sources: string[];
+  unresolved_evidence: string[];
   response_text: string | null;
   disposition: ReviewDisposition | null;
   citation_ids: string[];
@@ -151,16 +313,221 @@ export interface ReviewFinding {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // ------------------------------------- the compliance shape (phases 5A/5B)
+  //
+  // Every one is optional: a finding raised by hand through
+  // POST /api/reviews/findings has none of them and is still a finding.
+  review_run_id?: string | null;
+  compliance_status?: ComplianceStatus | null;
+  requirement_id?: string | null;
+  fact_id?: string | null;
+  /** The field name the matcher paired, verbatim from the datasheet. */
+  matched_phrase?: string | null;
+  /** `containment` or `model`. Rule and guess must not read alike. */
+  match_method?: string | null;
+  /** Why the engine decided what it did. Shown verbatim, never re-worded. */
+  ai_rationale?: string | null;
+  /** Which equipment the finding is about. Null renders as nothing. */
+  equipment_tag?: string | null;
+  confirmed_by?: string | null;
+  confirmed_at?: string | null;
+  standard_document_id?: string | null;
+  standard_clause?: string | null;
+  standard_page?: number | null;
+  requirement_source_text?: string | null;
+  contractor_page?: number | null;
+  contractor_section?: string | null;
+  contractor_evidence_text?: string | null;
+}
+
+export type ComplianceStatus =
+  | "COMPLIANT"
+  | "NON_COMPLIANT"
+  | "MISSING_INFORMATION"
+  | "CONDITIONAL"
+  | "NOT_APPLICABLE"
+  | "NEEDS_ENGINEER_REVIEW";
+
+/** One standard on a run's list, with the reason it is there, verbatim. */
+/** One labelled line of the CRS header block, rows 3-7 of the sheet.
+ *
+ * The label travels with the value because the wording is the CLIENT's, down
+ * to the double space in "CONTRACTOR  Transmittal No.:". A screen that
+ * re-typed it would be showing its own words over their document.
+ */
+export interface CrsHeaderField {
+  label: string;
+  value: string;
+}
+
+/**
+ * One comment row of the CRS, exactly as the workbook writes it.
+ *
+ * `contractor_response` and `final_resolution` are ALWAYS empty strings. They
+ * belong to the contractor, and they are carried rather than omitted because
+ * the sheet has seven columns whether or not anyone has answered yet.
+ */
+export interface CrsPreviewRow {
+  item_no: number;
+  /** The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
+   *  across re-exports of the same review, so a contractor can quote it back -
+   *  unlike item_no, which is 1..N and renumbers on every export. It is also
+   *  printed as the first line of `comment`, because the client's template has
+   *  seven columns and this adds no eighth one. */
+  row_ref: string;
+  document_name: string;
+  page_section: string;
+  comment: string;
+  comment_by: string;
+  contractor_response: string;
+  final_resolution: string;
+}
+
+/**
+ * The Comment Resolution Sheet as a browser can render it.
+ *
+ * THE SAME CONTENT AS THE .xlsx, FROM THE SAME BUILDER. The preview route and
+ * the download compose through one function on the server, so what an
+ * engineer reads on screen is what the client receives - a preview that could
+ * disagree with the delivered file would be worse than no preview at all.
+ */
+export interface CrsPreview {
+  title: string;
+  subtitle: string;
+  header: CrsHeaderField[];
+  columns: string[];
+  rows: CrsPreviewRow[];
+  /** Empty when the run has no recommendation - rendered as nothing, never
+   *  as a placeholder code. */
+  recommended_code: string;
+  recommended_code_reason: string;
+  recommended_code_label: string;
+}
+
+export interface ReviewRunStandard {
+  standard_document_id: string;
+  filename: string | null;
+  selection_method: string | null;
+  selection_reason: string | null;
+  confidence: number | null;
+  included: boolean;
+  exclusion_reason: string | null;
+}
+
+/**
+ * A review run as the runs list shows it.
+ *
+ * `by_status` is a map of status to count and `findings_total` is what they
+ * are out of. Both travel together so no screen has to invent a denominator.
+ */
+export interface ReviewRunSummary {
+  review_run_id: string;
+  submittal_document_id: string;
+  submittal_filename: string | null;
+  equipment_tags: string[];
+  status: string;
+  created_at: string | null;
+  completed_at: string | null;
+  standards_in_scope: number;
+  findings_total: number;
+  by_status: Partial<Record<ComplianceStatus, number>>;
+  recommended_code: string | null;
+  /** The recommendation's own words, including the nominal-estimate note. */
+  recommended_reason: string | null;
+  /** Why a failed run failed, verbatim. Null on a run that did not fail. */
+  failure_reason?: string | null;
+  /** The engineer's final code, beside the AI's and never instead of it. */
+  engineer_final_code?: string | null;
+  override_reason?: string | null;
+  /** The user id the foreign key holds. Shown only in the tooltip. */
+  decided_by?: string | null;
+  /** The name that id belongs to, resolved server-side in the run's own
+   *  join. Null when the user row is gone; null renders as nothing. */
+  decided_by_name?: string | null;
+  decided_at?: string | null;
+  completeness: {
+    fields_read?: number;
+    fields_estimated?: number;
+    pages?: number;
+    extraction_coverage?: number | null;
+    completeness?: number | null;
+    sufficient?: boolean;
+  } | null;
+}
+
+/** The four codes of master plan section 15. Configurable there, fixed here
+ *  until the client asks for different ones. */
+export const REVIEW_CODES = [
+  "Approved",
+  "Approved with Comments",
+  "Rejected / Revise and Resubmit",
+  "Manual Review Required",
+] as const;
+
+export interface ReviewDashboard {
+  submittals_total: number;
+  submittals_awaiting_review: number;
+  standards_available: number;
+  standards_referenced_total: number;
+  standards_referenced_missing: number;
+  reviews_running: number;
+  reviews_awaiting_decision: number;
+  reviews_total: number;
+  needs_attention: number;
+  needs_attention_reasons: Record<string, number>;
+  recent: ReviewRunSummary[];
+}
+
+export interface PairRejection {
+  requirement_key: string;
+  fact_key: string;
+  requirement_id: string | null;
+  fact_id: string | null;
+  rejected_by: string | null;
+  rejected_at: string;
+  reason: string | null;
+}
+
+export interface ReviewFindingEvent {
+  id: string;
+  finding_id: string;
+  event_type: "created" | "updated";
+  changes: Record<string, unknown>;
+  actor_user_id: string | null;
+  created_at: string;
+}
+
+export interface ReviewTemplate {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  discipline: string | null;
+  deliverable_type: string | null;
+  governing_sources: string[];
+  categories: string[];
+  severity_levels: string[];
+  approval_terms: string[];
+  required_sections: string[];
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ReviewFindingCreate {
   document_id: string;
   baseline_document_id?: string | null;
+  template_id?: string | null;
+  discipline?: string | null;
+  confidence?: "low" | "medium" | null;
   category: ReviewCategory;
   severity: ReviewSeverity;
   requirement: string;
   finding: string;
   required_action: string;
+  governing_sources?: string[];
+  unresolved_evidence?: string[];
   response_text?: string | null;
   disposition?: ReviewDisposition | null;
   citation_ids?: string[];
@@ -191,6 +558,7 @@ export type DeliverableStatus = "planned" | "in_progress" | "submitted" | "under
 export interface Deliverable {
   id: string;
   wbs_code: string;
+  parent_id: string | null;
   title: string;
   deliverable_type: string;
   revision: string;
@@ -205,8 +573,19 @@ export interface Deliverable {
   created_at: string;
   updated_at: string;
 }
+export type StakeholderRole = "owner" | "reviewer" | "approver" | "informed";
+export interface DeliverableStakeholder {
+  deliverable_id: string;
+  user_id: string;
+  role: StakeholderRole;
+  email: string;
+  display_name: string | null;
+}
+export interface DeliverableStakeholderAssignment { user_id: string; role: StakeholderRole; }
+export interface WbsWorkspace { node: Deliverable; children: Deliverable[]; documents: { id: string }[]; reviews: ReviewFinding[]; escalations: DeliverableAlert[]; }
 export interface DeliverableCreate {
   wbs_code: string;
+  parent_id?: string | null;
   title: string;
   deliverable_type: string;
   revision?: string;
@@ -234,6 +613,8 @@ export interface ManagementSummary {
   deliverables_by_status: Record<string, number>;
   review_findings_total: number;
   findings_by_severity: Record<string, number>;
+  findings_by_status: Record<string, number>;
+  escalated_findings: number;
   overdue_alerts: number;
   alerts: DeliverableAlert[];
 }
@@ -244,6 +625,15 @@ export interface EscalationRule {
   action: string;
   enabled: boolean;
 }
+
+export type ComparisonType = "baseline_vs_submittal" | "requirements_vs_submittal" | "revision_delta" | "discipline_coordination";
+export interface ReviewBaselineRule { id: string; submittal_doc_type: string | null; submittal_discipline: string | null; baseline_doc_type: string; baseline_discipline: string | null; priority: number; active: boolean; created_at: string; }
+export interface BaselineSelection { document_id: string; rule_id: string | null; automatic: boolean; }
+export interface ExpectedDeliverable { id: string; wbs_code: string; deliverable_type: string; title: string; required: boolean; deliverable_id: string | null; status: DeliverableStatus | null; state: "registered" | "missing"; origin: "manual" | "inferred"; }
+export type RiskType = "schedule" | "review" | "dependency" | "compliance";
+export interface Risk { id: string; risk_type: RiskType; title: string; description: string; severity: string; status: string; deliverable_id: string | null; document_id: string | null; owner_user_id: string | null; due_date: string | null; source_finding_id: string | null; created_at: string; updated_at: string; }
+export interface StructuredSearchResult { id: string; kind: "deliverable" | "finding" | "risk" | "stakeholder"; label: string; wbs_code: string | null; document_id: string | null; }
+export interface ReviewTraceability { finding: ReviewFinding; document: { id: string; filename: string }; baseline: { filename: string } | null; citations: string[]; events: ReviewFindingEvent[]; deliverables: Deliverable[]; owner: { user_id: string; email: string; display_name: string | null } | null; action: string; }
 
 // ---------- jobs ----------
 
@@ -752,6 +1142,7 @@ export interface AnalysisRecommendationResult {
   evidence_ledger: EvidenceItem[];
   /** Null is not an empty recommendation. */
   recommendation: RecommendationOut | null;
+  recommendation_refusal: string | null;
   public_market_findings: MarketFinding[];
   not_implemented_sections: string[];
 }
@@ -759,6 +1150,8 @@ export interface AnalysisRecommendationResult {
 export interface AnalysisRequest {
   question: string;
   limit?: number;
+  comparison_type?: ComparisonType | null;
+  document_id?: string | null;
   /** The caller's choice of authoritative document. Never chosen by the
    *  system. */
   baseline_document_id?: string | null;
@@ -1000,6 +1393,9 @@ export interface ReportList {
   /** Reports hidden because a cited document left the caller's scope. THAT
    *  something is hidden, never WHAT. */
   suppressed_count: number;
+  total_matching?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export interface ReportVerification {
@@ -1013,6 +1409,22 @@ export interface ReportVerification {
 
 export interface GenerateReport {
   message_id: string;
+}
+
+/** A count of the library, from the database, under the caller's grants.
+ *  `text` carries its own boundary - "272 company standards are loaded and
+ *  readable by you" - so it cannot be shown without it. */
+export interface CorpusFact {
+  text: string;
+  /** document_role counted; null means every role */
+  role: string | null;
+  loaded: number;
+  /** in scope but still processing, or failed */
+  not_loaded: number;
+  kind: "count" | "list";
+  source: "database";
+  /** the question also asked about content, answered separately by retrieval */
+  qualified: boolean;
 }
 
 export interface AnswerResult {
@@ -1053,6 +1465,14 @@ export interface AnswerResult {
   coverage: Coverage | null;
   /** guidance only: real questions drawn from the loaded documents */
   examples: string[];
+  /** The LIBRARY's answer, counted from the database. On a metadata answer it
+   *  IS the answer; on any other answer_type the question also asked about
+   *  content, and this is the separate database half of a two-part reply. */
+  corpus?: CorpusFact | null;
+  /** Sentences in a generated answer whose count of documents was re-bounded
+   *  to the passages retrieved - the model sees a few passages, never the
+   *  library, so any such count is a count of them. */
+  counts_bounded?: number;
   retrieval_mode: string;
   reranked: boolean;
   candidates_considered: number;
@@ -1403,13 +1823,78 @@ export interface DocumentClassification {
    *  agreed with the machine yet. */
   confirmed: boolean;
   subjects: DocumentSubject[];
+  // ------------------------------------ AI submittal review, phase 2
+  // Null is "not recorded" for every one of these, and renders as nothing.
+  document_role?: DocumentRole | null;
+  document_number?: string | null;
+  title?: string | null;
+  revision?: string | null;
+  effective_date?: string | null;
+  project?: string | null;
+  contractor_vendor?: string | null;
+  equipment_type?: string | null;
+  /** A flat tag list. An empty array means none recorded. */
+  equipment_tags?: string[];
+  service?: string | null;
+  transmittal_number?: string | null;
+  superseded_by?: string | null;
 }
 
+/** Set ONE role on MANY documents.
+ *
+ *  NOT the PUT above. That one replaces the whole record, so sending a role
+ *  through it would clear the title, revision and project on every document in
+ *  the selection. This writes the role column and nothing else. */
+export interface BulkRoleUpdate {
+  document_ids: string[];
+  document_role: DocumentRole;
+}
+
+/** One document the bulk write did not touch.
+ *
+ *  `not_found` means "unknown id OR not yours" - deliberately the same answer,
+ *  so the endpoint cannot be used to discover which documents exist. */
+export interface BulkRoleFailure {
+  document_id: string;
+  reason: "not_found";
+}
+
+/** What a bulk role write actually did.
+ *
+ *  FAILURES ARE NAMED, NOT COUNTED, and the HTTP status is 207 rather than 200
+ *  when `failed` is non-empty - so neither a client that reads only the body
+ *  nor one that reads only the status can mistake a partial write for a whole
+ *  one. `unchanged` is separate from `updated` because re-applying a role a
+ *  document already holds is not a change, and counting it as one inflates
+ *  every confirmation shown on screen. */
+export interface BulkRoleResult {
+  document_role: DocumentRole;
+  requested: number;
+  updated: string[];
+  unchanged: string[];
+  failed: BulkRoleFailure[];
+}
+
+/** A PUT REPLACES THE WHOLE RECORD. A field left out is CLEARED, not kept -
+ *  the same rule `subject_ids` already follows, so an administrator removing a
+ *  value can actually remove it. Send the full record. */
 export interface ClassificationUpdate {
   doc_type?: string | null;
   discipline?: string | null;
   doc_class?: string | null;
   subject_ids?: string[];
+  document_role?: DocumentRole | null;
+  document_number?: string | null;
+  title?: string | null;
+  revision?: string | null;
+  effective_date?: string | null;
+  project?: string | null;
+  contractor_vendor?: string | null;
+  equipment_type?: string | null;
+  equipment_tags?: string[];
+  service?: string | null;
+  transmittal_number?: string | null;
+  superseded_by?: string | null;
 }
 
 export interface CoverageByType {

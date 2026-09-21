@@ -19,7 +19,7 @@
  *
  * Data flow is by props; this component calls no api.* function itself.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { DisconnectedState, EmptyState, Spinner } from "../components/states";
 import type {
@@ -31,6 +31,7 @@ import type {
   GrantRequest,
   LoadFailure,
 } from "../types/admin";
+import { management, reviews } from "../api/client";
 
 function formatWhen(iso: string): string {
   return iso.replace("T", " ").replace(/\.\d+/, "").replace("Z", " UTC");
@@ -80,7 +81,7 @@ function SectionFailure({ failure, onRetry }: { failure: LoadFailure; onRetry: (
     return (
       <div
         role="status"
-        className="rounded-lg border border-dashed border-ink-600 bg-ink-850/60 p-6 text-sm"
+        className="rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-850/60 p-6 text-sm"
       >
         <p className="text-slateish-300">This admin route is not built yet.</p>
         <p className="mt-1 text-slateish-400">
@@ -94,13 +95,13 @@ function SectionFailure({ failure, onRetry }: { failure: LoadFailure; onRetry: (
   // code union, and the admin codes are not in it yet (see AdminErrorCode).
   // Same shape and same colour, so the two read identically on screen.
   return (
-    <div role="alert" className="rounded-lg border border-danger-500/50 bg-danger-500/10 p-4 text-sm">
+    <div role="alert" className="rounded-[var(--radius-md)] border border-danger-500/50 bg-danger-500/10 p-4 text-sm">
       <p className="font-medium text-danger-500">That request failed</p>
       <p className="mt-1 text-slateish-300">{failure.message}</p>
       <button
         type="button"
         onClick={onRetry}
-        className="mt-3 rounded border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
+        className="mt-3 rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
       >
         Try again
       </button>
@@ -137,7 +138,7 @@ export function DangerAction({
         type="button"
         disabled={busy}
         onClick={() => setAsking(true)}
-        className="rounded border border-transparent px-2 py-1 text-xs text-slateish-400 transition-colors hover:border-danger-500 hover:bg-danger-500/10 hover:text-danger-500 focus-visible:border-danger-500 focus-visible:text-danger-500 disabled:opacity-50"
+        className="rounded-[var(--radius-xs)] border border-transparent px-2 py-1 text-xs text-slateish-400 motion-safe:transition-colors hover:border-danger-500 hover:bg-danger-500/10 hover:text-danger-500 focus-visible:border-danger-500 focus-visible:text-danger-500 disabled:opacity-50"
       >
         {label}
       </button>
@@ -154,14 +155,14 @@ export function DangerAction({
           setAsking(false);
           onConfirm();
         }}
-        className="rounded border border-danger-500 bg-danger-500/10 px-2 py-1 text-xs font-medium text-danger-500 disabled:opacity-50"
+        className="rounded-[var(--radius-xs)] border border-danger-500 bg-danger-500/10 px-2 py-1 text-xs font-medium text-danger-500 disabled:opacity-50"
       >
         {confirmLabel}
       </button>
       <button
         type="button"
         onClick={() => setAsking(false)}
-        className="rounded border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700"
+        className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700"
       >
         Keep it
       </button>
@@ -175,7 +176,7 @@ function SetupTokenBlock({ created, onDismiss }: { created: CreatedUser; onDismi
   return (
     <div
       role="alert"
-      className="rounded-lg border border-signal-500 bg-signal-500/10 p-4 text-sm"
+      className="rounded-[var(--radius-md)] border border-signal-500 bg-signal-500/10 p-4 text-sm"
     >
       <p className="font-medium text-slateish-200">
         Setup token for {created.email}
@@ -185,7 +186,7 @@ function SetupTokenBlock({ created, onDismiss }: { created: CreatedUser; onDismi
         if it is lost, create the user again. It expires{" "}
         {formatWhen(created.setup_token_expires_at)}.
       </p>
-      <p className="mt-3 break-all rounded bg-ink-900 p-3 font-mono text-xs text-slateish-200">
+      <p className="mt-3 break-all rounded-[var(--radius-xs)] bg-ink-900 p-3 font-mono text-xs text-slateish-200">
         {created.setup_token}
       </p>
       <div className="mt-3 flex gap-2">
@@ -200,14 +201,14 @@ function SetupTokenBlock({ created, onDismiss }: { created: CreatedUser; onDismi
               () => setCopied(false),
             );
           }}
-          className="rounded border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
+          className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
         >
           Copy
         </button>
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
+          className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
         >
           Done - hide it
         </button>
@@ -234,7 +235,7 @@ function CreateUserForm({
 
   return (
     <form
-      className="rounded-lg border border-ink-600 bg-ink-800 p-4"
+      className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4"
       onSubmit={(e) => {
         e.preventDefault();
         onCreate({
@@ -262,7 +263,7 @@ function CreateUserForm({
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-64 rounded border border-ink-500 bg-ink-900 px-2 py-1 text-sm text-slateish-200"
+            className="w-64 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1 text-sm text-slateish-200"
           />
         </label>
         <label className="flex flex-col gap-1 text-xs text-slateish-400">
@@ -270,7 +271,7 @@ function CreateUserForm({
           <select
             value={discipline}
             onChange={(e) => setDiscipline(e.target.value)}
-            className="w-56 rounded border border-ink-500 bg-ink-900 px-2 py-1 text-sm text-slateish-200"
+            className="w-56 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1 text-sm text-slateish-200"
           >
             {/* An empty choice is offered because the state exists anyway, and
                 the summary at the top names it the moment it does. Hiding it
@@ -294,7 +295,7 @@ function CreateUserForm({
         <button
           type="submit"
           disabled={busy}
-          className="rounded border border-signal-500 bg-signal-500/10 px-3 py-1 text-sm text-signal-500 disabled:opacity-50"
+          className="rounded-[var(--radius-xs)] border border-signal-500 bg-signal-500/10 px-3 py-1 text-sm text-signal-500 disabled:opacity-50"
         >
           {busy ? "Creating…" : "Create user"}
         </button>
@@ -334,6 +335,9 @@ export interface AdminViewProps {
   onRetry: () => void;
   /** A row-level action in flight, so the row it belongs to can say so. */
   busyKey: string | null;
+  /** The read-only Database section, passed in already built so this view
+   *  keeps no transport of its own. Absent in tests that do not care. */
+  databaseSection?: React.ReactNode;
 }
 
 export function AdminView(props: AdminViewProps) {
@@ -359,6 +363,43 @@ export function AdminView(props: AdminViewProps) {
 
   const summary = summarise(users, disciplines, documents);
   const disciplineNames = (disciplines ?? []).map((d) => d.name);
+  const [baselineRules, setBaselineRules] = useState<import("../types/api").ReviewBaselineRule[]>([]);
+  const [baselineType, setBaselineType] = useState("");
+  const [baselineTarget, setBaselineTarget] = useState("");
+  const [baselineMessage, setBaselineMessage] = useState<string | null>(null);
+  const [baselineFailure, setBaselineFailure] = useState<string | null>(null);
+  const [editingBaseline, setEditingBaseline] = useState<string | null>(null);
+  const [summarySchedule, setSummarySchedule] = useState("disabled");
+  const [summaryFailure, setSummaryFailure] = useState<string | null>(null);
+  useEffect(() => {
+    void reviews.baselineRules().then((result) => {
+      if (result.ok) setBaselineRules(result.data.rules ?? []);
+      else setBaselineFailure(result.error.message);
+    });
+    void management.summarySchedule().then((result) => {
+      if (result.ok) setSummarySchedule(result.data.schedule ?? "disabled");
+      else setSummaryFailure(result.error.message);
+    });
+  }, []);
+  async function createBaselineRule() {
+    if (!baselineType.trim() || !baselineTarget.trim()) return;
+    const result = editingBaseline
+      ? await reviews.updateBaselineRule(editingBaseline, { submittal_doc_type: baselineType.trim(), baseline_doc_type: baselineTarget.trim(), priority: 0, active: true })
+      : await reviews.createBaselineRule({ submittal_doc_type: baselineType.trim(), baseline_doc_type: baselineTarget.trim(), priority: 0, active: true });
+    if (result.ok) { setBaselineFailure(null); setBaselineRules((current) => editingBaseline ? current.map((rule) => rule.id === result.data.id ? result.data : rule) : [result.data, ...current]); setBaselineType(""); setBaselineTarget(""); setEditingBaseline(null); setBaselineMessage(editingBaseline ? "Baseline rule updated." : "Baseline rule created."); }
+    else { setBaselineMessage(null); setBaselineFailure(result.error.message); }
+  }
+
+  async function updateSummarySchedule(next: "disabled" | "daily" | "weekly") {
+    setSummarySchedule(next);
+    const result = await management.setSummarySchedule({ schedule: next, weekday_utc: 0, hour_utc: 8 });
+    setSummaryFailure(result.ok ? null : result.error.message);
+  }
+
+  async function sendSummaryNow() {
+    const result = await management.emailSummary();
+    setSummaryFailure(result.ok ? null : result.error.message);
+  }
 
   return (
     <div className="space-y-8">
@@ -375,7 +416,7 @@ export function AdminView(props: AdminViewProps) {
         <section
           role="status"
           aria-label="Access problems"
-          className="rounded-lg border border-warn-500/50 bg-warn-500/10 p-4 text-sm"
+          className="rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-4 text-sm"
         >
           <p className="font-medium text-warn-500">This system is seeded but not usable</p>
           <p className="mt-1 text-slateish-300">{summary.join(" ")}</p>
@@ -387,6 +428,20 @@ export function AdminView(props: AdminViewProps) {
       )}
 
       {created && <SetupTokenBlock created={created} onDismiss={onDismissCreated} />}
+
+      <section aria-label="Engineering review administration" className="space-y-4">
+        <h2 className="text-sm font-semibold text-slateish-200">Engineering review controls</h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4">
+            <h3 className="text-sm font-medium text-slateish-200">Baseline rules</h3>
+            <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-slateish-400"><tr><th className="px-2 py-1">Submittal type</th><th className="px-2 py-1">Baseline type</th><th className="px-2 py-1">Priority</th><th /></tr></thead><tbody>{baselineRules.map((rule) => <tr key={rule.id} className="border-t border-ink-600"><td className="px-2 py-2 text-slateish-200">{rule.submittal_doc_type || "Any"}</td><td className="px-2 py-2 text-slateish-200">{rule.baseline_doc_type}</td><td className="px-2 py-2 text-slateish-400">{rule.priority}</td><td className="px-2 py-2"><button type="button" onClick={() => { setEditingBaseline(rule.id); setBaselineType(rule.submittal_doc_type || ""); setBaselineTarget(rule.baseline_doc_type); }} className="text-signal-400 hover:underline">Edit</button></td></tr>)}</tbody></table></div>
+            <div className="mt-3 flex flex-wrap gap-2"><input aria-label="Submittal document type" value={baselineType} onChange={(e) => setBaselineType(e.target.value)} placeholder="Submittal type" className="w-36 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><input aria-label="Baseline document type" value={baselineTarget} onChange={(e) => setBaselineTarget(e.target.value)} placeholder="Baseline type" className="w-36 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><button type="button" onClick={() => void createBaselineRule()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">{editingBaseline ? "Save rule" : "Add rule"}</button></div>
+            {baselineFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{baselineFailure}</p>}
+            {baselineMessage && <p role="status" className="mt-2 text-xs text-slateish-400">{baselineMessage}</p>}
+          </div>
+          <div className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4"><h3 className="text-sm font-medium text-slateish-200">Management summaries</h3><p className="mt-1 text-xs text-slateish-400">Choose the reporting cadence used by the scheduled summary job.</p><div className="mt-3 flex flex-wrap items-center gap-2"><select aria-label="Summary schedule" value={summarySchedule} onChange={(e) => void updateSummarySchedule(e.target.value as "disabled" | "daily" | "weekly")} className="rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="disabled">Disabled</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select><button type="button" onClick={() => void sendSummaryNow()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Send now</button></div><p className="mt-2 text-xs text-slateish-500">Selected cadence: {summarySchedule}.</p>{summaryFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{summaryFailure}</p>}</div>
+        </div>
+      </section>
 
       <section aria-labelledby="admin-users-heading" className="space-y-3">
         <h2 id="admin-users-heading" className="text-sm font-semibold text-slateish-200">
@@ -407,7 +462,7 @@ export function AdminView(props: AdminViewProps) {
         )}
 
         {!usersFailure && users !== null && users.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border border-ink-600">
+          <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-600">
             <table className="w-full text-left text-sm">
               <thead className="bg-ink-850 text-xs uppercase text-slateish-400">
                 <tr>
@@ -429,7 +484,7 @@ export function AdminView(props: AdminViewProps) {
                     <td className="px-3 py-2 text-slateish-200">
                       {u.email}
                       {!u.active && (
-                        <span className="ml-2 text-xs text-slateish-400">deactivated</span>
+                        <span className="ms-2 text-xs text-slateish-400">deactivated</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-slateish-300">
@@ -458,7 +513,7 @@ export function AdminView(props: AdminViewProps) {
                           <button type="button"
                             disabled={busyKey === `reset:${u.user_id}`}
                             onClick={() => onResetPassword(u.user_id)}
-                            className="rounded border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700 disabled:opacity-50">
+                            className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700 disabled:opacity-50">
                             Reset password
                           </button>
                           <DangerAction
@@ -493,7 +548,7 @@ export function AdminView(props: AdminViewProps) {
         )}
 
         {!disciplinesFailure && disciplines !== null && disciplines.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border border-ink-600">
+          <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-600">
             <table className="w-full text-left text-sm">
               <thead className="bg-ink-850 text-xs uppercase text-slateish-400">
                 <tr>
@@ -510,7 +565,7 @@ export function AdminView(props: AdminViewProps) {
                     <td className="px-3 py-2 text-slateish-300">
                       {d.document_count}
                       {d.warning === "no_documents" && (
-                        <span className="ml-2 text-warn-500">
+                        <span className="ms-2 text-warn-500">
                           Nobody in this discipline can find anything
                         </span>
                       )}
@@ -539,7 +594,7 @@ export function AdminView(props: AdminViewProps) {
             {documents.map((doc) => (
               <li
                 key={doc.document_id}
-                className="rounded-lg border border-ink-600 bg-ink-800 p-3"
+                className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-3"
               >
                 <p className="text-sm text-slateish-200">{doc.filename}</p>
                 {doc.warning === "no_discipline_can_see_this" && (
@@ -557,7 +612,7 @@ export function AdminView(props: AdminViewProps) {
                       return (
                         <span
                           key={name}
-                          className="inline-flex items-center gap-2 rounded border border-ink-500 bg-ink-850 px-2 py-1 text-xs text-slateish-200"
+                          className="inline-flex items-center gap-2 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-850 px-2 py-1 text-xs text-slateish-200"
                         >
                           {name}
                           <DangerAction
@@ -578,7 +633,7 @@ export function AdminView(props: AdminViewProps) {
                         type="button"
                         disabled={busyKey === key}
                         onClick={() => onGrant({ document_id: doc.document_id, discipline: name })}
-                        className="rounded border border-ink-500 px-2 py-1 text-xs text-slateish-400 hover:bg-ink-700 hover:text-slateish-200 disabled:opacity-50"
+                        className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 text-xs text-slateish-400 hover:bg-ink-700 hover:text-slateish-200 disabled:opacity-50"
                       >
                         Grant {name}
                       </button>
@@ -590,6 +645,8 @@ export function AdminView(props: AdminViewProps) {
           </ul>
         )}
       </section>
+
+      {props.databaseSection}
 
       <p className="text-xs text-slateish-400">
         Reset tokens are shown once and expire after 24 hours. The user enters the token on the sign-in screen.

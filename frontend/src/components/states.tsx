@@ -11,12 +11,23 @@ import type { ReactNode } from "react";
 import { START_BACKEND_COMMAND } from "../../../contracts/runtime";
 import type { ApiError } from "../types/api";
 
+export type StatusTone = "good" | "warn" | "danger" | "neutral";
+const STATUS_ICON: Record<StatusTone, string> = { good: "✓", warn: "!", danger: "×", neutral: "•" };
+const STATUS_CLASS: Record<StatusTone, string> = { good: "text-signal-400", warn: "text-warn-500", danger: "text-danger-500", neutral: "text-slateish-300" };
+
+/** Shared status language: an icon and a word, never colour alone. */
+export function StatusBadge({ tone, children }: { tone: StatusTone; children: ReactNode }) {
+  return <span className={`inline-flex items-center gap-1.5 ${STATUS_CLASS[tone]}`}>
+    <span aria-hidden="true" className="font-mono">{STATUS_ICON[tone]}</span><span>{children}</span>
+  </span>;
+}
+
 export function Spinner({ label = "Loading" }: { label?: string }) {
   return (
     <div className="flex items-center gap-3 text-slateish-400" role="status" aria-live="polite">
       <span
         aria-hidden="true"
-        className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-ink-500 border-t-signal-400"
+        className="inline-block h-4 w-4 motion-safe:animate-spin rounded-full border-2 border-ink-500 border-t-signal-400"
       />
       <span className="text-sm">{label}…</span>
     </div>
@@ -39,6 +50,14 @@ export function EmptyState({
       {action && <div className="mt-4 flex justify-center">{action}</div>}
     </div>
   );
+}
+
+export function ZeroResultsState({ message }: { message: string }) {
+  return <p role="status" className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2 text-xs text-slateish-400">{message}</p>;
+}
+
+export function InlineErrorState({ message }: { message: string }) {
+  return <p role="alert" className="mt-4 rounded-[var(--radius-xs)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">{message}</p>;
 }
 
 /** A human title per error code.

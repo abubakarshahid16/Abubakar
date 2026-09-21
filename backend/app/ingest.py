@@ -209,6 +209,29 @@ class IngestionWorker:
         ).fetchone()
         return row["id"] if row else None
 
+    def _drain_standard_extraction(self) -> bool:
+        """Run one queued standards extraction. True when one was run.
+
+        Imported inside the method rather than at module scope: `standards`
+        imports `submittal_review`, which imports `review`, and a top-level
+        import here would make the ingestion worker depend on the whole review
+        surface just to poll a queue that is usually empty.
+
+        A failure is swallowed into the job row by `run_extraction_job` and
+        never raised here - a bad standard must not stop document ingestion,
+        which is the higher-priority work.
+        """
+        try:
+            from . import standards
+            document_id = standards.next_extraction_job()
+            if document_id is None:
+                return False
+            standards.run_extraction_job(document_id)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.last_error = errors.record_failure(exc, stage="standard_extraction")
+            return False
+
     def _run(self) -> None:
         while not self._stop.is_set():
             self.last_beat = time.time()
@@ -216,6 +239,14 @@ class IngestionWorker:
                 doc_id = self._next_document()
                 if doc_id is None:
                     self.current_document = None
+                    # LOWEST PRIORITY, ON THE SAME WORKER. Master plan section
+                    # 24 puts "background standard reprocessing" last in the
+                    # job priority list and allows one ingestion/review worker,
+                    # so standards extraction is drained HERE - only when no
+                    # document needs work - rather than from a second thread
+                    # that would compete for the same 16 GB.
+                    if self._drain_standard_extraction():
+                        continue
                     self._stop.wait(self.poll_seconds)
                     continue
                 self.current_document = doc_id
@@ -619,6 +650,40 @@ class IngestionWorker:
                     "UPDATE jobs SET state = 'done', updated_at = ? WHERE document_id = ?",
                     (_now(), doc_id),
                 )
+            _queue_extraction_if_standard(doc_id)
+
+
+def _queue_extraction_if_standard(document_id: str) -> None:
+    """Queue rule extraction when a COMPANY_STANDARD finishes ingesting.
+
+    THE STEP THAT WAS NEVER CONNECTED. `standards.enqueue_extraction` had
+    exactly one caller - the admin endpoint - so a standard nobody pressed
+    the button for stayed searchable and ruleless forever. On 2026-09-20
+    that was 252 of 272 standards: the database held 274 jobs with stage
+    'chunk' and 5 with stage 'extract_requirements'. Nothing had failed.
+    The work was never asked for. A standard whose text is indexed but
+    whose obligations were never read looks entirely successful on the
+    Documents page and cannot answer one compliance question.
+
+    Imported inside the function for the reason `_drain_standard_extraction`
+    already gives: `standards` pulls in the whole review surface, and
+    ingestion must not depend on it merely to enqueue.
+
+    Swallows its own failure. Extraction is downstream work, and a standard
+    that could not be queued must not un-ingest a document that indexed
+    correctly. `enqueue_extraction` is idempotent per document, so a retry,
+    or an admin pressing Extract later, costs nothing.
+    """
+    try:
+        from . import classification
+        record = classification.of_document(document_id)
+        role = (record or {}).get("document_role")
+        if role != "COMPANY_STANDARD":
+            return
+        from . import standards
+        standards.enqueue_extraction(document_id)
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        errors.record_failure(exc, stage="standard_extraction_enqueue")
 
 
 def get_worker() -> IngestionWorker:

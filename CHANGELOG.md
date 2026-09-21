@@ -10,6 +10,54 @@ the day they merged.
 
 ## [Unreleased]
 
+### 2026-09-17 — configurable engineering-review baselines
+
+Engineering gap reviews can now use administrator-configured mappings from a
+submittal's classified type/discipline to a searchable baseline. The selected
+baseline is access-scoped and a manual document choice always takes priority.
+The rule and selection endpoints are available under `/api/reviews`, with
+regression tests covering automatic selection and manual override.
+
+Named comparison workflows are now validated and carried through gap analysis:
+baseline vs submittal, requirements vs submittal, revision delta, and
+discipline coordination.
+
+SMTP summaries can now be run as an idempotent daily or weekly job with a
+configured UTC hour and weekday. Duplicate scheduler ticks do not duplicate
+emails, and disabled SMTP remains a no-op.
+
+WBS packages can now declare expected deliverable types and expose registered
+versus missing status through `/api/deliverables/expected`.
+
+Structured search now covers WBS/deliverable labels and review requirements,
+findings, and actions without flattening them into document text search.
+
+Added a typed, scope-aware risk register for schedule, review, dependency, and
+compliance risks.
+
+Review findings now expose a traceability chain covering source documents,
+baselines, citations, workflow events, and linked deliverables.
+
+Reminder and escalation emails now have separate audited notification paths.
+
+Administration now exposes baseline-rule management and summary scheduling;
+the requirements scorecard records this area as implemented while preserving
+the remaining automation gaps as partial.
+
+Chat now offers structured workflow search across deliverables, findings,
+risks, and stakeholders, with a visual distinction from document citations.
+
+Deliverable expectations are now inferred from requirement passages per WBS
+package and shown alongside manual overrides, with idempotent detection.
+
+The risk register now auto-creates and notifies on schedule, review,
+dependency, and compliance conditions, while remaining safe to run repeatedly.
+
+Finding traceability now includes the assigned owner and required action.
+
+Analysis now displays the actual recommendation refusal reason returned by the
+backend instead of replacing it with a generic citation message.
+
 ### 2026-09-07 — the false compliance gap, and a folder that ingests itself
 
 User-facing, newest first. Every figure below was measured on this laptop.

@@ -134,14 +134,14 @@ export function ExcludedViewer({
                           </span>
                         )}
                       </span>
-                      <span className="ml-3 shrink-0 text-right">
+                      <span className="ms-3 shrink-0 text-right">
                         <span className="block font-mono text-sm text-warn-500">
                           {nf.format(s.count)} {s.scope}s
                         </span>
-                        <span className="block text-[11px] text-slateish-400">
+                        <span className="block text-xs text-slateish-400">
                           {nf.format(s.characters_dropped)} chars
                         </span>
-                        <span className="mt-0.5 block font-mono text-[10px] text-slateish-500">
+                        <span className="mt-0.5 block font-mono text-xs text-slateish-500">
                           {s.rule}
                         </span>
                       </span>
@@ -220,14 +220,14 @@ export function ExcludedViewer({
                         ? `page ${e.page_start}`
                         : `pages ${e.page_start}–${e.page_end}`}
                     </span>
-                    <span className="ml-auto text-slateish-400">
+                    <span className="ms-auto text-slateish-400">
                       {nf.format(e.text_length)} chars
                     </span>
                   </div>
                   {e.reason && (
-                    <p className="mt-1 font-mono text-[11px] text-warn-500">{e.reason}</p>
+                    <p className="mt-1 font-mono text-xs text-warn-500">{e.reason}</p>
                   )}
-                  <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-[11px] text-slateish-300">
+                  <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-xs text-slateish-300">
 {e.text_sample}
                   </pre>
                 </li>

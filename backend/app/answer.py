@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 
+from . import corpus as corpus_mod
 from . import intent as intent_mod
 from . import keyword
 from . import context_budget
@@ -30,7 +31,6 @@ from . import passages as passages_mod
 from . import telemetry
 from . import search as search_mod
 from .config import settings
-from .db import connect
 from .rates import Timer
 
 #: System prompt variant B, measured at 122 net tokens. Kept short because at
@@ -105,11 +105,6 @@ _CITATION = re.compile(r"\[S(\d+)\]")
 #: at the very end of the text. Anchored to the end on purpose - a bare "["
 #: mid-sentence is ordinary prose and must survive.
 _HALF_CITATION = re.compile(r"\s*\[S?\d*$")
-_DOCUMENT_COUNT = re.compile(
-    r"\b(?:how many|number of|count of)\s+(?:documents?|files?)\b|"
-    r"\b(?:documents?|files?)\s+(?:are|were)\s+(?:uploaded|loaded|in the corpus)\b",
-    re.IGNORECASE,
-)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 _REVIEW_REQUEST = re.compile(
     r"\b(?:review|critique|criteque|assess|evaluate|audit|commentary|criticism)\b",
@@ -494,33 +489,68 @@ def answer(
     """
     timer = Timer()
 
-    # Aggregate application metadata is not document evidence. Answer this
-    # narrow, non-sensitive statistic directly from the caller's scope rather
-    # than retrieving unrelated passages and refusing a question the system
-    # itself can answer. The scope filter prevents revealing hidden documents.
-    if _DOCUMENT_COUNT.search(question or ""):
-        count = 0
-        if allowed_document_ids:
-            placeholders = ",".join("?" for _ in allowed_document_ids)
-            count = connect().execute(
-                f"SELECT COUNT(*) FROM documents WHERE id IN ({placeholders})",
-                tuple(allowed_document_ids),
-            ).fetchone()[0]
-        return {
-            "question": question,
-            "retrieval_mode": "metadata",
-            "reranked": False,
-            "timings": {},
-            "candidates_considered": 0,
-            "answer_type": "metadata",
-            "answer": f"There are {count} uploaded document{'' if count == 1 else 's'} in your accessible corpus.",
-            "reason": "application statistic, not document evidence",
-            "input_kind": "metadata_statistic",
-            "examples": [],
-            "passages": [],
-            "seconds": timer.seconds(),
-        }
+    # A QUESTION ABOUT THE LIBRARY IS ANSWERED BY THE LIBRARY. "How many
+    # standards do you have" was sent to retrieval, the model saw three
+    # passages, and it answered "there are 12 distinct standards" of a
+    # library holding 272. The library is a table; a scoped COUNT answers it
+    # exactly. See corpus.py.
+    #
+    # This replaced a narrower check that only knew the words "documents"
+    # and "files" - so "standards", the word this corpus is made of, fell
+    # straight through to retrieval.
+    #
+    # NOT when the question is scoped to ONE document: "how many standards"
+    # asked of a single specification means the standards it cites, which is
+    # a content question for retrieval.
+    corpus_q = corpus_mod.classify(question) if document_id is None else None
+    corpus_fact = None
+    if corpus_q is not None:
+        corpus_fact = corpus_mod.statement(
+            corpus_q, allowed_document_ids=allowed_document_ids)
+        if not corpus_q.qualified:
+            return {
+                "question": question,
+                "retrieval_mode": "metadata",
+                "reranked": False,
+                "timings": {},
+                "candidates_considered": 0,
+                "answer_type": "metadata",
+                "answer": corpus_fact["text"],
+                "reason": "counted from the database, not from document text",
+                "input_kind": "corpus_question",
+                "corpus": corpus_fact,
+                "examples": [],
+                "passages": [],
+                "seconds": timer.seconds(),
+            }
+        # QUALIFIED - "how many standards cover hydrotesting" - gets BOTH:
+        # the library's count from the database, carried in `corpus`, and
+        # retrieval for the part only documents can answer, below. They are
+        # separate fields so no screen can blend them into one sentence.
 
+    result = _answer_from_documents(
+        question, tier, document_id, limit,
+        allowed_document_ids=allowed_document_ids, progress_id=progress_id,
+        timer=timer)
+    # ONE EXIT, so the database's half of a qualified question reaches every
+    # outcome of the retrieval half - extract, generated, a refusal, a model
+    # that is down - without a dozen return statements each remembering it.
+    if corpus_fact is not None:
+        result["corpus"] = corpus_fact
+    return result
+
+
+def _answer_from_documents(
+    question: str,
+    tier: str,
+    document_id: str | None,
+    limit: int,
+    *,
+    allowed_document_ids: frozenset[str],
+    progress_id: str | None,
+    timer: Timer,
+) -> dict:
+    """Everything `answer` does that reads DOCUMENTS rather than the library."""
     # Classified BEFORE retrieval. A greeting is not a failed question, and
     # answering "hi" with a refusal plus three unrelated passages misrepresents
     # both. Nothing is searched, so there is nothing to show as considered.
@@ -652,9 +682,27 @@ def answer(
     # A smaller budget here: three expanded sources have to fit inside num_ctx
     # alongside the system prompt, and overflowing it would silently truncate
     # the evidence the answer is supposed to be grounded in.
+    # Numeric table lookups are unusually expensive for the local model:
+    # digit-heavy OCR tokenises almost one character at a time.  Once the
+    # decimal row key has been promoted by retrieval, the lead page is usually
+    # sufficient evidence; keeping another digit-heavy near-duplicate can
+    # push the prompt over the practical context budget (or make generation
+    # appear to hang). Keep the normal multi-source behaviour for prose.
+    decimal_lookup = bool(re.search(r"(?<![\w.])\d+\.\d+(?![\w.])", question))
+    passage_limit = limit
+    if decimal_lookup:
+        # Retrieval promotes the page containing the requested decimal. If
+        # that lead passage contains the row key, it is sufficient evidence
+        # on its own and avoids feeding a second digit-heavy OCR page to the
+        # local model. Keep a second page only when the lead page lacks it.
+        target = re.search(r"(?<![\w.])\d+\.\d+(?![\w.])", question).group(0)
+        lead_text = hits[0].get("text", "") if hits else ""
+        passage_limit = 1 if re.search(
+            r"(?<![\w.])" + re.escape(target) + r"(?![\w.])", lead_text
+        ) else min(limit, 2)
     passages = [
         _passage_payload(h, question, budget=settings.generated_context_chars)
-        for h in hits[:limit]
+        for h in hits[:passage_limit]
     ]
 
     # The character budget above is a stand-in for a token budget, and the
@@ -749,6 +797,37 @@ def answer(
         ).strip()
 
     if not valid:
+        if decimal_lookup and passages:
+            # A table lookup already has an authoritative verbatim answer in
+            # the lead row.  If the local model returns prose without the
+            # required [S#] marker, do not strand the user with a refusal:
+            # surface that exact passage instead.  This fallback is limited
+            # to decimal lookups, where retrieval has explicitly matched the
+            # requested row key; ordinary generated answers still require a
+            # model citation and refuse when one is missing.
+            primary = passages[0]
+            return {
+                **base,
+                "answer_type": "extract",
+                "answer": primary["text"],
+                "passage": primary,
+                "answer_passages": [primary],
+                "supporting": passages[1:],
+                "coverage": _coverage(
+                    question, results,
+                    document_id=document_id,
+                    allowed_document_ids=allowed_document_ids,
+                    answered=[primary],
+                    supporting=passages[1:],
+                ),
+                "reason": "exact table row shown because the generated response did not cite a source",
+                "rejected_citations": invented,
+                "truncated": truncated,
+                "passages": passages,
+                "evidence_removed": evidence_removed,
+                "seconds": timer.seconds(),
+                "timings": {**base["timings"], "generation_ms": generation_ms},
+            }
         return {
             **base,
             "answer_type": "insufficient_evidence",
@@ -766,6 +845,12 @@ def answer(
             "seconds": timer.seconds(),
             "timings": {**base["timings"], "generation_ms": generation_ms},
         }
+
+    # RULE 4, ENFORCED ON THE OUTPUT. The model saw len(passages) passages,
+    # not the library, so a count of documents it states is a count of those
+    # passages - and must say so. It once said "there are 12 distinct
+    # standards" of a library holding 272. See corpus.bound_counts.
+    text, counts_bounded = corpus_mod.bound_counts(text, len(passages))
 
     # A passage the model actually cited counts as answered; one supplied to
     # it and left uncited is supporting evidence the reader can still see.
@@ -786,6 +871,9 @@ def answer(
         ),
         "rejected_citations": invented,
         "truncated": truncated,
+        # How many sentences had a count of documents re-bounded to the
+        # passages retrieved. Reported so a screen can say so, and a test can.
+        "counts_bounded": counts_bounded,
         "passages": passages,
         # What was removed to make the evidence fit the context window, and
         # why. The reader is already told when the OUTPUT was cut off by the

@@ -174,31 +174,31 @@ def test_an_identifier_is_never_corrected():
     """API 610 and API 611 are one edit apart and are different standards.
     Correcting one to the other answers a question nobody asked, which is
     worse than returning nothing."""
-    assert keyword.fuzzy_corpus_match("610") is None
-    assert keyword.fuzzy_corpus_match("P-101A") is None
-    assert keyword.fuzzy_corpus_match("5.3.2") is None
+    assert keyword.fuzzy_corpus_match("610", allowed_document_ids=SCOPE) is None
+    assert keyword.fuzzy_corpus_match("P-101A", allowed_document_ids=SCOPE) is None
+    assert keyword.fuzzy_corpus_match("5.3.2", allowed_document_ids=SCOPE) is None
     assert keyword._correctable("A216") is False
 
 
 def test_a_word_the_corpus_contains_is_never_rewritten():
     """The reader's spelling wins whenever it matches something."""
-    assert keyword.fuzzy_corpus_match("structural") is None
-    assert keyword.fuzzy_corpus_match("coating") is None
-    assert keyword.spelling_corrections("structural submittal drawings") == {}
+    assert keyword.fuzzy_corpus_match("structural", allowed_document_ids=SCOPE) is None
+    assert keyword.fuzzy_corpus_match("coating", allowed_document_ids=SCOPE) is None
+    assert keyword.spelling_corrections("structural submittal drawings", allowed_document_ids=SCOPE) == {}
 
 
 def test_a_different_word_is_not_treated_as_a_typo():
     """Similarity is not identity. "clause" is not "class", and a correction
     that changes the meaning of the question is the defect, not the fix."""
-    assert keyword.fuzzy_corpus_match("cladding") is None
-    assert keyword.fuzzy_corpus_match("submarine") is None
+    assert keyword.fuzzy_corpus_match("cladding", allowed_document_ids=SCOPE) is None
+    assert keyword.fuzzy_corpus_match("submarine", allowed_document_ids=SCOPE) is None
 
 
 def test_short_words_are_left_alone():
     """At four characters and under, one edit is a different word far more
     often than it is a typo."""
     assert keyword._correctable("stel") is False
-    assert keyword.fuzzy_corpus_match("stel") is None
+    assert keyword.fuzzy_corpus_match("stel", allowed_document_ids=SCOPE) is None
 
 
 # ------------------------------------------------------ query normalisation

@@ -19,6 +19,10 @@ class ModelHostRefused(RuntimeError):
     """
 
 
+class NotificationConfigError(RuntimeError):
+    """SMTP notifications were enabled without a complete configuration."""
+
+
 #: Host names that mean "this machine" without being an IP literal.
 #: `localhost` only. NOT any name a resolver happens to point at 127.0.0.1: a
 #: DNS name is somebody else's to change, and a check that trusts resolution
@@ -288,6 +292,52 @@ class Settings(BaseSettings):
     # nobody reads the slower answer as a regression. Below ~1.5 GB free the
     # 4B model swaps regardless of this value.
     num_ctx: int = 4096
+
+    # -------------------------------- model-assisted requirement matching
+    #
+    # THE SECOND TIER OF §14, AND IT ONLY EVER CHOOSES. The model is handed a
+    # numbered list Python built and may pick one entry or decline; it never
+    # names a field, never sees a value or a unit, and never sets a status.
+    # Containment runs first and the model is consulted only where containment
+    # found nothing.
+
+    #: OFF BY DEFAULT, AND IT FAILED ITS OWN GATE TO GET HERE.
+    #:
+    #: Measured on datasheet 1, 2026-09-19 (§10 of
+    #: docs/design/model-assisted-matching.md): 37 requirements reached the
+    #: model, it declined 30 and proposed 7 pairings. SIX WERE FALSE FRIENDS
+    #: and three of those produced a NON_COMPLIANT verdict against the
+    #: contractor - a weld-cleaning distance paired with a corrosion
+    #: allowance, an interpass temperature with a service temperature, a
+    #: cooling-water outlet with a vessel design temperature. Every one of
+    #: them cited correctly, which is what makes a wrong pairing dangerous
+    #: rather than obviously broken.
+    #:
+    #: The design's hard gate is zero false pairings, so the tier does not run
+    #: until it is redesigned. The code stays: it is tested, it is honest
+    #: about why it declined, and the one genuine pairing it found is recall
+    #: containment structurally cannot reach.
+    #:
+    #: False turns the tier off entirely and the findings SAY SO in their
+    #: rationale - a review that silently stopped asking would look identical
+    #: to one where the model declined every time.
+    match_enabled: bool = False
+    #: Generous, because a refusal costs more than a wait: a timeout is
+    #: `model_unavailable` and the requirement falls back to
+    #: MISSING_INFORMATION, so a tight bound would quietly convert slow
+    #: hardware into missing pairings.
+    match_timeout_seconds: float = 30.0
+    #: Fixed seed. The determinism check calls twice and refuses to pair when
+    #: the two answers disagree, which is only meaningful if the sampler is
+    #: pinned - with a random seed every requirement would be a coin toss
+    #: tossed twice.
+    match_seed: int = 0
+    #: A CEILING ON A REVIEW, not a tuning knob. §10 of the design expects
+    #: tens of calls per review on this corpus; a review that wants hundreds
+    #: has a pre-filter defect, and the budget makes that visible as
+    #: `model_budget` on the remaining requirements instead of as an hour of
+    #: silence.
+    match_max_calls_per_run: int = 200
     #: Raised from 100 after measuring what the gold questions actually need.
     #: At 100, 5 of 12 Tier 2 generations stopped mid-sentence and one stopped
     #: inside a citation marker. At 250, 0 of 12 did, and the largest answer
@@ -584,6 +634,44 @@ class Settings(BaseSettings):
     #: one careless edit.
     market_allow_public_egress: bool = False
 
+    # ------------------------------------------------- the standards reader
+    #
+    # THE SAME TWO-FLAG SHAPE AS THE MARKET LANE ABOVE, and here it guards
+    # more: what leaves is CLAUSE TEXT FROM THE CLIENT'S STANDARDS, not a
+    # human-typed search phrase. Both flags must be true before
+    # `reader_api.build_request` will build anything. A fresh install calls
+    # nothing.
+    #
+    # WHY THESE MOVED HERE. `reader_api.ReaderSettings.from_env` read them
+    # from `os.environ`, and `backend/.env` NEVER REACHES `os.environ` -
+    # pydantic-settings populates this model and exports nothing. Measured:
+    # `AUTH_MODE` is in that file, `settings.auth_mode` is `demo_required`,
+    # and `"AUTH_MODE" in os.environ` is False. So a key placed in the file
+    # rule 2 names as its only home was invisible to the reader, which
+    # refused with "no API key in the environment" - and the two flags could
+    # not be switched on from that file at all. `extra="ignore"` meant the
+    # keys were dropped with no error and no log line, which is the same
+    # shape as the defect recorded above `model_config`.
+    #
+    # The alternative was `load_dotenv`, one line, which would copy EVERY
+    # secret in that file into the process environment - `AUTH_SECRET`
+    # included, where it is not today. Three fields is more code and keeps
+    # the blast radius at three names.
+    standards_reader_enabled: bool = False
+
+    #: The second half of the switch: does this DEPLOYMENT permit standards
+    #: text to leave the machine. Distinct from the flag above for the same
+    #: reason the market lane keeps its two apart.
+    standards_reader_allow_public_egress: bool = False
+
+    #: FROM `backend/.env` AND FROM NOWHERE ELSE. Never a default, never a
+    #: literal, never logged and never echoed in an error - `.gitleaks.toml`
+    #: exists because a key in a source tree is a key that has been
+    #: published. It stays on this model rather than being exported to
+    #: `os.environ`, so it cannot be inherited by a subprocess or read out of
+    #: a dump of one.
+    anthropic_api_key: str = ""
+
     #: THE ONE HOST ALLOWLIST. Every outbound URL any tier builds is checked
     #: against this and refused if its host is not here. One list, in one
     #: place, so "where can this talk to" has a single answer that can be read
@@ -657,6 +745,24 @@ class Settings(BaseSettings):
     #: them is both rude and a fast route to being blocked.
     market_tier_min_interval_seconds: float = 1.0
 
+    # ------------------------------------------------------------- notifications
+    # Disabled by default: the local-only product must not open an SMTP
+    # connection merely because a reminder was calculated. When enabled, the
+    # validator below requires an explicit server, sender and recipient.
+    smtp_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_recipient: str = ""
+    smtp_starttls: bool = True
+    smtp_timeout_seconds: float = 10.0
+    # Scheduled summaries are opt-in. The worker calls notifications.run_scheduled_summary.
+    summary_schedule: str = "disabled"  # disabled, daily, weekly
+    summary_hour_utc: int = 8
+    summary_weekday_utc: int = 0  # Monday=0
+
     @model_validator(mode="after")
     def _refuse_a_non_local_answer_model(self) -> "Settings":
         """The process refuses to start on a misconfigured model host.
@@ -680,6 +786,29 @@ class Settings(BaseSettings):
             allow_remote=self.answer_model_allow_remote_host,
             allowed_hosts=self.answer_model_allowed_hosts,
         )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_smtp_notifications(self) -> "Settings":
+        """Fail closed when outbound notifications are explicitly enabled."""
+        if not self.smtp_enabled:
+            return self
+        missing = [name for name, value in (
+            ("SMTP_HOST", self.smtp_host),
+            ("SMTP_FROM", self.smtp_from),
+            ("SMTP_RECIPIENT", self.smtp_recipient),
+        ) if not str(value).strip()]
+        if missing:
+            raise NotificationConfigError(
+                "SMTP notifications are enabled but missing: "
+                + ", ".join(missing))
+        if not 1 <= self.smtp_port <= 65535:
+            raise NotificationConfigError("SMTP_PORT must be between 1 and 65535")
+        if bool(self.smtp_username) != bool(self.smtp_password):
+            raise NotificationConfigError(
+                "SMTP_USERNAME and SMTP_PASSWORD must be provided together")
+        if self.smtp_timeout_seconds <= 0:
+            raise NotificationConfigError("SMTP_TIMEOUT_SECONDS must be positive")
         return self
 
     def ensure_dirs(self) -> None:

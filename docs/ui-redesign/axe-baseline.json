@@ -1,0 +1,204 @@
+[
+  {
+    "view": "Dashboard",
+    "theme": "light",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 16
+      },
+      {
+        "id": "list",
+        "help": "<ul> and <ol> must only directly contain <li>, <script> or <template> elements",
+        "nodes": 1
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Documents",
+    "theme": "light",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 20
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Chat",
+    "theme": "light",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 19
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Analysis",
+    "theme": "light",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 22
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Reports",
+    "theme": "light",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 13
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Deliverables",
+    "theme": "light",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 41
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Ingestion",
+    "theme": "light",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 59
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Administration",
+    "theme": "light",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 59
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Dashboard",
+    "theme": "dark",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 14
+      },
+      {
+        "id": "list",
+        "help": "<ul> and <ol> must only directly contain <li>, <script> or <template> elements",
+        "nodes": 1
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Documents",
+    "theme": "dark",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 13
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Chat",
+    "theme": "dark",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 16
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Analysis",
+    "theme": "dark",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 14
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Reports",
+    "theme": "dark",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 12
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Deliverables",
+    "theme": "dark",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 21
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Ingestion",
+    "theme": "dark",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 33
+      }
+    ],
+    "critical": []
+  },
+  {
+    "view": "Administration",
+    "theme": "dark",
+    "serious": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "nodes": 76
+      }
+    ],
+    "critical": []
+  }
+]

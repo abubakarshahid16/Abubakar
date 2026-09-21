@@ -1,0 +1,492 @@
+{
+  "at": "20260916T003745Z",
+  "summary": {
+    "3": {
+      "mean_precision": 0.4359,
+      "mean_recall": 0.859
+    },
+    "5": {
+      "mean_precision": 0.3231,
+      "mean_recall": 0.8974
+    },
+    "10": {
+      "mean_precision": 0.1769,
+      "mean_recall": 0.9231
+    }
+  },
+  "skipped": [
+    11,
+    12,
+    13,
+    14,
+    15
+  ],
+  "rows": [
+    {
+      "id": 1,
+      "question": "what does NDFT stand for",
+      "expected_document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [
+        7
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.3333,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            7
+          ]
+        },
+        "5": {
+          "precision": 0.2,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            7
+          ]
+        },
+        "10": {
+          "precision": 0.1,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "question": "what is the maximum relative humidity allowed for blast cleaning and coating",
+      "expected_document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [
+        7
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.3333,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            7
+          ]
+        },
+        "5": {
+          "precision": 0.2,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            7
+          ]
+        },
+        "10": {
+          "precision": 0.1,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "question": "what is the MDFT and number of coats for coating system no. 9",
+      "expected_document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [
+        21,
+        22
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.3333,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            21,
+            22
+          ]
+        },
+        "5": {
+          "precision": 0.2,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            21,
+            22
+          ]
+        },
+        "10": {
+          "precision": 0.1,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            21,
+            22
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "question": "what is the soluble impurity limit in clause 6.3",
+      "expected_document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [
+        10
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.3333,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            10
+          ]
+        },
+        "5": {
+          "precision": 0.2,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            10
+          ]
+        },
+        "10": {
+          "precision": 0.1,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            10
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "question": "which standard gives the holiday detection voltage",
+      "expected_document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [
+        16
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.3333,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            16
+          ]
+        },
+        "5": {
+          "precision": 0.2,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            16
+          ]
+        },
+        "10": {
+          "precision": 0.1,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            16
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "question": "how is the stripe coat applied",
+      "expected_document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [
+        10,
+        11,
+        12
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.6667,
+          "recall": 0.6667,
+          "relevant_in_topk": 2,
+          "pages_covered": [
+            10,
+            11
+          ]
+        },
+        "5": {
+          "precision": 0.6,
+          "recall": 0.6667,
+          "relevant_in_topk": 3,
+          "pages_covered": [
+            10,
+            11
+          ]
+        },
+        "10": {
+          "precision": 0.4,
+          "recall": 1.0,
+          "relevant_in_topk": 4,
+          "pages_covered": [
+            10,
+            11,
+            12
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "question": "how often must temperature, relative humidity and dew point be checked, and what is the relative humidity limit",
+      "expected_document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [
+        7,
+        16
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.6667,
+          "recall": 1.0,
+          "relevant_in_topk": 2,
+          "pages_covered": [
+            7,
+            16
+          ]
+        },
+        "5": {
+          "precision": 0.4,
+          "recall": 1.0,
+          "relevant_in_topk": 2,
+          "pages_covered": [
+            7,
+            16
+          ]
+        },
+        "10": {
+          "precision": 0.2,
+          "recall": 1.0,
+          "relevant_in_topk": 2,
+          "pages_covered": [
+            7,
+            16
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "question": "how many coats and what MDFT for coating system no. 1",
+      "expected_document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [
+        17
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.6667,
+          "recall": 1.0,
+          "relevant_in_topk": 2,
+          "pages_covered": [
+            17
+          ]
+        },
+        "5": {
+          "precision": 0.6,
+          "recall": 1.0,
+          "relevant_in_topk": 3,
+          "pages_covered": [
+            17
+          ]
+        },
+        "10": {
+          "precision": 0.3,
+          "recall": 1.0,
+          "relevant_in_topk": 3,
+          "pages_covered": [
+            17
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "question": "what is the maximum operating temperature for zinc metal coating",
+      "expected_document": "NORSOKM501Rev5.pdf",
+      "expected_pages": [
+        11
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.3333,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            11
+          ]
+        },
+        "5": {
+          "precision": 0.2,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            11
+          ]
+        },
+        "10": {
+          "precision": 0.1,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            11
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "question": "what percentage of crashes are caused by human error",
+      "expected_document": "book1-professionalpractices.pdf",
+      "expected_pages": [
+        27,
+        28
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.3333,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            27,
+            28
+          ]
+        },
+        "5": {
+          "precision": 0.2,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            27,
+            28
+          ]
+        },
+        "10": {
+          "precision": 0.1,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            27,
+            28
+          ]
+        }
+      }
+    },
+    {
+      "id": "16",
+      "question": "inherent problems of P&IDs",
+      "expected_document": "book4ChemicalProcessDynamicsAndControls.pdf",
+      "expected_pages": [
+        403,
+        404,
+        405,
+        407
+      ],
+      "per_k": {
+        "3": {
+          "precision": 1.0,
+          "recall": 0.5,
+          "relevant_in_topk": 3,
+          "pages_covered": [
+            404,
+            407
+          ]
+        },
+        "5": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "relevant_in_topk": 5,
+          "pages_covered": [
+            403,
+            404,
+            405,
+            407
+          ]
+        },
+        "10": {
+          "precision": 0.6,
+          "recall": 1.0,
+          "relevant_in_topk": 6,
+          "pages_covered": [
+            403,
+            404,
+            405,
+            407
+          ]
+        }
+      }
+    },
+    {
+      "id": "17",
+      "question": "wave equation table values",
+      "expected_document": "book2-Differential-Equations.pdf",
+      "expected_pages": [
+        596,
+        597,
+        598
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "relevant_in_topk": 0,
+          "pages_covered": []
+        },
+        "5": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "relevant_in_topk": 0,
+          "pages_covered": []
+        },
+        "10": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "relevant_in_topk": 0,
+          "pages_covered": []
+        }
+      }
+    },
+    {
+      "id": "18",
+      "question": "can you tell me about Design team leader ??",
+      "expected_document": "doc16.pdf",
+      "expected_pages": [
+        14
+      ],
+      "per_k": {
+        "3": {
+          "precision": 0.3333,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            14
+          ]
+        },
+        "5": {
+          "precision": 0.2,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            14
+          ]
+        },
+        "10": {
+          "precision": 0.1,
+          "recall": 1.0,
+          "relevant_in_topk": 1,
+          "pages_covered": [
+            14
+          ]
+        }
+      }
+    }
+  ]
+}

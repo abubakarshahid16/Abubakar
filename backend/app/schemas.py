@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 DocStatus = Literal[
     "queued",
@@ -20,10 +20,84 @@ DocStatus = Literal[
     "partially_searchable",
     "ready",
     "no_searchable_content",
+    #: A workbook: stored and previewable, deliberately never indexed. See
+    #: `states.STORED_NOT_INDEXED` for why this is its own state rather than a
+    #: document that failed to extract.
+    "stored_not_indexed",
     "failed",
 ]
 
 ChunkKind = Literal["prose", "table", "toc", "frontmatter", "index", "references"]
+
+#: What part a document plays in a submittal review.
+#:
+#: THIS IS THE ENFORCEMENT POINT for the five legal roles. The column is plain
+#: TEXT with no CHECK constraint, deliberately - this schema carries exactly
+#: one CHECK (roles.kind), and SQLite cannot ALTER-ADD a CHECK, so a second one
+#: would force a table rebuild at the next column migration. Validating here
+#: instead means a bad value is refused at the API boundary with a message
+#: naming the field, rather than raising sqlite3.IntegrityError from inside a
+#: write. A value that never crosses this boundary is not validated by it, so
+#: any writer that bypasses the API must state its own vocabulary check.
+#:
+#: NOT ACCESS CONTROL (CLAUDE.md rule 5). A role says what a document is for;
+#: the grant tables say who may read it.
+DocumentRole = Literal[
+    "CONTRACTOR_SUBMITTAL",
+    "COMPANY_STANDARD",
+    "CONTRACT_DOCUMENT",
+    "SUPPORTING_DOCUMENT",
+    "CRS_TEMPLATE",
+]
+
+#: Where a DOCUMENT stands in the review workflow.
+#:
+#: MASTER-PLAN SECTION 6 METADATA MAPPING, RESOLVED: "review status" is
+#: **derived, never stored**. There is no `review_status` column and there must
+#: not be one. The authority is `review_runs.status` for the latest run over
+#: that submittal, and a document with no run is `not_reviewed`. A column here
+#: would be a second home for a claim `review_runs` already owns, which is
+#: CLAUDE.md rule 8 - "fix a claim in every home it lives in" - broken at
+#: design time rather than discovered later.
+#:
+#: `not_reviewed` is a real answer and NOT null: the question "has this been
+#: reviewed" has a definite answer for every document, and it is "no".
+#: The remaining values mirror `review_runs.status` exactly, so the two cannot
+#: drift into two vocabularies.
+#: Named apart from the guided-review finding status on purpose - that one is
+#: where a single FINDING stands (`open`, `resolved`...). Two different
+#: questions about two different things; one name for both is how a finding's
+#: state ends up rendered on a document card. `contracts/types.ts` carries the
+#: same distinction.
+DocumentReviewStatus = Literal[
+    "not_reviewed",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+]
+
+#: Whether a submittal meets one requirement. A SECOND vocabulary beside the
+#: guided-review `status`/`disposition`, never a replacement for them.
+#:
+#: The six are not collapsible to a boolean, and that is the point:
+#:   * MISSING_INFORMATION is NOT NON_COMPLIANT - "the submittal does not say"
+#:     is not "the submittal is wrong", and the honesty invariant that "not
+#:     mentioned is never compliant" has an equal and opposite half.
+#:   * CONDITIONAL carries a verdict that holds only if something else is true.
+#:   * NOT_APPLICABLE means the requirement does not govern this submittal.
+#:   * NEEDS_ENGINEER_REVIEW is the machine declining to answer, which is a
+#:     result and must be storable as one rather than rounded to a guess.
+#: NULL (no value at all) is distinct from every one of these: it means no
+#: verdict was ever recorded, which is what every pre-existing finding row is.
+ComplianceStatus = Literal[
+    "COMPLIANT",
+    "NON_COMPLIANT",
+    "MISSING_INFORMATION",
+    "CONDITIONAL",
+    "NOT_APPLICABLE",
+    "NEEDS_ENGINEER_REVIEW",
+]
 
 
 class ApiError(BaseModel):
@@ -88,6 +162,283 @@ class Document(BaseModel):
         "only an administrator can read it. Read from the grant tables, never "
         "inferred from the filename or the content."
     )
+    # ----------------------------------------- AI submittal review, phase 2
+    # The Documents page columns. Every one is null on every document
+    # classified before this workflow existed, and null renders as nothing.
+    document_role: DocumentRole | None = None
+    document_number: str | None = None
+    title: str | None = Field(
+        None, description="the human title. Null means none recorded; the UI "
+                          "falls back to the filename rather than inventing one")
+    revision: str | None = None
+    equipment_type: str | None = None
+    project: str | None = None
+    superseded_by: str | None = Field(
+        None, description="the document id that replaced this one. Null means "
+                          "this document is current")
+    #: DERIVED from the latest review_runs row, never stored. `not_reviewed` is
+    #: a real answer, not a null - see `ReviewStatus`.
+    review_status: DocumentReviewStatus = "not_reviewed"
+
+
+class StandardClause(BaseModel):
+    """One clause of a standard, resolving to the chunk it was read from."""
+
+    clause: str
+    parent_clause: str | None = Field(
+        None, description="null for a top-level clause - a real answer, not a "
+                          "missing one: it is the root of the hierarchy")
+    depth: int
+    title: str | None = None
+    page: int
+    chunk_id: str = Field(
+        description="the chunk this clause was read from, so it resolves to a "
+                    "passage a reader can open")
+
+
+class StandardRequirement(BaseModel):
+    """One atomic requirement, with its resolving citation.
+
+    Phase 3A carries no requirement_type, operator, value, unit, condition or
+    exceptions. Those are 3B, and half a numeric limit is worse than none: a
+    row carrying `value: 90` with no operator reads as a limit and is not one.
+    """
+
+    id: str
+    standard_document_id: str
+    clause: str | None = Field(
+        None, description="NULL when the parser could not identify one. Never "
+                          "guessed and never inherited from the preceding "
+                          "clause - an inherited number is a citation that "
+                          "resolves to the wrong place")
+    page: int | None
+    chunk_id: str | None
+    requirement_text: str
+    source_text: str | None = Field(
+        None, description="the verbatim span. Separate from requirement_text "
+                          "because 3B will normalise one and must not lose the "
+                          "other")
+    category: str | None = None
+    extraction_method: str | None = Field(
+        None, description="'extracted' until a human confirms it: a guess "
+                          "stays labelled a guess")
+    confidence: float | None = Field(
+        None, description="A HEURISTIC, not a probability. Its only job is to "
+                          "decide whether a row is presented as a requirement "
+                          "or as one awaiting verification")
+    confirmed_by: str | None = None
+    confirmed_at: str | None = None
+    needs_verification: bool = Field(
+        description="true while a human has not confirmed a row this extractor "
+                    "is unsure of")
+    # ------------------------------------------------------------ phase 3B
+    requirement_type: RequirementType | None = None
+    field: str | None = Field(
+        None, description="what is being limited. From a table this is the "
+                          "column header the document wrote; from a sentence "
+                          "it is null rather than guessed")
+    operator: str | None = None
+    value: float | None = Field(
+        None, description="the NORMALISED number, or null. NULL WHEN THE UNIT "
+                          "IS UNKNOWN - never 0, which would read as a limit "
+                          "of zero, a real and very different requirement")
+    unit: str | None = Field(
+        None, description="the canonical unit, or null when the spelling is "
+                          "not in claims.py's table")
+    raw_value: str | None = Field(
+        None, description="exactly as the document wrote it. Preserved so an "
+                          "un-normalisable value is still quotable")
+    raw_unit: str | None = None
+    condition: str | None = Field(
+        None, description="the circumstance the requirement holds under. A "
+                          "wrong condition NARROWS a requirement and silently "
+                          "excuses a real deviation, so it is parsed "
+                          "conservatively and is null when unclear")
+    exceptions: list[dict] = Field(
+        default_factory=list,
+        description="carve-outs with their own limits. An exception that is "
+                    "dropped turns a compliant PSV into a false finding")
+    discipline: str | None = None
+    table_row: int | None = None
+    citation_resolves: bool = Field(
+        description="false when the cited chunk is gone - re-extract. Shown "
+                    "rather than the row being silently dropped")
+    created_at: str
+    updated_at: str
+
+
+#: What kind of thing a requirement states. Phase 3B.
+#:
+#: NOTHING IS INVENTED FOR TEXT THE PARSER DID NOT UNDERSTAND. An obligation
+#: with no recognisable limit is a `statement`, which is a true description of
+#: it - not a `numeric_limit` carrying a null value, a shape that reads as a
+#: limit nobody bothered to record.
+RequirementType = Literal["numeric_limit", "statement", "table_value"]
+
+#: An engineer's decision on an extracted requirement.
+RequirementDecision = Literal["confirm", "edit", "reject"]
+
+
+class TableParseResult(BaseModel):
+    """One table chunk, parsed or explicitly not."""
+
+    chunk_id: str
+    document_id: str
+    page: int
+    columns: list[str] = Field(default_factory=list)
+    rows: list[list[str]] = Field(default_factory=list)
+    parsed: bool
+    unparsed_reason: str | None = Field(
+        None, description="why this table could not be read. A table that "
+                          "could not be parsed is a FACT to report, never an "
+                          "absence to skip over")
+
+
+class TableReport(BaseModel):
+    document_id: str
+    tables: list[TableParseResult] = Field(default_factory=list)
+    tables_total: int
+    tables_parsed: int
+    tables_unparsed: int
+    parsed_fraction: float | None = Field(
+        None, description="NONE when the standard has no tables at all, which "
+                          "is not 0% and must not render as a failure. A rate "
+                          "is never published without its denominator")
+
+
+class RequirementDecisionRequest(BaseModel):
+    decision: RequirementDecision
+    edits: dict | None = Field(
+        None, description="field -> new value, for `edit`. A correction sets "
+                          "extraction_method to 'human': after it the row is a "
+                          "person's statement, not a machine's guess")
+
+
+class ExtractionJob(BaseModel):
+    """A queued or finished background extraction.
+
+    Typed rather than a bare dict because `test_every_endpoint_declares_a_
+    typed_success_response` forbids an untyped success body - and it is right
+    to: an `additionalProperties: true` response is a contract that promises
+    nothing, and the client generator has nothing to generate.
+    """
+
+    document_id: str | None = None
+    job_id: str | None = None
+    state: str = Field(
+        description="'none' when no extraction has ever been queued for this "
+                    "standard - a real answer, not a missing one")
+    error_code: str | None = None
+    started_at: str | None = None
+    updated_at: str | None = None
+
+
+class RequirementDecisionResult(BaseModel):
+    """What an engineer's decision did.
+
+    `deleted` is true only for a reject, where the row is gone and the audit
+    row is what survives.
+    """
+
+    id: str
+    decision: RequirementDecision
+    deleted: bool = False
+    extraction_method: str | None = Field(
+        None, description="'human' after any confirm or edit: the row is a "
+                          "person's statement, not a machine's guess")
+    confirmed_by: str | None = None
+    confirmed_at: str | None = None
+    requirement_text: str | None = None
+    clause: str | None = None
+    field: str | None = None
+    operator: str | None = None
+    value: float | None = None
+    unit: str | None = None
+
+
+class RequirementConflict(BaseModel):
+    """Two standards limiting the same field differently.
+
+    SURFACED, NEVER RESOLVED. Picking one silently would hide exactly the thing
+    an engineer needs to decide, and seniority between two company standards is
+    not something this system can know.
+    """
+
+    field: str
+    requirements: list[dict]
+
+
+class StandardSummary(BaseModel):
+    """One row of the Standards Library list."""
+
+    id: str
+    filename: str
+    status: DocStatus
+    page_count: int | None
+    uploaded_at: str
+    title: str | None = None
+    document_number: str | None = None
+    revision: str | None = None
+    effective_date: str | None = None
+    #: WHAT THE STANDARD'S OWN COVER PAGE SAYS. Evidence, never rewritten.
+    discipline: str | None = None
+    #: The editorial answer to "are these two the same discipline", derived
+    #: from `discipline` and stored beside it. A screen shows this one and
+    #: keeps the raw spelling in a tooltip when the two differ - an unmapped
+    #: value is simply equal to the raw one, so there is nothing to show.
+    discipline_canonical: str | None = None
+    superseded_by: str | None = None
+    superseded: bool = Field(
+        description="excluded from SELECTION for new reviews, and still fully "
+                    "readable and citable. Two different questions")
+    requirement_count: int = Field(
+        description="0 is a real answer meaning NONE EXTRACTED. It never means "
+                    "'none required' and never renders as readiness")
+    awaiting_verification: int
+
+
+class StandardExtraction(BaseModel):
+    """What one extraction run did. Counts, with their boundary stated."""
+
+    document_id: str
+    chunks_read: int
+    requirements: int
+    awaiting_verification: int
+
+
+class SupersedeRequest(BaseModel):
+    superseded_by: str | None = Field(
+        None, description="the document id that replaces this one, or null to "
+                          "clear the mark")
+
+
+class WorkbookSheet(BaseModel):
+    """One sheet of a read-only workbook preview."""
+
+    name: str
+    rows: list[list[str]] = Field(
+        default_factory=list,
+        description="POPULATED ROWS ONLY, row-major. Ragged rows are normal - "
+                    "a sheet is not a rectangle. An empty cell is an empty "
+                    "string and renders as nothing, never as 0")
+    truncated: bool = Field(
+        False,
+        description="the preview stopped short of the sheet's full extent. "
+                    "Stated rather than applied silently: a preview that "
+                    "quietly stops at row 500 lies about what the file holds")
+
+
+class WorkbookPreview(BaseModel):
+    sheets: list[WorkbookSheet] = Field(default_factory=list)
+    truncated: bool = False
+
+
+class DocumentPage(BaseModel):
+    """A bounded document listing; authorization and filtering happen before paging."""
+    items: list[Document]
+    total_matching: int
+    limit: int
+    offset: int
 
 
 class UploadAccepted(BaseModel):
@@ -418,6 +769,32 @@ class DocumentClassification(BaseModel):
     confirmed_at: str | None
     confirmed: bool
     subjects: list[DocumentSubject]
+    # --------------------------------------------- AI submittal review, phase 1
+    # Every one of these is null on every document classified before this
+    # workflow existed, and null renders as nothing - never as a default role,
+    # never as 0, never as "unknown" dressed up as a value.
+    document_role: DocumentRole | None = None
+    document_number: str | None = None
+    title: str | None = Field(
+        None, description="the human title, which is NOT the filename. Null "
+                          "means none recorded and the UI falls back to the "
+                          "filename rather than inventing one")
+    revision: str | None = None
+    effective_date: str | None = None
+    project: str | None = None
+    contractor_vendor: str | None = None
+    equipment_type: str | None = None
+    equipment_tags: list[str] = Field(
+        default_factory=list,
+        description="flat tag list; stored as a JSON array in one TEXT column "
+                    "because nothing joins on it. An empty list means none "
+                    "recorded")
+    service: str | None = None
+    transmittal_number: str | None = None
+    superseded_by: str | None = Field(
+        None, description="the document id that replaced this one, or null. "
+                          "Not a foreign key: deleting the superseding "
+                          "document must not erase the fact of supersession")
 
 
 class ClassificationUpdate(BaseModel):
@@ -435,6 +812,125 @@ class ClassificationUpdate(BaseModel):
     discipline: str | None = None
     doc_class: str | None = None
     subject_ids: list[str] = Field(default_factory=list)
+    # ----------------------------------------- AI submittal review, phase 2
+    # THE ENFORCEMENT POINT for the role vocabulary on the way IN. The column
+    # is plain TEXT with no CHECK (see `DocumentRole`), so this annotation is
+    # the only thing standing between a typo and a document that no filter
+    # will ever match. `DocumentRole` and not `str`: widening this field is
+    # mutation M12, and the test that catches it is
+    # test_an_invalid_role_is_rejected.
+    #
+    # Every field is optional and None means "clear it". That is deliberate
+    # and is why the route sends the whole record: a PUT replaces the
+    # classification, the same way `subject_ids` already replaces the subject
+    # set, so an administrator removing a value can actually remove it.
+    document_role: DocumentRole | None = None
+    document_number: str | None = None
+    title: str | None = None
+    revision: str | None = None
+    effective_date: str | None = None
+    project: str | None = None
+    contractor_vendor: str | None = None
+    equipment_type: str | None = None
+    equipment_tags: list[str] = Field(default_factory=list)
+    service: str | None = None
+    transmittal_number: str | None = None
+    superseded_by: str | None = None
+
+
+class PairChoice(BaseModel):
+    """The model's answer when asked which candidate a clause governs.
+
+    THE MODEL CHOOSES; IT NEVER NAMES. `choice` is an INDEX into a list Python
+    built, so the model cannot invent a field that was not offered - the worst
+    failure available to it is picking the wrong number, which the validation
+    chain then checks against the list it was given.
+
+    `extra="forbid"` because a model asked for JSON will happily return extra
+    keys, and a response carrying a `field_name` or a `value` it was never
+    shown is a response that did not follow the contract. Refusing it is
+    `model_malformed`, and the requirement falls back to MISSING_INFORMATION.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The candidate index, or None for "none of these". Null is offered
+    #: explicitly in the prompt so declining is a sanctioned answer rather than
+    #: something the model has to invent a way to say.
+    choice: int | None = None
+    #: One short sentence. Bounded because it is stored on the finding and
+    #: shown to an engineer, and an unbounded field lets a model write an essay
+    #: into a column meant for a reason.
+    reason: str = Field(default="", max_length=200)
+
+
+class BulkRoleUpdate(BaseModel):
+    """Set ONE role on MANY documents.
+
+    ONE ROLE, NOT A MAP. A per-document role would let a single request mix
+    standards and submittals, and the confirmation the UI can show for that is
+    "40 documents updated" - which tells a reviewer nothing about what they
+    just asserted. One role per request means the sentence on screen is
+    "40 documents set to COMPANY_STANDARD", and that is a claim somebody can
+    actually check.
+
+    THE VOCABULARY IS ENFORCED HERE, same as `ClassificationUpdate`, and for
+    the same reason: the column is plain TEXT with no CHECK, so this annotation
+    is what stands between a typo and documents no filter will ever match.
+    `document_role` is NOT optional on this model - an omitted role on a bulk
+    write would mean "clear the role on all forty", which no caller should be
+    able to ask for by leaving a field out.
+    """
+
+    document_ids: list[str] = Field(
+        min_length=1,
+        description="the documents to set the role on. An empty list is "
+                    "refused rather than treated as a no-op: it almost always "
+                    "means the UI lost its selection, and answering 200/'0 "
+                    "updated' to that looks like success",
+    )
+    document_role: DocumentRole
+
+
+class BulkRoleFailure(BaseModel):
+    """One document the bulk write did NOT touch, and why."""
+
+    document_id: str
+    reason: Literal["not_found"] = Field(
+        description="`not_found` covers both an id that does not exist and one "
+                    "outside the caller's scope - deliberately the SAME answer, "
+                    "because a distinct 'forbidden' here would turn this "
+                    "endpoint into an existence oracle for documents the caller "
+                    "may not read, which is the leak every single-document read "
+                    "path already refuses"
+    )
+
+
+class BulkRoleResult(BaseModel):
+    """What the bulk write actually did.
+
+    IT REPORTS FAILURES BY ID, NOT AS A COUNT. A bulk endpoint that returns
+    "37 updated" for a request naming 40 documents has told the caller that
+    something went wrong and made it impossible to find out what - and the UI's
+    only honest options are then to say nothing or to re-fetch everything and
+    diff. Every id that did not get the role is named here, so the screen can
+    say which ones and the person can act on it.
+    """
+
+    document_role: DocumentRole
+    requested: int = Field(description="ids in the request, after duplicates "
+                                       "were collapsed")
+    updated: list[str] = Field(
+        description="documents whose role this request CHANGED")
+    unchanged: list[str] = Field(
+        description="documents that already held this exact role. Not a "
+                    "failure and not an update - re-applying the same value is "
+                    "a no-op, and counting it as a change would inflate every "
+                    "confirmation message"
+    )
+    failed: list[BulkRoleFailure] = Field(
+        description="documents that were NOT written, each with a reason. "
+                    "Empty on a fully successful request")
 
 
 class CoverageByType(BaseModel):
@@ -858,6 +1354,8 @@ class AnalysisRecommendation(BaseModel):
     evidence_ledger: list[EvidenceItem]
     recommendation: RecommendationOut | None = Field(
         None, description="null is not an empty recommendation")
+    recommendation_refusal: str | None = Field(
+        None, description="reason the advisory recommendation was not produced")
     public_market_findings: list[MarketFinding]
     not_implemented_sections: list[str]
     #: THE FILTER THAT WAS APPLIED. Echoed so a reader can judge an
@@ -869,9 +1367,14 @@ class AnalysisRecommendation(BaseModel):
 class AnalysisRequest(BaseModel):
     question: str
     limit: int = 8
+    comparison_type: Literal[
+        "baseline_vs_submittal", "requirements_vs_submittal",
+        "revision_delta", "discipline_coordination"
+    ] | None = Field(None, description="named engineering comparison workflow")
+    document_id: str | None = Field(
+        None, description="engineering submittal document used for automatic baseline selection")
     baseline_document_id: str | None = Field(
-        None, description="the caller's choice of authoritative document. "
-        "Never chosen by the system")
+        None, description="optional manual authoritative-document override; takes precedence")
     #: OPTIONAL. Absent means today's behaviour, byte for byte. Present, it is
     #: intersected with the caller's own grants BEFORE retrieval, so it can
     #: only ever narrow. An object here rather than repeated query params
@@ -1089,9 +1592,156 @@ class ReportList(BaseModel):
     suppressed_count: int = Field(
         description="reports hidden because a cited document left the caller's "
         "scope. THAT something is hidden, never WHAT")
+    total_matching: int = 0
+    limit: int = 20
+    offset: int = 0
 
 
 # ------------------------------------------------------- engineering reviews
+
+class ReviewTemplateCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    version: str = Field(min_length=1, max_length=40)
+    description: str = Field(default="", max_length=4000)
+    discipline: str | None = Field(default=None, max_length=100)
+    deliverable_type: str | None = Field(default=None, max_length=100)
+    governing_sources: list[str] = Field(default_factory=list, max_length=100)
+    categories: list[str] = Field(default_factory=list, max_length=30)
+    severity_levels: list[str] = Field(default_factory=list, max_length=10)
+    approval_terms: list[str] = Field(default_factory=list, max_length=30)
+    required_sections: list[str] = Field(default_factory=list, max_length=50)
+    active: bool = True
+
+
+class ReviewTemplate(BaseModel):
+    id: str
+    name: str
+    version: str
+    description: str
+    discipline: str | None
+    deliverable_type: str | None
+    governing_sources: list[str]
+    categories: list[str]
+    severity_levels: list[str]
+    approval_terms: list[str]
+    required_sections: list[str]
+    active: bool
+    created_by: str | None
+    created_at: str
+    updated_at: str
+
+
+class ReviewTemplateList(BaseModel):
+    templates: list[ReviewTemplate]
+
+
+class ReviewBaselineRuleCreate(BaseModel):
+    submittal_doc_type: str | None = None
+    submittal_discipline: str | None = None
+    baseline_doc_type: str
+    baseline_discipline: str | None = None
+    priority: int = 0
+    active: bool = True
+
+
+class ReviewBaselineRule(BaseModel):
+    id: str
+    submittal_doc_type: str | None
+    submittal_discipline: str | None
+    baseline_doc_type: str
+    baseline_discipline: str | None
+    priority: int
+    active: bool
+    created_at: str
+
+
+class ReviewBaselineRuleList(BaseModel):
+    rules: list[ReviewBaselineRule]
+
+
+class ReviewBaselineSelection(BaseModel):
+    document_id: str
+    rule_id: str | None
+    automatic: bool
+
+
+class ExpectedDeliverable(BaseModel):
+    id: str
+    wbs_code: str
+    deliverable_type: str
+    title: str
+    required: bool
+    deliverable_id: str | None
+    status: str | None
+    state: Literal["registered", "missing"]
+    origin: Literal["manual", "inferred"]
+
+
+class ExpectedDeliverableList(BaseModel):
+    deliverables: list[ExpectedDeliverable]
+
+
+RiskType = Literal["schedule", "review", "dependency", "compliance"]
+
+
+class RiskCreate(BaseModel):
+    risk_type: RiskType
+    title: str
+    description: str
+    severity: str = "medium"
+    status: str = "open"
+    deliverable_id: str | None = None
+    document_id: str | None = None
+    owner_user_id: str | None = None
+    due_date: str | None = None
+    source_finding_id: str | None = None
+
+
+class Risk(BaseModel):
+    id: str
+    risk_type: RiskType
+    title: str
+    description: str
+    severity: str
+    status: str
+    deliverable_id: str | None
+    document_id: str | None
+    owner_user_id: str | None
+    due_date: str | None
+    source_finding_id: str | None
+    created_at: str
+    updated_at: str
+
+
+class RiskList(BaseModel):
+    risks: list[Risk]
+
+
+class StructuredSearchResult(BaseModel):
+    id: str
+    kind: Literal["deliverable", "finding", "risk", "stakeholder"]
+    label: str
+    wbs_code: str | None
+    document_id: str | None
+
+
+class StructuredSearchList(BaseModel):
+    results: list[StructuredSearchResult]
+
+
+class ReviewTraceability(BaseModel):
+    finding: ReviewFinding
+    document: dict
+    baseline: dict | None
+    citations: list[str]
+    events: list[ReviewFindingEvent]
+    deliverables: list[Deliverable]
+    owner: dict | None
+    action: str
+
+
+class ReviewReportRequest(BaseModel):
+    document_id: str
 
 ReviewCategory = Literal[
     "missing_information", "inconsistency", "requirement_deviation",
@@ -1106,11 +1756,16 @@ ReviewDisposition = Literal["accepted", "partially_accepted", "rejected", "not_a
 class ReviewFindingCreate(BaseModel):
     document_id: str
     baseline_document_id: str | None = None
+    template_id: str | None = None
+    discipline: str | None = Field(default=None, max_length=100)
+    confidence: Literal["low", "medium"] | None = None
     category: ReviewCategory
     severity: ReviewSeverity
     requirement: str = Field(min_length=1, max_length=4000)
     finding: str = Field(min_length=1, max_length=8000)
     required_action: str = Field(min_length=1, max_length=8000)
+    governing_sources: list[str] = Field(default_factory=list, max_length=100)
+    unresolved_evidence: list[str] = Field(default_factory=list, max_length=50)
     response_text: str | None = Field(default=None, max_length=8000)
     disposition: ReviewDisposition | None = None
     citation_ids: list[str] = Field(default_factory=list, max_length=50)
@@ -1133,17 +1788,28 @@ class ReviewFindingUpdate(BaseModel):
     disposition: ReviewDisposition | None = None
     approved_by: str | None = None
     approved_at: str | None = None
+    #: CONFIRM THE PAIRING. A flag, not a name: `confirmed_by` is the CALLER,
+    #: taken from the authenticated scope and never from this body, because a
+    #: confirmation that can name someone else is not a confirmation. There is
+    #: no way to un-confirm through this route - a wrong pairing is REJECTED,
+    #: which is a different act with a different record.
+    confirmed: bool | None = None
 
 
 class ReviewFinding(BaseModel):
     id: str
     document_id: str
     baseline_document_id: str | None
+    template_id: str | None
+    discipline: str | None
+    confidence: Literal["low", "medium"] | None
     category: ReviewCategory
     severity: ReviewSeverity
     requirement: str
     finding: str
     required_action: str
+    governing_sources: list[str]
+    unresolved_evidence: list[str]
     response_text: str | None
     disposition: ReviewDisposition | None
     citation_ids: list[str]
@@ -1157,10 +1823,261 @@ class ReviewFinding(BaseModel):
     created_by: str | None
     created_at: str
     updated_at: str
+    # ------------------------------------- AI submittal review, phases 5A/5B
+    #
+    # THE COMPLIANCE SHAPE, ADDED AND NOTHING REMOVED. This model was the
+    # phase-1 approval-workflow view of a finding, and the columns phase 5B
+    # writes were invisible through it: a run produced 1,580 findings, the API
+    # returned them, and a caller could not tell which run they belonged to,
+    # what the engine decided, or which submitted value was matched.
+    #
+    # Every one is OPTIONAL and defaults to None, because a finding raised by
+    # hand through `POST /api/reviews/findings` has none of them and is still
+    # a finding.
+    review_run_id: str | None = None
+    compliance_status: ComplianceStatus | None = None
+    #: WHICH REQUIREMENT AND WHICH SUBMITTED VALUE. A finding says a
+    #: contractor's number does or does not meet a clause; if the pairing was
+    #: wrong the finding is wrong, so the reader gets the pairing.
+    requirement_id: str | None = None
+    fact_id: str | None = None
+    #: The field name found inside the requirement's subject, and the rule that
+    #: found it. `containment` is the only method today; it is recorded so a
+    #: second one cannot be added without the finding saying which ran.
+    matched_phrase: str | None = None
+    match_method: str | None = None
+    #: Why the engine decided what it did, kept SEPARATE from `finding` so a
+    #: reader can see the reasoning without it being presented as the
+    #: contractor-facing text.
+    ai_rationale: str | None = None
+    #: WHICH EQUIPMENT THE FINDING IS ABOUT, verbatim from the datasheet's
+    #: own tag row. None where the sheet does not say - a datasheet covering
+    #: four valves has pages that name none, and a null is the true answer.
+    equipment_tag: str | None = None
+    #: THE CITATIONS, WHICH ARE THE FINDING'S EVIDENCE. §12 refuses a finding
+    #: unless both resolve, so a response that withheld them left the screen
+    #: showing a verdict with no way to check it - the Review page rendered an
+    #: empty Standard / clause column until these were added.
+    standard_document_id: str | None = None
+    standard_clause: str | None = None
+    standard_page: int | None = None
+    requirement_source_text: str | None = None
+    contractor_page: int | None = None
+    contractor_section: str | None = None
+    contractor_evidence_text: str | None = None
+    #: WHO STOOD BEHIND THE PAIRING. A model-paired finding is a guess until an
+    #: engineer says otherwise, and a confirmed finding is never deleted by a
+    #: re-run. Both are visible here so a reader can tell a confirmed pairing
+    #: from an unexamined one.
+    confirmed_by: str | None = None
+    confirmed_at: str | None = None
+
+
+class PairRejectionCreate(BaseModel):
+    """An engineer says a finding's requirement is not about that field."""
+
+    model_config = ConfigDict(extra="forbid")
+    finding_id: str
+    reason: str = Field(default="", max_length=500)
+
+
+class PairRejection(BaseModel):
+    """What was recorded. The KEYS, not the row ids, decide whether it applies."""
+
+    requirement_key: str
+    fact_key: str
+    requirement_id: str | None = None
+    fact_id: str | None = None
+    rejected_by: str | None = None
+    rejected_at: str
+    reason: str | None = None
+
+
+class CrsHeaderField(BaseModel):
+    """One labelled line of the CRS header block, rows 3-7 of the sheet.
+
+    THE LABEL TRAVELS WITH THE VALUE. The template's wording is the client's,
+    down to the double space in "CONTRACTOR  Transmittal No.:", and a screen
+    that re-typed it would be showing its own words over their document.
+    """
+
+    label: str
+    value: str
+
+
+class CrsPreviewRow(BaseModel):
+    """One comment row of the CRS, exactly as the workbook writes it.
+
+    `contractor_response` and `final_resolution` are ALWAYS empty. They belong
+    to the contractor, and they are carried rather than omitted because the
+    sheet has seven columns whether or not anyone has answered yet - a reader
+    has to see the space the contractor will fill.
+    """
+
+    item_no: int
+    #: The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
+    #: across re-exports of the same review, so a contractor can quote it
+    #: back. It is carried here as its own field AND printed as the comment's
+    #: first line - the client's template has seven columns and this adds no
+    #: eighth one.
+    row_ref: str = ""
+    document_name: str
+    page_section: str
+    comment: str
+    comment_by: str
+    contractor_response: str = ""
+    final_resolution: str = ""
+
+
+class CrsPreview(BaseModel):
+    """The Comment Resolution Sheet as a browser can render it.
+
+    THE SAME CONTENT AS THE .xlsx, FROM THE SAME BUILDER. Both this and the
+    download come from `crs_export.build_crs_view` over the rows
+    `crs_mapping.build_crs_rows` returns; the export then draws that view into
+    the client's template. A preview that could disagree with the file the
+    client receives would be worse than no preview at all, so there is no
+    second path that could decide something different.
+    """
+
+    title: str
+    subtitle: str
+    header: list[CrsHeaderField]
+    columns: list[str]
+    rows: list[CrsPreviewRow]
+    #: Empty when the run has no recommendation, and rendered as nothing
+    #: rather than as a placeholder code.
+    recommended_code: str = ""
+    recommended_code_reason: str = ""
+    recommended_code_label: str
+
+
+class ReviewRunStandard(BaseModel):
+    """One standard on a run's list, with the reason it is there.
+
+    THE REASON IS VERBATIM. `applicability.select` writes a sentence saying
+    what put the standard on the list - a citation in the submittal, or dense
+    retrieval that "is NOT a citation and not evidence of applicability on its
+    own" - and the screen shows that sentence rather than a word of its own.
+    """
+
+    standard_document_id: str
+    filename: str | None = None
+    selection_method: str | None = None
+    selection_reason: str | None = None
+    confidence: float | None = None
+    included: bool = True
+    exclusion_reason: str | None = None
+
+
+class ReviewRunStandardList(BaseModel):
+    standards: list[ReviewRunStandard]
+
+
+class ReviewRunSummary(BaseModel):
+    """A review run as the runs list shows it.
+
+    EVERY COUNT CARRIES ITS DENOMINATOR (CLAUDE.md rule 4). `by_status` is a
+    map of status to count and `findings_total` is what they are out of, so no
+    screen has to invent the total by summing and no reader sees a bare number.
+    """
+
+    review_run_id: str
+    submittal_document_id: str
+    submittal_filename: str | None = None
+    #: Every distinct equipment tag the run's findings name, in order. Empty
+    #: when the datasheet states none - which renders as nothing, never as a
+    #: guess at what the equipment might be.
+    equipment_tags: list[str] = []
+    status: str
+    created_at: str | None = None
+    completed_at: str | None = None
+    standards_in_scope: int = 0
+    findings_total: int = 0
+    by_status: dict[str, int] = {}
+    recommended_code: str | None = None
+    #: The recommendation's own words. Never re-worded by a screen.
+    recommended_reason: str | None = None
+    #: Why a failed run failed, verbatim. None on a run that did not fail.
+    failure_reason: str | None = None
+    #: THE ENGINEER'S DECISION, BESIDE THE MACHINE'S AND NEVER INSTEAD OF IT.
+    #: Section 15: the AI recommends and the engineer decides; both are stored
+    #: so a reader can see what was recommended and what was signed.
+    engineer_final_code: str | None = None
+    override_reason: str | None = None
+    #: The user id, because that is what the foreign key holds.
+    decided_by: str | None = None
+    #: And the name that id belongs to, resolved in the run's own join. A
+    #: screen shows this and keeps the id for the tooltip: an engineer knows
+    #: their name, not their primary key. Null when the user row is gone.
+    decided_by_name: str | None = None
+    decided_at: str | None = None
+    completeness: dict | None = None
+
+
+class ReviewCodeDecision(BaseModel):
+    """The engineer's final code for a run.
+
+    `override_reason` is REQUIRED when the code differs from the AI's
+    recommendation and optional when it agrees - section 15's "the engineer's
+    final action is governance". The rule is enforced server-side in
+    `comparison.record_engineer_code`, not here, because a client that
+    omitted the field would otherwise decide whether the rule applied.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    code: str
+    override_reason: str | None = Field(default=None, max_length=2000)
+
+
+class ReviewDashboard(BaseModel):
+    """The four cards of master plan section 20, and the recent runs.
+
+    EVERY FIGURE CARRIES ITS POPULATION. `submittals_awaiting_review` is out
+    of `submittals_total`; `standards_referenced_missing` is out of
+    `standards_referenced_total`. A card showing one number without the other
+    is the bare-count defect CLAUDE.md rule 4 forbids.
+    """
+
+    submittals_total: int = 0
+    submittals_awaiting_review: int = 0
+    standards_available: int = 0
+    standards_referenced_total: int = 0
+    standards_referenced_missing: int = 0
+    reviews_running: int = 0
+    reviews_awaiting_decision: int = 0
+    reviews_total: int = 0
+    needs_attention: int = 0
+    #: Why each run counts as needing attention, so the tile is auditable
+    #: rather than a number a reader has to trust.
+    needs_attention_reasons: dict[str, int] = {}
+    recent: list[ReviewRunSummary] = []
+
+
+class ReviewRunList(BaseModel):
+    runs: list[ReviewRunSummary]
+
+
+class ReviewRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    submittal_document_id: str
 
 
 class ReviewFindingList(BaseModel):
     findings: list[ReviewFinding]
+
+
+class ReviewFindingEvent(BaseModel):
+    id: str
+    finding_id: str
+    event_type: str
+    changes: dict
+    actor_user_id: str | None
+    created_at: str
+
+
+class ReviewFindingEventList(BaseModel):
+    events: list[ReviewFindingEvent]
 
 
 DeliverableStatus = Literal["planned", "in_progress", "submitted", "under_review", "approved", "rejected", "superseded"]
@@ -1168,6 +2085,7 @@ DeliverableStatus = Literal["planned", "in_progress", "submitted", "under_review
 
 class DeliverableCreate(BaseModel):
     wbs_code: str = Field(min_length=1, max_length=100)
+    parent_id: str | None = None
     title: str = Field(min_length=1, max_length=500)
     deliverable_type: str = Field(min_length=1, max_length=100)
     revision: str = Field(default="0", max_length=50)
@@ -1182,6 +2100,7 @@ class DeliverableCreate(BaseModel):
 
 class DeliverableUpdate(BaseModel):
     wbs_code: str | None = Field(default=None, min_length=1, max_length=100)
+    parent_id: str | None = None
     title: str | None = Field(default=None, min_length=1, max_length=500)
     deliverable_type: str | None = Field(default=None, min_length=1, max_length=100)
     revision: str | None = Field(default=None, max_length=50)
@@ -1197,6 +2116,7 @@ class DeliverableUpdate(BaseModel):
 class Deliverable(BaseModel):
     id: str
     wbs_code: str
+    parent_id: str | None
     title: str
     deliverable_type: str
     revision: str
@@ -1216,6 +2136,43 @@ class DeliverableList(BaseModel):
     deliverables: list[Deliverable]
 
 
+class DeliverableEvent(BaseModel):
+    id: str
+    deliverable_id: str
+    event_type: str
+    changes: dict
+    actor_user_id: str | None
+    created_at: str
+
+
+class DeliverableEventList(BaseModel):
+    events: list[DeliverableEvent]
+
+
+StakeholderRole = Literal["owner", "reviewer", "approver", "informed"]
+
+
+class DeliverableStakeholder(BaseModel):
+    deliverable_id: str
+    user_id: str
+    role: StakeholderRole
+    email: str
+    display_name: str | None
+
+
+class DeliverableStakeholderAssignment(BaseModel):
+    user_id: str
+    role: StakeholderRole
+
+
+class DeliverableStakeholderUpdate(BaseModel):
+    assignments: list[DeliverableStakeholderAssignment] = Field(max_length=100)
+
+
+class DeliverableStakeholderList(BaseModel):
+    stakeholders: list[DeliverableStakeholder]
+
+
 class DeliverableAlert(BaseModel):
     deliverable_id: str
     wbs_code: str
@@ -1230,13 +2187,48 @@ class DeliverableAlertList(BaseModel):
     alerts: list[DeliverableAlert]
 
 
+class WbsWorkspace(BaseModel):
+    node: Deliverable
+    children: list[Deliverable]
+    documents: list[dict]
+    reviews: list[ReviewFinding]
+    escalations: list[DeliverableAlert]
+
+
+class ReminderEvent(BaseModel):
+    id: str
+    deliverable_id: str
+    level: int
+    due_date: str
+    recipient_role: str
+    status: Literal["pending", "acknowledged"]
+    acknowledged_at: str | None
+    created_at: str
+
+
+class ReminderEventList(BaseModel):
+    reminders: list[ReminderEvent]
+
+
+class NotificationSendResponse(BaseModel):
+    sent: bool
+
+
 class ManagementSummary(BaseModel):
     deliverables_total: int
     deliverables_by_status: dict[str, int]
     review_findings_total: int
     findings_by_severity: dict[str, int]
+    findings_by_status: dict[str, int]
+    escalated_findings: int
     overdue_alerts: int
     alerts: list[DeliverableAlert]
+
+
+class SummarySchedule(BaseModel):
+    schedule: Literal["disabled", "daily", "weekly"]
+    weekday_utc: int = Field(default=0, ge=0, le=6)
+    hour_utc: int = Field(default=8, ge=0, le=23)
 
 
 class EscalationRule(BaseModel):
@@ -1280,6 +2272,24 @@ class EvidenceRemoved(BaseModel):
     action: Literal["trimmed", "dropped"]
     characters_kept: int
     characters_dropped: int
+
+
+class CorpusFact(BaseModel):
+    """A count of the library, from the database, under the caller's grants.
+
+    `text` carries its own boundary - "272 company standards are loaded and
+    readable by you" - so it cannot be quoted without it.
+    """
+
+    text: str
+    role: str | None = Field(None, description="document_role counted; null means every role")
+    loaded: int
+    not_loaded: int = Field(0, description="in scope but still processing, or failed")
+    kind: Literal["count", "list"]
+    source: Literal["database"] = "database"
+    qualified: bool = Field(
+        False, description="the question also asked about content, so retrieval "
+        "answered that part separately")
 
 
 class AnswerResult(BaseModel):
@@ -1329,6 +2339,19 @@ class AnswerResult(BaseModel):
     )
     examples: list[str] = Field(
         [], description="real questions drawn from the loaded documents"
+    )
+    corpus: CorpusFact | None = Field(
+        None,
+        description="the LIBRARY's answer, counted from the database - present "
+        "for a question about the collection itself. On a metadata answer it IS "
+        "the answer; on any other answer_type the question also asked about "
+        "content, and this is the separate, database half of a two-part reply",
+    )
+    counts_bounded: int = Field(
+        0,
+        description="sentences in a generated answer whose count of documents "
+        "was re-bounded to the passages retrieved. The model sees a few "
+        "passages, never the library, so any such count is a count of them",
     )
     retrieval_mode: str
     reranked: bool
@@ -1698,6 +2721,60 @@ class AdminGrantResult(BaseModel):
     document_id: str
     discipline: str
     granted: bool
+
+
+# ------------------------------------------- the read-only database explorer
+#
+# A WINDOW, NOT A WORKBENCH. There is no write model anywhere in this block,
+# and that is the design rather than an omission: nothing here accepts a value
+# to store, so no client - and no future screen built against these types -
+# can discover an edit path that does not exist.
+
+
+class AdminDbTable(BaseModel):
+    name: str
+    row_count: int
+
+
+class AdminDbTableList(BaseModel):
+    tables: list[AdminDbTable]
+
+
+class AdminDbColumn(BaseModel):
+    name: str
+    type: str | None = None
+    notnull: bool = False
+    pk: bool = False
+    #: True when this column's NAME says it holds credential material. The
+    #: column is still listed - hiding it would misreport the table's shape -
+    #: and its values arrive masked.
+    sensitive: bool = False
+
+
+class AdminDbTableInfo(BaseModel):
+    name: str
+    columns: list[AdminDbColumn]
+    row_count: int
+
+
+class AdminDbRows(BaseModel):
+    """A page of rows, with the denominator that makes the page honest.
+
+    `total` is the whole table; `limit`/`offset` say which slice this is. A
+    screen showing rows with no total would imply completeness it does not
+    have (CLAUDE.md rule 4).
+    """
+
+    name: str
+    columns: list[str]
+    #: Values as stored, EXCEPT credential-shaped columns, which arrive as the
+    #: mask string. The masking happens in `admin_explorer.read_rows`, before
+    #: the value reaches this model or the wire.
+    rows: list[list]
+    offset: int
+    limit: int
+    total: int
+    masked_columns: list[str] = []
 
 
 ERRORS_409 = {409: {"model": ErrorEnvelope, "description": "Conflicts with existing state"}}

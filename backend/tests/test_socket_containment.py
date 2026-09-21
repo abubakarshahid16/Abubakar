@@ -357,6 +357,13 @@ SOCKET_ALLOWLIST = {
     # therefore restricted to a loopback host by `config.check_model_url`,
     # re-checked immediately before every request.
     "model_transport.py",
+    # The standards reader. Sends ONE SENTENCE of a client's standard to
+    # api.anthropic.com so a model can propose what it states; the proposal
+    # is then verified by `reader_api.accept` without the model. Inert unless
+    # BOTH STANDARDS_READER_* egress flags are true; host re-checked against
+    # `ReaderSettings.allowed_hosts` immediately before every request; every
+    # request logged at WARNING with counts and a digest, never the text.
+    "reader_transport.py",
 }
 
 #: Modules that may NAME the model URL setting. Exactly one, so a new call
@@ -437,7 +444,7 @@ def test_the_module_scan_finds_the_package():
     assert SOCKET_ALLOWLIST <= names, "an allowlisted transport no longer exists"
 
 
-def test_only_the_two_transports_open_a_socket():
+def test_only_the_allowlisted_transports_open_a_socket():
     """THE WHOLE PACKAGE, not a list of market filenames. Any module that
     constructs an HTTP client or makes a request must be in
     `SOCKET_ALLOWLIST` with a comment saying why."""
@@ -517,6 +524,21 @@ def _imports(path: Path) -> set[str]:
             for alias in node.names:
                 found.add(alias.name.split(".")[0])
     return found
+
+
+def test_the_reader_transport_cannot_reach_the_corpus():
+    """The lane that carries a client's clause text to a public host, held to
+    the same split: `standards` reads the sentence and hands it over; this
+    module can send it and cannot fetch one of its own."""
+    forbidden = {"db", "search", "keyword", "chunker", "passages", "claims",
+                 "analysis", "answer", "synthesis", "reports", "standards"}
+    leaked = forbidden & _imports(APP / "reader_transport.py")
+    assert not leaked, (
+        f"reader_transport.py imports {sorted(leaked)}, which can reach the "
+        f"corpus. It holds the client for the lane that carries standard text "
+        f"off the machine; giving it corpus access puts both halves of a leak "
+        f"in one file."
+    )
 
 
 def test_the_model_transport_cannot_reach_the_corpus():

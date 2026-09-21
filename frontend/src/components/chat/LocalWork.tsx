@@ -98,12 +98,12 @@ export function LocalWork({
                 {now && (
                   <span
                     aria-hidden="true"
-                    className="mr-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-signal-400 align-middle"
+              className="me-1.5 inline-block h-2 w-2 motion-safe:animate-pulse rounded-full bg-signal-400 align-middle"
                   />
                 )}
                 {s.label}
                 {now && progress?.detail ? (
-                  <span className="ml-1.5 font-mono text-[11px] opacity-80">
+                  <span className="ms-1.5 font-mono text-xs opacity-80">
                     {progress.detail}
                   </span>
                 ) : null}

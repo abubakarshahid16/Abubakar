@@ -53,6 +53,28 @@ NOT_IMPLEMENTED = [
 ]
 
 
+#: WHAT THE TWO MODES MEAN, in the backend rather than in the button.
+#:
+#: The screen sends `limit`: 8 for Quick, 24 for Comprehensive
+#: (AnalysisModeScreen.tsx). Until now both ran the same single generation, and
+#: the larger number bought the reader LESS: `synthesis._fit` reserves prompt
+#: budget for the header of every source it is handed - ~52 tokens each,
+#: because the tokenizer charges digits one at a time - including the sources
+#: it is about to drop. Twenty-four headers reserve ~1,250 tokens of a 3,846
+#: token budget for passages the model never sees.
+#:
+#: So the modes are made to mean what they say. Quick is one pass over the top
+#: QUICK_PASSAGES. Comprehensive is a map-reduce: every document that has a
+#: passage gets its own summary, and the final call runs over those. No
+#: frontend change - `limit` already carries the distinction.
+QUICK_PASSAGES = 8
+
+
+def is_comprehensive(limit: int) -> bool:
+    """Whether this request asked for more than one pass can honestly carry."""
+    return limit > QUICK_PASSAGES
+
+
 def evidence_id(hit: dict) -> str:
     """Stable across re-chunking, because it is derived from what is quoted."""
     key = "|".join((
@@ -729,11 +751,27 @@ def summary(question: str, scope: access.AccessScope, *, limit: int = 8,
     }
 
 
+def _synthesise(question: str, evidence: list[dict], limit: int,
+                generate) -> synthesis.Summary:
+    """The one place the mode is decided, so the summary route and the
+    recommendation route cannot drift into running different engines over the
+    same question."""
+    model = generate or ollama_generate
+    if is_comprehensive(limit):
+        return _generate_or_refuse(synthesis.map_reduce, question, evidence, model)
+    # Quick is a PREFIX of the same ranked list, cut here rather than at
+    # retrieval, so the evidence ledger the reader is shown and the passages
+    # the model saw come from one gather.
+    return _generate_or_refuse(
+        synthesis.summarise, question, evidence[:QUICK_PASSAGES], model)
+
+
 # ------------------------------------------------------------------ stage 6
 
 
 def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
-         baseline_document_id: str | None = None) -> dict:
+         baseline_document_id: str | None = None,
+         comparison_type: str | None = None) -> dict:
     """Mechanical claim comparison. No model call, and no baseline invented.
 
     THE BASELINE MUST COME FROM THE USER. Choosing one here - the oldest
@@ -759,6 +797,7 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
         }
     return {
         "question": question,
+        "comparison_type": comparison_type,
         "evidence_ledger": evidence,
         "claim_clusters": claims.to_api(clusters),
         "gaps": {

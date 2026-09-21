@@ -3,6 +3,22 @@
 Every status, count and boolean the API exposes, what it is computed from, and
 what it must never be taken to mean.
 
+**Current review-baseline rule.** Engineering gap analysis may select a
+baseline only through an active, configured type/discipline mapping and a
+caller-scoped searchable document. A manual baseline overrides the mapping;
+absence of a match remains “no baseline,” not evidence that a document is
+authoritative. This is implemented in `app.review.resolve_baseline` and is
+covered by `test_review_baselines.py`.
+
+**Comparison intent.** `AnalysisRequest.comparison_type` accepts only the four
+named engineering workflows and gap analysis echoes the selected value;
+arbitrary labels are rejected rather than presented as governed workflows.
+
+**Scheduled summaries.** A summary is “scheduled” only when the opt-in
+configuration matches the current UTC window and a durable idempotency key is
+reserved; `run_scheduled_summary` returns false when disabled, outside the
+window, already sent, or unable to send with SMTP disabled.
+
 **Why this document exists.** Twenty-nine separate times something in this
 system has claimed what was not so - a status field, a count, a measurement,
 twice a design document about the code it was written against, once a type that
@@ -41,6 +57,26 @@ privacy ADR depends on, and once the product's headline promise itself:
 | 27 | `admin.py:442`, the self-deactivation guard: **"Without this the last admin can lock every user, including themselves, out of a system whose only other door is a terminal."** | **The guard did not hold under the shipped default, and the comment describes the outcome it permitted.** It read `if actor is not None and user_id == actor.get("id")` - keyed on WHO IS ASKING. Under `AUTH_MODE=disabled` (the default at `config.py:51`, asserted by `test_access_routes.py:311`) `current_admin` returns `None` for a caller presenting no identity, by design, so `DELETE /api/admin/users/<id>` with no Authorization header at all reached `deactivate_user` with `actor = None` and the `actor is not None` prefix skipped the refusal completely. Every account holding the admin capability could be deactivated by an unauthenticated local caller; switching to `demo_required` afterwards - the documented hardening step - then left `/api/admin/*` unreachable by anyone, with `seed_access.py` at a terminal as the only door. The same anonymous path also reached `POST /api/admin/users` and both grant routes, so document access could be widened or removed permanently, under a mode whose stated concession (`admin.py:206-213`) is argued only for READS. No test in `test_admin.py` could see any of it: `temp_storage` pins `demo_required`, under which the anonymous caller is 404'd before reaching the guard. Now: `_is_last_active_admin` asks whether an active administrator would REMAIN - a property of the corpus that mentions no caller and so cannot be skipped by having no identity - and the self-check is kept beside it |
 | 28 | `watch_api.py:28`, the module docstring: **"Everything else in the payload is: whether the feature is on, how often it looks, when it last looked, and what it decided"** - and `recent_events`' own docstring, concluding that withholding `source_path` closed the leak | **"What it decided" was ten real client filenames, sent unscoped to every caller.** The route resolved an `AccessScope` and spent it on ONE field, `folder_name`; `recent_events()` took no scope and its query had no predicate. A caller with zero grants received the last ten watched-folder decisions in the same second `GET /api/documents` correctly returned `[]` for them - and `duplicate` additionally asserts that a document with that content is already in the corpus. Measured during the fix: the leaked `detail` string also carried the grant list (`granted to Mechanical, admin`). The docstring inspected the host PATH and pronounced the leak closed while the filename beside it was the leak - the same fixed-in-one-of-its-two-homes shape the review names as this codebase's dominant pattern. `test_watch_folder.py:549` and `:568` asserted the filenames were PRESENT; nothing asserted they were withheld. Now: `recent_events` takes the scope and filters on `document_id`, `WHERE 1 = 0` for an empty scope and no predicate for `unrestricted`, and rows whose `document_id` is NULL sit behind the capability gate |
 | 29 | `coverage.py:26-33`: **"The gate runs exactly once, before any per-document reasoning, on the scope the request already had, and its verdict is final."** | **There was no scope.** `keyword.term_occurrences` and `keyword.indexed_count` took no `allowed_document_ids` parameter at all and counted over the whole `chunks_fts` table, so the lexical gate's verdict - and the user-visible refusal "none of the terms in this question appear in the indexed documents" - was decided partly by documents the caller has no grant on. A term present only in an unreadable document made the answer "it exists, just not for you" without saying so; a term absent everywhere made a claim about documents the caller cannot see. Either way a caller could test for a term's presence in the whole corpus, which is the disclosure `/api/health` was stripped for. The comment was precise about a property the code did not have - it named the right rule and then asserted compliance with it. The same unscoped counts also fed `acronyms.harvest`, so an unreadable document could supply the expansion that decided a caller's verdict, and the expansions are phrases lifted from that document's text. Now: both take `allowed_document_ids`, keyword-only with no default, and it is threaded through `lexical.assess`, `distinctive_terms`, `distinguishing_uncovered_terms`, `acronyms.harvest`/`equivalents`/`known_expansions`/`reverse_map` and `coverage`. An empty scope counts 0, which makes the gate ABSTAIN rather than claim absence |
+
+| 30 | `/api/metrics` host/worker fields were gated with `scope.unrestricted`, which is intentionally true for anonymous document reads when `AUTH_MODE=disabled` | The route now separates corpus-wide aggregate counts from host telemetry. CPU/RAM/disk/model/worker identity is admitted only for the explicit `admin` capability; the default unrestricted read scope no longer fingerprints the machine. The regression test toggles the shipped default and asserts the host block is withheld. |
+| 31 | `market_providers.check_host()` derived the authority by splitting strings, so a `?@` URL could pass the allowlist while targeting another host | Host validation now uses `urllib.parse.urlsplit`, rejects embedded credentials and non-HTTP(S) URLs, and compares the parsed hostname. A regression test reproduces the old bypass URL and requires refusal. |
+| 32 | Deliverable reminders and escalation rules were computed and persisted, but the UI/API gave no indication that anyone had been notified | SMTP is now an explicit, fail-closed configuration. Overdue reminder creation and escalation-level changes send a configured email once per unique event; an operator-triggered daily summary uses the same path. Every successful (and failed) attempt records `audit_events.action = 'notification.email'`; disabled SMTP remains a no-op. `test_notifications.py` covers all three triggers, duplicate suppression, disabled mode, and incomplete configuration. |
+| 33 | A deliverable exposed only one `owner_user_id`, so reviewer, approver and informed stakeholders could not be assigned or used for routing | `deliverable_stakeholders` now supports the four typed roles, migrates the legacy owner into `owner`, and exposes read/replace endpoints plus the Deliverables UI. Reminder routing resolves the configured escalation role to the matching stakeholder email when SMTP is enabled. `test_stakeholder_roles_migrate_owner_and_route_assignments` proves legacy preservation and replacement. |
+| 34 | `wbs_code` was a sortable label only; selecting a WBS item could not show its child deliverables alongside linked review and escalation context | `deliverables.parent_id` now stores a validated hierarchy (with cycle protection). `/api/deliverables/{id}/workspace` and the Deliverables screen expose direct children, linked documents, review findings and escalation signals together. `test_wbs_parent_child_workspace_and_cycle_guard` proves the hierarchy and rejects cycles. |
+
+| 35 | The model-matching design, §11: a `METHOD_MODEL_CHOICE` finding **"gets confidence 0.5 and label medium"**, listed as one of the thirteen tests that must exist | **The second half of that claim cannot be observed, and the first half is not stored.** `review_findings.confidence` holds the LABEL, not the number, and `_confidence_label` has two bands with "high" forbidden by rule 4 - so `CONFIDENCE_MODEL_ASSISTED` (0.5) and `CONFIDENCE_DETERMINISTIC` (0.9) both print `medium`. A mutation that gave a model-paired finding the deterministic confidence was written (M149) and **no test could detect it**, because nothing a reader or an assertion can see changes. The branch is kept - a guessed pairing must not claim 0.9 if the bands ever change - but it is not what distinguishes a model pairing on screen. `match_method` and the "Paired by model; engineer must confirm" rationale prefix are, and those are M147 and M150. M149 was withdrawn with the reason recorded beside it in `scripts/mutation_check.py` rather than kept green by an assertion that proves nothing. |
+
+| 36 | The model tier of the requirement matcher, built and shipped ON, with the design's own gate ("zero false pairings on the known negatives") treated as a formality | **It failed the gate on its first run: six of the seven pairings it proposed were false friends, and three of those reported NON_COMPLIANT against the contractor.** A weld-cleaning distance of 25 mm paired with a corrosion allowance of 0 mm; an interpass temperature with a service temperature; a seawater cooling-water outlet with a vessel external design temperature. Every one cited correctly on both sides - 14 of 14 citations resolved on the PDFs - which is what makes a wrong pairing dangerous rather than obviously broken. The pattern behind all six: the pre-filter offers only same-dimension candidates, so on a temperature clause every candidate is a temperature and the model pairs on the WORD. **`match_enabled` now ships False** and the startup line says the tier is off. The gate is the thing that worked: it was written before the tier, it was run on the first opportunity, and it stopped the tier at the door. One genuine pairing was found that containment structurally cannot reach (a field name longer than the requirement subject), so the recall the tier was built for is real - the pairing is not. |
+| 37 | The extractor's `numeric_limit`, applied to any sentence containing a comparator and a number | **Two shapes parse as a limit and are not one, and both produced a confident verdict.** SAES-D-001 9.2.5 - "temperatures greater than 260°C shall be in accordance with PIP VEFV1100" - is an APPLICABILITY TRIGGER: the 260 is the threshold at which another document takes over, and the engine reported NON_COMPLIANT because a submitted 60 °C is not greater than 260. SAES-D-001 14.3 - "at least 28°C warmer than the calculated dew point" - is a RELATIVE LIMIT: the 28 is a margin, the dew point is nowhere in the submittal, and the engine reported COMPLIANT because 95 >= 28. Both were stored as limits long before the model tier existed and containment could have paired either on another sheet; the tier is only what made them visible. Now `applicability_trigger` is never matched and `relative_limit` is matched but never compared, with the sentence quoted. Reclassified across the corpus: 1 and 2 respectively, each verified by hand. |
+| 38 | `submittal_facts.field_name`, taken as what the datasheet calls a field | **One field was called `material 2`, which is the tail of "Design corrosion allowance for removable internal parts (material 2)".** The text-block path reads each line of a cell as its own cell and pairs strictly left to right, so a cross-reference column (`Figure 1`) took the label position, the real label became its value, and the orphaned bracket became a field name of its own once `normalise_field_name` dropped the brackets. That field is what the model tier paired with a weld-cleaning distance. Two generic causes fixed - a bracket-only cell continues the cell before it, and a cross-reference or dotted clause number introduces the pair that follows it, as a bare line number already did. Facts went 42 → 48, with all four vessel weights, all four corrosion allowances and the normal operating pressure and temperature recovered. **Separately, and not caused by this fix:** 10 of the original 42 facts were an index of standard drawings read as a form, with document designations (`VEFV1101M`) stored as UNITS. They were already dead - an earlier task's identifier rule rejects them - and had survived only because nothing had re-extracted the sheet since. A stored fact is only as current as the last extraction that wrote it. |
+| 39 | Two mutations written for this work could not be detected, and neither means the test is vacuous | **M149**: a model-paired finding's confidence flipped from 0.5 to 0.9 and nothing could see it, because a finding stores the LABEL and `_confidence_label` has two bands - both print `medium`. **M172**: the clause-reference rule relaxed from two dots to one, and nothing could see it, because `is_field_label` already refuses a bare number at the label position, so skipping the cell and rejecting the pair emit the same nothing. Both branches are kept - each should be TRUE and not merely harmless - and both mutations were withdrawn with the reason recorded beside them in `scripts/mutation_check.py` rather than kept green by an assertion that proves nothing. **M197**: the `duplicate column` message test in `db.add_column_if_missing` removed, so every `OperationalError` is swallowed - invisible, because the column check that follows re-raises any error that left the column missing, which is every unrelated one. Kept because it states which failure is expected and keeps the swallow narrow. **The rule: when a mutation cannot be detected, the first question is whether the OUTPUT can distinguish the two versions at all.** If it cannot, the test is not vacuous and the mutation is not evidence of anything. |
+
+| 40 | `submittal_review.ensure_schema` migrates by `if column not in existing: ALTER TABLE`, and every read path calls it | **That is a race, and it fires.** Two threads both read `PRAGMA table_info`, both see the column missing, and both issue the ALTER; the second dies with `sqlite3.OperationalError: duplicate column name: raw_value` at `submittal_review.py:205`. Found while adding two columns for ranges, and measured rather than assumed: `tests/test_access_routes.py` run as a file passed **7 of 10** with the new columns and **7 of 10** without them, so the defect is PRE-EXISTING and the two extra ALTERs do not measurably widen it. An earlier 5-of-5 against 4-of-5 looked like amplification and was noise - the same uncontrolled-observation trap entry 2 records, caught this time by running ten instead of five. The full suite passes when the race does not fire (2,190 passed) and reports one failure when it does; a green run is therefore not evidence that the race is gone. **FIXED, and the neighbour it explains is closed with it.** `db.add_column_if_missing` performs the ALTER, catches only `duplicate column`, and re-reads the column before accepting that failure as benign - so the thread that arrives second gets an answer instead of an exception, and a swallowed ALTER that did not happen still raises. Applied to every migration reachable from a request: `review`, `submittal_review` and `deliverables` (the last is called by `review.traceability`). `db.init_db` keeps the old shape and is left alone deliberately: it runs at startup and from the ingestion worker, which `main.lifespan` starts AFTER it, so no two callers reach it together - stated here so the exception is a decision rather than an oversight. **`test_two_concurrent_requests_never_share_scope` was the unexplained intermittent of three sightings, and it was this: `GET /api/documents` calls `review_status_for`, which calls `submittal_review.ensure_schema`, from two threads on a fresh database.** Measured after the fix: 20 of 20 clean runs of the whole file, against 7 of 10 before. |
+| 41 | Phase 6 reported the engineer's final code as "live-verified" against the running backend | **It was verified as an admin, and shipped unusable for everyone else.** The route carried `Depends(admin.current_admin)` for the audit actor alone, and that dependency is a gate: it raises the admin surface's deliberately silent 404 for any non-admin. So the only caller who could record a code was an admin, and every engineer got "not found" about a run the same screen had just listed. Nine unit tests were green because they called the function, never the route (see "the verification that verified nothing", row 8). **FIXED:** `_actor_from_scope` resolves the name without deciding anything about permission - the route's own scope had already done that - and three route-level tests now sign in as a real non-admin with a real token and press the button. Mutation M221 puts the gate back and is DETECTED. |
+| 42 | "`reviews.dashboard()` had no ShapeCheck" was recorded as a fixed defect in phase 6 | **The same defect was written again in phase 8, by the same author, one phase later.** `DatabaseSection` did `setTables(r.data.tables)` on any `ok` response; a body without a `tables` array put `undefined` into state, `.map` threw during render, and the WHOLE Administration page went blank over one section. `ok` means the request succeeded, NOT that the body is the shape the screen expects - and knowing that in phase 6 did not prevent it in phase 8, because the fix had been applied to one call site rather than turned into a habit. Caught by `App.admin.test.tsx` going from green to a completely empty `<body>`; the section's own tests all passed, because they mocked well-shaped responses. **FIXED** at the three edges where a body enters state, with an unusable body rendering as a FAILURE rather than as "no tables" - the second would be a claim about the database. **The rule: a `Result.ok` is a fact about the transport. Every place a response body becomes component state is a boundary, and every one of them needs the check - not just the one where it last went wrong.** |
+| 43 | Phase 8's discipline overlay was reported applied, tested and mutation-proven (5/5) | **The path every document ingest takes was broken, and M1 had been silently inert for three phases.** Two defects, one root: each check looked only at the new thing. (1) Adding `discipline_canonical` to the suggestion `INSERT` gave it nine columns and eight VALUES - `8 values for 9 columns` - so every new document would have failed to classify. Fourteen tests were green over it because every one inserted its rows with SQL and none went through `classification.write_suggestion`; the same shape of miss as standing rule 15, one layer down. The column also existed only after an optional startup step, so the write path depended on a migration it never called, and 29 unrelated test setups failed on it. (2) Phase 7's step 0a replaced `"SELECT * FROM review_runs"` with a join, and M1 - the scope filter on `list_review_runs`, a PERMISSION mutation - anchored on the old line. The harness reported it as a harness error rather than a pass, which is the three-bucket verdict working; but only the new mutations were run after that change, never the whole harness, so nobody saw it for three phases. Both caught by the ONE full-suite pass at the end of the session. **FIXED:** the column is in `db.py`'s own table definition and migration; the INSERT has nine values; M1 is re-anchored and DETECTED; three tests now go through the real write paths, and one builds an old-shape database so the migration is actually exercised (entry 6's lesson). **The rule: after changing a line, run the WHOLE harness, not the mutations you just wrote - an existing mutation may have been standing on it. And a test that inserts its fixture with SQL cannot see a defect in the code that normally does the inserting.** |
+| 44 | Phase 7 reported the CRS export "verified by opening the file": 15 gap rows, "one per cited-and-missing standard". Phase 6's Dashboard showed "21 of 21 cited standards are not in the library" | **Six of the fifteen gap rows were false, and the tile was false since phase 6.** Both computed "is this cited standard missing?" as `normalise_identifier(name) not in _match_referenced(...)` - but `_match_referenced` is keyed by DOCUMENT ID (`doc_a3df...`), not by identifier (`SAESL132`). An identifier never equals a document id, so EVERY cited standard was reported missing, always. The CRS therefore told a contractor that SAES-A-133, SAES-A-206, SAES-L-109, SAES-L-132, SAES-W-010 and SAES-W-016 were unavailable to the review while all six sat in the library. "Verified by opening the file" was true and insufficient: the rows were checked for PRESENCE and SPELLING - that is how `32SAMSS004` was caught - and never for TRUTH. No test had ever cited a standard that IS in the library, so the "not missing" direction was never exercised; every gap-row test used an empty library, where "missing" is always right. Phase 7 also copied the dashboard's inline check into the CRS helper, so one wrong rule became two. **Found by fact-checking the phase 10 demo script against the database**: it named SAES-L-132 as a PDF to keep handy, and the CRS called SAES-L-132 missing. **FIXED:** one home, `applicability.missing_references`, asked PER NAME of the same matcher selection uses. Verified on the live drum run: 9 gap rows, all genuinely missing; the tile reads 15 of 21. Mutations M248-M249 put the defect back and are DETECTED by a CRS test and a dashboard test that each cite one held and one missing standard. **The rule: a test that only ever exercises one answer to a yes/no question cannot see a check that always returns that answer. And a row in a document someone else will read is verified when its CLAIM is checked, not when it is found to exist.** |
+| 45 | CLAUDE.md rule 4 lists "every count states its boundary" among the honesty invariants "enforced in code" | **For a generated answer it was enforced nowhere.** Asked how many standards there are, Document Q&A answered "there are 12 distinct standards" - from three retrieved passages, of a library holding 272. Two faults. (1) THE QUESTION WENT TO THE WRONG PLACE: a check existed for library questions, but it only knew the words "documents" and "files", so "standards" - the word this corpus is made of - fell through to retrieval, and the model reported what three passages showed as the size of the library. That check also pinned "There are 1 uploaded document" in its own test. (2) NOTHING CHECKED THE OUTPUT: the model can ignore a prompt, and no code looked at a generated count at all. **FIXED:** questions about the library go to a scoped COUNT (`corpus.py`) - on the live corpus, "272 company standards are loaded and readable by you", 0 passages searched; a question about both gets both in separate fields; and every count of DOCUMENTS in generated prose that does not say "retrieved" is bounded in place to the passages retrieved. **AND THE FIRST GUARD WAS ITSELF INCOMPLETE,** found only by running the real model: it wrote "**five** distinct standards", and a pattern tested on plain synthetic text let the Markdown bold hide the count. Mutation M263 restores that gap and is DETECTED by a test using the model's verbatim output. **The rule: a guard on model output is verified against the model's output, not against sentences written to look like it.** |
 
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
@@ -266,7 +302,7 @@ it fail.
 
 A second pattern, distinct from the one above and more dangerous, because the
 first is a field that lies while the second is a **check that cannot see the
-thing it judges**. Five instances, all in this build:
+thing it judges**. Eight instances, all in this build:
 
 | # | The check | Why it could not see | How it was caught |
 |---|---|---|---|
@@ -275,6 +311,9 @@ thing it judges**. Five instances, all in this build:
 | 3 | `tsc --noEmit -p tsconfig.json` | `tsconfig.json` is a solution file with `"files": []` and project references, so it type-checked **zero files**. Every "typecheck clean" report was vacuous. | Noticing exit 0 on a file with an unterminated string literal |
 | 4 | "Stale numbers are dropped on refresh", with fake timers | The timers were installed **after** the component had created its interval with real ones. Advancing them fired nothing; the test passed while asserting nothing. | Reading the test back after writing it |
 | 5 | The cross-encoder's own rerank window | `rerank_max_tokens` was 256 against a `chunk_max_tokens` of 480, so a 486-token passage was scored on its first 256 tokens. The answer sat at token 350. It returned **−10.95** — correct about what it was shown, wrong about the passage. | Measuring a hypothesis that turned out to be false, and looking further |
+| 6 | Two **migration** tests, 2026-09-18 (AI submittal review, phase 1) | The fixture calls `db.init_db()`, which builds the table from today's `SCHEMA` — already carrying the new columns. The `ALTER` path therefore never executed, and both tests passed **with the migration deleted**. They asserted the schema, not the migration. | The mutation harness: M6 and M7 reported `*** STILL PASSED ***` while 8 of 10 other mutations failed correctly |
+| 7 | An **immutability** test, 2026-09-18 (phase 2) | It re-implemented `upload.py`'s `if final_path.exists()` branch *inside the test body* and asserted against its own copy, so no change to `upload.py` could ever fail it. Its `-k` expression was also wrong and selected a different test. Two independent ways one check was worth nothing. | Mutation M15 reported NOT DETECTED. Rewritten to call the real `upload.ingest()` |
+| 8 | Nine tests for the **engineer's final review code**, 2026-09-19 (phase 6) | Every one called `comparison.record_engineer_code` directly, so none traversed the route - and the route depended on `admin.current_admin`, which is a GATE, not a lookup. It answers any non-admin with the admin surface's deliberately silent 404. The suite could not see it twice over: no test used the route, and `conftest` pins `AUTH_MODE=disabled`, under which `current_admin` waves an *anonymous* caller straight through. Nine green tests over a button no engineer could press. | Signing in to the running app as an ordinary non-admin and pressing it. The screen said "not found" about a run it had just listed |
 
 **Number 3 recurred, on 2026-09-05, in this repository, to the person who wrote
 this list.** CI was fixed to run `tsc -b` and carries a comment saying exactly
@@ -297,6 +336,426 @@ before believing it passed.**
 Number 5 is the one to remember: **the evaluation recorded a retrieval failure
 that was really a truncation failure.** The system was not bad at retrieval. Its
 judge had read half the evidence.
+
+**Number 6 is the cheapest lesson here, and it was only cheap because the
+mutation was run.** Both tests were written deliberately, read plausibly, and
+passed — and a reviewer reading them would have seen a legacy row inserted and
+a migration called. What they could not see is that the table under them was
+never old. The fix is to build the pre-migration table from an explicit DDL
+literal and to **assert the old shape first**
+(`assert "document_role" not in before`), so the test fails loudly the day it
+stops testing a migration rather than passing quietly. Standing rule 8 exists
+for exactly this, and the only reason it held is that the mutation step was not
+skipped once the tests were green.
+
+**A claim that was true of the build and false of the suite, 2026-09-18.**
+Section 7 of `docs/AI_SUBMITTAL_REVIEW_HANDOFF.md` recorded that the navigation
+relabel was unverified only in the sense that `npm run build` had not run on
+Windows, the Cowork VM being unable to resolve the TypeScript binary. The build
+does pass. What nobody ran was `vitest`, and it reports **63 failed / 512
+passed** across seven files, `ChatView.test.tsx` failing 54 of 54 — the suites
+that assert UI terminology, against a commit that changed UI terminology.
+
+The retraction is not "the labels were wrong". It is that **"the only
+outstanding check is the build" named one tool and implied the rest were
+clean.** A session that cannot run the suite has not established that the suite
+passes, and the honest sentence is "the tests have not been run on this
+platform" rather than "the build is outstanding". Verified by stashing the two
+phase 2 frontend changes and re-running at `9f75ba5`: the failures are
+unchanged, so they are inherited, not new.
+
+**"63 known pre-existing frontend failures" was itself a flaky number,
+2026-09-18.** The retraction above is sound in substance - the failures are
+inherited from the navigation relabel and the suite was never run on Windows
+after it - but the FIGURE was quoted from one run's summary line as though it
+were a stable property of the branch.
+
+Measured properly: the stable set is **59**, in four files, reproducible when
+those files are run alone. A full parallel run reports 59, 60 or 63 depending
+on which load-sensitive tests happen to time out - the baseline run failed
+`IngestionView.watch`, a later run failed `AnalysisModeScreen` and `LoginView`
+instead, and every one of those passes in isolation.
+
+The lesson is the one this document keeps relearning in new clothes: **a number
+is not a measurement until you can say what it counts** (standing rule 9). Two
+summary lines subtracted from each other look like a delta and are not one when
+the suite is non-deterministic. The way to show "no new failure" is to run the
+touched files in isolation and see them pass, which is what was finally done.
+
+A ninth, in the mutation harness itself and caught by its own output,
+2026-09-18: on a Windows console defaulting to cp1252 the harness could not
+DECODE vitest's box-drawing characters, raised, treated the exception as a
+non-zero exit, and reported **6 of 6 mutations DETECTED without a single test
+having been consulted**. The file whose entire purpose is to catch checks that
+cannot see what they judge had become one. Fixed with explicit UTF-8 decoding
+and an ASCII-flattened summary line.
+
+A tenth, in the same run: a mutation's replacement called a function that does
+not exist, so the test would have failed with a `NameError` - the right verdict
+for the wrong reason, and indistinguishable from a real detection in the
+report. A mutation has to reproduce the DEFECT, not merely break the code.
+
+**An eleventh, 2026-09-18 (phase 3A), and it is number 6 wearing different
+clothes.** A permission test asserted an absence with
+`await waitFor(() => expect(queryByLabelText("Superseded by")).toBeNull())`.
+`waitFor` succeeds on its FIRST tick, and on that tick the tab under test is
+still a spinner - nothing is on screen to find. So it asserted that the control
+had not rendered **yet**, not that it never would, and it passed with the
+permission check deleted. Mutation M38 reported NOT DETECTED.
+
+The rule, stated generally because it keeps recurring in new forms:
+**a check that runs before the thing it judges can exist will always pass.**
+The migration tests of entry 6 ran against a table that was never old; this ran
+against a screen that had not loaded. The fix has the same shape both times -
+assert something POSITIVE first, so that the negative assertion is made at a
+moment when failing was possible.
+
+**A seventeenth, 2026-09-18 (phase 5A): the `NameError` mutation shortcut,
+taken for a THIRD time.** Entry 10 recorded it, entry 12 recorded it recurring,
+and M62 reached for it again - replacing an audit call with a call to a
+function that does not exist, so the test fails with a `NameError` rather than
+because the audit is missing. Right verdict, wrong reason, and in a report it
+is indistinguishable from a real detection.
+
+Three occurrences of one mistake, by one author, across four phases, with the
+rule written down after the first. What finally changed was not another entry
+in this file: the reasoning now lives **at the mutation**, in a comment the
+next person to write one will be looking at. Entry 12 predicted exactly that
+and it took two more phases to act on it. **A record only works where the
+person about to make the mistake will read it.**
+
+**A twenty-seventh, 2026-09-19 (table rows): a limit the standard never states,
+matched against a real submitted value.**
+
+SAES-D-001 6.2.2 says the internal design pressure "shall be according to the
+following table". The table's first row boundary reads "Up to 6,900 kPa (1,000
+psi)". The extractor read that as a requirement of **<= 6,900 kPa** - a limit
+that appears nowhere in the standard - and in the first end-to-end review it
+MATCHED the submittal's maximum operating pressure. SAES-E-014 7.2.4 is the
+same table and did the same thing.
+
+Two things stopped it becoming a confident wrong verdict, and neither was
+understanding: the unit spellings differed (kPa against bar (ga)), so the unit
+guard refused the comparison. The very next task on the list was to relax that
+guard to compare by dimension - which would have converted bar to kPa and
+produced a clean PASS against a threshold that is not a threshold.
+
+So the honest reading of the first review's "0 NON_COMPLIANT" is not that
+nothing failed. It is that **74 of 1,580 requirements were numbers lifted out
+of lookup tables**, and the only thing between them and a verdict was a
+spelling mismatch that was scheduled for removal.
+
+The rule: **a number is not a limit until something says what it bounds.** A
+sentence that defers to a table states no limit of its own, and a row boundary
+is a cell. Both are now `table_row`, refused by `compare` with the row quoted
+so an engineer reads the table rather than a verdict about it.
+
+**A twenty-sixth, 2026-09-19 (matcher): two mutations reported DETECTED having
+run no tests at all.**
+
+M117 and M118 were added with `-k` expressions that matched nothing. pytest
+collected zero tests, exited non-zero because zero were collected, and the
+harness read a non-zero exit as "the tests failed" - which is what DETECTED
+means. Both printed `49 deselected` and no pass or fail count, and both were
+green.
+
+This is the failure M62's comment predicted in writing - "fails for the right
+verdict and the wrong reason" - arriving through a different door. That comment
+warned about a mutation calling a function that does not exist; this was a
+KEYWORD that selects nothing. Same outcome: a mutation that proves nothing,
+reported identically to one that proves something.
+
+**The harness needs to refuse a run that collected zero tests**, the same way
+it already refuses an anchor that matched zero times. It has not been changed
+here - the two mutations were repointed at tests that exist - and that is worth
+recording as a known gap rather than a fixed one.
+
+The rule: **a check that can pass without executing anything must assert it
+executed something.** Entry 14 said this about tools; it applies to the tool
+that verifies the tests.
+
+**A twenty-fifth, 2026-09-19 (datasheet review): "units were not captured" was
+wrong twice over, in opposite directions.**
+
+I reported, from reading three fact rows, that **"units are dropped on the
+fact side"**. Measured properly over all twenty numeric facts:
+
+  * ten had `unit` NULL - the claim was right for those;
+  * ten had `unit` POPULATED, with values like `VEFV1101M` - equipment tags
+    from a bill-of-materials column, sitting in a column that reads as an
+    engineering unit to everything downstream.
+
+So the honest statement is neither "units are captured" nor "units are
+dropped": **no fact carried a correct unit, and half of them carried a
+confident wrong one.** The second half is the worse failure and my summary had
+no word for it, because I had generalised from three rows that all happened to
+be of the first kind.
+
+Both come from the same place. The sheet writes units in three layouts, and
+the extractor read one of them; the layout it read is also the one where any
+word after a number becomes the unit, which is where the tags came from.
+
+**The rule, and it is the third time this file has needed a version of it: a
+sample of three is not a measurement of twenty.** Before writing "X does not
+happen", count X over the whole population. Entry 20 was an absence asserted
+where the code never ran; entry 24 was a claim read off a truncation; this one
+is a rate inferred from the first three rows that came to hand. Same mistake,
+three surfaces.
+
+**A twenty-fourth, 2026-09-19 (extraction review): a defect reported from a
+truncated string.**
+
+I reported that SAES-P-104 stored `value=0.4 unit='%'` for text about NEMA
+enclosures and wrote: **"No percentage exists in that text."** That was false.
+The full sentence reads "...manufactured copper free cast aluminum (aluminum
+with a maximum of **0.4% copper**), or plastic..." - the limit is real and the
+extractor read it correctly.
+
+What produced the error: the probe printed `requirement_text[:150]`, the
+percentage sits at character 250, and I described the row from the truncation
+rather than from the row. The genuine defect is different and milder - the
+limit is attached to a compound sentence whose subject is the whole enclosure
+clause, so it is scoped wrongly, not invented.
+
+**The rule: quote from the value, never from the view of it.** A truncated
+display is a rendering, and an assertion about what a document does NOT contain
+cannot be made from one. This is the same shape as entry 20 - a claim about
+absence, made where the absent thing could not have appeared.
+
+**A twenty-third, 2026-09-19 (extraction review): `field` cannot be populated
+deterministically, and saying so is the finding.**
+
+`comparison._match_fact` joins a requirement to a submitted fact on `field`, by
+EXACT EQUALITY against `datasheets.normalise_field_name(field_label)` - a
+datasheet's form caption. `standard_requirements.field` is NULL on every row
+because `requirements_3b.parse_limit` never returns the key.
+
+The obvious rule - the noun phrase before the operator - was run over all 44
+numeric_limit rows rather than judged by eye. It yields "the material stress in
+the bottom parts of the vessel", "a pvc coated rigid steel conduit with a total
+cover", "scale density shall be". These are descriptive clauses. **A datasheet
+caption is never one of them**, so under exact equality none of the 44 could
+match, and `submittal_facts` holds zero rows so there is not even a label
+vocabulary to test a mapping against.
+
+Populating `field` with them would be worse than leaving it NULL: the column
+would read as usable, the "0 of 762 comparable" measurement would vanish from
+view, and every requirement would still fall through to MISSING_INFORMATION.
+The phrase is therefore stored in a new `subject` column, which nothing joins
+on, and `field` stays NULL until section 14's model-side label matching - which
+`_match_fact`'s own docstring already names as unbuilt - exists.
+
+**The rule: when the honest answer is "this cannot be done deterministically",
+the deliverable is that sentence, not a column full of plausible strings.**
+
+**A twenty-second, 2026-09-19 (extraction review): `needs_ocr_pages = 0` does
+not mean no page needs OCR.**
+
+The corpus reports `needs_ocr_pages = 0` and `recognised_pages = 0` across
+7,914 pages, which reads as "no page needs OCR". It means no page was
+COMPLETELY BLANK of extractable text.
+
+SAES-B-017 page 44 is the counter-example: 30 text spans, ONE embedded image,
+and the string "CAR-SEAL OPEN" present in the drawing and in zero chunks. The
+legend beneath the figure extracts perfectly, which is exactly why the page
+looks healthy - the heuristic asks whether a page has any extractable text, and
+this page has plenty. The text inside the raster is invisible to it.
+
+So the flag detects blank pages, not unreadable content, and a figure carrying
+a valve's operating state is exactly the content a submittal review would need.
+
+**The rule: a zero is only as strong as the question that produced it.** Before
+reading a count as "none", state what it counts - "pages with no extractable
+text at all" and "pages containing unread text" are different measurements and
+only one of them was ever taken.
+
+**A twenty-first, 2026-09-19 (extraction review): a predicted noise rate of
+~113, measured at 1.**
+
+Before extraction ran, the estimate was that 369 revision-history chunks across
+195 standards match phrasing like "Deleted the word...", of which **113 contain
+"shall" and would pass `_MANDATORY`** - enough to justify building a filter.
+
+Measured in the actual output over five standards and 718 statement rows:
+**1 row (0.1%)**, and that one is a genuine requirement that happens to contain
+the phrase "previous revision". The filter was not built, because the evidence
+for it evaporated when the thing was run.
+
+The prediction was not unreasonable - it counted chunks matching a phrase, and
+that count was probably right. It was a count of the WRONG POPULATION:
+extraction reads sentences within clause-numbered chunks, and revision-history
+tables are largely not that. Two measurements of different things, one used to
+size the other.
+
+**The rule: a rate predicted from a proxy population is a hypothesis.** Say
+which population was counted, and re-measure on the real output before acting -
+the measured defects in that same output were page-footer contamination (5.3%)
+and duplicate rows (7.1%), neither of which anyone had predicted at all.
+
+**A twentieth, 2026-09-19 (document roles): a test that covered one of two
+render paths and looked complete.**
+
+`DocumentsView` renders `DocumentCard` from TWO places - once per register type
+group, and once for the "awaiting a type" group. The new bulk-selection test
+gave both of its fixture documents a null `doc_type`, so every assertion landed
+in the awaiting-a-type branch and the typed branch was never rendered at all.
+The test asserted "a non-admin is offered no selection" and passed; mutation
+M82 made the checkbox render for everyone at the typed site and **the test
+still passed**.
+
+Nothing about the test looked partial. It named the right property, asserted
+the right absence, and its fixtures were ordinary. The gap was that "no
+checkbox" is trivially true for a branch that never rendered - and an ABSENCE
+assertion cannot tell the difference between "the feature correctly withheld
+it" and "that code never ran". The fix was one line of fixture: type one
+document and leave the other untyped, so both sites render on every run.
+
+This is the fourth species of vacuous test in this file - **the test was not
+standing where the feature could fail it** - and it is the first instance where
+the missing ground was a second copy of the same JSX rather than a missing
+call. It was caught by the harness and by nothing else, on the first run, which
+is the outcome entry 14's rule was written for.
+
+**A rule that follows: an assertion that something is ABSENT must also prove
+the code path ran.** Assert a sibling element that should be there, or render
+the case twice and differ them. `expect(...).not.toBeInTheDocument()` is the
+easiest passing test in any codebase, and it passes hardest when nothing
+rendered at all.
+
+**A nineteenth, 2026-09-19 (phase 5B): the flagship case was silently
+unevaluable because of a character class.**
+
+`datasheets.measure_value("95 dB(A)")` returned the unit `dB`, not `dB(A)` -
+the unit regex excluded parentheses, so the A-weighting was dropped. The
+comparison engine then behaved correctly and REFUSED to compare `dB` against a
+`dB(A)` limit, because `claims.same_unit` rightly holds that A-weighting is
+part of what the number means. Phase 4's own tests asserted that distinction
+and passed; they simply never fed a parenthesised unit through the extractor.
+
+The effect is the part worth recording: **every noise comparison - the worked
+case the entire master plan is written around - would have returned
+NEEDS_ENGINEER_REVIEW with a unit-mismatch rationale.** Honest, traceable, and
+completely useless, and nothing in phases 3B or 4 would have surfaced it
+because neither phase ever compared two values. It took the first component
+that actually CONSUMED the extracted units to expose it.
+
+Two things follow. **A test that exercises a value end to end is worth more
+than any number of tests of the pieces** - this is the second phase-4
+extraction defect found by a phase-5 test, after prose being parsed as
+measurements. And **a unit is not a string**: `dB` and `dB(A)` differ by two
+characters and mean different things, which is exactly why `claims` refuses to
+convert between them, and exactly why an extractor that quietly truncates one
+into the other is worse than one that fails loudly.
+
+**An eighteenth, 2026-09-18 (phase 5A verification): a production defect found
+by suite flakiness, and a failure rate quoted without checking what else was
+running.**
+
+`submittal_review.ensure_schema()` - called by every read in that module -
+held a conditional `DROP TABLE` / `CREATE TABLE` migrating `submittal_facts`.
+Three full-suite runs of one unchanged tree gave three different results: two
+permission tests failed, then a clean run, then
+`test_access_routes::test_two_concurrent_requests_never_share_scope` failed
+alone. Different victims each run, with no random-order plugin installed and
+no hash-seed sensitivity (probed at seeds 0/1/2), is the signature of lock
+contention rather than of ordering or data pollution - DDL on one SQLite
+connection blocks readers on other connections, and the concurrency test
+failing is what identified the mechanism.
+
+**This was a production defect, not a test defect.** The same DDL would block
+concurrent readers in the running application exactly as it did in the suite;
+the first request after startup to trigger the rebuild could have stalled
+whatever else was in flight. The fix moved the rebuild to
+`migrate_facts_to_per_document()`, called once from `main.lifespan`, and two
+source-assertion tests hold the shape: no `DROP TABLE`/`DROP INDEX` in
+`ensure_schema`'s body, and the migration function is actually called at
+startup. Both are the `test_the_upload_module_guards_the_stored_path` idiom,
+because a behavioural test cannot reliably catch a timing race that only
+appears in some fraction of runs - which is exactly how this one survived a
+prior green suite.
+
+**The retraction is about the number, not the diagnosis.** "2 of 3 runs
+failed" was reported as an observed rate. Whether those three runs had the
+machine to themselves was never checked at the time - a `TaskStop` call on a
+later, unrelated job was later found to leave its child process running, which
+is the kind of thing that goes unnoticed exactly when nobody is looking for it.
+**If a second suite was alive during any of runs 1-3, the observed rate is
+inflated, and inflated in the one direction that looks like the bug**: DDL
+contention manufactures the same symptom the diagnosis was hunting for. This
+does not weaken the diagnosis itself - the mechanism is real independent of
+what else was running, and the concurrency test failing is consistent either
+way - but it means **2-of-3 must be read as an uncontrolled observation, never
+as a measured baseline**, and every later calculation against it (what failure
+rate N clean runs would clear) inherits that uncertainty. Ten clean runs clears
+a true rate of 0.3 comfortably; it does not clear 0.1; and if the true rate is
+lower than 2-of-3 suggested, ten clean runs is weaker evidence than the
+arithmetic implies. State counts and denominators together, and say when a
+denominator was not itself controlled for.
+
+**A fifteenth, 2026-09-18 (phase 4), and it is a correction to entry 14's
+neighbour.** Phase 3B reported "SAES-A-105 IS NOT IN THIS REPOSITORY" and built
+its argument on it. That was true of the REPOSITORY and false of the MACHINE:
+the file is in `~/Downloads`, along with the two real KOC datasheets, and phase
+4 found it in about a minute by looking outside the repo. The 3B statement was
+literally accurate and practically misleading - it read as "this file does not
+exist here" when what was true was "nobody has ingested it". **Absence from a
+corpus is not absence from the world**, and the honest sentence names which one
+was searched.
+
+**A sixteenth, same phase: the fourth species of vacuous test.** Mutation M56
+deleted the label guard that stops a value being promoted into a field name,
+and the test meant to cover it passed. The reason is new: the test was defended
+by a DIFFERENT guard. Prose with no number and no blank marker is dropped by
+the fact gate whether or not the label guard exists, so the test never observed
+the thing it was named after.
+
+The four species now on record, and the shape they share:
+
+  * **entry 6** - a migration test run against a table that was never old;
+  * **entry 11** - an absence asserted before the screen could render;
+  * **entry 13** - a helper called directly instead of the behaviour using it;
+  * **entry 16** - a case already held by a different guard, so deleting this
+    one changed nothing the test could see.
+
+All four are the same failure: **the test was not standing where the feature
+could fail it.** Three of the four were found only by mutation, which is the
+argument for the harness and also its limit - it finds them one at a time, and
+only where somebody thought to write the mutation.
+
+**A thirteenth, 2026-09-18 (phase 3B): a unit test wearing a behaviour test's
+name.** `test_character_fragmentation_is_not_accepted_as_a_table` called the
+predicate `tables._is_fragmented(...)` directly. That proves the predicate
+works and says nothing whatever about whether the pipeline uses it - mutation
+M47 deleted the call site in `parse_page_tables` and the test passed happily.
+
+This is now the THIRD distinct species of the same disease, and they are worth
+listing together because each looked fine to its author:
+
+  * **entry 6** - tested a migration against a table that was never old;
+  * **entry 11** - asserted an absence before the screen could have rendered;
+  * **entry 13** - tested a helper instead of the behaviour that depends on it.
+
+The common shape: **the test never put itself in a position where the feature
+could have failed it.** A migration with nothing to migrate, an assertion made
+too early, a predicate called outside the pipeline that consumes it.
+
+**A fourteenth, same round, and it is a number this document itself would have
+carried:** the measured table parse rate was reported as "33 of 98 pages" and
+then "29", and both were wrong. They counted shapes that `find_tables()`
+returned WITHOUT READING THEM. Reading them showed `['DE','F','I','N','IT',
+'I','O','N']` - the word DEFINITION cut into columns by the white space between
+its letters - and `['T','H','E','O','R','E']`. The true rate after gating the
+fragments is **21 of 98**. Standing rule 9 again: a number is not a measurement
+until you can say what it counts, and "shapes the library returned" is not
+"tables that were read".
+
+**A twelfth, in the same round:** the `NameError` mutation mistake of entry ten
+was made again, in the same harness, by the same author, one phase later. It is
+recorded separately rather than folded into entry ten because a defect that
+recurs after being written down is evidence about the RECORD, not about the
+defect: standing rule 11, a documented hazard is not a guard. The reasoning now
+lives in a comment at the mutation itself, where someone writing the next one
+will be looking, rather than only in this file.
 
 A seventh, of the same family but caused by tooling rather than by design: a shell
 heredoc silently turned `\b` into the literal byte it names, 0x08, **three
@@ -468,6 +927,62 @@ so an empty sweep cannot pass as a clean one.
 
 ---
 
+## The comparator that pointed the wrong way
+
+2026-09-20. Requirement extraction had never been scheduled for 252 of the 272
+standards (`docs/ZERO_REQUIREMENTS_CAUSE.md`). Running it through the real
+admin endpoint for all 272 took the corpus from 3,158 requirements to 34,938,
+and the rules a datasheet value can actually be compared against from **195 to
+1,736** (1,746 after `bf4f5ab`, later the same day). The count going up was
+true. It was also not the thing that mattered.
+
+**129 of the 1,731 stored limits, across 79 standards, carried an operator
+pointing the opposite way to the sentence they cite.** "shall not be less than
+45 m" was stored as `< 45`. The pattern that finds a comparator listed
+`not less than` but nothing covering `not **be** less than`, so the scan walked
+past the negation and matched the bare `less than` behind it. `no less than`
+failed the same way. A third wording, "but in no case shall it be less than
+190 L/s", puts four words between the negation and the comparative and defeated
+even the widened pattern; three more rows were inverted that way.
+
+A flipped comparator is worse than a missing rule, and it is worse in a
+specific way this project has a name for: it is a **false claim with a
+citation attached**. The row quotes the standard correctly, names the right
+clause and page, and asserts the opposite of what the clause says. A
+non-compliant value passes; a compliant one is failed. Nothing in the pipeline
+downstream can detect it, because every field except the operator is right.
+
+**How it was caught: by reading fifteen rows.** The verification that had been
+planned was "do the standards have requirements now", and the answer to that
+was 272/272 — a true statement, from a correct query, that would have carried a
+broken comparator column into a client demo. It surfaced only because the
+request was to show three real requirements from five random standards with
+their source text, and the source text disagreed with the operator beside it
+in four of the fifteen. The user found the same defect independently on a copy.
+
+The same gap existed in `claims._COMPARATOR_WORDS` as in
+`requirements_3b._LIMIT` - standing rule 8, a claim living in two homes, and
+fixing one would have left every limit parsed through `claims.measurements`
+still inverted.
+
+Two rows remain knowingly wrong and are NOT this defect: SAES-L-410 18.5.3 and
+SAES-L-850 5.18.2 store `<= 8` (no unit) for "the bend radius shall be not less
+than eight diameters (8D) for lines up to 8-inch NPS". The limit is spelled in
+words, which the number pattern cannot see, so the match landed on the
+applicability condition instead. Wrong span, not wrong direction, and recorded
+here rather than fixed at the same time.
+
+### The rule this produces
+
+**A count going up is not evidence that what it counts is right.** Row counts,
+coverage figures and "n of n" totals measure presence. Correctness has to be
+read, and it has to be read against the source the row cites, not against the
+row's own other fields - every other field of these 129 was correct. Where a
+stored field decides a verdict, at least one verification must put that field
+beside the sentence it came from and compare them by eye.
+
+---
+
 ## Document status
 
 Single source of truth: `documents.status`. Legal transitions are declared in
@@ -597,3 +1112,107 @@ asserts no client error ever reports `internal`.
    nothing — each exits 0 and reads as a pass. Before believing a tool's clean
    result, ask it what it covered (`--listFiles`, a count, a non-empty
    listing), and make the harness ask so a person does not have to.
+15. **A test that never crosses the boundary cannot see a guard that lives on
+   it.** Calling the function is not exercising the route: dependencies,
+   authentication and the mode the suite pins are all outside the function and
+   all decide whether a real caller gets through. Where a feature has a user
+   who presses a button, at least one test must arrive the way that user does —
+   signed in as they are, under the mode production runs in. Nine tests of the
+   engineer's final code were green while no engineer could record one.
+
+## Phase 0, 2026-09-20: five claims this project made that the machine refuted
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-20, during the Phase 0
+recovery. Evidence and locators for all five are in
+`.cowork/CURRENT_STATE_AND_BLOCKERS.md` sections 9.1–9.8. Nothing here was
+deleted from the files that made the claims; it is relabelled there.
+
+**First: "`claims.py` and `keyword.py` contain unresolved conflict markers, and
+the backend could not start."** Stated in `.cowork/CURRENT_STATE_AND_BLOCKERS.md`
+section 4, in V3 section 5.1, and in the Phase 0 prompt built from them. Measured:
+**zero** conflict markers in either file, both parse as valid Python 3.12, no
+marker anywhere in `backend/app/`, and the backend starts and serves
+`/api/health` in about three seconds. What was true instead: both files had been
+hand-resolved in the working tree and never `git add`-ed, so the index kept three
+stages while the files on disk were clean. Three consumers repeated the claim
+because each read it from the one before.
+
+**Second: the merge that was not a merge.** Section 8 found `.git/AUTO_MERGE`
+with no `MERGE_HEAD` and reasoned to "most likely a STALE file left by a merge
+whose conflicts were resolved and committed". Both premises were right and the
+conclusion was wrong: unmerged index entries *with* no `MERGE_HEAD` is the
+signature of `git stash apply`, which writes `AUTO_MERGE` and never writes
+`MERGE_HEAD`. There was no merge, stale or otherwise — an unfinished
+`git stash apply` was sitting in the index. The inference was labelled as an
+inference, which is why it cost nothing; had it been labelled a fact, the next
+agent would have deleted a file that was load-bearing.
+
+**Third: "272 or 273 standards."** It is **272**, and the question was decidable
+in one query the whole time: `SELECT document_role, COUNT(*) FROM
+document_classification GROUP BY 1` → `COMPANY_STANDARD` 272,
+`CONTRACTOR_SUBMITTAL` 3, 275 rows in `documents`. The discrepancy survived
+several documents because nobody ran it. Note also that the role does not live
+where two audits looked for it: `documents` has no role column.
+
+**Fourth: "216400C previously selected standards, then selected zero."** Two
+different documents were compressed into one bug. 216400C has **never** selected
+zero: it went 10 → 10 → **6**, with findings 1,609 → 815, between
+2026-09-20T09:01Z and 10:04Z. The run that selected zero is **EF1975-DAS-M-03**,
+a different submittal, which also extracted **0** `submittal_facts`. A bug report
+naming the wrong document sends the fix to the wrong code.
+
+**Fifth, and this one is the recurring defect itself: a guard test that guards
+nothing.** `test_exact_glossary_phrase_outranks_repeated_scattered_words` reads as
+the test for the "prioritize exact glossary phrases" feature of commit `8d30838`.
+During Phase 0 that feature was found disconnected — `build_phrase_query` defined,
+unit-tested, and called by nothing. The test was failing, which looked like the
+test catching exactly that. It was not: it was failing on an unrelated `TypeError`
+from a missing access-scope argument. With the feature reconnected and then
+deliberately disabled again (`phrase = ""`), the test **passed**. bm25 already
+ranks the glossary chunk first, so this test would pass with the feature deleted.
+It has never protected anything. Entry fourteen and the eighth already say a test
+must be watched failing; this one *was* watched failing, for the wrong reason,
+which is a failure mode neither entry covers.
+
+### The rule this produces
+
+16. **A test watched failing is evidence only once you know which assertion
+   failed.** "It goes red when the feature is broken" is the claim; "it went red
+   while the feature was broken" is what a failing run shows, and the two differ
+   whenever anything else in the path can also throw. Read the failure, not the
+   exit status: if the test died before reaching its assertion — an import error,
+   a `TypeError` in a helper, a fixture that never loaded — it has told you
+   nothing about the feature. The proof is the other direction: with everything
+   else working, remove the feature alone and require the assertion itself to
+   fail.
+
+17. **A claim repeated by three documents still has one source.** Each of the
+   five above was carried forward by consumers who cited the document before
+   them, and agreement between them was read as corroboration. Before acting on
+   an inherited fact, find the command that produced it. Where no document can
+   name one — no query, no path, no timestamp, no output — the fact is a rumour
+   with footnotes, however many files repeat it.
+
+## GitHub transfer, 2026-09-21: an audit finding that was itself false
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-21, during Step 2 of the
+GitHub transfer.
+
+**"README.md never tells a fresh machine to run `npm install` for the frontend."**
+Reported as a Part 0.4a hygiene finding of `.cowork/EXECUTE-GITHUB-TRANSFER.md`,
+and carried by the owner into the Step 2 order as "README.md: add the missing
+frontend npm install step". Measured when the fix was about to be written: the
+README's *Getting started*, Step 3 "Frontend", already runs `cd frontend`,
+`npm ci`, `npx tsc -b` and `npm run test`. `npm ci` is the stricter install from
+the lockfile. The audit had searched for the literal string `npm install` and
+read its absence as the absence of the step. **No README change was made**; adding
+a second, looser install step would have been a regression. This is rule 17's
+failure one hop earlier: the claim had a source command, and the command
+answered a narrower question than the one the finding asked.
+
+### The rule this produces
+
+18. **A search that finds nothing proves only that its pattern is absent.** Before
+   reporting "X is missing", name every form X could take (`npm install`,
+   `npm ci`, `npm i`, `pnpm install`) and read the section where X would live.
+   A grep is a lead, not a verdict.

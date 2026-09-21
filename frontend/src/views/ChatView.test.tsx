@@ -156,6 +156,8 @@ interface Routes {
   ask?: unknown | (() => unknown);
   newConversation?: unknown;
   report?: unknown;
+  structured?: unknown;
+  structuredFailure?: boolean;
 }
 
 function mockApi(routes: Routes = {}) {
@@ -163,6 +165,9 @@ function mockApi(routes: Routes = {}) {
   const spy = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+    if (url.includes("/search/structured") && routes.structuredFailure) {
+      return Promise.resolve(new Response(JSON.stringify({ code: "internal", message: "Structured search is unavailable." }), { status: 500, headers: { "Content-Type": "application/json" } }));
+    }
     const body = (() => {
       if (url.includes("/health")) return health;
       if (url.endsWith("/reports")) {
@@ -180,6 +185,7 @@ function mockApi(routes: Routes = {}) {
           suppressed_reason: null,
         };
       }
+      if (url.includes("/search/structured")) return routes.structured ?? { results: [{ id: "d1", kind: "deliverable", label: "IFC drawing", wbs_code: "1.2", document_id: null }] };
       if (url.endsWith("/ask")) {
         const r = routes.ask ?? askResult();
         return typeof r === "function" ? (r as () => unknown)() : r;
@@ -206,10 +212,41 @@ function mockApi(routes: Routes = {}) {
 
 async function openChat() {
   render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /Chat/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /Document Q&A/ }));
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("structured workflow search", () => {
+  it("renders workflow records separately from document evidence", async () => {
+    const calls = mockApi({ structured: { results: [{ id: "d1", kind: "deliverable", label: "IFC drawing", wbs_code: "1.2", document_id: null }] } });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "IFC drawing");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "Search records" }));
+    expect(await screen.findByText("Workflow records — not page-cited evidence")).toBeInTheDocument();
+    expect(screen.getByText("IFC drawing")).toBeInTheDocument();
+    expect(calls.some((call) => call.url.includes("/search/structured"))).toBe(true);
+  });
+
+  it("shows an API failure instead of leaving a silent blank panel", async () => {
+    mockApi({ structuredFailure: true });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "schedule");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "Search records" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Structured search is unavailable.");
+  });
+
+  it("distinguishes a successful search with no matches", async () => {
+    mockApi({ structured: { results: [] } });
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "missing");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "Search records" }));
+    expect(await screen.findByText("No matching deliverable found for 'missing'.")).toBeInTheDocument();
+  });
+});
 
 // --------------------------------------------------------------- navigation
 
@@ -239,7 +276,7 @@ describe("chat navigation", () => {
     mockApi();
     render(<App />);
     const nav = await screen.findByRole("navigation", { name: "Main" });
-    const chat = within(nav).getByRole("button", { name: /Chat/ });
+    const chat = within(nav).getByRole("button", { name: /Document Q&A/ });
     expect(within(chat).queryByText("not built")).toBeNull();
   });
 });

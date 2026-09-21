@@ -1,10 +1,15 @@
-import { useCallback, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 
 import { usePoll } from "../hooks/usePoll";
 
 import { api, classification } from "../api/client";
 import { ChunkInspector } from "../components/ChunkInspector";
 import { DocumentCard, type DocumentActions } from "../components/DocumentCard";
+import { Drawer } from "../components/Drawer";
+import { DocumentPreview } from "../components/DocumentPreview";
+import { DocumentTechnicalDetails } from "../components/DocumentTechnicalDetails";
+import { MetadataEditor, ROLE_OPTIONS } from "../components/classification/MetadataEditor";
+import { DocumentFilters, EMPTY_FILTERS, type DocumentFilterState } from "../components/classification/DocumentFilters";
 import { ExcludedViewer } from "../components/ExcludedViewer";
 import { PageImageViewer } from "../components/PageImageViewer";
 import type { Connection } from "../components/Shell";
@@ -13,7 +18,7 @@ import { WorkerPanel } from "../components/WorkerPanel";
 import { useDocumentClassifications } from "../components/classification/useDocumentClassifications";
 import { useTypeVocabularyLoad } from "../components/classification/TypeFilter";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
-import type { ApiError, DocumentClassification, DocumentRecord, WorkerStatus } from "../types/api";
+import type { ApiError, DocumentClassification, DocumentRecord, DocumentRole, WorkerStatus } from "../types/api";
 
 type Load =
   | { state: "loading" }
@@ -24,10 +29,17 @@ type Drawer =
   | { kind: "none" }
   | { kind: "chunks"; doc: DocumentRecord }
   | { kind: "excluded"; doc: DocumentRecord }
-  | { kind: "pages"; doc: DocumentRecord };
+  | { kind: "pages"; doc: DocumentRecord }
+  | { kind: "preview"; doc: DocumentRecord }
+  | { kind: "details"; doc: DocumentRecord };
 
-/** A document in any of these is finished; the row will not change again. */
-const SETTLED = new Set(["ready", "failed", "no_searchable_content"]);
+/** A document in any of these is finished; the row will not change again.
+ *
+ *  `stored_not_indexed` belongs here: a workbook is stored deliberately and
+ *  never processed, so polling it for progress would poll forever. */
+const SETTLED = new Set([
+  "ready", "failed", "no_searchable_content", "stored_not_indexed",
+]);
 
 /** What a document held by no discipline is called on screen.
  *
@@ -161,17 +173,45 @@ export function DocumentsView({
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [listQuery, setListQuery] = useState("");
+  const [sort, setSort] = useState("uploaded_at");
+  const [direction, setDirection] = useState<"asc" | "desc">("desc");
+  const [totalMatching, setTotalMatching] = useState<number | null>(null);
+  // THE METADATA FILTERS. Passed to the server on every read; never applied to
+  // the returned array. See DocumentFilters for why that distinction matters.
+  const [filters, setFilters] = useState<DocumentFilterState>(EMPTY_FILTERS);
 
   const { vocabulary, settled: vocabularySettled } = useTypeVocabularyLoad();
+
+  // Values actually PRESENT in the rows on screen, offered as filter choices.
+  // Derived from the list rather than from a vocabulary endpoint: there is no
+  // registry of projects or equipment types, and offering a value that matches
+  // nothing teaches the reader that the filter is broken. The reader can still
+  // pick one that the current page does not show, and gets an empty list -
+  // which is the honest answer, not a bug.
+  const observed = (() => {
+    const rows = load.state === "ready" ? load.documents : [];
+    const uniq = (get: (d: DocumentRecord) => string | null | undefined) =>
+      [...new Set(rows.map(get).filter((v): v is string => !!v))].sort();
+    return {
+      disciplines: [...new Set(rows.flatMap((d) => d.disciplines))].sort(),
+      equipmentTypes: uniq((d) => d.equipment_type),
+      projects: uniq((d) => d.project),
+    };
+  })();
 
   const refresh = useCallback(async () => {
     // These reads are independent. Start both before yielding so a slow
     // metrics snapshot never delays the document list (and teardown cannot
     // leave a later document request behind after the view is gone).
-    const [m, result] = await Promise.all([api.metrics(), api.documents()]);
+    const [m, result] = await Promise.all([
+      api.metrics(),
+      api.documents({ limit: 100, q: listQuery, sort, direction, ...filters }),
+    ]);
     setWorker(m.ok ? m.data.worker : null);
     if (result.ok) {
       setLoad({ state: "ready", documents: result.data });
+      setTotalMatching(Number(result.response?.headers?.get?.("X-Total-Count") ?? result.data.length));
     } else {
       setLoad({
         state: "error",
@@ -179,7 +219,19 @@ export function DocumentsView({
         disconnected: result.disconnected,
       });
     }
-  }, []);
+  }, [direction, filters, listQuery, sort]);
+
+  const loadMore = useCallback(async () => {
+    if (load.state !== "ready") return;
+    const result = await api.documents({
+      limit: 100, offset: load.documents.length, q: listQuery, sort, direction,
+      ...filters,
+    });
+    if (result.ok) {
+      setLoad({ state: "ready", documents: [...load.documents, ...result.data] });
+      setTotalMatching(Number(result.response?.headers?.get?.("X-Total-Count") ?? load.documents.length + result.data.length));
+    }
+  }, [direction, listQuery, load, sort]);
 
   // Poll so ingestion progress is live without the operator refreshing - but
   // only FAST while there is progress to be live about. On an idle corpus the
@@ -211,6 +263,63 @@ export function DocumentsView({
   // classification from before the last edit.
   const classificationsRef = useRef(classifications);
   classificationsRef.current = classifications;
+
+  // ---------------------------------------------------- the bulk selection
+  //
+  // Ids, not rows. The list is re-fetched every few seconds by `usePoll`, so
+  // holding DocumentRecord objects would pin a stale copy of each one; an id
+  // survives a refresh and is also exactly what the endpoint takes.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkRole, setBulkRole] = useState<DocumentRole | "">("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }, []);
+
+  const applyBulkRole = useCallback(async () => {
+    if (!bulkRole || selectedIds.length === 0) return;
+    setBulkBusy(true);
+    const result = await classification.setRoleBulk({
+      document_ids: selectedIds,
+      document_role: bulkRole,
+    });
+    setBulkBusy(false);
+    if (!result.ok) {
+      setNotice(result.error.message);
+      return;
+    }
+    const { updated, unchanged, failed } = result.data;
+    const label =
+      ROLE_OPTIONS.find((o) => o.value === bulkRole)?.label ?? bulkRole;
+    // EVERY NUMBER STATES WHAT IT COUNTS, and a partial write says so first.
+    // "40 documents updated" after a request naming 42 is the message this
+    // whole endpoint was shaped to avoid: it reads as complete success and
+    // the two that failed are never mentioned again.
+    setNotice(
+      [
+        `${updated.length} set to ${label}`,
+        unchanged.length ? `${unchanged.length} already were` : null,
+        failed.length
+          ? `${failed.length} could not be updated and were left unchanged`
+          : null,
+      ].filter(Boolean).join("; ") + ".",
+    );
+    // Only the ones that actually changed leave the selection. A document that
+    // failed stays selected, so the person can see which and try again rather
+    // than reconstructing a selection the screen just discarded.
+    const written = new Set([...updated, ...unchanged]);
+    setSelectedIds((prev) => prev.filter((id) => !written.has(id)));
+    // The classification cache only fetches ids it has not resolved, so a
+    // plain refresh would leave every card showing its old role. Patched per
+    // document from what the server actually reported writing.
+    for (const id of written) {
+      const current = classificationsRef.current[id];
+      if (current) setOneClassification(id, { ...current, document_role: bulkRole });
+    }
+    void refresh();
+  }, [bulkRole, refresh, selectedIds, setOneClassification]);
 
   const toggleType = useCallback((type: string) => {
     setSelectedTypes((prev) =>
@@ -278,6 +387,8 @@ export function DocumentsView({
     onInspect: (doc) => setDrawer({ kind: "chunks", doc }),
     onExcluded: (doc) => setDrawer({ kind: "excluded", doc }),
     onPages: (doc) => setDrawer({ kind: "pages", doc }),
+    onPreview: (doc) => setDrawer({ kind: "preview", doc }),
+    onDetails: (doc) => setDrawer({ kind: "details", doc }),
     onExtract: (doc) => void run(doc, "Extract", () => api.extract(doc.id)),
     onChunk: (doc) => void run(doc, "Chunk", () => api.chunk(doc.id)),
     onEmbed: (doc) => void run(doc, "Embed", () => api.embed(doc.id)),
@@ -302,13 +413,28 @@ export function DocumentsView({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="aurora-field space-y-6">
+      <div aria-hidden className="aurora-a" />
+      <div aria-hidden className="aurora-b" />
       <header>
         <h1 className="text-xl font-semibold text-slateish-200">Documents</h1>
         <p className="mt-1 text-sm text-slateish-400">
           Upload, inspect, and verify what the system can actually search.
         </p>
       </header>
+
+      <div className="flex flex-wrap items-end gap-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
+        <label className="min-w-56 flex-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
+          Find documents
+          <input value={listQuery} onChange={(e) => setListQuery(e.target.value)} placeholder="Filename contains…" className="mt-1 w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200" />
+        </label>
+        <label className="text-xs font-semibold uppercase tracking-wide text-slateish-400">Sort
+          <select value={sort} onChange={(e) => setSort(e.target.value)} className="mt-1 block rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200">
+            <option value="uploaded_at">Newest</option><option value="filename">Filename</option><option value="status">Status</option>
+          </select>
+        </label>
+        <button type="button" className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm" onClick={() => setDirection((d) => d === "asc" ? "desc" : "asc")}>Order: {direction === "asc" ? "A–Z" : "Newest"}</button>
+      </div>
 
       {/* The worker DETAIL comes from /api/metrics, scoped as of the commit
           that corrected this comment - it previously discarded the scope it
@@ -330,6 +456,65 @@ export function DocumentsView({
         </p>
       )}
 
+      {/* THE BULK ROLE BAR. Only for an administrator, and only once something
+          is selected - the endpoint 404s everyone else, and a control that
+          always fails is worse than no control. The count is always on screen
+          beside the button, because "Set role" with a selection the reader has
+          scrolled away from is an action whose size they cannot see. */}
+      {isAdmin && selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-end gap-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
+            {selectedIds.length} selected
+          </p>
+          <label className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
+            Set role
+            <select
+              value={bulkRole}
+              aria-label="Role to apply"
+              onChange={(e) => setBulkRole(e.target.value as DocumentRole | "")}
+              className="mt-1 block rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200"
+            >
+              <option value="">Choose a role</option>
+              {ROLE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            // Disabled until a role is chosen. The empty option is not a role
+            // and must not be sendable: an "apply" that clears forty roles
+            // because the select was left alone is not a mistake anybody
+            // should be able to make in one click.
+            disabled={!bulkRole || bulkBusy}
+            onClick={() => void applyBulkRole()}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm disabled:opacity-40"
+          >
+            {bulkBusy ? "Applying..." : `Apply to ${selectedIds.length}`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds([])}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
+      {/* THE METADATA FILTERS, and note the difference from the type filter
+          below: these are sent to the SERVER, which intersects them with the
+          caller's grants and returns a narrower list. The type filter under it
+          never leaves the browser and only hides rows already fetched. Two
+          filters on one screen with different reach, so each says which it is. */}
+      <DocumentFilters
+        value={filters}
+        onChange={setFilters}
+        disciplines={observed.disciplines}
+        equipmentTypes={observed.equipmentTypes}
+        projects={observed.projects}
+      />
+
       {/* THE TYPE FILTER. Built here rather than with <TypeFilter> because
           that component's "documents in scope" count is the SERVER'S echo of
           a search it just ran - it does not apply to a list already sitting
@@ -337,7 +522,7 @@ export function DocumentsView({
       {vocabulary && vocabulary.types.length > 0 && load.state === "ready" && (
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slateish-400">
+            <span className="me-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
               Type
             </span>
             <FilterChip
@@ -365,7 +550,7 @@ export function DocumentsView({
           {/* A count with no stated boundary reads as total. `corpus_wide` is
               true only for an admin - everyone else's counts above are their
               own grants, and this line is the one place that says so. */}
-          <p className="text-[11px] text-slateish-500">
+          <p className="text-xs text-slateish-500">
             {vocabulary.corpusWide
               ? "Counts cover every document in the corpus."
               : "Counts cover the documents you can open."}
@@ -426,7 +611,7 @@ export function DocumentsView({
                     .map((group) => (
                       <div key={group.name}>
                         <h3
-                          className="mb-2 flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wider text-slateish-400"
+                          className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-slateish-400"
                           aria-label={`${group.name}, ${group.documents.length} document(s)`}
                         >
                           {group.name}
@@ -446,7 +631,7 @@ export function DocumentsView({
                               : `None of the documents you can open is a ${group.name}.`}
                           </p>
                         ) : (
-                          <ul className="space-y-3">
+                          <ul className="virtual-list space-y-3">
                             {group.documents.map((doc) => (
                               <DocumentCard
                                 key={doc.id}
@@ -456,6 +641,8 @@ export function DocumentsView({
                                 types={types}
                                 isAdmin={isAdmin}
                                 onConfirmType={confirmType}
+                                selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
+                                onToggleSelected={isAdmin ? toggleSelected : undefined}
                               />
                             ))}
                           </ul>
@@ -466,7 +653,7 @@ export function DocumentsView({
                   {showAwaiting && awaiting.documents.length > 0 && (
                     <div key={awaiting.name}>
                       <h3
-                        className="mb-2 flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wider text-warn-500"
+                        className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-warn-500"
                         aria-label={`${awaiting.name}, ${awaiting.documents.length} document(s)`}
                       >
                         {awaiting.name}
@@ -474,7 +661,7 @@ export function DocumentsView({
                           {awaiting.documents.length}
                         </span>
                       </h3>
-                      <ul className="space-y-3">
+                      <ul className="virtual-list space-y-3">
                         {awaiting.documents.map((doc) => (
                           <DocumentCard
                             key={doc.id}
@@ -484,9 +671,17 @@ export function DocumentsView({
                             types={types}
                             isAdmin={isAdmin}
                             onConfirmType={confirmType}
+                            selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
+                            onToggleSelected={isAdmin ? toggleSelected : undefined}
                           />
                         ))}
                       </ul>
+                    </div>
+                  )}
+                  {totalMatching !== null && totalMatching > load.documents.length && (
+                    <div className="flex items-center justify-between border-t border-ink-700 pt-4">
+                      <p className="text-sm text-slateish-400">Showing {load.documents.length} of {totalMatching} documents.</p>
+                      <button type="button" onClick={() => void loadMore()} className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm">Load next 100</button>
                     </div>
                   )}
                 </>
@@ -505,7 +700,72 @@ export function DocumentsView({
       {drawer.kind === "pages" && (
         <PageImageViewer doc={drawer.doc} onClose={() => setDrawer({ kind: "none" })} />
       )}
+      {drawer.kind === "preview" && (
+        // `wide` and `flush`: a PDF is rendered by the browser's own viewer,
+        // which reflows to whatever width it is given, so the reading-width
+        // panel the other drawers use made an A4 page postcard-sized. `flush`
+        // hands the height to the preview, which fills it.
+        <Drawer
+          title={`Preview - ${drawer.doc.filename}`}
+          size="wide"
+          flush
+          onClose={() => setDrawer({ kind: "none" })}
+        >
+          <DocumentPreview doc={drawer.doc} />
+        </Drawer>
+      )}
+      {drawer.kind === "details" && (
+        <Drawer title={`Details - ${drawer.doc.filename}`} onClose={() => setDrawer({ kind: "none" })}>
+          <div className="flex flex-col gap-6">
+            <DocumentTechnicalDetails doc={drawer.doc} />
+            <section aria-label="Edit metadata">
+              <h4 className="mb-2 text-xs font-medium opacity-80">Edit metadata</h4>
+              <MetadataEditorForDocument
+                documentId={drawer.doc.id}
+                canEdit={isAdmin}
+                onSaved={() => void refresh()}
+              />
+            </section>
+          </div>
+        </Drawer>
+      )}
     </div>
+  );
+}
+
+/** Load one document's classification, then let an administrator edit it.
+ *
+ *  Fetched here rather than carried on the list row: the list returns the few
+ *  fields the cards show, and the editor needs the whole record so that a save
+ *  - which REPLACES the record - does not clear the fields the list never
+ *  carried. Saving a partial record would silently wipe `service`,
+ *  `effective_date` and the rest.
+ */
+function MetadataEditorForDocument({
+  documentId, canEdit, onSaved,
+}: { documentId: string; canEdit: boolean; onSaved: () => void }) {
+  const [record, setRecord] = useState<DocumentClassification | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    void classification.ofDocument(documentId).then((result) => {
+      if (cancelled) return;
+      if (result.ok) setRecord(result.data);
+      setLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [documentId]);
+
+  if (!loaded) return <p className="text-xs opacity-70">Loading metadata…</p>;
+  return (
+    <MetadataEditor
+      documentId={documentId}
+      record={record}
+      canEdit={canEdit}
+      onSaved={(next) => { setRecord(next); onSaved(); }}
+    />
   );
 }
 
@@ -529,7 +789,7 @@ function FilterChip({
       aria-checked={on}
       onClick={onClick}
       className={[
-        "inline-flex items-center gap-2 rounded border px-2.5 py-1 text-[13px] transition-colors",
+        "inline-flex items-center gap-2 rounded-[var(--radius-full)] border px-2.5 py-1 text-[13px] motion-safe:transition-colors",
         on
           ? amber
             ? "border-warn-500/50 bg-warn-500/10 text-warn-500"
@@ -542,7 +802,7 @@ function FilterChip({
       {label}
       {/* A COUNT ONLY WHEN COVERAGE ANSWERED. See TypeFilter.tsx: rendering 0
           for "we do not know" reads as "there are none of these". */}
-      {count != null && <span className="font-mono text-[11px] opacity-75">{count}</span>}
+      {count != null && <span className="font-mono text-xs text-slateish-300">{count}</span>}
     </button>
   );
 }

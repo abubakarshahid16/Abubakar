@@ -67,14 +67,14 @@ export function CoverageLedger({
   const rows = result.documents.slice(current * pageSize, (current + 1) * pageSize);
 
   return (
-    <section aria-labelledby="coverage-ledger-heading" className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+    <section aria-labelledby="coverage-ledger-heading" className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
       <p id="coverage-ledger-heading" className="text-xs uppercase tracking-wide text-slateish-500">
         Coverage
       </p>
       <p className="mt-1 font-mono text-sm text-slateish-200">{segments.join(" · ")}</p>
 
       {c.complete === false && (
-        <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-warn-500">
+        <p className="mt-2 text-xs font-semibold uppercase tracking-wider text-warn-500">
           This analysis is partial
         </p>
       )}
@@ -88,7 +88,7 @@ export function CoverageLedger({
       )}
 
       {cancelled && (
-        <p role="status" className="mt-2 rounded border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-sm text-warn-500">
+        <p role="status" className="mt-2 rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-sm text-warn-500">
           Cancelled — partial results below are batches, not a consolidated answer
         </p>
       )}
@@ -99,9 +99,9 @@ export function CoverageLedger({
             <caption className="sr-only">Per-document search outcome</caption>
             <thead>
               <tr className="text-xs uppercase tracking-wide text-slateish-500">
-                <th scope="col" className="py-1 pr-3 font-normal">Document</th>
-                <th scope="col" className="py-1 pr-3 font-normal">Status</th>
-                <th scope="col" className="py-1 pr-3 text-right font-normal">Validated passages</th>
+                <th scope="col" className="py-1 pe-3 font-normal">Document</th>
+                <th scope="col" className="py-1 pe-3 font-normal">Status</th>
+                <th scope="col" className="py-1 pe-3 text-right font-normal">Validated passages</th>
                 <th scope="col" className="py-1 font-normal">Error</th>
               </tr>
             </thead>
@@ -110,12 +110,12 @@ export function CoverageLedger({
                 const st = STATUS_TEXT[d.status];
                 return (
                   <tr key={d.document_id} className="border-t border-ink-700/60">
-                    <td className="py-1.5 pr-3 text-slateish-200">{d.filename}</td>
-                    <td className={`py-1.5 pr-3 ${statusTone(d.status)}`}>
-                      <span aria-hidden="true" className="mr-1.5 font-mono">{st.icon}</span>
+                    <td className="py-1.5 pe-3 text-slateish-200">{d.filename}</td>
+                    <td className={`py-1.5 pe-3 ${statusTone(d.status)}`}>
+                      <span aria-hidden="true" className="me-1.5 font-mono">{st.icon}</span>
                       {st.label}
                     </td>
-                    <td className="py-1.5 pr-3 text-right font-mono text-slateish-300">
+                    <td className="py-1.5 pe-3 text-right font-mono text-slateish-300">
                       {/* null = did not search; 0 = searched, found nothing. */}
                       {d.validated_evidence_count === null ? (
                         <span aria-label="not searched">—</span>
@@ -137,7 +137,7 @@ export function CoverageLedger({
                 aria-label="Previous page of documents"
                 disabled={current === 0}
                 onClick={() => setPage(current - 1)}
-                className="rounded border border-ink-600 px-2 py-1 hover:bg-ink-700 disabled:opacity-40"
+                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1 hover:bg-ink-700 disabled:opacity-40"
               >
                 Prev
               </button>
@@ -149,7 +149,7 @@ export function CoverageLedger({
                 aria-label="Next page of documents"
                 disabled={current >= pages - 1}
                 onClick={() => setPage(current + 1)}
-                className="rounded border border-ink-600 px-2 py-1 hover:bg-ink-700 disabled:opacity-40"
+                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1 hover:bg-ink-700 disabled:opacity-40"
               >
                 Next
               </button>

@@ -17,6 +17,7 @@ export interface AuthedImage {
   src: string | null;
   loading: boolean;
   failed: boolean;
+  answerLocated: boolean | null;
 }
 
 export function useAuthedImage(url: string | null): AuthedImage {
@@ -24,23 +25,29 @@ export function useAuthedImage(url: string | null): AuthedImage {
     src: null,
     loading: url !== null,
     failed: false,
+    answerLocated: null,
   });
 
   useEffect(() => {
     if (url === null) {
-      setState({ src: null, loading: false, failed: false });
+      setState({ src: null, loading: false, failed: false, answerLocated: null });
       return;
     }
     let cancelled = false;
     let created: string | null = null;
-    setState({ src: null, loading: true, failed: false });
-    void fetchImageObjectUrl(url).then((objectUrl) => {
+    setState({ src: null, loading: true, failed: false, answerLocated: null });
+    void fetchImageObjectUrl(url).then((result) => {
       if (cancelled) {
-        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        if (result.url) URL.revokeObjectURL(result.url);
         return;
       }
-      created = objectUrl;
-      setState({ src: objectUrl, loading: false, failed: objectUrl === null });
+      created = result.url;
+      setState({
+        src: result.url,
+        loading: false,
+        failed: result.url === null,
+        answerLocated: result.answerLocated,
+      });
     });
     return () => {
       cancelled = true;

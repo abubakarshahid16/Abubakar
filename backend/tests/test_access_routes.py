@@ -149,6 +149,46 @@ def test_the_document_list_shows_only_what_the_scope_allows(two_documents):
     assert ids == {visible}, f"list leaked {ids - {visible}}"
 
 
+def test_document_list_supports_scoped_pagination_and_filters(two_documents):
+    client, visible, hidden = two_documents
+    page = client.get("/api/documents", params={
+        "limit": 1, "offset": 0, "sort": "filename", "direction": "asc",
+        "q": "visible",
+    })
+    assert page.status_code == 200
+    assert [d["id"] for d in page.json()] == [visible]
+    assert page.headers["X-Total-Count"] == "1"
+    assert page.headers["X-Limit"] == "1"
+    assert page.headers["X-Offset"] == "0"
+
+
+def test_document_list_rejects_unsafe_page_size(two_documents):
+    client, *_ = two_documents
+    assert client.get("/api/documents", params={"limit": 201}).status_code == 422
+
+
+def test_document_list_stays_bounded_with_one_hundred_thousand_rows(tmp_path):
+    """The query remains a page even when the corpus is far beyond UI scale."""
+    client = TestClient(app)
+    now = "2026-09-05T00:00:00Z"
+    conn = connect()
+    rows = [
+        (f"bulk_{i}", f"bulk-{i:06d}.pdf", f"sha-{i}", 1, "", now)
+        for i in range(100_000)
+    ]
+    with conn:
+        conn.executemany(
+            "INSERT INTO documents (id, filename, sha256, size_bytes, stored_path, uploaded_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)", rows
+        )
+    response = client.get("/api/documents", params={
+        "limit": 200, "offset": 99_800, "sort": "filename", "direction": "asc",
+    })
+    assert response.status_code == 200
+    assert len(response.json()) == 200
+    assert response.headers["X-Total-Count"] == "100000"
+
+
 def test_search_cannot_reach_a_hidden_document(two_documents):
     client, visible, hidden = two_documents
     hits = client.get("/api/search", params={"q": "coating dry film thickness",

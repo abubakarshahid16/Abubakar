@@ -8,10 +8,11 @@
  */
 
 import { api } from "../../api/client";
-import { clauseLabel, OcrConfidence, ProvenanceMark } from "./Provenance";
+import { clauseLabel, CitationInspector, OcrConfidence, ProvenanceMark } from "./Provenance";
 import type { AnswerPassage } from "../../types/api";
 import { Spinner } from "../states";
 import { useAuthedImage } from "../useAuthedImage";
+import { useEffect, useRef, useState } from "react";
 
 /** Exported because the answer card needs it too.
  *
@@ -37,7 +38,7 @@ export function Highlighted({ passage }: { passage: AnswerPassage }) {
   return (
     <>
       {passage.text.slice(0, start)}
-      <mark className="rounded bg-signal-500/25 px-0.5 text-slateish-100">
+      <mark className="rounded-[var(--radius-xs)] bg-signal-500/25 px-0.5 text-slateish-100">
         {passage.text.slice(start, end)}
       </mark>
       {passage.text.slice(end)}
@@ -70,7 +71,8 @@ export function Citation({ passage }: { passage: AnswerPassage }) {
   // printed, saying it of one document would imply the others had one shown.
   const clause = clauseLabel(passage);
   return (
-    <cite className="text-[13px] not-italic leading-relaxed text-slateish-300">
+    <CitationInspector passage={passage}>
+      <cite className="text-[13px] not-italic leading-relaxed text-slateish-300">
       <span className="font-medium">{passage.filename}</span>
       {clause && (
         <>
@@ -92,7 +94,8 @@ export function Citation({ passage }: { passage: AnswerPassage }) {
           <OcrConfidence passage={passage} />
         </>
       )}
-    </cite>
+      </cite>
+    </CitationInspector>
   );
 }
 
@@ -113,7 +116,7 @@ export function PassageLocation({ passage }: { passage: AnswerPassage }) {
       {clause && (
         <>
           <span className="text-slateish-500">·</span>
-          <span className="rounded bg-ink-700 px-1.5 py-0.5 font-mono text-[11px] text-slateish-200">
+          <span className="rounded-[var(--radius-xs)] bg-ink-700 px-1.5 py-0.5 font-mono text-xs text-slateish-200">
             {clause}
           </span>
         </>
@@ -140,6 +143,24 @@ export function EvidencePanel({
   question?: string;
 }) {
   const passage = passages[selected];
+  const [width, setWidth] = useState(() => {
+    const stored = Number(window.localStorage.getItem("evidence-panel-width"));
+    return Number.isFinite(stored) && stored >= 320 && stored <= 640 ? stored : 352;
+  });
+  const resizing = useRef(false);
+  useEffect(() => {
+    window.localStorage.setItem("evidence-panel-width", String(width));
+  }, [width]);
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      if (!resizing.current) return;
+      setWidth(Math.max(320, Math.min(640, window.innerWidth - event.clientX)));
+    };
+    const stop = () => { resizing.current = false; };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); };
+  }, []);
 
   // The box is only requested when there IS an answering span to box, so an
   // unboxed page never leaves the reader wondering whether the answer is on it.
@@ -163,9 +184,11 @@ export function EvidencePanel({
   return (
     <aside
       aria-label="Evidence"
-      className="flex h-full min-h-0 w-full flex-col border-ink-700 bg-ink-850 lg:w-80 xl:w-[22rem] lg:shrink-0 lg:border-l"
+      className="card-3d surface-card relative flex h-full min-h-0 w-full flex-col border-ink-700 bg-ink-850/90 backdrop-blur-xl lg:w-[var(--evidence-width)] lg:shrink-0 lg:border-l"
+      style={{ "--evidence-width": `${width}px` } as React.CSSProperties}
     >
-      <div className="flex items-start justify-between gap-2 border-b border-ink-700 px-4 py-3">
+      <div className="absolute -start-1 top-0 hidden h-full w-2 cursor-col-resize lg:block" role="separator" aria-label="Resize evidence panel" aria-orientation="vertical" tabIndex={0} onPointerDown={() => { resizing.current = true; }} onKeyDown={(event) => { if (event.key === "ArrowLeft") setWidth((value) => Math.min(640, value + 16)); if (event.key === "ArrowRight") setWidth((value) => Math.max(320, value - 16)); }} />
+      <div className="flex items-start justify-between gap-2 border-b border-ink-700 px-4 py-3 lg:w-[var(--evidence-width)]">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-slateish-200">Evidence</h2>
           <p className="mt-0.5 text-xs text-slateish-400">
@@ -176,14 +199,14 @@ export function EvidencePanel({
           type="button"
           onClick={onClose}
           aria-label="Close evidence panel"
-          className="rounded border border-ink-600 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700"
+          className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
         >
           Close
         </button>
       </div>
 
       {passages.length > 1 && (
-        <div role="group" aria-label="Sources" className="flex flex-wrap gap-1 px-4 pt-3">
+        <div role="group" aria-label="Sources" className="flex flex-wrap gap-1.5 px-4 pt-3 lg:w-[var(--evidence-width)]">
           {passages.map((p, i) => (
             <button
               key={p.chunk_id}
@@ -191,19 +214,19 @@ export function EvidencePanel({
               aria-pressed={i === selected}
               onClick={() => onSelect(i)}
               className={[
-                "rounded border px-2 py-1 text-xs",
+                "rounded-[var(--radius-full)] border px-3 py-1 font-mono text-xs motion-safe:transition-colors",
                 i === selected
-                  ? "border-signal-500/60 bg-signal-500/15 text-signal-400"
+                  ? "border-signal-500/60 bg-signal-500/18 text-signal-300 shadow-[0_0_0_1px_rgba(79,201,181,.35)]"
                   : "border-ink-600 text-slateish-300 hover:bg-ink-700",
               ].join(" ")}
             >
-              Source {i + 1}
+              {i + 1}
             </button>
           ))}
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 lg:w-[var(--evidence-width)]">
         <Citation passage={passage} />
 
         <h3 className="mt-4 text-xs uppercase tracking-wide text-slateish-400">
@@ -211,7 +234,7 @@ export function EvidencePanel({
         </h3>
         <blockquote
           className={[
-            "evidence-quote mt-1.5 rounded border-l-2 border-signal-500/50 bg-ink-900 px-3 py-2.5 text-slateish-200",
+            "evidence-quote mt-1.5 rounded-[var(--radius-sm)] border-l-2 border-signal-500/50 bg-ink-900 px-3 py-2.5 text-slateish-200 shadow-[var(--shadow-resting)]",
             passage.kind === "table"
               ? "document-table"
               : "document-quote whitespace-pre-wrap text-sm",
@@ -222,24 +245,32 @@ export function EvidencePanel({
 
         <h3 className="mt-5 text-xs uppercase tracking-wide text-slateish-400">
           Page {passage.page_start} as printed
-          {boxed && (
-            <span className="ml-2 rounded bg-signal-500/20 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-signal-300">
+          {boxed && image.answerLocated !== false && (
+            <span className="ms-2 rounded-[var(--radius-full)] bg-signal-500/20 px-1.5 py-0.5 text-xs normal-case tracking-normal text-signal-300">
               answer outlined
             </span>
           )}
         </h3>
         <p className="mt-1 text-xs text-slateish-500">
-          {boxed
+          {boxed && image.answerLocated !== false
             ? "The answering sentence is outlined on the real page. Extraction flattens tables and drops equation operators; this is the page as printed."
+            : boxed && image.answerLocated === false
+              ? "The page was rendered, but the server could not locate the answering sentence to outline. Extraction flattens tables and drops equation operators."
             : "Extraction flattens tables and drops equation operators. This is the real page."}
         </p>
+        {boxed && image.answerLocated === false && (
+          <p className="mt-1 text-xs text-warn-500 italic">
+            The answering sentence could not be located on this page, so nothing
+            is outlined.
+          </p>
+        )}
         {question && !passage.highlight && (
           <p className="mt-1 text-xs text-slateish-500 italic">
             The exact location of the answer on this page could not be
             confirmed, so nothing is outlined.
           </p>
         )}
-        <div className="mt-2 overflow-auto rounded border border-ink-700 bg-ink-950 p-2">
+        <div className="mt-2 overflow-auto rounded-[var(--radius-md)] border border-ink-700 bg-ink-950 p-2 shadow-[var(--shadow-floating)]">
           {image.loading && <Spinner label={`Rendering page ${passage.page_start}`} />}
           {image.failed && (
             <p className="text-xs text-warn-500">
@@ -252,11 +283,11 @@ export function EvidencePanel({
               key={`${passage.document_id}-${passage.page_start}-${boxed ? "boxed" : "plain"}`}
               src={image.src}
               alt={
-                boxed
+                boxed && image.answerLocated !== false
                   ? `Page ${passage.page_start} of ${passage.filename}, with the answer outlined`
                   : `Page ${passage.page_start} of ${passage.filename}`
               }
-              className="block w-full rounded bg-white"
+              className="block w-full rounded-[var(--radius-sm)] bg-white shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
             />
           )}
         </div>

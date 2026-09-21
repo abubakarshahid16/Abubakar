@@ -308,6 +308,27 @@ def check_ground_truth(questions: list[dict]) -> list[str]:
     return problems
 
 
+def missing_expected_documents(questions: list[dict]) -> dict[str, str]:
+    """Return answerable questions whose expected source is not indexed.
+
+    A gold question cannot be a retrieval failure when its named document is
+    absent from the corpus under test. Keeping this separate from stale
+    unanswerable ground truth prevents a missing client upload from lowering
+    the product score or being mistaken for a search regression.
+    """
+    available = {
+        row[0].lower()
+        for row in connect().execute("SELECT filename FROM documents")
+    }
+    return {
+        q["id"]: q["expected_document"]
+        for q in questions
+        if q["answerable"]
+        and q.get("expected_document")
+        and q["expected_document"].lower() not in available
+    }
+
+
 def score_one(q: dict, result: dict, asked: str | None = None) -> dict:
     """Score one question. Every metric is None when the set does not specify
     the ground truth for it, so an unscored dimension is never counted as a
@@ -637,6 +658,19 @@ def main() -> int:
         print("This is NOT a refusal regression.")
         print("=" * 72)
 
+    missing = missing_expected_documents(data["questions"])
+    if missing:
+        print()
+        print("=" * 72)
+        print("CORPUS BLOCKERS - expected source documents are not indexed")
+        print("=" * 72)
+        for question_id, filename in missing.items():
+            print(f"  question {question_id}: upload/index {filename!r}")
+        print()
+        print("These questions are BLOCKED, not counted as product failures.")
+        print("Repeat the acceptance run after the documents are ready.")
+        print("=" * 72)
+
     before = None
     if args.compare:
         before = json.loads(args.compare.read_text(encoding="utf-8"))["summary"]
@@ -645,6 +679,7 @@ def main() -> int:
     # stale question with a regression is what cost a diagnosis when a new
     # document made question 12's absent term present.
     stale_ids = {p.split()[1] for p in stale}
+    missing_ids = set(missing)
 
     rows = []
     # The eval tools have no user, so they state corpus-wide OUT LOUD.
@@ -664,6 +699,9 @@ def main() -> int:
     for q in data["questions"]:
         if q["id"] in stale_ids:
             print(f"  {q['id']:>5} SKIPPED - ground truth stale for this corpus")
+            continue
+        if q["id"] in missing_ids:
+            print(f"  {q['id']:>5} BLOCKED - expected source document is not indexed")
             continue
         # A question may pin its own tier. Question 17 exists to exercise the
         # Tier 2 context window against numeric-table evidence, and asked at
@@ -729,6 +767,10 @@ def main() -> int:
                 # of letting the first masquerade as the second.
                 "corpus_declared": data.get("corpus"),
                 "corpus_observed": observed,
+                "corpus_blockers": [
+                    {"question_id": question_id, "expected_document": filename}
+                    for question_id, filename in missing.items()
+                ],
                 "machine": machine,
                 "summary": summary,
                 "rows": rows,

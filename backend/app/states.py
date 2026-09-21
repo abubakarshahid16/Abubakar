@@ -25,6 +25,24 @@ READY = "ready"                                  # keyword + vector both complet
 #: "ready" tells an operator the document is usable when it answers nothing.
 NO_SEARCHABLE_CONTENT = "no_searchable_content"
 FAILED = "failed"
+#: Stored on purpose, and deliberately NEVER indexed.
+#:
+#: A workbook - a CRS template - is a FORM TO BE FILLED, not corpus content.
+#: It is kept so it can be previewed and downloaded, and it is never extracted,
+#: OCR'd, chunked, embedded or made retrievable. Nothing in it should ever come
+#: back as the answer to an engineering question.
+#:
+#: This is a DECISION WITH ITS OWN STATE rather than a document that happens to
+#: crash in `extract`. A failed extraction would land in `failed`, which says
+#: something went wrong, and an operator would keep trying to fix it. This says
+#: the opposite: nothing went wrong and nothing is going to happen.
+#:
+#: It is TERMINAL, which is the load-bearing part. `IngestionWorker.
+#: _next_document` selects every status outside `TERMINAL_STATES |
+#: {PARTIALLY_SEARCHABLE}`, so a non-terminal state here would have the worker
+#: pick the workbook up on every poll, forever, exactly as the
+#: `no_searchable_content` omission once did.
+STORED_NOT_INDEXED = "stored_not_indexed"
 
 ALL_STATES = (
     QUEUED,
@@ -34,11 +52,12 @@ ALL_STATES = (
     PARTIALLY_SEARCHABLE,
     READY,
     NO_SEARCHABLE_CONTENT,
+    STORED_NOT_INDEXED,
     FAILED,
 )
 
 #: States from which no further work happens.
-TERMINAL_STATES = frozenset({READY, NO_SEARCHABLE_CONTENT, FAILED})
+TERMINAL_STATES = frozenset({READY, NO_SEARCHABLE_CONTENT, STORED_NOT_INDEXED, FAILED})
 
 #: States in which the document can already answer questions.
 ANSWERABLE_STATES = frozenset({PARTIALLY_SEARCHABLE, READY})
@@ -65,6 +84,11 @@ LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
     ),
     READY: frozenset({CHUNKING, FAILED}),   # re-ingest on a new revision
     NO_SEARCHABLE_CONTENT: frozenset({CHUNKING, EXTRACTING, FAILED}),
+    # A DEAD END, and that is the point. There is no transition out of it,
+    # because every state it could move to is a processing state and a
+    # workbook is never processed. A document arrives here only by being one,
+    # never by failing at something.
+    STORED_NOT_INDEXED: frozenset(),
     FAILED: frozenset({QUEUED, EXTRACTING, CHUNKING, FAILED}),
 }
 
@@ -98,6 +122,10 @@ def label(state: str, embedded: int, total: int) -> str:
         return "ready"
     if state == NO_SEARCHABLE_CONTENT:
         return "no searchable content"
+    if state == STORED_NOT_INDEXED:
+        # Says what it IS and what it is NOT, because the reader's next
+        # question is "why does searching not find it".
+        return "stored - not searchable"
     if state == PARTIALLY_SEARCHABLE:
         return f"partially searchable - {embedded}/{total} embedded"
     return state.replace("_", " ")

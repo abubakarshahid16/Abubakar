@@ -94,7 +94,34 @@ finding contradicts it directly.
 | 13 | The login rate limiter's refusal writes an unauthenticated `audit_events` row, and its key is the caller's own email — a fresh email per request meets no bucket and reaches a 64 MiB Argon2 verify | `auth.py:280-287` |
 | 14 | `_secret()` will sign and verify with a zero-length key | `auth.py` |
 
+#### P1 verification (17 September 2026)
+
+The following register was re-checked against the current tree after the
+checkpoint commit. “Fixed” means the cited defect is absent in code and a
+regression test exercises the boundary; “partially fixed” means the original
+finding is fixed but a related claim remains elsewhere in the codebase.
+
+| Finding | Current verdict | Evidence |
+|---|---|---|
+| 5 | **Fixed** | `/api/metrics` keeps corpus-wide read aggregates separate from host telemetry; host and worker identity fields require the explicit `admin` capability, including when `AUTH_MODE=disabled`. `test_disabled_auth_does_not_turn_unrestricted_reads_into_host_access` proves the old gate fails. |
+| 8 | **Fixed** | `check_host()` parses URL authority with `urlsplit`, rejects credentials and non-HTTP(S) URLs, and validates the actual hostname. `test_host_allowlist_uses_url_authority_not_string_splitting` covers the historical `?@` bypass. |
+| 9 | **Fixed** | `recent_events()` requires an `AccessScope` and filters `watch_events` by document grant (or the explicit admin/unrestricted policy). Watch-folder scope tests cover zero-grant and admin cases. |
+| 10 | **Fixed** | `term_occurrences()` and `indexed_count()` require a scoped document set; lexical coverage passes that set through. `test_keyword.py` contains the unreadable-document oracle regression. |
+| 11 | **Fixed** | `example_questions()` requires and applies the caller's document set; `test_intent.py` covers empty and restricted scopes. |
+| 12 | **Fixed** | OCR and equation aggregates in `metrics.warnings()` use the same document predicate as the other dashboard counts. `test_metrics.py` and the host-telemetry suite verify grant-specific counts. |
+| 13 | **Fixed** | The limiter has per-host work reservations and records a rate-limit audit event once per filled window instead of on every refusal. Auth limiter tests cover both bounds. |
+| 14 | **Fixed** | Token issue refuses a signing key shorter than `MIN_SECRET_BYTES`, and token verification returns `None` for a weak key even when auth is disabled. `test_auth.py` covers both paths. |
+
+The original static entries above remain as historical findings; this table is
+the authoritative current status and prevents an old “open” row being mistaken
+for a present defect.
+
 ### P2 — claims the client can read that are not true
+
+Finding 17 is fixed in the current tree: `recommendation_refusal` is part of
+the typed API response and the Analysis screen renders the backend's reason
+instead of substituting a generic citation message. Regression coverage is in
+`AnalysisModeScreen.test.tsx` and the recommendation gate suite.
 
 | # | Defect | Where |
 |---|---|---|

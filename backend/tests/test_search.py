@@ -176,6 +176,33 @@ def test_an_exact_multiword_content_phrase_uses_the_existing_lexical_boost():
     assert exact.score > scattered.score
 
 
+def test_a_requested_decimal_row_key_beats_the_table_heading():
+    """Table questions must retrieve the row containing the requested value.
+
+    A reranker naturally prefers a general section heading such as ``WAVE
+    EQUATION``.  When the user asks for time ``4.00``, the passage containing
+    that exact decimal is the useful evidence and must win.
+    """
+    row = search.Candidate(
+        chunk_id="row", document_id="d", filename="book2.pdf", section="15.3 WAVE EQUATION",
+        page_start=597, page_end=597, text="Time 4.00 25.6452 29.6517", rrf=0.010,
+        rerank_score=0.45,
+    )
+    heading = search.Candidate(
+        chunk_id="heading", document_id="d", filename="book2.pdf", section="15.3 WAVE EQUATION",
+        page_start=546, page_end=546, text="TABLE 15.7 Actual Approx.", rrf=0.012,
+        rerank_score=1.80,
+    )
+    search.apply_identifier_boost(
+        "In the wave equation table, what value is listed at time 4.00?",
+        [row, heading],
+    )
+    assert row.numeric_hits == ["4.00"]
+    # The search pipeline adds ``boost`` to the reranker score immediately
+    # after the cross-encoder returns it.
+    assert row.boost > (heading.rerank_score - row.rerank_score)
+
+
 # ------------------------------------------------------------ duplicates
 
 

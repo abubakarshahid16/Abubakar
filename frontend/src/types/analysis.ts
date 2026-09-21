@@ -68,7 +68,7 @@ export interface AnalysisCoverage {
 // EvidenceItem and DocumentedFinding moved to contracts/types.ts when stages
 // 3, 4 and 6 landed. They had already drifted from what the API returns, which
 // is what a second copy is for.
-import type { DocumentedFinding, EvidenceItem } from "./api";
+import type { DocumentedFinding, EvidenceItem, EvidenceRemoved } from "./api";
 
 export type { DocumentedFinding, EvidenceItem } from "./api";
 
@@ -173,6 +173,7 @@ export interface AnalysisResult {
   summary: string | null;
   summary_truncated: boolean;
   summary_cited_evidence_ids: string[];
+  evidence_removed?: EvidenceRemoved[];
   claim_clusters: ClaimCluster[];
   gaps: GapAnalysis;
   public_market_findings: MarketFinding[];

@@ -18,6 +18,7 @@ import type {
   ConversationDetail,
   ConversationList,
   DocumentRecord,
+  DocumentPage,
   AuthStatus,
   ExclusionsResponse,
   AnalysisGapsResult,
@@ -34,23 +35,51 @@ import type {
   Progress,
   MarketQueryRequest,
   Metrics,
+  PairRejection,
   ReportList,
   ReportRecord,
   ReportVerification,
+  ReviewDashboard,
+  CrsPreview,
+  ReviewRunStandard,
+  ReviewRunSummary,
   PagesResponse,
   ClassificationVocabulary,
   ClassificationCoverage,
   ClassificationUpdate,
   DocumentClassification,
+  BulkRoleUpdate,
+  BulkRoleResult,
   ReviewFinding,
   ReviewFindingCreate,
   ReviewFindingUpdate,
+  ReviewFindingEvent,
+  ReviewTemplate,
   Deliverable,
   DeliverableCreate,
   DeliverableUpdate,
   ManagementSummary,
   EscalationRule,
+  ReviewBaselineRule,
+  BaselineSelection,
+  ExpectedDeliverable,
+  Risk,
+  RiskType,
+  StructuredSearchResult,
+  ReviewTraceability,
+  WorkbookPreview,
+  StandardSummary,
+  StandardClause,
+  StandardRequirement,
+  StandardExtraction,
 } from "../types/api";
+
+export interface SearchResult {
+  query: string;
+  mode: string;
+  total: number;
+  hits: Array<{ filename: string }>;
+}
 
 /** The unauthenticated route, and the only one. It answers "is the service up"
  *  and "are the models present" and nothing else.
@@ -134,7 +163,7 @@ export interface WatchStatus {
 }
 
 export type Result<T> =
-  | { ok: true; data: T }
+  | { ok: true; data: T; response?: Response }
   | { ok: false; disconnected: true; error: ApiError }
   | { ok: false; disconnected: false; error: ApiError };
 
@@ -159,6 +188,23 @@ export function setToken(next: string | null) {
 
 export function isSignedIn() {
   return token !== null;
+}
+
+/** Attach the bearer header to a transport this module does not own.
+ *
+ *  THE UPLOAD IS THE ONE REQUEST `request()` CANNOT MAKE. It needs
+ *  XMLHttpRequest for upload progress, which `fetch` cannot report, so the
+ *  upload path has always built its own request - and under
+ *  `AUTH_MODE=demo_required` it sent no Authorization header at all, which
+ *  `POST /api/documents` answers with a 401 (`_require_identity_to_write`).
+ *
+ *  The token is handed to a SETTER rather than returned, so it still has
+ *  exactly one destination: an Authorization header. A `getToken()` would be a
+ *  value any caller could log, put in a URL or store, and the whole reason it
+ *  lives in memory only is that it must not be any of those.
+ */
+export function authorize(setHeader: (name: string, value: string) => void) {
+  if (token) setHeader("Authorization", `Bearer ${token}`);
 }
 
 /** Called when the backend says the token is no good. No auto-retry, no
@@ -224,6 +270,13 @@ export const hasArrayField =
     b !== null &&
     Array.isArray((b as Record<string, unknown>)[field]);
 
+export const hasNumberField =
+  (field: string): ShapeCheck =>
+  (b) =>
+    typeof b === "object" &&
+    b !== null &&
+    typeof (b as Record<string, unknown>)[field] === "number";
+
 export const analysis = {
   summary: (body: AnalysisRequest) =>
     request<AnalysisSummaryResult>("/analysis/summary", {
@@ -246,10 +299,18 @@ export const analysis = {
 };
 
 export const reviews = {
-  list: (params?: { document_id?: string; status?: string }) => {
+  templates: (params?: { discipline?: string; deliverable_type?: string; active_only?: boolean }) => {
+    const query = new URLSearchParams();
+    if (params?.discipline) query.set("discipline", params.discipline);
+    if (params?.deliverable_type) query.set("deliverable_type", params.deliverable_type);
+    if (params?.active_only !== undefined) query.set("active_only", String(params.active_only));
+    return request<{ templates: ReviewTemplate[] }>(`/reviews/templates${query.toString() ? `?${query.toString()}` : ""}`);
+  },
+  list: (params?: { document_id?: string; status?: string; review_run_id?: string }) => {
     const query = new URLSearchParams();
     if (params?.document_id) query.set("document_id", params.document_id);
     if (params?.status) query.set("status", params.status);
+    if (params?.review_run_id) query.set("review_run_id", params.review_run_id);
     return request<{ findings: ReviewFinding[] }>(
       `/reviews/findings${query.toString() ? `?${query.toString()}` : ""}`,
     );
@@ -260,12 +321,128 @@ export const reviews = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  /** Confirm the pairing. The caller is named by the server, never by us. */
+  confirm: (id: string) =>
+    request<ReviewFinding>(`/reviews/findings/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    }),
   update: (id: string, body: ReviewFindingUpdate) =>
     request<ReviewFinding>(`/reviews/findings/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  history: (id: string) =>
+    request<{ events: ReviewFindingEvent[] }>(`/reviews/findings/${encodeURIComponent(id)}/history`),
+  traceability: (id: string) => request<ReviewTraceability>(`/reviews/findings/${encodeURIComponent(id)}/traceability`),
+  /** Review runs, newest first, over submittals the caller may read. */
+  reviewRuns: (documentId?: string) =>
+    request<{ runs: ReviewRunSummary[] }>(
+      `/reviews/runs${documentId ? `?document_id=${encodeURIComponent(documentId)}` : ""}`,
+      undefined,
+      hasArrayField("runs"),
+    ),
+  /** Which standards a run compared against, and why each one is there. */
+  reviewRunStandards: (runId: string) =>
+    request<{ standards: ReviewRunStandard[] }>(
+      `/reviews/runs/${encodeURIComponent(runId)}/standards`,
+      undefined,
+      hasArrayField("standards"),
+    ),
+  /** Start a review. Admin-gated, and refuses while one is already running. */
+  startReviewRun: (submittalDocumentId: string) =>
+    request<ReviewRunSummary>("/reviews/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ submittal_document_id: submittalDocumentId }),
+    }),
+  /** The four cards of master plan section 20, under the caller's grants.
+   *
+   *  SHAPE-CHECKED, like every other list on this screen. Without it a body
+   *  of the wrong shape reached the cards as `ok`, and `.toLocaleString()` on
+   *  the missing count threw - taking the WHOLE Dashboard down over one
+   *  panel. That is exactly the white screen `ShapeCheck` exists to prevent. */
+  dashboard: () =>
+    request<ReviewDashboard>("/reviews/dashboard", undefined,
+                             hasNumberField("submittals_total")),
+  /** The engineer's final code. A reason is required when it differs from
+   *  the recommendation; the server enforces that, not this call. */
+  decideCode: (runId: string, code: string, overrideReason: string | null) =>
+    request<ReviewRunSummary>(
+      `/reviews/runs/${encodeURIComponent(runId)}/code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, override_reason: overrideReason }),
+      }),
+  /** The same Comment Resolution Sheet, as JSON, for the on-screen preview.
+   *
+   *  A SIBLING OF `exportCrs`, NOT A SUBSTITUTE. The server builds both from
+   *  one builder, so this cannot show a row the downloaded file does not
+   *  have. Shape-checked like every other list on this screen: a body of the
+   *  wrong shape reaching the table as `ok` is how one bad response takes a
+   *  whole view down. */
+  previewCrs: (runId: string) =>
+    request<CrsPreview>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,
+      undefined,
+      hasArrayField("rows"),
+    ),
+  /** The run's findings as a Comment Resolution Sheet.
+   *
+   *  NOT `request()`, because the body is a spreadsheet rather than JSON -
+   *  but the token is attached the same way and the failure shape is the
+   *  same `Result`, so a caller handles it exactly like any other call. The
+   *  filename is the SERVER's: one definition of what the file is called. */
+  exportCrs: async (
+    runId: string,
+  ): Promise<Result<{ blob: Blob; filename: string }>> => {
+    const path = `/reviews/runs/${encodeURIComponent(runId)}/crs`;
+    let response: Response;
+    try {
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      response = await fetch(`${BASE}${path}`, { headers });
+    } catch (e) {
+      return disconnected(
+        e instanceof Error ? e.message : "Network request failed.");
+    }
+    if (!response.ok) {
+      let error: ApiError = {
+        code: response.status === 404 ? "not_found" : "internal",
+        message: humanMessage(response.status),
+      };
+      try {
+        const body = await response.json();
+        const raw = body?.detail ?? body;
+        if (raw && typeof raw === "object" && "code" in raw) error = raw as ApiError;
+      } catch {
+        /* keep the fallback */
+      }
+      return { ok: false, disconnected: false, error };
+    }
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const match = /filename="([^"]+)"/.exec(disposition);
+    return {
+      ok: true,
+      data: {
+        blob: await response.blob(),
+        filename: match?.[1] ?? `CRS_${runId}.xlsx`,
+      },
+    };
+  },
+  /** Refuse a pairing so no future run proposes it again. */
+  rejectPairing: (findingId: string, reason: string) =>
+    request<PairRejection>("/reviews/pairs/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ finding_id: findingId, reason }),
+    }),
+  baselineRules: () => request<{ rules: ReviewBaselineRule[] }>("/reviews/baseline-rules"),
+  createBaselineRule: (body: Partial<ReviewBaselineRule>) => request<ReviewBaselineRule>("/reviews/baseline-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  updateBaselineRule: (id: string, body: Partial<ReviewBaselineRule>) => request<ReviewBaselineRule>(`/reviews/baseline-rules/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  baselineSelection: (documentId: string) => request<BaselineSelection | null>(`/reviews/baseline-selection/${encodeURIComponent(documentId)}`),
 };
 
 export const deliverables = {
@@ -273,7 +450,23 @@ export const deliverables = {
   alerts: () => request<{ alerts: { deliverable_id: string; wbs_code: string; title: string; due_date: string; days_overdue: number; escalation_level: number; severity: string }[] }>("/deliverables/alerts"),
   create: (body: DeliverableCreate) => request<Deliverable>("/deliverables", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   update: (id: string, body: DeliverableUpdate) => request<Deliverable>(`/deliverables/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  stakeholders: (id: string) => request<{ stakeholders: import("../types/api").DeliverableStakeholder[] }>(`/deliverables/${encodeURIComponent(id)}/stakeholders`),
+  replaceStakeholders: (id: string, assignments: import("../types/api").DeliverableStakeholderAssignment[]) => request<{ stakeholders: import("../types/api").DeliverableStakeholder[] }>(`/deliverables/${encodeURIComponent(id)}/stakeholders`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assignments }) }),
+  workspace: (id: string) => request<import("../types/api").WbsWorkspace>(`/deliverables/${encodeURIComponent(id)}/workspace`),
+  expected: (wbsCode?: string) => request<{ deliverables: ExpectedDeliverable[] }>(`/deliverables/expected${wbsCode ? `?wbs_code=${encodeURIComponent(wbsCode)}` : ""}`),
 };
+
+export const risks = {
+  list: (riskType?: RiskType) => request<{ risks: Risk[] }>(`/risks${riskType ? `?risk_type=${encodeURIComponent(riskType)}` : ""}`),
+  create: (body: Partial<Risk> & { risk_type: RiskType; title: string; description: string }) => request<Risk>("/risks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+};
+
+export const structuredSearch = (query: string, kind?: "deliverable" | "finding" | "risk" | "stakeholder") =>
+  request<{ results: StructuredSearchResult[] }>(
+    `/search/structured?q=${encodeURIComponent(query)}${kind ? `&kind=${kind}` : ""}`,
+    undefined,
+    hasArrayField("results"),
+  );
 
 // The market preview/search contract now lives in contracts/types.ts, which
 // this file's own header calls the single source of truth. It was declared
@@ -288,6 +481,8 @@ export type {
   ClassificationSource,
   ClassificationUpdate,
   DocumentClassification,
+  BulkRoleUpdate,
+  BulkRoleResult,
   AppliedScope,
   CoverageByType,
   SubjectRow,
@@ -393,10 +588,26 @@ export const classification = {
         body: JSON.stringify(body),
       },
     ),
+  /** Set ONE role on MANY documents. Admin only, same as `confirm`.
+   *
+   *  Answers 207 when some documents were not written, and the result names
+   *  each one in `failed`. `request` treats 207 as success - it is a 2xx and
+   *  the body is the real answer - so callers MUST read `failed` rather than
+   *  assuming `ok` means every document was updated. */
+  setRoleBulk: (body: BulkRoleUpdate) =>
+    request<BulkRoleResult>("/documents/bulk/role", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
 };
 
 export const reports = {
-  list: () => request<ReportList>("/reports"),
+  list: (opts: { limit?: number; offset?: number; sort?: string; direction?: string; q?: string } = {}) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(opts)) if (value != null && value !== "") q.set(key, String(value));
+    return request<ReportList>(`/reports${q.toString() ? `?${q}` : ""}`);
+  },
   generate: (message_id: string) =>
     request<ReportRecord>("/reports", {
       method: "POST",
@@ -497,15 +708,25 @@ export function filenameFromContentDisposition(header: string | null): string | 
  *  given the token as a query parameter. The caller owns the returned URL and
  *  must revoke it. Null on any failure, so the caller renders "could not
  *  render" rather than the browser's broken-image glyph. */
-export async function fetchImageObjectUrl(url: string): Promise<string | null> {
+export interface ImageObjectResult {
+  url: string | null;
+  /** null means the endpoint did not provide answer-location metadata. */
+  answerLocated: boolean | null;
+}
+
+export async function fetchImageObjectUrl(url: string): Promise<ImageObjectResult> {
   try {
     const headers = new Headers();
     if (token) headers.set("Authorization", `Bearer ${token}`);
     const response = await fetch(url, { headers });
-    if (!response.ok) return null;
-    return URL.createObjectURL(await response.blob());
+    if (!response.ok) return { url: null, answerLocated: null };
+    const located = response.headers.get("X-Answer-Located");
+    return {
+      url: URL.createObjectURL(await response.blob()),
+      answerLocated: located === "0" ? false : located === "1" ? true : null,
+    };
   } catch {
-    return null;
+    return { url: null, answerLocated: null };
   }
 }
 
@@ -662,18 +883,52 @@ async function request<T>(
       },
     };
   }
-  return { ok: true, data: body as T };
+  return { ok: true, data: body as T, response };
 }
 
 export const api = {
   health: () => request<Health>("/health"),
   metrics: () => request<Metrics>("/metrics"),
+  search: (query: string) => request<SearchResult>(`/search?q=${encodeURIComponent(query)}&limit=8`),
   /** Whether the watched folder is running, and what it last picked up.
    *  Guarded like the other list-bearing reads: a body without `recent`
    *  becomes an ordinary ApiError instead of a crash at the map. */
   watchStatus: () => request<WatchStatus>("/watch/status", undefined, hasArrayField("recent")),
-  documents: () =>
-    request<DocumentRecord[]>("/documents", undefined, isArrayBody),
+  /** The document list, optionally narrowed.
+   *
+   *  THE FILTERS ARE APPLIED SERVER-SIDE AND NOWHERE ELSE. They are passed
+   *  through to `classification.restrict`, which intersects the matched ids
+   *  with the caller's grants and returns a NARROWER AccessScope - so a filter
+   *  can only ever shrink what comes back. Filtering the returned array here
+   *  instead would be the same defect in a new place: the server would have
+   *  already sent rows the caller was not meant to see.
+   *
+   *  The array-valued filters repeat the key (`?document_role=A&document_role=B`),
+   *  which is what FastAPI reads as a list. */
+  /** One document by id. Used where a screen holds an id and needs the
+   *  record - a finding's citation names a document, not a row. */
+  document: (id: string) =>
+    request<DocumentRecord>(`/documents/${encodeURIComponent(id)}`),
+  documents: (opts: {
+    limit?: number; offset?: number; sort?: string; direction?: string;
+    q?: string; status?: string;
+    document_role?: string[]; discipline?: string[];
+    equipment_type?: string[]; project?: string[];
+  } = {}) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(opts)) {
+      if (Array.isArray(value)) {
+        for (const item of value) if (item !== "") q.append(key, String(item));
+        continue;
+      }
+      if (value != null && value !== "") q.set(key, String(value));
+    }
+    return request<DocumentPage | DocumentRecord[]>(`/documents${q.toString() ? `?${q}` : ""}`, undefined,
+      (body) => Array.isArray(body) || (!!body && typeof body === "object" && Array.isArray((body as { items?: unknown }).items)))
+      .then((result) => result.ok
+        ? { ...result, data: Array.isArray(result.data) ? result.data : result.data.items }
+        : result);
+  },
   chunks: (id: string, opts: { limit?: number; offset?: number; retrievable?: string } = {}) => {
     const q = new URLSearchParams();
     if (opts.limit != null) q.set("limit", String(opts.limit));
@@ -696,6 +951,72 @@ export const api = {
   /** The plain rendered page. */
   pageImageUrl: (id: string, page: number) =>
     `${BASE}/documents/${encodeURIComponent(id)}/pages/${page}/image`,
+  /** The ORIGINAL uploaded bytes, fetched with the bearer header.
+   *
+   *  Used for the PDF viewer, the workbook preview and "download original" -
+   *  one route, so the previewed bytes and the downloaded bytes cannot differ.
+   *
+   *  A URL STRING IS DELIBERATELY NOT RETURNED. Handing one to an `<iframe
+   *  src>`, an `<a href>` or `window.open` sends a request with no
+   *  Authorization header, which under auth_mode=demo_required is a 404 that
+   *  reads to the user as "this document does not exist" - the exact defect
+   *  already fixed for page images (`useAuthedImage`), for report downloads
+   *  (`downloadReport`) and for uploads (`authorize`). The token stays in the
+   *  header and never goes on a URL, where it would reach browser history,
+   *  proxy logs and Referer headers.
+   *
+   *  The caller owns the returned bytes and the object URL it makes from them,
+   *  and must revoke it. */
+  originalFile: (id: string, filename: string): Promise<DownloadResult> =>
+    downloadReport(`/documents/${encodeURIComponent(id)}/original`, filename),
+  /** ------------------------------------------- the Standards Library
+   *
+   *  One database, one set of grants, one retrieval path. These read the same
+   *  documents and chunks as everything else, scoped the same way; "library"
+   *  describes what the reader sees. */
+  standards: (opts: { include_superseded?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.include_superseded != null) {
+      q.set("include_superseded", String(opts.include_superseded));
+    }
+    return request<StandardSummary[]>(
+      `/standards${q.toString() ? `?${q}` : ""}`, undefined, isArrayBody);
+  },
+  standardClauses: (id: string) =>
+    request<StandardClause[]>(
+      `/standards/${encodeURIComponent(id)}/clauses`, undefined, isArrayBody),
+  standardRequirements: (id: string) =>
+    request<StandardRequirement[]>(
+      `/standards/${encodeURIComponent(id)}/requirements`, undefined, isArrayBody),
+  standardRevisions: (id: string) =>
+    request<StandardSummary[]>(
+      `/standards/${encodeURIComponent(id)}/revisions`, undefined, isArrayBody),
+  /** Re-read a standard and record every obligation it states. ADMIN. */
+  extractStandardRequirements: (id: string) =>
+    request<StandardExtraction>(
+      `/standards/${encodeURIComponent(id)}/requirements/extract`,
+      { method: "POST" }),
+  /** Mark a standard as replaced, or clear the mark with null. ADMIN, audited. */
+  supersedeStandard: (id: string, superseded_by: string | null) =>
+    request<{ superseded_by: string | null }>(
+      `/standards/${encodeURIComponent(id)}/supersede`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ superseded_by }),
+      }),
+  /** A read-only view of a stored workbook: sheets and populated cells.
+   *
+   *  Read on the SERVER with the Python standard library rather than by a
+   *  spreadsheet parser in the browser - see `backend/app/workbook.py` for
+   *  why. The original bytes are untouched by this call; `originalFile` still
+   *  serves the file itself. */
+  workbook: (id: string) =>
+    request<WorkbookPreview>(
+      `/documents/${encodeURIComponent(id)}/workbook`,
+      undefined,
+      hasArrayField("sheets"),
+    ),
   /** The rendered page with the answering sentence BOXED on the image.
    *
    *  The box is drawn server-side, in PDF coordinate space where the
@@ -759,6 +1080,9 @@ export const api = {
 
 export const management = {
   summary: () => request<ManagementSummary>("/management/summary"),
+  emailSummary: () => request<{ sent: boolean }>("/management/summary/email", { method: "POST" }),
+  summarySchedule: () => request<{ schedule: "disabled" | "daily" | "weekly"; weekday_utc: number; hour_utc: number }>("/management/summary/schedule"),
+  setSummarySchedule: (body: { schedule: "disabled" | "daily" | "weekly"; weekday_utc: number; hour_utc: number }) => request<typeof body>("/management/summary/schedule", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   escalationRules: () => request<{ rules: EscalationRule[] }>("/management/escalation-rules"),
   updateEscalationRule: (level: number, body: Partial<EscalationRule>) =>
     request<EscalationRule>(`/management/escalation-rules/${level}`, {

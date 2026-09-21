@@ -10,6 +10,22 @@ from a clean clone into an empty directory, and every step that failed was
 fixed in the repository rather than worked around in someone's head. If a step
 does not work for you, that is a bug in the README and worth an issue.
 
+### Turn on the pre-commit hook — a fresh clone does not run it
+
+The secret-scanning hook lives in `.githooks/pre-commit` (gitleaks on staged
+content, plus the path checks). Git does not version the setting that points
+at it: `core.hooksPath` is local config, so **a fresh clone commits without
+any scan until you run, once, from the repository root:**
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Check it took with `git config --get core.hooksPath` (it must print
+`.githooks`). The hook also needs `gitleaks` on `PATH` or at one of the
+locations it searches; without it the hook blocks the commit rather than
+passing it unscanned.
+
 ## Branches
 
 ```text

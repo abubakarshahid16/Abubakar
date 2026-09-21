@@ -94,7 +94,7 @@ export function ChunkInspector({
         <span className="font-mono text-xs text-slateish-400">
           {shownFrom}–{shownTo} of {total}
         </span>
-        <div className="ml-auto flex gap-1">
+        <div className="ms-auto flex gap-1">
           <button
             type="button"
             disabled={offset === 0}
@@ -155,7 +155,7 @@ export function ChunkInspector({
                     : `pages ${c.page_start}–${c.page_end}`}
                 </span>
                 <span className="text-slateish-400">{c.token_count} tokens</span>
-                <span className="ml-auto font-mono text-[11px] text-slateish-400">
+                <span className="ms-auto font-mono text-xs text-slateish-400">
                   #{c.ordinal}
                 </span>
               </div>
@@ -170,20 +170,20 @@ export function ChunkInspector({
               </p>
 
               {c.quality_flags && (
-                <p className="mt-1 font-mono text-[11px] text-warn-500">
+                <p className="mt-1 font-mono text-xs text-warn-500">
                   excluded because: {c.quality_flags}
                 </p>
               )}
 
-              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-[11px] leading-relaxed text-slateish-300">
+              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-xs leading-relaxed text-slateish-300">
 {c.text}
               </pre>
 
               <details className="mt-1">
-                <summary className="cursor-pointer text-[10px] text-slateish-500 hover:text-slateish-400">
+                <summary className="cursor-pointer text-xs text-slateish-500 hover:text-slateish-400">
                   Reference
                 </summary>
-                <p className="mt-0.5 font-mono text-[10px] text-slateish-400">{c.id}</p>
+                <p className="mt-0.5 font-mono text-xs text-slateish-400">{c.id}</p>
               </details>
             </li>
           ))}

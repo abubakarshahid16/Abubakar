@@ -125,7 +125,7 @@ reaches the network again except your own Ollama on localhost.
 
 | Requirement | Version | Why it is pinned |
 |---|---|---|
-| **Python** | **3.12 exactly** | Every pin in `backend/requirements.txt` was resolved against 3.12. `onnxruntime==1.24.1` and `numpy==2.3.4` ship per-minor-version wheels, so another 3.x installs different binaries or none. `run.py` refuses to start on the wrong minor and tells you so. |
+| **Python** | **3.12 exactly** | Every pin in `backend/requirements.txt` was resolved against 3.12. `onnxruntime==1.29.0` and `numpy==2.5.3` ship per-minor-version wheels, so another 3.x installs different binaries or none. `run.py` refuses to start on the wrong minor and tells you so. |
 | **Node** | 24.x (built on 24.18.0) | `npm ci` installs from the committed lockfile. |
 | **Ollama** | running, with `qwen3.5:4b` pulled | **The one prerequisite `fetch_models.py` cannot get for you** — see below. Needed only for Tier 2 ("Explain") answers; Tier 1 quotations work without it, verified by pointing the backend at a dead port. |
 | **RAM** | ~16 GB | See *If you have less* below. |
@@ -327,6 +327,23 @@ the last things to degrade.
 
 ## Repository conventions
 
+### Engineering review baselines
+
+Engineering review comparisons support configurable baseline rules. An
+administrator maps the uploaded submittal's classified document type and
+discipline to a baseline type/discipline, with a priority. The review API can
+then select the newest searchable matching document within the caller's access
+scope. A user-supplied baseline remains an explicit override; the API never
+silently chooses an authoritative document when no rule matches.
+
+Reviewers can label the comparison intent as baseline vs submittal,
+requirements vs submittal, revision delta, or discipline coordination. The
+label is validated at the API boundary and returned with the comparison.
+
+Management summaries also support an opt-in daily or weekly schedule. The
+schedule is UTC/config-driven, idempotent per reporting window, and uses the
+same fail-closed SMTP and audit trail as event notifications.
+
 ### Branches
 
     <type>/<issue-number>-<stable-id>-<slug>
@@ -357,3 +374,41 @@ measured numbers — *"the isolated figure was measuring the wrong thing"*,
 cost of the project's memory.
 
 **Never commit** PDFs, extracted text, embeddings, chat history, model weights, secrets, or client metrics.
+
+Deliverable intelligence supports configured expected items per WBS code and
+reports whether each expected deliverable is registered or missing.
+
+`/api/search/structured` searches deliverables and review findings by their
+structured fields, with the same document access scope as the rest of the API.
+
+The risk register uses governed types: schedule, review, dependency, and
+compliance. Unknown types are rejected at creation.
+
+Review finding traceability is available at `/api/reviews/findings/{id}/traceability`;
+it links the finding, source document/baseline, citations, event history, and
+linked deliverables in one access-scoped response.
+
+Overdue deliverables now use distinct audited reminder and escalation functions;
+they are not collapsed into the daily summary.
+
+The current KJO requirements scorecard is maintained in
+[`docs/requirements-audit.md`](docs/requirements-audit.md); it separates
+shippable UI from backend scaffolding and client-blocked templates.
+
+Chat can search workflow records (deliverables, findings, risks, and
+stakeholders) separately from page-cited document evidence.
+
+Expected deliverables are inferred from requirement passages using the same
+claim text used by engineering review; manual expectations remain overrides,
+and the UI labels inferred versus manual origins.
+
+The risk register also creates idempotent schedule, review, dependency, and
+compliance risks from overdue deliverables, aged findings, overdue parents,
+and unresolved requirement evidence, with an audited notification attempt.
+
+Review traceability now continues through the assigned owner and required
+action, so an engineer can inspect the complete finding-to-action chain.
+
+Recommendation refusals now preserve the backend reason through the API and
+show it directly in Analysis; the UI does not guess why advisory output was
+withheld.

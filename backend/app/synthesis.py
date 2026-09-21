@@ -218,6 +218,8 @@ Rules:
 - Write numbers, units and identifiers exactly as the source writes them. Never convert a unit.
 - Name documents by filename (doc17.pdf), never "Document 17".
 - If the sources disagree, say so and cite both.
+- Write a clear, natural explanation, not a list of cited fragments stitched
+  together. Lead with the point, then the supporting detail.
 - If the sources do not support a summary, reply exactly: INSUFFICIENT EVIDENCE
 - 2 to 4 sentences."""
 
@@ -230,6 +232,8 @@ Rules:
 - Write numbers, units and identifiers exactly as the source writes them. Never convert a unit.
 - Name documents by filename (doc17.pdf), never "Document 17".
 - Recommend what to verify or decide next. Never state that a design is compliant, safe or approved.
+- Write it as plain, direct advice, not a citation list. Say what to do, then
+  why, in natural language.
 - If the sources do not support a recommendation, reply exactly: INSUFFICIENT EVIDENCE
 - 1 to 3 sentences."""
 

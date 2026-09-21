@@ -17,9 +17,12 @@ export type ViewId =
   | "dashboard"
   | "reports"
   | "deliverables"
-  | "admin";
+  | "admin"
+  | "standards"
+  | "review";
 
 export type ThemeMode = "dark" | "light";
+export type DensityMode = "comfortable" | "compact";
 
 interface NavItem {
   id: ViewId;
@@ -30,10 +33,12 @@ interface NavItem {
 
 export const NAV: NavItem[] = [
   { id: "dashboard", label: "Dashboard", hint: "Metrics, models, readiness", built: true },
+  { id: "review", label: "AI Submittal Review", hint: "Upload, AI review, findings, CRS", built: true },
   { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
-  { id: "chat", label: "Chat", hint: "Ask questions with citations", built: true },
-  { id: "analysis", label: "Analysis", hint: "Summary, gaps, advice", built: true },
-  { id: "reports", label: "Reports", hint: "Frozen evidence, as PDF", built: true },
+  { id: "standards", label: "Standards Library", hint: "Clauses, requirements, revisions", built: true },
+  { id: "analysis", label: "Analysis Hub", hint: "Summary, gaps, advice", built: true },
+  { id: "chat", label: "Document Q&A", hint: "Ask questions with citations", built: true },
+  { id: "reports", label: "CRS & Reports", hint: "Frozen evidence, as PDF", built: true },
   { id: "deliverables", label: "Deliverables", hint: "WBS, revisions, due dates", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
 ];
@@ -200,13 +205,21 @@ export function Shell({
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [density, setDensity] = useState<DensityMode>(() => {
+    try { return localStorage.getItem("rag-intelligence-density") === "compact" ? "compact" : "comfortable"; }
+    catch { return "comfortable"; }
+  });
   const items = navFor(auth);
+  useEffect(() => {
+    document.documentElement.setAttribute("data-density", density);
+    try { localStorage.setItem("rag-intelligence-density", density); } catch { /* memory-only fallback */ }
+  }, [density]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink-900 md:flex-row">
+    <div className={`density-${density} flex flex-col bg-ink-900 md:flex-row`}>
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded focus:bg-ink-700 focus:px-3 focus:py-2 focus:text-slateish-200"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-[var(--radius-sm)] focus:bg-ink-700 focus:px-3 focus:py-2 focus:text-slateish-200 focus:shadow-[var(--shadow-floating)]"
       >
         Skip to content
       </a>
@@ -220,7 +233,7 @@ export function Shell({
             aria-expanded={menuOpen}
             aria-controls="sidebar-nav"
             onClick={() => setMenuOpen((o) => !o)}
-            className="rounded border border-ink-600 px-3 py-1 text-sm text-slateish-300"
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50"
           >
             {menuOpen ? "Close" : "Menu"}
           </button>
@@ -230,7 +243,7 @@ export function Shell({
       <nav
         id="sidebar-nav"
         aria-label="Main"
-        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 md:flex md:h-screen md:w-64 md:shrink-0 md:border-b-0 md:border-r md:sticky md:top-0`}
+        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 shadow-[var(--shadow-raised)] md:flex md:w-64 md:shrink-0 md:self-start md:border-b-0 md:border-r md:sticky md:top-0`}
       >
         {/* THE HEADER PAYS FOR ITSELF IN NAV SPACE. At text-lg the product name
             wrapped to two lines in a 256px rail, and with the tagline and a
@@ -248,10 +261,10 @@ export function Shell({
           <span className="block text-base font-semibold leading-tight tracking-tight text-slateish-100">
             RAG Intelligence System
           </span>
-          <span className="mt-1 block text-[11px] leading-snug text-slateish-400">
+          <span className="mt-1 block text-xs leading-snug text-slateish-400">
             Cited answers from your own documents
           </span>
-          <p className="mt-3 border-l-2 border-signal-500/40 pl-2.5 text-[11px] leading-relaxed text-slateish-400">
+          <p className="mt-3 border-l-2 border-signal-500/40 ps-2.5 text-xs leading-relaxed text-slateish-400">
             <span className="font-medium text-slateish-300">Private by design.</span>{" "}
             Your documents stay on this machine, and every answer cites its
             document and page.
@@ -283,9 +296,9 @@ export function Shell({
                     setMenuOpen(false);
                   }}
                   className={[
-                    "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-sm transition-colors",
+                    "relative flex w-full items-center justify-between overflow-hidden rounded-[var(--radius-sm)] px-3 py-1.5 text-left text-sm motion-safe:transition-colors",
                     active
-                      ? "bg-ink-700 text-slateish-200"
+                      ? "bg-signal-500/10 text-slateish-100 shadow-[var(--shadow-resting)] before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-full before:bg-signal-500 before:content-['']"
                       : "text-slateish-300 hover:bg-ink-800",
                     item.built ? "" : "opacity-70",
                   ].join(" ")}
@@ -297,12 +310,12 @@ export function Shell({
                         a size down, so the seven destinations scan as seven
                         destinations rather than fourteen lines of equal
                         weight. */}
-                    <span className="block truncate text-[11px] leading-snug text-slateish-500">
+                    <span className="block truncate text-xs leading-snug text-slateish-500">
                       {item.hint}
                     </span>
                   </span>
                   {!item.built && (
-                    <span className="ml-2 shrink-0 rounded border border-ink-500 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slateish-300">
+                    <span className="ms-2 shrink-0 rounded-[var(--radius-full)] border border-ink-500 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slateish-300">
                       not built
                     </span>
                   )}
@@ -328,7 +341,7 @@ export function Shell({
               caller saw the whole corpus. Scoped as of the commit that
               corrected this comment. */}
           {connection.state === "online" && (
-            <p className="mt-1.5 text-[11px] text-slateish-500">
+            <p className="mt-1.5 text-xs text-slateish-500">
               {connection.health.answer_model_present
                 ? "Answer model configured"
                 : "No answer model configured"}
@@ -337,12 +350,17 @@ export function Shell({
           <div className="mt-4">
             <ThemeToggle theme={theme} onChange={onThemeChange} />
           </div>
+          <div className="mt-3 flex items-center gap-2 text-xs text-slateish-400" aria-label="Density">
+            <span>Density</span>
+            <button type="button" aria-pressed={density === "comfortable"} onClick={() => setDensity("comfortable")} className="min-h-11 rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1">Comfortable</button>
+            <button type="button" aria-pressed={density === "compact"} onClick={() => setDensity("compact")} className="min-h-11 rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1">Compact</button>
+          </div>
           {/* THREE STANDING FACTS ABOUT THE DEPLOYMENT, not live status - which
               is why they are quieter than the connection badge above and why
               the amber one is the only coloured word. They earn their place:
               each is a question a client asks in the first minute, and the
               middle one is the answer nobody volunteers unprompted. */}
-          <dl className="mt-4 space-y-1 text-[11px] text-slateish-500">
+          <dl className="mt-4 space-y-1 text-xs text-slateish-500">
             <div className="flex items-baseline justify-between gap-2">
               <dt>Documents</dt>
               <dd className="text-slateish-400">on this machine</dd>
@@ -380,8 +398,8 @@ function ThemeToggle({
       role="group"
       aria-label="Theme mode"
       className={[
-        "inline-grid grid-cols-2 rounded-md border border-ink-600 bg-ink-900 p-0.5",
-        compact ? "text-[11px]" : "w-full text-xs",
+        "inline-grid grid-cols-2 rounded-[var(--radius-full)] border border-ink-600 bg-ink-900 p-0.5",
+        compact ? "text-xs" : "w-full text-xs",
       ].join(" ")}
     >
       {(["dark", "light"] as const).map((mode) => {
@@ -393,9 +411,9 @@ function ThemeToggle({
             aria-pressed={active}
             onClick={() => onChange(mode)}
             className={[
-              "rounded px-2 py-1 font-medium capitalize transition-colors",
+              "rounded-[var(--radius-full)] px-2 py-1 font-medium capitalize motion-safe:transition-colors",
               active
-                ? "bg-ink-700 text-slateish-100"
+                ? "bg-signal-500 text-ink-950 shadow-[var(--shadow-resting)]"
                 : "text-slateish-400 hover:bg-ink-800 hover:text-slateish-200",
             ].join(" ")}
           >

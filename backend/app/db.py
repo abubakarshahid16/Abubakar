@@ -505,7 +505,15 @@ CREATE TABLE IF NOT EXISTS subjects (
 CREATE TABLE IF NOT EXISTS document_classification (
     document_id   TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
     doc_type      TEXT,
+    -- WHAT THE COVER PAGE SAYS. Evidence, never rewritten - see disciplines.py.
     discipline    TEXT,
+    -- The editorial canonical spelling, derived from `discipline` at every
+    -- write. It lives HERE, in the table's own definition, because
+    -- classification.py writes it: a column that existed only after an
+    -- optional startup step was a write path depending on a migration it did
+    -- not call, and every caller of `init_db` without that step - 29 test
+    -- setups among them - failed with "no column named discipline_canonical".
+    discipline_canonical TEXT,
     -- P&ID, DATASHEET, SLD, PHILOSOPHY... A CHIP ONLY. Measured: 88%
     -- derivable and nobody searches by it, so it is recorded and displayed
     -- and is deliberately NOT a filter axis.
@@ -513,7 +521,50 @@ CREATE TABLE IF NOT EXISTS document_classification (
     register_id   TEXT REFERENCES deliverables_register(id) ON DELETE SET NULL,
     suggested_by  TEXT NOT NULL,
     confirmed_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
-    confirmed_at  TEXT
+    confirmed_at  TEXT,
+    -- ------------------------------------------- AI submittal review, phase 1
+    -- The submittal-review vocabulary. Every column NULLABLE and every NULL an
+    -- answer: this row already exists for every classified document written by
+    -- an earlier build, and none of them can know what they are in a workflow
+    -- that did not exist when they were written. NULL means NOT RECORDED, and
+    -- is rendered as nothing - never as a default role and never as 0.
+    --
+    -- CLASSIFICATION IS STILL NOT ACCESS CONTROL (rule 5). `document_role`
+    -- says what part a document plays in a review; it grants nothing. The
+    -- grant tables decide who may read it, and a role filter may only narrow
+    -- what a caller already holds.
+    --
+    -- PLAIN TEXT, NO CHECK CONSTRAINT. This schema carries exactly one CHECK
+    -- (roles.kind) and adding a second here would be permanent: SQLite cannot
+    -- ALTER-ADD a CHECK, so the next column migration on this table would
+    -- force a full table rebuild. The five legal roles are enforced in
+    -- Pydantic (`schemas.DocumentRole`), where a bad value is rejected at the
+    -- boundary with a message instead of aborting a write deep in a migration.
+    document_role      TEXT,
+    document_number    TEXT,
+    -- The HUMAN title, which is not the filename. `documents.filename` is the
+    -- name of the file on disk and is authoritative for identity; a title is
+    -- descriptive metadata about the same document and belongs here with the
+    -- rest of it, not on the core table whose columns decide lifecycle.
+    -- NULL means no title was recorded, and the UI falls back to the filename
+    -- rather than inventing one. (Master-plan section 6 metadata mapping.)
+    title              TEXT,
+    revision           TEXT,
+    effective_date     TEXT,
+    project            TEXT,
+    contractor_vendor  TEXT,
+    equipment_type     TEXT,
+    -- A JSON array as TEXT. Acceptable here because it is a flat list of tags
+    -- nothing joins on, filters by, or audits. The applicable-standards
+    -- relation is a TABLE for exactly the opposite reason.
+    equipment_tags     TEXT,
+    service            TEXT,
+    transmittal_number TEXT,
+    -- A document id, and DELIBERATELY NOT A FOREIGN KEY - the report_documents
+    -- precedent (db.py:212-215). Deleting the superseding document must not
+    -- erase the record that this one was superseded; that record is the reason
+    -- an engineer does not quote a revision that was replaced.
+    superseded_by      TEXT
 );
 
 -- MANY-TO-MANY ON PURPOSE. A firewater layout for the substation has two
@@ -567,6 +618,55 @@ def connect() -> sqlite3.Connection:
         conn.execute("PRAGMA busy_timeout = 30000")
         _local.conn = conn
     return conn
+
+
+def columns_of(conn: sqlite3.Connection, table: str) -> set[str]:
+    """The column names of `table`, empty when there is no such table."""
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def add_column_if_missing(conn: sqlite3.Connection, table: str, column: str,
+                          definition: str) -> bool:
+    """`ALTER TABLE ... ADD COLUMN`, safe when two threads do it at once.
+
+    CHECK-THEN-ALTER IS A RACE AND IT FIRED IN PRODUCTION CODE. Every
+    `ensure_schema` is called from ordinary read paths, so two requests can
+    reach the same migration together: both read `PRAGMA table_info`, both see
+    the column missing, both issue the ALTER, and the loser dies with
+    `sqlite3.OperationalError: duplicate column name`. Measured on
+    `tests/test_access_routes.py`, which failed 3 runs in 10 on that error
+    while the tree was otherwise green.
+
+    NO LOCK, BECAUSE THE DATABASE ALREADY HAS ONE. SQLite serialises the two
+    ALTERs itself; the only thing missing was an answer for the thread that
+    arrives second, and "the column is already there" is that answer. A
+    migration lock table would be a second thing to get wrong, and
+    `busy_timeout` does not help - this is not a busy database, it is a
+    duplicate statement.
+
+    Returns True when THIS call added the column. False means it was already
+    present, whoever put it there, which is all any caller needs.
+
+    THE DUPLICATE ERROR IS THE ONLY ONE SWALLOWED, and even then the column is
+    re-read before the failure is accepted as benign. A swallowed ALTER that
+    did not actually happen would leave the schema short of a column while
+    every caller believed it present - a worse failure than the crash, because
+    it is silent.
+    """
+    existing = columns_of(conn, table)
+    if not existing or column in existing:
+        # No such table - whoever creates it owns its shape - or the column is
+        # already there and there is nothing to do.
+        return False
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column" not in str(exc).lower():
+            raise
+        if column not in columns_of(conn, table):
+            raise
+        return False
+    return True
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -639,6 +739,32 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_page_ocr_document ON page_ocr(document_id)"
     )
+    # --------------------------------------------- AI submittal review, phase 1
+    # The submittal-review vocabulary on an existing classification row. Every
+    # column is nullable with no default, so an existing row keeps every value
+    # it had and gains NULLs that mean NOT RECORDED. Nothing is back-filled and
+    # nothing is guessed: a document classified before this workflow existed
+    # cannot know its role, and inventing one would route a review confidently
+    # to the wrong baseline.
+    #
+    # `r["name"]` and not `row[1]` on purpose - it is the idiom this file
+    # already uses. review.py reads `row[1]` for the same PRAGMA and the two
+    # are deliberately left disagreeing rather than unified in this phase.
+    classification_cols = {
+        r["name"] for r in conn.execute("PRAGMA table_info(document_classification)")
+    }
+    if classification_cols:
+        for _column in (
+            "document_role", "document_number", "title", "revision",
+            "effective_date", "project", "contractor_vendor", "equipment_type",
+            "equipment_tags", "service", "transmittal_number", "superseded_by",
+            # Phase 8's overlay, added where every other column of this table
+            # is migrated. `disciplines.backfill` fills it for old rows.
+            "discipline_canonical",
+        ):
+            if _column not in classification_cols:
+                conn.execute(
+                    f"ALTER TABLE document_classification ADD COLUMN {_column} TEXT")
     # ------------------------------------------------------------- access
     # `roles` predates the distinction between a discipline and a capability:
     # every role in a database written before this column was, by construction,

@@ -214,6 +214,7 @@ def assess(
         "covered": [],
         "absent_from_corpus": [],
         "coverage": None,
+        "spelling_corrections": {},
     }
     if not terms:
         # nothing distinctive to check; the semantic score decides alone
@@ -229,6 +230,7 @@ def assess(
     body = passage_text.lower()
     covered: list[str] = []
     absent: list[str] = []
+    corrections: dict[str, str] = {}
     present: list[str] = []
     covered_distinguishing = False
 
@@ -241,6 +243,21 @@ def assess(
         # acronym. See app/acronyms.py - the map is built FROM the documents.
         forms = [term, *acronyms.equivalents(
             term, document_id, allowed_document_ids=allowed_document_ids)]
+
+        # ...and the spelling the corpus uses, when the reader's spelling is
+        # not in it at all. Issue #85: "sumbittal requirements" refused with
+        # "none of the terms in this question appear in the indexed
+        # documents", because every distinctive term was a typo. The word is
+        # genuinely absent and the question is still a fair one, which is the
+        # same argument acronyms.py makes about an expansion the document
+        # never abbreviates. The correction comes from the INDEX, never from a
+        # dictionary, and identifiers are excluded from it - see
+        # keyword._correctable, where API 610 and API 611 are one edit apart.
+        corrected = keyword.fuzzy_corpus_match(
+            term, document_id, allowed_document_ids=allowed_document_ids)
+        if corrected:
+            forms.append(corrected)
+            corrections[term] = corrected
 
         occurrences = 0
         unparseable = True
@@ -281,6 +298,7 @@ def assess(
             "covered": covered,
             "absent_from_corpus": absent,
             "coverage": 0.0,
+            "spelling_corrections": corrections,
         }
 
     if not present:
@@ -291,6 +309,7 @@ def assess(
             "covered": covered,
             "absent_from_corpus": absent,
             "coverage": 0.0,
+            "spelling_corrections": corrections,
         }
 
     coverage = len(covered) / len(present)
@@ -315,6 +334,7 @@ def assess(
         "covered": covered,
         "absent_from_corpus": absent,
         "coverage": round(coverage, 3),
+        "spelling_corrections": corrections,
     }
 
 

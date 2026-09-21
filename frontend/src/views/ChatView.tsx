@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, reports as reportsApi } from "../api/client";
+import { api, reports as reportsApi, structuredSearch } from "../api/client";
 import {
   AnswerCard,
   sourcesOf,
@@ -24,7 +24,7 @@ import { EvidencePanel } from "../components/chat/EvidencePanel";
 import { LocalWork } from "../components/chat/LocalWork";
 import type { Connection } from "../components/Shell";
 import type { Progress } from "../types/api";
-import { DisconnectedState, EmptyState, ErrorState, Spinner } from "../components/states";
+import { DisconnectedState, EmptyState, ErrorState, Spinner, ZeroResultsState } from "../components/states";
 import type { ApiError, ConversationSummary, Message } from "../types/api";
 
 type Load =
@@ -65,7 +65,7 @@ function appendUnseen(existing: Message[], incoming: Message[]): Message[] {
 function UserTurn({ message }: { message: Message }) {
   return (
     <div className="flex flex-col items-end">
-      <p className="max-w-[42rem] rounded-lg bg-ink-700 px-3 py-2 text-[15px] text-slateish-100">
+      <p className="max-w-[42rem] rounded-[var(--radius-md)] bg-ink-700 px-3 py-2 text-[15px] text-slateish-100 shadow-[var(--shadow-resting)]">
         {message.text}
       </p>
       {/* `?? []` because carried_terms was added later: a transcript row
@@ -123,11 +123,28 @@ export function ChatView({
   const [reportNotice, setReportNotice] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<Progress | null>(null);
   const [failure, setFailure] = useState<ApiError | null>(null);
+  const [structuredEnabled, setStructuredEnabled] = useState(false);
+  const [structuredKind, setStructuredKind] = useState<"deliverable" | "finding" | "risk" | "stakeholder">("deliverable");
+  const [structuredResults, setStructuredResults] = useState<import("../types/api").StructuredSearchResult[]>([]);
+  const [structuredFailure, setStructuredFailure] = useState<ApiError | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
   const [evidence, setEvidence] = useState<{ messageId: string; index: number } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
 
   const asking = askingIn !== null;
+  const searchStructured = useCallback(async () => {
+    const query = question.trim();
+    if (!query) return;
+    setHasSearched(true);
+    setStructuredFailure(null);
+    const result = await structuredSearch(query, structuredEnabled ? structuredKind : undefined);
+    if (result.ok) setStructuredResults(result.data.results);
+    else {
+      setStructuredResults([]);
+      setStructuredFailure(result.error);
+    }
+  }, [question, structuredEnabled, structuredKind]);
 
   // ------------------------------------------------------ request ownership
   //
@@ -470,18 +487,20 @@ export function ChatView({
   };
 
   return (
-    <div className="flex h-[calc(100vh-9rem)] min-h-0 flex-col gap-4 lg:h-[calc(100vh-3rem)] lg:flex-row">
+    <div className="aurora-field flex h-[calc(100vh-9rem)] min-h-0 flex-col gap-4 lg:h-[calc(100vh-3rem)] lg:flex-row">
+      <div aria-hidden className="aurora-a" />
+      <div aria-hidden className="aurora-b" />
       {/* ------------------------------------------------ recent conversations */}
       {showConversations && <aside
         aria-label="Recent conversations"
-        className="flex max-h-56 min-h-0 w-full shrink-0 flex-col rounded-lg border border-ink-700 bg-ink-850 lg:max-h-none lg:w-56 xl:w-64"
+        className="surface-card flex max-h-56 min-h-0 w-full shrink-0 flex-col rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 lg:max-h-none lg:w-56 xl:w-64"
       >
         <div className="flex items-center justify-between gap-2 border-b border-ink-700 px-3 py-2.5">
           <h2 className="text-sm font-semibold text-slateish-200">Conversations</h2>
           <button
             type="button"
             onClick={startNew}
-            className="rounded border border-ink-600 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700"
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
           >
             New
           </button>
@@ -508,12 +527,12 @@ export function ChatView({
                   aria-current={c.id === current ? "true" : undefined}
                   onClick={() => void open(c.id)}
                   className={[
-                    "w-full rounded px-2 py-2 pr-7 text-left",
+                    "w-full rounded-[var(--radius-sm)] px-2 py-2 pe-7 text-left motion-safe:transition-colors",
                     c.id === current ? "bg-ink-700" : "hover:bg-ink-800",
                   ].join(" ")}
                 >
                   <span className="block truncate text-sm text-slateish-200">{c.title}</span>
-                  <span className="mt-0.5 block text-[11px] text-slateish-500">
+                  <span className="mt-0.5 block text-xs text-slateish-500">
                     {c.message_count} message{c.message_count === 1 ? "" : "s"} ·{" "}
                     {relative(c.updated_at)}
                   </span>
@@ -522,7 +541,7 @@ export function ChatView({
                   type="button"
                   aria-label={`Delete conversation ${c.title}`}
                   onClick={() => void remove(c.id)}
-                  className="absolute right-1 top-1.5 rounded px-1.5 py-0.5 text-xs text-slateish-500 opacity-0 hover:bg-ink-600 hover:text-danger-500 focus:opacity-100 group-hover:opacity-100"
+                  className="absolute end-1 top-1.5 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-xs text-slateish-500 opacity-0 motion-safe:transition-colors hover:bg-ink-600 hover:text-danger-500 focus:opacity-100 group-hover:opacity-100"
                 >
                   ×
                 </button>
@@ -533,7 +552,7 @@ export function ChatView({
       </aside>}
 
       {/* ----------------------------------------------------------- transcript */}
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-ink-700 bg-ink-900">
+      <section className="card-3d surface-floating flex min-h-0 min-w-0 flex-1 flex-col rounded-[var(--radius-lg)] border border-ink-700 bg-ink-900">
         <div className="flex items-center justify-between border-b border-ink-700 px-4 py-3">
           <div>
             <h1 className="text-sm font-semibold text-slateish-100">Document review chat</h1>
@@ -544,7 +563,7 @@ export function ChatView({
               type="button"
               onClick={() => setShowConversations((visible) => !visible)}
               aria-expanded={showConversations}
-              className="rounded border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 hover:bg-ink-700"
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
             >
               {showConversations ? "Hide history" : "Show history"}
             </button>
@@ -552,7 +571,7 @@ export function ChatView({
               <button
                 type="button"
                 onClick={() => onNavigate("documents")}
-                className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 transition-colors hover:border-signal-500/50 hover:bg-ink-700"
+                className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
               >
                 Open documents
               </button>
@@ -622,12 +641,12 @@ export function ChatView({
           }}
         >
           <fieldset className="mb-2 flex flex-wrap items-center gap-2" disabled={asking || offline}>
-            <legend className="mr-1 text-xs font-medium uppercase tracking-wide text-slateish-500">Response style</legend>
+            <legend className="me-1 text-xs font-medium uppercase tracking-wide text-slateish-500">Response style</legend>
             {([
               ["extract", "Exact quotation"],
               ["generated", "Written explanation"],
             ] as const).map(([value, label]) => (
-              <label key={value} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-full)] border border-ink-600 px-3.5 py-1.5 text-sm text-slateish-200 transition-colors hover:border-signal-500/60 hover:bg-ink-800 has-[:checked]:border-signal-500/70 has-[:checked]:bg-signal-500/10 has-[:checked]:text-signal-300">
+              <label key={value} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-full)] border border-ink-600 px-3.5 py-1.5 text-sm text-slateish-200 motion-safe:transition-colors hover:border-signal-500/60 hover:bg-ink-800 has-[:checked]:border-signal-500/70 has-[:checked]:bg-signal-500/10 has-[:checked]:text-signal-300">
                 <input type="radio" name="answer-style" value={value} checked={answerStyle === value} onChange={() => { setAnswerStyle(value); setStyleNotice(null); }} />
                 {label}
               </label>
@@ -657,20 +676,24 @@ export function ChatView({
             <textarea
               id="chat-question"
               value={question}
-              onChange={(e) => setQuestion(e.target.value)}
+              onChange={(e) => { setQuestion(e.target.value); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }}
               disabled={offline}
               rows={2}
               placeholder="Ask about a requirement, explain a passage, or continue your review…"
-              className="min-w-0 flex-1 rounded border border-ink-600 bg-ink-850 px-3 py-2 text-slateish-100 placeholder:text-slateish-500 disabled:opacity-50"
+              className="min-w-0 flex-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 px-3 py-2 text-slateish-100 shadow-[var(--shadow-resting)] motion-safe:transition-shadow placeholder:text-slateish-500 focus:shadow-[var(--shadow-glow)] disabled:opacity-50"
             />
             <button
               type="submit"
               disabled={asking || offline || !question.trim()}
-              className="rounded bg-signal-500/20 px-4 py-2 text-sm font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30 disabled:opacity-40"
+              className="rounded-[var(--radius-sm)] bg-signal-500 px-5 py-2 text-sm font-semibold text-ink-950 shadow-[var(--shadow-raised)] motion-safe:transition-transform hover:bg-signal-400 hover:shadow-[var(--shadow-glow)] active:scale-[0.98] disabled:bg-signal-500/20 disabled:text-signal-300 disabled:shadow-none disabled:active:scale-100 disabled:opacity-40"
             >
               Ask
             </button>
           </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2"><label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={structuredEnabled} onChange={(e) => { setStructuredEnabled(e.target.checked); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }} /> Search workflow records</label><select aria-label="Structured search type" value={structuredKind} onChange={(e) => { setStructuredKind(e.target.value as "deliverable" | "finding" | "risk" | "stakeholder"); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }} disabled={!structuredEnabled} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1 text-xs text-slateish-300"><option value="deliverable">Deliverables / WBS</option><option value="finding">Review findings</option><option value="risk">Risks</option><option value="stakeholder">Stakeholders</option></select><button type="button" onClick={() => void searchStructured()} disabled={!structuredEnabled || !question.trim()} className="rounded-[var(--radius-xs)] border border-signal-500/50 px-2 py-1 text-xs text-signal-300 disabled:opacity-50">Search records</button></div>
+          {structuredFailure && <div className="mt-2"><ErrorState error={structuredFailure} /></div>}
+          {hasSearched && !structuredFailure && structuredResults.length === 0 && <ZeroResultsState message={`No matching ${structuredKind} found for '${question.trim()}'.`} />}
+          {structuredResults.length > 0 && <div aria-label="Structured search results" className="mt-2 space-y-2 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3"><p className="text-xs font-semibold uppercase tracking-wide text-signal-400">Workflow records — not page-cited evidence</p>{structuredResults.map((item) => <div key={`${item.kind}-${item.id}`} className="rounded-[var(--radius-xs)] border border-ink-700 px-2 py-1.5 text-xs text-slateish-300"><span className="me-2 rounded-full bg-ink-700 px-1.5 py-0.5 text-signal-300">{item.kind}</span>{item.label}{item.wbs_code ? ` · WBS ${item.wbs_code}` : ""}</div>)}</div>}
           <p className="mt-1.5 text-xs text-slateish-500">
             {answerStyle === "extract"
               ? "Exact wording from your documents, with source references."

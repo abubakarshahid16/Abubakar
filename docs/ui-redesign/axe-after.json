@@ -1,0 +1,98 @@
+[
+  {
+    "view": "Dashboard",
+    "theme": "light",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Documents",
+    "theme": "light",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Chat",
+    "theme": "light",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Analysis",
+    "theme": "light",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Reports",
+    "theme": "light",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Deliverables",
+    "theme": "light",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Ingestion",
+    "theme": "light",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Administration",
+    "theme": "light",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Dashboard",
+    "theme": "dark",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Documents",
+    "theme": "dark",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Chat",
+    "theme": "dark",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Analysis",
+    "theme": "dark",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Reports",
+    "theme": "dark",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Deliverables",
+    "theme": "dark",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Ingestion",
+    "theme": "dark",
+    "serious": [],
+    "critical": []
+  },
+  {
+    "view": "Administration",
+    "theme": "dark",
+    "serious": [],
+    "critical": []
+  }
+]

@@ -19,17 +19,36 @@ const ZOOMS = [0.5, 0.75, 1, 1.5, 2] as const;
 export function PageImageViewer({
   doc,
   onClose,
+  initialPage,
 }: {
   doc: DocumentRecord;
   onClose: () => void;
+  /** Open AT this page - how a citation resolves to the page it cites.
+   *
+   *  Without it the viewer always opened at page 1, so following a citation to
+   *  page 214 of a specification landed the reader on the cover sheet and left
+   *  them to find it. A citation that does not open its own page is not a
+   *  citation; it is a filename.
+   *
+   *  Clamped to 1 rather than trusted: a stale or malformed citation must not
+   *  render a blank viewer at page 0. */
+  initialPage?: number;
 }) {
   const [pages, setPages] = useState<PageRecord[]>([]);
-  const [selected, setSelected] = useState(1);
+  const [selected, setSelected] = useState(Math.max(1, initialPage ?? 1));
   const [zoom, setZoom] = useState<number>(1);
   const image = useAuthedImage(api.pageImageUrl(doc.id, selected));
   const [state, setState] = useState<
     { s: "loading" } | { s: "error"; error: ApiError; disconnected: boolean } | { s: "ready" }
   >({ s: "loading" });
+
+  // Follow a LATER citation to a different page while the viewer is already
+  // open. Without this, opening a second citation into a viewer that is
+  // already mounted leaves the reader on the first citation's page - the same
+  // defect as opening at page 1, just harder to notice.
+  useEffect(() => {
+    if (initialPage != null) setSelected(Math.max(1, initialPage));
+  }, [initialPage]);
 
   const load = useCallback(async () => {
     setState({ s: "loading" });
@@ -77,9 +96,9 @@ export function PageImageViewer({
                   const n = Number(e.target.value);
                   if (Number.isFinite(n)) setSelected(Math.min(Math.max(1, n), total || 1));
                 }}
-                className="ml-1 w-20 rounded border border-ink-600 bg-ink-850 px-2 py-1 font-mono text-slateish-200"
+                className="ms-1 w-20 rounded border border-ink-600 bg-ink-850 px-2 py-1 font-mono text-slateish-200"
               />
-              <span className="ml-1">of {total}</span>
+              <span className="ms-1">of {total}</span>
             </label>
 
             <div className="flex gap-1">
@@ -101,7 +120,7 @@ export function PageImageViewer({
               </button>
             </div>
 
-            <div role="group" aria-label="Zoom" className="ml-auto flex gap-1">
+            <div role="group" aria-label="Zoom" className="ms-auto flex gap-1">
               {ZOOMS.map((z) => (
                 <button
                   key={z}

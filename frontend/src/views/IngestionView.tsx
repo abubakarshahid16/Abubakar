@@ -68,8 +68,8 @@ function Tile({
           ? "text-signal-400"
           : "text-slateish-100";
   return (
-    <div className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5">
-      <p className="text-[11px] uppercase tracking-wide text-slateish-500">{label}</p>
+    <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
+      <p className="text-xs uppercase tracking-wide text-slateish-500">{label}</p>
       {measured ? (
         <p className={`mt-1 font-mono text-lg leading-tight ${toneClass}`}>
           {typeof value === "number" ? nf.format(value) : value}
@@ -79,7 +79,7 @@ function Tile({
           not measured yet
         </p>
       )}
-      {hint && <p className="mt-1 text-[11px] text-slateish-500">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-slateish-500">{hint}</p>}
     </div>
   );
 }
@@ -117,7 +117,7 @@ function Step({
   return (
     <li
       className={[
-        "flex items-baseline gap-2 rounded border px-2 py-1.5 text-xs",
+        "flex items-baseline gap-2 rounded-[var(--radius-xs)] border px-2 py-1.5 text-xs",
         current
           ? "border-signal-500/60 bg-signal-500/10 text-signal-300"
           : done
@@ -129,7 +129,7 @@ function Step({
         {done ? "done" : current ? "now" : "··"}
       </span>
       <span className="font-medium">{label}</span>
-      {detail && <span className="ml-auto font-mono text-[11px]">{detail}</span>}
+      {detail && <span className="ms-auto font-mono text-xs">{detail}</span>}
     </li>
   );
 }
@@ -140,7 +140,7 @@ function DocumentProgress({ doc }: { doc: DocumentRecord }) {
 
   if (OFF_TRACK.includes(doc.status)) {
     return (
-      <div className="rounded-lg border border-warn-500/40 bg-warn-500/5 p-3">
+      <div className="rounded-[var(--radius-md)] border border-warn-500/40 bg-warn-500/5 p-3">
         <p className="text-sm font-medium text-slateish-200">{doc.filename}</p>
         <p className="mt-1 text-xs text-warn-500">{status.label}</p>
         {doc.error && <p className="mt-1 text-xs text-slateish-300">{doc.error.message}</p>}
@@ -149,10 +149,10 @@ function DocumentProgress({ doc }: { doc: DocumentRecord }) {
   }
 
   return (
-    <div className="rounded-lg border border-ink-700 bg-ink-850 p-3">
+    <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-medium text-slateish-200">{doc.filename}</p>
-        <p className="font-mono text-[11px] text-slateish-400">
+        <p className="font-mono text-xs text-slateish-400">
           {doc.page_count != null ? `${nf.format(doc.page_count)} pages` : "reading the manifest"}
         </p>
       </div>
@@ -340,14 +340,14 @@ function WatchRow({ event }: { event: WatchEvent }) {
   const style = outcomeStyle(event.outcome);
   const when = relativeTime(event.at);
   return (
-    <li className="flex flex-wrap items-baseline gap-2 rounded border border-ink-700 bg-ink-800 px-2 py-1.5 text-xs">
+    <li className="flex flex-wrap items-baseline gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-800 px-2 py-1.5 text-xs">
       <span aria-hidden className={`font-mono ${style.tone}`}>
         {style.glyph}
       </span>
       <span className="font-medium text-slateish-200">{event.filename}</span>
       <span className={style.tone}>{style.word}</span>
       {when && (
-        <span className="ml-auto font-mono text-[11px] text-slateish-300" title={event.at}>
+        <span className="ms-auto font-mono text-xs text-slateish-300" title={event.at}>
           {when}
         </span>
       )}
@@ -417,7 +417,7 @@ function WatchedFolderPanel() {
       title="Watched folder"
       hint="Documents dropped into this folder are ingested without anyone uploading them."
     >
-      <div className="rounded-lg border border-ink-700 bg-ink-850 p-3">
+      <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
         {/* Reachability is rendered in ONE direction only.
             false is the state that matters at a client site - a share
             unmounted, a VPN dropped, permissions revoked - and it is written
@@ -431,13 +431,13 @@ function WatchedFolderPanel() {
         {status.reachable === false && (
           <p
             role="alert"
-            className="mb-2 rounded border border-danger-500/50 bg-danger-500/10 px-2 py-1.5 text-xs"
+            className="mb-2 rounded-[var(--radius-xs)] border border-danger-500/50 bg-danger-500/10 px-2 py-1.5 text-xs"
           >
             <span className="font-medium text-danger-500">
               The folder is not being read right now.
             </span>
             {status.last_error && (
-              <span className="ml-1 text-slateish-300">{status.last_error}</span>
+              <span className="ms-1 text-slateish-300">{status.last_error}</span>
             )}
           </p>
         )}
@@ -542,12 +542,21 @@ export function IngestionView({
   // health: health is unauthenticated and a document id is not public.
   const activeWorker = metrics?.worker ?? null;
 
-  if (error) return <ErrorState error={error} onRetry={onRetryConnection} />;
+  const pageIdentity = (
+    <div className="mb-4">
+      <h1 className="text-lg font-semibold text-slateish-200">Ingestion</h1>
+      <p className="mt-0.5 text-sm text-slateish-400">
+        What the system is doing to your documents, and how fast it is doing it.
+      </p>
+    </div>
+  );
+
+  if (error) return <div>{pageIdentity}<ErrorState error={error} onRetry={onRetryConnection} /></div>;
   // Array.isArray, not a truthiness check. A malformed payload used to crash
   // this whole screen on `documents.filter`, which is the one thing a status
   // screen must never do - it is what you look at when things are wrong.
   if (!metrics || !worker || !Array.isArray(documents)) {
-    return <Spinner label="Reading the queue" />;
+    return <div>{pageIdentity}<Spinner label="Reading the queue" /></div>;
   }
 
   const inProgress = documents.filter(
@@ -563,13 +572,8 @@ export function IngestionView({
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-semibold text-slateish-200">Ingestion</h1>
-          <p className="mt-0.5 text-sm text-slateish-400">
-            What the system is doing to your documents, and how fast it is doing it.
-          </p>
-        </div>
-        <p className="font-mono text-[11px] text-slateish-500">
+        <div>{pageIdentity}</div>
+        <p className="font-mono text-xs text-slateish-500">
           every {metrics.refresh_seconds}s
         </p>
       </div>
@@ -670,10 +674,10 @@ export function IngestionView({
             {finished.map((d) => (
               <li
                 key={d.id}
-                className="flex flex-wrap items-baseline gap-2 rounded border border-ink-700 bg-ink-850 px-3 py-2 text-xs"
+                className="flex flex-wrap items-baseline gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2 text-xs"
               >
                 <span className="font-medium text-slateish-200">{d.filename}</span>
-                <span className="font-mono text-[11px] text-slateish-400">
+                <span className="font-mono text-xs text-slateish-400">
                   {d.page_count != null ? `${nf.format(d.page_count)} pages` : ""}
                   {" · "}
                   {nf.format(d.chunk_count)} searchable passages

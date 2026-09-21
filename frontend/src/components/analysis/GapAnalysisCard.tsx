@@ -19,7 +19,7 @@
 import { useId, useState, type FormEvent } from "react";
 
 import type { BaselineSelection, GapAnalysis, GapItem, GapItemStatus } from "../../types/analysis";
-import type { EvidenceItem, ReviewCategory, ReviewFindingCreate, ReviewSeverity } from "../../types/api";
+import type { EvidenceItem, ReviewCategory, ReviewFindingCreate, ReviewSeverity, ReviewTemplate } from "../../types/api";
 
 const REVIEW_SENTENCE = "Review and approval by a qualified engineer is required.";
 
@@ -246,11 +246,11 @@ function StatusMark({ status }: { status: GapItemStatus }) {
   return (
     <span
       className={[
-        "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider",
+        "inline-flex items-center rounded-[var(--radius-xs)] px-2 py-0.5 text-xs font-semibold uppercase tracking-wider",
         s.badge,
       ].join(" ")}
     >
-      <span aria-hidden="true" className="mr-1 font-mono">
+      <span aria-hidden="true" className="me-1 font-mono">
         {s.icon}
       </span>
       {s.text}
@@ -274,7 +274,7 @@ function EvidenceChip({
       type="button"
       onClick={() => onCite(evidenceId)}
       aria-label={`Show project evidence ${n}`}
-      className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded bg-ink-700 px-1 align-baseline font-mono text-[11px] leading-none text-slateish-300 hover:bg-ink-600"
+      className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] bg-ink-700 px-1 align-baseline font-mono text-xs leading-none text-slateish-300 hover:bg-ink-600"
     >
       {n}
     </button>
@@ -292,7 +292,7 @@ function BaselineHeader({
   if (baseline.kind === "stated_requirement") {
     return (
       <div className="mt-2 text-sm">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-warn-500">
+        <p className="text-xs font-semibold uppercase tracking-wider text-warn-500">
           Baseline &mdash; stated by the user. Not evidence; carries no citation.
         </p>
         <p className="mt-1 text-slateish-200">{baseline.text}</p>
@@ -307,7 +307,7 @@ function BaselineHeader({
   const filename = documents.find((d) => d.id === baseline.document_id)?.filename ?? null;
   return (
     <div className="mt-2 text-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-signal-400">Baseline</p>
+      <p className="text-xs font-semibold uppercase tracking-wider text-signal-400">Baseline</p>
       <p className="mt-1 text-slateish-200">
         {filename ?? baseline.document_id}
         {baseline.section !== null && <span className="text-slateish-400"> &sect; {baseline.section}</span>}
@@ -329,6 +329,7 @@ function ItemRow({
   baselineDocumentId,
   ledger,
   onCreateFinding,
+  templates,
 }: {
   item: GapItem;
   onCite: (evidenceId: string) => void;
@@ -336,6 +337,7 @@ function ItemRow({
   baselineDocumentId: string | null;
   ledger: EvidenceItem[];
   onCreateFinding?: (draft: ReviewFindingCreate) => Promise<void> | void;
+  templates: ReviewTemplate[];
 }) {
   const s = STATUS[item.status];
   const evidenceCount = item.project_citation_ids.length;
@@ -351,6 +353,7 @@ function ItemRow({
   );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [action, setAction] = useState("Review the cited evidence and record the engineering disposition.");
+  const [templateId, setTemplateId] = useState("");
   const targetEvidence = ledger.find((e) => item.project_citation_ids.includes(e.evidence_id));
 
   async function saveFinding(e: FormEvent) {
@@ -366,6 +369,7 @@ function ItemRow({
         requirement: item.baseline_span || item.facet || "Requirement requires engineering review",
         finding: note || `${STATUS[item.status].text}: ${item.facet || "review item"}`,
         required_action: action.trim() || "Review the cited evidence and record the engineering disposition.",
+        template_id: templateId || null,
         citation_ids: [item.baseline_citation_id, ...item.project_citation_ids].filter((id): id is string => Boolean(id)),
       });
       setEditing(false);
@@ -382,7 +386,7 @@ function ItemRow({
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <StatusMark status={item.status} />
         {hasFacet(item) && (
-          <span className="text-[11px] text-slateish-500">
+          <span className="text-xs text-slateish-500">
             {FACET_LABEL}{" "}
             <span data-facet="" className="font-mono text-slateish-400">
               {item.facet}
@@ -393,12 +397,12 @@ function ItemRow({
 
       {withSpan && (
         <>
-          <p className="mt-1.5 text-[11px] uppercase tracking-wide text-slateish-500">
+          <p className="mt-1.5 text-xs uppercase tracking-wide text-slateish-500">
             {baselineIsStated ? "Requirement as stated by the user" : "Baseline, quoted verbatim"}
           </p>
           <blockquote
             className={[
-              "mt-1 whitespace-pre-wrap py-2 pl-4 pr-3 text-[14px] text-slateish-100",
+              "mt-1 whitespace-pre-wrap py-2 ps-4 pe-3 text-[14px] text-slateish-100",
               baselineIsStated
                 ? "model-prose border-l-2 border-warn-500/60 bg-warn-500/[0.06]"
                 : "document-quote border-l-2 border-signal-500/60 bg-ink-900",
@@ -439,16 +443,23 @@ function ItemRow({
             <button
               type="button"
               onClick={() => setEditing((open) => !open)}
-              className="rounded border border-signal-500/50 px-2.5 py-1 text-xs text-signal-300 hover:bg-signal-500/10"
+              className="rounded-[var(--radius-xs)] border border-signal-500/50 px-2.5 py-1 text-xs text-signal-300 hover:bg-signal-500/10"
             >
               {editing ? "Cancel review finding" : "Add review finding"}
             </button>
             {editing && (
-              <form onSubmit={(e) => void saveFinding(e)} className="mt-2 space-y-2 rounded border border-ink-600 bg-ink-900 p-3">
+              <form onSubmit={(e) => void saveFinding(e)} className="mt-2 space-y-2 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 p-3">
                 <p className="text-xs text-slateish-400">Save this evidence-backed item for engineering assignment and response.</p>
+                {templates.length > 0 && <label className="block text-xs text-slateish-400">Review template
+                  <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200">
+                    <option value="">No template selected</option>
+                    {templates.map((template) => <option key={template.id} value={template.id}>{template.name} · v{template.version}</option>)}
+                  </select>
+                </label>}
+                {templateId && (() => { const selected = templates.find((item) => item.id === templateId); return selected && selected.governing_sources.length > 1 ? <p className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/10 px-2 py-1.5 text-xs text-warn-500">Multiple governing sources are attached. Confirm which source controls if they conflict: {selected.governing_sources.join("; ")}</p> : null; })()}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="text-xs text-slateish-400">Category
-                    <select value={category} onChange={(e) => setCategory(e.target.value as ReviewCategory)} className="mt-1 w-full rounded border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200">
+                    <select value={category} onChange={(e) => setCategory(e.target.value as ReviewCategory)} className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200">
                       <option value="missing_information">Missing information</option>
                       <option value="inconsistency">Inconsistency</option>
                       <option value="requirement_deviation">Requirement deviation</option>
@@ -458,7 +469,7 @@ function ItemRow({
                     </select>
                   </label>
                   <label className="text-xs text-slateish-400">Severity
-                    <select value={severity} onChange={(e) => setSeverity(e.target.value as ReviewSeverity)} className="mt-1 w-full rounded border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200">
+                    <select value={severity} onChange={(e) => setSeverity(e.target.value as ReviewSeverity)} className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200">
                       <option value="critical">Critical</option>
                       <option value="major">Major</option>
                       <option value="minor">Minor</option>
@@ -467,9 +478,9 @@ function ItemRow({
                   </label>
                 </div>
                 <label className="block text-xs text-slateish-400">Required action
-                  <textarea value={action} onChange={(e) => setAction(e.target.value)} rows={2} className="mt-1 w-full rounded border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200" />
+                  <textarea value={action} onChange={(e) => setAction(e.target.value)} rows={2} className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200" />
                 </label>
-                <button type="submit" className="rounded bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30">Save finding</button>
+                <button type="submit" className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30">Save finding</button>
                 {saveError !== null && <p className="text-xs text-danger-500" role="alert">{saveError}</p>}
               </form>
             )}
@@ -516,7 +527,7 @@ function NominateBaseline({
   }
 
   return (
-    <form onSubmit={submit} className="mt-3 space-y-3 rounded border border-ink-700 p-3">
+    <form onSubmit={submit} className="mt-3 space-y-3 rounded-[var(--radius-xs)] border border-ink-700 p-3">
       <p className="text-xs text-slateish-400">Nominate a baseline: a document (optionally a section), or state the requirement.</p>
       <div>
         <label htmlFor={selectId} className="block text-xs text-slateish-400">
@@ -526,7 +537,7 @@ function NominateBaseline({
           id={selectId}
           value={documentId}
           onChange={(e) => setDocumentId(e.target.value)}
-          className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
+          className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
         >
           <option value="">&mdash; none &mdash;</option>
           {documents.map((d) => (
@@ -546,7 +557,7 @@ function NominateBaseline({
             type="text"
             value={section}
             onChange={(e) => setSection(e.target.value)}
-            className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
+            className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200"
           />
         </div>
       )}
@@ -560,7 +571,7 @@ function NominateBaseline({
           value={text}
           onChange={(e) => setText(e.target.value)}
           disabled={documentId !== ""}
-          className="mt-1 w-full rounded border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200 disabled:opacity-60"
+          className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200 disabled:opacity-60"
         />
         {typed !== "" && (
           <p className="mt-1 text-xs text-warn-500" aria-live="polite">
@@ -571,7 +582,7 @@ function NominateBaseline({
       <button
         type="submit"
         disabled={!canSubmit}
-        className="rounded border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
         Use as baseline
       </button>
@@ -586,6 +597,7 @@ export function GapAnalysisCard({
   onCite,
   ledger,
   onCreateFinding,
+  templates = [],
 }: {
   gaps: GapAnalysis;
   onNominateBaseline?: (b: BaselineSelection) => void;
@@ -593,16 +605,17 @@ export function GapAnalysisCard({
   onCite: (evidenceId: string) => void;
   ledger?: EvidenceItem[];
   onCreateFinding?: (draft: ReviewFindingCreate) => Promise<void> | void;
+  templates?: ReviewTemplate[];
 }) {
   const heading = (
-    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slateish-300">
+    <h3 className="text-xs font-semibold uppercase tracking-wider text-slateish-300">
       Preliminary gap assessment
     </h3>
   );
 
   if (gaps.applicability === "not_applicable") {
     return (
-      <section aria-label="Gap analysis" className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+      <section aria-label="Gap analysis" className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
         {heading}
         <p className="mt-2 text-sm text-slateish-500">
           Gap analysis is not applicable: the question contains no comparison or baseline.
@@ -613,7 +626,7 @@ export function GapAnalysisCard({
 
   if (gaps.applicability === "insufficient_baseline") {
     return (
-      <section aria-label="Gap analysis" className="rounded-lg border border-ink-600 bg-ink-850 p-4" aria-live="polite">
+      <section aria-label="Gap analysis" className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4" aria-live="polite">
         {heading}
         <p className="mt-2 text-sm text-slateish-300">
           Gap analysis needs a baseline &mdash; the document or requirement the others are checked
@@ -637,7 +650,7 @@ export function GapAnalysisCard({
   const notApplicableWithheld = notApplicableAll.length - notApplicable.length;
 
   return (
-    <section aria-label="Gap analysis" className="rounded-lg border border-ink-600 bg-ink-850 p-4">
+    <section aria-label="Gap analysis" className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
       {heading}
       <BaselineHeader baseline={gaps.baseline} documents={documents} />
 
@@ -649,7 +662,7 @@ export function GapAnalysisCard({
           {ordered.length > 0 && (
             <ul className="mt-1">
               {ordered.map((it, i) => (
-                <ItemRow key={`${it.facet}-${i}`} item={it} onCite={onCite} baselineIsStated={baselineIsStated} baselineDocumentId={gaps.baseline?.document_id ?? null} ledger={ledger ?? []} onCreateFinding={onCreateFinding} />
+                <ItemRow key={`${it.facet}-${i}`} item={it} onCite={onCite} baselineIsStated={baselineIsStated} baselineDocumentId={gaps.baseline?.document_id ?? null} ledger={ledger ?? []} onCreateFinding={onCreateFinding} templates={templates} />
               ))}
             </ul>
           )}
@@ -659,7 +672,7 @@ export function GapAnalysisCard({
           {notApplicableAll.length > 0 && (
             /* Collapsed, never hidden: the count is in the summary, so it is
                readable without expanding, and every row is one click away. */
-            <details className="mt-2 rounded border border-ink-700 bg-ink-850 px-3 py-2">
+            <details className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2">
               {/* The count is of what the payload reported, not of what this
                   list could render - the honest number is the number that came
                   back. Where the two differ, `withheldLine` says so. */}
@@ -677,7 +690,8 @@ export function GapAnalysisCard({
                       baselineIsStated={baselineIsStated}
                       baselineDocumentId={gaps.baseline?.document_id ?? null}
                       ledger={ledger ?? []}
-                      onCreateFinding={onCreateFinding}
+                    onCreateFinding={onCreateFinding}
+                    templates={templates}
                     />
                   ))}
                 </ul>

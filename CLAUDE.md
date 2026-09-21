@@ -40,14 +40,24 @@ carries the client's name; only the owner can rename it.
    when its feature is deleted — prove it by mutation. Vacuous tests are this
    project's documented recurring defect (`docs/status-honesty-audit.md`).
 7. **When something this project stated turns out false, record the retraction**
-   in `docs/status-honesty-audit.md`. It is at 24 entries. Several findings in
+   in `docs/status-honesty-audit.md`. It is at 47 entries. Several findings in
    `docs/code-review/` belong there.
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
    another). Before closing a fix, grep for the claim.
 9. **"Super user"** is a display label only; the internal identifier stays `admin`.
-10. **Dashboard stays minimal.** No new tiles. The type counts live inside the
-    existing Documents tile.
+10. **Dashboard stays a focused operational dashboard, not a metrics dump.**
+    As of the AI Submittal Review workflow (2026-09), this no longer means
+    "no new tiles" literally - it means no UNNECESSARY tiles. Exactly four
+    primary cards: Contractor Submittals, Active Standards, Reviews in
+    Progress, Needs Attention. One `Upload Datasheet and Run AI Review`
+    button. One compact Recent Reviews table. One warning banner shown only
+    when there is a real issue (low memory, failed OCR, missing standards).
+    Standards Readiness detail lives on the Standards Library page. Recent
+    Intelligence Work (comprehensive analyses, gap analyses, market results)
+    lives on the Analysis Hub. RAM/model/OCR/embeddings/latency/ingestion
+    detail lives on System Health. Nothing else gets added to Dashboard
+    without updating this rule first.
 11. Merge commits, not squash. Conventional prefixes (`feat:`, `fix:`, `test:`,
     `docs:`). Issues, milestones, PRs with `Closes #N`. Free tools only.
 
@@ -83,7 +93,7 @@ carries the client's name; only the owner can rename it.
 | Full state, decisions, what's next | `docs/HANDOVER.md` |
 | Architecture as the code actually is | `docs/architecture.md` |
 | The 134 review findings, prioritised | `docs/code-review/README.md` |
-| Recorded false claims (24) | `docs/status-honesty-audit.md` |
+| Recorded false claims (47) | `docs/status-honesty-audit.md` |
 | Review any change against the project's own failure modes | `/review` (`.claude/commands/review.md`) |
 | Demo script and safe questions | `docs/HANDOVER.md` § Demo |
 | Run it | `backend`: `python run.py` · `frontend`: `npm run dev` · Ollama must be up |

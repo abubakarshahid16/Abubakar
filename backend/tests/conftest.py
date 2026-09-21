@@ -127,6 +127,24 @@ def _the_suite_does_not_read_the_developers_env(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _the_model_tier_is_off_unless_a_test_asks_for_it():
+    """Pin `match_enabled` off for the suite, for the same reason as above.
+
+    The model tier in `comparison.run_comparison` posts to Ollama. Left on, the
+    suite's answer would depend on whether a model server happened to be
+    running on the machine at the time: up, and comparison tests make real
+    calls and take minutes; down, they pass quickly through
+    `model_unavailable` - the same test, two different things being exercised,
+    and nothing on the report to say which.
+
+    The tier's own tests turn it on deliberately and stub the transport, which
+    is the claim they are making. Everything else runs with it off.
+    """
+    settings.match_enabled = False
+    yield
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _never_the_developers_database(tmp_path_factory):
     """Point the DEFAULT database at a temp file for the whole session.
 

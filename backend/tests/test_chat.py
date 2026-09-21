@@ -315,6 +315,61 @@ def test_a_reopened_conversation_still_carries_its_citations():
     assert passage["text"]
 
 
+@pytest.mark.parametrize("truncated", [True, False])
+def test_a_reopened_conversation_preserves_whether_the_answer_was_truncated(
+    monkeypatch, truncated,
+):
+    """Generation -> real chat write -> database read -> API response.
+
+    The payload is the frontend contract. Existing rows without this optional
+    key remain readable because the client defaults an absent value to false.
+    """
+    def generated(*args, **kwargs):
+        return {
+            "question": args[0],
+            "answer_type": "generated",
+            "answer": "A deliberately bounded generated answer [S1].",
+            "reason": None,
+            "passage": None,
+            "answer_passages": [],
+            "supporting": [],
+            "lexical": None,
+            "passages": [],
+            "cited": [],
+            "rejected_citations": [],
+            "truncated": truncated,
+            "input_kind": None,
+            "evidence_removed": [],
+            "coverage": None,
+            "examples": [],
+            "corpus": None,
+            "counts_bounded": 0,
+            "retrieval_mode": "hybrid",
+            "reranked": False,
+            "candidates_considered": 0,
+            "model": "deterministic-test-model",
+            "prompt_tokens": 8,
+            "output_tokens": 8,
+            "seconds": 0.01,
+            "timings": {},
+        }
+
+    monkeypatch.setattr(answer_mod, "answer", generated)
+    client = TestClient(app)
+    conversation = client.post("/api/conversations").json()
+
+    live = client.post(
+        f"/api/conversations/{conversation['id']}/ask",
+        json={"question": "generate a deliberately bounded answer", "tier": "generated"},
+    )
+    assert live.status_code == 200
+
+    replay = client.get(f"/api/conversations/{conversation['id']}")
+    assert replay.status_code == 200
+    assistant = replay.json()["messages"][-1]
+    assert assistant["payload"]["truncated"] is truncated
+
+
 def test_a_refusal_is_stored_as_a_refusal_not_as_an_answer():
     client = TestClient(app)
     upload(client)

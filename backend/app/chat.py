@@ -232,7 +232,18 @@ def resolve_followup(
     # A question that still has almost no subject of its own also borrows the
     # earlier topic words. These are OR-ed by the query builder rather than
     # required, so they steer retrieval without excluding anything.
-    if len(_content_words(question)) < 3:
+    #
+    # Threshold is < 2, not < 3. "tell me about system design" has two content
+    # words of its own ("system", "design") - a complete, self-sufficient
+    # subject - and used to still qualify under < 3, dragging in up to four
+    # unrelated topic words from whatever was asked earlier in the same
+    # conversation (a prior "wave equation" question leaking "wave", "4.00",
+    # "inherent" into a plain system-design query, and burying the real
+    # subject under noise the corpus has nothing to match). A question with
+    # only zero or one content words of its own ("the minimum", "curing
+    # time") still has no real subject and still needs the borrow; two or
+    # more content words is already enough of a subject on its own.
+    if len(_content_words(question)) < 2:
         borrowed_from = " ".join(prior_questions[-FOLLOWUP_WINDOW:])
         # Every token belonging to a designator in the earlier text is off
         # limits. A designator dropped by the conflict rule above must not
@@ -470,6 +481,11 @@ _PAYLOAD_KEYS = (
     # answer with the partial-coverage warning silently gone - worse than
     # never having shipped the field.
     "coverage", "evidence_removed",
+    # The same reason, three more times. Reopened without `corpus`, a two-part reply
+    # would lose its database half; without `counts_bounded`, a re-bounded
+    # count would lose the note that says it was; without `truncated`, a cut-off
+    # answer would reopen looking complete.
+    "corpus", "counts_bounded", "truncated",
 )
 
 

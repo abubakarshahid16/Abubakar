@@ -34,7 +34,7 @@ const SLOW_DOCUMENT_SECONDS = 600;
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div>
-      <dt className="text-[11px] uppercase tracking-wide text-slateish-400">{label}</dt>
+      <dt className="text-xs uppercase tracking-wide text-slateish-400">{label}</dt>
       <dd className={`mt-0.5 font-mono text-sm ${tone ?? "text-slateish-200"}`}>{value}</dd>
     </div>
   );
@@ -152,7 +152,7 @@ export function WorkerPanel({
         <span
           role="status"
           className={[
-            "rounded px-2 py-0.5 text-[11px] font-medium",
+            "rounded px-2 py-0.5 text-xs font-medium",
             alarm
               ? "bg-danger-500/20 text-danger-500"
               : working
@@ -220,7 +220,7 @@ export function WorkerPanel({
       </p>
 
       {worker?.last_error && (
-        <p className="mt-2 rounded bg-ink-900 p-2 text-[11px] text-danger-500">
+        <p className="mt-2 rounded bg-ink-900 p-2 text-xs text-danger-500">
           Last error: {worker.last_error.message}
         </p>
       )}

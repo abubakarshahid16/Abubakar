@@ -1,0 +1,482 @@
+[
+  {
+    "run": 1,
+    "heading_ms": 3563,
+    "requests": [
+      {
+        "url": "/src/api/client.ts?t=1789649294069",
+        "status": 200,
+        "elapsed_ms": 9
+      },
+      {
+        "url": "/api/classification/vocabulary",
+        "status": 200,
+        "elapsed_ms": 121
+      },
+      {
+        "url": "/api/health",
+        "status": 200,
+        "elapsed_ms": 138
+      },
+      {
+        "url": "/api/classification/vocabulary",
+        "status": 200,
+        "elapsed_ms": 139
+      },
+      {
+        "url": "/api/auth/me",
+        "status": 200,
+        "elapsed_ms": 138
+      },
+      {
+        "url": "/api/health",
+        "status": 200,
+        "elapsed_ms": 139
+      },
+      {
+        "url": "/api/classification/coverage",
+        "status": 200,
+        "elapsed_ms": 140
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 140
+      },
+      {
+        "url": "/api/auth/me",
+        "status": 200,
+        "elapsed_ms": 140
+      },
+      {
+        "url": "/api/classification/coverage",
+        "status": 200,
+        "elapsed_ms": 141
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 141
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 16
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 29
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 1345
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 2260
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 3143
+      },
+      {
+        "url": "/api/watch/status",
+        "status": 200,
+        "elapsed_ms": 11
+      },
+      {
+        "url": "/api/watch/status",
+        "status": 200,
+        "elapsed_ms": 19
+      }
+    ]
+  },
+  {
+    "run": 2,
+    "heading_ms": 3523,
+    "requests": [
+      {
+        "url": "/src/api/client.ts?t=1789649294069",
+        "status": 304,
+        "elapsed_ms": 11
+      },
+      {
+        "url": "/api/classification/vocabulary",
+        "status": 200,
+        "elapsed_ms": 24
+      },
+      {
+        "url": "/api/health",
+        "status": 200,
+        "elapsed_ms": 24
+      },
+      {
+        "url": "/api/auth/me",
+        "status": 200,
+        "elapsed_ms": 30
+      },
+      {
+        "url": "/api/classification/coverage",
+        "status": 200,
+        "elapsed_ms": 35
+      },
+      {
+        "url": "/api/health",
+        "status": 200,
+        "elapsed_ms": 49
+      },
+      {
+        "url": "/api/classification/vocabulary",
+        "status": 200,
+        "elapsed_ms": 49
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 49
+      },
+      {
+        "url": "/api/auth/me",
+        "status": 200,
+        "elapsed_ms": 50
+      },
+      {
+        "url": "/api/classification/coverage",
+        "status": 200,
+        "elapsed_ms": 60
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 60
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 11
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 19
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 1202
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 2101
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 2968
+      },
+      {
+        "url": "/api/watch/status",
+        "status": 200,
+        "elapsed_ms": 10
+      },
+      {
+        "url": "/api/watch/status",
+        "status": 200,
+        "elapsed_ms": 19
+      }
+    ]
+  },
+  {
+    "run": 3,
+    "heading_ms": 4553,
+    "requests": [
+      {
+        "url": "/src/api/client.ts?t=1789649294069",
+        "status": 304,
+        "elapsed_ms": 10
+      },
+      {
+        "url": "/api/classification/vocabulary",
+        "status": 200,
+        "elapsed_ms": 23
+      },
+      {
+        "url": "/api/health",
+        "status": 200,
+        "elapsed_ms": 61
+      },
+      {
+        "url": "/api/auth/me",
+        "status": 200,
+        "elapsed_ms": 61
+      },
+      {
+        "url": "/api/classification/vocabulary",
+        "status": 200,
+        "elapsed_ms": 62
+      },
+      {
+        "url": "/api/classification/coverage",
+        "status": 200,
+        "elapsed_ms": 62
+      },
+      {
+        "url": "/api/health",
+        "status": 200,
+        "elapsed_ms": 61
+      },
+      {
+        "url": "/api/auth/me",
+        "status": 200,
+        "elapsed_ms": 61
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 63
+      },
+      {
+        "url": "/api/classification/coverage",
+        "status": 200,
+        "elapsed_ms": 63
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 89
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 8
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 22
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 1155
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 2757
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 4153
+      },
+      {
+        "url": "/api/watch/status",
+        "status": 200,
+        "elapsed_ms": 10
+      },
+      {
+        "url": "/api/watch/status",
+        "status": 200,
+        "elapsed_ms": 16
+      }
+    ]
+  },
+  {
+    "run": 4,
+    "heading_ms": 3545,
+    "requests": [
+      {
+        "url": "/src/api/client.ts?t=1789649294069",
+        "status": 304,
+        "elapsed_ms": 13
+      },
+      {
+        "url": "/api/classification/vocabulary",
+        "status": 200,
+        "elapsed_ms": 40
+      },
+      {
+        "url": "/api/health",
+        "status": 200,
+        "elapsed_ms": 51
+      },
+      {
+        "url": "/api/classification/coverage",
+        "status": 200,
+        "elapsed_ms": 52
+      },
+      {
+        "url": "/api/auth/me",
+        "status": 200,
+        "elapsed_ms": 56
+      },
+      {
+        "url": "/api/health",
+        "status": 200,
+        "elapsed_ms": 56
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 98
+      },
+      {
+        "url": "/api/classification/vocabulary",
+        "status": 200,
+        "elapsed_ms": 100
+      },
+      {
+        "url": "/api/classification/coverage",
+        "status": 200,
+        "elapsed_ms": 112
+      },
+      {
+        "url": "/api/auth/me",
+        "status": 200,
+        "elapsed_ms": 114
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 114
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 22
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 25
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 1523
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 2437
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 3274
+      },
+      {
+        "url": "/api/watch/status",
+        "status": 200,
+        "elapsed_ms": 8
+      },
+      {
+        "url": "/api/watch/status",
+        "status": 200,
+        "elapsed_ms": 19
+      }
+    ]
+  },
+  {
+    "run": 5,
+    "heading_ms": 3523,
+    "requests": [
+      {
+        "url": "/src/api/client.ts?t=1789649294069",
+        "status": 304,
+        "elapsed_ms": 10
+      },
+      {
+        "url": "/api/classification/vocabulary",
+        "status": 200,
+        "elapsed_ms": 16
+      },
+      {
+        "url": "/api/classification/coverage",
+        "status": 200,
+        "elapsed_ms": 25
+      },
+      {
+        "url": "/api/health",
+        "status": 200,
+        "elapsed_ms": 31
+      },
+      {
+        "url": "/api/auth/me",
+        "status": 200,
+        "elapsed_ms": 52
+      },
+      {
+        "url": "/api/classification/vocabulary",
+        "status": 200,
+        "elapsed_ms": 52
+      },
+      {
+        "url": "/api/classification/coverage",
+        "status": 200,
+        "elapsed_ms": 52
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 52
+      },
+      {
+        "url": "/api/health",
+        "status": 200,
+        "elapsed_ms": 52
+      },
+      {
+        "url": "/api/auth/me",
+        "status": 200,
+        "elapsed_ms": 54
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 69
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 14
+      },
+      {
+        "url": "/api/documents",
+        "status": 200,
+        "elapsed_ms": 21
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 1231
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 2181
+      },
+      {
+        "url": "/api/metrics",
+        "status": 200,
+        "elapsed_ms": 3082
+      },
+      {
+        "url": "/api/watch/status",
+        "status": 200,
+        "elapsed_ms": 9
+      },
+      {
+        "url": "/api/watch/status",
+        "status": 200,
+        "elapsed_ms": 15
+      }
+    ]
+  }
+]

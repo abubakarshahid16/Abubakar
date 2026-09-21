@@ -47,6 +47,14 @@ function makeResult(over: Partial<AnalysisResult> = {}): AnalysisResult {
   };
 }
 
+describe("SummaryCard: evidence removal", () => {
+  it("explains evidence removed before the summary was written", () => {
+    render(<SummaryCard result={makeResult({ evidence_removed: [{ index: 2, filename: "appendix.pdf", page_start: 9, action: "dropped", characters_kept: 0, characters_dropped: 1200 }] })} onCite={() => {}} />);
+    expect(screen.getByRole("status")).toHaveTextContent("appendix.pdf");
+    expect(screen.getByRole("status")).toHaveTextContent("not used");
+  });
+});
+
 describe("SummaryCard: null summary", () => {
   it("renders no prose block and no claim about why, when there is no summary", () => {
     // Stage 3 shipped synthesis, so the API never sends "synthesis" in

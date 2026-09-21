@@ -47,13 +47,17 @@ person who set it.
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from typing import get_args
 
 from . import access
+from . import schemas
+from . import disciplines as disciplines_mod
 from .db import connect
 
 # ------------------------------------------------------------------- types
@@ -357,13 +361,24 @@ def write_suggestion(document_id: str, suggestion: Suggestion, *,
             return          # confirmed: a suggestion does not overwrite it
         conn.execute(
             "INSERT INTO document_classification (document_id, doc_type,"
-            " discipline, doc_class, register_id, suggested_by, confirmed_by,"
-            " confirmed_at) VALUES (?,?,?,?,?,?,NULL,NULL)"
+            " discipline, discipline_canonical, doc_class, register_id,"
+            " suggested_by, confirmed_by, confirmed_at)"
+            # Nine columns, seven bound values and two NULLs. This read
+            # `(?,?,?,?,?,?,NULL,NULL)` - eight - when `discipline_canonical`
+            # was added, and every document ingest would have failed to
+            # classify: "8 values for 9 columns".
+            " VALUES (?,?,?,?,?,?,?,NULL,NULL)"
             " ON CONFLICT(document_id) DO UPDATE SET"
             " doc_type=excluded.doc_type, discipline=excluded.discipline,"
+            " discipline_canonical=excluded.discipline_canonical,"
             " doc_class=excluded.doc_class, register_id=excluded.register_id,"
             " suggested_by=excluded.suggested_by",
+            # BOTH, ALWAYS, AND DERIVED HERE. The canonical value is computed
+            # at the write rather than by a nightly job, so the two columns
+            # cannot drift: there is no window in which a row has a raw value
+            # and a stale canonical one.
             (document_id, suggestion.doc_type, suggestion.discipline,
+             disciplines_mod.canonical(suggestion.discipline),
              suggestion.doc_class, suggestion.register_id, suggested_by))
         conn.execute(
             "DELETE FROM document_subjects WHERE document_id = ?"
@@ -375,9 +390,189 @@ def write_suggestion(document_id: str, suggestion: Suggestion, *,
                 (document_id, subject_id, suggested_by))
 
 
+#: The submittal-review metadata an administrator may set, in the order the
+#: columns are declared. Kept as one tuple because it is written in `confirm`,
+#: read in `of_document` and filtered in `narrow_to_scope`, and a field added
+#: to one of those and forgotten in another is exactly the "fixed in one of two
+#: places" defect CLAUDE.md rule 8 names.
+#:
+#: `equipment_tags` is absent on purpose: it is a JSON list, not a scalar, and
+#: is handled separately in `confirm`.
+METADATA_FIELDS = (
+    "document_role", "document_number", "title", "revision", "effective_date",
+    "project", "contractor_vendor", "equipment_type", "service",
+    "transmittal_number", "superseded_by",
+)
+
+
+#: Every value `set_role` will accept, and the ONLY vocabulary check that
+#: stands between a caller and the column. It has to live here rather than only
+#: in Pydantic because `set_role`'s other caller is the WATCHER, which reaches
+#: this module directly and never crosses a route - `confirm` documents its own
+#: vocabulary as unchecked and names that a known limitation, and repeating the
+#: limitation for a function a background thread calls unattended would be
+#: choosing it a second time rather than inheriting it.
+#:
+#: DERIVED from `schemas.DocumentRole`, not retyped. Rule 8 - a claim fixed in
+#: one of two homes is this project's most common review finding, and a role
+#: added to the API vocabulary but not to a hand-written tuple here would be
+#: accepted by the route and refused by the watcher.
+ROLES: tuple[str, ...] = get_args(schemas.DocumentRole)
+
+
+class UnknownRole(ValueError):
+    """A role outside `ROLES`. Raised rather than stored, because the column is
+    plain TEXT with no CHECK and a typo there is a document no filter matches -
+    invisible in exactly the way a missing document is not."""
+
+
+def set_role(document_id: str, role: str, *, only_if_unset: bool = False) -> bool:
+    """Set `document_role` ALONE. Returns True if the column actually changed.
+
+    NOT `confirm`, and the difference is the whole reason this exists.
+    `confirm` is a PUT: it replaces the record, so a caller sending only a role
+    CLEARS the title, the revision, the project and the rest. That is correct
+    for an editor sending a whole form and catastrophic for a bulk action whose
+    entire intent is "change one field on forty documents". Bulk-assigning a
+    role through `confirm` would silently erase metadata somebody typed, on
+    every document selected, with nothing in the response to say so.
+
+    So this writes one column and touches nothing else - not the subjects, not
+    the equipment tags, not `confirmed_by`. Setting a role is not confirming a
+    classification, and stamping it as confirmed would claim a human had
+    reviewed the type axis when nobody looked at it.
+
+    A document with no classification row gets one, holding only the role.
+
+    `only_if_unset` is for the WATCHER. A file re-appearing in a role subfolder
+    must never overwrite a role a person set: the folder is a convenience, and
+    a human's correction that a folder undoes on the next scan is a correction
+    that does not survive. With it, a document that already has any role is
+    left exactly as it is and this returns False.
+    """
+    if role not in ROLES:
+        raise UnknownRole(
+            f"{role!r} is not a document role; expected one of {', '.join(ROLES)}")
+    changed = _set_one_column("document_role", document_id, role,
+                              only_if_unset=only_if_unset)
+    if changed and role == "COMPANY_STANDARD":
+        _queue_extraction_if_ready(document_id)
+    return changed
+
+
+def _queue_extraction_if_ready(document_id: str) -> None:
+    """Queue rule extraction for a document that BECOMES a company standard.
+
+    THE OTHER HALF OF THE INGESTION HOOK, and without it that hook is inert
+    for every document a person uploads. `ingest._queue_extraction_if_standard`
+    asks whether a document is a COMPANY_STANDARD at the moment ingestion
+    finishes. For an upload the answer is always no: `upload.py` writes a
+    classification row with `document_role` NULL and the role is assigned
+    afterwards, by an administrator or by the watch folder. Measured on the
+    live corpus - 256 of the 272 standards carry `suggested_by = 'none'`,
+    which is the bulk role endpoint, not a pattern match at upload.
+
+    So the two hooks cover the two orders and neither covers both:
+      role set first, then ingestion finishes  -> the ingest hook queues it
+      ingestion finishes, then role set        -> this queues it
+
+    Only when the document is already READY. A document still chunking will
+    reach the ingest hook on its own, and queuing extraction for a document
+    with no chunks yet would extract nothing and report success.
+
+    Imported inside the function: `standards` pulls in the whole review
+    surface, and this module must not depend on it merely to enqueue - the
+    same reason `ingest` gives for the same import.
+
+    Swallows its own failure. Assigning a role must not fail because
+    downstream work could not be scheduled, and `enqueue_extraction` is
+    idempotent per document, so a later retry costs nothing.
+    """
+    try:
+        from . import states
+        row = connect().execute(
+            "SELECT status FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if row is None or row["status"] != states.READY:
+            return
+        from . import standards
+        standards.enqueue_extraction(document_id)
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        from . import errors
+        errors.record_failure(exc, stage="standard_extraction_enqueue")
+
+
+def set_discipline(document_id: str, discipline: str, *,
+                   only_if_unset: bool = True) -> bool:
+    """Set `discipline` ALONE. Returns True if the column actually changed.
+
+    Same contract as `set_role`, same reasons, and `only_if_unset` defaults
+    TRUE here rather than False: the caller is a backfill over the whole
+    corpus, and a backfill that overwrites is one accidental re-run away from
+    undoing every correction a human has made.
+
+    NO VOCABULARY CHECK, and unlike the role that is not an oversight. The
+    role column has five legal values; `discipline` holds whatever the client's
+    register and the standards' own covers say, which measured 52 distinct
+    committee names across this corpus and will grow. An allowlist here would
+    have to be edited every time Saudi Aramco renames a committee, and the
+    failure mode would be a standard silently left unclassified.
+    """
+    if not (discipline or "").strip():
+        # An empty string is not a discipline, and storing one makes a document
+        # look classified to every reader while matching nothing. NULL is the
+        # honest value for "not known" and this refuses to blur the two.
+        raise ValueError("discipline must not be blank; leave it NULL instead")
+    return _set_one_column("discipline", document_id, discipline.strip(),
+                           only_if_unset=only_if_unset)
+
+
+def _set_one_column(column: str, document_id: str, value: str, *,
+                    only_if_unset: bool) -> bool:
+    """The one writer behind `set_role` and `set_discipline`.
+
+    ONE FUNCTION, because the interesting part is not the column name - it is
+    the `IS NOT` comparison and the `only_if_unset` guard, and two copies of
+    that would be two places for the next person to fix half of (rule 8).
+
+    `column` is interpolated into SQL and is therefore NEVER caller data: both
+    call sites pass a literal, and this refuses anything else rather than
+    trusting that they always will.
+    """
+    if column not in ("document_role", "discipline"):
+        raise ValueError(f"{column!r} is not a column this function may write")
+    conn = connect()
+    with conn:
+        # ON CONFLICT ... WHERE, rather than a SELECT and then an UPDATE: two
+        # statements would let a concurrent writer land between them, and the
+        # loser would report False having actually been overwritten. `changes()`
+        # after this is the count of rows the database really wrote.
+        #
+        # `IS NOT excluded.<column>` is not decoration. Without it SQLite
+        # counts a row it rewrote with the SAME value as an update, so setting
+        # COMPANY_STANDARD on a document that already held COMPANY_STANDARD
+        # reported a change - and the bulk endpoint would then tell an
+        # administrator it had updated forty documents when it had changed
+        # none. `IS NOT` rather than `<>` because the existing value is usually
+        # NULL, and `NULL <> 'X'` is NULL, which is not true, which would make
+        # the only case that matters the one case that never writes.
+        guard = (f" AND document_classification.{column} IS NULL"
+                 if only_if_unset else "")
+        cur = conn.execute(
+            "INSERT INTO document_classification (document_id, suggested_by,"
+            f" {column}) VALUES (?, ?, ?)"
+            " ON CONFLICT(document_id) DO UPDATE SET"
+            f" {column} = excluded.{column}"
+            f" WHERE document_classification.{column}"
+            f" IS NOT excluded.{column}{guard}",
+            (document_id, SOURCE_NONE, value))
+        return cur.rowcount > 0
+
+
 def confirm(document_id: str, *, doc_type: str | None,
             discipline: str | None, doc_class: str | None,
-            subject_ids: Sequence[str], confirmed_by: str | None) -> dict:
+            subject_ids: Sequence[str], confirmed_by: str | None,
+            metadata: dict | None = None,
+            equipment_tags: Sequence[str] | None = None) -> dict:
     """An administrator's decision. Sets `confirmed_by` and `confirmed_at`.
 
     THE AUTHORITY IS THE ADMIN CAPABILITY, checked at the route rather than
@@ -389,20 +584,53 @@ def confirm(document_id: str, *, doc_type: str | None,
     subject must be able to remove it; merging would make removal impossible
     and leave a document permanently attached to a comparison it does not
     belong in.
+
+    `metadata` and `equipment_tags` carry the submittal-review fields and are
+    REPLACED on the same principle: a PUT sends the whole record, so a field
+    left out is cleared rather than silently kept. `None` for the whole
+    `metadata` argument is different from an empty dict - it means this caller
+    is not touching metadata at all, which is what keeps every pre-phase-2
+    caller (and every existing test) behaving exactly as before.
+
+    THE ROLE VOCABULARY IS NOT CHECKED HERE. It is enforced in Pydantic at the
+    route, because that is where a bad value can be refused with a message
+    naming the field. A direct caller of this function is trusted to have
+    validated, and `docs/AI_SUBMITTAL_REVIEW_PROGRESS.md` records that as a
+    known limitation rather than pretending the column constrains itself.
     """
     now = _now()
     conn = connect()
     with conn:
         conn.execute(
             "INSERT INTO document_classification (document_id, doc_type,"
-            " discipline, doc_class, register_id, suggested_by, confirmed_by,"
-            " confirmed_at) VALUES (?,?,?,?,NULL,?,?,?)"
+            " discipline, discipline_canonical, doc_class, register_id,"
+            " suggested_by, confirmed_by, confirmed_at)"
+            " VALUES (?,?,?,?,?,NULL,?,?,?)"
             " ON CONFLICT(document_id) DO UPDATE SET"
             " doc_type=excluded.doc_type, discipline=excluded.discipline,"
+            " discipline_canonical=excluded.discipline_canonical,"
             " doc_class=excluded.doc_class, confirmed_by=excluded.confirmed_by,"
             " confirmed_at=excluded.confirmed_at",
-            (document_id, doc_type, discipline, doc_class, SOURCE_NONE,
+            (document_id, doc_type, discipline,
+             disciplines_mod.canonical(discipline), doc_class, SOURCE_NONE,
              confirmed_by, now))
+        if metadata is not None:
+            # Built from METADATA_FIELDS rather than spelled out, so a column
+            # added to that tuple cannot be written in one place and forgotten
+            # in another.
+            assignments = ", ".join(f"{name} = ?" for name in METADATA_FIELDS)
+            values = [metadata.get(name) for name in METADATA_FIELDS]
+            conn.execute(
+                f"UPDATE document_classification SET {assignments}"
+                " WHERE document_id = ?", [*values, document_id])
+        if equipment_tags is not None:
+            # Stored as a JSON array in one TEXT column. An empty list is
+            # stored as '[]' and reads back as "none recorded", which is the
+            # same answer as NULL and is why the read path tolerates both.
+            conn.execute(
+                "UPDATE document_classification SET equipment_tags = ?"
+                " WHERE document_id = ?",
+                (json.dumps([str(t) for t in equipment_tags]), document_id))
         conn.execute("DELETE FROM document_subjects WHERE document_id = ?",
                      (document_id,))
         for subject_id in subject_ids or ():
@@ -421,6 +649,15 @@ def of_document(document_id: str) -> dict | None:
     if row is None:
         return None
     out = dict(row)
+    # Stored as a JSON array in one TEXT column; decoded here so no caller has
+    # to know that. A row written before this column existed holds NULL, and a
+    # malformed value is read as "none recorded" rather than raising - the same
+    # tolerance review._row applies to its own JSON columns.
+    try:
+        tags = json.loads(out.get("equipment_tags") or "[]")
+    except (TypeError, ValueError):
+        tags = []
+    out["equipment_tags"] = tags if isinstance(tags, list) else []
     out["subjects"] = [dict(r) for r in connect().execute(
         "SELECT s.id, s.name, s.kind, ds.suggested_by, ds.confirmed_by"
         " FROM document_subjects ds JOIN subjects s ON s.id = ds.subject_id"
@@ -438,14 +675,27 @@ class ScopeFilter:
     types: tuple[str, ...] = ()
     disciplines: tuple[str, ...] = ()
     subject_ids: tuple[str, ...] = ()
+    # ------------------------------------------ AI submittal review, phase 2
+    # Three more axes over the SAME table, deliberately routed through this
+    # same filter object rather than added to the documents route as extra
+    # WHERE clauses. The intersection that makes a filter safe is written once,
+    # in `narrow_to_scope`; a second filtering path would be a second place to
+    # get it wrong, and the one that got it wrong would be the new one.
+    roles: tuple[str, ...] = ()
+    equipment_types: tuple[str, ...] = ()
+    projects: tuple[str, ...] = ()
 
     @property
     def is_empty(self) -> bool:
-        return not (self.types or self.disciplines or self.subject_ids)
+        return not (self.types or self.disciplines or self.subject_ids
+                    or self.roles or self.equipment_types or self.projects)
 
     def as_api(self) -> dict:
         return {"types": list(self.types), "disciplines": list(self.disciplines),
-                "subject_ids": list(self.subject_ids)}
+                "subject_ids": list(self.subject_ids),
+                "roles": list(self.roles),
+                "equipment_types": list(self.equipment_types),
+                "projects": list(self.projects)}
 
 
 def narrow_to_scope(
@@ -482,9 +732,37 @@ def narrow_to_scope(
         clauses.append(f"c.doc_type IN ({marks})")
         params.extend(wanted.types)
     if wanted.disciplines:
-        marks = ",".join("?" * len(wanted.disciplines))
-        clauses.append(f"c.discipline IN ({marks})")
-        params.extend(wanted.disciplines)
+        # FILTERED ON THE CANONICAL VALUE, and the REQUESTED values are
+        # canonicalised too. A caller asking for "Non-metallic Standards
+        # Committee" and a caller asking for "Nonmetallic Standards Committee"
+        # are asking the same question, and before this they got different
+        # answers depending on which spelling their document happened to use.
+        # COALESCE because a row written before the column existed has NULL
+        # there until the startup backfill runs; falling back to the raw value
+        # means such a row is still findable by its own spelling rather than
+        # silently dropping out of every filtered result.
+        wantedcanon = [disciplines_mod.canonical(d) or d
+                       for d in wanted.disciplines]
+        marks = ",".join("?" * len(wantedcanon))
+        clauses.append(
+            f"COALESCE(c.discipline_canonical, c.discipline) IN ({marks})")
+        params.extend(wantedcanon)
+    # The phase 2 axes. Each is ANDed with the others - selecting a role and a
+    # discipline means "documents that are both", never "either". An OR here
+    # would widen a filter the more the caller narrowed it, which is the one
+    # way a filter can surprise a reader with MORE than they asked for.
+    if wanted.roles:
+        marks = ",".join("?" * len(wanted.roles))
+        clauses.append(f"c.document_role IN ({marks})")
+        params.extend(wanted.roles)
+    if wanted.equipment_types:
+        marks = ",".join("?" * len(wanted.equipment_types))
+        clauses.append(f"c.equipment_type IN ({marks})")
+        params.extend(wanted.equipment_types)
+    if wanted.projects:
+        marks = ",".join("?" * len(wanted.projects))
+        clauses.append(f"c.project IN ({marks})")
+        params.extend(wanted.projects)
 
     sql = ["SELECT DISTINCT c.document_id FROM document_classification c"]
     if wanted.subject_ids:
