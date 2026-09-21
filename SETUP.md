@@ -101,6 +101,21 @@ git config --get core.hooksPath          # must print .githooks
 `core.hooksPath` is local git config and is **not** carried by the clone. Without it the
 gitleaks pre-commit hook **never runs**, and nothing warns you.
 
+> **CI IS NOT RUNNING (as of 2026-09-21). The local hook is the only automated gate.**
+> GitHub Actions has hit the account's monthly minutes/spending limit. Every workflow
+> run on `main` shows a **red X**, but that is a **billing block, not a test failure**.
+> The jobs were never started: 0 steps, no runner, and GitHub's annotation reads *"The
+> job was not started because recent account payments have failed or your spending
+> limit needs to be increased."* So:
+> - a red X on `main` says **nothing** about the code; the test figures are in section 5;
+> - **no secret scan, test run or client-data guard runs on push** until billing is fixed;
+> - `.githooks/pre-commit` (gitleaks on staged content, the path checks, the block on
+>   direct commits to `main`) is the **only** automated check. That makes
+>   `git config core.hooksPath .githooks` **required, not optional**. A clone without
+>   it has no gate at all.
+>
+> Once Actions runs again, confirm a green run on `main` and then remove this note.
+
 Backend (the venv lives at the repository **root**, not in `backend/`):
 
 ```bash
