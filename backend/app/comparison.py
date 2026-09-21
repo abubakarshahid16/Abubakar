@@ -49,7 +49,8 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from . import claims, datasheets, match_rules, requirements_3b, schemas, submittal_review
+from . import (claims, conditions, datasheets, match_rules, requirements_3b,
+                schemas, submittal_review)
 from .config import settings
 from .db import connect
 
@@ -246,21 +247,33 @@ def _applicable_exception(requirement: dict, subject: str | None) -> dict | None
 
 
 def compare(requirement: dict, fact: dict | None, *,
-            subject: str | None = None) -> dict:
+            subject: str | None = None,
+            submittal_facts: list[dict] | None = None) -> dict:
     """The DETERMINISTIC verdict for one requirement against one fact.
 
-    Returns `{status, rationale, limit, observed, exception_applied}`. No model
-    is called and none can be: this function is the reason a numeric breach is
-    reproducible.
+    Returns `{status, rationale, limit, observed, exception_applied}`, plus
+    `condition` when B24's gate had something to say. No model is called and none
+    can be: this function is the reason a numeric breach is reproducible.
 
     The order of the checks is the policy, and each one refuses to fall through
     into a stronger claim than the evidence supports:
 
       1. no fact at all           -> MISSING_INFORMATION (never a failure)
       2. the fact is blank        -> MISSING_INFORMATION (never a failure)
-      3. no numeric limit         -> NEEDS_ENGINEER_REVIEW (a human reads it)
-      4. units cannot be compared -> NEEDS_ENGINEER_REVIEW (never a guess)
-      5. the numbers compare      -> COMPLIANT or NON_COMPLIANT
+      3. the requirement's CONDITION is not established
+                                  -> NEEDS_ENGINEER_REVIEW (B24)
+         ...or is established as NOT holding, with a fact that proves it
+                                  -> NOT_APPLICABLE (B24)
+      4. no numeric limit         -> NEEDS_ENGINEER_REVIEW (a human reads it)
+      5. units cannot be compared -> NEEDS_ENGINEER_REVIEW (never a guess)
+      6. the numbers compare      -> COMPLIANT or NON_COMPLIANT
+
+    `submittal_facts` is the submittal's fact set, used only by the B24 condition
+    gate. **Omitting it does not skip the gate — it fails it.** A conditional
+    `numeric_limit` with no facts supplied returns NEEDS_ENGINEER_REVIEW rather
+    than a verdict, so a caller that forgets cannot get a confident answer. That
+    is the same discipline `keyword.search` applies to `allowed_document_ids`:
+    the unsafe default is not available.
     """
     # BEFORE ANY OTHER BRANCH, INCLUDING THE ABSENT-FACT ONE. A table row is
     # not a limit whether or not a value was submitted against it, and a
@@ -327,6 +340,62 @@ def compare(requirement: dict, fact: dict | None, *,
             "limit": None, "observed": None, "exception_applied": None,
         }
 
+    # ---------------------------------------------------------------- B24 gate
+    # AFTER the two MISSING_INFORMATION branches and BEFORE any arithmetic.
+    #
+    # After, because "the submittal says nothing" is a truer description than
+    # "the condition is unestablished" when there is no value at all, and
+    # weakening MISSING_INFORMATION would trade one honest status for a vaguer
+    # one. Before, because everything below this line can return COMPLIANT or
+    # NON_COMPLIANT, and a verdict on a requirement whose condition nobody has
+    # established is the defect this gate exists for: 0 mm against a 1.6 mm
+    # minimum that binds only carbon steel, on a datasheet whose every material
+    # field reads N/A, returned NON_COMPLIANT.
+    #
+    # `conditions.evaluate` returns None unless this is a `numeric_limit` row
+    # carrying a real condition, so every other requirement type - including the
+    # 4,246 `table_value` rows whose `condition` column holds a table row label
+    # like "Arsenic" or "100" - reaches the code below unchanged.
+    condition = conditions.evaluate(requirement, submittal_facts)
+    if condition is not None and condition["state"] != conditions.SATISFIED:
+        if condition["state"] == conditions.NOT_SATISFIED:
+            return {
+                # POSITIVE EVIDENCE ONLY. This branch is reachable solely when a
+                # fact was read and states something the condition is not, and
+                # that fact travels with the finding.
+                "status": NOT_APPLICABLE,
+                "rationale": (
+                    f"this requirement is conditional on "
+                    f"{condition['condition']!r} and the submittal establishes "
+                    f"otherwise: {condition['reason']}"),
+                "limit": None,
+                "observed": _describe(_measurement_from_fact(fact), fact),
+                "exception_applied": None,
+                "condition": condition,
+            }
+        return {
+            # UNKNOWN, and it stays unknown. Not NOT_APPLICABLE - that would
+            # excuse the requirement on no evidence, which is the mirror of the
+            # defect this gate closes.
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": (
+                f"this requirement applies only where "
+                f"{condition['condition']!r}, and that condition is not "
+                f"established by the submittal: {condition['reason']}. No "
+                f"comparison was made."),
+            "limit": None,
+            "observed": _describe(_measurement_from_fact(fact), fact),
+            "exception_applied": None,
+            "condition": condition,
+        }
+
+    # A SATISFIED condition travels with the verdict too. NORTH-STAR section 4
+    # requires a review run to preserve its applicability evidence, and "this
+    # clause was applied because the shell material field states carbon steel" is
+    # exactly that. `_cond` is {} for an unconditional requirement, so those
+    # findings keep the shape they have always had.
+    _cond = {"condition": condition} if condition is not None else {}
+
     exception = _applicable_exception(requirement, subject)
     governing = dict(requirement)
     if exception is not None:
@@ -353,7 +422,7 @@ def compare(requirement: dict, fact: dict | None, *,
                     f"the requirement asks for one exact value, so no "
                     f"comparison was made. The submittal states: {quoted}"),
                 "limit": _describe(limit, governing), "observed": None,
-                "exception_applied": exception,
+                "exception_applied": exception, **_cond,
             }
         chosen = spread[1] if side == "max" else spread[0]
         observed = claims.normalise(
@@ -372,14 +441,14 @@ def compare(requirement: dict, fact: dict | None, *,
             "rationale": "the requirement states no numeric limit this engine "
                          "can evaluate; it needs a human reading",
             "limit": None, "observed": _describe(observed, fact),
-            "exception_applied": exception,
+            "exception_applied": exception, **_cond,
         }
     if observed is None:
         return {
             "status": NEEDS_ENGINEER_REVIEW,
             "rationale": "the submitted value could not be read as a quantity",
             "limit": _describe(limit, governing), "observed": None,
-            "exception_applied": exception,
+            "exception_applied": exception, **_cond,
         }
 
     # UNITS MUST BE COMPARABLE, AND AN UNKNOWN UNIT IS NOT A GUESS. `claims`
@@ -396,7 +465,7 @@ def compare(requirement: dict, fact: dict | None, *,
                 "system; no conversion is guessed"),
             "limit": _describe(limit, governing),
             "observed": _describe(observed, fact),
-            "exception_applied": exception,
+            "exception_applied": exception, **_cond,
         }
 
     status = COMPLIANT if verdict else NON_COMPLIANT
@@ -419,7 +488,7 @@ def compare(requirement: dict, fact: dict | None, *,
             f"{governing.get('raw_unit') or ''}".rstrip() + note),
         "limit": _describe(limit, governing),
         "observed": _describe(observed, fact),
-        "exception_applied": exception,
+        "exception_applied": exception, **_cond,
     }
 
 
@@ -873,7 +942,11 @@ def run_comparison(
                 else:
                     model_reason = chosen["reason"]
 
-        verdict = compare(requirement, fact, subject=subject)
+        # `facts` is the WHOLE submittal's fact set, not the matched fact. B24
+        # needs the material/service/class fields to establish a condition, and
+        # those are different rows from the one being compared.
+        verdict = compare(requirement, fact, subject=subject,
+                          submittal_facts=facts)
         # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in
         # NEEDS_ENGINEER_REVIEW, but only one of them is the real reason: the
         # number is not a limit. Reporting "unit_mismatch" against a table row

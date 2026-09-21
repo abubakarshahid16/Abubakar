@@ -3285,6 +3285,92 @@ STANDARDS_MODAL = (
 )
 
 
+#: B24 (the condition safety gate) and B23 (evidence quote validation), plus a
+#: re-anchoring of B20's dimension guard, so all three safety gates that came out
+#: of the Phase 0.5 slice are proven by this harness rather than by an ad-hoc
+#: script in one session's scratchpad.
+CONDITION_AND_QUOTES = (
+    Mutation(
+        id="M267", phase=29,
+        description="remove the B24 condition gate, so a conditional "
+                    "requirement reaches a verdict with its condition "
+                    "unevaluated - the Phase 0.5 defect exactly",
+        path=APP / "comparison.py",
+        anchor="    condition = conditions.evaluate(requirement, submittal_facts)",
+        replacement="    condition = None  # MUTANT: B24 gate removed",
+        target="tests/test_condition_gate.py",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M268", phase=29,
+        description="never read the facts that DO state a material, so no "
+                    "condition is ever SATISFIED - a gate that always refuses "
+                    "is as useless as one that never does",
+        path=APP / "conditions.py",
+        anchor="    for fact in stated:",
+        replacement="    for fact in []:  # MUTANT: stated facts never examined",
+        target="tests/test_condition_gate.py",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M269", phase=29,
+        description="treat 'N/A' as a stated value, collapsing UNKNOWN into "
+                    "NOT_APPLICABLE - excusing a requirement on absent evidence",
+        path=APP / "conditions.py",
+        anchor='    stated = [f for f in candidates if not _is_empty(f.get("field_value"))]',
+        replacement="    stated = list(candidates)  # MUTANT: N/A treated as a value",
+        target="tests/test_condition_gate.py",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M270", phase=29,
+        description="remove the requirement_type scoping, so the gate fires on "
+                    "the 4,246 table_value rows whose condition column holds a "
+                    "table ROW LABEL like 'Arsenic' or '100'",
+        path=APP / "conditions.py",
+        anchor='    if (requirement or {}).get("requirement_type") != GATED_TYPE:\n'
+               "        return None",
+        replacement="    if False:  # MUTANT: type scoping removed\n"
+                    "        return None",
+        target="tests/test_condition_gate.py",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M271", phase=29,
+        description="widen B23's closed normalisation list to fold case and "
+                    "strip decimal points, so 1.6 would match 16",
+        path=APP / "quotes.py",
+        anchor='    return " ".join(s.split())',
+        replacement='    return " ".join(s.lower().replace(".", "").split())  # MUTANT',
+        target="tests/test_quote_validation.py",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M272", phase=29,
+        description="make the quote validator accept everything, so an invented "
+                    "quote passes as verbatim - the Phase 0.5 run's rewritten "
+                    "inch mark with nothing checking it",
+        path=APP / "quotes.py",
+        anchor="    return (needle in haystack, OK if needle in haystack else NOT_FOUND)",
+        replacement="    return (True, OK)  # MUTANT: every quote accepted",
+        target="tests/test_quote_validation.py",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M273", phase=29,
+        description="remove B20's dimension guard, so a length is compared "
+                    "against a temperature and yields NON_COMPLIANT",
+        path=APP / "claims.py",
+        anchor="    dim_a, dim_b = a.dimension, b.dimension\n"
+               "    if dim_a is not None and dim_b is not None and dim_a != dim_b:\n"
+               "        return None",
+        replacement="    # MUTANT: B20 dimension guard removed",
+        target="tests/test_dimension_guard.py",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3294,7 +3380,7 @@ ALL: tuple[Mutation, ...] = (
     + REVIEW_GOVERNANCE + REVIEW_DASHBOARD + ADMIN_EXPLORER
     + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
     + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
-    + DEMO_POLISH + STANDARDS_MODAL
+    + DEMO_POLISH + STANDARDS_MODAL + CONDITION_AND_QUOTES
 )
 
 

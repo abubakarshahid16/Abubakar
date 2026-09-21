@@ -73,6 +73,26 @@ def fact(**over) -> dict:
 
 DECIDED = {comparison.COMPLIANT, comparison.NON_COMPLIANT}
 
+#: B24 (the condition gate) was added after this file was written. The clause
+#: under test is conditional — it binds only carbon steel, low-alloy and alloy
+#: steel systems — so the gate now intercepts before the unit and limit branches
+#: these cases exist to exercise, and every one of them would abstain on the
+#: condition instead.
+#:
+#: That interception is correct, and it is tested in `test_condition_gate.py`.
+#: But if it stood here, the unit guard and the no-limit guard would stop being
+#: tested at all, so the material is supplied to establish the condition and let
+#: each case reach the branch it was written for. No assertion below is relaxed:
+#: the statuses and rationale substrings asserted are exactly the ones this file
+#: asserted before B24 existed.
+CARBON_STEEL = [{
+    "id": "fact-material-shell",
+    "field_name": "shell material",
+    "field_value": "SA-516 Gr 70 carbon steel",
+    "raw_value": None, "raw_unit": None, "page": 5,
+    "is_blank": False, "blank_marker": None,
+}]
+
 
 def assert_no_invented_quote(result: dict, *allowed_sources: str) -> None:
     """Nothing in double quotes in the rationale may be absent from the input.
@@ -97,7 +117,8 @@ def test_the_control_packet_does_reach_a_verdict():
     A test whose control also abstains cannot distinguish "abstained because
     evidence was removed" from "abstains always".
     """
-    out = comparison.compare(requirement(), fact())
+    out = comparison.compare(requirement(), fact(),
+                             submittal_facts=CARBON_STEEL)
     assert out["status"] in DECIDED, (
         f"control must reach a verdict, got {out['status']}: {out['rationale']}")
     assert out["status"] == comparison.NON_COMPLIANT, (
@@ -137,7 +158,7 @@ def test_case_2_a_clause_carrying_no_limit_is_not_compared():
     out = comparison.compare(
         requirement(requirement_text=FOREIGN_TEXT, source_text=FOREIGN_TEXT,
                     operator=None, raw_value=None, raw_unit=None),
-        fact())
+        fact(), submittal_facts=CARBON_STEEL)
     assert out["status"] not in DECIDED
     assert out["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert "no numeric limit" in out["rationale"]
@@ -156,7 +177,7 @@ def test_case_2_a_clause_carrying_no_limit_is_not_compared():
 def test_case_2b_a_limit_its_clause_text_does_not_support_is_refused():
     out = comparison.compare(
         requirement(requirement_text=FOREIGN_TEXT, source_text=FOREIGN_TEXT),
-        fact())
+        fact(), submittal_facts=CARBON_STEEL)
     assert out["status"] not in DECIDED
 
 
@@ -190,7 +211,8 @@ def test_case_4_incompatible_units_are_never_converted_by_guess():
     """Branch: `compare`'s `claims._compatible(...) is None`."""
     out = comparison.compare(requirement(),
                              fact(raw_value="60", raw_unit="degC",
-                                  field_value="60 degC"))
+                                  field_value="60 degC"),
+                             submittal_facts=CARBON_STEEL)
     assert out["status"] not in DECIDED
     assert out["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert "cannot be compared" in out["rationale"]
@@ -208,9 +230,11 @@ def test_no_removal_of_evidence_produces_a_verdict():
                                 blank_marker="BY VENDOR")),
         "clause carries no limit": comparison.compare(
             requirement(requirement_text=FOREIGN_TEXT, source_text=FOREIGN_TEXT,
-                        operator=None, raw_value=None, raw_unit=None), fact()),
+                        operator=None, raw_value=None, raw_unit=None), fact(),
+            submittal_facts=CARBON_STEEL),
         "incompatible units": comparison.compare(
-            requirement(), fact(raw_value="60", raw_unit="degC")),
+            requirement(), fact(raw_value="60", raw_unit="degC"),
+            submittal_facts=CARBON_STEEL),
     }
     for label, out in removals.items():
         assert out["status"] not in DECIDED, f"{label} produced {out['status']}"
