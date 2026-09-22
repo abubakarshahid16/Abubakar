@@ -59,7 +59,7 @@ function summaryBody(over: Record<string, unknown> = {}) {
     rejected_citations: [],
     evidence_removed: [],
     refusal: null,
-    dropped_sentences: [],
+    removed: [],
     not_implemented_sections: [],
     ...over,
   };

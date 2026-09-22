@@ -1106,13 +1106,18 @@ def recommendation(question: str, scope: access.AccessScope, *, limit: int = 8,
             "not_implemented_sections": list(NOT_IMPLEMENTED),
         }
 
+    removed: list[tuple[str, str]] = []
     rec = _generate_or_refuse(
         synthesis.recommend, question, rec_evidence, generate or ollama_generate,
-        checks=checks, basis="documents_only", preface=preface)
+        checks=checks, basis="documents_only", preface=preface, removed_out=removed)
     return {
         "question": question,
         "evidence_ledger": evidence,
         "recommendation": synthesis.recommendation_to_api(rec),
+        # B34: what the checks took out of the advice, with why. Present
+        # whether or not a recommendation survived - "every sentence was
+        # removed" is when a reader needs it most.
+        "removed": [{"sentence": s, "reason": r} for s, r in removed],
         # Null recommendation, named reason. A card that renders nothing and a
         # card that was refused look identical, and mean opposite things.
         "recommendation_refusal": (

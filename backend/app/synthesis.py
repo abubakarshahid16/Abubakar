@@ -147,6 +147,40 @@ _REFERENCE_NUMERAL = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
+#: B34: STANDARD NUMBERS ARE NAMES, NOT MEASUREMENTS - AND ONLY THESE SHAPES
+#: ARE. "SAES-H-004 requires 150 micrometers [S4]" was deleted because "004"
+#: was read as the quantity 4.0, no cited span contains 4, and the check
+#: removed a true sentence. This corpus is Saudi Aramco standards, so the
+#: model names one in almost every sentence and almost every good answer was
+#: emptied - while "doc17.pdf" had been exempt all along.
+#:
+#: A CLOSED GRAMMAR, built from the identifiers that actually occur in the
+#: indexed text (measured 2026-09-21 over every chunk):
+#:
+#:   SAES-[A-Z]-NN..NNNN, optional one-letter suffix  9,083 + 99 + 39 + 18 + 1
+#:   NN-SAMSS-NNN                                    2,363
+#:   SAEP-NN..NNNN                                   1,771
+#:   SABP-[A-Z]-NNN                                    170
+#:   SAER-NNNN or NNNNN                                125
+#:
+#: Shapes seen too rarely to trust (1-digit SAES x2, SAMSS variants x5,
+#: SATIP x2) are NOT admitted: a sentence naming one keeps its digits and is
+#: held to them, which can only over-reject, never let a value through.
+#: Case-sensitive, and bounded on both sides by anything that is not a word
+#: character or hyphen, so "SAES-H-004" matches and "XSAES-H-004", "SAES-H-0045"
+#: or "SAES-H-004-2" do not. It removes the IDENTIFIER'S OWN TEXT and nothing
+#: else: "per SAES-H-150, apply 150 micrometers" still holds the sentence to
+#: 150, because the measurement is a separate token the grammar never touches.
+_STANDARD_IDENTIFIER = re.compile(
+    r"(?<![\w-])(?:"
+    r"SAES-[A-Z]-\d{2,4}[A-Z]?"
+    r"|\d{2}-SAMSS-\d{3}"
+    r"|SAEP-\d{2,4}"
+    r"|SABP-[A-Z]-\d{3}"
+    r"|SAER-\d{4,5}"
+    r")(?![\w-])"
+)
+
 #: Openers that lean on a sentence in front of them. A summary that BEGINS with
 #: one is a fragment: the sentence it continued was removed by the citation
 #: check, and the reader is shown the second half of a thought. The connectives
@@ -443,18 +477,31 @@ def _numbers(text: str) -> set[str]:
     A comma before exactly three digits is a thousands separator; a comma
     anywhere else is a decimal point, because NORSOK writes them that way.
     """
-    found: set[str] = set()
-    for token in _NUMBER_TOKEN.findall(text):
-        cleaned = token
-        if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", cleaned):
-            cleaned = cleaned.replace(",", "")
-        elif re.fullmatch(r"\d+,\d+", cleaned):
-            cleaned = cleaned.replace(",", ".")
-        try:
-            found.add(repr(float(cleaned)))
-        except ValueError:
-            found.add(cleaned)  # "5.3.2" is a clause number, compared as written
-    return found
+    return {_normalise_number(token) for token in _NUMBER_TOKEN.findall(text)}
+
+
+def _normalise_number(token: str) -> str:
+    """One number token in the form `_numbers` compares."""
+    cleaned = token
+    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", cleaned):
+        cleaned = cleaned.replace(",", "")
+    elif re.fullmatch(r"\d+,\d+", cleaned):
+        cleaned = cleaned.replace(",", ".")
+    try:
+        return repr(float(cleaned))
+    except ValueError:
+        return cleaned  # "5.3.2" is a clause number, compared as written
+
+
+def first_unsupported_value(sentence: str, span_numbers: set[str]) -> str | None:
+    """The first measurement in a sentence that no cited span contains, AS THE
+    MODEL WROTE IT - "300", not the normalised "300.0" - so the reason shown to
+    a reader names the value they can see in the removed sentence."""
+    held = strip_reference_numerals(_CITATION.sub("", sentence))
+    for token in _NUMBER_TOKEN.findall(held):
+        if _normalise_number(token) not in span_numbers:
+            return token
+    return None
 
 
 def strip_reference_numerals(sentence: str) -> str:
@@ -467,8 +514,12 @@ def strip_reference_numerals(sentence: str) -> str:
     of numbers a sentence is held to; a measurement standing next to a
     reference - "Section 4 requires 50 mm" - is still checked, and still
     dropped when no cited span contains 50.
+
+    Standard numbers (B34) are removed by `_STANDARD_IDENTIFIER`, a closed
+    grammar, AFTER the reference patterns - so "SAES-H-001.pdf" is taken whole
+    as a filename and "SAES-H-001" alone as a standard name.
     """
-    return _REFERENCE_NUMERAL.sub(" ", sentence)
+    return _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))
 
 
 def claimed_numbers(sentence: str) -> set[str]:
@@ -590,12 +641,12 @@ def _cite(
         # Reference numerals - "Document 17", "clause 6.1", "Table 1", "page
         # 183", "doc17.pdf" - name a place, not a quantity, and are taken out
         # of the SENTENCE before the comparison. The spans are left whole.
-        claimed = claimed_numbers(sentence)
-        unsupported = sorted(claimed - _numbers(spans))
+        span_numbers = _numbers(spans)
+        unsupported = claimed_numbers(sentence) - span_numbers
         if unsupported:
-            dropped.append(
-                (sentence, f"carries a number no cited span contains: {unsupported[0]}")
-            )
+            # Named as the reader sees it: "value 300 not in cited passage".
+            value = first_unsupported_value(sentence, span_numbers) or sorted(unsupported)[0]
+            dropped.append((sentence, f"value {value} not in cited passage"))
             continue
         # The third form, and the one an engineering reader is least able to
         # catch: the sentence cites a real page and asserts a compliance,
@@ -1284,6 +1335,7 @@ def recommend(
     basis: Basis = "documents_only",
     system: str = RECOMMENDATION_SYSTEM_PROMPT,
     preface: str | None = None,
+    removed_out: list[tuple[str, str]] | None = None,
 ) -> Recommendation | None:
     """The advisory recommendation, or None. Runs LAST (7.3A).
 
@@ -1320,7 +1372,13 @@ def recommend(
         return None
 
     _valid, invented = validate_citations(text, len(sources))
-    findings, _dropped = _cite(_strip_invented(text, invented), sources)
+    findings, dropped = _cite(_strip_invented(text, invented), sources)
+    # B34: these were discarded here - the one place removed sentences
+    # vanished without a trace. Reported through `removed_out` BEFORE the
+    # empty-result return, because "every sentence was removed" is exactly
+    # the case a reader most needs to see the reasons for.
+    if removed_out is not None:
+        removed_out.extend(dropped)
     if not findings:
         return None
 
@@ -1393,7 +1451,10 @@ def summary_to_api(summary: Summary) -> dict:
         "rejected_citations": list(summary.rejected_citations),
         "evidence_removed": [dict(r) for r in summary.evidence_removed],
         "refusal": summary.refusal,
-        "dropped_sentences": [
+        # B34: REMOVED, NEVER SILENTLY DELETED. Every sentence the checks took
+        # out of the prose, with why ("value 300 not in cited passage"). The
+        # prose above excludes them; the UI shows them greyed with the reason.
+        "removed": [
             {"sentence": s, "reason": r} for s, r in summary.dropped_sentences
         ],
         # MAP-REDUCE. Named, not just counted: "documents_refused: 5" above a

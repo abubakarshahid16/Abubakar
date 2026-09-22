@@ -1044,11 +1044,10 @@ export interface DocumentedFinding {
   text_source: "extracted" | "recognised" | "mixed";
 }
 
-/** A sentence removed from the prose, and why. A sentence carrying a number
- *  that appears in no span it cites is DROPPED, never rendered with a warning
- *  beside it - the number would still be on screen, and the reader takes the
- *  number. */
-export interface DroppedSentence {
+/** A sentence removed from generated prose, and why (B34), e.g. "value 300
+ *  not in cited passage". Never part of the answer text; the UI shows it
+ *  greyed, outside the answer, so a removed number is not read as a stated one. */
+export interface RemovedSentence {
   sentence: string;
   reason: string;
 }
@@ -1065,7 +1064,7 @@ export interface AnalysisSummaryResult {
   rejected_citations: number[];
   evidence_removed: EvidenceRemoved[];
   refusal: string | null;
-  dropped_sentences: DroppedSentence[];
+  removed: RemovedSentence[];
   not_implemented_sections: string[];
 }
 
@@ -1143,6 +1142,9 @@ export interface AnalysisRecommendationResult {
   /** Null is not an empty recommendation. */
   recommendation: RecommendationOut | null;
   recommendation_refusal: string | null;
+  /** What the checks removed from the advice. Present even when no
+   *  recommendation survived. */
+  removed: RemovedSentence[];
   public_market_findings: MarketFinding[];
   not_implemented_sections: string[];
 }

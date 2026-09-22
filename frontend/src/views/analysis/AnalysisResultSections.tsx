@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ClaimTable } from "../../components/analysis/ClaimTable";
-import { DroppedSentences as DroppedSentencesView } from "../../components/analysis/DroppedSentences";
+import { RemovedSentences } from "../../components/analysis/RemovedSentences";
 import { GapAnalysisCard } from "../../components/analysis/GapAnalysisCard";
 import { MarketPanel } from "../../components/analysis/MarketPanel";
 import { RecommendationCard } from "../../components/analysis/RecommendationCard";
@@ -66,11 +66,12 @@ export function AnalysisResultSections({ ctx }: { ctx: RenderContext }) {
     {summarySlot.s === "idle" && gapsSlot.s === "idle" && <EmptyState title="Nothing has been run yet." hint="Choose the sections you need, then run the selected analysis. The frontend will not silently change the selected mode." />}
     {engines.summary && hasBody(summarySlot) && <Section title="Summary" eyebrow="document-backed synthesis"><SlotBody<SummarySlotData> slot={summarySlot} loadingLabel="Generating the summary" emptyTitle="No summary was produced for this question." emptyHint={filteredEmptyHint("Nothing the retrieval found could be summarised with a citation behind every sentence.")} onRetry={retry}>{(d: SummarySlotData) => <div className="space-y-3">
       {d.refusal !== null && <p role="status" className="rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">{d.refusal}</p>}
-      <SummaryCard result={d.result} onCite={onCite} /><DroppedSentencesView dropped={d.dropped} />
+      <SummaryCard result={d.result} onCite={onCite} /><RemovedSentences removed={d.removed} what="summary" />
     </div>}</SlotBody></Section>}
     {engines.recommendation && hasBody(recSlot) && <Section title="AI recommendation" eyebrow="advisory only"><SlotBody<RecommendationSlotData> slot={recSlot} loadingLabel="Computing the recommendation" emptyTitle="No recommendation was generated." emptyHint={filteredEmptyHint("Nothing was produced that carried a citation, so there is nothing to advise on.")} onRetry={retry}>{(d: RecommendationSlotData) => <div className="space-y-3">
       {d.refusal && <p role="status" className="rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">{d.refusal}</p>}
       {d.recommendation && <RecommendationCard recommendation={d.recommendation} onCite={onCite} />}
+      <RemovedSentences removed={d.removed} what="recommendation" />
     </div>}</SlotBody></Section>}
     {engines.gaps && hasBody(gapsSlot) && <Section title="Gap analysis" eyebrow={mode === "quote" ? "quote mode — cited document evidence, no model" : "baseline-controlled"}><SlotBody<GapsSlotData> slot={gapsSlot} loadingLabel="Comparing claims across documents" emptyTitle="No comparable claims were found." emptyHint={filteredEmptyHint("Retrieval found nothing carrying a measurable claim with a page behind it. That is not proof the documents say nothing.")} onRetry={retry}>{(d: GapsSlotData) => <div className="space-y-3">
       {mode === "quote" && <p className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300">Quote mode ran the mechanical comparison and nothing else. Everything below is document evidence with a page behind it — no model wrote any of it, and no summary or recommendation was requested.</p>}

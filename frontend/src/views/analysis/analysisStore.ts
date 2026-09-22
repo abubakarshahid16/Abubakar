@@ -5,12 +5,32 @@ import type { AnalysisResult, BaselineSelection, ClaimCluster, GapAnalysis, Reco
 import type { AnalysisMode, AnalysisToggles } from "../../components/analysis/ModeSelector";
 import { citedFindings, citedSummary, enginesFor, locate, onlySamples, slotFrom, toAnalysisResult, toClaimClusters, toGapAnalysis, toGapItems, toRecommendation, str } from "./analysisModel";
 import type { Slot } from "./analysisModel";
+
+/** One sentence the checks removed from generated prose, and why (B34). */
+export interface RemovedEntry {
+  sentence: string;
+  reason: string;
+}
+
+/** The API's `removed` list, normalised to strings HERE so the renderer never
+ *  has to guess. An entry whose `sentence` is missing or empty is still a
+ *  removal the API reported: it stays in the count and is named as
+ *  text-not-returned, never rendered as a bullet with nothing in it. */
+function toRemoved(value: unknown): RemovedEntry[] {
+  return (Array.isArray(value) ? value : [])
+    .filter((s): s is Record<string, unknown> => s !== null && typeof s === "object")
+    .map((s) => ({
+      sentence: typeof s.sentence === "string" ? s.sentence : "",
+      reason: typeof s.reason === "string" ? s.reason : "",
+    }));
+}
+
 // ------------------------------------------------------------- what renders
 
 export interface SummarySlotData {
   result: AnalysisResult;
   refusal: string | null;
-  dropped: { sentence: string; reason: string }[];
+  removed: RemovedEntry[];
   ledger: EvidenceItem[];
 }
 
@@ -23,6 +43,7 @@ export interface GapsSlotData {
 export interface RecommendationSlotData {
   recommendation: Recommendation | null;
   refusal: string | null;
+  removed: RemovedEntry[];
   findings: MarketFinding[];
   ledger: EvidenceItem[];
 }
@@ -321,17 +342,12 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
             // still a removal the API reported: it stays in the count and is
             // named as text-not-returned below, never rendered as a bullet
             // with nothing in it.
-            const dropped = (Array.isArray(d.dropped_sentences) ? d.dropped_sentences : [])
-              .filter((s) => s !== null && typeof s === "object")
-              .map((s) => ({
-                sentence: typeof s.sentence === "string" ? s.sentence : "",
-                reason: typeof s.reason === "string" ? s.reason : "",
-              }));
+            const removed = toRemoved(d.removed);
             if (prose === null && findings.length === 0 && refusal === null) return null;
             return {
               result: toAnalysisResult(d, prose, findings),
               refusal,
-              dropped,
+              removed,
               ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
             };
           }),
@@ -374,10 +390,15 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
             const findings = rec === null ? [] : onlySamples(d.public_market_findings);
             const refusal = typeof d.recommendation_refusal === "string" && d.recommendation_refusal.trim() !== ""
               ? d.recommendation_refusal : null;
-            if (rec === null && findings.length === 0 && refusal === null) return null;
+            // B34: what the checks removed from the advice. It keeps the slot
+            // alive on its own - "every sentence was removed" is the case a
+            // reader most needs to see, and it has no recommendation.
+            const removed = toRemoved(d.removed);
+            if (rec === null && findings.length === 0 && refusal === null && removed.length === 0) return null;
             return {
               recommendation: rec,
               refusal,
+              removed,
               findings,
               ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
             };

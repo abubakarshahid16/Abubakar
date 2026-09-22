@@ -61,7 +61,7 @@ function summaryBody(dropped: unknown[]) {
     rejected_citations: [],
     evidence_removed: [],
     refusal: null,
-    dropped_sentences: dropped,
+    removed: dropped,
     not_implemented_sections: [],
   };
 }
@@ -92,10 +92,8 @@ async function run() {
 /** The disclosure itself. The screen has other lists on it; the rule under
  *  test is about the bullets INSIDE this <details>. */
 function disclosure(): HTMLElement {
-  const summary = screen.getByText(/removed from this summary/);
-  const details = summary.closest("details");
-  if (details === null) throw new Error("no <details> around the disclosure");
-  return details;
+  // B34: a visible, labelled region - no longer a collapsed <details>.
+  return screen.getByRole("region", { name: "Sentences removed from this summary" });
 }
 
 beforeEach(() => {
@@ -136,7 +134,7 @@ describe("removed sentences: the disclosure is never empty", () => {
       summaryBody([
         {
           sentence: "The system is compliant with relevant standards.",
-          reason: "carries a number no cited span contains: 250",
+          reason: "value 250 not in cited passage",
         },
       ]),
     );
@@ -147,7 +145,7 @@ describe("removed sentences: the disclosure is never empty", () => {
     const items = within(disclosure()).getAllByRole("listitem");
     expect(items).toHaveLength(1);
     expect(items[0]).toHaveTextContent("The system is compliant with relevant standards.");
-    expect(items[0]).toHaveTextContent("carries a number no cited span contains: 250");
+    expect(items[0]).toHaveTextContent("value 250 not in cited passage");
     // Nothing was withheld, so nothing says anything was.
     expect(screen.queryByText(/reported without the removed text/)).not.toBeInTheDocument();
   });
