@@ -43,12 +43,27 @@ _BLOCKED = {
     "document_delete": "Delete is blocked",
     "reject": "Rejecting this requirement is blocked",
     "re_chunk": "Re-chunking is blocked",
+    # B40
+    "re_extract_facts": "Re-reading this datasheet's fields is blocked",
 }
 
 #: The way forward that EXISTS on screen. An updated standard is a new
 #: document plus "Superseded by" on the old one, which deletes nothing.
 _WHAT_TO_DO = ("To update a standard, upload the new revision and set "
                "\"Superseded by\" on this standard in the Standards page.")
+
+#: B40. Facts are per document and REUSED across runs, so an ordinary review
+#: never needs them re-read; only a deliberate re-parse does.
+_WHAT_TO_DO_FACTS = ("A review reuses the fields already read from this "
+                     "datasheet, so it does not need them re-read. Re-read "
+                     "them only to correct a parsing fault, on purpose.")
+
+#: What each kind of citation is called in the message, and what to do about
+#: it. `requirements` wording is B38's, unchanged.
+_KINDS = {
+    "requirements": ("this standard's requirements", _WHAT_TO_DO),
+    "facts": ("this datasheet's fields", _WHAT_TO_DO_FACTS),
+}
 
 
 class OrphaningRefused(RuntimeError):
@@ -61,16 +76,19 @@ class OrphaningRefused(RuntimeError):
     dialog that would expose it on screen is agreed but deferred.
     """
 
-    def __init__(self, action: str, document_id: str | None, findings: int):
+    def __init__(self, action: str, document_id: str | None, findings: int,
+                 kind: str = "requirements"):
         self.action = action
         self.document_id = document_id
         self.findings = findings
+        self.kind = kind
         cite = "cites" if findings == 1 else "cite"
         plural = "" if findings == 1 else "s"
+        what, advice = _KINDS[kind]
         super().__init__(
             f"{_BLOCKED.get(action, 'This change is blocked')} because "
-            f"{findings} review finding{plural} {cite} this standard's "
-            f"requirements, and they could no longer be traced. {_WHAT_TO_DO}")
+            f"{findings} review finding{plural} {cite} {what}, and they could "
+            f"no longer be traced. {advice}")
 
 
 def findings_orphaned_by(requirement_where: str, params: tuple | list) -> int:
@@ -91,6 +109,24 @@ def findings_orphaned_by(requirement_where: str, params: tuple | list) -> int:
         raise
 
 
+def findings_orphaned_by_facts(fact_where: str, params: tuple | list) -> int:
+    """How many review findings cite a `submittal_facts` row the WHERE selects.
+
+    B40, the same shape as `findings_orphaned_by` one table over:
+    `review_findings.fact_id` has no foreign key either, and
+    `extract_facts(replace=True)` deletes the unconfirmed rows it points at.
+    """
+    try:
+        return connect().execute(
+            "SELECT COUNT(*) FROM review_findings WHERE fact_id IN"
+            f" (SELECT id FROM submittal_facts WHERE {fact_where})",
+            tuple(params)).fetchone()[0]
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc):
+            return 0
+        raise
+
+
 def check(action: str, *, requirement_where: str, params: tuple | list,
           document_id: str | None, acknowledge: bool,
           actor: dict | None = None) -> int:
@@ -99,13 +135,31 @@ def check(action: str, *, requirement_where: str, params: tuple | list,
     Nothing is recorded when nothing would be orphaned - the ordinary case
     for a standard no review has cited yet.
     """
-    orphaned = findings_orphaned_by(requirement_where, params)
+    return _decide(action, findings_orphaned_by(requirement_where, params),
+                   document_id, acknowledge, actor, kind="requirements")
+
+
+def check_facts(action: str, *, fact_where: str, params: tuple | list,
+                document_id: str | None, acknowledge: bool,
+                actor: dict | None = None) -> int:
+    """B40: the same decision for facts a finding cites.
+
+    ONE LIVE PATH, measured 2026-09-22: `extract_facts(replace=True)`. The
+    cascades are not orphaning paths - deleting a submittal takes its findings
+    AND its facts together - and nothing deletes `review_runs`.
+    """
+    return _decide(action, findings_orphaned_by_facts(fact_where, params),
+                   document_id, acknowledge, actor, kind="facts")
+
+
+def _decide(action: str, orphaned: int, document_id: str | None,
+            acknowledge: bool, actor: dict | None, *, kind: str) -> int:
     if orphaned == 0:
         return 0
     _record(action, document_id, orphaned, actor,
             outcome="ok" if acknowledge else "refused")
     if not acknowledge:
-        raise OrphaningRefused(action, document_id, orphaned)
+        raise OrphaningRefused(action, document_id, orphaned, kind)
     return orphaned
 
 

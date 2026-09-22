@@ -3813,8 +3813,10 @@ B38_ORPHAN_GUARD = (
         description="the refusal tells a screen user to set an API flag they "
                     "cannot reach, instead of what to do (Superseded by)",
         path=APP / "orphan_guard.py",
-        anchor='            f"requirements, and they could no longer be traced. {_WHAT_TO_DO}")',
-        replacement='            f"requirements. Repeat with acknowledge_orphaned_findings=true.")',
+        # Re-anchored by B40: the message is now built per kind (requirements
+        # or facts), so the wording moved into `advice`.
+        anchor='            f"no longer be traced. {advice}")',
+        replacement='            f"no longer be traced. Repeat with acknowledge_orphaned_findings=true.")',
         target=_B38_TEST, keyword="409",
         tags=("ui",),
     ),
@@ -3905,6 +3907,44 @@ B9_NOT_IN_DOCUMENT_SCOPE = (
 )
 
 
+#: B40: the same orphaning one table over - `extract_facts(replace=True)`
+#: deletes unconfirmed facts that findings cite by `fact_id`.
+_B40_TEST = "tests/test_b40_fact_orphan_guard.py"
+B40_FACT_GUARD = (
+    Mutation(
+        id="M334", phase=39,
+        description="PUT B40 BACK: re-reading a datasheet deletes cited facts "
+                    "unguarded",
+        path=APP / "datasheets.py",
+        anchor='    if replace:\n        orphan_guard.check_facts(\n            "re_extract_facts",',
+        replacement='    if False:\n        orphan_guard.check_facts(\n            "re_extract_facts",',
+        target=_B40_TEST, keyword="recorded_and_refused or says_what_to_do",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M335", phase=39,
+        description="count facts the caller may not even delete: confirmed ones "
+                    "block a re-read that was never a risk",
+        path=APP / "datasheets.py",
+        anchor='            fact_where="submittal_document_id = ? AND confirmed_by IS NULL",',
+        replacement='            fact_where="submittal_document_id = ?",',
+        target=_B40_TEST, keyword="confirmed_fact",
+    ),
+    Mutation(
+        id="M336", phase=39,
+        description="the facts guard counts REQUIREMENT citations instead, so a "
+                    "cited datasheet reads as safe",
+        path=APP / "orphan_guard.py",
+        anchor="            \"SELECT COUNT(*) FROM review_findings WHERE fact_id IN\"\n"
+               "            f\" (SELECT id FROM submittal_facts WHERE {fact_where})\",",
+        replacement="            \"SELECT COUNT(*) FROM review_findings WHERE requirement_id IN\"\n"
+                    "            f\" (SELECT id FROM submittal_facts WHERE {fact_where})\",",
+        target=_B40_TEST, keyword="recorded_and_refused",
+        tags=("critical",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3917,7 +3957,7 @@ ALL: tuple[Mutation, ...] = (
     + DEMO_POLISH + STANDARDS_MODAL + CONDITION_AND_QUOTES
     + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE + B12_SCOPED_CORRECTIONS
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
-    + B38_ORPHAN_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
+    + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
 )
 
 
