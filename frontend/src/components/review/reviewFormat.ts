@@ -10,6 +10,8 @@
  *  - MISSING_INFORMATION is never coloured or worded as a failure. A field
  *    nobody filled in is a question for the contractor, not a breach, and a
  *    red badge would turn 1,578 unanswered requirements into 1,578 accusations;
+ *  - NOT_IN_DOCUMENT_SCOPE is neither a failure NOR the contractor's omission
+ *    (B9): its words never say "missing" and its tone is not missing's;
  *  - a nominal estimate says it is nominal.
  */
 import type { ComplianceStatus, ReviewRunSummary } from "../../types/api";
@@ -30,6 +32,8 @@ export const STATUS_ORDER: ComplianceStatus[] = [
   "COMPLIANT",
   "NOT_APPLICABLE",
   "MISSING_INFORMATION",
+  // Last: nothing on this submittal can act on it (B9).
+  "NOT_IN_DOCUMENT_SCOPE",
 ];
 
 export function statusRank(status: string | null | undefined): number {
@@ -45,6 +49,9 @@ export const STATUS_LABEL: Record<ComplianceStatus, string> = {
   COMPLIANT: "Compliant",
   NOT_APPLICABLE: "Not applicable",
   MISSING_INFORMATION: "No evidence submitted",
+  // The owner's approved client-facing wording, 2026-09-22.
+  NOT_IN_DOCUMENT_SCOPE:
+    "Requires another document - not answerable from this submittal type",
 };
 
 /**
@@ -61,6 +68,9 @@ export const STATUS_TONE: Record<ComplianceStatus, string> = {
   COMPLIANT: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
   NOT_APPLICABLE: "border-ink-600 bg-ink-800 text-slateish-300",
   MISSING_INFORMATION: "border-ink-600 bg-ink-800 text-slateish-300",
+  // Neutral like missing, but DASHED and dimmer so the two never read alike:
+  // one is a question for the contractor, the other is not about them.
+  NOT_IN_DOCUMENT_SCOPE: "border-dashed border-ink-600 bg-ink-900 text-slateish-400",
 };
 
 export function statusLabel(status: string | null | undefined): string {

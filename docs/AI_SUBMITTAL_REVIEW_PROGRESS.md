@@ -94,7 +94,8 @@ Decisions worth naming:
 - **No CHECK constraints.** This schema carries exactly one (`roles.kind`).
   SQLite cannot `ALTER ADD` a CHECK, so a second would force a table rebuild at
   the next column migration. The 5 roles and 6 statuses are enforced in
-  Pydantic and appear in the OpenAPI contract as enums.
+  Pydantic and appear in the OpenAPI contract as enums. (7 statuses since
+  2026-09-22: B9 added `NOT_IN_DOCUMENT_SCOPE`, the same way - no CHECK.)
 - **`review_applicable_standards` is a relation, not a JSON column**, because
   it is joined, permission-filtered and audited. A ruled-out standard stays as
   a row with its `exclusion_reason`: "we looked at this and decided it did not

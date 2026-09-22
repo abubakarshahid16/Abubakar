@@ -6,6 +6,8 @@
  * requirement. Leading with those buries the two that need a person, so the
  * order is NON_COMPLIANT, NEEDS_ENGINEER_REVIEW, CONDITIONAL, COMPLIANT,
  * NOT_APPLICABLE, and MISSING_INFORMATION is collapsed behind its own count.
+ * NOT_IN_DOCUMENT_SCOPE (B9) is collapsed behind a SEPARATE count: it is not
+ * the contractor's omission, and folding it into "no evidence" would say it is.
  *
  * COLLAPSED, NOT HIDDEN. The count is on screen with its denominator and one
  * click opens it. A screen that dropped them would be answering "how much of
@@ -28,6 +30,7 @@ export interface FindingsTableProps {
 }
 
 const MISSING = "MISSING_INFORMATION";
+const OUT_OF_SCOPE = "NOT_IN_DOCUMENT_SCOPE";
 
 export function FindingsTable(
   { findings, selectedId, standardNames, onSelect }: FindingsTableProps,
@@ -36,6 +39,7 @@ export function FindingsTable(
   const [tag, setTag] = useState<string>("");
   const [standard, setStandard] = useState<string>("");
   const [showMissing, setShowMissing] = useState(false);
+  const [showOutOfScope, setShowOutOfScope] = useState(false);
 
   const tags = useMemo(
     () => Array.from(new Set(findings.map((f) => f.equipment_tag).filter(Boolean))) as string[],
@@ -60,9 +64,15 @@ export function FindingsTable(
     });
   }, [findings, status, tag, standard]);
 
-  const actionable = filtered.filter((f) => f.compliance_status !== MISSING);
+  const actionable = filtered.filter(
+    (f) => f.compliance_status !== MISSING && f.compliance_status !== OUT_OF_SCOPE);
   const missing = filtered.filter((f) => f.compliance_status === MISSING);
-  const visible = showMissing ? [...actionable, ...missing] : actionable;
+  const outOfScope = filtered.filter((f) => f.compliance_status === OUT_OF_SCOPE);
+  const visible = [
+    ...actionable,
+    ...(showMissing ? missing : []),
+    ...(showOutOfScope ? outOfScope : []),
+  ];
 
   return (
     <section aria-labelledby="findings-title" className="space-y-3">
@@ -167,6 +177,32 @@ export function FindingsTable(
           className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-300"
         >
           Hide the {missing.length.toLocaleString()} with no evidence
+        </button>
+      )}
+      {outOfScope.length > 0 && !showOutOfScope && (
+        <button
+          type="button" onClick={() => setShowOutOfScope(true)}
+          className="w-full rounded-[var(--radius-md)] border border-dashed border-ink-700 bg-ink-900 px-4 py-3 text-left text-sm text-slateish-400 hover:border-ink-500"
+        >
+          <span className="font-semibold text-slateish-300">
+            {outOfScope.length.toLocaleString()} requirements need another document
+          </span>
+          <span className="ml-2 text-slateish-500">
+            ({withDenominator(outOfScope.length, findings.length)}) — show
+          </span>
+          <span className="mt-1 block text-xs text-slateish-500">
+            Not answerable from this submittal type. They are checked in the
+            documents that govern them - not a contractor omission, and not a
+            breach.
+          </span>
+        </button>
+      )}
+      {outOfScope.length > 0 && showOutOfScope && (
+        <button
+          type="button" onClick={() => setShowOutOfScope(false)}
+          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-300"
+        >
+          Hide the {outOfScope.length.toLocaleString()} that need another document
         </button>
       )}
       {visible.length === 0 && (

@@ -147,3 +147,73 @@ describe("the pairing is labelled", () => {
     expect(screen.queryByText(/confidence high/)).toBeNull();
   });
 });
+
+describe("B9: a requirement that needs another document", () => {
+  function mixedRun(): ReviewFinding[] {
+    const rows: ReviewFinding[] = [
+      finding({
+        id: "act", compliance_status: "NEEDS_ENGINEER_REVIEW",
+        standard_document_id: "doc_std", standard_clause: "6.2.2",
+        matched_phrase: "maximum operating pressure", match_method: "containment",
+      }),
+    ];
+    for (let i = 0; i < 3; i += 1) {
+      rows.push(finding({
+        id: `m${i}`, compliance_status: "MISSING_INFORMATION",
+        standard_document_id: "doc_std", standard_clause: `9.${i}`,
+      }));
+    }
+    for (let i = 0; i < 40; i += 1) {
+      rows.push(finding({
+        id: `s${i}`, compliance_status: "NOT_IN_DOCUMENT_SCOPE",
+        standard_document_id: "doc_std", standard_clause: `4.${i}`,
+        standard_page: 7,
+        requirement: `Statement ${i}`,
+      }));
+    }
+    return rows;
+  }
+
+  it("is collapsed behind its OWN count, never inside 'no evidence'", () => {
+    render(<FindingsTable findings={mixedRun()} selectedId={null} onSelect={vi.fn()} />);
+
+    expect(screen.getByText(/40 requirements need another document/)).toBeInTheDocument();
+    expect(screen.getByText(/40 of 44/)).toBeInTheDocument();
+    // The contractor's count is the 3 real omissions, not 43.
+    expect(screen.getByText(/3 requirements had no evidence/)).toBeInTheDocument();
+    expect(screen.queryByText(/43 requirements had no evidence/)).toBeNull();
+    expect(screen.queryByText("Statement 0")).toBeNull();
+  });
+
+  it("never words it as the contractor's omission or a breach", async () => {
+    const user = userEvent.setup();
+    render(<FindingsTable findings={mixedRun()} selectedId={null} onSelect={vi.fn()} />);
+
+    const summary = screen.getByText(/40 requirements need another document/).closest("button");
+    expect(summary).not.toBeNull();
+    expect(summary!.textContent).toMatch(/not a contractor omission, and not a\s+breach/);
+
+    await user.click(summary!);
+    const row = screen.getByText("Statement 0").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText(
+      "Requires another document - not answerable from this submittal type",
+    )).toBeInTheDocument();
+    expect(within(row!).queryByText("No evidence submitted")).toBeNull();
+  });
+
+  it("shows each item's clause, page and text, not just a count", async () => {
+    // The owner's merge condition: R1 misclassifies ~13% (sample, seed
+    // 20260922), so an engineer must be able to SEE each one to catch it.
+    const user = userEvent.setup();
+    render(<FindingsTable findings={mixedRun()} selectedId={null} onSelect={vi.fn()} />);
+
+    await user.click(screen.getByText(/40 requirements need another document/));
+
+    const row = screen.getByText("Statement 3").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText(/clause 4\.3/)).toBeInTheDocument();
+    expect(within(row!).getByText(/p7/)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Statement \d+$/)).toHaveLength(40);
+  });
+});

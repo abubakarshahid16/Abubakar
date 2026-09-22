@@ -17,7 +17,10 @@ import type { ReviewRunSummary } from "../../types/api";
 describe("attention order", () => {
   it("puts what asserts a breach first and what asserts nothing last", () => {
     expect(STATUS_ORDER[0]).toBe("NON_COMPLIANT");
-    expect(STATUS_ORDER[STATUS_ORDER.length - 1]).toBe("MISSING_INFORMATION");
+    // B9: a requirement this submittal type cannot answer asks nothing of
+    // anyone on it, so it follows even the contractor's missing fields.
+    expect(STATUS_ORDER[STATUS_ORDER.length - 2]).toBe("MISSING_INFORMATION");
+    expect(STATUS_ORDER[STATUS_ORDER.length - 1]).toBe("NOT_IN_DOCUMENT_SCOPE");
   });
 
   it("sorts a real run's statuses so the two actionable rows lead", () => {
@@ -29,6 +32,22 @@ describe("attention order", () => {
 
   it("puts an unknown status last rather than first", () => {
     expect(statusRank("SOMETHING_NEW")).toBeGreaterThan(statusRank("MISSING_INFORMATION"));
+  });
+});
+
+describe("B9: needing another document is neither a failure nor an omission", () => {
+  it("carries the owner's approved wording, and never says 'missing'", () => {
+    const label = statusLabel("NOT_IN_DOCUMENT_SCOPE");
+    expect(label).toBe(
+      "Requires another document - not answerable from this submittal type");
+    for (const word of ["missing", "fail", "non-compliant", "no evidence"]) {
+      expect(label.toLowerCase()).not.toContain(word);
+    }
+  });
+
+  it("is never red, and never reads like missing information", () => {
+    expect(statusTone("NOT_IN_DOCUMENT_SCOPE")).not.toContain("rose");
+    expect(statusTone("NOT_IN_DOCUMENT_SCOPE")).not.toBe(statusTone("MISSING_INFORMATION"));
   });
 });
 
