@@ -4100,6 +4100,54 @@ B44_UNREADABLE_FILE = (
 )
 
 
+#: B50: a model row that fails its schema is refused, never coerced. The two
+#: malformations these protect against are real - a 9B returned them on the
+#: frozen packet.
+_B50_TEST = "tests/test_extraction_schema.py"
+B50_MODEL_SCHEMA = (
+    Mutation(
+        id="M348", phase=43,
+        description="PUT B50 BACK: drop strict mode, so pydantic coerces the "
+                    "string \"4\" into a page number",
+        path=APP / "extraction_schema.py",
+        anchor='    model_config = ConfigDict(extra="forbid", strict=True)\n\n'
+               "    #: Verbatim as printed",
+        replacement='    model_config = ConfigDict(extra="forbid")\n\n'
+                    "    #: Verbatim as printed",
+        target=_B50_TEST, keyword="page_that_is_not_a_real_integer",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M349", phase=43,
+        description="accept page 0 and negative pages, which cite nothing",
+        path=APP / "extraction_schema.py",
+        anchor="        if page < 1:\n            raise ValueError",
+        replacement="        if False:\n            raise ValueError",
+        target=_B50_TEST, keyword="page_that_is_not_a_real_integer",
+    ),
+    Mutation(
+        id="M350", phase=43,
+        description="let a blank label, value or source span through, so a row "
+                    "B23 can never check becomes a fact",
+        path=APP / "extraction_schema.py",
+        anchor='        if not text.strip():\n            raise ValueError',
+        replacement="        if False:\n            raise ValueError",
+        target=_B50_TEST, keyword="required_string_that_is_blank",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M351", phase=43,
+        description="a response that will not parse becomes an empty page "
+                    "instead of a page refusal",
+        path=APP / "extraction_schema.py",
+        anchor='        return [], [f"{PAGE_UNPARSEABLE}: {exc.msg} at position {exc.pos}"]',
+        replacement="        return [], []",
+        target=_B50_TEST, keyword="will_not_parse_is_a_page_refusal",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4114,6 +4162,7 @@ ALL: tuple[Mutation, ...] = (
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
     + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
+    + B50_MODEL_SCHEMA
 )
 
 
