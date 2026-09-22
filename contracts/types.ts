@@ -346,7 +346,9 @@ export type ComplianceStatus =
   | "MISSING_INFORMATION"
   | "CONDITIONAL"
   | "NOT_APPLICABLE"
-  | "NEEDS_ENGINEER_REVIEW";
+  | "NEEDS_ENGINEER_REVIEW"
+  /** B9: this submittal TYPE cannot answer it; checked in another document. */
+  | "NOT_IN_DOCUMENT_SCOPE";
 
 /** One standard on a run's list, with the reason it is there, verbatim. */
 /** One labelled line of the CRS header block, rows 3-7 of the sheet.

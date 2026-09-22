@@ -473,6 +473,66 @@ def test_completeness_reports_its_denominator():
     assert "fields_read" in result
 
 
+# ------------------------------------------ B9: NOT_IN_DOCUMENT_SCOPE, rule R1
+
+_STATEMENT = {
+    "requirement_type": "statement", "operator": None, "raw_value": None,
+    "raw_unit": None, "field": None,
+    "requirement_text": "Welding procedures shall be qualified before production welding.",
+    "source_text": "Welding procedures shall be qualified before production welding.",
+}
+
+
+def test_an_unmatched_statement_is_not_in_document_scope_not_missing():
+    """B9, R1. A statement names no field or value a datasheet could fill in,
+    so a datasheet that does not state it has omitted nothing."""
+    verdict = comparison.compare(_requirement("std", "c1", **_STATEMENT), None)
+    assert verdict["status"] == comparison.NOT_IN_DOCUMENT_SCOPE
+    assert verdict["status"] != comparison.MISSING_INFORMATION
+
+
+def test_an_unmatched_limit_is_still_missing_information():
+    """Control: R1 moves statements ONLY. A limit the sheet should state and
+    does not is still the contractor's omission."""
+    verdict = comparison.compare(_requirement("std", "c1"), None)
+    assert verdict["status"] == comparison.MISSING_INFORMATION
+
+
+def test_a_statement_that_met_a_blank_field_is_still_the_contractors_to_fill(tmp_path):
+    """R1 applies only when NOTHING matched. A statement paired with a field
+    the sheet leaves "By Contractor" is a real omission."""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL")
+    blank = _fact(sub, _chunk("fc", sub), raw_value=None, field_value="By Contractor",
+                  is_blank=1, blank_marker="By Contractor")
+    verdict = comparison.compare(_requirement("std", "c1", **_STATEMENT), blank)
+    assert verdict["status"] == comparison.MISSING_INFORMATION
+
+
+def test_out_of_scope_findings_never_approve_a_submittal():
+    """NORTH-STAR 2.2. Moved out of the missing count, an out-of-scope-only
+    run used to fall through to "every evaluated requirement is met"."""
+    findings = [{"compliance_status": comparison.NOT_IN_DOCUMENT_SCOPE}] * 3
+    complete = {"sufficient": True, "fields_read": 100, "fields_estimated": 100}
+    result = comparison.recommend_code(findings, complete)
+    assert result["code"] == comparison.CODE_MANUAL
+    assert result["code"] != comparison.CODE_APPROVED
+    assert result["not_in_document_scope"] == 3
+
+
+def test_out_of_scope_is_never_counted_as_the_contractors_omission():
+    """The owner's rule: not a contractor omission. It is counted APART, and
+    the "left for the contractor to provide" wording counts only the real
+    missing field."""
+    findings = [{"compliance_status": comparison.NOT_IN_DOCUMENT_SCOPE}] * 5 + [
+        {"compliance_status": comparison.MISSING_INFORMATION}]
+    complete = {"sufficient": True, "fields_read": 100, "fields_estimated": 100}
+    result = comparison.recommend_code(findings, complete)
+    assert result["code"] == comparison.CODE_APPROVED_WITH_COMMENTS
+    assert result["missing_information"] == 1
+    assert result["not_in_document_scope"] == 5
+    assert result["reason"].startswith("1 field(s)")
+
+
 # ------------------------------------------------ B18: an unmeasured factor
 
 def test_an_unmeasured_extraction_does_not_let_references_alone_score_the_run():

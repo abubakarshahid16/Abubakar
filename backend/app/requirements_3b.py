@@ -44,6 +44,10 @@ REQUIREMENT_TYPES = (
     "table_value",
 )
 
+#: An obligation with no field, subject or value a sheet could fill in. Named
+#: because `comparison` routes it (B9: NOT_IN_DOCUMENT_SCOPE when unmatched).
+STATEMENT = "statement"
+
 #: A sentence whose obligation is "go and read that other document", stated
 #: under a condition that happens to contain a number.
 #:
