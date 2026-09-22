@@ -16,6 +16,8 @@ Mutations: M49-M55, `python scripts/mutation_check.py --phase 5`.
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
 from app import claims, datasheets, db, submittal_review
@@ -406,3 +408,166 @@ def test_re_extracting_does_not_double_the_facts(tmp_path):
     datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
     assert len(datasheets.list_facts(
         doc, allowed_document_ids=_scope(doc))) == first["facts"]
+
+
+# ======================================================================= B44
+#
+# A FILE NOBODY COULD OPEN WAS REPORTED AS A PAGE WITH NO VALUES ON IT.
+#
+# The bare `except Exception` around the PDF open meant a missing, damaged,
+# empty or encrypted file came back as an empty pair list, which reached
+# `_unparsed_reason` and produced "no label-value pairs recovered from this
+# page" - the sentence that function's own docstring warns is an OCR question.
+# The page was counted as READ as well, because `pages_read` is keyed off chunk
+# spans rather than parse success, so `parsed_fraction` was computed over pages
+# that were never opened.
+#
+# Every case below was reproduced against PyMuPDF 1.28.2 before it was written.
+
+
+def _unreadable_doc(tmp_path, blob: bytes, doc_id: str):
+    """A document row whose stored file is damaged in some specific way.
+
+    The chunks are real, because that is the situation: the file was readable
+    when it was ingested and is not readable now. A test that also removed the
+    chunks would prove nothing - the no-chunks path returns early.
+    """
+    good = _datasheet_pdf(tmp_path / f"{doc_id}-good.pdf", ROWS, ruled=False)
+    _ingest(good, doc_id=doc_id, filename=f"{doc_id}.pdf")
+    broken = tmp_path / f"{doc_id}-broken.pdf"
+    broken.write_bytes(blob)
+    with db.connect() as conn:
+        conn.execute("UPDATE documents SET stored_path = ? WHERE id = ?",
+                     (str(broken), doc_id))
+    return doc_id
+
+
+def _valid_pdf_bytes(tmp_path) -> bytes:
+    return pathlib.Path(
+        _datasheet_pdf(tmp_path / "source.pdf", ROWS, ruled=False)).read_bytes()
+
+
+@pytest.mark.parametrize("case,blob_kind,rule", [
+    ("missing", "absent", "pdf_missing"),
+    ("empty", "zero_bytes", "pdf_empty_file"),
+    ("garbage", "not_a_pdf", "pdf_damaged"),
+])
+def test_b44_an_unreadable_file_is_named_not_called_a_page_with_no_values(
+        tmp_path, case, blob_kind, rule):
+    """THE DEFECT, once per measured case. The reason names the FILE."""
+    doc_id = f"doc_{case}"
+    if blob_kind == "absent":
+        good = _datasheet_pdf(tmp_path / "g.pdf", ROWS, ruled=False)
+        _ingest(good, doc_id=doc_id, filename=f"{doc_id}.pdf")
+        with db.connect() as conn:
+            conn.execute("UPDATE documents SET stored_path = ? WHERE id = ?",
+                         (str(tmp_path / "not_here.pdf"), doc_id))
+    else:
+        blob = b"" if blob_kind == "zero_bytes" else b"this is not a pdf at all"
+        _unreadable_doc(tmp_path, blob, doc_id)
+
+    out = datasheets.extract_facts(doc_id, allowed_document_ids=_scope(doc_id))
+
+    assert [u["rule"] for u in out["unreadable"]] == [rule], \
+        f"the file's condition was not named: {out['unreadable']}"
+    assert out["unreadable"][0]["reason"] == datasheets.UNREADABLE[rule]
+    assert "no label-value pairs recovered" not in str(out["unreadable"]), \
+        "an unopenable file was reported as a page that printed nothing"
+
+
+@pytest.mark.parametrize("case,blob_kind,rule", [
+    ("missing2", "absent", "pdf_missing"),
+    ("empty2", "zero_bytes", "pdf_empty_file"),
+    ("garbage2", "not_a_pdf", "pdf_damaged"),
+])
+def test_b44_a_page_that_was_never_opened_is_not_counted_as_read(
+        tmp_path, case, blob_kind, rule):
+    """It lowered completeness with the wrong reason AND inflated the
+    denominator. `parsed_fraction` is None, not 0.0: nothing was read, so there
+    is no fraction to state - the same distinction the no-chunks path makes."""
+    doc_id = f"doc_{case}"
+    if blob_kind == "absent":
+        good = _datasheet_pdf(tmp_path / "g2.pdf", ROWS, ruled=False)
+        _ingest(good, doc_id=doc_id, filename=f"{doc_id}.pdf")
+        with db.connect() as conn:
+            conn.execute("UPDATE documents SET stored_path = ? WHERE id = ?",
+                         (str(tmp_path / "gone.pdf"), doc_id))
+    else:
+        blob = b"" if blob_kind == "zero_bytes" else b"%NOT-A-PDF"
+        _unreadable_doc(tmp_path, blob, doc_id)
+
+    out = datasheets.extract_facts(doc_id, allowed_document_ids=_scope(doc_id))
+
+    assert out["pages_read"] == 0, "a page nobody opened was counted as read"
+    assert out["parsed_fraction"] is None, \
+        "a fraction was stated over pages that were never read"
+    assert out["pages_unreadable"] >= 1
+    assert out["facts"] == 0
+
+
+def test_b44_an_encrypted_file_is_named_before_a_page_is_touched(tmp_path):
+    """An encrypted PDF OPENS: it reports its page count happily and only
+    raises a bare ValueError when a page is touched. So it is detected by
+    `needs_pass`, not by catching a message."""
+    import pymupdf
+    doc_id = "doc_encrypted"
+    good = _datasheet_pdf(tmp_path / "plain.pdf", ROWS, ruled=False)
+    _ingest(good, doc_id=doc_id, filename="locked.pdf")
+    locked = tmp_path / "locked.pdf"
+    src = pymupdf.open(good)
+    src.save(str(locked), encryption=pymupdf.PDF_ENCRYPT_AES_256,
+             owner_pw="owner-secret", user_pw="user-secret")
+    src.close()
+    with db.connect() as conn:
+        conn.execute("UPDATE documents SET stored_path = ? WHERE id = ?",
+                     (str(locked), doc_id))
+
+    out = datasheets.extract_facts(doc_id, allowed_document_ids=_scope(doc_id))
+
+    assert [u["rule"] for u in out["unreadable"]] == ["pdf_encrypted"]
+    assert out["pages_read"] == 0
+    assert out["facts"] == 0
+
+
+def test_b44_a_truncated_file_that_opens_anyway_is_reported_as_repaired(tmp_path):
+    """THE CASE NO `except` CLAUSE CAN CATCH. MuPDF rebuilds the cross-
+    reference table, opens the file, returns FEWER blocks than the document
+    has, and raises nothing at all. `is_repaired` is the only signal.
+
+    0.70 is measured for THIS fixture's shape, not a round number: at 1.00 it
+    is False, from 0.99 to 0.70 it opens repaired, at 0.70 one of five text
+    blocks is already silently gone, and by 0.60 it will not open at all
+    (FileDataError, which is the `pdf_damaged` case two tests up). The exact
+    fraction depends on the file's object layout, so the assertions below pin
+    the BEHAVIOUR - opens, and is flagged - rather than the number.
+    """
+    doc_id = "doc_truncated"
+    good = _datasheet_pdf(tmp_path / "whole.pdf", ROWS, ruled=False)
+    _ingest(good, doc_id=doc_id, filename="truncated.pdf")
+    whole = pathlib.Path(good).read_bytes()
+    cut = tmp_path / "cut.pdf"
+    cut.write_bytes(whole[:int(len(whole) * 0.7)])
+    with db.connect() as conn:
+        conn.execute("UPDATE documents SET stored_path = ? WHERE id = ?",
+                     (str(cut), doc_id))
+
+    out = datasheets.extract_facts(doc_id, allowed_document_ids=_scope(doc_id))
+
+    assert out["repaired"] is True, \
+        "a file MuPDF had to repair to open was reported as intact"
+    assert out["unreadable"] == [], "a repaired file is readable, not unreadable"
+
+
+def test_b44_an_intact_file_is_never_called_repaired(tmp_path):
+    """The control. Without it the flag could be hardcoded True and every test
+    above would still pass - and every real datasheet would carry a damage
+    warning nobody could act on."""
+    doc_id = "doc_intact"
+    good = _datasheet_pdf(tmp_path / "intact.pdf", ROWS, ruled=False)
+    _ingest(good, doc_id=doc_id, filename="intact.pdf")
+
+    out = datasheets.extract_facts(doc_id, allowed_document_ids=_scope(doc_id))
+
+    assert out["repaired"] is False
+    assert out["unreadable"] == [] and out["pages_unreadable"] == 0
+    assert out["facts"] > 0, "the control must still extract, or it proves nothing"

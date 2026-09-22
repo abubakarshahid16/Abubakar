@@ -137,9 +137,17 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
     """Every table shape recoverable from one page of a stored PDF.
 
     Isolated in its own function so the geometry library is called in exactly
-    one place and a page that makes PyMuPDF raise is a page with no tables
-    rather than an ingestion failure - this runs over documents an outside
-    contractor supplied.
+    one place.
+
+    B44, 2026-09-23: THIS FUNCTION USED TO SWALLOW EVERYTHING, and the sentence
+    that justified it - "a page that makes PyMuPDF raise is a page with no
+    tables rather than an ingestion failure" - is REVERSED as a decision. It is
+    true of a page whose geometry defeats the finder and false of a file that
+    could not be opened at all, and one `except Exception` could not tell those
+    apart. A missing, damaged, empty or encrypted file now propagates to
+    `datasheets.pdf_condition`, which names the file's condition; only failures
+    from INSIDE the page - the geometry work below - are still absorbed, which
+    is what the original sentence was actually about.
     """
     try:
         import pymupdf
@@ -162,7 +170,13 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
                     continue
                 out.append(rows)
             return out
-    except Exception:  # noqa: BLE001 - an unreadable page is not a crash
+    except (pymupdf.FileNotFoundError, pymupdf.FileDataError):
+        # The FILE, not the page. `datasheets.pdf_condition` checks for these
+        # before the page loop and names which one it is; re-raising here would
+        # only duplicate that. Returning nothing is correct - and is no longer
+        # the ONLY thing that happens, which was the defect.
+        return []
+    except Exception:  # noqa: BLE001 - geometry that defeats the finder
         return []
 
 
