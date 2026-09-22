@@ -22,6 +22,8 @@ Mutations: M225-M229, `python scripts/mutation_check.py --phase 20`.
 
 from __future__ import annotations
 
+import secrets
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -34,6 +36,10 @@ NOW = "2026-09-19T00:00:00Z"
 
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path, monkeypatch):
+    # B28: logging in signs a token, and `auth` refuses a key under 32 bytes.
+    # Without this line the 13 routed tests passed only where a developer's
+    # backend/.env happened to set AUTH_SECRET. A random, test-only key.
+    monkeypatch.setattr(settings, "auth_secret", secrets.token_urlsafe(48))
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "explorer.sqlite")
     db.reset_connection()

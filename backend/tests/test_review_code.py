@@ -33,6 +33,7 @@ Mutations: M211-M215, `python scripts/mutation_check.py --phase 18`.
 from __future__ import annotations
 
 import json
+import secrets
 import uuid
 
 import pytest
@@ -47,6 +48,11 @@ NOW = "2026-09-19T00:00:00Z"
 
 @pytest.fixture(autouse=True)
 def temp_storage(tmp_path, monkeypatch):
+    # B28: the routed tests below log in, which signs a token, and `auth`
+    # refuses a key under 32 bytes. Without this line they passed only where a
+    # developer's backend/.env happened to set AUTH_SECRET. A random,
+    # test-only key.
+    monkeypatch.setattr(settings, "auth_secret", secrets.token_urlsafe(48))
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "code.sqlite")
     db.reset_connection()
