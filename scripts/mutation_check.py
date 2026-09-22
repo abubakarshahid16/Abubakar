@@ -3594,6 +3594,57 @@ B12_SCOPED_CORRECTIONS = (
 )
 
 
+#: B7: four analysis-route tests had passed through the single-passage
+#: pass-through since 5a7a2b3's relevance floor, so they never reached
+#: generation. With two on-topic passages they do; one mutation per test
+#: proves each still guards the behaviour its name claims.
+B7_ANALYSIS_GENERATION = (
+    Mutation(
+        id="M308", phase=34,
+        description="the route stops translating an unreachable model into a "
+                    "503, so it surfaces as a crash",
+        path=APP / "main.py",
+        anchor="    except analysis_mod.ModelUnavailable as exc:",
+        replacement="    except ZeroDivisionError as exc:",
+        target="tests/test_analysis_routes.py",
+        keyword="unreachable_model",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M309", phase=34,
+        description="a sentence whose number is in no cited span is kept, so "
+                    "an unsupported number reaches the reader",
+        path=APP / "synthesis.py",
+        anchor="        if unsupported:\n            # Named as the reader sees it",
+        replacement="        if False:\n            # Named as the reader sees it",
+        target="tests/test_analysis_routes.py",
+        keyword="number_is_in_no_cited_span",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M310", phase=34,
+        description="an uncited sentence is kept in the prose",
+        path=APP / "synthesis.py",
+        anchor='        if not cited:\n            dropped.append((sentence, "cites no supplied source"))',
+        replacement='        if False:\n            dropped.append((sentence, "cites no supplied source"))',
+        target="tests/test_analysis_routes.py",
+        keyword="uncited_sentence",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M311", phase=34,
+        description="the recommendation states a confidence with no checks "
+                    "behind it",
+        path=APP / "synthesis.py",
+        anchor='        "checks": [{"label": c.label, "fired": c.fired} for c in recommendation.checks],',
+        replacement='        "checks": [],',
+        target="tests/test_analysis_routes.py",
+        keyword="confidence_is_never_high",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3605,6 +3656,7 @@ ALL: tuple[Mutation, ...] = (
     + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
     + DEMO_POLISH + STANDARDS_MODAL + CONDITION_AND_QUOTES
     + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE + B12_SCOPED_CORRECTIONS
+    + B7_ANALYSIS_GENERATION
 )
 
 

@@ -34,6 +34,17 @@ COATING = [
     "applied over a near-white metal blast cleaned surface for all carbon steel",
     "substrates operating below 120 degrees C in offshore atmospheric service.",
 ]
+#: A SECOND on-topic passage, for the tests that need generation to happen
+#: (B7). With only VIBRATION and COATING, the relevance floor (5a7a2b3) rightly
+#: drops the vibration page for a thickness question, leaving ONE passage -
+#: and synthesis passes a single passage through without calling the model,
+#: so those tests never reached the code they were written to test.
+COATING_INSPECTION = [
+    "A.4 Coating inspection",
+    "The dry film thickness of coating system no. 1 shall be measured after",
+    "curing with a calibrated gauge, and no reading may fall below 280 um on",
+    "any carbon steel surface accepted for offshore atmospheric service.",
+]
 
 
 @pytest.fixture(autouse=True)
@@ -68,6 +79,24 @@ def ingest(name="spec.pdf", blocks=(VIBRATION, COATING)) -> str:
                              files={"file": (name, fh, "application/pdf")}
                              ).json()["document"]["id"]
     IngestionWorker().process(doc_id)
+    return doc_id
+
+
+def ingest_for_generation(question: str) -> str:
+    """Ingest two on-topic passages and prove the model WILL be called.
+
+    The inspection passage is a SEPARATE document: as a third page of the
+    same PDF the chunker merged it with the coating page into one passage.
+
+    The precondition is the point: B7 was four tests silently testing the
+    single-passage pass-through instead of generation, because nothing
+    asserted how much evidence reached the synthesiser."""
+    doc_id = ingest()
+    ingest("inspection.pdf", (COATING_INSPECTION,))
+    evidence, _ = analysis.gather(question, access.unrestricted_scope())
+    assert len(evidence) >= 2, (
+        f"{len(evidence)} passage(s) survived retrieval - synthesis would pass "
+        "it through without calling the model, and this test would prove nothing")
     return doc_id
 
 
@@ -171,7 +200,7 @@ def test_a_baseline_the_caller_may_not_read_is_404(monkeypatch):
 def test_a_sentence_whose_number_is_in_no_cited_span_is_dropped_not_flagged():
     """The ruling: dropped. A flag still puts the number on screen, and the
     reader takes the number. The loss is reported, never silent."""
-    ingest()
+    ingest_for_generation("what is the dry film thickness")
     out = analysis.summary(
         "what is the dry film thickness", access.unrestricted_scope(),
         generate=fake_generate(
@@ -184,7 +213,7 @@ def test_a_sentence_whose_number_is_in_no_cited_span_is_dropped_not_flagged():
 
 
 def test_an_uncited_sentence_never_reaches_the_prose():
-    ingest()
+    ingest_for_generation("what is the dry film thickness")
     out = analysis.summary(
         "what is the dry film thickness", access.unrestricted_scope(),
         generate=fake_generate("Coatings are important. The thickness is 280 um [S1]."),
@@ -205,7 +234,7 @@ def test_the_route_names_what_it_does_not_produce():
 def test_an_unreachable_model_is_503_and_not_a_crash(monkeypatch):
     import httpx
 
-    ingest()
+    ingest_for_generation("thickness")
 
     def boom(system, prompt):
         raise httpx.ConnectError("connection refused")
@@ -259,7 +288,7 @@ def test_a_named_baseline_makes_the_comparison_applicable():
 
 
 def test_confidence_is_never_high_and_names_the_checks_that_fired():
-    ingest()
+    ingest_for_generation("what is the dry film thickness")
     out = analysis.recommendation(
         "what is the dry film thickness", access.unrestricted_scope(),
         generate=fake_generate("Verify the thickness against the datasheet [S1]."),
