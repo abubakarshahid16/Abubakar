@@ -374,6 +374,11 @@ def compare(requirement: dict, fact: dict | None, *,
     # minimum that binds only carbon steel, on a datasheet whose every material
     # field reads N/A, returned NON_COMPLIANT.
     #
+    # B49: the gate then failed the same case in the opposite direction, by
+    # answering NOT_APPLICABLE off two corrosion-allowance fields that merely
+    # had "material" in their names. What may serve as evidence is now a role
+    # test in `conditions._candidate_facts`, not a name test.
+    #
     # `conditions.evaluate` returns None unless this is a `numeric_limit` row
     # carrying a real condition, so every other requirement type - including the
     # 4,246 `table_value` rows whose `condition` column holds a table row label

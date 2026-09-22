@@ -296,3 +296,91 @@ def test_12c_the_dead_conditional_status_is_still_never_produced():
             produced.add(comparison.compare(req(condition=cond), fact(),
                                             submittal_facts=facts)["status"])
     assert comparison.CONDITIONAL not in produced
+
+
+# ======================================================================= B49
+#
+# The gate answered NOT_APPLICABLE on a real datasheet - it EXCUSED the clause
+# using the very fields the clause was being tested against. `_candidate_facts`
+# selected on the substring "material" in a field NAME, and two corrosion
+# allowances carried that substring while holding a length. Two stated values
+# that were not "carbon steel" met the only route to NOT_SATISFIED.
+#
+# The structure is reproduced below synthetically. No value, label or
+# identifier from any client document appears here: what matters is the SHAPE -
+# material-named fields that state nothing, beside length-valued fields whose
+# labels also contain the word.
+
+
+def _named_material_fields(value="N/A") -> list[dict]:
+    """Six fields that genuinely state a material, none of which states one."""
+    return [material(value, id=f"fact-mat-{n}", field_name=name)
+            for n, name in enumerate((
+                "lining material", "gasket material", "fastener material",
+                "nozzle forging material", "support material",
+                "internals material"))]
+
+
+def _length_valued_but_material_named() -> list[dict]:
+    """Fields under test, not evidence: a length whose label says "material"."""
+    return [fact(id=f"fact-len-{n}", field_name=name, field_value="0 mm",
+                 raw_value="0", raw_unit="mm")
+            for n, name in enumerate((
+                "design thickness margin for liner material B",
+                "design thickness margin for cover material B"))]
+
+
+def test_b49_a_length_cannot_establish_a_material_however_it_is_labelled():
+    """THE DEFECT. Six material fields state nothing; two length fields carry
+    the word "material" in their labels. The material is NOT established, so
+    the only honest answer is UNKNOWN - and the requirement stays open."""
+    facts = _named_material_fields() + _length_valued_but_material_named()
+
+    out = comparison.compare(req(), fact(), submittal_facts=facts)
+
+    assert out["condition"]["state"] == conditions.UNKNOWN, (
+        "a corrosion-allowance length was accepted as proof of a material: "
+        f"{out['condition']['reason']}")
+    assert out["status"] == comparison.NEEDS_ENGINEER_REVIEW, (
+        "the clause was excused on evidence that says nothing about material")
+
+
+def test_b49_excusing_a_requirement_needs_a_material_that_is_actually_stated():
+    """The control in the direction that matters. A real material outside the
+    clause's scope still excuses it - the fix makes NOT_APPLICABLE harder to
+    reach, not unreachable."""
+    facts = _named_material_fields("316L stainless steel") \
+        + _length_valued_but_material_named()
+
+    out = comparison.compare(req(), fact(), submittal_facts=facts)
+
+    assert out["condition"]["state"] == conditions.NOT_SATISFIED
+    assert out["status"] == comparison.NOT_APPLICABLE
+    assert out["condition"]["evidence"]["field_value"] == "316L stainless steel", (
+        "the decision must cite the material that proves it, never a length")
+
+
+def test_b49_a_stated_carbon_steel_still_lets_the_comparison_proceed():
+    """The anti-vacuity control: the fix must not turn every case into UNKNOWN.
+    With carbon steel stated, the clause binds and 0 mm is still below 1.6 mm,
+    even with the length-valued impostors present."""
+    facts = _named_material_fields("SA-516 Gr 70 carbon steel") \
+        + _length_valued_but_material_named()
+
+    out = comparison.compare(req(), fact(), submittal_facts=facts)
+
+    assert out["condition"]["state"] == conditions.SATISFIED
+    assert out["status"] == comparison.NON_COMPLIANT
+
+
+def test_b49_the_role_test_reads_the_unit_even_when_only_the_value_carries_it():
+    """Extraction populates the unit columns unevenly. A fact whose unit lives
+    only inside its value ("0 mm", no raw_unit) must be recognised as a
+    measurement too, or the defect returns for every unparsed row."""
+    inline = fact(id="fact-inline", field_name="thickness margin material C",
+                  field_value="0 mm", raw_value=None, raw_unit=None)
+
+    out = comparison.compare(req(), fact(),
+                             submittal_facts=[*_named_material_fields(), inline])
+
+    assert out["condition"]["state"] == conditions.UNKNOWN

@@ -7,6 +7,16 @@ material nobody has established. Before B24 the engine did the arithmetic anyway
 field reads "N/A". The condition was extracted, stored, shipped to the UI and read
 by nothing.
 
+THAT SENTENCE IS TRUE OF THE MATERIAL FIELDS AND WAS STILL NOT ENOUGH (B49,
+2026-09-23). On that same datasheet six fields genuinely state a material and all
+six read "N/A" - but `_candidate_facts` did not select material fields, it
+selected fields whose NAME contained "material", and two of those are corrosion
+allowances reading "0 mm". Two stated values that were not "carbon steel" met the
+only route to `NOT_SATISFIED`, and the gate answered NOT_APPLICABLE: it excused
+the clause using the very fields the clause was being tested against. Measured,
+not hypothesised. The evidence rule below was sound; the selector under it was
+not, so a role test now decides what can be evidence - see `_candidate_facts`.
+
 This module answers one question — *is the condition established, and does it
 hold?* — and refuses to guess. It never decides compliance; `comparison.compare`
 owns that. It only reports whether the comparison is entitled to happen.
@@ -178,15 +188,61 @@ def _terms_for(shape: str, condition: str) -> list[str]:
     return [t for t in table if _contains_term(folded, t)]
 
 
+def _states_a_measurement(fact: dict) -> bool:
+    """Does this fact state a QUANTITY rather than a name?
+
+    B49, and it is a role test, not a name test. The units come from `claims`,
+    which already owns every unit spelling and its dimension, so there is no
+    word list here to keep in step with anything: if `claims` can give the
+    value a dimension, the value is a measurement.
+
+    Three sources, because extraction populates them unevenly: the unit
+    columns, the normalised value, and - when no unit column was written - the
+    value itself, which often carries its unit inline ("0 mm").
+    """
+    for unit in (fact.get("raw_unit"), fact.get("unit"), fact.get("normalized_unit")):
+        if unit and claims.unit_dimension(str(unit)) is not None:
+            return True
+    if fact.get("normalized_value") is not None:
+        return True
+    head, _, tail = str(fact.get("field_value") or "").strip().partition(" ")
+    return (claims.parse_value(head) is not None
+            and claims.unit_dimension(tail.strip()) is not None)
+
+
 def _candidate_facts(shape: str, facts: list[dict]) -> list[dict]:
+    """The facts that could establish this condition - by ROLE, not by name.
+
+    B49. The name hints below are a first pass and they are not sufficient on
+    their own: on a real datasheet, `'design corrosion allowance for welded
+    internal parts material 2'` contains "material" and is a LENGTH. It is not
+    evidence about a material; it is the field under test. Selecting it let two
+    corrosion allowances of "0 mm" stand as proof that the material was
+    established and was not carbon steel, and the gate excused the clause -
+    `NOT_APPLICABLE` on no evidence, the mirror failure this module exists to
+    prevent.
+
+    So for a MATERIAL condition a measured quantity is never evidence. The
+    exclusion is deliberately limited to that shape: a material is never a
+    quantity, while an equipment class legitimately can be - "low voltage
+    cables" is established by a voltage, and `_FIELD_HINTS` lists "voltage" for
+    exactly that reason.
+
+    A fact dropped here does not make the condition false. It makes it
+    unestablished, which is `UNKNOWN` - excusing a requirement stays harder
+    than flagging one.
+    """
     hints = _FIELD_HINTS.get(shape, ())
     if not hints:
         return []
     out = []
     for fact in facts:
         name = _fold(fact.get("field_name"))
-        if any(h in name for h in hints):
-            out.append(fact)
+        if not any(h in name for h in hints):
+            continue
+        if shape == SHAPE_MATERIAL and _states_a_measurement(fact):
+            continue
+        out.append(fact)
     return out
 
 
