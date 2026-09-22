@@ -1146,8 +1146,69 @@ def create_fact(
     return row
 
 
+#: WHY A FILE COULD NOT BE READ, slug plus the sentence a person sees.
+#:
+#: B44. The slug names THE FILE'S condition, never the pipeline's - the rule
+#: `chunker.py`'s exclusion vocabulary states for itself: "the old single rule
+#: asserted 'OCR is not implemented', which is a property of the build and goes
+#: false the day it ships". Each one was reproduced against PyMuPDF 1.28.2
+#: before it was written down; none is taken from documentation.
+UNREADABLE = {
+    "pdf_missing": "the stored file is not there",
+    "pdf_empty_file": "the stored file is empty",
+    "pdf_damaged": "the stored file is not a readable PDF",
+    "pdf_encrypted": "the stored file is password-protected",
+}
+
+#: NOT unreadable - readable and not to be trusted whole. MuPDF rebuilt the
+#: cross-reference table to open it, which it does SILENTLY: a file truncated
+#: to 60% opens, reports its page count, returns fewer blocks than it should
+#: and raises nothing at all. Measured. Without this flag that page is
+#: indistinguishable from a page that genuinely prints less.
+REPAIRED = "file damaged, repaired on open, content may be missing"
+
+
+def pdf_condition(stored_path: str) -> tuple[str | None, str, bool]:
+    """`(slug, sentence, repaired)` for a stored PDF. `slug` is None when it reads.
+
+    Checked ONCE per document, before any page is parsed, because every one of
+    these conditions is a property of the file: if it holds, no page can be
+    read, and reporting it per page would say the same thing seven times while
+    still not naming it.
+
+    `needs_pass` is read rather than caught: an encrypted document OPENS
+    happily, reports its page count, and only raises a bare `ValueError`
+    ("document closed or encrypted") when a page is touched - so catching it
+    would mean matching on a message.
+    """
+    try:
+        import pymupdf
+    except ImportError:  # pragma: no cover
+        return None, "", False
+    try:
+        with pymupdf.open(stored_path) as doc:
+            if doc.needs_pass:
+                return "pdf_encrypted", UNREADABLE["pdf_encrypted"], False
+            return None, "", bool(getattr(doc, "is_repaired", False))
+    # EmptyFileError SUBCLASSES FileDataError, so it is caught first or never.
+    except pymupdf.EmptyFileError:
+        return "pdf_empty_file", UNREADABLE["pdf_empty_file"], False
+    except pymupdf.FileNotFoundError:
+        # pymupdf's own class, NOT the builtin: it inherits RuntimeError and
+        # would slip past `except FileNotFoundError`.
+        return "pdf_missing", UNREADABLE["pdf_missing"], False
+    except pymupdf.FileDataError:
+        return "pdf_damaged", UNREADABLE["pdf_damaged"], False
+
+
 def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]]:
-    """Text-block label-value pairs for one page, in reading order."""
+    """Text-block label-value pairs for one page, in reading order.
+
+    B44: the file's own condition is decided by `pdf_condition` before this is
+    called, so what is absorbed here is a failure INSIDE one page of a file
+    that opened. An empty list from here means "this page yielded no pairs",
+    which is the only thing its caller ever read it as.
+    """
     try:
         import pymupdf
     except ImportError:  # pragma: no cover
@@ -1158,7 +1219,9 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
                 return []
             blocks = [(b[1], b[0], b[4]) for b in doc[page_no - 1].get_text("blocks")]
             return pairs_from_blocks(blocks)
-    except Exception:  # noqa: BLE001 - an unreadable page yields no pairs
+    except (pymupdf.FileNotFoundError, pymupdf.FileDataError):
+        return []  # the FILE; named by pdf_condition, not guessed at here
+    except Exception:  # noqa: BLE001 - a failure inside one page of a readable file
         return []
 
 
@@ -1215,7 +1278,8 @@ def extract_facts(
     ).fetchall()
     empty = {"document_id": document_id, "facts": 0, "blanks": 0,
              "pages_read": 0, "pages_unparsed": 0, "parsed_fraction": None,
-             "referenced_standards": [], "unparsed": []}
+             "referenced_standards": [], "unparsed": [],
+             "pages_unreadable": 0, "unreadable": [], "repaired": False}
     if not chunks:
         return empty
 
@@ -1234,6 +1298,29 @@ def extract_facts(
     for chunk in chunks:
         for page_no in range(chunk["page_start"], (chunk["page_end"] or chunk["page_start"]) + 1):
             by_page.setdefault(page_no, []).append(chunk)
+
+    # B44: THE FILE'S CONDITION, BEFORE A SINGLE PAGE IS PARSED.
+    #
+    # A file that cannot be opened used to reach `_unparsed_reason` with no
+    # pairs and come back "no label-value pairs recovered from this page" - the
+    # sentence that function's own docstring warns is an OCR question. So a PDF
+    # nobody could open was reported as a scanned page, and the reader was sent
+    # after a recognition problem that did not exist. It was counted as READ
+    # too, because `pages_read` is keyed off chunk spans rather than parse
+    # success, which put pages that were never opened into the denominator of
+    # `parsed_fraction`.
+    #
+    # `parsed_fraction` is None here rather than 0.0, the same distinction the
+    # no-chunks return makes: nothing was read, so there is no fraction to
+    # state. A fraction of zero would claim a measurement.
+    condition, sentence, repaired = pdf_condition(stored_path)
+    if condition is not None:
+        pages = sorted(by_page)
+        return {**empty,
+                "pages_unreadable": len(pages),
+                "unreadable": [{"page": page, "rule": condition,
+                                "reason": sentence} for page in pages],
+                "referenced_standards": []}
 
     written = blanks = 0
     unparsed: list[dict] = []
@@ -1388,6 +1475,13 @@ def extract_facts(
                             if pages_read else None),
         "unparsed": unparsed,
         "referenced_standards": referenced_standards(" ".join(corpus_text)),
+        # B44: this file opened, so nothing here is unreadable. `repaired` is
+        # the third answer between "read" and "unreadable" - MuPDF rebuilt the
+        # xref to open it and may have dropped content on the way, without
+        # raising. Reported rather than silently trusted.
+        "pages_unreadable": 0,
+        "unreadable": [],
+        "repaired": repaired,
     }
 
 

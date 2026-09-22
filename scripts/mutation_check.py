@@ -4049,6 +4049,57 @@ B49_EVIDENCE_BY_ROLE = (
 )
 
 
+#: B44: a file nobody could open was reported as a page that printed nothing,
+#: and counted as read. M51 was NOT re-anchored - the fix sits before the page
+#: loop and after the return, so `if page_written == 0:` never moved; phase 5
+#: re-run 8/8 to prove it rather than assume it.
+_B44_TEST = "tests/test_datasheets.py"
+B44_UNREADABLE_FILE = (
+    Mutation(
+        id="M344", phase=42,
+        description="PUT B44 BACK: a damaged file reads as no condition at "
+                    "all, so it becomes 'no label-value pairs on this page'",
+        path=APP / "datasheets.py",
+        anchor='    except pymupdf.FileDataError:\n'
+               '        return "pdf_damaged", UNREADABLE["pdf_damaged"], False',
+        replacement='    except pymupdf.FileDataError:\n'
+                    '        return None, "", False',
+        target=_B44_TEST, keyword="b44_an_unreadable_file_is_named",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M345", phase=42,
+        description="count a page nobody opened as read, putting it back in "
+                    "the parsed_fraction denominator",
+        path=APP / "datasheets.py",
+        anchor="    if condition is not None:\n        pages = sorted(by_page)",
+        replacement="    if False:\n        pages = sorted(by_page)",
+        target=_B44_TEST, keyword="b44_a_page_that_was_never_opened",
+        tags=("honesty", "completeness", "critical"),
+    ),
+    Mutation(
+        id="M346", phase=42,
+        description="ignore is_repaired, so a truncated file that silently "
+                    "lost content reports as intact",
+        path=APP / "datasheets.py",
+        anchor='            return None, "", bool(getattr(doc, "is_repaired", False))',
+        replacement='            return None, "", False',
+        target=_B44_TEST, keyword="b44_a_truncated_file",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M347", phase=42,
+        description="stop checking needs_pass, so an encrypted file is read "
+                    "as a document that simply holds no values",
+        path=APP / "datasheets.py",
+        anchor="            if doc.needs_pass:",
+        replacement="            if False:",
+        target=_B44_TEST, keyword="b44_an_encrypted_file",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4062,7 +4113,7 @@ ALL: tuple[Mutation, ...] = (
     + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE + B12_SCOPED_CORRECTIONS
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
-    + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE
+    + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
 )
 
 
