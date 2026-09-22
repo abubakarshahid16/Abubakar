@@ -165,6 +165,53 @@ def test_the_glossary_phrase_survives_a_crowd_of_scattered_word_matches():
     assert len(hits) == 5
 
 
+def _two_documents(open_text: str, secret_text: str) -> None:
+    """One document the caller may read, one they may not."""
+    conn = db.connect()
+    conn.executemany(
+        """INSERT INTO chunks_fts
+           (text, section, filename, chunk_id, document_id)
+           VALUES (?, 'Body', ?, ?, ?)""",
+        [(open_text, "open.pdf", "open1", "open"),
+         (secret_text, "secret.pdf", "secret1", "secret")],
+    )
+    conn.commit()
+    keyword.reset_vocabulary_cache()
+
+
+def test_a_spelling_correction_never_names_a_word_only_an_unreadable_document_holds():
+    """B12. fts5vocab is ONE term list for the whole index, and the correction
+    was drawn from it unfiltered, so a caller could type a near-miss and be
+    told a word that exists only in a document they hold no grant on - a
+    presence oracle, answered in the correction itself."""
+    _two_documents(
+        "Structural steel members shall be painted before delivery.",
+        "Hydroprocessing reactor internals are described in this annex.",
+    )
+    # Control: for a caller who MAY read it, the correction is real.
+    assert keyword.spelling_corrections(
+        "hydroprocesing", allowed_document_ids=frozenset({"secret"})
+    ) == {"hydroprocesing": "hydroprocessing"}
+
+    assert keyword.spelling_corrections(
+        "hydroprocesing", allowed_document_ids=frozenset({"open"})
+    ) == {}
+
+
+def test_a_closer_word_the_caller_may_not_read_does_not_hide_one_they_may():
+    """Scope FILTERS the candidates, it does not just refuse. `galvanizing`
+    (0.952 to the typo) is only in the unreadable document; `galvanising`
+    (0.857, above the 0.82 cutoff) is in the readable one - and is what this
+    caller must be offered."""
+    _two_documents(
+        "Bolts shall be hot-dip galvanising grade to the project standard.",
+        "Galvanizing of the secret skid follows the vendor procedure.",
+    )
+    assert keyword.spelling_corrections(
+        "galvanizng", allowed_document_ids=frozenset({"open"})
+    ) == {"galvanizng": "galvanising"}
+
+
 def test_a_malformed_query_does_not_raise():
     # FTS5 treats several characters as syntax; every token is quoted
     assert isinstance(keyword.search('AND OR NOT " ( )', allowed_document_ids=_scope()), list)
