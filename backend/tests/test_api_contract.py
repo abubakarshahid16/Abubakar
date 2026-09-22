@@ -34,10 +34,10 @@ def client():
 
 
 def make_doc(client) -> str:
-    import fitz
+    import pymupdf
     path = settings.upload_dir.parent / "s.pdf"
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    doc = fitz.open()
+    doc = pymupdf.open()
     for i in range(3):
         page = doc.new_page()
         page.insert_text((72, 100), f"Section {i+1}.0 Scope")

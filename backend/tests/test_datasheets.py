@@ -41,14 +41,14 @@ def _datasheet_pdf(path, rows, *, ruled: bool = True) -> str:
     `ruled=False` gives a form with no lines, which is what the real PSV sheet
     is and what the text-block path exists for.
     """
-    import fitz
-    doc = fitz.open()
+    import pymupdf
+    doc = pymupdf.open()
     page = doc.new_page(width=600, height=500)
     y = 60
     for index, (label, value) in enumerate(rows, start=1):
         if ruled:
-            page.draw_rect(fitz.Rect(40, y - 14, 300, y + 6), color=(0, 0, 0), width=0.7)
-            page.draw_rect(fitz.Rect(300, y - 14, 560, y + 6), color=(0, 0, 0), width=0.7)
+            page.draw_rect(pymupdf.Rect(40, y - 14, 300, y + 6), color=(0, 0, 0), width=0.7)
+            page.draw_rect(pymupdf.Rect(300, y - 14, 560, y + 6), color=(0, 0, 0), width=0.7)
         page.insert_text((44, y), f"{index}", fontsize=9)
         page.insert_text((64, y), label, fontsize=9)
         page.insert_text((304, y), value, fontsize=9)
@@ -59,8 +59,8 @@ def _datasheet_pdf(path, rows, *, ruled: bool = True) -> str:
 
 
 def _ingest(path, doc_id="doc_ds", filename="EF-DAS-TEST.pdf", text=""):
-    import fitz
-    doc = fitz.open(path); pages = len(doc)
+    import pymupdf
+    doc = pymupdf.open(path); pages = len(doc)
     with db.connect() as conn:
         conn.execute("""INSERT INTO documents
             (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)
@@ -248,9 +248,9 @@ def test_a_fact_cannot_be_created_without_a_resolving_citation(tmp_path):
 
 def test_an_unparsed_page_lowers_completeness_and_says_why(tmp_path):
     """THE MUTATION TARGET (M51). A page with nothing readable is reported."""
-    import fitz
+    import pymupdf
     path = tmp_path / "mixed.pdf"
-    doc_pdf = fitz.open()
+    doc_pdf = pymupdf.open()
     page = doc_pdf.new_page(width=600, height=400)
     page.insert_text((44, 60), "1"); page.insert_text((64, 60), "Design pressure")
     page.insert_text((304, 60), "23.5 barg")

@@ -10,7 +10,7 @@ dense with acronyms and a client uploads their own documents, one of which may
 have no abbreviations clause at all.
 """
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -80,7 +80,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 def upload(client, blocks, name="spec.pdf") -> str:
     path = settings.data_dir / name
-    doc = fitz.open()
+    doc = pymupdf.open()
     for block in blocks:
         page = doc.new_page()
         for i, line in enumerate(block):

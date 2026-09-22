@@ -9,7 +9,7 @@ Both are enforced here rather than by a comment in the module, because a
 comment does not fail a build.
 """
 
-import fitz
+import pymupdf
 import pytest
 
 from app import answer, coverage, db, keyword, lexical
@@ -291,7 +291,7 @@ def test_a_cited_document_is_never_also_reported_as_a_gap():
 
 
 def build(path, blocks):
-    doc = fitz.open()
+    doc = pymupdf.open()
     for block in blocks:
         page = doc.new_page()
         for i, line in enumerate(block):

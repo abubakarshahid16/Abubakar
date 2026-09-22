@@ -55,7 +55,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parent.parent / "backend"
 sys.path.insert(0, str(BACKEND))
 
-import fitz  # noqa: E402  - after the path insert
+import pymupdf  # noqa: E402  - after the path insert
 
 from app import classification  # noqa: E402
 from app.db import connect, init_db  # noqa: E402
@@ -221,7 +221,7 @@ def parse(pdf_path: Path) -> tuple[list[dict], list[str], list[str], list[str]]:
     "Datasheet" type would import clean and nobody would learn about it. So it
     is reported on its own and `check` refuses by name.
     """
-    document = fitz.open(pdf_path)
+    document = pymupdf.open(pdf_path)
     try:
         page_rows = [cells for page in document
                      for cells in columns_on_page(page)]

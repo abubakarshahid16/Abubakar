@@ -1,6 +1,6 @@
 """Two-tier answering: quote by default, generate on request, refuse otherwise."""
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -41,7 +41,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 def upload(client, blocks=(VIBRATION, MATERIALS)) -> str:
     path = settings.data_dir / "spec.pdf"
-    doc = fitz.open()
+    doc = pymupdf.open()
     for block in blocks:
         page = doc.new_page()
         for i, line in enumerate(block):

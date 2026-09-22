@@ -114,7 +114,7 @@ def test_review_report_exports_a_pdf_with_finding_content():
     path = review.render_report("doc-1")
     try:
         assert path.suffix == ".pdf"
-        pdf = __import__("fitz").open(str(path))
+        pdf = __import__("pymupdf").open(str(path))
         text = "\n".join(page.get_text() for page in pdf)
         pdf.close()
         assert "ENGINEERING SUBMITTAL REVIEW" in text

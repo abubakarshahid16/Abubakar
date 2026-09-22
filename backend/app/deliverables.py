@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-import fitz
+import pymupdf
 
 from .db import add_column_if_missing, connect
 from .config import settings
@@ -403,7 +403,7 @@ def render_management_report(*, allowed_document_ids: frozenset[str] | None = No
     report_dir = settings.data_dir / "management_reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     path = report_dir / f"management-report-{uuid.uuid4()}.pdf"
-    pdf = fitz.open()
+    pdf = pymupdf.open()
     page = pdf.new_page()
     page.insert_text((48, 52), "EPC MANAGEMENT REPORT", fontsize=18, fontname="hebo", color=(0.07, 0.23, 0.32))
     page.insert_text((48, 74), f"Generated: {_now()}", fontsize=9, fontname="helv", color=(0.3, 0.35, 0.4))
@@ -418,12 +418,12 @@ def render_management_report(*, allowed_document_ids: frozenset[str] | None = No
         "",
         "Management control summary. Engineering findings remain evidence-linked in the submittal review report.",
     ]
-    page.insert_textbox(fitz.Rect(48, 105, 548, 220), "\n".join(lines), fontsize=11, fontname="helv", lineheight=1.45)
+    page.insert_textbox(pymupdf.Rect(48, 105, 548, 220), "\n".join(lines), fontsize=11, fontname="helv", lineheight=1.45)
     y = 250
     for alert in alerts_now:
         if y > 760:
             page = pdf.new_page(); y = 48
-        page.insert_textbox(fitz.Rect(48, y, 548, y + 32),
+        page.insert_textbox(pymupdf.Rect(48, y, 548, y + 32),
                             f"{alert['wbs_code']} · {alert['title']} · {alert['days_overdue']} days overdue · escalation {alert['escalation_level']}",
                             fontsize=9, fontname="helv", color=(0.55, 0.18, 0.02))
         y += 38

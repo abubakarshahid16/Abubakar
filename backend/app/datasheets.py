@@ -1139,11 +1139,11 @@ def create_fact(
 def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]]:
     """Text-block label-value pairs for one page, in reading order."""
     try:
-        import fitz
+        import pymupdf
     except ImportError:  # pragma: no cover
         return []
     try:
-        with fitz.open(stored_path) as doc:
+        with pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
             blocks = [(b[1], b[0], b[4]) for b in doc[page_no - 1].get_text("blocks")]

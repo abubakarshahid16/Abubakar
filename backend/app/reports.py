@@ -52,14 +52,14 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-import fitz
+import pymupdf
 
 from . import access, chat
 from .config import config_version, settings
 from .db import connect
 
 TEMPLATE_VERSION = "2"
-RENDERER = f"pymupdf-{fitz.VersionBind}"
+RENDERER = f"pymupdf-{pymupdf.VersionBind}"
 
 #: What a single-answer evidence report does not contain, named on page 1.
 NOT_INCLUDED = ["coverage ledger", "gap analysis", "recommendation",
@@ -412,12 +412,12 @@ def to_html(s: dict) -> str:
     return "\n".join(parts)
 
 
-MEDIABOX = fitz.paper_rect("a4")
+MEDIABOX = pymupdf.paper_rect("a4")
 #: Room at the bottom for the footer furniture.
 BODY = MEDIABOX + (40, 40, -40, -52)
 
 
-def _draw_furniture(doc: fitz.Document) -> None:
+def _draw_furniture(doc: pymupdf.Document) -> None:
     """Watermark and page numbers, on EVERY page, as an overlay.
 
     ASCII ONLY. These two calls are the only place `insert_text` is permitted
@@ -429,12 +429,12 @@ def _draw_furniture(doc: fitz.Document) -> None:
         # Overlay, so it cannot sit behind body content and be cropped away.
         centre = page.rect.width / 2, page.rect.height / 2
         page.insert_text(
-            fitz.Point(centre[0] - 165, centre[1] + 16), WATERMARK,
+            pymupdf.Point(centre[0] - 165, centre[1] + 16), WATERMARK,
             fontsize=23, fontname="helv", color=(0.84, 0.84, 0.84),
-            morph=(fitz.Point(*centre), fitz.Matrix(45)), overlay=True,
+            morph=(pymupdf.Point(*centre), pymupdf.Matrix(45)), overlay=True,
         )
         page.insert_text(
-            fitz.Point(40, page.rect.height - 24),
+            pymupdf.Point(40, page.rect.height - 24),
             f"Page {page.number + 1} of {total}  |  {WATERMARK}  |  RAG Intelligence System evidence report",
             fontsize=8, fontname="helv", color=(0.3, 0.3, 0.3), overlay=True,
         )
@@ -445,7 +445,7 @@ def render(snapshot: dict) -> bytes:
     def rectfn(rect_num, filled):
         return MEDIABOX, BODY, None
 
-    story = fitz.Story(html=to_html(snapshot), user_css=CSS)
+    story = pymupdf.Story(html=to_html(snapshot), user_css=CSS)
     doc = story.write_with_links(rectfn)
     _draw_furniture(doc)
     doc.set_metadata({
@@ -482,7 +482,7 @@ def generate(message_id: str, scope: access.AccessScope) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(pdf)
 
-    with fitz.open("pdf", pdf) as doc:
+    with pymupdf.open("pdf", pdf) as doc:
         page_count = doc.page_count
 
     report_id = f"rpt_{secrets.token_hex(6)}"

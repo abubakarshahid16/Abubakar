@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import fitz
+import pymupdf
 
 from .db import add_column_if_missing, connect
 from .config import settings
@@ -547,7 +547,7 @@ def render_report(document_id: str) -> Path:
     report_dir = settings.data_dir / "review_reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     path = report_dir / f"engineering-review-{uuid.uuid4()}.pdf"
-    pdf = fitz.open()
+    pdf = pymupdf.open()
     page = pdf.new_page()
     y = 48
     page.insert_text((48, y), "ENGINEERING SUBMITTAL REVIEW", fontsize=18, fontname="hebo", color=(0.07, 0.23, 0.32))
@@ -556,8 +556,8 @@ def render_report(document_id: str) -> Path:
     y += 15
     page.insert_text((48, y), f"Generated: {_now()}  ·  Findings: {len(findings)}", fontsize=9, fontname="helv", color=(0.3, 0.35, 0.4))
     y += 24
-    page.draw_rect(fitz.Rect(48, y, 548, y + 34), color=(0.7, 0.32, 0.04), fill=(1, 0.97, 0.91), width=0.8)
-    page.insert_textbox(fitz.Rect(58, y + 7, 538, y + 28),
+    page.draw_rect(pymupdf.Rect(48, y, 548, y + 34), color=(0.7, 0.32, 0.04), fill=(1, 0.97, 0.91), width=0.8)
+    page.insert_textbox(pymupdf.Rect(58, y + 7, 538, y + 28),
                         "AI-assisted record. A qualified engineer must review and approve before use.",
                         fontsize=9, fontname="helv", color=(0.45, 0.2, 0.02))
     y += 52
@@ -579,8 +579,8 @@ def render_report(document_id: str) -> Path:
         if y + height > 770:
             page = pdf.new_page()
             y = 48
-        page.draw_rect(fitz.Rect(48, y, 548, y + height), color=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98), width=0.5)
-        page.insert_textbox(fitz.Rect(58, y + 8, 538, y + height - 8), block, fontsize=8.5, fontname="helv", lineheight=1.25)
+        page.draw_rect(pymupdf.Rect(48, y, 548, y + height), color=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98), width=0.5)
+        page.insert_textbox(pymupdf.Rect(58, y + 8, 538, y + height - 8), block, fontsize=8.5, fontname="helv", lineheight=1.25)
         y += height + 12
     if not findings:
         page.insert_text((48, y), "No review findings have been recorded for this document.", fontsize=10, fontname="helv")

@@ -1,6 +1,6 @@
 """Hybrid retrieval: RRF fusion, identifier boosting, dedup, reranking."""
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -48,7 +48,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 def build(path, blocks):
-    doc = fitz.open()
+    doc = pymupdf.open()
     for block in blocks:
         page = doc.new_page()
         for i, line in enumerate(block):

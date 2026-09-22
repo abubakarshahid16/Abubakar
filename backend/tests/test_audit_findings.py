@@ -5,7 +5,7 @@ mistake recurring: a field or a record that claims something the system is not
 actually doing.
 """
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -38,7 +38,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 def build_pdf(path, pages):
     """pages: list of "prose" | "sparse" | "blank"."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     for i, kind in enumerate(pages):
         page = doc.new_page()
         if kind == "prose":

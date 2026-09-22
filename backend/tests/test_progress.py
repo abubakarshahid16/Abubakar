@@ -114,13 +114,13 @@ def test_a_real_ask_reports_every_stage_it_passed_through(monkeypatch):
     Asserts the ORDER of what happened, which is the only thing that makes the
     screen's stage list honest.
     """
-    import fitz
+    import pymupdf
 
     from app import answer as answer_mod
     from app import chat, db, keyword
     from app.config import settings
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page()
     for i, line in enumerate([
         "5.3.2 Vibration Limits",

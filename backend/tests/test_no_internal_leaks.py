@@ -10,7 +10,7 @@ hostile input. A new endpoint is covered the moment it is added.
 """
 import re
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -59,7 +59,7 @@ def client():
 
 
 def make_pdf(path, pages=2, blank=False):
-    doc = fitz.open()
+    doc = pymupdf.open()
     for i in range(pages):
         p = doc.new_page()
         if not blank:

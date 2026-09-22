@@ -119,16 +119,16 @@ def test_a_page_whose_tag_rows_disagree_states_no_tag():
 
 def _datasheet_pdf(path, pages) -> str:
     """One page per entry, each a list of label-value rows."""
-    import fitz
+    import pymupdf
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     for rows in pages:
         page = doc.new_page(width=600, height=500)
         y = 60
         for index, (label, value) in enumerate(rows, start=1):
-            page.draw_rect(fitz.Rect(40, y - 14, 300, y + 6),
+            page.draw_rect(pymupdf.Rect(40, y - 14, 300, y + 6),
                            color=(0, 0, 0), width=0.7)
-            page.draw_rect(fitz.Rect(300, y - 14, 560, y + 6),
+            page.draw_rect(pymupdf.Rect(300, y - 14, 560, y + 6),
                            color=(0, 0, 0), width=0.7)
             page.insert_text((44, y), f"{index}", fontsize=9)
             page.insert_text((64, y), label, fontsize=9)
@@ -140,9 +140,9 @@ def _datasheet_pdf(path, pages) -> str:
 
 
 def _ingest(path, doc_id="doc_tag"):
-    import fitz
+    import pymupdf
 
-    doc = fitz.open(path)
+    doc = pymupdf.open(path)
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,"

@@ -9,7 +9,7 @@ clause and no box is ever trusted again, so every test here is about the
 system declining to draw rather than drawing something plausible.
 """
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -43,7 +43,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 def upload(client, blocks=(ZINC,), name="spec.pdf") -> str:
     path = settings.data_dir / name
-    doc = fitz.open()
+    doc = pymupdf.open()
     for block in blocks:
         page = doc.new_page()
         for i, line in enumerate(block):
@@ -127,7 +127,7 @@ def test_a_match_covering_most_of_the_page_is_rejected():
     assert highlight.MAX_COVERAGE < 1.0
     client = TestClient(app)
     doc_id = upload(client)
-    with fitz.open(stored_path(doc_id)) as doc:
+    with pymupdf.open(stored_path(doc_id)) as doc:
         page_area = abs(doc.load_page(0).rect.get_area())
     rects, _ = highlight.locate(stored_path(doc_id), 1, "Zinc or alloys of zinc")
     area = sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in rects)

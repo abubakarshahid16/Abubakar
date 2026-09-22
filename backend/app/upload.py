@@ -404,9 +404,9 @@ def _first_page_text(pdf_path: Path) -> str:
     single page parse and not a document.
     """
     try:
-        import fitz
+        import pymupdf
 
-        with fitz.open(pdf_path) as document:
+        with pymupdf.open(pdf_path) as document:
             if document.page_count == 0:
                 return ""
             return document.load_page(0).get_text() or ""

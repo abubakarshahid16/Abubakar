@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 
-import fitz
+import pymupdf
 
 #: Below this many characters a fragment is too generic to locate safely.
 #: "3" or "of the" would match dozens of places on a specification page.
@@ -92,7 +92,7 @@ def locate(
     if not fragments:
         return [], None
 
-    with fitz.open(pdf_path) as doc:
+    with pymupdf.open(pdf_path) as doc:
         if not 1 <= page_no <= doc.page_count:
             return [], None
         page = doc.load_page(page_no - 1)
