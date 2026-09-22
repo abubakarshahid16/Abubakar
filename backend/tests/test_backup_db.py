@@ -177,6 +177,50 @@ def test_running_out_of_names_fails_loudly_rather_than_looping(tmp_path, frozen_
         == [b"taken", b"taken"]
 
 
+def test_a_backup_directory_that_does_not_exist_is_refused_by_name(tmp_path):
+    """B41. It used to die inside `_reserve_name` with a bare
+    FileNotFoundError naming a FILE nobody asked for - at exactly the moment
+    a safety backup was being taken, before a destructive change. The refusal
+    names the DIRECTORY, and the tool creates nothing on its own."""
+    live = _db(tmp_path / "live.sqlite", 5)
+    missing = tmp_path / "not_created_yet" / "nested"
+
+    with pytest.raises(FileNotFoundError, match="no backup directory at"):
+        backup(live, str(missing))
+
+    assert str(missing) in _refusal(live, missing)
+    assert not missing.exists(), "the tool created the directory it refused"
+
+
+def test_the_refusal_comes_before_the_source_is_opened(tmp_path):
+    """No sqlite handle is opened for a backup that is going to be refused:
+    the destination is checked first, so nothing leaks on the failure path."""
+    live = _db(tmp_path / "live.sqlite", 5)
+    opened: list[str] = []
+    real = sqlite3.connect
+
+    def watched(*args, **kwargs):
+        opened.append(str(args[0]))
+        return real(*args, **kwargs)
+
+    import backup_db
+    backup_db.sqlite3.connect = watched
+    try:
+        with pytest.raises(FileNotFoundError):
+            backup(live, str(tmp_path / "absent"))
+    finally:
+        backup_db.sqlite3.connect = real
+    assert opened == [], f"a connection was opened before refusing: {opened}"
+
+
+def _refusal(live: str, missing) -> str:
+    try:
+        backup(live, str(missing))
+    except FileNotFoundError as exc:
+        return str(exc)
+    raise AssertionError("it did not refuse")
+
+
 def test_the_source_is_never_written(tmp_path):
     """The live database is opened READ-ONLY. A backup tool holding a write
     handle on the thing it protects is one bug away from damaging it."""

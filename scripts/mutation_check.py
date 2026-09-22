@@ -3002,10 +3002,22 @@ BACKUP = (
                     "the read-only open, so sqlite creates an empty database "
                     "at the typo and verify calls it ok",
         path=REPO / "scripts" / "backup_db.py",
+        # Re-anchored by B41: the destination check now sits between the
+        # existence check and the read-only open, so the anchor spans it.
+        # The replacement still restores BOTH halves of the original defect -
+        # no existence check, and a writable connect that CREATES the typo.
         anchor="    if not source.is_file():\n"
                '        raise FileNotFoundError(f"no database at {live_path}")\n'
+               "    # BEFORE the source is opened, so a refused backup leaves no handle and\n"
+               "    # no connection behind.\n"
+               "    destination = pathlib.Path(backup_dir)\n"
+               "    if not destination.is_dir():\n"
+               "        raise FileNotFoundError(\n"
+               '            f"no backup directory at {backup_dir}: create it first, or pass "\n'
+               '            "one that exists - this tool does not create it for you")\n'
                '    src = sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True)',
-        replacement="    src = sqlite3.connect(live_path)",
+        replacement="    destination = pathlib.Path(backup_dir)\n"
+                    "    src = sqlite3.connect(live_path)",
         target="tests/test_backup_db.py",
         keyword="missing_source_is_refused_rather_than_created",
         tags=("honesty", "critical"),
@@ -3045,6 +3057,16 @@ BACKUP = (
         target="tests/test_backup_db.py",
         keyword="clock_tie or never_written_over",
         tags=("critical",),
+    ),
+    Mutation(
+        id="M337", phase=23,
+        description="B41: stop checking the destination, so a safety backup "
+                    "dies inside _reserve_name naming a file nobody asked for",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor="    if not destination.is_dir():",
+        replacement="    if False:",
+        target="tests/test_backup_db.py",
+        keyword="does_not_exist or before_the_source",
     ),
     Mutation(
         id="M303", phase=23,

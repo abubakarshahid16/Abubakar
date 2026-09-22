@@ -37,10 +37,25 @@ def backup(live_path: str, backup_dir: str) -> str:
       the first's file and overwrote it: a 10-row backup silently became a
       3-row one. The stamp now carries microseconds, and the destination is
       created exclusively - see `_reserve_name` for what happens on a tie.
+    * THE DESTINATION DIRECTORY WAS NEVER CHECKED, so a backup into a path
+      that did not exist yet died inside `_reserve_name` with a bare
+      `FileNotFoundError` naming a file nobody had asked for - and it died
+      at exactly the moment a backup was being taken, before a destructive
+      change. It is REFUSED here instead, naming the directory: this module
+      creates nothing it was not asked to create, for the same reason the
+      source is opened read-only. A backup written somewhere the operator
+      did not mean is a backup nobody will look for.
     """
     source = pathlib.Path(live_path)
     if not source.is_file():
         raise FileNotFoundError(f"no database at {live_path}")
+    # BEFORE the source is opened, so a refused backup leaves no handle and
+    # no connection behind.
+    destination = pathlib.Path(backup_dir)
+    if not destination.is_dir():
+        raise FileNotFoundError(
+            f"no backup directory at {backup_dir}: create it first, or pass "
+            "one that exists - this tool does not create it for you")
     src = sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True)
     tables = src.execute(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
@@ -52,7 +67,7 @@ def backup(live_path: str, backup_dir: str) -> str:
             "database is never what a backup of this system should contain")
 
     stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    dest_file = _reserve_name(pathlib.Path(backup_dir), stamp)
+    dest_file = _reserve_name(destination, stamp)
     dest_path = str(dest_file)
     dest = sqlite3.connect(dest_path)
     with dest:
