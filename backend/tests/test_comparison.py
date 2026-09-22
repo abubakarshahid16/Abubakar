@@ -18,7 +18,7 @@ import uuid
 
 import pytest
 
-from app import comparison, datasheets, db, standards, submittal_review
+from app import applicability, comparison, datasheets, db, standards, submittal_review
 from app.config import settings
 
 
@@ -471,6 +471,65 @@ def test_completeness_reports_its_denominator():
     assert result["fields_estimated"] == 7 * 35
     assert result["pages"] == 7
     assert "fields_read" in result
+
+
+# ------------------------------------------------ B18: an unmeasured factor
+
+def test_an_unmeasured_extraction_does_not_let_references_alone_score_the_run():
+    """B18. With the page count unknown, how much of the sheet was examined
+    was never measured - and completeness used to be the min of what was
+    left: every cited standard held made the run 1.0 and SUFFICIENT, so
+    recommend_code could approve a sheet nobody had measured reading."""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=0)
+    result = comparison.completeness_for_run(
+        sub, allowed_document_ids=_scope(sub), reference_coverage=1.0)
+    assert result["extraction_coverage"] is None
+    assert result["completeness"] is None
+    assert result["sufficient"] is False
+
+
+def test_a_measured_zero_stays_zero_whatever_is_unknown():
+    """0 of the cited standards held is 0 however the unmeasured half would
+    have come out - so it is reported, not hidden behind None."""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=0)
+    result = comparison.completeness_for_run(
+        sub, allowed_document_ids=_scope(sub), reference_coverage=0.0)
+    assert result["completeness"] == 0.0
+
+
+def test_applicability_completeness_is_none_when_extraction_was_never_measured():
+    """The same defect in the other home (CLAUDE.md rule 8): the product of
+    the factors that exist, with the unmeasured one silently dropped."""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=3)
+    held = {"std": {"method": applicability.METHOD_REFERENCED}}
+    result = applicability.completeness(
+        held, [], sub, allowed_document_ids=_scope(sub))
+    assert result["reference_coverage"] == 1.0
+    assert result["extraction_coverage"] is None
+    assert result["completeness"] is None
+
+
+def test_applicability_completeness_keeps_m03s_determinate_zero():
+    """M-03: 0 of 15 cited standards held locally, no facts. Its 0.0 was
+    CORRECT - the register's framing of B18 was wrong about that - and must
+    survive the fix."""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=3)
+    missing = [f"STD-{i}" for i in range(15)]
+    result = applicability.completeness(
+        {}, missing, sub, allowed_document_ids=_scope(sub))
+    assert result["reference_coverage"] == 0.0
+    assert result["extraction_coverage"] is None
+    assert result["completeness"] == 0.0
+
+
+def test_a_submittal_citing_nothing_is_judged_on_extraction_alone():
+    """The OTHER None - no standard cited, nothing to cover - is still simply
+    left out, so the fix does not blank every such run."""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=2)
+    result = comparison.completeness_for_run(
+        sub, allowed_document_ids=_scope(sub), reference_coverage=None)
+    assert result["extraction_coverage"] == 0.0
+    assert result["completeness"] == 0.0
 
 
 def test_an_unevaluable_requirement_forces_manual_review():
