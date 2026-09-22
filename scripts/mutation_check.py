@@ -3945,6 +3945,57 @@ B40_FACT_GUARD = (
 )
 
 
+#: B42: the one branch that never applied the scope mask, and the permissive
+#: default that would have let the next caller read the corpus by forgetting.
+_B42_TEST = "tests/test_structured_search.py"
+B42_STRUCTURED_SCOPE = (
+    Mutation(
+        id="M338", phase=40,
+        description="PUT B42 BACK: the stakeholder branch ignores the scope "
+                    "mask, so a caller with no grants reads every email",
+        path=APP / "structured_search.py",
+        anchor='        where, scope_args = _scope_sql("d.document_id", allowed_document_ids,\n'
+               '                                       include_unowned)',
+        replacement='        where, scope_args = "", []',
+        target=_B42_TEST,
+        keyword="scoped_like_every_other_kind or empty_scope_sees_no_stakeholders",
+        tags=("critical", "privacy"),
+    ),
+    Mutation(
+        id="M339", phase=40,
+        description="an empty scope means everything again: the mask that "
+                    "matches nothing becomes no mask at all",
+        path=APP / "structured_search.py",
+        anchor='    if not parts:\n        return " AND 1=0", []',
+        replacement='    if not parts:\n        return "", []',
+        target=_B42_TEST, keyword="empty_scope_sees_no_stakeholders",
+        tags=("critical", "privacy"),
+    ),
+    Mutation(
+        id="M340", phase=40,
+        description="restore the permissive default, so a caller that forgets "
+                    "the mask silently reads the whole corpus",
+        path=APP / "structured_search.py",
+        anchor="def search(query: str, *, allowed_document_ids: frozenset[str],\n"
+               "           include_unowned: bool, kind: str | None = None) -> list[dict]:",
+        replacement="def search(query: str, *, allowed_document_ids: frozenset[str] = frozenset(),\n"
+                    "           include_unowned: bool = True, kind: str | None = None) -> list[dict]:",
+        target=_B42_TEST, keyword="scope_cannot_be_omitted",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M341", phase=40,
+        description="hand the unowned rows back to every caller, not the admin "
+                    "capability alone",
+        path=APP / "main.py",
+        anchor="        include_unowned=scope.is_admin)}",
+        replacement="        include_unowned=True)}",
+        target=_B42_TEST, keyword="route_gives_the_unowned_rows",
+        tags=("privacy",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3958,6 +4009,7 @@ ALL: tuple[Mutation, ...] = (
     + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE + B12_SCOPED_CORRECTIONS
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
+    + B42_STRUCTURED_SCOPE
 )
 
 
