@@ -42,7 +42,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from . import claims, submittal_review, tables
+from . import claims, orphan_guard, submittal_review, tables
 from .db import connect
 
 #: Where a datasheet says a value is not filled in yet.
@@ -1188,6 +1188,7 @@ def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
 def extract_facts(
     document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, replace: bool = True,
+    acknowledge_orphaned_findings: bool = False,
 ) -> dict:
     """Read one datasheet into facts, by whichever path its pages support.
 
@@ -1268,6 +1269,15 @@ def extract_facts(
     # the same transaction, so a failed re-extraction cannot leave the
     # datasheet with FEWER facts than it had either. Pages are parsed above,
     # before this block, so the write lock is held only for the writes.
+    # B40: the DELETE below takes unconfirmed facts that review findings cite
+    # by `fact_id` - no foreign key, so nothing refused or recorded it. Checked
+    # BEFORE the transaction opens, because the guard writes its own audit row.
+    if replace:
+        orphan_guard.check_facts(
+            "re_extract_facts",
+            fact_where="submittal_document_id = ? AND confirmed_by IS NULL",
+            params=(document_id,), document_id=document_id,
+            acknowledge=acknowledge_orphaned_findings)
     conn = connect()
     with conn:
         if replace:
