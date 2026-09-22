@@ -3808,6 +3808,16 @@ B38_ORPHAN_GUARD = (
         target=_B38_TEST, keyword="recorded or 409",
         tags=("honesty",),
     ),
+    Mutation(
+        id="M333", phase=38,
+        description="the refusal tells a screen user to set an API flag they "
+                    "cannot reach, instead of what to do (Superseded by)",
+        path=APP / "orphan_guard.py",
+        anchor='            f"requirements, and they could no longer be traced. {_WHAT_TO_DO}")',
+        replacement='            f"requirements. Repeat with acknowledge_orphaned_findings=true.")',
+        target=_B38_TEST, keyword="409",
+        tags=("ui",),
+    ),
 )
 
 

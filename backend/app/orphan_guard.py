@@ -36,20 +36,41 @@ from datetime import UTC, datetime
 
 from .db import connect
 
+#: What the SCREEN says each refused action is. The message is read by a person
+#: in the UI, so it names what they pressed, not the internal path.
+_BLOCKED = {
+    "re_extraction": "Re-extract is blocked",
+    "document_delete": "Delete is blocked",
+    "reject": "Rejecting this requirement is blocked",
+    "re_chunk": "Re-chunking is blocked",
+}
+
+#: The way forward that EXISTS on screen. An updated standard is a new
+#: document plus "Superseded by" on the old one, which deletes nothing.
+_WHAT_TO_DO = ("To update a standard, upload the new revision and set "
+               "\"Superseded by\" on this standard in the Standards page.")
+
 
 class OrphaningRefused(RuntimeError):
-    """A deletion would orphan review findings and nobody acknowledged it."""
+    """A deletion would orphan review findings and nobody acknowledged it.
+
+    THE MESSAGE SAYS WHAT TO DO, not an API flag (owner, 2026-09-22). It used
+    to end "repeat with acknowledge_orphaned_findings=true", which nobody can
+    do from a screen and which read as a bug. The flag still exists on the
+    API for an admin who must re-extract on purpose; the confirm-and-proceed
+    dialog that would expose it on screen is agreed but deferred.
+    """
 
     def __init__(self, action: str, document_id: str | None, findings: int):
         self.action = action
         self.document_id = document_id
         self.findings = findings
+        cite = "cites" if findings == 1 else "cite"
+        plural = "" if findings == 1 else "s"
         super().__init__(
-            f"refused: {action} would orphan {findings} review finding(s) that "
-            f"cite requirements of document {document_id}; their requirement "
-            "rows would be deleted and those findings could no longer be "
-            "traced. Repeat with acknowledge_orphaned_findings=true to proceed "
-            "on purpose - the count is recorded either way")
+            f"{_BLOCKED.get(action, 'This change is blocked')} because "
+            f"{findings} review finding{plural} {cite} this standard's "
+            f"requirements, and they could no longer be traced. {_WHAT_TO_DO}")
 
 
 def findings_orphaned_by(requirement_where: str, params: tuple | list) -> int:
