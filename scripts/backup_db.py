@@ -36,7 +36,7 @@ def backup(live_path: str, backup_dir: str) -> str:
     * TWO BACKUPS IN THE SAME SECOND SHARED A FILENAME, and the second opened
       the first's file and overwrote it: a 10-row backup silently became a
       3-row one. The stamp now carries microseconds, and the destination is
-      created exclusively - a name collision raises instead of writing.
+      created exclusively - see `_reserve_name` for what happens on a tie.
     """
     source = pathlib.Path(live_path)
     if not source.is_file():
@@ -52,11 +52,7 @@ def backup(live_path: str, backup_dir: str) -> str:
             "database is never what a backup of this system should contain")
 
     stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    dest_file = pathlib.Path(backup_dir) / f"rag_intelligence-{stamp}.sqlite"
-    # EXCLUSIVE create: if the name exists, fail loudly rather than let
-    # sqlite open the existing backup and write over it.
-    with open(dest_file, "xb"):
-        pass
+    dest_file = _reserve_name(pathlib.Path(backup_dir), stamp)
     dest_path = str(dest_file)
     dest = sqlite3.connect(dest_path)
     with dest:
@@ -72,6 +68,34 @@ def backup(live_path: str, backup_dir: str) -> str:
     if not report["ok"]:
         raise RuntimeError(f"backup wrote a bad file: {report}")
     return dest_path
+
+
+#: Suffixed names tried after the plain stamp. A clock tie takes a second
+#: name; a hundred taken names is not a tie, it is something else wrong.
+NAME_ATTEMPTS = 100
+
+
+def _reserve_name(backup_dir: pathlib.Path, stamp: str) -> pathlib.Path:
+    """Create, and return, a backup file that did not exist a moment ago.
+
+    B30: the microsecond stamp still ties on Windows, whose clock is coarser
+    than a microsecond, and the second backup then CRASHED on the exclusive
+    create. A tie now takes the next free name (`-1`, `-2`, ...). The create
+    stays EXCLUSIVE, so a name that exists is skipped - never opened by sqlite
+    and written over. Past NAME_ATTEMPTS it raises rather than looping.
+    """
+    for attempt in range(NAME_ATTEMPTS):
+        suffix = f"-{attempt}" if attempt else ""
+        candidate = backup_dir / f"rag_intelligence-{stamp}{suffix}.sqlite"
+        try:
+            with open(candidate, "xb"):
+                pass
+        except FileExistsError:
+            continue
+        return candidate
+    raise FileExistsError(
+        f"no free backup name for stamp {stamp} in {backup_dir} "
+        f"after {NAME_ATTEMPTS} attempts")
 
 
 def verify(backup_path: str) -> dict:

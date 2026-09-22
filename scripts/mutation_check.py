@@ -3019,31 +3019,53 @@ BACKUP = (
         keyword="source_with_no_tables_is_refused",
         tags=("honesty",),
     ),
+    # M246 and M247 were re-anchored by B30. M246 used to drop the microseconds
+    # and expect the exclusive create to make the tie a LOUD failure - the very
+    # crash B30 removes, so it would now read NOT DETECTED against correct
+    # code. Both now mutate `_reserve_name`, and the clock tie is forced by a
+    # frozen clock instead of hoped for.
     Mutation(
         id="M246", phase=23,
-        description="drop the microseconds - the exclusive create must then "
-                    "turn a same-second collision into a LOUD failure",
+        description="PUT B30 BACK: a clock tie raises FileExistsError instead "
+                    "of taking the next free name",
         path=REPO / "scripts" / "backup_db.py",
-        anchor='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")',
-        replacement='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")',
+        anchor="        except FileExistsError:\n            continue",
+        replacement="        except FileExistsError:\n            raise",
         target="tests/test_backup_db.py",
-        keyword="same_second_never_overwrite",
+        keyword="clock_tie",
     ),
     Mutation(
         id="M247", phase=23,
-        description="SILENTLY OVERWRITE THE EARLIER BACKUP: drop the "
-                    "microseconds AND the exclusive create",
+        description="SILENTLY OVERWRITE THE EARLIER BACKUP: open the name for "
+                    "writing instead of creating it exclusively",
         path=REPO / "scripts" / "backup_db.py",
-        anchor='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")\n'
-               '    dest_file = pathlib.Path(backup_dir) / f"rag_intelligence-{stamp}.sqlite"\n'
-               "    # EXCLUSIVE create: if the name exists, fail loudly rather than let\n"
-               "    # sqlite open the existing backup and write over it.\n"
-               '    with open(dest_file, "xb"):\n'
-               "        pass",
-        replacement='    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")\n'
-                    '    dest_file = pathlib.Path(backup_dir) / f"rag_intelligence-{stamp}.sqlite"',
+        anchor='            with open(candidate, "xb"):',
+        replacement='            with open(candidate, "wb"):',
         target="tests/test_backup_db.py",
-        keyword="same_second_never_overwrite",
+        keyword="clock_tie or never_written_over",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M303", phase=23,
+        description="B30: the retry tries the SAME name every time, so a tie "
+                    "still fails after a hundred attempts",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor='        suffix = f"-{attempt}" if attempt else ""',
+        replacement='        suffix = ""',
+        target="tests/test_backup_db.py",
+        keyword="clock_tie",
+    ),
+    Mutation(
+        id="M304", phase=23,
+        description="B30: with every name taken, hand back a taken one and let "
+                    "sqlite write over it instead of failing loudly",
+        path=REPO / "scripts" / "backup_db.py",
+        anchor="    raise FileExistsError(\n"
+               '        f"no free backup name for stamp {stamp} in {backup_dir} "',
+        replacement="    return candidate\n    raise FileExistsError(\n"
+                    '        f"no free backup name for stamp {stamp} in {backup_dir} "',
+        target="tests/test_backup_db.py",
+        keyword="running_out_of_names",
         tags=("critical",),
     ),
 )

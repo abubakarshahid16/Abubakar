@@ -1,11 +1,14 @@
 """The backup captures the WAL, stands alone, and survives a live writer."""
+import datetime
 import pathlib
 import sqlite3
 import sys
+import types
 
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
+import backup_db
 from backup_db import backup, verify
 
 
@@ -113,6 +116,65 @@ def test_two_backups_in_the_same_second_never_overwrite_each_other(tmp_path):
     assert out_a != out_b
     assert verify(out_a)["tables"]["t"] == 10, "the first backup was overwritten"
     assert verify(out_b)["tables"]["t"] == 3
+
+
+def _db(path, rows):
+    c = sqlite3.connect(path)
+    c.execute("CREATE TABLE t (x)")
+    c.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(rows)])
+    c.commit()
+    c.close()
+    return str(path)
+
+
+@pytest.fixture
+def frozen_clock(monkeypatch):
+    """Every backup gets the SAME microsecond stamp: the Windows clock tie
+    behind B30, made certain instead of left to chance."""
+    fixed = datetime.datetime(2026, 9, 22, 12, 0, 0, 123456)
+    monkeypatch.setattr(backup_db, "_dt", types.SimpleNamespace(
+        datetime=types.SimpleNamespace(now=lambda: fixed)))
+    return fixed.strftime("%Y%m%d-%H%M%S-%f")
+
+
+def test_a_clock_tie_takes_the_next_name_and_every_backup_survives(tmp_path, frozen_clock):
+    """B30: a second backup on the same stamp CRASHED with FileExistsError.
+    It must take a free name instead, and still overwrite nothing."""
+    sources = [_db(tmp_path / f"s{rows}.sqlite", rows) for rows in (10, 3, 7)]
+    out = [backup(s, str(tmp_path)) for s in sources]
+
+    assert [pathlib.Path(p).name for p in out] == [
+        f"rag_intelligence-{frozen_clock}.sqlite",
+        f"rag_intelligence-{frozen_clock}-1.sqlite",
+        f"rag_intelligence-{frozen_clock}-2.sqlite",
+    ]
+    assert [verify(p)["tables"]["t"] for p in out] == [10, 3, 7], \
+        "a tied backup was written over"
+
+
+def test_a_name_already_taken_is_never_written_over(tmp_path, frozen_clock):
+    """Whatever already holds the name - here, not even a database - is
+    skipped untouched, byte for byte."""
+    taken = tmp_path / f"rag_intelligence-{frozen_clock}.sqlite"
+    taken.write_bytes(b"someone else's file")
+
+    out = backup(_db(tmp_path / "live.sqlite", 4), str(tmp_path))
+
+    assert taken.read_bytes() == b"someone else's file"
+    assert pathlib.Path(out) != taken
+    assert verify(out)["tables"]["t"] == 4
+
+
+def test_running_out_of_names_fails_loudly_rather_than_looping(tmp_path, frozen_clock, monkeypatch):
+    monkeypatch.setattr(backup_db, "NAME_ATTEMPTS", 2)
+    for name in (f"rag_intelligence-{frozen_clock}.sqlite",
+                 f"rag_intelligence-{frozen_clock}-1.sqlite"):
+        (tmp_path / name).write_bytes(b"taken")
+
+    with pytest.raises(FileExistsError, match="no free backup name"):
+        backup(_db(tmp_path / "live.sqlite", 1), str(tmp_path))
+    assert sorted(p.read_bytes() for p in tmp_path.glob("rag_intelligence-*")) \
+        == [b"taken", b"taken"]
 
 
 def test_the_source_is_never_written(tmp_path):
