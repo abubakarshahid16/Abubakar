@@ -3548,6 +3548,22 @@ B34_STANDARD_IDS = (
 )
 
 
+#: B14: the glossary-phrase pass had no test that could fail - the existing one
+#: passed with the pass deleted, because two chunks can crowd nothing out.
+B14_GLOSSARY_PHRASE = (
+    Mutation(
+        id="M305", phase=32,
+        description="delete the exact-phrase pass, so a glossary definition is "
+                    "crowded out of the candidate list by scattered-word matches",
+        path=APP / "keyword.py",
+        anchor="    phrase = build_phrase_query(question)",
+        replacement='    phrase = ""',
+        target="tests/test_keyword.py",
+        keyword="survives_a_crowd",
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3558,7 +3574,7 @@ ALL: tuple[Mutation, ...] = (
     + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
     + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
     + DEMO_POLISH + STANDARDS_MODAL + CONDITION_AND_QUOTES
-    + B34_STANDARD_IDS
+    + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE
 )
 
 

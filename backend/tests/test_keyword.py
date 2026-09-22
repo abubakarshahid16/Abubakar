@@ -121,6 +121,50 @@ def test_exact_glossary_phrase_outranks_repeated_scattered_words():
     assert [hit["chunk_id"] for hit in hits[:2]] == ["glossary", "scattered"]
 
 
+def test_the_glossary_phrase_survives_a_crowd_of_scattered_word_matches():
+    """B14. The test above passes with the phrase pass DELETED (mutation
+    `phrase = ""`): with two chunks in the table nothing can crowd the
+    glossary out, so it proved nothing about the feature.
+
+    The phrase pass exists for the case where it can. Twelve short chunks carry
+    all three words, never in the order asked, so broad recall scores every one
+    of them above the long glossary definition and fills a small `limit`
+    without it. Only the exact-phrase pass can bring the definition back -
+    so this fails when that pass is removed."""
+    crowd = [
+        (f"Leader, design team. Team leader design review {i}.",
+         "Minutes", f"crowd{i}")
+        for i in range(12)
+    ]
+    glossary = (
+        "Design Team Leader (DTL) - Engineer or Architect responsible for "
+        "coordinating the efforts of all modelers and technicians working on "
+        "the project model, including its federation and its handover.",
+        "Glossary", "glossary",
+    )
+    conn = db.connect()
+    conn.executemany(
+        """INSERT INTO chunks_fts
+           (text, section, filename, chunk_id, document_id)
+           VALUES (?, ?, 'doc16.pdf', ?, 'doc16')""",
+        [*crowd, glossary],
+    )
+    conn.commit()
+
+    question = "can you tell me about Design team leader"
+    scope = frozenset({"doc16"})
+    # Precondition, so the test cannot pass for the wrong reason: broad recall
+    # ALONE really does push the glossary chunk out of a limit of 5.
+    recall_only = keyword._run_match(
+        conn, keyword.build_match_query(question),
+        *keyword._scope_clause(None, scope), 5)
+    assert "glossary" not in [h["chunk_id"] for h in recall_only]
+
+    hits = keyword.search(question, limit=5, allowed_document_ids=scope)
+    assert hits[0]["chunk_id"] == "glossary"
+    assert len(hits) == 5
+
+
 def test_a_malformed_query_does_not_raise():
     # FTS5 treats several characters as syntax; every token is quoted
     assert isinstance(keyword.search('AND OR NOT " ( )', allowed_document_ids=_scope()), list)
