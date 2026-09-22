@@ -129,7 +129,8 @@ def test_a_re_extraction_that_would_orphan_findings_is_recorded_and_refused():
     req = _requirement(std)
     _finding_citing(std, req)
 
-    with pytest.raises(orphan_guard.OrphaningRefused, match="1 review finding"):
+    with pytest.raises(orphan_guard.OrphaningRefused,
+                       match=r"^Re-extract is blocked because 1 review finding"):
         standards.extract_requirements(std, allowed_document_ids=_scope(std))
 
     assert _requirement_exists(req), "the refused re-extraction deleted the row"
@@ -212,7 +213,13 @@ def test_deleting_a_cited_standard_is_a_409_and_leaves_it_whole():
 
     assert refused.status_code == 409
     assert refused.json()["detail"]["code"] == "orphaning_refused"
-    assert "1 review finding" in refused.json()["detail"]["message"]
+    message = refused.json()["detail"]["message"]
+    assert "1 review finding" in message
+    # WHAT TO DO, in words a screen user can act on - never an API flag
+    # they have no way to set (owner, 2026-09-22).
+    assert message.startswith("Delete is blocked because 1 review finding cites")
+    assert '"Superseded by"' in message
+    assert "acknowledge_orphaned_findings" not in message
     assert _requirement_exists(req)
     assert db.connect().execute(
         "SELECT 1 FROM documents WHERE id = ?", (std,)).fetchone() is not None
