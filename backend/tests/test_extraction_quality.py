@@ -245,20 +245,14 @@ def test_the_subject_keeps_no_article_modal_or_footer():
     assert subject == "scale density", f"got {subject!r}"
 
 
-def test_a_sentence_with_no_comparator_has_no_subject():
-    """`subject` is the phrase before the OPERATOR, so a statement has none.
-
-    NULL rather than the whole sentence: a subject that is just the sentence
-    again tells a reader nothing and would make the column look populated on
-    every row.
-    """
-    doc = _standard("doc_s3", ("4.1", "The vendor shall submit a test certificate."))
-
-    extract(doc)
-
-    row = rows(doc)[0]
-    assert row["requirement_type"] == "statement"
-    assert row["subject"] is None
+# RETIRED 2026-09-22 (B6, owner decision): test_a_sentence_with_no_comparator_
+# has_no_subject asserted that a statement gets NO subject. fae736d (09-20)
+# deliberately changed that contract: a comparator-less sentence takes the
+# text before its first mandatory verb as its subject, because the subject is
+# how a rule joins a datasheet value. The new contract is pinned in
+# test_standards_3b.py (test_a_sentence_with_no_comparator_still_has_a_subject,
+# test_a_sentence_with_no_subject_gets_none_not_a_garbage_phrase and the
+# rest of fae736d's tests). This test had failed ever since.
 
 
 # ------------------------------------------------------------- replace=True
