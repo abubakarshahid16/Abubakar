@@ -4148,6 +4148,53 @@ B50_MODEL_SCHEMA = (
 )
 
 
+#: Feature 1 section 5a + B54: one interface, and provenance that cannot be
+#: omitted. Before it, nothing in the system could say which model answered.
+_PROVIDER_TEST = "tests/test_reasoning_provider.py"
+PROVIDER_SEAM = (
+    Mutation(
+        id="M352", phase=44,
+        description="let a response be built with no model tag, so a stored "
+                    "answer cannot name its engine",
+        path=APP / "reasoning_provider.py",
+        anchor="        if not self.model_tag:\n            raise ValueError(",
+        replacement="        if False:\n            raise ValueError(",
+        target=_PROVIDER_TEST, keyword="no_model_tag_cannot_be_built",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M353", phase=44,
+        description="fall back silently to the REQUESTED tag, papering over a "
+                    "floating tag that resolved to something else",
+        path=APP / "reasoning_provider.py",
+        anchor='        model_tag = reported or f"{self.requested_model} (unreported)"',
+        replacement="        model_tag = reported or self.requested_model",
+        target=_PROVIDER_TEST, keyword="reports_no_tag_is_marked",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M354", phase=44,
+        description="PUT B54 BACK: Generation discards the model tag Ollama "
+                    "reported in every response",
+        path=APP / "synthesis.py",
+        anchor='            model=str(raw.get("model") or ""),',
+        replacement='            model="",',
+        target=_PROVIDER_TEST, keyword="no_longer_discards_the_model",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M355", phase=44,
+        description="swallow a transport failure into an empty answer instead "
+                    "of a named refusal",
+        path=APP / "reasoning_provider.py",
+        anchor='            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc',
+        replacement='            raw = {"response": "", "model": self.requested_model}',
+        target=_PROVIDER_TEST, keyword="transport_failure_is_a_named_refusal",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4162,7 +4209,7 @@ ALL: tuple[Mutation, ...] = (
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
     + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
-    + B50_MODEL_SCHEMA
+    + B50_MODEL_SCHEMA + PROVIDER_SEAM
 )
 
 

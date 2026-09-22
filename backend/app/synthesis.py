@@ -290,21 +290,36 @@ class NotEvidence(TypeError):
 
 @dataclass(frozen=True)
 class Generation:
-    """What the injected model call returns. Deliberately two fields.
+    """What the injected model call returns.
 
     `truncated` is `done_reason == "length"`: the cap ended the generation, not
     the model. A summary that simply stops reads as broken, and the reader
     cannot otherwise tell the difference.
+
+    B54: `model` WAS THROWN AWAY. Ollama returns the tag it actually loaded in
+    every `/api/generate` response and this class kept two fields, so a stored
+    answer could never say which engine produced it - and `review_runs.
+    model_name` is NULL on every row for the same reason. It defaults to empty
+    rather than being required, because an injected test double has no tag and
+    should not have to invent one; what matters is that the real path stops
+    discarding it.
+
+    The tag Ollama reports is the tag it RESOLVED, which is not always the tag
+    that was asked for - a floating name can move under a running system, and
+    that is exactly the case where the recorded value earns its keep.
     """
 
     text: str
     truncated: bool
+    #: The model tag as the engine reported it, never as configuration asked.
+    model: str = ""
 
     @classmethod
     def from_ollama(cls, raw: Mapping[str, object]) -> Generation:
         return cls(
             text=str(raw.get("response") or "").strip(),
             truncated=raw.get("done_reason") == "length",
+            model=str(raw.get("model") or ""),
         )
 
 
