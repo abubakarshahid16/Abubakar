@@ -11,7 +11,7 @@ BUG 2 - `stalled` was decided by heartbeat freshness alone, so a worker that
 """
 import time
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -43,7 +43,7 @@ _BODY = [
 def upload(client, name="s.pdf", pages=2) -> str:
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     path = settings.data_dir / name
-    doc = fitz.open()
+    doc = pymupdf.open()
     for i in range(pages):
         p = doc.new_page()
         p.insert_text((72, 100), f"Section {i+1}.0 Scope")

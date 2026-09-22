@@ -36,14 +36,14 @@ def _ruled_table_pdf(path, header, rows) -> str:
     The ruling lines are what `find_tables` needs. A scanned page has none,
     which is exactly why 79% of this corpus's table chunks cannot be parsed.
     """
-    import fitz
-    doc = fitz.open()
+    import pymupdf
+    doc = pymupdf.open()
     page = doc.new_page(width=600, height=400)
     all_rows = [header, *rows]
     x0, y0, cw, rh = 40, 60, 130, 30
     for r, row in enumerate(all_rows):
         for c, cell in enumerate(row):
-            rect = fitz.Rect(x0 + c * cw, y0 + r * rh,
+            rect = pymupdf.Rect(x0 + c * cw, y0 + r * rh,
                              x0 + (c + 1) * cw, y0 + (r + 1) * rh)
             page.draw_rect(rect, color=(0, 0, 0), width=0.7)
             page.insert_text((rect.x0 + 4, rect.y0 + 19), str(cell), fontsize=9)
@@ -153,9 +153,9 @@ def test_an_unparsed_table_lowers_completeness_rather_than_passing(tmp_path):
     unparsed WITH A REASON and drags the parsed fraction down - it does not
     quietly contribute nothing and leave the standard looking complete.
     """
-    import fitz
+    import pymupdf
     path = tmp_path / "flat.pdf"
-    doc_pdf = fitz.open(); page = doc_pdf.new_page()
+    doc_pdf = pymupdf.open(); page = doc_pdf.new_page()
     page.insert_text((50, 100), "12 17 0.8 1.0 Foundation Marine")
     doc_pdf.save(str(path)); doc_pdf.close()
 

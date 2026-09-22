@@ -5,7 +5,7 @@ passages. Almost everyone opens with a greeting, so that was the first five
 seconds of the product for most people who would ever see it.
 """
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -50,7 +50,7 @@ def upload(client, blocks=(SPEC, SYSTEM_ONE), name="spec.pdf") -> str:
     # examples embed the filename, so two documents called spec.pdf could not
     # tell a scoped answer from an unscoped one.
     path = settings.data_dir / name
-    doc = fitz.open()
+    doc = pymupdf.open()
     for block in blocks:
         page = doc.new_page()
         for i, line in enumerate(block):

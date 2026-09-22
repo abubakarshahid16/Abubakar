@@ -575,11 +575,11 @@ def test_restrict_never_returns_an_id_the_scope_did_not_hold(corpus):
 
 
 def _pdf_bytes(text: str) -> bytes:
-    """A one-page PDF whose first page carries `text`, built with fitz so the
+    """A one-page PDF whose first page carries `text`, built with pymupdf so the
     first-page read the hook performs has something real to find."""
-    import fitz
+    import pymupdf
 
-    document = fitz.open()
+    document = pymupdf.open()
     page = document.new_page()
     page.insert_text((72, 100), text, fontsize=11)
     data = document.tobytes()

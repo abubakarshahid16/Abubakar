@@ -304,7 +304,7 @@ def test_ocr_runs_after_the_keyword_index_never_before_it(tmp_path, monkeypatch)
     recognition ran before the keyword index it would put minutes in front of
     the first answer. The document must be ANSWERABLE before OCR starts.
     """
-    import fitz
+    import pymupdf
     from fastapi.testclient import TestClient
 
     from app import states
@@ -312,7 +312,7 @@ def test_ocr_runs_after_the_keyword_index_never_before_it(tmp_path, monkeypatch)
     from app.main import app
 
     pdf = tmp_path / "mixed.pdf"
-    doc = fitz.open()
+    doc = pymupdf.open()
     doc.new_page()                       # scanned
     page = doc.new_page()
     page.insert_text((72, 100), "Section 3.0 Application", fontsize=13)
@@ -382,7 +382,7 @@ def test_recognised_text_reaches_a_chunk_labelled_recognised(tmp_path, monkeypat
     A scanned page produces no chunk before recognition. After it, the text is
     chunked and the chunk claims 'recognised' - never 'extracted'.
     """
-    import fitz
+    import pymupdf
     from fastapi.testclient import TestClient
 
     from app.chunker import chunk_document
@@ -390,7 +390,7 @@ def test_recognised_text_reaches_a_chunk_labelled_recognised(tmp_path, monkeypat
     from app.main import app
 
     pdf = tmp_path / "scan.pdf"
-    doc = fitz.open()
+    doc = pymupdf.open()
     doc.new_page()                       # deliberately blank: a scanned page
     page = doc.new_page()
     page.insert_text((72, 100), "Section 2.0 Coating", fontsize=13)

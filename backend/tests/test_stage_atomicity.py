@@ -11,7 +11,7 @@ be two steps that can drift. These tests assert the invariant directly rather
 than testing one stage's happy path.
 """
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -47,7 +47,7 @@ def temp_storage(tmp_path, monkeypatch):
 def upload(client, name="spec.pdf", pages=40) -> str:
     """A document big enough that indexing does real work."""
     path = settings.data_dir / name
-    doc = fitz.open()
+    doc = pymupdf.open()
     for i in range(pages):
         page = doc.new_page()
         page.insert_text((72, 90), f"{(i % 9) + 1}.{i} Requirements for unit {i}")

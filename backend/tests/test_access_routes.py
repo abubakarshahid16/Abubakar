@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -50,7 +50,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 def _pdf(path, text="Coating system no. 1 shall have a nominal DFT of 280 um. "):
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page()
     page.insert_text((72, 100), "Section 4.4 Ambient conditions", fontsize=13)
     page.insert_text((72, 130), text * 6, fontsize=9)

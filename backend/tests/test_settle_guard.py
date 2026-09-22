@@ -7,7 +7,7 @@ allow about ten; a document that was progressing correctly reached `failed`
 after three rounds, with a reason that blamed the state machine and never
 named OCR.
 """
-import fitz
+import pymupdf
 from fastapi.testclient import TestClient
 from app import db, states, ocr as ocr_mod
 from app.config import settings
@@ -16,7 +16,7 @@ from app.db import connect
 
 
 def make(tmp):
-    doc = fitz.open()
+    doc = pymupdf.open()
     doc.new_page()                       # scanned page -> needs_ocr
     p = doc.new_page()
     p.insert_text((72, 100), "Section 2.0 Coating", fontsize=13)

@@ -1,9 +1,9 @@
 """Generate synthetic PDFs for tests and manual checks. No client data."""
 import sys
-import fitz
+import pymupdf
 
 def make(path: str, pages: int = 5) -> None:
-    doc = fitz.open()
+    doc = pymupdf.open()
     for i in range(1, pages + 1):
         page = doc.new_page()
         page.insert_text((72, 96), f"Section {i}.0  Synthetic Equipment Notes", fontsize=14)

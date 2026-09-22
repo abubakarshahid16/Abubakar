@@ -49,7 +49,7 @@ def test_management_report_exports_operational_summary_pdf():
     )
     path = deliverables.render_management_report()
     try:
-        pdf = __import__("fitz").open(str(path))
+        pdf = __import__("pymupdf").open(str(path))
         text = "\n".join(page.get_text() for page in pdf)
         pdf.close()
         assert "EPC MANAGEMENT REPORT" in text

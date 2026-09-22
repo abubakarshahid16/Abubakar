@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-import fitz
+import pymupdf
 
 from .config import settings
 
@@ -52,14 +52,14 @@ def render_page(document: dict, page_no: int, dpi: int = 150) -> Path:
         return out
 
     pdf_path = document["stored_path"]
-    with fitz.open(pdf_path) as doc:
+    with pymupdf.open(pdf_path) as doc:
         if page_no > doc.page_count:
             raise PageOutOfRange(
                 f"page {page_no} is out of range (document has {doc.page_count})"
             )
         page = doc.load_page(page_no - 1)
         # 72 dpi is PDF user space; scale from there.
-        pix = page.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72))
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(dpi / 72, dpi / 72))
         pix.save(str(out))
     return out
 
@@ -99,7 +99,7 @@ def render_page_with_highlight(
     if out.exists() and out.stat().st_size > 0:
         return out
 
-    with fitz.open(document["stored_path"]) as doc:
+    with pymupdf.open(document["stored_path"]) as doc:
         if not 1 <= page_no <= doc.page_count:
             raise PageOutOfRange(
                 f"page {page_no} is out of range (document has {doc.page_count})"
@@ -107,7 +107,7 @@ def render_page_with_highlight(
         page = doc.load_page(page_no - 1)
         shape = page.new_shape()
         for x0, y0, x1, y1 in rects:
-            box = fitz.Rect(x0, y0, x1, y1) + (
+            box = pymupdf.Rect(x0, y0, x1, y1) + (
                 -HIGHLIGHT_PADDING, -HIGHLIGHT_PADDING,
                 HIGHLIGHT_PADDING, HIGHLIGHT_PADDING,
             )
@@ -119,6 +119,6 @@ def render_page_with_highlight(
             width=HIGHLIGHT_WIDTH,
         )
         shape.commit()
-        pix = page.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72))
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(dpi / 72, dpi / 72))
         pix.save(str(out))
     return out

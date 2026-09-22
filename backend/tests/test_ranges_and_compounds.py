@@ -308,14 +308,14 @@ def test_a_single_value_still_compares_exactly_as_before():
 
 def _datasheet_pdf(path, rows) -> str:
     """A one-page ruled form, the shape `split_label_value` reads."""
-    import fitz
+    import pymupdf
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=600, height=500)
     y = 60
     for index, (label, value) in enumerate(rows, start=1):
-        page.draw_rect(fitz.Rect(40, y - 14, 300, y + 6), color=(0, 0, 0), width=0.7)
-        page.draw_rect(fitz.Rect(300, y - 14, 560, y + 6), color=(0, 0, 0), width=0.7)
+        page.draw_rect(pymupdf.Rect(40, y - 14, 300, y + 6), color=(0, 0, 0), width=0.7)
+        page.draw_rect(pymupdf.Rect(300, y - 14, 560, y + 6), color=(0, 0, 0), width=0.7)
         page.insert_text((44, y), f"{index}", fontsize=9)
         page.insert_text((64, y), label, fontsize=9)
         page.insert_text((304, y), value, fontsize=9)
@@ -326,9 +326,9 @@ def _datasheet_pdf(path, rows) -> str:
 
 
 def _ingest(path, doc_id="doc_rng"):
-    import fitz
+    import pymupdf
 
-    doc = fitz.open(path)
+    doc = pymupdf.open(path)
     pages = len(doc)
     with db.connect() as conn:
         conn.execute(

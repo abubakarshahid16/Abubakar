@@ -142,11 +142,11 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
     contractor supplied.
     """
     try:
-        import fitz
-    except ImportError:  # pragma: no cover - fitz is a hard dependency elsewhere
+        import pymupdf
+    except ImportError:  # pragma: no cover - pymupdf is a hard dependency elsewhere
         return []
     try:
-        with fitz.open(stored_path) as doc:
+        with pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
             found = doc[page_no - 1].find_tables()

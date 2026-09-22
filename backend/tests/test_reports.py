@@ -4,7 +4,7 @@ Every assertion on the PDF is on SEMANTICS read back through PyMuPDF - text,
 fonts, page geometry - never on bytes. Byte assertions break on every point
 release, and the library is already the parser.
 
-Every text assertion NFKC-normalises first. The spike found `fitz` returns
+Every text assertion NFKC-normalises first. The spike found `pymupdf` returns
 typographic ligatures - "prefix" came back as "preﬁx" - and the first
 version of its `<thead>` check found no header on any page for exactly that
 reason.
@@ -16,7 +16,7 @@ import json
 import unicodedata
 from html import escape
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -66,7 +66,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 def build(path, blocks):
-    doc = fitz.open()
+    doc = pymupdf.open()
     for block in blocks:
         page = doc.new_page()
         for i, line in enumerate(block):
@@ -91,12 +91,12 @@ def build_shaped(path, blocks):
     html = "<html><body>" + "".join(
         "<p>" + "<br/>".join(escape(line) for line in block) + "</p>"
         for block in blocks) + "</body></html>"
-    story = fitz.Story(html)
-    writer = fitz.DocumentWriter(str(path))
+    story = pymupdf.Story(html)
+    writer = pymupdf.DocumentWriter(str(path))
     more = 1
     while more:
-        device = writer.begin_page(fitz.paper_rect("letter"))
-        more, _ = story.place(fitz.Rect(72, 72, 540, 720))
+        device = writer.begin_page(pymupdf.paper_rect("letter"))
+        more, _ = story.place(pymupdf.Rect(72, 72, 540, 720))
         story.draw(device)
         writer.end_page()
     writer.close()
@@ -127,10 +127,10 @@ def _all_ids():
     return {r["id"] for r in db.connect().execute("SELECT id FROM documents")}
 
 
-def pdf_of(record) -> fitz.Document:
+def pdf_of(record) -> pymupdf.Document:
     row = db.connect().execute("SELECT stored_path FROM reports WHERE id = ?",
                                (record["id"],)).fetchone()
-    return fitz.open(row["stored_path"])
+    return pymupdf.open(row["stored_path"])
 
 
 def all_text(doc) -> str:
@@ -358,7 +358,7 @@ def test_nothing_is_clipped_and_the_full_hash_survives():
     measured = 0
     for page in doc:
         for b in page.get_text("blocks"):
-            r = fitz.Rect(b[:4])
+            r = pymupdf.Rect(b[:4])
             measured += 1
             assert r.x1 <= page.rect.x1 + 2 and r.y1 <= page.rect.y1 + 2, (
                 f"block past the page edge on page {page.number + 1}: {r}")
@@ -380,7 +380,7 @@ def test_document_text_is_html_escaped():
 
     THE PREMISE WAS CORRECT, and it was worth checking: `reports.to_html` really
     does build an HTML document, `_esc` really is `html.escape`, and
-    `fitz.Story` really parses that HTML - measured below at both layers, so the
+    `pymupdf.Story` really parses that HTML - measured below at both layers, so the
     escaping is load-bearing rather than decorative.
 
     WHAT IS ASSERTED, POSITIVELY, at each of the two layers:
@@ -750,7 +750,7 @@ def test_arabic_glyphs_come_from_naskh_and_none_are_notdef():
 
     # STAGE 1 - the fixture. Asserted, not assumed: this is the assertion the
     # skip existed instead of.
-    fixture = fitz.open(settings.data_dir / "ar.pdf")
+    fixture = pymupdf.open(settings.data_dir / "ar.pdf")
     fixture_arabic = arabic_chars("".join(page.get_text() for page in fixture))
     assert fixture_arabic >= ARABIC_FLOOR, (
         f"the fixture itself carries only {fixture_arabic} Arabic characters - "

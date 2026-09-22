@@ -412,11 +412,11 @@ def _pdf_page_text(stored_path: str, page_no: int) -> str:
     """The page's text straight from the PDF, as `extract.extract_batch` reads
     it. Only reached when the stored chunks carry no text for the page."""
     try:
-        import fitz
+        import pymupdf
     except ImportError:  # pragma: no cover
         return ""
     try:
-        with fitz.open(stored_path) as doc:
+        with pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return ""
             return doc[page_no - 1].get_text("text") or ""

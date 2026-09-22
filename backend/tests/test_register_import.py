@@ -21,7 +21,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import fitz
+import pymupdf
 import pytest
 
 from app import classification, db
@@ -118,7 +118,7 @@ def build_register_pdf(path: Path, rows: list[tuple[str, str, str]],
         (30, 190, 380),
         (55, 150, 260),
     ]
-    document = fitz.open()
+    document = pymupdf.open()
     for start in range(0, len(rows), rows_per_page):
         page = document.new_page(width=612, height=792)
         x_type, x_disc, x_title = layouts[
@@ -172,7 +172,7 @@ def test_the_fixture_really_does_vary_its_columns_by_page(register_pdf):
     """A GUARD ON THE FIXTURE. If the layouts ever collapse to one, every
     test below would pass on a fixed-x parser and prove nothing about the
     property they exist for."""
-    document = fitz.open(register_pdf)
+    document = pymupdf.open(register_pdf)
     try:
         starts = []
         for page in document:

@@ -261,8 +261,8 @@ def test_read_datasheet_walks_the_pages_it_is_given_and_stamps_them():
 # ------------------------------------------------------------------ storage
 
 def _ingest_page(path, doc_id="doc_cd", text=PAGE) -> str:
-    import fitz
-    pdf = fitz.open()
+    import pymupdf
+    pdf = pymupdf.open()
     page = pdf.new_page(width=600, height=500)
     page.insert_text((44, 60), "Set pressure   340 psig", fontsize=9)
     pdf.save(str(path)); pdf.close()

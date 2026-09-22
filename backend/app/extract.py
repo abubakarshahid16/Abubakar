@@ -16,7 +16,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import fitz  # PyMuPDF
+import pymupdf  # PyMuPDF
 
 from .config import settings
 from .quality import normalise_text
@@ -67,19 +67,19 @@ def _now() -> str:
 
 
 def page_count(pdf_path: str) -> int:
-    with fitz.open(pdf_path) as doc:
+    with pymupdf.open(pdf_path) as doc:
         return doc.page_count
 
 
 def extract_batch(pdf_path: str, first_page: int, last_page: int) -> list[tuple[int, str, bool]]:
     """Extract [first_page, last_page] inclusive, 1-based.
 
-    Runs in a worker process. Opens the document itself - a fitz.Document
+    Runs in a worker process. Opens the document itself - a pymupdf.Document
     cannot cross a process boundary. Returns plain tuples so the payload
     pickles cheaply.
     """
     out: list[tuple[int, str, bool]] = []
-    with fitz.open(pdf_path) as doc:
+    with pymupdf.open(pdf_path) as doc:
         for pno in range(first_page - 1, min(last_page, doc.page_count)):
             page = doc.load_page(pno)
             text = page.get_text("text") or ""

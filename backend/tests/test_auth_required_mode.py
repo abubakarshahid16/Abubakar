@@ -17,7 +17,7 @@ asserting that a request succeeded.
 
 from __future__ import annotations
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -44,7 +44,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 def _pdf(path, body):
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page()
     page.insert_text((72, 100), "Section 4.4 Ambient conditions", fontsize=13)
     page.insert_text((72, 130), body * 6, fontsize=9)

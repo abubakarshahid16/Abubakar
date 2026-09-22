@@ -1,4 +1,4 @@
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -20,7 +20,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 def make_pdf(path, pages: int, blank_pages: set[int] = frozenset()):
-    doc = fitz.open()
+    doc = pymupdf.open()
     for i in range(1, pages + 1):
         page = doc.new_page()
         if i not in blank_pages:

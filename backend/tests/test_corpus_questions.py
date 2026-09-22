@@ -23,7 +23,7 @@ Mutations: M251-M263, `python scripts/mutation_check.py --phase 25`.
 
 from __future__ import annotations
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -75,7 +75,7 @@ def _uploaded_standard(client) -> str:
     """A REAL, ingested, searchable standard - so retrieval and its lexical
     gate run for real, and only the model's reply is faked."""
     path = settings.data_dir / "spec.pdf"
-    pdf = fitz.open()
+    pdf = pymupdf.open()
     page = pdf.new_page()
     for i, line in enumerate(VIBRATION):
         page.insert_text((72, 100 + i * 16), line)

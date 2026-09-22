@@ -6,7 +6,7 @@ divide-by-almost-zero, a worker reporting healthy with a full queue, and a
 fact, so an unmeasured one is the most expensive thing that can be put there.
 """
 
-import fitz
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -39,7 +39,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 def upload(client, blocks=(PROSE,), name="spec.pdf") -> str:
     path = settings.data_dir / name
-    doc = fitz.open()
+    doc = pymupdf.open()
     for block in blocks:
         page = doc.new_page()
         for i, line in enumerate(block):
