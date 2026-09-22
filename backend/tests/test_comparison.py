@@ -517,6 +517,11 @@ def test_out_of_scope_findings_never_approve_a_submittal():
     assert result["code"] == comparison.CODE_MANUAL
     assert result["code"] != comparison.CODE_APPROVED
     assert result["not_in_document_scope"] == 3
+    # A SPECIFIC reason, the owner's wording - not a generic manual flag.
+    assert result["reason"] == "Manual review: 3 requirements require other documents"
+    one = comparison.recommend_code(
+        [{"compliance_status": comparison.NOT_IN_DOCUMENT_SCOPE}], complete)
+    assert one["reason"] == "Manual review: 1 requirement requires other documents"
 
 
 def test_out_of_scope_is_never_counted_as_the_contractors_omission():

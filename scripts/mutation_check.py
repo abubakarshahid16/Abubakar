@@ -3786,6 +3786,17 @@ B9_NOT_IN_DOCUMENT_SCOPE = (
         tags=("honesty",),
     ),
     Mutation(
+        id="M325", phase=37,
+        description="a generic manual flag instead of saying WHY: the reader "
+                    "cannot tell other documents are needed",
+        path=APP / "comparison.py",
+        anchor='            "reason": (f"Manual review: {len(out_of_scope)} requirement"',
+        replacement='            "reason": ("Manual review required"',
+        target="tests/test_comparison.py",
+        keyword="never_approve",
+        tags=("honesty",),
+    ),
+    Mutation(
         id="M323", phase=37, runner="vitest",
         description="fold out-of-scope rows into the 'no evidence' count",
         path=_REVIEW_UI / "FindingsTable.tsx",

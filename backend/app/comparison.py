@@ -850,9 +850,11 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             # either, so not "with comments": an engineer checks them where
             # they are answered.
             "code": manual,
-            "reason": f"{len(out_of_scope)} requirement(s) cannot be answered "
-                      "from this submittal type and must be checked in the "
-                      "documents that govern them; no requirement was found unmet",
+            # The owner's wording, 2026-09-22: a specific reason, never a
+            # generic manual flag. The reader learns WHY it is manual.
+            "reason": (f"Manual review: {len(out_of_scope)} requirement"
+                       f"{' requires' if len(out_of_scope) == 1 else 's require'}"
+                       " other documents"),
             "blocking": 0, "unresolved": 0, "missing_information": 0,
             "not_in_document_scope": len(out_of_scope),
         }
