@@ -80,7 +80,7 @@ DocumentReviewStatus = Literal[
 #: Whether a submittal meets one requirement. A SECOND vocabulary beside the
 #: guided-review `status`/`disposition`, never a replacement for them.
 #:
-#: The six are not collapsible to a boolean, and that is the point:
+#: The seven are not collapsible to a boolean, and that is the point:
 #:   * MISSING_INFORMATION is NOT NON_COMPLIANT - "the submittal does not say"
 #:     is not "the submittal is wrong", and the honesty invariant that "not
 #:     mentioned is never compliant" has an equal and opposite half.
@@ -88,6 +88,9 @@ DocumentReviewStatus = Literal[
 #:   * NOT_APPLICABLE means the requirement does not govern this submittal.
 #:   * NEEDS_ENGINEER_REVIEW is the machine declining to answer, which is a
 #:     result and must be storable as one rather than rounded to a guess.
+#:   * NOT_IN_DOCUMENT_SCOPE (B9) is a requirement this SUBMITTAL TYPE cannot
+#:     answer - it is checked in another document. Not an omission by the
+#:     contractor (that is MISSING_INFORMATION) and not a failure.
 #: NULL (no value at all) is distinct from every one of these: it means no
 #: verdict was ever recorded, which is what every pre-existing finding row is.
 ComplianceStatus = Literal[
@@ -97,6 +100,7 @@ ComplianceStatus = Literal[
     "CONDITIONAL",
     "NOT_APPLICABLE",
     "NEEDS_ENGINEER_REVIEW",
+    "NOT_IN_DOCUMENT_SCOPE",
 ]
 
 

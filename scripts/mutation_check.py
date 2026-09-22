@@ -3811,6 +3811,90 @@ B38_ORPHAN_GUARD = (
 )
 
 
+#: B9/B22: NOT_IN_DOCUMENT_SCOPE, rule R1 - an unmatched `statement` is not
+#: the contractor's omission, and must never approve a submittal either.
+_REVIEW_UI = REPO / "frontend" / "src" / "components" / "review"
+B9_NOT_IN_DOCUMENT_SCOPE = (
+    Mutation(
+        id="M320", phase=37,
+        description="PUT B9 BACK: an unmatched statement is the contractor's "
+                    "MISSING_INFORMATION again",
+        path=APP / "comparison.py",
+        anchor="        if requirement.get(\"requirement_type\") == requirements_3b.STATEMENT:",
+        replacement="        if False:",
+        target="tests/test_comparison.py",
+        keyword="not_in_document_scope_not_missing",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M321", phase=37,
+        description="an out-of-scope-only run falls through to APPROVED",
+        path=APP / "comparison.py",
+        anchor="    if out_of_scope:\n        return {\n            # NOT AN APPROVAL.",
+        replacement="    if False:\n        return {\n            # NOT AN APPROVAL.",
+        target="tests/test_comparison.py",
+        keyword="never_approve",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M322", phase=37,
+        description="count out-of-scope as the contractor's missing fields",
+        path=APP / "comparison.py",
+        anchor="    missing = [s for s in statuses if s == MISSING_INFORMATION]\n"
+               "    # B9: counted APART",
+        replacement="    missing = [s for s in statuses if s in (MISSING_INFORMATION, "
+                    "NOT_IN_DOCUMENT_SCOPE)]\n    # B9: counted APART",
+        target="tests/test_comparison.py",
+        keyword="never_counted_as_the_contractors_omission",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M325", phase=37,
+        description="a generic manual flag instead of saying WHY: the reader "
+                    "cannot tell other documents are needed",
+        path=APP / "comparison.py",
+        anchor='            "reason": (f"Manual review: {len(out_of_scope)} requirement"',
+        replacement='            "reason": ("Manual review required"',
+        target="tests/test_comparison.py",
+        keyword="never_approve",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M323", phase=37, runner="vitest",
+        description="fold out-of-scope rows into the 'no evidence' count",
+        path=_REVIEW_UI / "FindingsTable.tsx",
+        anchor="  const missing = filtered.filter((f) => f.compliance_status === MISSING);",
+        replacement="  const missing = filtered.filter((f) => f.compliance_status === MISSING"
+                    " || f.compliance_status === OUT_OF_SCOPE);",
+        target="src/components/review/FindingsTable.test.tsx",
+        keyword="OWN count",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M332", phase=37, runner="vitest",
+        description="an out-of-scope row stops showing its page, so an engineer "
+                    "cannot find and catch a misclassified one (owner's merge "
+                    "condition 1a)",
+        path=_REVIEW_UI / "FindingsTable.tsx",
+        anchor="          {finding.standard_page ? ` · p${finding.standard_page}` : \"\"}",
+        replacement="          {\"\"}",
+        target="src/components/review/FindingsTable.test.tsx",
+        keyword="clause, page and text",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M324", phase=37, runner="vitest",
+        description="word it as missing evidence on screen",
+        path=_REVIEW_UI / "reviewFormat.ts",
+        anchor='    "Requires another document - not answerable from this submittal type",',
+        replacement='    "No evidence submitted",',
+        target="src/components/review/reviewFormat.test.ts",
+        keyword="approved wording",
+        tags=("honesty", "ui"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3823,7 +3907,7 @@ ALL: tuple[Mutation, ...] = (
     + DEMO_POLISH + STANDARDS_MODAL + CONDITION_AND_QUOTES
     + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE + B12_SCOPED_CORRECTIONS
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
-    + B38_ORPHAN_GUARD
+    + B38_ORPHAN_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
 )
 
 

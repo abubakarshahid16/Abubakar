@@ -62,6 +62,13 @@ MISSING_INFORMATION = "MISSING_INFORMATION"
 CONDITIONAL = "CONDITIONAL"
 NOT_APPLICABLE = "NOT_APPLICABLE"
 NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
+#: B9/B22, owner-approved 2026-09-22. A requirement this SUBMITTAL TYPE cannot
+#: answer - it has to be checked in another document. It is NOT a contractor
+#: omission (that is MISSING_INFORMATION) and NOT a failure, so it never
+#: counts toward "with comments", never rejects, and never approves.
+#: Client-facing label (frontend): "Requires another document - not
+#: answerable from this submittal type".
+NOT_IN_DOCUMENT_SCOPE = "NOT_IN_DOCUMENT_SCOPE"
 
 #: Statuses that block approval. `MISSING_INFORMATION` is deliberately NOT
 #: here: a field nobody filled in is a question, not a failure, and it steers
@@ -325,6 +332,21 @@ def compare(requirement: dict, fact: dict | None, *,
             "exception_applied": None,
         }
     if fact is None:
+        # B9, RULE R1 (owner-approved, to be sample-checked before trusted):
+        # a `statement` names no field, subject or value a datasheet could
+        # fill in, so "the sheet does not state it" says nothing about the
+        # contractor - the question is answered by another document. Only
+        # when NOTHING matched: a statement that did meet a fact, blank or
+        # not, is still judged below exactly as before.
+        if requirement.get("requirement_type") == requirements_3b.STATEMENT:
+            return {
+                "status": NOT_IN_DOCUMENT_SCOPE,
+                "rationale": (
+                    "this requirement states no field or value a submittal "
+                    "of this type could answer; it has to be checked in the "
+                    "document that governs it"),
+                "limit": None, "observed": None, "exception_applied": None,
+            }
         return {
             "status": MISSING_INFORMATION,
             "rationale": "the submittal states no value for this requirement",
@@ -686,6 +708,8 @@ def _required_action(status: str) -> str:
         CONDITIONAL: "Confirm the condition under which this requirement holds.",
         NOT_APPLICABLE: "None. The requirement does not govern this submittal.",
         NEEDS_ENGINEER_REVIEW: "An engineer must review this manually.",
+        NOT_IN_DOCUMENT_SCOPE: "Check this in the document that governs it; "
+                               "this submittal type cannot answer it.",
     }.get(status, "An engineer must review this manually.")
 
 
@@ -777,6 +801,9 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     blocking = [s for s in statuses if s in BLOCKING]
     unresolved = [s for s in statuses if s == NEEDS_ENGINEER_REVIEW]
     missing = [s for s in statuses if s == MISSING_INFORMATION]
+    # B9: counted APART from missing, in every outcome below. Never a
+    # contractor omission, never a failure - and never an approval either.
+    out_of_scope = [s for s in statuses if s == NOT_IN_DOCUMENT_SCOPE]
 
     if not completeness.get("sufficient"):
         return {
@@ -784,6 +811,7 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             "reason": _insufficient_reason(completeness),
             "blocking": len(blocking), "unresolved": len(unresolved),
             "missing_information": len(missing),
+            "not_in_document_scope": len(out_of_scope),
         }
     if unresolved:
         return {
@@ -792,6 +820,7 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                       "and need an engineer",
             "blocking": len(blocking), "unresolved": len(unresolved),
             "missing_information": len(missing),
+            "not_in_document_scope": len(out_of_scope),
         }
     if blocking:
         return {
@@ -799,6 +828,7 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             "reason": f"{len(blocking)} requirement(s) are not met",
             "blocking": len(blocking), "unresolved": 0,
             "missing_information": len(missing),
+            "not_in_document_scope": len(out_of_scope),
         }
     if missing:
         return {
@@ -808,11 +838,31 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             "reason": f"{len(missing)} field(s) are left for the contractor to "
                       "provide; no requirement was found unmet",
             "blocking": 0, "unresolved": 0, "missing_information": len(missing),
+            "not_in_document_scope": len(out_of_scope),
+        }
+    if out_of_scope:
+        return {
+            # NOT AN APPROVAL. Without this branch a run whose unmatched
+            # requirements are all out of scope fell through to "every
+            # evaluated requirement is met" - approval of a sheet on questions
+            # it could never answer. NORTH-STAR 2.2: uncertainty never
+            # produces automatic approval. Not the contractor's omission
+            # either, so not "with comments": an engineer checks them where
+            # they are answered.
+            "code": manual,
+            # The owner's wording, 2026-09-22: a specific reason, never a
+            # generic manual flag. The reader learns WHY it is manual.
+            "reason": (f"Manual review: {len(out_of_scope)} requirement"
+                       f"{' requires' if len(out_of_scope) == 1 else 's require'}"
+                       " other documents"),
+            "blocking": 0, "unresolved": 0, "missing_information": 0,
+            "not_in_document_scope": len(out_of_scope),
         }
     return {
         "code": approved,
         "reason": "every evaluated requirement is met",
         "blocking": 0, "unresolved": 0, "missing_information": 0,
+        "not_in_document_scope": 0,
     }
 
 
@@ -1047,7 +1097,8 @@ def run_comparison(
         "by_status": {
             status: sum(1 for f in findings if f["compliance_status"] == status)
             for status in (COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION,
-                           CONDITIONAL, NOT_APPLICABLE, NEEDS_ENGINEER_REVIEW)
+                           CONDITIONAL, NOT_APPLICABLE, NEEDS_ENGINEER_REVIEW,
+                           NOT_IN_DOCUMENT_SCOPE)
         },
         "completeness": coverage,
         "recommended_code": recommendation,
