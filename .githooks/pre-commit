@@ -67,6 +67,58 @@ if [ -n "$envfiles" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 2b. New client identifiers, in ADDED LINES ONLY
+# ---------------------------------------------------------------------------
+# Owner decision 2026-09-23. Client document numbers and the client's own
+# abbreviation are ALREADY in 18 tracked files - that is B27, an accepted risk,
+# and this hook does not reopen it. What it stops is the next one.
+#
+# ADDED LINES ONLY, deliberately. A rule that blocked any file containing these
+# strings would block every commit to comparison.py, datasheets.py,
+# match_rules.py, eight test files and four docs, and a hook that blocks
+# ordinary work gets bypassed until it is worthless. Scanning `^+` lines means
+# existing occurrences are invisible and only new ones are refused.
+#
+# This file is excluded from its own scan: it has to name the strings it looks
+# for, and it cannot be committed if it trips on itself.
+client_ids='216400C|EF1975|DAS-M-03|DAS-I-06|KJO'
+client_hits=''
+for f in $staged; do
+  case "$f" in
+    .githooks/pre-commit) continue ;;
+  esac
+  # `-E` ON BOTH GREPS. The second one was written `grep -v '^\+\+\+'` and
+  # silently matched nothing useful: without -E, GNU grep reads `\+` as the
+  # BRE repetition operator rather than a literal plus, so the filter dropped
+  # every line and the check passed a file that did contain an identifier.
+  # Caught by testing the block against a file that should have failed.
+  hits=$(git diff --cached -U0 --diff-filter=ACMR -- "$f" \
+    | grep -E '^\+' | grep -vE '^\+\+\+' \
+    | grep -E "$client_ids" || true)
+  if [ -n "$hits" ]; then
+    client_hits="${client_hits}${f}:
+$(printf '%s\n' "$hits" | sed 's/^/      /')
+"
+  fi
+done
+
+if [ -n "$client_hits" ]; then
+  echo "${RED}BLOCKED: a new client identifier in an added line${NC}"
+  printf '%s' "$client_hits"
+  echo ""
+  echo "  Client document numbers and the client's abbreviation must not enter"
+  echo "  new lines in tracked files. Existing occurrences are B27, an accepted"
+  echo "  risk, and are not blocked - this is only about not adding more."
+  echo ""
+  echo "  Write the ROLE the document plays instead:"
+  echo "      the tuning document | the pump datasheet regression document"
+  echo "      a multi-column material field | the client"
+  echo "  and keep names, values and counts in the register, which is"
+  echo "  direct-copy and never in git."
+  fail=1
+fi
+
+# ---------------------------------------------------------------------------
 # 3. gitleaks on staged content
 # ---------------------------------------------------------------------------
 # FAILS CLOSED. This block used to print a WARNING and let the commit through
