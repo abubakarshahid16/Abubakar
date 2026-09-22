@@ -56,7 +56,7 @@ function summaryBody(summary = "The discharge pressure floor is 250 kPa [S1].") 
     rejected_citations: [],
     evidence_removed: [],
     refusal: null,
-    dropped_sentences: [],
+    removed: [],
     not_implemented_sections: [],
   };
 }

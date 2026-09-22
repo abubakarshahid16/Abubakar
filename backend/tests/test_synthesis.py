@@ -213,7 +213,7 @@ def test_a_silently_converted_unit_is_rejected():
     does not contain, and that is the whole failure mode."""
     out = summarise(QUESTION, TWO, Stub("The system requires 0.28 mm [S1]."))
     assert out.text is None
-    assert out.dropped_sentences[0][1].startswith("carries a number no cited span contains")
+    assert out.dropped_sentences[0][1] == "value 0.28 not in cited passage"
 
 
 def test_a_number_written_with_a_comma_decimal_is_the_same_number():

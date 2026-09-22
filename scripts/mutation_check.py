@@ -3374,6 +3374,158 @@ CONDITION_AND_QUOTES = (
 )
 
 
+#: Phase 31: B34 - a standard number is a NAME, not a measurement, under a
+#: CLOSED grammar; and a removed sentence is REPORTED, never silently deleted.
+#: M288-M293 loosen or remove the grammar in six different ways - each must be
+#: caught, and M289 and M293 are the loosenings that would let a fabricated
+#: value disguised as a standard number through ("per SAES-H-150, apply 150").
+_SYNTH = APP / "synthesis.py"
+_B34_TEST = "tests/test_b34_standard_identifiers.py"
+_B34_UI_TEST = "src/views/AnalysisModeScreen.removed.test.tsx"
+B34_STANDARD_IDS = (
+    Mutation(
+        id="M288", phase=31,
+        description="remove the grammar from the stripper - the original bug: SAES-H-004 read as the quantity 4",
+        path=_SYNTH,
+        anchor='    return _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))',
+        replacement='    return _REFERENCE_NUMERAL.sub(" ", sentence)',
+        target=_B34_TEST, keyword="naming_a_real_standard_survives",
+        tags=("honesty", "answer_path"),
+    ),
+    Mutation(
+        id="M289", phase=31,
+        description="LOOSEN BY VALUE: exempt the identifier's digits wherever they appear - lets 'per SAES-H-150, apply 150' through",
+        path=_SYNTH,
+        anchor='    return _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))',
+        replacement=(
+            '    stripped = _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))\n'
+            '    for ident in _STANDARD_IDENTIFIER.findall(sentence):\n'
+            '        for digits in re.findall(r"\\d+", ident):\n'
+            '            stripped = re.sub(r"(?<![\\d.])" + digits + r"(?![\\d.])", " ", stripped)\n'
+            '    return stripped'),
+        target=_B34_TEST, keyword="disguised",
+        tags=("honesty", "critical", "answer_path"),
+    ),
+    Mutation(
+        id="M290", phase=31,
+        description="LOOSEN THE PREFIX: any letters-hyphen-digits shape counts as a standard number",
+        path=_SYNTH,
+        anchor='    r"SAES-[A-Z]-\\d{2,4}[A-Z]?"',
+        replacement='    r"[A-Za-z]+-[A-Za-z]?-?\\d{1,5}[A-Z]?"',
+        target=_B34_TEST, keyword="lookalike",
+        tags=("honesty", "answer_path"),
+    ),
+    Mutation(
+        id="M291", phase=31,
+        description="LOOSEN THE DIGITS: SAES takes any number of digits, so SAES-H-15000 is exempt",
+        path=_SYNTH,
+        anchor='    r"SAES-[A-Z]-\\d{2,4}[A-Z]?"',
+        replacement='    r"SAES-[A-Z]-\\d+[A-Z]?"',
+        target=_B34_TEST, keyword="15000",
+        tags=("honesty", "answer_path"),
+    ),
+    Mutation(
+        id="M292", phase=31,
+        description="LOOSEN THE CASE: ignore case, so 'saes-h-150' is exempt",
+        path=_SYNTH,
+        anchor='    r")(?![\\w-])"\n)',
+        replacement='    r")(?![\\w-])",\n    re.IGNORECASE,\n)',
+        target=_B34_TEST, keyword="lookalike",
+        tags=("honesty", "answer_path"),
+    ),
+    Mutation(
+        id="M293", phase=31,
+        description="LOOSEN THE END: let an identifier swallow the text after it - 'SAES-H-150, apply 150' taken whole",
+        path=_SYNTH,
+        anchor='    r"SAES-[A-Z]-\\d{2,4}[A-Z]?"',
+        replacement='    r"SAES-[A-Z]-\\d{2,4}[A-Z]?(?:[^\\[]*?\\d+)?"',
+        target=_B34_TEST, keyword="disguised",
+        tags=("honesty", "critical", "answer_path"),
+    ),
+    Mutation(
+        id="M294", phase=31,
+        description="disable the numeric guard altogether (the order: do not disable it)",
+        path=_SYNTH,
+        anchor="        if unsupported:\n            # Named as the reader sees it",
+        replacement="        if False:\n            # Named as the reader sees it",
+        target=_B34_TEST, keyword="disguised",
+        tags=("honesty", "critical", "answer_path"),
+    ),
+    Mutation(
+        id="M295", phase=31,
+        description="regress the reason wording - the reader no longer sees 'value 300 not in cited passage'",
+        path=_SYNTH,
+        anchor='            dropped.append((sentence, f"value {value} not in cited passage"))',
+        replacement='            dropped.append((sentence, f"carries a number no cited span contains: {value}"))',
+        target=_B34_TEST, keyword="reported_and_excluded",
+        tags=("honesty", "answer_path"),
+    ),
+    Mutation(
+        id="M296", phase=31,
+        description="the summary API drops the removed list - silent deletion again",
+        path=_SYNTH,
+        anchor='            {"sentence": s, "reason": r} for s, r in summary.dropped_sentences\n        ],',
+        replacement='            {"sentence": s, "reason": r} for s, r in ()\n        ],',
+        target=_B34_TEST, keyword="reported_and_excluded",
+        tags=("honesty", "answer_path"),
+    ),
+    Mutation(
+        id="M297", phase=31,
+        description="the recommendation discards what it removed - the one silent path B34 closed",
+        path=_SYNTH,
+        anchor="        removed_out.extend(dropped)",
+        replacement="        pass",
+        target=_B34_TEST, keyword="recommendation_reports or recommendation_keeps",
+        tags=("honesty", "answer_path"),
+    ),
+    Mutation(
+        id="M298", phase=31, runner="vitest",
+        description="hide the removed sentences from the reader",
+        path=REPO / "frontend" / "src" / "components" / "analysis" / "RemovedSentences.tsx",
+        anchor='      {shown.length > 0 && <ul className="mt-2 space-y-1.5">{shown.map((s, i) => (',
+        replacement='      {false && <ul className="mt-2 space-y-1.5">{shown.map((s, i) => (',
+        target=_B34_UI_TEST, keyword="WITHOUT any click",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M299", phase=31, runner="vitest",
+        description="stop greying removed sentences, so they read like the answer",
+        path=REPO / "frontend" / "src" / "components" / "analysis" / "RemovedSentences.tsx",
+        anchor='          className="text-xs text-slateish-500 opacity-70"',
+        replacement='          className="text-xs text-slateish-300"',
+        target=_B34_UI_TEST, keyword="WITHOUT any click",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M300", phase=31, runner="vitest",
+        description="do not render what was removed from a recommendation",
+        path=REPO / "frontend" / "src" / "views" / "analysis" / "AnalysisResultSections.tsx",
+        anchor='      <RemovedSentences removed={d.removed} what="recommendation" />\n',
+        replacement="",
+        target=_B34_UI_TEST, keyword="even when none survived",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M301", phase=31, runner="vitest",
+        description="let an all-removed recommendation read as 'nothing was generated'",
+        path=REPO / "frontend" / "src" / "views" / "analysis" / "analysisStore.ts",
+        anchor="&& refusal === null && removed.length === 0) return null;",
+        replacement="&& refusal === null) return null;",
+        target=_B34_UI_TEST, keyword="even when none survived",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M302", phase=31, runner="vitest",
+        description="put the removed value back into the answer's reach: render removed sentences as plain answer text",
+        path=REPO / "frontend" / "src" / "components" / "analysis" / "RemovedSentences.tsx",
+        anchor='  if (removed.length === 0) return null;',
+        replacement='  if (removed.length >= 0) return <p>{removed.map((s) => s.sentence).join(" ")}</p>;',
+        target=_B34_UI_TEST, keyword="ONLY in the removed region",
+        tags=("honesty", "ui"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3384,6 +3536,7 @@ ALL: tuple[Mutation, ...] = (
     + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
     + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
     + DEMO_POLISH + STANDARDS_MODAL + CONDITION_AND_QUOTES
+    + B34_STANDARD_IDS
 )
 
 
@@ -3428,7 +3581,18 @@ def _run_tests(mutation: Mutation) -> tuple[int, str]:
         # harness mid-run, after the mutation was applied but before the
         # `finally` had printed anything useful.
         return proc.returncode, _ascii(summary)
-    cmd = [_python(), "-m", "pytest", mutation.target, "-q", "--no-header",
+    # STALE BYTECODE CAN HAND ONE MUTATION ANOTHER'S VERDICT. Python reuses a
+    # cached .pyc when the source's size and whole-second mtime match the
+    # cache. Two consecutive mutations that change a file by the same number
+    # of characters inside one second therefore ran the FIRST one's code for
+    # the second: found 2026-09-22, when M296 and M297 each shortened
+    # synthesis.py by exactly 23 characters and M297 reported NOT DETECTED -
+    # its tests had executed M296's mutant. So: never write bytecode during a
+    # mutation run (`-B`), and delete any cached copy of the mutated module
+    # first, so the run can only ever compile the source as it now stands.
+    for stale in (mutation.path.parent / "__pycache__").glob(f"{mutation.path.stem}.*.pyc"):
+        stale.unlink(missing_ok=True)
+    cmd = [_python(), "-B", "-m", "pytest", mutation.target, "-q", "--no-header",
            "-p", "no:cacheprovider"]
     if mutation.keyword:
         cmd += ["-k", mutation.keyword]

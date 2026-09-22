@@ -21,6 +21,8 @@ Three rules under test, and each test here goes red when its rule is deleted:
     raw completion is kept so the refusal can be checked against it.
 """
 
+import re
+
 import pytest
 
 from app import synthesis
@@ -31,6 +33,7 @@ from app.synthesis import (
     REFUSAL_MALFORMED,
     REFUSAL_MODEL_DECLINED,
     Generation,
+    _normalise_number,
     claimed_numbers,
     describe_unreachable,
     is_fragment,
@@ -41,9 +44,11 @@ from app.synthesis import (
 
 QUESTION = "what does each document require for incident response"
 
-#: The reason string the gate emits. Asserted by prefix so a test cannot pass
-#: because the sentence was dropped for some OTHER reason.
-NUMBER_REASON = "carries a number no cited span contains"
+#: The reason string the gate emits ("value 300 not in cited passage", B34).
+#: Asserted so a test cannot pass because the sentence was dropped for some
+#: OTHER reason.
+NUMBER_REASON = "not in cited passage"
+NUMBER_REASON_SHAPE = re.compile(r"^value (\S+) not in cited passage$")
 
 
 def ev(evidence_id, text, filename="doc17.pdf", page=1):
@@ -175,13 +180,14 @@ def test_a_real_measurement_is_still_dropped_when_no_cited_span_contains_it(sent
     assert number in claimed_numbers(sentence), strip_reference_numerals(sentence)
     out = summarise(QUESTION, LIVE, Stub(sentence))
     assert out.text is None, "a fabricated measurement reached the reader"
-    # The gate names the first unsupported number in sort order; "8 inches
-    # (200 mm)" reports 200.0. Every number named must be one the sentence
+    # The gate names the first unsupported number AS WRITTEN (B34); "8 inches
+    # (200 mm)" reports 8. Every number named must be one the sentence
     # actually claims, and the sentence itself must be the one dropped.
     assert out.dropped_sentences[0][0] == sentence
     reason = out.dropped_sentences[0][1]
-    assert reason.startswith(f"{NUMBER_REASON}: "), reason
-    assert reason.split(": ", 1)[1] in claimed_numbers(sentence)
+    shape = NUMBER_REASON_SHAPE.match(reason)
+    assert shape, reason
+    assert _normalise_number(shape.group(1)) in claimed_numbers(sentence)
 
 
 def test_an_abbreviated_reference_is_not_split_from_its_number():
@@ -216,7 +222,7 @@ def test_a_reference_beside_an_unsupported_number_does_not_shield_it():
     out = summarise(QUESTION, LIVE, Stub("Section 4 requires 50 mm [S1]."))
     assert out.text is None
     assert out.dropped_sentences == (
-        ("Section 4 requires 50 mm [S1].", f"{NUMBER_REASON}: 50.0"),
+        ("Section 4 requires 50 mm [S1].", "value 50 not in cited passage"),
     )
 
 
@@ -279,7 +285,7 @@ def test_a_whole_sentence_is_promoted_ahead_of_a_fragment_left_standing_first():
         "It also mandates that the policy address roles [S1].",
     ]
     assert out.dropped_sentences == (
-        ("The cover shall be 999 mm [S1].", f"{NUMBER_REASON}: 999.0"),
+        ("The cover shall be 999 mm [S1].", "value 999 not in cited passage"),
     )
 
 

@@ -1259,7 +1259,10 @@ class DocumentedFinding(BaseModel):
     text_source: Literal["extracted", "recognised", "mixed"]
 
 
-class DroppedSentence(BaseModel):
+class RemovedSentence(BaseModel):
+    """A sentence the checks took out of generated prose, and why (B34).
+    Shown to the reader greyed; never part of the answer text."""
+
     sentence: str
     reason: str
 
@@ -1276,9 +1279,9 @@ class AnalysisSummary(BaseModel):
     rejected_citations: list[int]
     evidence_removed: list[EvidenceRemoved]
     refusal: str | None
-    dropped_sentences: list[DroppedSentence] = Field(
-        description="sentences removed from the prose, with why. A sentence "
-        "carrying a number no cited span contains is DROPPED, not flagged")
+    removed: list[RemovedSentence] = Field(
+        description="sentences removed from the prose, with why (e.g. 'value "
+        "300 not in cited passage'). Excluded from `summary`; shown greyed")
     not_implemented_sections: list[str]
     #: THE FILTER THAT WAS APPLIED. Echoed so a reader can judge an
     #: absence and a report can print the same line: "no gap" and "no
@@ -1356,6 +1359,10 @@ class AnalysisRecommendation(BaseModel):
         None, description="null is not an empty recommendation")
     recommendation_refusal: str | None = Field(
         None, description="reason the advisory recommendation was not produced")
+    removed: list[RemovedSentence] = Field(
+        default_factory=list,
+        description="sentences removed from the advice, with why. Present even "
+        "when no recommendation survived")
     public_market_findings: list[MarketFinding]
     not_implemented_sections: list[str]
     #: THE FILTER THAT WAS APPLIED. Echoed so a reader can judge an

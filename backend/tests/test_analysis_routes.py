@@ -179,8 +179,8 @@ def test_a_sentence_whose_number_is_in_no_cited_span_is_dropped_not_flagged():
     )
     assert out["summary"] is not None
     assert "999" not in out["summary"], "an unsupported number reached the reader"
-    reasons = [d["reason"] for d in out["dropped_sentences"]]
-    assert any("number no cited span contains" in r for r in reasons), reasons
+    reasons = [d["reason"] for d in out["removed"]]
+    assert "value 999 not in cited passage" in reasons, reasons
 
 
 def test_an_uncited_sentence_never_reaches_the_prose():
@@ -191,7 +191,7 @@ def test_an_uncited_sentence_never_reaches_the_prose():
     )
     assert "Coatings are important" not in (out["summary"] or "")
     assert any(d["reason"] == "cites no supplied source"
-               for d in out["dropped_sentences"])
+               for d in out["removed"])
 
 
 def test_the_route_names_what_it_does_not_produce():

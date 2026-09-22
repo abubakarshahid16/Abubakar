@@ -1216,3 +1216,48 @@ answered a narrower question than the one the finding asked.
    reporting "X is missing", name every form X could take (`npm install`,
    `npm ci`, `npm i`, `pnpm install`) and read the section where X would live.
    A grep is a lead, not a verdict.
+
+## B34, 2026-09-22: the number guard blamed the evidence for standard names, and the harness could credit one mutation with another's verdict
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-22.
+
+**First: "carries a number no cited span contains: 4.0".** The analysis answer path
+(`synthesis._cite`, used by Focused and Comprehensive summaries and by the advisory
+recommendation) deletes any generated sentence carrying a number that no cited passage
+contains. It exempted numerals that name a place - "doc17.pdf", "Section 4",
+"Table 1" - but not a standard's own number. So "SAES-H-004 outlines a total system
+minimum of 150 micrometers [S4]" was deleted, reported as containing the unsupported
+quantity 4.0: the "004" of the standard's name. This corpus is Saudi Aramco standards;
+the model names one in nearly every sentence. Reproduced live on 2026-09-21: a Focused
+summary over the correct coatings passages (SAES-H-001, SAES-H-004) came back empty,
+every sentence removed, and the user saw only a refusal. The reason string was a false
+claim about the evidence - it said the passage lacked a value the sentence never stated.
+
+**Fixed with a CLOSED grammar** (`synthesis._STANDARD_IDENTIFIER`), built from the
+identifier shapes that occur in the indexed text: SAES-X-NN..NNNN (optional letter),
+NN-SAMSS-NNN, SAEP-NN..NNNN, SABP-X-NNN, SAER-NNNN(N). Nothing looser. The grammar
+removes the identifier's own text and never other tokens sharing its digits, so a
+fabricated value disguised as a standard number - "per SAES-H-150, apply 150
+micrometers" over a passage without 150 - is still rejected; two loosening mutations
+(by value, and by letting the identifier swallow following text) fail that test.
+
+**Second, found while proving the first: the mutation harness could report a verdict
+belonging to a different mutation.** Python reuses a cached `.pyc` when the source's
+size and whole-second mtime match. M296 and M297 each shortened `synthesis.py` by
+exactly 23 characters within one second, so M297's test run executed M296's mutant and
+reported **NOT DETECTED** for a mutation its tests do detect (confirmed by applying it by
+hand: 2 failed). The same mechanism can equally produce a false DETECTED. Any past
+verdict from two same-file, same-size-delta mutations run back to back was exposed to
+it. **Fixed:** the harness runs pytest with `-B` and deletes the mutated module's cached
+bytecode before each run; the whole harness was re-run after the fix.
+
+### The rules this produces
+
+19. **An exemption from a safety check is a closed list, measured from the data, with a
+   test that a disguised violation still fails.** "Standard numbers are not
+   measurements" is true of `SAES-H-004` and false of `150` written beside it; a rule
+   that cannot tell them apart has disabled the check it was meant to refine.
+
+20. **A harness verdict is evidence only if the run executed the code under test.**
+   Stale bytecode, a cached build or a warm process can each run the previous state.
+   Make the runner unable to reuse compiled state, not merely unlikely to.
