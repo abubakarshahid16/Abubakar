@@ -3645,6 +3645,56 @@ B7_ANALYSIS_GENERATION = (
 )
 
 
+#: B18: completeness dropped an UNMEASURED extraction factor and reported the
+#: other half alone - 1.0 and "sufficient" with the datasheet never measured.
+_B18_GUARD = ("    if extraction is None:\n"
+              "        overall = 0.0 if reference_coverage == 0 else None")
+B18_UNMEASURED_FACTOR = (
+    Mutation(
+        id="M312", phase=35,
+        description="comparison: drop the unmeasured extraction and score the "
+                    "run on references alone - 1.0 and sufficient again",
+        path=APP / "comparison.py",
+        anchor=_B18_GUARD,
+        replacement="    if False:\n        overall = None",
+        target="tests/test_comparison.py",
+        keyword="unmeasured_extraction",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M313", phase=35,
+        description="applicability: the same, in the other home",
+        path=APP / "applicability.py",
+        anchor=_B18_GUARD,
+        replacement="    if False:\n        overall = None",
+        target="tests/test_comparison.py",
+        keyword="extraction_was_never_measured",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M314", phase=35,
+        description="comparison: hide a measured 0 behind None because the "
+                    "other factor is unknown",
+        path=APP / "comparison.py",
+        anchor=_B18_GUARD,
+        replacement="    if extraction is None:\n        overall = None",
+        target="tests/test_comparison.py",
+        keyword="measured_zero_stays",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M315", phase=35,
+        description="applicability: hide M-03's determinate 0.0 behind None",
+        path=APP / "applicability.py",
+        anchor=_B18_GUARD,
+        replacement="    if extraction is None:\n        overall = None",
+        target="tests/test_comparison.py",
+        keyword="keeps_m03",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3656,7 +3706,7 @@ ALL: tuple[Mutation, ...] = (
     + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
     + DEMO_POLISH + STANDARDS_MODAL + CONDITION_AND_QUOTES
     + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE + B12_SCOPED_CORRECTIONS
-    + B7_ANALYSIS_GENERATION
+    + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR
 )
 
 

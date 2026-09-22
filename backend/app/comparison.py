@@ -732,8 +732,17 @@ def completeness_for_run(
         round(min(fields_read / fields_estimated, 1.0), 3)
         if fields_estimated else None)
 
-    parts = [p for p in (extraction, reference_coverage) if p is not None]
-    overall = round(min(parts), 3) if parts else None
+    # B18, the same rule as `applicability.completeness`: extraction None means
+    # the page count is unknown, so how much of the sheet was examined was
+    # never MEASURED. Taking the min of what is left reported the reference
+    # half alone as the whole review. None instead - unless reference coverage
+    # is already 0, which no unknown can raise. A None reference coverage
+    # (nothing cited) is still simply left out.
+    if extraction is None:
+        overall = 0.0 if reference_coverage == 0 else None
+    else:
+        parts = [p for p in (extraction, reference_coverage) if p is not None]
+        overall = round(min(parts), 3)
     return {
         "fields_read": fields_read,
         "fields_estimated": fields_estimated,

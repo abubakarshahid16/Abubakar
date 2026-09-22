@@ -461,7 +461,9 @@ def completeness(selected: dict, missing: list, submittal_document_id: str, *,
     average would let one good number hide the other.
 
     None when there is nothing to judge - never 0, which would read as total
-    failure rather than "no basis to compute this".
+    failure rather than "no basis to compute this". And None, too, when the
+    extraction half was never measured, rather than a score built from the
+    other half alone (B18) - except where that other half is already 0.
     """
     referenced_total = len(missing) + sum(
         1 for row in selected.values() if row["method"] == METHOD_REFERENCED)
@@ -479,9 +481,19 @@ def completeness(selected: dict, missing: list, submittal_document_id: str, *,
     if row and row["page_count"] and facts:
         extraction = round(len(pages) / row["page_count"], 3)
 
-    parts = [p for p in (reference_coverage, extraction) if p is not None]
-    overall = round(
-        __import__("math").prod(parts), 3) if parts else None
+    # B18: AN UNMEASURED FACTOR IS NOT A FACTOR OF ONE. The two Nones mean
+    # different things. `reference_coverage` is None when the submittal cites
+    # no standard: there is nothing to cover, and leaving it out is right.
+    # `extraction` is None when no fact was ever extracted: the other half of
+    # the review was never MEASURED. Dropping it made "every cited standard
+    # held, datasheet unread" report completeness 1.0. Now that is None -
+    # unless a measured factor is already 0, which no unknown can raise (M-03:
+    # 0 of 15 cited standards held, so 0.0 is determinate and stays).
+    if extraction is None:
+        overall = 0.0 if reference_coverage == 0 else None
+    else:
+        parts = [p for p in (reference_coverage, extraction) if p is not None]
+        overall = round(__import__("math").prod(parts), 3)
     return {
         "reference_coverage": (round(reference_coverage, 3)
                                if reference_coverage is not None else None),
