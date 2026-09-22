@@ -4018,6 +4018,37 @@ B42_STRUCTURED_SCOPE = (
 )
 
 
+#: B49: the condition gate excused a clause using the fields under test,
+#: because "is this material evidence" was a question about the field's NAME.
+_B49_TEST = "tests/test_condition_gate.py"
+B49_EVIDENCE_BY_ROLE = (
+    Mutation(
+        id="M342", phase=41,
+        description="PUT B49 BACK: restore the name-substring rule, so a "
+                    "corrosion allowance proves what material a vessel is",
+        path=APP / "conditions.py",
+        anchor="        if shape == SHAPE_MATERIAL and _states_a_measurement(fact):\n"
+               "            continue",
+        replacement="        if False:\n            continue",
+        target=_B49_TEST,
+        keyword="b49_a_length_cannot_establish_a_material",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M343", phase=41,
+        description="read the unit only from the unit columns, so a value "
+                    "carrying its own unit is a material again",
+        path=APP / "conditions.py",
+        anchor="    return (claims.parse_value(head) is not None\n"
+               "            and claims.unit_dimension(tail.strip()) is not None)",
+        replacement="    return False",
+        target=_B49_TEST,
+        keyword="b49_the_role_test_reads_the_unit",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4031,7 +4062,7 @@ ALL: tuple[Mutation, ...] = (
     + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE + B12_SCOPED_CORRECTIONS
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
-    + B42_STRUCTURED_SCOPE
+    + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE
 )
 
 
