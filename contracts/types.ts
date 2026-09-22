@@ -1715,6 +1715,9 @@ export interface ApiError {
     | "invalid_parameter"
     | "unknown_parameter"
     | "confirm_required"
+    // B38: a deletion would orphan review findings; repeat with
+    // acknowledge_orphaned_findings=true to proceed on purpose.
+    | "orphaning_refused"
     // authentication. These MUST exist here as well as in errors.py: the
     // union is compiler-enforced only for the codes it lists, so adding them
     // to the backend alone compiles cleanly and fails at runtime.

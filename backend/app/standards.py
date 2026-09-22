@@ -46,7 +46,7 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import claims, classification, requirements_3b, submittal_review
+from . import claims, classification, orphan_guard, requirements_3b, submittal_review
 from . import tables as tables_mod
 from .db import connect
 
@@ -599,8 +599,13 @@ def create_requirement(
 def extract_requirements(
     document_id: str, *, allowed_document_ids: frozenset[str],
     actor: dict | None = None, replace: bool = True,
+    acknowledge_orphaned_findings: bool = False,
 ) -> dict:
     """Read one standard's chunks and record every obligation it states.
+
+    B38: with replace=True, a re-extraction that would delete rows review
+    findings cite is RECORDED and REFUSED unless
+    `acknowledge_orphaned_findings` - see `orphan_guard`.
 
     EXTRACTION IS A GUESS AND STAYS LABELLED ONE. Every row is written with
     `extraction_method='extracted'` and `confirmed_by` NULL, so nothing here
@@ -633,6 +638,11 @@ def extract_requirements(
     discipline = classification["discipline"] if classification else None
 
     if replace:
+        orphan_guard.check(
+            "re_extraction",
+            requirement_where="standard_document_id = ? AND confirmed_by IS NULL",
+            params=(document_id,), document_id=document_id,
+            acknowledge=acknowledge_orphaned_findings, actor=actor)
         conn = connect()
         with conn:
             conn.execute(
@@ -883,6 +893,7 @@ def verification_queue(*, allowed_document_ids: frozenset[str],
 def decide_requirement(
     requirement_id: str, *, decision: str, allowed_document_ids: frozenset[str],
     actor: dict | None = None, edits: dict | None = None,
+    acknowledge_orphaned_findings: bool = False,
 ) -> dict:
     """An engineer's decision on one extracted requirement.
 
@@ -916,6 +927,11 @@ def decide_requirement(
     conn = connect()
     now = _now()
     if decision == "reject":
+        # B38: a rejected row that findings cite would orphan them.
+        orphan_guard.check(
+            "reject", requirement_where="id = ?", params=(requirement_id,),
+            document_id=row["standard_document_id"],
+            acknowledge=acknowledge_orphaned_findings, actor=actor)
         with conn:
             conn.execute("DELETE FROM standard_requirements WHERE id = ?",
                          (requirement_id,))

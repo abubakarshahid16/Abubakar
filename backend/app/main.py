@@ -18,6 +18,7 @@ from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
+from . import orphan_guard
 from . import highlight as highlight_mod
 from . import keyword as keyword_mod
 from . import metrics as metrics_mod
@@ -178,6 +179,15 @@ app = FastAPI(
     # contract ambiguity a generated client can trip over.
     redirect_slashes=False,
 )
+
+
+@app.exception_handler(orphan_guard.OrphaningRefused)
+async def _orphaning_refused(_request: Request, exc: orphan_guard.OrphaningRefused):
+    """B38: ONE answer for all four deleting paths. 409 - the request is
+    valid, but it conflicts with the findings that cite what it would delete.
+    The count is in the message; the attempt is already in audit_events."""
+    return JSONResponse(status_code=409, content={"detail": errors.safe_error(
+        errors.ORPHANING_REFUSED, str(exc), document_id=exc.document_id)})
 
 # Vite dev server only. No wildcard - this API serves document content.
 app.add_middleware(
@@ -492,6 +502,7 @@ def list_documents(request: Request, response: Response,
 @app.delete("/api/documents/{document_id}", response_model=schemas.DeletedDocument,
             responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def delete_document(document_id: str, request: Request, confirm: bool = Query(False),
+    acknowledge_orphaned_findings: bool = Query(False),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Remove a document and everything derived from it.
@@ -499,8 +510,12 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     Requires confirm=true - a destructive endpoint should not fire on a
     mistyped URL. Removes chunks, pages, vectors, exclusions, jobs, cached
     page images and the stored PDF.
+
+    B38: deleting a STANDARD cascades into its requirement rows. If review
+    findings cite them, the attempt is recorded and refused (409) unless
+    acknowledge_orphaned_findings=true.
     """
-    reject_unknown_params(request, {"confirm"})
+    reject_unknown_params(request, {"confirm", "acknowledge_orphaned_findings"})
     doc = require_document(document_id, scope)
     if not confirm:
         return JSONResponse(
@@ -511,6 +526,13 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
                 document_id=document_id,
             )} | {"filename": doc["filename"], "retrievable_chunks": doc["chunk_count"]},
         )
+
+    # B38, BEFORE anything is removed: a refusal must leave the document whole.
+    orphan_guard.check(
+        "document_delete", requirement_where="standard_document_id = ?",
+        params=(document_id,), document_id=document_id,
+        acknowledge=acknowledge_orphaned_findings,
+        actor={"id": scope.user_id} if scope.user_id else None)
 
     # Reports quote this document. Their FILES go; their ROWS stay, because
     # the record that a report was issued must survive the document.
@@ -574,16 +596,21 @@ def extract(document_id: str,
 @app.post("/api/documents/{document_id}/chunk", response_model=schemas.ChunkResult,
           responses=schemas.ERRORS_404)
 def chunk(document_id: str, force: bool = Query(False),
+    acknowledge_orphaned_findings: bool = Query(False),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Chunk an extracted document.
 
     Short-circuits when the document already has chunks and its content has
     not changed, matching how /extract resumes rather than redoing work.
-    Pass force=true to rebuild.
+    Pass force=true to rebuild. B38: a rebuild that would cascade away
+    requirement rows review findings cite is refused (409) unless
+    acknowledge_orphaned_findings=true.
     """
     require_document(document_id, scope)
-    return chunk_mod.chunk_document(document_id, force=force)
+    return chunk_mod.chunk_document(
+        document_id, force=force,
+        acknowledge_orphaned_findings=acknowledge_orphaned_findings)
 
 
 @app.post("/api/documents/{document_id}/embed", response_model=schemas.EmbedResult,
@@ -2553,6 +2580,7 @@ def standard_requirements(
 def extract_standard_requirements(
     document_id: str,
     request: Request,
+    acknowledge_orphaned_findings: bool = Query(False),
     scope: access.AccessScope = Depends(access.current_scope),
     actor: dict | None = Depends(admin_mod.current_admin),
 ):
@@ -2561,12 +2589,14 @@ def extract_standard_requirements(
     THE ADMIN CAPABILITY IS REQUIRED. Extraction replaces the unconfirmed rows
     for a standard, which changes what every later reader sees, so it needs the
     role that answers for everyone - the same reasoning as classification.
-    Confirmed rows are never deleted.
+    Confirmed rows are never deleted. B38: replacing rows review findings cite
+    is refused (409) unless acknowledge_orphaned_findings=true.
     """
-    reject_unknown_params(request, set())
+    reject_unknown_params(request, {"acknowledge_orphaned_findings"})
     require_document(document_id, scope)
     return standards_mod.extract_requirements(
-        document_id, allowed_document_ids=scope.allowed_document_ids, actor=actor)
+        document_id, allowed_document_ids=scope.allowed_document_ids, actor=actor,
+        acknowledge_orphaned_findings=acknowledge_orphaned_findings)
 
 
 @app.get("/api/standards/{document_id}/tables",
@@ -2632,6 +2662,7 @@ def standard_verification_queue(
 def decide_standard_requirement(
     requirement_id: str,
     body: schemas.RequirementDecisionRequest,
+    acknowledge_orphaned_findings: bool = Query(False),
     scope: access.AccessScope = Depends(access.current_scope),
     actor: dict | None = Depends(admin_mod.current_admin),
 ):
@@ -2639,13 +2670,15 @@ def decide_standard_requirement(
 
     A correction sets `extraction_method` to 'human': after it the row is a
     person's statement rather than a machine's guess, and nothing downstream
-    may present it as extracted.
+    may present it as extracted. B38: rejecting a requirement review findings
+    cite is refused (409) unless acknowledge_orphaned_findings=true.
     """
     try:
         return standards_mod.decide_requirement(
             requirement_id, decision=body.decision,
             allowed_document_ids=scope.allowed_document_ids,
-            actor=actor, edits=body.edits)
+            actor=actor, edits=body.edits,
+            acknowledge_orphaned_findings=acknowledge_orphaned_findings)
     except standards_mod.RequirementError as exc:
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, str(exc))) from exc
