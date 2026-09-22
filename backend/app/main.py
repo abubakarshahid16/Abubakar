@@ -1871,10 +1871,15 @@ def start_review_run(
             f"a review of this submittal is already running "
             f"({existing[0]['id']})"))
 
-    run_id = submittal_review_mod.create_review_run(
-        submittal_document_id=document_id,
-        started_by=scope.user_id,
-        allowed_document_ids=scope.allowed_document_ids)
+    try:
+        run_id = submittal_review_mod.create_review_run(
+            submittal_document_id=document_id,
+            started_by=scope.user_id,
+            allowed_document_ids=scope.allowed_document_ids)
+    except submittal_review_mod.FactExtractionFailed as exc:
+        # B19: the run exists and is already marked failed with this reason.
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, f"the review failed: {exc}")) from exc
     try:
         applicability_mod.select(
             document_id, allowed_document_ids=scope.allowed_document_ids,

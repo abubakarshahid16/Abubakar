@@ -490,7 +490,53 @@ def create_review_run(
             " VALUES (?,?,?,'running',?,?,?,?)",
             (run_id, submittal_document_id, template_id, started_by, now,
              now, now))
+    _extract_facts_if_none(run_id, submittal_document_id, allowed_document_ids)
     return run_id
+
+
+class FactExtractionFailed(RuntimeError):
+    """The datasheet could not be read into facts; the run is marked failed."""
+
+
+def _extract_facts_if_none(run_id: str, submittal_document_id: str,
+                           allowed_document_ids: frozenset[str]) -> None:
+    """B19: read the datasheet into facts, ONCE, before anything compares it.
+
+    `datasheets.extract_facts` had no caller in the app, so a newly uploaded
+    datasheet was reviewed against ZERO facts and every requirement came back
+    MISSING_INFORMATION - the submittal was never read.
+
+    GUARDED ON "HAS NO FACTS". Facts are per document and reused across runs
+    (master plan section 24), so a second review of the same sheet extracts
+    nothing and cannot duplicate them. Any existing fact - confirmed by an
+    engineer or not - means the sheet has been read; re-reading it is the
+    explicit re-extraction route's job, never a side effect of a review.
+
+    replace=False, so nothing is ever deleted here, and extract_facts writes
+    the whole sheet in ONE transaction, so a failure leaves no partial set
+    for this guard to mistake for a finished one. The run is marked failed
+    WITH the reason rather than left `running`.
+    """
+    from . import datasheets  # datasheets imports this module
+
+    has_facts = connect().execute(
+        "SELECT 1 FROM submittal_facts WHERE submittal_document_id = ? LIMIT 1",
+        (submittal_document_id,)).fetchone()
+    if has_facts is not None:
+        return
+    try:
+        datasheets.extract_facts(
+            submittal_document_id, allowed_document_ids=allowed_document_ids,
+            review_run_id=run_id, replace=False)
+    except Exception as exc:  # recorded on the run, then raised
+        conn = connect()
+        with conn:
+            conn.execute(
+                "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
+                " updated_at = ? WHERE id = ?",
+                (json.dumps({"error": f"fact extraction failed: {exc}"}),
+                 _now(), run_id))
+        raise FactExtractionFailed(f"fact extraction failed: {exc}") from exc
 
 
 #: What an orphaned run's failure says. One wording, so a reader who meets it
