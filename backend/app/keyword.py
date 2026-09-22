@@ -278,12 +278,13 @@ def vocabulary(
     build has no fts5vocab - typo tolerance then simply does not happen, which
     is the same graceful degradation the reranker gets.
 
-    KNOWN GAP, not fixed here: fts5vocab holds one term list for the whole
-    index and cannot be filtered by document, so the returned terms are
-    corpus-wide. The scope is required and keyed into the cache, but a
-    correction may still name a word that occurs only in a document the caller
-    may not read. Tracked as a Phase 1 defect; the search that consumes the
-    correction is scoped, so no passage leaks - only the word itself can.
+    CORPUS-WIDE, BY NECESSITY: fts5vocab holds one term list for the whole
+    index and cannot be filtered by document, whatever scope is passed. So
+    this list is CANDIDATES ONLY and must never be shown to anyone as it is.
+    `fuzzy_corpus_match` checks each candidate against the caller's scope
+    with `term_occurrences` before offering it (B12, fixed 2026-09-22 - before
+    that, a correction could name a word occurring only in a document the
+    caller may not read).
     """
     conn = connect()
     ensure_schema(conn)
@@ -361,10 +362,20 @@ def fuzzy_corpus_match(
     # A candidate more than three characters different in length cannot reach
     # the cutoff; skipping them keeps this linear-but-cheap on a large corpus.
     near = [t for t in terms if abs(len(t) - len(lowered)) <= 3]
-    matches = difflib.get_close_matches(lowered, near, n=1, cutoff=FUZZY_CUTOFF)
-    if not matches or matches[0] == lowered:
-        return None
-    return matches[0]
+    # B12: `terms` is the WHOLE index's vocabulary - fts5vocab cannot be
+    # filtered by document - so every candidate is checked against this
+    # caller's scope before it is offered, best first. A closer word that
+    # occurs only in a document they may not read is skipped, never named.
+    for candidate in difflib.get_close_matches(
+        lowered, near, n=len(near), cutoff=FUZZY_CUTOFF
+    ):
+        if candidate == lowered:
+            continue
+        if term_occurrences(
+            candidate, document_id, allowed_document_ids=allowed_document_ids
+        ) > 0:
+            return candidate
+    return None
 
 
 def spelling_corrections(

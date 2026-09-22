@@ -3564,6 +3564,36 @@ B14_GLOSSARY_PHRASE = (
 )
 
 
+#: B12: a spelling correction named a word found only in a document the caller
+#: may not read, because fts5vocab is one term list for the whole index.
+B12_SCOPED_CORRECTIONS = (
+    Mutation(
+        id="M306", phase=33,
+        description="offer the closest corpus-wide word without checking the "
+                    "caller's scope - the presence oracle B12 closed",
+        path=APP / "keyword.py",
+        anchor="        if term_occurrences(\n"
+               "            candidate, document_id, allowed_document_ids=allowed_document_ids\n"
+               "        ) > 0:",
+        replacement="        if True:",
+        target="tests/test_keyword.py",
+        keyword="unreadable_document or closer_word",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M307", phase=33,
+        description="scope REFUSES instead of filtering: an out-of-scope best "
+                    "match hides the in-scope word the caller may be offered",
+        path=APP / "keyword.py",
+        anchor="        ) > 0:\n            return candidate\n    return None",
+        replacement="        ) > 0:\n            return candidate\n        break\n    return None",
+        target="tests/test_keyword.py",
+        keyword="closer_word",
+        tags=("permission",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3574,7 +3604,7 @@ ALL: tuple[Mutation, ...] = (
     + DISCIPLINE_CANONICAL + CRS_EXPORT + BACKUP
     + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
     + DEMO_POLISH + STANDARDS_MODAL + CONDITION_AND_QUOTES
-    + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE
+    + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE + B12_SCOPED_CORRECTIONS
 )
 
 
