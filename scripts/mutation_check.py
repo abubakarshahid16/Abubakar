@@ -3748,6 +3748,69 @@ B19_FACT_EXTRACTION = (
 )
 
 
+#: B38: record, then refuse by default, on all four paths that delete
+#: requirement rows review findings cite. A path's mutation swaps its guard
+#: call for a no-op that accepts the same arguments.
+_B38_TEST = "tests/test_b38_orphan_guard.py"
+_B38_NOOP = "(lambda *a, **k: 0)("
+B38_ORPHAN_GUARD = (
+    Mutation(
+        id="M326", phase=38,
+        description="the guard records but never refuses - orphaning by default again",
+        path=APP / "orphan_guard.py",
+        anchor="    if not acknowledge:\n        raise OrphaningRefused",
+        replacement="    if False:\n        raise OrphaningRefused",
+        target=_B38_TEST, keyword="refused or 409",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M327", phase=38,
+        description="path 1: re-extraction deletes cited rows unguarded",
+        path=APP / "standards.py",
+        anchor='        orphan_guard.check(\n            "re_extraction",',
+        replacement=f'        {_B38_NOOP}\n            "re_extraction",',
+        target=_B38_TEST, keyword="re_extraction",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M328", phase=38,
+        description="path 2: rejecting a cited requirement is unguarded",
+        path=APP / "standards.py",
+        anchor='        orphan_guard.check(\n            "reject",',
+        replacement=f'        {_B38_NOOP}\n            "reject",',
+        target=_B38_TEST, keyword="rejecting",
+    ),
+    Mutation(
+        id="M329", phase=38,
+        description="path 3: a re-chunk cascades cited requirements away unguarded",
+        path=APP / "chunker.py",
+        anchor='    orphan_guard.check(\n        "re_chunk",',
+        replacement=f'    {_B38_NOOP}\n        "re_chunk",',
+        target=_B38_TEST, keyword="re_chunk",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M330", phase=38,
+        description="path 4: deleting a cited standard cascades unguarded",
+        path=APP / "main.py",
+        anchor='    orphan_guard.check(\n        "document_delete",',
+        replacement=f'    {_B38_NOOP}\n        "document_delete",',
+        target=_B38_TEST, keyword="deleting_a_cited_standard",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M331", phase=38,
+        description="refuse or proceed WITHOUT a record - the only trace of "
+                    "the destroyed evidence is gone",
+        path=APP / "orphan_guard.py",
+        anchor="    _record(action, document_id, orphaned, actor,",
+        replacement="    (lambda *a, **k: None)(action, document_id, orphaned, actor,",
+        target=_B38_TEST, keyword="recorded or 409",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3760,6 +3823,7 @@ ALL: tuple[Mutation, ...] = (
     + DEMO_POLISH + STANDARDS_MODAL + CONDITION_AND_QUOTES
     + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE + B12_SCOPED_CORRECTIONS
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
+    + B38_ORPHAN_GUARD
 )
 
 

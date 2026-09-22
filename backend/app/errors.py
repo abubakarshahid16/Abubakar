@@ -61,11 +61,16 @@ RATE_LIMITED = "rate_limited"
 INVALID_RESET_TOKEN = "invalid_reset_token"
 WEAK_PASSWORD = "weak_password"
 
+#: B38: a deletion would orphan review findings and was not acknowledged.
+#: A deliberate refusal, so it MUST be a client code - `safe_error` would
+#: otherwise coerce it to `internal` and it would read as a crash.
+ORPHANING_REFUSED = "orphaning_refused"
+
 CLIENT_ERROR_CODES = frozenset(
     {NOT_FOUND, INVALID_PARAMETER, UNKNOWN_PARAMETER, CONFIRM_REQUIRED,
      NOT_PDF, ENCRYPTED_PDF, TOO_LARGE, DUPLICATE,
      UNAUTHENTICATED, INVALID_CREDENTIALS, RATE_LIMITED,
-     INVALID_RESET_TOKEN, WEAK_PASSWORD}
+     INVALID_RESET_TOKEN, WEAK_PASSWORD, ORPHANING_REFUSED}
 )
 
 ALL_CODES = CLIENT_ERROR_CODES | {

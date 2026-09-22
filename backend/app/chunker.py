@@ -26,6 +26,7 @@ from .db import connect
 from .rates import Timer, rate
 from . import states
 from . import keyword
+from . import orphan_guard
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
 
 # ---------------------------------------------------------------- tokenizer
@@ -1302,8 +1303,14 @@ def chunk_provenance(page_start: int, page_end: int, recognised: set[int],
     return ("recognised", min(scores) if scores else None, n, sample or None)
 
 
-def chunk_document(doc_id: str, force: bool = False) -> dict:
-    """Chunk one extracted document. Idempotent - re-running replaces rows."""
+def chunk_document(doc_id: str, force: bool = False,
+                   acknowledge_orphaned_findings: bool = False) -> dict:
+    """Chunk one extracted document. Idempotent - re-running replaces rows.
+
+    B38: replacing the chunks CASCADES into `standard_requirements` (its
+    `chunk_id` is ON DELETE CASCADE), so a re-chunk that would take requirement
+    rows review findings cite is RECORDED and REFUSED unless
+    `acknowledge_orphaned_findings` - see `orphan_guard`."""
     timer = Timer()
     conn = connect()
     keyword.ensure_schema(conn)
@@ -1563,6 +1570,11 @@ def chunk_document(doc_id: str, force: bool = False) -> dict:
                  c.text[:2000], len(c.text.strip()), now, 0)
             )
 
+    orphan_guard.check(
+        "re_chunk",
+        requirement_where="chunk_id IN (SELECT id FROM chunks WHERE document_id = ?)",
+        params=(doc_id,), document_id=doc_id,
+        acknowledge=acknowledge_orphaned_findings)
     with conn:
         conn.execute("DELETE FROM exclusions WHERE document_id = ?", (doc_id,))
         conn.executemany(
