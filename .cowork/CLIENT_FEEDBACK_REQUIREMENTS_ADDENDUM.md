@@ -204,6 +204,185 @@ This addendum is complete only when tests prove:
 - deliverables and schedule entries preserve source evidence and status;
 - the complete workflow works on a previously unseen datasheet.
 
+## 11. Conversational assistant
+
+The system must include a conversational assistant over the authorized corpus. It is a
+first-class deliverable, not a convenience feature.
+
+### 11.1 What it must do
+
+1. Answer any question over the standards library, project documents, contracts, FEED
+   documents and contractor submittals the caller is permitted to read.
+2. **Cite every answer.** Document, page, and clause where a clause exists. An answer
+   with no citation is not an answer; it is a refusal that must say so.
+3. Accept a document uploaded **inside the conversation**, ingest it, and answer
+   questions about it in the same session.
+4. Produce, on request: summaries, insights, comparisons across documents, and gap
+   analysis in narrative form.
+5. Offer suggestions and recommended actions, **explicitly labelled as suggestions**.
+6. Hold context across a conversation, so a follow-up question does not require the
+   user to restate the subject.
+7. Respect permission scope absolutely. A document the caller may not read must not
+   appear in an answer, a citation, a summary, or a spelling suggestion.
+
+### 11.2 The advisory boundary. This is the most important rule in this section.
+
+**Chat output is advisory. It never becomes a compliance verdict.**
+
+- The assistant **never writes to `review_findings`**.
+- A chat answer is never a `COMPLIANT` or `NON_COMPLIANT` determination.
+- Only the review pipeline, with its deterministic gates and engineer confirmation,
+  produces verdicts that can reach a CRS.
+- When asked "does this comply?", the assistant may lay out the requirement, the
+  contractor's value, the applicability evidence and its reasoning, and must then state
+  that a formal determination requires a review run and engineer confirmation.
+
+This boundary is what allows the assistant to be genuinely useful without carrying the
+liability of a compliance decision. An advisory error is visible and cheap. A verdict
+error is a commercial position sent to a contractor.
+
+### 11.3 Quality bar
+
+The assistant must reason, not retrieve and paraphrase. Specifically it must:
+
+- decompose a multi-part question into its parts and answer each;
+- compare values, clauses or requirements **across two or more documents**;
+- identify what is **absent**, not only what is present, and name the gap;
+- ask one clarifying question when the query is genuinely ambiguous, rather than
+  guessing which of two readings was meant;
+- state uncertainty explicitly, naming what evidence would resolve it;
+- use a table where a table is clearer than prose;
+- keep to the corpus. General engineering knowledge may frame an answer but may never
+  substitute for a cited clause.
+
+### 11.4 Model tiering
+
+The assistant is provider-agnostic. Two tiers, one interface:
+
+| Tier | Provider | Default | Condition |
+|---|---|---|---|
+| 1 | Local model (Ollama) | **enabled** | always available, fully offline |
+| 2 | Claude API | **disabled** | requires the client's written authorization, egress approval, and the budget guard in NORTH-STAR |
+
+Rules that apply to both tiers without exception:
+
+- identical citation requirements;
+- identical refusal behaviour;
+- identical permission scoping;
+- **every answer records its `provider` and `model_tag`**, so no stored answer is ever
+  ambiguous about which engine produced it.
+
+Enabling tier 2 must be a configuration change, never a code change. Per the owner
+decision of 2026-09-22, the Claude provider is built into the pipeline from the start
+and switched off, not retrofitted later.
+
+### 11.5 What the assistant must never do
+
+- Never answer a factual question about a standard from model memory. NORTH-STAR:
+  *"never reconstruct requirements from model memory."*
+- Never fabricate, paraphrase or reconstruct a clause. A quote is verbatim or it is not
+  a quote.
+- Never present a suggestion as a requirement.
+- Never write to `review_findings`, `submittal_facts`, or any table the review pipeline
+  owns.
+- Never surface content, filenames or terms from a document outside the caller's
+  permission scope.
+- Never treat "not retrieved" as "not present". An empty retrieval is reported as such.
+
+### 11.6 Acceptance gates for section 11
+
+This section is complete only when tests prove:
+
+1. every answer carries at least one citation, or is an explicit refusal naming what was
+   searched and not found;
+2. a question about a document outside the caller's scope returns nothing, and leaks no
+   filename, term or fragment;
+3. a document uploaded in the conversation is answerable in the same session, with page
+   citations into that uploaded file;
+4. a deliberately unanswerable question produces a refusal that names the missing
+   evidence, not a plausible guess;
+5. a "does this comply?" question returns reasoning plus an explicit statement that a
+   formal determination requires a review run and engineer confirmation;
+6. `provider` and `model_tag` are stored on every answer;
+7. a cross-document comparison question returns a correct comparison with citations on
+   both sides.
+
+---
+
+## 12. Datasheet understanding moves from rule-based parsing to model reading
+
+### 12.1 The measured reason for this change
+
+Rule-based extraction has been measured on the live database and does not work on real
+engineering datasheets:
+
+- **82.82%** of extracted statements (28,935 rows) carry NULL `field`, NULL `subject`
+  and NULL `raw_value`. They are empty shells.
+- The pump datasheet regression document yields **0 facts and 0 findings** on the live
+  database.
+- On the tuning document, a **multi-column material field produced no fact at all for one
+  of its columns**, while the other columns of the same field extracted correctly.
+
+*Document names, values and row counts for all three measurements are recorded in the
+register, `CURRENT_STATE_AND_BLOCKERS.md` section 10.11. They are deliberately not
+written here: this file is one of the ten `.cowork` files `.gitignore` re-allows by name,
+so everything in it reaches GitHub, and client document identifiers do not belong there.*
+
+The cause is structural, not a tuning problem. Engineering datasheets use multi-column
+layouts, merged cells, scanned pages, and inconsistent field labels. A deterministic
+parser cannot generalise across them, and every document-specific rule added to rescue
+one layout is forbidden by V3's own exit criterion: *"arbitrary held-out layouts work
+without document-specific code."*
+
+### 12.2 The change
+
+The model reads the datasheet page and returns structured facts. Deterministic code
+validates what it returns.
+
+Required properties:
+
+1. Each extracted fact carries: field name, value, unit, page, and the **verbatim source
+   text** it came from.
+2. Each fact carries the **column or label that scopes it** where the layout is
+   multi-column. A corrosion-allowance value without the material column it belongs to
+   is refused, never stored unscoped. This is the B33 defect.
+3. The **B23 verbatim validator applies to every extracted fact.** A fact whose source
+   text does not appear byte for byte on the cited page is refused, not stored.
+4. Unit and dimension parsing stays deterministic. The model reports the text; Python
+   parses the quantity.
+5. A page the model cannot read produces an explicit refusal with a reason, never a
+   silent zero. The silent `pages_read: 0` branch is a defect in its own right.
+6. No document-specific rules, no hand-written field vocabularies.
+
+### 12.3 Cost, stated honestly
+
+Model-reading every page of every document is expensive. Measured on the development
+machine (Dell OptiPlex 7040, i7-6700, no GPU), one model call on a 577-token packet took
+**105 seconds** with the 4B and **135 seconds** with the 9B.
+
+This section therefore carries a hardware dependency that must be recorded with it: model
+based extraction at corpus scale is not achievable on the current development hardware.
+It is achievable on one document for a demonstration, and requires GPU hardware or an
+authorized cloud lane for production volume.
+
+Recording this is not a reason to defer the design. It is a reason to size the hardware
+against the design rather than the reverse.
+
+### 12.4 Acceptance gates for section 12
+
+1. the pump datasheet regression document yields a non-zero, page-cited fact set on a
+   previously unseen run;
+2. the tuning document's multi-column material field produces a fact carrying the column
+   label that scopes it;
+3. no fact is stored whose scoping label could not be determined;
+4. every stored fact passes the B23 verbatim validator against its cited page;
+5. the empty-statement proportion, currently 82.82%, is re-measured and reported;
+6. a held-out datasheet of a different layout extracts correctly with no
+   document-specific code added;
+7. a page that cannot be read produces a named refusal, and the run reports it.
+
+---
+
 ## Open decisions required from the client
 
 Before implementation is called complete, obtain:
