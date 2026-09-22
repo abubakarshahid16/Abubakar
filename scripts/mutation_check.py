@@ -711,8 +711,9 @@ PHASE_4 = (
         id="M51", phase=5,
         description="report a page that yielded nothing as parsed anyway",
         path=APP / "datasheets.py",
-        anchor="        if page_written == 0:\n            unparsed.append({",
-        replacement="        if False:\n            unparsed.append({",
+        # Re-anchored by B19: the write loop moved inside one transaction, +4.
+        anchor="            if page_written == 0:\n                unparsed.append({",
+        replacement="            if False:\n                unparsed.append({",
         target="tests/test_datasheets.py",
         keyword="unparsed_page_lowers_completeness",
         tags=("honesty", "completeness"),
@@ -3695,6 +3696,58 @@ B18_UNMEASURED_FACTOR = (
 )
 
 
+#: B19: a review never read the datasheet (extract_facts had no caller).
+_B19_TEST = "tests/test_b19_review_reads_the_datasheet.py"
+B19_FACT_EXTRACTION = (
+    Mutation(
+        id="M316", phase=36,
+        description="drop the 'has no facts' guard: every review re-reads the "
+                    "sheet and, with replace=False, duplicates it",
+        path=APP / "submittal_review.py",
+        anchor="    if has_facts is not None:\n        return",
+        replacement="    if False:\n        return",
+        target=_B19_TEST,
+        keyword="second_review or confirmed_fact",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M317", phase=36,
+        description="PUT B19 BACK: the review never reads the datasheet",
+        path=APP / "submittal_review.py",
+        anchor="    _extract_facts_if_none(run_id, submittal_document_id, "
+               "allowed_document_ids)\n    return run_id",
+        replacement="    return run_id",
+        target=_B19_TEST,
+        keyword="reads_the_datasheet",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M318", phase=36,
+        description="commit each fact on its own again, so a failure mid-sheet "
+                    "leaves a partial set the guard mistakes for a finished one",
+        path=APP / "datasheets.py",
+        anchor="                        commit=False,\n",
+        replacement="",
+        target=_B19_TEST,
+        keyword="failed_extraction or failed_re_extraction",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M319", phase=36,
+        description="a run whose extraction failed is left saying 'running'",
+        path=APP / "submittal_review.py",
+        anchor="                \"UPDATE review_runs SET status = 'failed', refusal_reason = ?,\"\n"
+               "                \" updated_at = ? WHERE id = ?\",\n"
+               "                (json.dumps({\"error\": f\"fact extraction failed: {exc}\"}),",
+        replacement="                \"UPDATE review_runs SET status = 'running', refusal_reason = ?,\"\n"
+                    "                \" updated_at = ? WHERE id = ?\",\n"
+                    "                (json.dumps({\"error\": f\"fact extraction failed: {exc}\"}),",
+        target=_B19_TEST,
+        keyword="failed_extraction",
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -3706,7 +3759,7 @@ ALL: tuple[Mutation, ...] = (
     + MISSING_REFERENCES + CORPUS_QUESTIONS + PERSISTED_TRUNCATION
     + DEMO_POLISH + STANDARDS_MODAL + CONDITION_AND_QUOTES
     + B34_STANDARD_IDS + B14_GLOSSARY_PHRASE + B12_SCOPED_CORRECTIONS
-    + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR
+    + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
 )
 
 

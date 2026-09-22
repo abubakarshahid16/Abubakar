@@ -1019,9 +1019,14 @@ def create_fact(
     raw_value: str | None, page: int | None, section: str | None = None,
     source_text: str | None = None, review_run_id: str | None = None,
     confidence: float | None = None, extraction_method: str = "extracted",
-    equipment_tag: str | None = None,
+    equipment_tag: str | None = None, commit: bool = True,
 ) -> dict:
     """Record one fact. REFUSES a fact whose citation does not resolve.
+
+    `commit=False` writes INSIDE the caller's open transaction and commits
+    nothing, so `extract_facts` can make a whole datasheet all-or-nothing
+    (B19). It also skips `ensure_schema`, whose own `with conn:` would commit
+    that transaction half-way; the caller has already ensured the schema.
 
     The same three checks `standards.create_requirement` makes, for the same
     reasons: a fact without a resolving chunk is an assertion, a chunk from
@@ -1034,7 +1039,8 @@ def create_fact(
     in - and skipping it would make a missing value indistinguishable from a
     field the sheet never asked for.
     """
-    submittal_review.ensure_schema()
+    if commit:
+        submittal_review.ensure_schema()
     chunk = connect().execute(
         "SELECT id, document_id, page_start, page_end FROM chunks WHERE id = ?",
         (chunk_id,)).fetchone()
@@ -1117,22 +1123,26 @@ def create_fact(
         "updated_at": now,
     }
     conn = connect()
-    with conn:
-        conn.execute(
-            """INSERT INTO submittal_facts
-               (id, review_run_id, submittal_document_id, chunk_id, field_name,
-                field_label, field_value, raw_value, raw_unit,
-                normalized_value, normalized_unit, unit, is_blank,
-                blank_marker, page, section, source_text, extraction_method,
-                confidence, created_at, updated_at, unit_reference,
-                value_min, value_max, equipment_tag)
-               VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
-                       :field_name, :field_label, :field_value, :raw_value,
-                       :raw_unit, :normalized_value, :normalized_unit, :unit,
-                       :is_blank, :blank_marker, :page, :section, :source_text,
-                       :extraction_method, :confidence, :created_at,
-                       :updated_at, :unit_reference, :value_min, :value_max,
-                       :equipment_tag)""", row)
+    insert = (
+        """INSERT INTO submittal_facts
+           (id, review_run_id, submittal_document_id, chunk_id, field_name,
+            field_label, field_value, raw_value, raw_unit,
+            normalized_value, normalized_unit, unit, is_blank,
+            blank_marker, page, section, source_text, extraction_method,
+            confidence, created_at, updated_at, unit_reference,
+            value_min, value_max, equipment_tag)
+           VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
+                   :field_name, :field_label, :field_value, :raw_value,
+                   :raw_unit, :normalized_value, :normalized_unit, :unit,
+                   :is_blank, :blank_marker, :page, :section, :source_text,
+                   :extraction_method, :confidence, :created_at,
+                   :updated_at, :unit_reference, :value_min, :value_max,
+                   :equipment_tag)""")
+    if commit:
+        with conn:
+            conn.execute(insert, row)
+    else:
+        conn.execute(insert, row)
     return row
 
 
@@ -1208,14 +1218,6 @@ def extract_facts(
     if not chunks:
         return empty
 
-    if replace:
-        conn = connect()
-        with conn:
-            conn.execute(
-                "DELETE FROM submittal_facts"
-                " WHERE submittal_document_id = ? AND confirmed_by IS NULL",
-                (document_id,))
-
     stored_path = chunks[0]["stored_path"]
     # KEYED BY EVERY PAGE A CHUNK COVERS, not by the page it starts on.
     #
@@ -1259,96 +1261,111 @@ def extract_facts(
     # because the one-tag rule cannot be seen from a single page.
     tags = stamp_tags(pairs_by_page)
 
-    for page, page_chunks in sorted(by_page.items()):
-        pairs = pairs_by_page[page]
-        chunk = page_chunks[0]
-        corpus_text.extend(c["text"] or "" for c in page_chunks)
-        page_written = 0
-        # WHY EACH PAIR WAS DROPPED, counted per page. The reason string below
-        # used to say "no label-value pairs recovered" whatever had happened,
-        # so a page whose pairs were all FILTERED read exactly like a page that
-        # could not be parsed at all - and it sent the reader to the wrong half
-        # of the pipeline. On EF1975-DAS-I-06 that message was printed for five
-        # pages from which 190 pairs each had been recovered and discarded.
-        dropped: dict[str, int] = {}
-        seen: set[str] = set()
-        for label, value in pairs:
-            key = f"{normalise_field_name(label)}|{(value or '').strip()}"
-            if not label.strip():
-                dropped["empty label"] = dropped.get("empty label", 0) + 1
-                continue
-            if key in seen:
-                dropped["duplicate"] = dropped.get("duplicate", 0) + 1
-                continue
-            seen.add(key)
-            blank, marker = is_blank_value(value)
-            parsed_value, _unit, _measure = measure_value(value or "")
-            # A RANGE IS A QUANTITY. `measure_value` reads one number and a
-            # unit, so `-3 to 55 C` comes back as nothing at all - and the
-            # gate below would drop it as free text. The whole point of
-            # `parse_range` is that the cell IS a value, stated as two.
-            if parsed_value is None and parse_range(value) is not None:
-                parsed_value = "range"
-            # WHAT COUNTS AS A FACT. This is the line that stops the
-            # extractor inventing them.
-            #
-            # A fact is recorded only where the sheet actually says
-            # something: a value that parses as a quantity, or a value the
-            # sheet EXPLICITLY marks as the contractor's to fill - "By
-            # Contractor", "TBA", a drawn rule of underscores.
-            #
-            # AN EMPTY ADJACENT CELL IS NOT EVIDENCE OF ANYTHING. Measured
-            # on the real PSV sheet, treating it as a blank required field
-            # produced 375 phantom blanks out of 387 rows: every stray text
-            # block became a field somebody had failed to fill in. An empty
-            # cell beside a label is a pairing artefact of a two-column
-            # form, not a statement by the document, and recording it
-            # manufactures findings against a vendor who was never asked.
-            if tag_from_pair(label, value) is not None:
-                # THE TAG ROW IS NOT A FACT ABOUT THE EQUIPMENT, it is the
-                # equipment's name. It is read above and stamped onto the
-                # rows that ARE facts.
-                dropped["tag row"] = dropped.get("tag row", 0) + 1
-                continue
-            if is_date_value(value):
-                # A timestamp is not a measurement. Left here rather than in
-                # `measure_value` so the cell still reads as what it is
-                # everywhere else; it is only as a FACT that it is wrong.
-                dropped["date"] = dropped.get("date", 0) + 1
-                continue
-            if parsed_value is None and marker in (None, "empty")                     and not is_categorical_value(value):
-                # A LABEL WITH FREE TEXT BESIDE IT IS NOT A FACT. "Prepared by:
-                # A. Engineer" and "Facility: Al Khafji" have exactly the shape
-                # of a filled-in field and state nothing about the equipment.
-                # A quantity, an explicit blank, or a closed categorical answer
-                # - anything else is a caption.
-                dropped["value gate"] = dropped.get("value gate", 0) + 1
-                continue
-            if normalise_field_name(label) in furniture:
-                # Page furniture: this label appeared on three or more pages
-                # WITH THE SAME ANSWER EVERY TIME, so it is the title block or
-                # the footer, not a field. See `furniture_labels`.
-                dropped["furniture"] = dropped.get("furniture", 0) + 1
-                continue
-            try:
-                create_fact(
-                    submittal_document_id=document_id, chunk_id=chunk["id"],
-                    field_label=label.strip(), raw_value=value, page=page,
-                    section=section_heading(chunk["section"]),
-                    review_run_id=review_run_id,
-                    confidence=0.6,
-                    equipment_tag=tags.get(page),
-                )
-            except FactError:
-                dropped["refused by create_fact"] = dropped.get(
-                    "refused by create_fact", 0) + 1
-                continue
-            page_written += 1
-            written += 1
-            if blank:
-                blanks += 1
-        if page_written == 0:
-            unparsed.append({"page": page, "reason": _unparsed_reason(pairs, dropped)})
+    # B19: ONE DATASHEET, ONE TRANSACTION. Every fact used to commit on its
+    # own, so an extraction that died on page 5 left pages 1-4 behind - and
+    # the review path's "has no facts" guard then read that partial set as
+    # done and never extracted the sheet again. The replace=True DELETE is in
+    # the same transaction, so a failed re-extraction cannot leave the
+    # datasheet with FEWER facts than it had either. Pages are parsed above,
+    # before this block, so the write lock is held only for the writes.
+    conn = connect()
+    with conn:
+        if replace:
+            conn.execute(
+                "DELETE FROM submittal_facts"
+                " WHERE submittal_document_id = ? AND confirmed_by IS NULL",
+                (document_id,))
+        for page, page_chunks in sorted(by_page.items()):
+            pairs = pairs_by_page[page]
+            chunk = page_chunks[0]
+            corpus_text.extend(c["text"] or "" for c in page_chunks)
+            page_written = 0
+            # WHY EACH PAIR WAS DROPPED, counted per page. The reason string below
+            # used to say "no label-value pairs recovered" whatever had happened,
+            # so a page whose pairs were all FILTERED read exactly like a page that
+            # could not be parsed at all - and it sent the reader to the wrong half
+            # of the pipeline. On EF1975-DAS-I-06 that message was printed for five
+            # pages from which 190 pairs each had been recovered and discarded.
+            dropped: dict[str, int] = {}
+            seen: set[str] = set()
+            for label, value in pairs:
+                key = f"{normalise_field_name(label)}|{(value or '').strip()}"
+                if not label.strip():
+                    dropped["empty label"] = dropped.get("empty label", 0) + 1
+                    continue
+                if key in seen:
+                    dropped["duplicate"] = dropped.get("duplicate", 0) + 1
+                    continue
+                seen.add(key)
+                blank, marker = is_blank_value(value)
+                parsed_value, _unit, _measure = measure_value(value or "")
+                # A RANGE IS A QUANTITY. `measure_value` reads one number and a
+                # unit, so `-3 to 55 C` comes back as nothing at all - and the
+                # gate below would drop it as free text. The whole point of
+                # `parse_range` is that the cell IS a value, stated as two.
+                if parsed_value is None and parse_range(value) is not None:
+                    parsed_value = "range"
+                # WHAT COUNTS AS A FACT. This is the line that stops the
+                # extractor inventing them.
+                #
+                # A fact is recorded only where the sheet actually says
+                # something: a value that parses as a quantity, or a value the
+                # sheet EXPLICITLY marks as the contractor's to fill - "By
+                # Contractor", "TBA", a drawn rule of underscores.
+                #
+                # AN EMPTY ADJACENT CELL IS NOT EVIDENCE OF ANYTHING. Measured
+                # on the real PSV sheet, treating it as a blank required field
+                # produced 375 phantom blanks out of 387 rows: every stray text
+                # block became a field somebody had failed to fill in. An empty
+                # cell beside a label is a pairing artefact of a two-column
+                # form, not a statement by the document, and recording it
+                # manufactures findings against a vendor who was never asked.
+                if tag_from_pair(label, value) is not None:
+                    # THE TAG ROW IS NOT A FACT ABOUT THE EQUIPMENT, it is the
+                    # equipment's name. It is read above and stamped onto the
+                    # rows that ARE facts.
+                    dropped["tag row"] = dropped.get("tag row", 0) + 1
+                    continue
+                if is_date_value(value):
+                    # A timestamp is not a measurement. Left here rather than in
+                    # `measure_value` so the cell still reads as what it is
+                    # everywhere else; it is only as a FACT that it is wrong.
+                    dropped["date"] = dropped.get("date", 0) + 1
+                    continue
+                if parsed_value is None and marker in (None, "empty")                     and not is_categorical_value(value):
+                    # A LABEL WITH FREE TEXT BESIDE IT IS NOT A FACT. "Prepared by:
+                    # A. Engineer" and "Facility: Al Khafji" have exactly the shape
+                    # of a filled-in field and state nothing about the equipment.
+                    # A quantity, an explicit blank, or a closed categorical answer
+                    # - anything else is a caption.
+                    dropped["value gate"] = dropped.get("value gate", 0) + 1
+                    continue
+                if normalise_field_name(label) in furniture:
+                    # Page furniture: this label appeared on three or more pages
+                    # WITH THE SAME ANSWER EVERY TIME, so it is the title block or
+                    # the footer, not a field. See `furniture_labels`.
+                    dropped["furniture"] = dropped.get("furniture", 0) + 1
+                    continue
+                try:
+                    create_fact(
+                        submittal_document_id=document_id, chunk_id=chunk["id"],
+                        field_label=label.strip(), raw_value=value, page=page,
+                        section=section_heading(chunk["section"]),
+                        review_run_id=review_run_id,
+                        confidence=0.6,
+                        equipment_tag=tags.get(page),
+                        commit=False,
+                    )
+                except FactError:
+                    dropped["refused by create_fact"] = dropped.get(
+                        "refused by create_fact", 0) + 1
+                    continue
+                page_written += 1
+                written += 1
+                if blank:
+                    blanks += 1
+            if page_written == 0:
+                unparsed.append({"page": page, "reason": _unparsed_reason(pairs, dropped)})
 
     pages_read = len(by_page)
     return {
