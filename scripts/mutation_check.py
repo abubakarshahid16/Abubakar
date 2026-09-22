@@ -3808,6 +3808,18 @@ B9_NOT_IN_DOCUMENT_SCOPE = (
         tags=("honesty", "ui"),
     ),
     Mutation(
+        id="M332", phase=37, runner="vitest",
+        description="an out-of-scope row stops showing its page, so an engineer "
+                    "cannot find and catch a misclassified one (owner's merge "
+                    "condition 1a)",
+        path=_REVIEW_UI / "FindingsTable.tsx",
+        anchor="          {finding.standard_page ? ` · p${finding.standard_page}` : \"\"}",
+        replacement="          {\"\"}",
+        target="src/components/review/FindingsTable.test.tsx",
+        keyword="clause, page and text",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
         id="M324", phase=37, runner="vitest",
         description="word it as missing evidence on screen",
         path=_REVIEW_UI / "reviewFormat.ts",

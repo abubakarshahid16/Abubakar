@@ -167,6 +167,7 @@ describe("B9: a requirement that needs another document", () => {
       rows.push(finding({
         id: `s${i}`, compliance_status: "NOT_IN_DOCUMENT_SCOPE",
         standard_document_id: "doc_std", standard_clause: `4.${i}`,
+        standard_page: 7,
         requirement: `Statement ${i}`,
       }));
     }
@@ -199,5 +200,20 @@ describe("B9: a requirement that needs another document", () => {
       "Requires another document - not answerable from this submittal type",
     )).toBeInTheDocument();
     expect(within(row!).queryByText("No evidence submitted")).toBeNull();
+  });
+
+  it("shows each item's clause, page and text, not just a count", async () => {
+    // The owner's merge condition: R1 misclassifies ~13% (sample, seed
+    // 20260922), so an engineer must be able to SEE each one to catch it.
+    const user = userEvent.setup();
+    render(<FindingsTable findings={mixedRun()} selectedId={null} onSelect={vi.fn()} />);
+
+    await user.click(screen.getByText(/40 requirements need another document/));
+
+    const row = screen.getByText("Statement 3").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText(/clause 4\.3/)).toBeInTheDocument();
+    expect(within(row!).getByText(/p7/)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Statement \d+$/)).toHaveLength(40);
   });
 });
