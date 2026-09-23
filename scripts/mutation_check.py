@@ -4504,6 +4504,21 @@ B163_EVIDENCE_TYPE_GATE = (
         keyword="an_excluded_standards_requirements_produce_no_findings_at_all",
         tags=("honesty", "critical"),
     ),
+    Mutation(
+        id="M377", phase=48,
+        description="drop the duplicate-finding gate in create_finding, so a "
+                    "second call for the same (review_run_id, requirement_id, "
+                    "fact_id) silently writes a second unconfirmed row instead "
+                    "of being refused (issue #164 criterion 3)",
+        path=APP / "comparison.py",
+        anchor="    if duplicate is not None:\n"
+               "        raise ComparisonError(",
+        replacement="    if False:\n"
+                    "        raise ComparisonError(",
+        target="tests/test_issue_164_verification_gates.py",
+        keyword="test_criterion_3_a_duplicate_finding_for_the_same_pair_in_the_same_run_is_blocked",
+        tags=("honesty", "critical"),
+    ),
 )
 
 

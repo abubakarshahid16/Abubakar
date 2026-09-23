@@ -649,6 +649,29 @@ def create_finding(
     the system said what it said rather than only what it concluded.
     """
     submittal_review.ensure_schema()
+
+    # THE DUPLICATE GATE. A finding's identity within a run is the PAIR it is
+    # about - which requirement, which fact (or no fact, for a
+    # MISSING_INFORMATION verdict) - not the row id that will be minted for
+    # it below. Two findings about the same pair inside the same run would
+    # double the same claim in every count and hand an engineer two rows to
+    # resolve for one question. Confirmed findings are excluded from the
+    # check on purpose: a confirmed row is a human's decision and a fresh,
+    # unconfirmed proposal about the same pair is exactly what `run_comparison`
+    # writes on every re-run - see `run_comparison`'s "confirmed findings are
+    # never deleted" note. This gate stops a SECOND unconfirmed row from
+    # existing beside the first, not a re-run from proposing one at all.
+    fact_id = (fact or {}).get("id")
+    duplicate = connect().execute(
+        "SELECT id FROM review_findings WHERE review_run_id = ?"
+        " AND requirement_id = ? AND fact_id IS ? AND confirmed_by IS NULL",
+        (review_run_id, requirement.get("id"), fact_id)).fetchone()
+    if duplicate is not None:
+        raise ComparisonError(
+            f"a finding already exists for this requirement and fact in this "
+            f"review run ({duplicate['id']}); a duplicate finding is refused "
+            f"rather than written")
+
     status, disagreement = _reconcile(verdict["status"], model_opinion)
 
     standard_ok = _citation_resolves(
