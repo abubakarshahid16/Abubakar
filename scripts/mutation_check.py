@@ -4519,6 +4519,45 @@ B163_EVIDENCE_TYPE_GATE = (
         keyword="test_criterion_3_a_duplicate_finding_for_the_same_pair_in_the_same_run_is_blocked",
         tags=("honesty", "critical"),
     ),
+    Mutation(
+        id="M378", phase=49,
+        description="drop the requires-other-document summary row, so a "
+                    "submittal with hundreds of NOT_IN_DOCUMENT_SCOPE "
+                    "findings exports a CRS that names none of them "
+                    "(issue #165 criterion 4)",
+        path=APP / "crs_mapping.py",
+        anchor="    if other_doc_count:",
+        replacement="    if False:",
+        target="tests/test_crs_mapping.py",
+        keyword="requires_other_document_gets_one_summary_row_not_individual_ones",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M379", phase=49,
+        description="drop the missing-information summary row, so a "
+                    "submittal with hundreds of MISSING_INFORMATION findings "
+                    "exports a CRS that reads as though none exist",
+        path=APP / "crs_mapping.py",
+        anchor="    if missing_info_count:",
+        replacement="    if False:",
+        target="tests/test_crs_mapping.py",
+        keyword="missing_information_never_enters_individually",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M380", phase=49,
+        description="stop colouring rows by row_kind, so a NON_COMPLIANT "
+                    "defect and a NEEDS_ENGINEER_REVIEW row look identical "
+                    "on the printed sheet (issue #165 criterion 4)",
+        path=APP / "crs_export.py",
+        anchor="            if fill is not None:\n"
+               "                cell.fill = fill",
+        replacement="            if False:\n"
+                    "                cell.fill = fill",
+        target="tests/test_crs_export.py",
+        keyword="rows_of_different_kinds_get_different_fill_colours",
+        tags=("honesty", "critical"),
+    ),
 )
 
 

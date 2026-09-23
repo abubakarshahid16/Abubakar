@@ -6,12 +6,15 @@ changes no run and records no judgement, so it asks the same question
 they may not read is 404, indistinguishable from one that is not there,
 because a different answer would confirm the run exists.
 
-A RUN WITH NO INCLUDABLE FINDINGS STILL EXPORTS. `crs_mapping` admits only
-NON_COMPLIANT and NEEDS_ENGINEER_REVIEW findings; a submittal where the
-machine found neither still has GAPS - standards it cites that the library
-does not hold - and those are the rows that matter most on such a run. An
-export that refused, or returned an empty sheet, would read as "nothing to
-report" about a review that examined almost nothing.
+A RUN WITH NO INCLUDABLE FINDINGS STILL EXPORTS. `crs_mapping` gives only
+NON_COMPLIANT and NEEDS_ENGINEER_REVIEW findings a row each; a submittal
+where the machine found neither still has GAPS - standards it cites that the
+library does not hold - and those are the rows that matter most on such a
+run. An export that refused, or returned an empty sheet, would read as
+"nothing to report" about a review that examined almost nothing. Issue #165:
+MISSING_INFORMATION and requires-another-document findings still never enter
+individually (real runs carry hundreds of each), but each bucket now earns
+one summary row stating its own count rather than vanishing entirely.
 
 AND NOTHING IN THE META IS INVENTED. The transmittal numbers are blank
 because nobody has issued one; a CRS carrying a plausible-looking transmittal
@@ -219,9 +222,10 @@ def test_the_contractor_columns_are_always_empty():
 
 
 def test_a_thousand_no_evidence_findings_do_not_become_a_thousand_rows():
-    """MISSING_INFORMATION never enters individually. The drum run has 1,578
-    of them; a CRS listing each would be noise, and section 13 covers the gap
-    through the reference rows instead."""
+    """MISSING_INFORMATION never enters individually. The drum run has 20 of
+    them; a CRS listing each would be noise, so they collapse into the one
+    summary row #165 added rather than the twenty individual rows this test
+    used to forbid outright."""
     doc = _submittal()
     run_id = _run(doc)
     _finding(doc, run_id, "NON_COMPLIANT")
@@ -231,7 +235,10 @@ def test_a_thousand_no_evidence_findings_do_not_become_a_thousand_rows():
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
 
     items = [v for v in _cells(ws, 1) if isinstance(v, int)]
-    assert items == [1], "a MISSING_INFORMATION finding reached the sheet"
+    assert items == [1, 2], "20 MISSING_INFORMATION findings became != 1 row"
+    summary = ws.cell(row=FIRST_DATA_ROW + 1, column=4).value
+    assert "20 requirements" in summary
+    assert "not itemized" in summary
 
 
 def test_a_run_with_no_includable_findings_still_exports_its_gap_rows():
@@ -255,7 +262,8 @@ def test_a_run_with_no_includable_findings_still_exports_its_gap_rows():
 
     sections = _cells(ws, 3)
     assert "References" in sections, "no gap row was written"
-    gap = ws.cell(row=FIRST_DATA_ROW, column=4).value
+    gap_row = FIRST_DATA_ROW + sections.index("References")
+    gap = ws.cell(row=gap_row, column=4).value
     assert "32-SAMSS-004" in gap
     assert "not in the standards library" in gap
 

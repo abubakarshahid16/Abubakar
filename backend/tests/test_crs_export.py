@@ -99,6 +99,33 @@ def test_no_code_no_row():
     assert ws.cell(row=COLUMN_HEADER_ROW + 3, column=1).value is None
 
 
+# ============================ issue #165 criterion 4: visual distinction
+
+def test_rows_of_different_kinds_get_different_fill_colours():
+    """CRITERION 4. Opened with openpyxl, not asserted against the view dict
+    - the same discipline section 12 of the audit demanded for the other
+    three fields: read back what the file actually says, not what the
+    builder meant to say."""
+    ws = load([
+        {"comment": "a defect", "row_kind": "non_compliant"},
+        {"comment": "needs a human", "row_kind": "needs_engineer_review"},
+        {"comment": "no value stated", "row_kind": "missing_information"},
+        {"comment": "check elsewhere", "row_kind": "requires_other_document"},
+    ])
+    fills = [ws.cell(row=FIRST_DATA_ROW + n, column=4).fill.fgColor.rgb
+             for n in range(4)]
+    assert len(set(fills)) == 4, f"rows did not get 4 distinct fills: {fills}"
+    assert all(f not in (None, "00000000") for f in fills)
+
+
+def test_a_row_with_no_kind_gets_no_fill():
+    """A raw dict from before #165 (no `row_kind` key) must still render - no
+    fill is the honest default, not a guessed one."""
+    ws = load([{"comment": "plain"}])
+    cell = ws.cell(row=FIRST_DATA_ROW, column=4)
+    assert cell.fill.fgColor.rgb in (None, "00000000")
+
+
 # ====================== the three fields the client asked for, as rendered
 #
 # READ BACK OUT OF THE WORKBOOK, NOT OFF THE VIEW. A test that asserted

@@ -1938,6 +1938,12 @@ class CrsPreviewRow(BaseModel):
     comment_by: str
     contractor_response: str = ""
     final_resolution: str = ""
+    #: ISSUE #165, CRITERION 4. "non_compliant", "needs_engineer_review",
+    #: "missing_information", "requires_other_document" or "missing_reference"
+    #: - never printed in the workbook either, read by both renderers so a
+    #: caller (this JSON preview, or the .xlsx's own fill colour) can tell the
+    #: four kinds of row apart without parsing the comment text.
+    row_kind: str = ""
 
 
 class CrsPreview(BaseModel):

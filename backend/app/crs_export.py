@@ -23,11 +23,27 @@ import hashlib
 from io import BytesIO
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 ARIAL = "Arial"
 THIN = Side(style="thin")
 BOX = Border(top=THIN, bottom=THIN, left=THIN, right=THIN)
+
+#: ISSUE #165, CRITERION 4. A row's `row_kind` (from `crs_mapping`, never
+#: printed) picks its fill, so "already flagged as a defect", "needs a
+#: human's judgement", "no value stated" and "checked in another document"
+#: read differently at a glance - not just by the words in the comment cell.
+#: Pastel, not saturated: the client's template is a working document an
+#: engineer reads for hours, not a warning label. A `row_kind` with no entry
+#: here (a row `crs_mapping` never tags, or a caller's raw dict from before
+#: #165) gets no fill at all rather than a guessed one.
+ROW_FILLS = {
+    "non_compliant": PatternFill("solid", fgColor="FFF5D6D6"),
+    "needs_engineer_review": PatternFill("solid", fgColor="FFFCF3CF"),
+    "missing_information": PatternFill("solid", fgColor="FFEAEDED"),
+    "requires_other_document": PatternFill("solid", fgColor="FFD6EAF8"),
+    "missing_reference": PatternFill("solid", fgColor="FFEAEDED"),
+}
 HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
            "Comment By", "Contractor's Response", "Final Resolution"]
 WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0,
@@ -189,6 +205,11 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             "comment_by": finding.get("comment_by", ""),
             "contractor_response": "",
             "final_resolution": "",
+            # NEVER PRINTED - read by `build_crs` alone to pick a row's fill.
+            # Carried through the view (not read straight off `findings` by
+            # the renderer) so the preview route and the workbook agree on
+            # what kind a row is, same as every other field here.
+            "row_kind": finding.get("row_kind", ""),
         })
 
     return {
@@ -264,9 +285,12 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         values = [entry["item_no"], entry["document_name"],
                   entry["page_section"], comment, entry["comment_by"],
                   entry["contractor_response"], entry["final_resolution"]]
+        fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
             cell = put(row, i, value, wrap=(i == 4), center=(i == 1))
             cell.border = BOX
+            if fill is not None:
+                cell.fill = fill
         ws.row_dimensions[row].height = max(
             15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
 
