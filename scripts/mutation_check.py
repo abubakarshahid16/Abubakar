@@ -4195,6 +4195,51 @@ PROVIDER_SEAM = (
 )
 
 
+#: B19's other half: fact extraction wired into ingestion completion (upload
+#: + watched folder), never a manually-started review run.
+_INGEST_FACTS_TEST = "tests/test_ingest_fact_extraction.py"
+INGEST_FACT_WIRING = (
+    Mutation(
+        id="M356", phase=45,
+        description="PUT THE WIRING BACK: drop the ingestion-side call, so a "
+                    "submittal that only ever gets uploaded never gets facts",
+        path=APP / "ingest.py",
+        anchor="            _queue_extraction_if_standard(doc_id)\n"
+               "            _extract_facts_if_contractor_submittal(doc_id)",
+        replacement="            _queue_extraction_if_standard(doc_id)",
+        target=_INGEST_FACTS_TEST,
+        keyword="gets_facts_from_ingestion_alone",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M357", phase=45,
+        description="drop the CONTRACTOR_SUBMITTAL role gate, so a "
+                    "COMPANY_STANDARD is read by the datasheet extractor too",
+        path=APP / "ingest.py",
+        anchor='    role = (record or {}).get("document_role")\n'
+               '    if role != "CONTRACTOR_SUBMITTAL":\n        return',
+        replacement='    role = (record or {}).get("document_role")\n'
+                    '    if False:\n        return',
+        target=_INGEST_FACTS_TEST,
+        keyword="a_company_standard_never_gets_datasheet_facts or "
+                "an_unclassified_document_gets_no_facts",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M358", phase=45,
+        description="drop the shared 'has no facts' guard as seen from the "
+                    "ingestion path, so re-ingesting a submittal with facts "
+                    "already extracted duplicates them",
+        path=APP / "submittal_review.py",
+        anchor="    if has_facts is not None:\n        return",
+        replacement="    if False:\n        return",
+        target=_INGEST_FACTS_TEST,
+        keyword="does_not_duplicate_them",
+        tags=("critical",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4209,7 +4254,7 @@ ALL: tuple[Mutation, ...] = (
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
     + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
-    + B50_MODEL_SCHEMA + PROVIDER_SEAM
+    + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING
 )
 
 

@@ -498,6 +498,46 @@ class FactExtractionFailed(RuntimeError):
     """The datasheet could not be read into facts; the run is marked failed."""
 
 
+def ensure_facts_extracted(document_id: str, allowed_document_ids: frozenset[str],
+                           *, review_run_id: str | None = None) -> dict | None:
+    """B19's guard, factored out so it has exactly ONE home.
+
+    GUARDED ON "HAS NO FACTS". Facts are per document and reused across runs
+    (master plan section 24), so a second call over the same sheet extracts
+    nothing and cannot duplicate them. Any existing fact - confirmed by an
+    engineer or not - means the sheet has been read; re-reading it is the
+    explicit re-extraction route's job, never a side effect of a review or of
+    ingestion.
+
+    Returns `extract_facts`'s result dict, or None when nothing ran because
+    facts already existed. Raises whatever `extract_facts` raises; callers
+    decide what "failed" means for them - a review run is marked `failed`,
+    ingestion records the failure and leaves the document READY (see
+    `ingest._extract_facts_if_contractor_submittal`).
+
+    `review_run_id` is nullable and may be None: facts read outside any
+    review run (ingestion) are not attributed to one, which is exactly what
+    the per-document rebuild of `submittal_facts` made nullable for.
+
+    TWO CALLERS, ONE GUARD. This used to be duplicated the moment a second
+    caller needed it - a duplicated guard is exactly the "fixed in one of two
+    places" defect CLAUDE.md rule 8 names, so both `_extract_facts_if_none`
+    (review runs) and `ingest._extract_facts_if_contractor_submittal`
+    (ingestion) call this instead of re-checking `submittal_facts`
+    themselves.
+    """
+    from . import datasheets  # datasheets imports this module
+
+    has_facts = connect().execute(
+        "SELECT 1 FROM submittal_facts WHERE submittal_document_id = ? LIMIT 1",
+        (document_id,)).fetchone()
+    if has_facts is not None:
+        return
+    return datasheets.extract_facts(
+        document_id, allowed_document_ids=allowed_document_ids,
+        review_run_id=review_run_id, replace=False)
+
+
 def _extract_facts_if_none(run_id: str, submittal_document_id: str,
                            allowed_document_ids: frozenset[str]) -> None:
     """B19: read the datasheet into facts, ONCE, before anything compares it.
@@ -506,28 +546,16 @@ def _extract_facts_if_none(run_id: str, submittal_document_id: str,
     datasheet was reviewed against ZERO facts and every requirement came back
     MISSING_INFORMATION - the submittal was never read.
 
-    GUARDED ON "HAS NO FACTS". Facts are per document and reused across runs
-    (master plan section 24), so a second review of the same sheet extracts
-    nothing and cannot duplicate them. Any existing fact - confirmed by an
-    engineer or not - means the sheet has been read; re-reading it is the
-    explicit re-extraction route's job, never a side effect of a review.
-
-    replace=False, so nothing is ever deleted here, and extract_facts writes
-    the whole sheet in ONE transaction, so a failure leaves no partial set
-    for this guard to mistake for a finished one. The run is marked failed
-    WITH the reason rather than left `running`.
+    The guard itself lives in `ensure_facts_extracted`; this wrapper is the
+    review-run-specific half - marking the run failed WITH the reason rather
+    than left `running`. extract_facts writes the whole sheet in ONE
+    transaction, so a failure leaves no partial set for the guard to mistake
+    for a finished one.
     """
-    from . import datasheets  # datasheets imports this module
-
-    has_facts = connect().execute(
-        "SELECT 1 FROM submittal_facts WHERE submittal_document_id = ? LIMIT 1",
-        (submittal_document_id,)).fetchone()
-    if has_facts is not None:
-        return
     try:
-        datasheets.extract_facts(
-            submittal_document_id, allowed_document_ids=allowed_document_ids,
-            review_run_id=run_id, replace=False)
+        ensure_facts_extracted(
+            submittal_document_id, allowed_document_ids,
+            review_run_id=run_id)
     except Exception as exc:  # recorded on the run, then raised
         conn = connect()
         with conn:

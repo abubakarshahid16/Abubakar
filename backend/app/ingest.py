@@ -651,6 +651,7 @@ class IngestionWorker:
                     (_now(), doc_id),
                 )
             _queue_extraction_if_standard(doc_id)
+            _extract_facts_if_contractor_submittal(doc_id)
 
 
 def _queue_extraction_if_standard(document_id: str) -> None:
@@ -684,6 +685,74 @@ def _queue_extraction_if_standard(document_id: str) -> None:
         standards.enqueue_extraction(document_id)
     except Exception as exc:  # noqa: BLE001 - see docstring
         errors.record_failure(exc, stage="standard_extraction_enqueue")
+
+
+def _extract_facts_if_contractor_submittal(document_id: str) -> None:
+    """B19's other half: read a submittal's facts the moment it becomes READY.
+
+    `datasheets.extract_facts` had exactly one caller in the whole app -
+    `submittal_review.create_review_run`, reachable only when a human presses
+    "run review" - so a submittal that arrived by upload or the watched
+    folder sat fully searchable with zero facts until somebody asked for a
+    review. Both paths funnel into this same worker (`upload.ingest`, called
+    from both `main.upload_document` and `watcher.FolderWatcher._handle`), so
+    one hook here covers both.
+
+    Only for CONTRACTOR_SUBMITTAL. A COMPANY_STANDARD is read by
+    `_queue_extraction_if_standard` instead - the datasheet extractor reads a
+    vendor's data fields, which is not what a standard's clauses are. A
+    document with no role yet (NULL, the common case right after upload -
+    `classification.py` notes a role is usually assigned afterwards) is left
+    alone: nothing here guesses what an unclassified document is. A document
+    classified AFTER it is already READY is not covered by this hook - that
+    is the same "other order" gap `classification._queue_extraction_if_ready`
+    documents for standards, and closing it for submittals is out of scope
+    for this wiring fix.
+
+    `ensure_facts_extracted` is the SAME guard `_extract_facts_if_none` (the
+    review-run path) uses - CLAUDE.md rule 8: one guard, not two that can
+    drift. `review_run_id=None` is a first-class case, not a workaround:
+    `submittal_facts.review_run_id` is nullable for exactly this, facts read
+    outside any review run.
+
+    Extraction is deterministic PyMuPDF/regex work over chunks already on
+    disk - no OCR wait, no model call - so it runs synchronously in the same
+    pass that marks the document READY, the same way `_queue_extraction_if_
+    standard` runs synchronously at this point (that one only enqueues a job
+    another worker drains; this one has no such worker to hand off to, and
+    needs none, since the work itself is already fast and local).
+
+    ERRORS ARE RECORDED, NOT SILENTLY DROPPED. A `jobs` row is written
+    (stage='extract_facts', state='failed') the same visible mechanism
+    `standards.run_extraction_job` uses for ITS downstream stage, so an
+    operator can find the failure with `SELECT * FROM jobs WHERE stage =
+    'extract_facts'` rather than only in the rotating log file. The document
+    itself is left READY: it ingested correctly, and a fact-extraction
+    failure must not un-ingest a document that indexed and embedded fine.
+    """
+    from . import classification
+    record = classification.of_document(document_id)
+    role = (record or {}).get("document_role")
+    if role != "CONTRACTOR_SUBMITTAL":
+        return
+    from . import submittal_review
+    every_document = frozenset(
+        r["id"] for r in connect().execute("SELECT id FROM documents"))
+    try:
+        submittal_review.ensure_facts_extracted(
+            document_id, every_document, review_run_id=None)
+    except Exception as exc:  # noqa: BLE001 - recorded below, never re-raised
+        safe = errors.record_failure(exc, document_id=document_id, stage="extract_facts")
+        import uuid as _uuid
+        job_id = f"job_{_uuid.uuid4().hex[:12]}"
+        now = _now()
+        conn = connect()
+        with conn:
+            conn.execute(
+                "INSERT INTO jobs (id, document_id, stage, state, error_code,"
+                " error_message, started_at, updated_at)"
+                " VALUES (?, ?, 'extract_facts', 'failed', ?, ?, ?, ?)",
+                (job_id, document_id, safe["code"], safe["message"], now, now))
 
 
 def get_worker() -> IngestionWorker:
