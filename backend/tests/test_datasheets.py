@@ -571,3 +571,203 @@ def test_b44_an_intact_file_is_never_called_repaired(tmp_path):
     assert out["repaired"] is False
     assert out["unreadable"] == [] and out["pages_unreadable"] == 0
     assert out["facts"] > 0, "the control must still extract, or it proves nothing"
+
+
+# ==================================================================== #175
+#
+# CASCADED EXTRACTOR (layout/table tier), CONFIDENCE ROUTING, and REVISION
+# TRACEABILITY. Cause 2 (table-reading rule fix, formerly parked on
+# `parked/cause2-rule-based-fix` as B58) is reused here rather than
+# reinvented: `tables.parse_page_tables` already finds a ruled table's shape
+# correctly, but every row - header AND data - was run through
+# `split_label_value`'s ALTERNATING-PAIR assumption, which is right for a
+# "two forms side by side" text block and wrong for "one row label, several
+# values under several column headers". `pairs_from_table_shape` scopes each
+# value to its own row label and column header instead.
+#
+# No client content: labels, headers and values below are invented, but the
+# SHAPE - a two-line header with a spanning cell, several data rows, some
+# with blank cells - reproduces what was measured on a real regression
+# document's ruled table.
+
+
+TWO_LINE_HEADER_SHAPE = [
+    ["INSPECTION TYPE", "METHOD", "CRITERIA", ""],
+    ["", "", "NEW BUILD", "REPAIR"],
+    ["MAGNETIC PARTICLE", "ASTM E709", "ASTM E125 grade 2", "ASTM E125 grade 1"],
+    ["ULTRASONIC", "", "", ""],
+    ["DYE PENETRANT", "ASTM E165", "", "ASTM E125 grade 1"],
+]
+
+SINGLE_HEADER_SHAPE = [
+    ["Size", "Facing", "Rating", "Position"],
+    ["2 in", "RF", "150", "TOP"],
+    ["4 in", "RF", "300", "END"],
+]
+
+
+def test_175_a_row_labels_its_own_values_under_their_own_column_headers():
+    """THE DEFECT. Two real values on one row must not be cross-paired
+    against each other - each belongs to the ROW's label, scoped by its own
+    column."""
+    pairs = datasheets.pairs_from_table_shape(TWO_LINE_HEADER_SHAPE)
+    by_label = dict(pairs)
+
+    assert by_label.get("MAGNETIC PARTICLE - METHOD") == "ASTM E709"
+    assert by_label.get("MAGNETIC PARTICLE - CRITERIA - NEW BUILD") == "ASTM E125 grade 2"
+    assert by_label.get("MAGNETIC PARTICLE - CRITERIA - REPAIR") == "ASTM E125 grade 1"
+    assert "ASTM E125 grade 2" not in by_label, (
+        "a value was cross-paired against its neighbour instead of scoped "
+        f"to its row label: {pairs}")
+
+
+def test_175_a_spanning_header_cell_is_carried_to_every_column_beneath_it():
+    """The CRITERIA super-header is written once, over two sub-columns. Read
+    literally, REPAIR would lose that it is a criteria column at all."""
+    pairs = datasheets.pairs_from_table_shape(TWO_LINE_HEADER_SHAPE)
+    by_label = dict(pairs)
+
+    assert "MAGNETIC PARTICLE - REPAIR" not in by_label, (
+        "the spanning header was not carried forward - REPAIR lost its "
+        f"parent header CRITERIA: {pairs}")
+    assert by_label.get("DYE PENETRANT - CRITERIA - REPAIR") == "ASTM E125 grade 1"
+
+
+def test_175_a_blank_row_produces_no_pairs():
+    """ULTRASONIC has a label and nothing else. No value, no pair."""
+    pairs = datasheets.pairs_from_table_shape(TWO_LINE_HEADER_SHAPE)
+    assert not any(label.startswith("ULTRASONIC") for label, _ in pairs)
+
+
+def test_175_a_single_line_header_needs_no_carry_forward():
+    """The common case: one header row, no spanning cells."""
+    pairs = datasheets.pairs_from_table_shape(SINGLE_HEADER_SHAPE)
+    by_label = dict(pairs)
+
+    assert by_label.get("2 in - Facing") == "RF"
+    assert by_label.get("2 in - Rating") == "150"
+    assert by_label.get("2 in - Position") == "TOP"
+    assert by_label.get("4 in - Position") == "END"
+
+
+def test_175_a_narrow_shape_falls_through_to_split_label_value_unchanged():
+    """Under three columns wide, this is exactly the row split_label_value
+    was built for - the new function must not touch it."""
+    two_col = [["Design pressure", "23.5 barg"]]
+    assert (datasheets.pairs_from_table_shape(two_col)
+           == datasheets.split_label_value(["Design pressure", "23.5 barg"]))
+
+
+def test_175_wired_into_extract_facts_not_just_the_function():
+    """The function alone proves nothing about the product until something
+    calls it. The CALL FORM, not the bare name - a comment naming the
+    function would satisfy a bare-substring check without ever calling it."""
+    import inspect
+    source = inspect.getsource(datasheets.extract_facts)
+    assert "pairs_from_table_shape(" in source, (
+        "extract_facts's ruled-table loop still calls split_label_value "
+        "directly - the fix exists but was never wired in")
+
+
+# --------------------------------------------------- OCR fallback (tier 2)
+
+def test_175_a_page_with_no_native_pairs_falls_back_to_its_ocr_text(tmp_path):
+    """A page that yields NOTHING from the text/table tier (a real scanned
+    page has no drawable text at all) still recovers a fact when `ocr.py`
+    has already recognised it into `page_ocr` - the cascade's second tier,
+    read for the first time here."""
+    import pymupdf
+    doc = pymupdf.open()
+    doc.new_page(width=600, height=500)   # genuinely blank: no text, no table
+    blank_path = tmp_path / "scanned.pdf"
+    doc.save(str(blank_path)); doc.close()
+    doc_id = _ingest(blank_path, doc_id="doc_scan", filename="scan.pdf", text=" ")
+
+    with db.connect() as conn:
+        conn.execute(
+            """INSERT INTO page_ocr
+               (document_id, page_no, text, char_count, engine, model, dpi,
+                box_count, seconds, recognised_at, batch_no)
+               VALUES (?,1,?,?, 'rapidocr-3.9.2', 'test-model', 200, 1,
+                       0.1, '2026-09-23T00:00:00Z', 0)""",
+            (doc_id, "Design pressure: 23.5 barg", 26))
+
+    out = datasheets.extract_facts(doc_id, allowed_document_ids=_scope(doc_id))
+    assert out["facts"] > 0, "the OCR fallback tier never fired"
+
+    facts = datasheets.list_facts(doc_id, allowed_document_ids=_scope(doc_id))
+    ocr_facts = [f for f in facts if f["extraction_method"] == "ocr_fallback"]
+    assert ocr_facts, f"no fact was attributed to the OCR tier: {facts}"
+    assert all(f["confidence"] < datasheets.LOW_CONFIDENCE_THRESHOLD for f in ocr_facts)
+    assert all(f["validation_state"] == datasheets.NEEDS_ENGINEER_REVIEW
+              for f in ocr_facts), (
+        "a low-confidence, OCR-sourced fact was accepted as confident "
+        "instead of routed to NEEDS_ENGINEER_REVIEW")
+
+
+def test_175_a_page_with_native_pairs_never_reaches_the_ocr_tier(tmp_path):
+    """The cascade STOPS at the first tier with evidence. A page the
+    text/table tier already read must not also be re-read from OCR, or a
+    confident native fact could be overwritten by a low-confidence guess."""
+    doc = _ingest(_datasheet_pdf(tmp_path / "native.pdf", ROWS), doc_id="doc_native")
+    with db.connect() as conn:
+        conn.execute(
+            """INSERT INTO page_ocr
+               (document_id, page_no, text, char_count, engine, model, dpi,
+                box_count, seconds, recognised_at, batch_no)
+               VALUES (?,1,'Poison field: 999 barg',23,'rapidocr-3.9.2',
+                       'test-model',200,1,0.1,'2026-09-23T00:00:00Z',0)""",
+            (doc,))
+
+    datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
+    facts = datasheets.list_facts(doc, allowed_document_ids=_scope(doc))
+    assert not any(f["field_label"] == "Poison field" for f in facts), (
+        "a page with native text/table evidence was also read from OCR")
+
+
+# ----------------------------------------------- vision fallback (tier 3)
+
+def test_175_vision_fallback_is_a_documented_no_op_when_unconfigured():
+    """No vision-capable provider is implemented or configured anywhere on
+    this branch (`reasoning_provider.OllamaProvider` is text-only). The tier
+    must not invent an answer - it returns nothing, honestly."""
+    assert datasheets._pairs_from_vision_fallback("/no/such/file.pdf", 1) == []
+
+
+# --------------------------------------------- confidence routing (item 2)
+
+def test_175_a_low_confidence_fact_is_routed_to_needs_engineer_review(tmp_path):
+    doc = _ingest(_datasheet_pdf(tmp_path / "d2.pdf", ROWS), doc_id="doc_conf")
+    chunk = db.connect().execute(
+        "SELECT id FROM chunks WHERE document_id = ? LIMIT 1", (doc,)).fetchone()
+
+    fact = datasheets.create_fact(
+        submittal_document_id=doc, chunk_id=chunk["id"], field_label="Guessed field",
+        raw_value="12 barg", page=1, confidence=0.3)
+    assert fact["validation_state"] == datasheets.NEEDS_ENGINEER_REVIEW
+
+
+def test_175_a_confident_fact_is_never_marked_needs_engineer_review(tmp_path):
+    """THE CONTROL. Without it `validation_state` could be hardcoded to
+    NEEDS_ENGINEER_REVIEW and the test above would still pass."""
+    doc = _ingest(_datasheet_pdf(tmp_path / "d3.pdf", ROWS), doc_id="doc_conf2")
+    chunk = db.connect().execute(
+        "SELECT id FROM chunks WHERE document_id = ? LIMIT 1", (doc,)).fetchone()
+
+    fact = datasheets.create_fact(
+        submittal_document_id=doc, chunk_id=chunk["id"], field_label="Solid field",
+        raw_value="12 barg", page=1, confidence=0.6)
+    assert fact["validation_state"] is None
+
+
+# ------------------------------------------- revision traceability (item 3)
+
+def test_175_a_fact_traces_to_the_exact_document_revision_it_came_from(tmp_path):
+    """`list_facts` names the document row's own `sha256` - the content
+    fingerprint of the exact revision this fact was read from - via the
+    existing foreign key, no new column required."""
+    doc = _ingest(_datasheet_pdf(tmp_path / "d4.pdf", ROWS), doc_id="doc_rev")
+    datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
+    facts = datasheets.list_facts(doc, allowed_document_ids=_scope(doc))
+    assert facts, "fixture produced no facts to check"
+    assert all(f["document_sha256"] == f"sha-{doc}" for f in facts)

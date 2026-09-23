@@ -4329,6 +4329,76 @@ B9_EQUIPMENT_TYPE = (
 )
 
 
+#: #175: cascaded extractor (table column-scoping, reused from the parked
+#: B58 fix, renumbered M356-M358 -> M365-M367 to avoid colliding with
+#: mutation ids already added on this branch since the two diverged), OCR
+#: fallback routing, and confidence-based NEEDS_ENGINEER_REVIEW routing.
+_B175_DATASHEET_TEST = "tests/test_datasheets.py"
+B175_CASCADE_AND_CONFIDENCE = (
+    Mutation(
+        id="M365", phase=47,
+        description="PUT B58 BACK: route ruled-table shapes through the "
+                    "bare alternating-pair splitter again",
+        path=APP / "datasheets.py",
+        anchor="            found.extend(pairs_from_table_shape([list(row) for row in shape]))",
+        replacement="            for row in shape:\n"
+                    "                found.extend(split_label_value(list(row)))",
+        target=_B175_DATASHEET_TEST,
+        keyword="a_row_labels_its_own_values or wired_into_extract_facts",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M366", phase=47,
+        description="stop carrying a spanning header cell forward, so a "
+                    "column under a merged header loses its parent name",
+        path=APP / "datasheets.py",
+        anchor="            if not out_row[i] and out_row[i - 1]:\n"
+               "                out_row[i] = out_row[i - 1]",
+        replacement="            if False:\n                out_row[i] = out_row[i - 1]",
+        target=_B175_DATASHEET_TEST, keyword="spanning_header_cell_is_carried",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M367", phase=47,
+        description="stop detecting a second header line, so its column "
+                    "names get stored as if they were data",
+        path=APP / "datasheets.py",
+        anchor="        if not row1[0]:",
+        replacement="        if False:",
+        target=_B175_DATASHEET_TEST, keyword="spanning_header_cell_is_carried",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M368", phase=47,
+        description="stop routing low-confidence facts to "
+                    "NEEDS_ENGINEER_REVIEW, so a guess is accepted as a "
+                    "confirmed fact",
+        path=APP / "datasheets.py",
+        anchor="    if validation_state is None and confidence is not None                     and confidence < LOW_CONFIDENCE_THRESHOLD:\n"
+               "        validation_state = NEEDS_ENGINEER_REVIEW",
+        replacement="    pass",
+        target=_B175_DATASHEET_TEST,
+        keyword="a_low_confidence_fact_is_routed_to_needs_engineer_review",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M369", phase=47,
+        description="let a page with native evidence ALSO be read from "
+                    "OCR, so a low-confidence guess can overwrite a "
+                    "confident native fact",
+        path=APP / "datasheets.py",
+        anchor="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
+               "        if not found:",
+        replacement="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
+                    "        if True:",
+        target=_B175_DATASHEET_TEST,
+        keyword="a_page_with_no_native_pairs_falls_back_to_its_ocr_text or "
+                "a_page_with_native_pairs_never_reaches_the_ocr_tier",
+        tags=("critical",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4344,6 +4414,7 @@ ALL: tuple[Mutation, ...] = (
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
     + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
     + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
+    + B175_CASCADE_AND_CONFIDENCE
 )
 
 

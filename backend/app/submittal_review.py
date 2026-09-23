@@ -352,6 +352,14 @@ def ensure_schema() -> None:
             # heading the CHUNK carried, which on a two-column form is another
             # column's text.
             ("section_heading", "TEXT"),
+            # #175: NULL means "no validation state recorded" (every fact
+            # written before this column existed, and every confident fact
+            # written after it). 'needs_engineer_review' means the evidence
+            # behind this fact was low-confidence (OCR or vision fallback,
+            # see datasheets.LOW_CONFIDENCE_THRESHOLD) and must not be read
+            # as a confirmed value until a human looks at it - additive and
+            # nullable, set only by datasheets.create_fact.
+            ("validation_state", "TEXT"),
         ):
             add_column_if_missing(conn, "submittal_facts", _column, _type)
         conn.execute(

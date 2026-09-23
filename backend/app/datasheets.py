@@ -897,6 +897,102 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
     return pairs
 
 
+def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
+    """Label:value pairs from one RULED table shape, respecting its columns.
+
+    CAUSE (#175 cascaded-extractor work, layout/table tier), measured against
+    a real datasheet's real ruled table (`tables.parse_page_tables` already
+    finds it correctly - the shape that comes back is byte-for-byte right,
+    header rows and all). The defect was downstream: every row, header AND
+    data, was run through `split_label_value`, which pairs a row's cells as
+    an ALTERNATING SEQUENCE (label, value, label, value, ...) - correct for
+    the "two forms side by side" TEXT-BLOCK shape it was built for, wrong for
+    "one row label, several values under several different column headers".
+    The first value paired correctly with the row label; every value after
+    that got cross-paired against its NEIGHBOUR instead of being scoped to
+    the row label - a row meaning "RADIOGRAPHY: METHODS=X, FABRICATIONS=Y,
+    CASTINGS=Z" became "RADIOGRAPHY -> X" (right) plus a spurious "Y -> Z"
+    (wrong), and the fact that Y and Z both belong to RADIOGRAPHY was lost
+    entirely. That is worse than missing data: it is two real values
+    reported as if one were the other's label.
+
+    NARROW SHAPES FALL THROUGH TO `split_label_value` UNCHANGED. A shape
+    under three columns wide has no "several values, several headers"
+    problem - it is exactly the row split_label_value was built for, and
+    this function must not touch it.
+
+    HEADER DETECTION, width >= 3 only: row 0 is always the header. A
+    header can run to a SECOND line - `TYPE OF INSPECTION | METHODS |
+    ACCEPTANCE CRITERIA | ''` then `'' | '' | FOR FABRICATIONS | FOR
+    CASTINGS` - and row 1 is recognised as that continuation by one signal:
+    ITS OWN FIRST CELL IS EMPTY. Every genuine data row in this shape needs
+    something naming it in column 0 (a row with nothing in column 0 is not
+    a fact about anything), so an empty column 0 on row 1 means row 1 is
+    still naming columns, not yet reporting a value.
+
+    CARRY-FORWARD FOR SPANNING HEADER CELLS. A header cell that names more
+    than one column beneath it - "ACCEPTANCE CRITERIA" over both
+    "FABRICATIONS" and "CASTINGS" - is written ONCE in the source table,
+    with the column(s) after it left empty. Read literally, the CASTINGS
+    column would lose that it is an acceptance-criteria column at all.
+    Carrying the last non-empty header cell rightward across the empty
+    ones it left behind restores the property a merged cell always had -
+    every column under it is still that column.
+    """
+    if not shape:
+        return []
+    width = max((len(row) for row in shape), default=0)
+    if width < 3:
+        out: list[tuple[str, str]] = []
+        for row in shape:
+            out.extend(split_label_value(list(row)))
+        return out
+
+    def _padded(row: list[str]) -> list[str]:
+        return [(c or "").strip() for c in row] + [""] * (width - len(row))
+
+    def _carry_forward(row: list[str]) -> list[str]:
+        # Column 0 is the label column and never receives a carried header.
+        out_row = list(row)
+        for i in range(2, width):
+            if not out_row[i] and out_row[i - 1]:
+                out_row[i] = out_row[i - 1]
+        return out_row
+
+    row0 = _carry_forward(_padded(shape[0]))
+    data_start = 1
+    header = row0
+    if len(shape) > 1:
+        row1 = _padded(shape[1])
+        if not row1[0]:
+            # Row 1 continues the header: merge, the more specific (lower)
+            # line naming the column, carrying its parent super-header ahead
+            # of it when the two say different things.
+            merged = []
+            for h0, h1 in zip(row0, row1):
+                if h1 and h0 and h0 != h1:
+                    merged.append(f"{h0} - {h1}")
+                else:
+                    merged.append(h1 or h0)
+            header = merged
+            data_start = 2
+
+    out = []
+    for row in shape[data_start:]:
+        cells = _padded(row)
+        label = cells[0]
+        if not label:
+            continue
+        for i in range(1, width):
+            value = cells[i]
+            if not value:
+                continue
+            col_header = header[i] if i < len(header) else ""
+            field = f"{label} - {col_header}" if col_header else label
+            out.append((field, value))
+    return out
+
+
 def pairs_from_blocks(page_text_blocks: list[tuple[float, float, str]]) -> list[tuple[str, str]]:
     """Label-value pairs from a form's TEXT BLOCKS, in reading order.
 
@@ -1020,6 +1116,7 @@ def create_fact(
     source_text: str | None = None, review_run_id: str | None = None,
     confidence: float | None = None, extraction_method: str = "extracted",
     equipment_tag: str | None = None, commit: bool = True,
+    validation_state: str | None = None,
 ) -> dict:
     """Record one fact. REFUSES a fact whose citation does not resolve.
 
@@ -1089,6 +1186,14 @@ def create_fact(
     # engineering unit to anything downstream. The spelling is still kept in
     # `raw_unit`, because the document did write it.
     unit = base_unit if claims.is_unit(base_unit or "") else None
+    # #175: LOW CONFIDENCE NEVER READS AS A CONFIDENT FACT. Whatever the
+    # caller passed for `validation_state` stands (an explicit call always
+    # wins); otherwise a fact below `LOW_CONFIDENCE_THRESHOLD` is routed to
+    # NEEDS_ENGINEER_REVIEW here, in the ONE function every fact is written
+    # through, rather than by each caller re-deciding it (CLAUDE.md rule 8 -
+    # a routing rule with two homes is a routing rule that drifts).
+    if validation_state is None and confidence is not None                     and confidence < LOW_CONFIDENCE_THRESHOLD:
+        validation_state = NEEDS_ENGINEER_REVIEW
     now = _now()
     row = {
         "id": str(uuid.uuid4()),
@@ -1119,6 +1224,7 @@ def create_fact(
         "source_text": source_text or (raw_value or ""),
         "extraction_method": extraction_method,
         "confidence": confidence,
+        "validation_state": validation_state,
         "created_at": now,
         "updated_at": now,
     }
@@ -1130,14 +1236,14 @@ def create_fact(
             normalized_value, normalized_unit, unit, is_blank,
             blank_marker, page, section, source_text, extraction_method,
             confidence, created_at, updated_at, unit_reference,
-            value_min, value_max, equipment_tag)
+            value_min, value_max, equipment_tag, validation_state)
            VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
                    :field_name, :field_label, :field_value, :raw_value,
                    :raw_unit, :normalized_value, :normalized_unit, :unit,
                    :is_blank, :blank_marker, :page, :section, :source_text,
                    :extraction_method, :confidence, :created_at,
                    :updated_at, :unit_reference, :value_min, :value_max,
-                   :equipment_tag)""")
+                   :equipment_tag, :validation_state)""")
     if commit:
         with conn:
             conn.execute(insert, row)
@@ -1223,6 +1329,88 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
         return []  # the FILE; named by pdf_condition, not guessed at here
     except Exception:  # noqa: BLE001 - a failure inside one page of a readable file
         return []
+
+
+#: #175: the confidence written for a fact recovered only by the OCR (or
+#: vision) fallback tier - below `LOW_CONFIDENCE_THRESHOLD`, so `create_fact`
+#: routes it to NEEDS_ENGINEER_REVIEW rather than accepting it as confident.
+#: Text/table-tier facts keep the pre-existing 0.6 unchanged.
+OCR_FALLBACK_CONFIDENCE = 0.35
+
+#: #175: a fact at or above this confidence is accepted; below it, it is
+#: evidence a human has not yet confirmed. One threshold, read by
+#: `create_fact` only, so "what counts as low confidence" has one home.
+LOW_CONFIDENCE_THRESHOLD = 0.5
+
+#: The `submittal_facts.validation_state` value a low-confidence fact is
+#: written with. Never silently promoted to a confident fact - CLAUDE.md's
+#: honesty invariants: "a guess is shown as a guess until a human confirms
+#: it".
+NEEDS_ENGINEER_REVIEW = "needs_engineer_review"
+
+
+def _pairs_from_ocr_fallback(document_id: str, page_no: int) -> list[tuple[str, str]]:
+    """Label:value pairs from a page's OCR'd text, when nothing else read it.
+
+    #175, cascade tier 2. `ocr.py` (step 2b) already recognises scanned pages
+    into `page_ocr` in the background, independently of fact extraction; this
+    is the first caller that READS that table. Only reached when the
+    text/table tier (native PDF text and `pairs_from_table_shape`) found
+    NOTHING on this page - a page with real native text is never sent here,
+    so this cannot override or compete with the primary tier's own pairing
+    logic.
+
+    OCR text carries no column geometry - `pairs_from_blocks`' reading-order
+    logic needs the (y, x) position of each block, which recognition does not
+    produce. This reads exactly the one shape OCR text still states
+    unambiguously: a line written "LABEL: VALUE". A page whose OCR text has no
+    such line yields nothing, honestly - it is not this function's job to
+    guess a pairing a colon does not mark.
+
+    Facts recovered here are marked low-confidence by the caller
+    (`extract_facts`), which is what routes them to NEEDS_ENGINEER_REVIEW
+    instead of being accepted as confident.
+    """
+    row = connect().execute(
+        "SELECT text FROM page_ocr WHERE document_id = ? AND page_no = ?"
+        " AND char_count > 0",
+        (document_id, page_no)).fetchone()
+    if row is None or not row["text"]:
+        return []
+    pairs: list[tuple[str, str]] = []
+    for line in row["text"].splitlines():
+        line = line.strip()
+        if ":" not in line:
+            continue
+        label, _, value = line.partition(":")
+        label, value = label.strip(), value.strip()
+        if label and value and is_field_label(label):
+            pairs.append((label, value))
+    return pairs
+
+
+def _pairs_from_vision_fallback(stored_path: str, page_no: int) -> list[tuple[str, str]]:
+    """Label:value pairs from a vision-model reading of one page's image.
+
+    #175, cascade tier 3 - OPTIONAL and CLEARLY GATED. This is deliberately a
+    thin hook, not new model-serving code: `reasoning_provider.py` (B54)
+    defines exactly one provider that can actually make a model call today,
+    `OllamaProvider`, and it is a TEXT interface - no vision-capable provider
+    is implemented or configured anywhere on this branch (`ClaudeProvider` is
+    still the documented future adapter its own module describes, gated
+    behind `settings.standards_reader_enabled` and
+    `settings.standards_reader_allow_public_egress`, neither of which stands
+    up a vision path). Building a new vision integration here would be
+    exactly the "not a rebuild of the earlier vision experiments" scope this
+    issue explicitly rules out.
+
+    So: this tier is a DOCUMENTED NO-OP whenever no vision-capable provider
+    is configured, which is every environment this system ships to today.
+    The moment a real vision provider exists behind its own explicit flag,
+    this is the one function that needs to change to call it - a single,
+    obvious home for that future decision, not a rewrite of `extract_facts`.
+    """
+    return []
 
 
 def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
@@ -1331,12 +1519,38 @@ def extract_facts(
     # a time: a label is a header precisely when it turns up on page after
     # page, which the first page cannot know.
     pairs_by_page: dict[int, list[tuple[str, str]]] = {}
+    # #175 CASCADE: native text/table extraction is tried first (below); a
+    # page that yields NOTHING from that tier falls through to OCR text
+    # already sitting in `page_ocr` (step 2b, `ocr.py`) when it exists, and
+    # facts recovered that way are marked low-confidence (see
+    # `_LOW_CONFIDENCE_PAGES` and the write loop's confidence assignment
+    # further down). A page resolved by the first tier never reaches the
+    # second - the cascade stops at the first tier that produces evidence.
+    low_confidence_pages: set[int] = set()
     for page in sorted(by_page):
         found: list[tuple[str, str]] = []
         for shape in tables.parse_page_tables(stored_path, page):
-            for row in shape:
-                found.extend(split_label_value(list(row)))
+            # #175 / parked B58: a ruled shape's rows are column-scoped, not
+            # an alternating label/value sequence - see
+            # pairs_from_table_shape's docstring for the measured cause.
+            # Shapes under three columns wide fall through to
+            # split_label_value unchanged inside that function.
+            found.extend(pairs_from_table_shape([list(row) for row in shape]))
         found.extend(_pairs_from_pdf_page(stored_path, page))
+        if not found:
+            ocr_found = _pairs_from_ocr_fallback(document_id, page)
+            if ocr_found:
+                found = ocr_found
+                low_confidence_pages.add(page)
+            else:
+                # Tier 3: vision-model fallback. Thin, gated hook - see
+                # `_pairs_from_vision_fallback` docstring. A documented
+                # no-op whenever no vision-capable provider is configured,
+                # which is every environment this branch ships to today.
+                vision_found = _pairs_from_vision_fallback(stored_path, page)
+                if vision_found:
+                    found = vision_found
+                    low_confidence_pages.add(page)
         # SPLIT BEFORE THE FURNITURE COUNT, so a repeated compound row is
         # counted as the two fields it becomes rather than as one label that
         # exists nowhere in the output.
@@ -1444,12 +1658,25 @@ def extract_facts(
                     dropped["furniture"] = dropped.get("furniture", 0) + 1
                     continue
                 try:
+                    # #175: a page resolved only by the OCR (or vision) tier
+                    # of the cascade is evidence of a lower grade than native
+                    # text/table extraction - the source text was recognised,
+                    # not read - so it is written at a confidence below
+                    # `LOW_CONFIDENCE_THRESHOLD` and `create_fact` routes it
+                    # to `NEEDS_ENGINEER_REVIEW` rather than accepting it as
+                    # a confident fact. See create_fact's validation_state.
+                    fact_confidence = (
+                        OCR_FALLBACK_CONFIDENCE if page in low_confidence_pages
+                        else 0.6)
                     create_fact(
                         submittal_document_id=document_id, chunk_id=chunk["id"],
                         field_label=label.strip(), raw_value=value, page=page,
                         section=section_heading(chunk["section"]),
                         review_run_id=review_run_id,
-                        confidence=0.6,
+                        confidence=fact_confidence,
+                        extraction_method=(
+                            "ocr_fallback" if page in low_confidence_pages
+                            else "extracted"),
                         equipment_tag=tags.get(page),
                         commit=False,
                     )
@@ -1487,11 +1714,27 @@ def extract_facts(
 
 def list_facts(document_id: str, *, allowed_document_ids: frozenset[str],
                blanks_only: bool = False) -> list[dict]:
-    """One datasheet's facts, under the caller's grants, joined to their chunk."""
+    """One datasheet's facts, under the caller's grants, joined to their chunk.
+
+    #175 REVISION-VERSIONING: `f.submittal_document_id` is a foreign key to
+    `documents.id`, and a `documents` row is never edited in place - a
+    changed revision is a NEW row with its own id and its own `sha256`
+    (Part 2's finding: today that new row has no automatic link back to the
+    old one, which is a separate, larger gap this issue does not reopen).
+    What that DOES already give for free is exactly what this issue asks
+    for: every fact this function returns is traceable to the *exact*
+    document revision it was read from, because it can only ever have come
+    from the one immutable, content-addressed row named by
+    `document_sha256` below. No new column on `submittal_facts` was needed
+    for that - the existing foreign key already carries it, one join away.
+    """
     submittal_review.ensure_schema()
     where, args = _scope_clause(allowed_document_ids, "f.submittal_document_id")
-    sql = ("SELECT f.*, c.page_start AS chunk_page FROM submittal_facts f"
-           " LEFT JOIN chunks c ON c.id = f.chunk_id" + where +
+    sql = ("SELECT f.*, c.page_start AS chunk_page,"
+           " d.sha256 AS document_sha256, d.filename AS document_filename"
+           " FROM submittal_facts f"
+           " LEFT JOIN chunks c ON c.id = f.chunk_id"
+           " JOIN documents d ON d.id = f.submittal_document_id" + where +
            " AND f.submittal_document_id = ?")
     params = [*args, document_id]
     if blanks_only:
