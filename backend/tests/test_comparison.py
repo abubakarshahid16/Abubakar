@@ -508,6 +508,134 @@ def test_a_statement_that_met_a_blank_field_is_still_the_contractors_to_fill(tmp
     assert verdict["status"] == comparison.MISSING_INFORMATION
 
 
+def test_required_evidence_type_of_a_certificate_is_not_in_document_scope():
+    """Issue #163, criterion 4. A numeric_limit clause that ALSO names its own
+    evidence ("... confirmed by a calibration certificate to within 0.5%")
+    must not be answered from the datasheet just because a field happens to
+    carry a matching name and a passing value - the certificate is a
+    different document than the one under review."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL")
+    sc = _chunk("sc", std); fc = _chunk("fc", sub)
+    requirement = _requirement(std, sc, required_evidence_type="certificate")
+    # A VALUE THAT WOULD OTHERWISE READ COMPLIANT. Proves the gate fires
+    # before the arithmetic, not merely on an absent fact.
+    fact = _fact(sub, fc, raw_value="85")
+
+    verdict = comparison.compare(requirement, fact)
+
+    assert verdict["status"] == comparison.NOT_IN_DOCUMENT_SCOPE
+    assert verdict["status"] not in (comparison.COMPLIANT, comparison.NON_COMPLIANT)
+    assert comparison.REQUIRES_OTHER_DOCUMENT in verdict["rationale"]
+
+
+def test_required_evidence_type_of_a_certificate_with_no_fact_is_not_missing_information():
+    """The other half of criterion 4: 'never contractor-missing information'.
+    Before this a requirement demanding a certificate, with no field to pair
+    it against at all, fell through to MISSING_INFORMATION - the wrong-
+    document case must read the same whether or not a field name happened to
+    match."""
+    verdict = comparison.compare(
+        _requirement("std", "c1", required_evidence_type="certificate"), None)
+    assert verdict["status"] == comparison.NOT_IN_DOCUMENT_SCOPE
+    assert verdict["status"] != comparison.MISSING_INFORMATION
+
+
+def test_required_evidence_type_of_a_data_sheet_is_unaffected():
+    """CONTROL. `data_sheet` is the one evidence type this engine actually
+    reads, so a requirement naming it must still be compared normally rather
+    than being swept into NOT_IN_DOCUMENT_SCOPE by the new gate."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL")
+    sc = _chunk("sc", std); fc = _chunk("fc", sub)
+    requirement = _requirement(std, sc, required_evidence_type="data_sheet")
+    fact = _fact(sub, fc, raw_value="85")
+
+    verdict = comparison.compare(requirement, fact)
+
+    assert verdict["status"] == comparison.COMPLIANT
+
+
+def test_a_requirement_naming_other_evidence_never_reaches_compliant_end_to_end():
+    """The full pipeline: containment pairs the field by name, and the
+    evidence-type gate must still keep the run from emitting a verdict this
+    submittal has no standing to answer."""
+    std = _doc("std", "SAES-X.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "psv.pdf", "CONTRACTOR_SUBMITTAL")
+    sc = _chunk("sc", std); fc = _chunk("fc", sub)
+    run = _run(sub)
+    with db.connect() as conn:
+        conn.execute("""INSERT INTO review_applicable_standards
+            (id,review_run_id,standard_document_id,selection_method,included,
+             created_at) VALUES (?,?,?,'rule',1,?)""",
+            (str(uuid.uuid4()), run, std, "2026-09-18T00:00:00Z"))
+    standards.create_requirement(
+        standard_document_id=std, chunk_id=sc, clause="7.1", page=1,
+        requirement_text=(
+            "The vendor shall submit a calibration certificate confirming "
+            "accuracy within 0.5 pct."),
+        source_text=(
+            "The vendor shall submit a calibration certificate confirming "
+            "accuracy within 0.5 pct."),
+        structured={
+            "requirement_type": "numeric_limit", "operator": "<=",
+            "value": 0.5, "unit": "pct", "raw_value": "0.5", "raw_unit": "pct",
+            "field": "accuracy", "subject": "accuracy",
+            "required_evidence_type": "certificate",
+        })
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Accuracy",
+        raw_value="0.3 pct", page=1)
+
+    result = comparison.run_comparison(run, allowed_document_ids=_scope(std, sub))
+
+    assert result["by_status"][comparison.COMPLIANT] == 0
+    assert result["by_status"][comparison.NON_COMPLIANT] == 0
+    assert result["by_status"][comparison.NOT_IN_DOCUMENT_SCOPE] == 1
+    finding = result["findings"][0]
+    assert finding["compliance_status"] == comparison.NOT_IN_DOCUMENT_SCOPE
+    assert comparison.REQUIRES_OTHER_DOCUMENT in finding["ai_rationale"]
+
+
+def test_an_excluded_standards_requirements_produce_no_findings_at_all():
+    """Issue #163, criterion 2's applicability leg. `run_comparison` reads its
+    requirement list only from standards `list_applicable_standards` returns
+    with `include_excluded=False` (applicability.py's own decision, not
+    re-decided here) - a requirement from a standard ruled OUT does not reach
+    `compare` at all, so it can never be quoted as COMPLIANT/NON_COMPLIANT
+    against a submittal the standard does not even govern."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL")
+    sc = _chunk("sc", std); fc = _chunk("fc", sub)
+    run = _run(sub)
+    with db.connect() as conn:
+        conn.execute("""INSERT INTO review_applicable_standards
+            (id,review_run_id,standard_document_id,selection_method,
+             confidence,included,exclusion_reason,created_at)
+            VALUES (?,?,?,'rule',0.4,0,'different service class',?)""",
+            (str(uuid.uuid4()), run, std, "2026-09-18T00:00:00Z"))
+    standards.create_requirement(
+        standard_document_id=std, chunk_id=sc, clause="5.3.3", page=1,
+        requirement_text="The noise level shall not exceed 90 dB(A).",
+        source_text="The noise level shall not exceed 90 dB(A).",
+        structured={
+            "requirement_type": "numeric_limit", "operator": "<=",
+            "value": 90, "unit": "dB(A)", "raw_value": "90",
+            "raw_unit": "dB(A)", "field": "noise level",
+            "subject": "the noise level"})
+    # A VALUE THAT WOULD OTHERWISE BREACH THE LIMIT, so the test stands where
+    # skipping the standard can fail: silence here could mean "nothing to
+    # find" rather than "correctly excluded".
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Noise level",
+        raw_value="95 dB(A)", page=1)
+
+    result = comparison.run_comparison(run, allowed_document_ids=_scope(std, sub))
+
+    assert result["requirements_evaluated"] == 0
+    assert result["findings"] == []
+
+
 def test_out_of_scope_findings_never_approve_a_submittal():
     """NORTH-STAR 2.2. Moved out of the missing count, an out-of-scope-only
     run used to fall through to "every evaluated requirement is met"."""

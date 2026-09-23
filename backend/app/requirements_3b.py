@@ -795,6 +795,14 @@ def field_name(sentence: str, header: str | None = None) -> str | None:
     return None
 
 
+#: THE ONE `required_evidence_type` VALUE THAT NAMES WHAT THIS ENGINE ACTUALLY
+#: READS. Issue #163: a requirement whose own sentence demands a DIFFERENT
+#: document ("submit a calibration certificate") is not answerable from a
+#: datasheet no matter how well a field name happens to match its subject -
+#: comparison.compare() reads this constant, not the literal, so the
+#: vocabulary stays defined in one place.
+DATA_SHEET_EVIDENCE = "data_sheet"
+
 #: A verb that puts an obligation on producing a DOCUMENT, not on a physical
 #: property of the equipment. "shall submit a calibration certificate" names
 #: evidence to hand over; "shall not exceed 90 dB(A)" does not, and must not
@@ -814,8 +822,8 @@ _EVIDENCE_NOUNS: tuple[tuple[str, str], ...] = (
     ("mill test certificate", "certificate"),
     ("certificate", "certificate"),
     ("certification", "certificate"),
-    ("data sheet", "data_sheet"),
-    ("datasheet", "data_sheet"),
+    ("data sheet", DATA_SHEET_EVIDENCE),
+    ("datasheet", DATA_SHEET_EVIDENCE),
     ("vendor drawing", "drawing"),
     ("shop drawing", "drawing"),
     ("as-built drawing", "drawing"),

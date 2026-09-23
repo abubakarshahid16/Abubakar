@@ -4456,6 +4456,57 @@ B175_CASCADE_AND_CONFIDENCE = (
 )
 
 
+B163_EVIDENCE_TYPE_GATE = (
+    Mutation(
+        id="M374", phase=48,
+        description="drop the evidence-type gate: a numeric_limit clause "
+                    "that names its own evidence (a certificate, a drawing) "
+                    "reaches the arithmetic again and can be paired to an "
+                    "unrelated datasheet field and read COMPLIANT/"
+                    "NON_COMPLIANT for a document that was never reviewed",
+        path=APP / "comparison.py",
+        anchor="    required_evidence = requirement.get(\"required_evidence_type\")\n"
+               "    if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:",
+        replacement="    required_evidence = requirement.get(\"required_evidence_type\")\n"
+                    "    if False:",
+        target="tests/test_comparison.py",
+        keyword="required_evidence_type_of_a_certificate_is_not_in_document_scope",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M375", phase=48,
+        description="a requirement naming other evidence with NO paired "
+                    "fact falls back to MISSING_INFORMATION - the wrong-"
+                    "document case is misread as the contractor's omission",
+        path=APP / "comparison.py",
+        anchor="    required_evidence = requirement.get(\"required_evidence_type\")\n"
+               "    if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:",
+        replacement="    required_evidence = requirement.get(\"required_evidence_type\")\n"
+                    "    if False:",
+        target="tests/test_comparison.py",
+        keyword="required_evidence_type_of_a_certificate_with_no_fact_is_not_missing_information",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M376", phase=48,
+        description="run_comparison stops filtering out excluded standards, "
+                    "so a requirement from a standard ruled inapplicable is "
+                    "evaluated and can be reported COMPLIANT/NON_COMPLIANT "
+                    "against a submittal it does not govern",
+        path=APP / "comparison.py",
+        anchor="    applicable = submittal_review.list_applicable_standards(\n"
+               "        review_run_id, allowed_document_ids=allowed_document_ids,\n"
+               "        include_excluded=False)",
+        replacement="    applicable = submittal_review.list_applicable_standards(\n"
+                    "        review_run_id, allowed_document_ids=allowed_document_ids,\n"
+                    "        include_excluded=True)",
+        target="tests/test_comparison.py",
+        keyword="an_excluded_standards_requirements_produce_no_findings_at_all",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4471,7 +4522,7 @@ ALL: tuple[Mutation, ...] = (
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
     + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
     + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
-    + B175_CASCADE_AND_CONFIDENCE
+    + B175_CASCADE_AND_CONFIDENCE + B163_EVIDENCE_TYPE_GATE
 )
 
 

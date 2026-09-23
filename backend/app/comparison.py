@@ -70,6 +70,16 @@ NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
 #: answerable from this submittal type".
 NOT_IN_DOCUMENT_SCOPE = "NOT_IN_DOCUMENT_SCOPE"
 
+#: Machine-readable detail on a `NOT_IN_DOCUMENT_SCOPE` verdict: this specific
+#: requirement names its own evidence (issue #163, criterion 4) - "submit a
+#: calibration certificate" - and that document is not the one under review.
+#: Embedded in `rationale` as a leading token, the same convention
+#: `TABLE_ROW_REASON`/`RELATIVE_LIMIT_REASON` already use, so a caller that
+#: greps the rationale (or a future column) can tell "not in scope because no
+#: field named this" apart from "not in scope because the wrong DOCUMENT would
+#: have to answer it".
+REQUIRES_OTHER_DOCUMENT = "requires_other_document"
+
 #: Statuses that block approval. `MISSING_INFORMATION` is deliberately NOT
 #: here: a field nobody filled in is a question, not a failure, and it steers
 #: the code through completeness rather than by masquerading as a breach.
@@ -265,6 +275,9 @@ def compare(requirement: dict, fact: dict | None, *,
     The order of the checks is the policy, and each one refuses to fall through
     into a stronger claim than the evidence supports:
 
+      0. the requirement names its own evidence (a certificate, a drawing, ...)
+         and it is not the datasheet this engine reads
+                                  -> NOT_IN_DOCUMENT_SCOPE (#163)
       1. no fact at all           -> MISSING_INFORMATION (never a failure)
       2. the fact is blank        -> MISSING_INFORMATION (never a failure)
       3. the requirement's CONDITION is not established
@@ -282,6 +295,39 @@ def compare(requirement: dict, fact: dict | None, *,
     is the same discipline `keyword.search` applies to `allowed_document_ids`:
     the unsafe default is not available.
     """
+    # ISSUE #163, CRITERION 2 & 4 - BEFORE EVERY OTHER BRANCH, INCLUDING THE
+    # ABSENT-FACT ONE AND THE TABLE-ROW ONE BELOW.
+    #
+    # `required_evidence_type` is set only when the requirement's OWN
+    # SENTENCE names a document to hand over - "submit a calibration
+    # certificate", "furnish vendor drawings" - via
+    # `requirements_3b.required_evidence_type`. It has been extracted and
+    # stored on every `standard_requirements` row since #162 and read by
+    # nothing here: a numeric_limit clause that also demands a certificate
+    # ("... confirmed by a calibration certificate to within 0.5%") could be
+    # paired by field-name containment to an unrelated datasheet value and
+    # compared as arithmetic, emitting a COMPLIANT/NON_COMPLIANT verdict this
+    # engine has no evidence for - the datasheet is not the certificate the
+    # clause asked for. Everything this pipeline reads comes from the
+    # submittal's DATASHEET extraction (`datasheets.py`), so
+    # `DATA_SHEET_EVIDENCE` is the one value that names what is actually being
+    # compared; any other named document routes to `NOT_IN_DOCUMENT_SCOPE`
+    # exactly as B9 already routes a `statement` with no matching field -
+    # this is the same claim ("this submittal type cannot answer it") for a
+    # requirement that says so explicitly rather than by shape.
+    required_evidence = requirement.get("required_evidence_type")
+    if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:
+        return {
+            "status": NOT_IN_DOCUMENT_SCOPE,
+            "rationale": (
+                f"{REQUIRES_OTHER_DOCUMENT}: this requirement names its own "
+                f"evidence - a {required_evidence.replace('_', ' ')} - which is "
+                f"a different document from the one under review; it has to "
+                f"be checked against that document, not against this "
+                f"submittal's datasheet"),
+            "limit": None, "observed": None, "exception_applied": None,
+        }
+
     # BEFORE ANY OTHER BRANCH, INCLUDING THE ABSENT-FACT ONE. A table row is
     # not a limit whether or not a value was submitted against it, and a
     # reviewer needs to see the row rather than a verdict about it.
@@ -342,9 +388,9 @@ def compare(requirement: dict, fact: dict | None, *,
             return {
                 "status": NOT_IN_DOCUMENT_SCOPE,
                 "rationale": (
-                    "this requirement states no field or value a submittal "
-                    "of this type could answer; it has to be checked in the "
-                    "document that governs it"),
+                    f"{REQUIRES_OTHER_DOCUMENT}: this requirement states no "
+                    f"field or value a submittal of this type could answer; "
+                    f"it has to be checked in the document that governs it"),
                 "limit": None, "observed": None, "exception_applied": None,
             }
         return {
