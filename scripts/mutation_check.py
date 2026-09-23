@@ -4240,6 +4240,95 @@ INGEST_FACT_WIRING = (
 )
 
 
+#: B9: automated, evidence-based `equipment_type` for CONTRACTOR_SUBMITTAL,
+#: wired into the same ingestion-completion point as B19's fact extraction.
+_EQUIPMENT_TYPE_TEST = "tests/test_equipment_type_classification.py"
+B9_EQUIPMENT_TYPE = (
+    Mutation(
+        id="M359", phase=46,
+        description="PUT THE WIRING BACK: drop the ingestion-side call, so a "
+                    "submittal that only ever gets uploaded never gets an "
+                    "equipment_type",
+        path=APP / "ingest.py",
+        anchor="            _extract_facts_if_contractor_submittal(doc_id)\n"
+               "            _classify_equipment_type_if_contractor_submittal(doc_id)",
+        replacement="            _extract_facts_if_contractor_submittal(doc_id)",
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_a_pump_datasheet_is_classified_as_a_pump_not_a_vessel"
+                " or test_a_psv_datasheet_is_classified_as_a_valve_not_a_pump",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M360", phase=46,
+        description="drop the CONTRACTOR_SUBMITTAL role gate, so a "
+                    "COMPANY_STANDARD (and an unclassified document) gets an "
+                    "equipment_type guessed for it too",
+        path=APP / "classification.py",
+        anchor='    if existing is None or existing["document_role"] != "CONTRACTOR_SUBMITTAL":\n'
+               '        return None',
+        replacement='    if existing is None or False:\n        return None',
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_a_company_standard_never_gets_equipment_type_set"
+                " or test_an_unclassified_document_gets_no_equipment_type",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M361", phase=46,
+        description="drop the confirmed-classification guard, so the "
+                    "automated classifier overwrites an administrator's own "
+                    "confirmed equipment_type",
+        path=APP / "classification.py",
+        anchor='    if existing["confirmed_by"] is not None:\n        return None',
+        replacement='    if False:\n        return None',
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_a_confirmed_classification_is_not_overwritten_by_the_classifier",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M362", phase=46,
+        description="drop the 'nothing matched' guard, so a document with no "
+                    "real evidence is no longer left NULL",
+        path=APP / "classification.py",
+        anchor="    evidence = suggest_equipment_type(chunks)\n"
+               "    if evidence is None:\n        return None",
+        replacement="    evidence = suggest_equipment_type(chunks)\n"
+                    "    if False:\n        return None",
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_a_document_with_no_evidence_stays_unclassified",
+        tags=("critical", "honesty"),
+    ),
+    Mutation(
+        id="M363", phase=46,
+        description="audit every first-time classification too (drop the "
+                    "'old_value is not None' guard), so a reclassification's "
+                    "audit trail is no longer distinguishable from an "
+                    "ordinary first ingest",
+        path=APP / "classification.py",
+        anchor="    if old_value is not None and evidence.equipment_type != old_value:",
+        replacement="    if evidence.equipment_type != old_value:",
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_reclassification_is_versioned_not_silently_overwritten",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M364", phase=46,
+        description="drop the reclassification audit call entirely, so a "
+                    "changed equipment_type silently loses its old value "
+                    "with no trace",
+        path=APP / "classification.py",
+        anchor="    if old_value is not None and evidence.equipment_type != old_value:\n"
+               "        _audit_equipment_type_change(\n"
+               "            document_id, old_value=old_value, evidence=evidence,\n"
+               "            classified_by=classified_by)\n"
+               "    return evidence",
+        replacement="    return evidence",
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_reclassification_is_versioned_not_silently_overwritten",
+        tags=("critical",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4254,7 +4343,7 @@ ALL: tuple[Mutation, ...] = (
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
     + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
-    + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING
+    + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
 )
 
 

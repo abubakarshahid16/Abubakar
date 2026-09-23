@@ -554,6 +554,14 @@ CREATE TABLE IF NOT EXISTS document_classification (
     project            TEXT,
     contractor_vendor  TEXT,
     equipment_type     TEXT,
+    -- A JSON OBJECT as TEXT, the same "acceptable because nothing joins on
+    -- it" reasoning as `equipment_tags` below. Holds what B9's automated
+    -- classifier (`classification.classify_equipment_type_for_submittal`)
+    -- matched `equipment_type` on: page, exact quote, method, confidence,
+    -- classifier version. NULL when `equipment_type` was set by an admin
+    -- through `confirm()` instead - a human's decision carries no classifier
+    -- evidence to record.
+    equipment_type_evidence TEXT,
     -- A JSON array as TEXT. Acceptable here because it is a flat list of tags
     -- nothing joins on, filters by, or audits. The applicable-standards
     -- relation is a TABLE for exactly the opposite reason.
@@ -761,6 +769,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
             # Phase 8's overlay, added where every other column of this table
             # is migrated. `disciplines.backfill` fills it for old rows.
             "discipline_canonical",
+            # B9's automated equipment-type classifier. Additive and nullable,
+            # like every column in this loop: an existing row keeps its
+            # `equipment_type` untouched and gains NULL evidence until the
+            # classifier next runs over it.
+            "equipment_type_evidence",
         ):
             if _column not in classification_cols:
                 conn.execute(

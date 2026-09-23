@@ -652,6 +652,7 @@ class IngestionWorker:
                 )
             _queue_extraction_if_standard(doc_id)
             _extract_facts_if_contractor_submittal(doc_id)
+            _classify_equipment_type_if_contractor_submittal(doc_id)
 
 
 def _queue_extraction_if_standard(document_id: str) -> None:
@@ -752,6 +753,45 @@ def _extract_facts_if_contractor_submittal(document_id: str) -> None:
                 "INSERT INTO jobs (id, document_id, stage, state, error_code,"
                 " error_message, started_at, updated_at)"
                 " VALUES (?, ?, 'extract_facts', 'failed', ?, ?, ?, ?)",
+                (job_id, document_id, safe["code"], safe["message"], now, now))
+
+
+def _classify_equipment_type_if_contractor_submittal(document_id: str) -> None:
+    """B9: infer `equipment_type` for a submittal from its OWN TEXT, once READY.
+
+    THE SAME HOOK SHAPE AS `_extract_facts_if_contractor_submittal` immediately
+    above, for the same reason: both `main.upload_document` and
+    `watcher.FolderWatcher._handle` funnel into this one worker, so wiring the
+    call in exactly once here covers upload and the watched folder together.
+
+    Reads chunks ALREADY ON DISK - the same text `_extract_facts_if_
+    contractor_submittal` and this document's own search results use - rather
+    than re-opening the PDF. `classification.classify_equipment_type_for_
+    submittal` does its own CONTRACTOR_SUBMITTAL gate (a document with no role
+    yet, or COMPANY_STANDARD, is left alone) and its own "nothing matched,
+    leave it NULL" guard, so this wrapper's only job is to run it once per
+    landing on READY and to record - never raise on - a failure.
+
+    ERRORS ARE RECORDED, NOT SILENTLY DROPPED, the same visible `jobs` row
+    mechanism `_extract_facts_if_contractor_submittal` uses for its own stage.
+    The document is left READY: a classification failure must not un-ingest a
+    document that indexed and embedded correctly.
+    """
+    from . import classification
+    try:
+        classification.classify_equipment_type_for_submittal(document_id)
+    except Exception as exc:  # noqa: BLE001 - recorded below, never re-raised
+        safe = errors.record_failure(
+            exc, document_id=document_id, stage="equipment_type_classify")
+        import uuid as _uuid
+        job_id = f"job_{_uuid.uuid4().hex[:12]}"
+        now = _now()
+        conn = connect()
+        with conn:
+            conn.execute(
+                "INSERT INTO jobs (id, document_id, stage, state, error_code,"
+                " error_message, started_at, updated_at)"
+                " VALUES (?, ?, 'equipment_type_classify', 'failed', ?, ?, ?, ?)",
                 (job_id, document_id, safe["code"], safe["message"], now, now))
 
 
