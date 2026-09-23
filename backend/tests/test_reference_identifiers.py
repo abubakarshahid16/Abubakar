@@ -75,6 +75,26 @@ def test_an_incomplete_asme_reference_is_not_a_citation(text):
     assert [f for f in referenced_standards(text) if f.upper().startswith("ASME")] == []
 
 
+@pytest.mark.parametrize("text,expected", [
+    # KOC standard numbers use BOTH one-letter and two-letter discipline
+    # codes (M-03's own reference list, page 7: KOC-ME-008 Pt1/Pt2 are
+    # two-letter "mechanical equipment"; KOC-E-003, KOC-E-004, KOC-E-010,
+    # KOC-E-020 are one-letter "electrical"; KOC-P-001 is one-letter
+    # "painting"). The pattern required exactly two letters, so a real
+    # submittal's electrical and painting standard citations were silently
+    # dropped - never reported applicable, and never reported missing
+    # either, because the extractor never saw them as citations at all.
+    ("per KOC-E-003 and KOC-E-004", ["KOC-E-003", "KOC-E-004"]),
+    ("per KOC-E-010 and KOC-E-020", ["KOC-E-010", "KOC-E-020"]),
+    ("painting per KOC-P-001", ["KOC-P-001"]),
+    ("per KOC-G-004 and KOC-I-002 and KOC-Q-014", ["KOC-G-004", "KOC-I-002", "KOC-Q-014"]),
+    # Two-letter discipline codes must keep working unchanged.
+    ("per KOC-ME-008 Pt1 and KOC-MP-027", ["KOC-ME-008 Pt1", "KOC-MP-027"]),
+])
+def test_koc_one_and_two_letter_discipline_codes_are_both_read(text, expected):
+    assert referenced_standards(text) == expected
+
+
 def test_a_bare_two_digit_saes_is_not_a_citation():
     """NOT in the citation pattern, on purpose.
 

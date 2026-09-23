@@ -73,7 +73,14 @@ _PLACEHOLDER = re.compile(r"^[\s_\-*.·–—]{2,}$")
 _REFERENCED_STANDARD = re.compile(
     r"\b("
     r"API\s*(?:RP\s*)?\d{3}(?:\s*Pt[-\s]?\d)?"
-    r"|KOC-[A-Z]{2}-\d{3}(?:\s*Pt[-\s]?\d)?"
+    # KOC discipline codes are ONE letter (E electrical, G general, I
+    # instrumentation, P painting, Q quality...) or TWO (ME mechanical
+    # equipment, MP mechanical piping...) depending on the discipline, not a
+    # fixed width - a real KOC datasheet's own reference list names both in
+    # the same document. `{1,2}` reads either; a fixed `{2}` silently dropped
+    # every one-letter citation (KOC-E-003, KOC-P-001, ...) as invisible to
+    # the citation pattern, never applicable and never reported missing.
+    r"|KOC-[A-Z]{1,2}-\d{3}(?:\s*Pt[-\s]?\d)?"
     r"|NACE\s*MR[-\s]?\d{4}"
     r"|ISO\s*\d{4,5}"
     # ASME ONLY WITH A COMPLETE IDENTIFIER. The previous alternative was

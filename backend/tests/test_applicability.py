@@ -93,6 +93,25 @@ def test_a_standard_named_in_the_datasheet_is_selected_as_referenced():
     assert "API 610" not in missing
 
 
+def test_a_one_letter_koc_discipline_code_is_read_as_a_citation():
+    """#161: a real KOC pump datasheet's reference list names standards under
+    BOTH one-letter (KOC-E-003, electrical) and two-letter (KOC-ME-008,
+    mechanical equipment) discipline codes in the same document. Before the
+    fix, `referenced_standards` required exactly two letters, so the
+    one-letter citations were invisible end to end - not selected as
+    referenced, and not reported missing either, because `select()` never
+    knew the submittal had cited them at all.
+    """
+    sub = _doc("sub", "pump.pdf", "CONTRACTOR_SUBMITTAL",
+               text="Equipment shall comply with KOC-E-003 and KOC-ME-008.")
+    result = applicability.select(sub, allowed_document_ids=_scope(sub),
+                                  persist=False)
+    assert result["referenced_total"] == 2
+    missing = {m["identifier"] for m in result["missing_references"]}
+    assert "KOC-E-003" in missing
+    assert "KOC-ME-008" in missing
+
+
 def test_a_citation_of_a_part_matches_the_standard():
     """"API RP 520 Pt-1" cites API RP 520."""
     std = _doc("std_520", "API-RP-520.pdf", "COMPANY_STANDARD",
