@@ -200,6 +200,14 @@ def ensure_schema() -> None:
             # comparable yet. So they live here, where a human can read them
             # and no join can consume them.
             ("subject", "TEXT"),
+            # WHAT DOCUMENT SATISFIES THIS CLAUSE, in a fixed vocabulary
+            # ("certificate", "drawing", "data_sheet", "calculation",
+            # "report", "procedure", "record", "plan"), populated only when
+            # `requirements_3b.required_evidence_type` found a submission
+            # verb AND a named document noun in the requirement's own text.
+            # NULL is the honest default - most clauses state a property,
+            # not a document to hand over, and this is never guessed.
+            ("required_evidence_type", "TEXT"),
         ):
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.

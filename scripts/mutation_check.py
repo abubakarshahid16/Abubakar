@@ -4396,6 +4396,63 @@ B175_CASCADE_AND_CONFIDENCE = (
                 "a_page_with_native_pairs_never_reaches_the_ocr_tier",
         tags=("critical",),
     ),
+    Mutation(
+        id="M370", phase=47,
+        description="stop folding a continuation header line into the "
+                    "composite column name for a STANDARDS table, so a "
+                    "merged multi-row header (region/sub-region/code) loses "
+                    "everything but its first line",
+        path=APP / "tables.py",
+        anchor="        if candidate[0]:\n            break",
+        replacement="        if True:\n            break",
+        target="tests/test_standards_3b.py",
+        keyword="merged_multi_row_header_still_names_its_column",
+        tags=("table", "honesty"),
+    ),
+    Mutation(
+        id="M371", phase=47,
+        description="stop requiring a submission verb before naming an "
+                    "evidence noun, so required_evidence_type gets guessed "
+                    "off any mention of a document kind",
+        path=APP / "requirements_3b.py",
+        anchor="    if not sentence or not _EVIDENCE_VERB.search(sentence):\n"
+               "        return None",
+        replacement="    if not sentence:\n        return None",
+        target="tests/test_standards_3b.py",
+        keyword="an_evidence_noun_with_no_submission_verb_is_not_enough_alone",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M372", phase=47,
+        description="reimplement requirement ranking directly off the RRF "
+                    "fusion helpers instead of calling the shared "
+                    "search.search entrypoint, so requirement retrieval "
+                    "silently forks into a second search stack",
+        path=APP / "standards.py",
+        anchor="    from . import search as search_mod\n"
+               "    result = search_mod.search(",
+        replacement="    from . import search as search_mod\n"
+                    "    def _bypass(*a, **k):\n"
+                    "        return {'hits': []}\n"
+                    "    result = _bypass(",
+        target="tests/test_standards_3b.py",
+        keyword="search_requirements_reuses_the_existing_hybrid_search",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M373", phase=47,
+        description="apply the structured pre-filter AFTER retrieval "
+                    "instead of narrowing the id set retrieval receives, "
+                    "so a filtered-out standard is still a candidate",
+        path=APP / "standards.py",
+        anchor="        scope = {r[\"id\"] for r in rows}\n"
+               "    narrowed = frozenset(scope)",
+        replacement="        pass\n"
+                    "    narrowed = frozenset(scope)",
+        target="tests/test_standards_3b.py",
+        keyword="a_prefilter_narrows_the_scope_handed_to_retrieval_before_ranking",
+        tags=("honesty", "critical"),
+    ),
 )
 
 

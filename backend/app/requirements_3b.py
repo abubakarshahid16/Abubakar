@@ -795,6 +795,70 @@ def field_name(sentence: str, header: str | None = None) -> str | None:
     return None
 
 
+#: A verb that puts an obligation on producing a DOCUMENT, not on a physical
+#: property of the equipment. "shall submit a calibration certificate" names
+#: evidence to hand over; "shall not exceed 90 dB(A)" does not, and must not
+#: be read as if it did.
+_EVIDENCE_VERB = re.compile(
+    r"\b(?:submit|submitted|provide|provided|furnish|furnished|present|"
+    r"presented|make\s+available|made\s+available|accompanied\s+(?:by|with)|"
+    r"traceable\s+to)\b", re.IGNORECASE)
+
+#: A fixed, narrow vocabulary of document kinds, longest/most specific first
+#: so "data sheet" is not shadowed by a later, broader match. Anything not on
+#: this list stays None rather than being guessed from context - the same
+#: discipline `header_unit` already applies to units.
+_EVIDENCE_NOUNS: tuple[tuple[str, str], ...] = (
+    ("calibration certificate", "certificate"),
+    ("test certificate", "certificate"),
+    ("mill test certificate", "certificate"),
+    ("certificate", "certificate"),
+    ("certification", "certificate"),
+    ("data sheet", "data_sheet"),
+    ("datasheet", "data_sheet"),
+    ("vendor drawing", "drawing"),
+    ("shop drawing", "drawing"),
+    ("as-built drawing", "drawing"),
+    ("drawing", "drawing"),
+    ("calculation", "calculation"),
+    ("test report", "report"),
+    ("inspection report", "report"),
+    ("report", "report"),
+    ("procedure", "procedure"),
+    ("test record", "record"),
+    ("record", "record"),
+    ("plan", "plan"),
+)
+
+
+def required_evidence_type(sentence: str) -> str | None:
+    """The kind of document a requirement says must be handed over, or None.
+
+    Genuinely new (Part 3's contract review): `standard_requirements` has no
+    column for what evidence a clause expects, and `category`/
+    `requirement_type` are not close substitutes - `category` is only ever
+    'prohibition' or None, and `requirement_type` describes the SHAPE of the
+    clause (numeric_limit, table_value, ...), not what document satisfies it.
+
+    POPULATED ONLY WHEN THE SENTENCE ITSELF SAYS SO: it must carry a
+    submission verb (submit/provide/furnish/present/make available, or the
+    two other real corpus phrasings "accompanied by/with" and "traceable
+    to") AND name one of a fixed vocabulary of document nouns. "The wall thickness shall
+    not be less than 12 mm" has neither and stays None - there is nothing to
+    submit for it. This is deliberately conservative: a requirement that
+    implies evidence without naming its kind ("shall be verified") is left
+    None rather than guessed, matching this project's rule that a guess is
+    never shown as a fact.
+    """
+    if not sentence or not _EVIDENCE_VERB.search(sentence):
+        return None
+    lowered = sentence.lower()
+    for noun, canonical in _EVIDENCE_NOUNS:
+        if noun in lowered:
+            return canonical
+    return None
+
+
 def encode_exceptions(exceptions: list[dict]) -> str | None:
     """Exceptions as JSON, or None when there are none.
 

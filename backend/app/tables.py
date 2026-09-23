@@ -84,6 +84,73 @@ FRAGMENT_LENGTH = 2
 MAX_COLUMNS = 25
 
 
+def _padded(row: list[str], width: int) -> list[str]:
+    return [(c or "").strip() for c in row] + [""] * (width - len(row))
+
+
+def _forward_fill(row: list[str]) -> list[str]:
+    """A row with every blank cell replaced by the nearest non-blank cell to
+    its left - what a MERGED CELL's text actually covers.
+
+    A header cell naming more than one column beneath it ("Red Sea" over
+    "Marine", "High value" and "Industrial") is written once in the source
+    table, with the columns after it left empty. Read literally, those
+    columns would lose that they are Red-Sea columns at all.
+    """
+    out: list[str] = []
+    last = ""
+    for cell in row:
+        text = (cell or "").strip()
+        if text:
+            last = text
+        out.append(last)
+    return out
+
+
+def _compose_header(rows: list[list[str]]) -> tuple[list[str], list[list[str]]]:
+    """Merge a possibly MULTI-ROW header into one column name per column, and
+    return it with the data rows that follow.
+
+    THE SAME SHAPE AS B175's `datasheets.pairs_from_table_shape` (carry a
+    spanning header cell forward, then fold in a continuation line whose own
+    first cell is blank), ported here because it was still missing for
+    STANDARDS documents. Measured on the live corpus: 4,246 table-derived
+    requirements carry a `table_row`, and 2,983 of them (70%) had no `field`
+    at all before this - a wide table's header runs to a second AND a third
+    line (a region, then a sub-region, then a code, each narrower than the
+    one above it), and reading row 0 alone as "the header" left every column
+    after the first in a span blank. `requirements_3b.field_name` correctly
+    refuses to invent a name from an empty string; the fix is to not hand it
+    one when the document's own header said otherwise.
+
+    A continuation line is recognised the same way B175 recognises it: ITS
+    OWN FIRST CELL IS EMPTY. A genuine data row always names something in
+    column 0 (a row with nothing there is not a fact about anything), so a
+    blank column 0 means this line is still naming columns. There is no
+    fixed limit on how many continuation lines fold in - a data row breaks
+    the loop as soon as one appears.
+    """
+    if not rows:
+        return [], []
+    width = max(len(r) for r in rows)
+    header = _forward_fill(_padded(rows[0], width))
+    data_start = 1
+    for raw in rows[1:]:
+        candidate = _padded(raw, width)
+        if candidate[0]:
+            break
+        filled = _forward_fill(candidate)
+        merged = []
+        for h, c in zip(header, filled):
+            if c and h and h != c:
+                merged.append(f"{h} - {c}")
+            else:
+                merged.append(c or h)
+        header = merged
+        data_start += 1
+    return header, rows[data_start:]
+
+
 def _is_fragmented(rows: list[list[str]]) -> bool:
     """True when the recovered cells look like split letters rather than data."""
     cells = [cell for row in rows for cell in row if cell]
@@ -223,10 +290,10 @@ def parse_document_tables(
         # table and a stray two-cell artefact should yield the real one, and
         # the chunk cannot tell us which it belongs to.
         best = max(tables, key=lambda t: sum(len(r) for r in t))
-        header = best[0] if best else []
+        header, data_rows = _compose_header(best)
         out.append(TableParse(
             chunk_id=row["id"], document_id=row["document_id"], page=page,
-            rows=best, columns=header,
+            rows=[header, *data_rows], columns=header,
         ))
     return out
 
