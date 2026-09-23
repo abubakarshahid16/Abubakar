@@ -897,6 +897,108 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
     return pairs
 
 
+def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
+    """Label:value pairs from one RULED table shape, respecting its columns.
+
+    CAUSE, measured 2026-09-23 against a real datasheet's real ruled table
+    (`tables.parse_page_tables` already finds it correctly - the shape that
+    comes back is byte-for-byte right, header rows and all). The defect was
+    downstream: every row, header AND data, was run through
+    `split_label_value`, which pairs a row's cells as an ALTERNATING
+    SEQUENCE (label, value, label, value, ...) - correct for the "two forms
+    side by side" TEXT-BLOCK shape it was built for, wrong for "one row
+    label, several values under several different column headers". The
+    first value paired correctly with the row label; every value after that
+    got cross-paired against its NEIGHBOUR instead of being scoped to the
+    row label - a row meaning "RADIOGRAPHY: METHODS=X, FABRICATIONS=Y,
+    CASTINGS=Z" became "RADIOGRAPHY -> X" (right) plus a spurious "Y -> Z"
+    (wrong), and the fact that Y and Z both belong to RADIOGRAPHY was lost
+    entirely. That is worse than missing data: it is two real values
+    reported as if one were the other's label.
+
+    NARROW SHAPES FALL THROUGH TO `split_label_value` UNCHANGED. A shape
+    under three columns wide has no "several values, several headers"
+    problem - it is exactly the row split_label_value was built for, and
+    this function must not touch it.
+
+    HEADER DETECTION, width >= 3 only: row 0 is always the header. A
+    header can run to a SECOND line - `TYPE OF INSPECTION | METHODS |
+    ACCEPTANCE CRITERIA | ''` then `'' | '' | FOR FABRICATIONS | FOR
+    CASTINGS` - and row 1 is recognised as that continuation by one signal:
+    ITS OWN FIRST CELL IS EMPTY. Every genuine data row in this shape needs
+    something naming it in column 0 (a row with nothing in column 0 is not
+    a fact about anything), so an empty column 0 on row 1 means row 1 is
+    still naming columns, not yet reporting a value.
+
+    CARRY-FORWARD FOR SPANNING HEADER CELLS. A header cell that names more
+    than one column beneath it - "ACCEPTANCE CRITERIA" over both
+    "FABRICATIONS" and "CASTINGS" - is written ONCE in the source table,
+    with the column(s) after it left empty. Read literally, the CASTINGS
+    column would lose that it is an acceptance-criteria column at all.
+    Carrying the last non-empty header cell rightward across the empty
+    ones it left behind restores the property a merged cell always had -
+    every column under it is still that column. This is a general rule
+    about how ruled tables represent merged cells, not a fact about this
+    one page: verified against the real table this cause was measured on,
+    it reproduces the gold sheet's own field naming exactly -
+    "RADIOGRAPHY - ACCEPTANCE CRITERIA - FOR FABRICATIONS" and
+    "RADIOGRAPHY - ACCEPTANCE CRITERIA - FOR CASTINGS", not a bare
+    "FOR CASTINGS" that has silently lost which criteria it is.
+    """
+    if not shape:
+        return []
+    width = max((len(row) for row in shape), default=0)
+    if width < 3:
+        out: list[tuple[str, str]] = []
+        for row in shape:
+            out.extend(split_label_value(list(row)))
+        return out
+
+    def _padded(row: list[str]) -> list[str]:
+        return [(c or "").strip() for c in row] + [""] * (width - len(row))
+
+    def _carry_forward(row: list[str]) -> list[str]:
+        # Column 0 is the label column and never receives a carried header.
+        out_row = list(row)
+        for i in range(2, width):
+            if not out_row[i] and out_row[i - 1]:
+                out_row[i] = out_row[i - 1]
+        return out_row
+
+    row0 = _carry_forward(_padded(shape[0]))
+    data_start = 1
+    header = row0
+    if len(shape) > 1:
+        row1 = _padded(shape[1])
+        if not row1[0]:
+            # Row 1 continues the header: merge, the more specific (lower)
+            # line naming the column, carrying its parent super-header ahead
+            # of it when the two say different things.
+            merged = []
+            for h0, h1 in zip(row0, row1):
+                if h1 and h0 and h0 != h1:
+                    merged.append(f"{h0} - {h1}")
+                else:
+                    merged.append(h1 or h0)
+            header = merged
+            data_start = 2
+
+    out = []
+    for row in shape[data_start:]:
+        cells = _padded(row)
+        label = cells[0]
+        if not label:
+            continue
+        for i in range(1, width):
+            value = cells[i]
+            if not value:
+                continue
+            col_header = header[i] if i < len(header) else ""
+            field = f"{label} - {col_header}" if col_header else label
+            out.append((field, value))
+    return out
+
+
 def pairs_from_blocks(page_text_blocks: list[tuple[float, float, str]]) -> list[tuple[str, str]]:
     """Label-value pairs from a form's TEXT BLOCKS, in reading order.
 
@@ -1334,8 +1436,11 @@ def extract_facts(
     for page in sorted(by_page):
         found: list[tuple[str, str]] = []
         for shape in tables.parse_page_tables(stored_path, page):
-            for row in shape:
-                found.extend(split_label_value(list(row)))
+            # B58: a ruled shape's rows are column-scoped, not an alternating
+            # label/value sequence - see pairs_from_table_shape's docstring
+            # for the measured cause. Shapes under three columns wide fall
+            # through to split_label_value unchanged inside that function.
+            found.extend(pairs_from_table_shape([list(row) for row in shape]))
         found.extend(_pairs_from_pdf_page(stored_path, page))
         # SPLIT BEFORE THE FURNITURE COUNT, so a repeated compound row is
         # counted as the two fields it becomes rather than as one label that

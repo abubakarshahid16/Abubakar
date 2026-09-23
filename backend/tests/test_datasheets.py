@@ -571,3 +571,111 @@ def test_b44_an_intact_file_is_never_called_repaired(tmp_path):
     assert out["repaired"] is False
     assert out["unreadable"] == [] and out["pages_unreadable"] == 0
     assert out["facts"] > 0, "the control must still extract, or it proves nothing"
+
+
+# ======================================================================= B58
+#
+# CAUSE 2, measured 2026-09-23 against a real ruled table on a real
+# datasheet: `tables.parse_page_tables` already found the shape correctly -
+# header rows and all. `split_label_value` was then run on every row, header
+# and data alike, pairing cells as an ALTERNATING SEQUENCE (its correct
+# design for a "two forms side by side" text-block row). On a row shaped
+# "one label, several values under several different column headers" the
+# first value paired correctly and every value after it was cross-paired
+# against its NEIGHBOUR instead - two real values, one reported as the
+# other's label, and the fact both belonged to the row's own label lost.
+#
+# No client content: labels, headers and values below are invented, but the
+# SHAPE - a two-line header with a spanning cell, several data rows, some
+# with blank cells - reproduces exactly what was measured.
+
+
+TWO_LINE_HEADER_SHAPE = [
+    ["INSPECTION TYPE", "METHOD", "CRITERIA", ""],
+    ["", "", "NEW BUILD", "REPAIR"],
+    ["MAGNETIC PARTICLE", "ASTM E709", "ASTM E125 grade 2", "ASTM E125 grade 1"],
+    ["ULTRASONIC", "", "", ""],
+    ["DYE PENETRANT", "ASTM E165", "", "ASTM E125 grade 1"],
+]
+
+SINGLE_HEADER_SHAPE = [
+    ["Size", "Facing", "Rating", "Position"],
+    ["2 in", "RF", "150", "TOP"],
+    ["4 in", "RF", "300", "END"],
+]
+
+
+def test_b58_a_row_labels_its_own_values_under_their_own_column_headers():
+    """THE DEFECT. Two real values on one row must not be cross-paired
+    against each other - each belongs to the ROW's label, scoped by its own
+    column."""
+    pairs = datasheets.pairs_from_table_shape(TWO_LINE_HEADER_SHAPE)
+    by_label = dict(pairs)
+
+    assert by_label.get("MAGNETIC PARTICLE - METHOD") == "ASTM E709"
+    assert by_label.get("MAGNETIC PARTICLE - CRITERIA - NEW BUILD") == "ASTM E125 grade 2"
+    assert by_label.get("MAGNETIC PARTICLE - CRITERIA - REPAIR") == "ASTM E125 grade 1"
+    assert "ASTM E125 grade 2" not in by_label, (
+        "a value was cross-paired against its neighbour instead of scoped "
+        f"to its row label: {pairs}")
+
+
+def test_b58_a_spanning_header_cell_is_carried_to_every_column_beneath_it():
+    """The CRITERIA super-header is written once, over two sub-columns. Read
+    literally, REPAIR would lose that it is a criteria column at all."""
+    pairs = datasheets.pairs_from_table_shape(TWO_LINE_HEADER_SHAPE)
+    by_label = dict(pairs)
+
+    assert "MAGNETIC PARTICLE - REPAIR" not in by_label, (
+        "the spanning header was not carried forward - REPAIR lost its "
+        f"parent header CRITERIA: {pairs}")
+    assert by_label.get("DYE PENETRANT - CRITERIA - REPAIR") == "ASTM E125 grade 1"
+
+
+def test_b58_a_blank_row_produces_no_pairs():
+    """ULTRASONIC has a label and nothing else. No value, no pair - the
+    label alone is not a fact and must not become one with an empty value."""
+    pairs = datasheets.pairs_from_table_shape(TWO_LINE_HEADER_SHAPE)
+    assert not any(label.startswith("ULTRASONIC") for label, _ in pairs)
+
+
+def test_b58_a_single_line_header_needs_no_carry_forward():
+    """The common case: one header row, no spanning cells, every column
+    already fully named."""
+    pairs = datasheets.pairs_from_table_shape(SINGLE_HEADER_SHAPE)
+    by_label = dict(pairs)
+
+    assert by_label.get("2 in - Facing") == "RF"
+    assert by_label.get("2 in - Rating") == "150"
+    assert by_label.get("2 in - Position") == "TOP"
+    assert by_label.get("4 in - Position") == "END"
+
+
+def test_b58_a_narrow_shape_falls_through_to_split_label_value_unchanged():
+    """Under three columns wide, this is exactly the row split_label_value
+    was built for - the new function must not touch it."""
+    narrow = [["Design pressure", "23.5", "barg"]]
+    # width 3 with a single data-shaped row and no real header line 1 still
+    # routes through the header path above three columns; the true control
+    # is two columns, split_label_value's own long-standing case.
+    two_col = [["Design pressure", "23.5 barg"]]
+    assert (datasheets.pairs_from_table_shape(two_col)
+           == datasheets.split_label_value(["Design pressure", "23.5 barg"]))
+
+
+def test_b58_wired_into_extract_facts_not_just_the_function():
+    """The function alone proves nothing about the product until something
+    calls it. Confirms the ruled-table path in extract_facts's per-page loop
+    uses it rather than the bare split_label_value it replaced."""
+    import inspect
+    source = inspect.getsource(datasheets.extract_facts)
+    # The CALL FORM, not the bare name - a comment naming the function would
+    # satisfy a bare-substring check without the function ever being called,
+    # exactly the vacuous-test shape CLAUDE.md rule 6 exists to catch. This
+    # is not hypothetical: the first version of this test used the bare
+    # name and passed against mutated code because a nearby comment still
+    # said "pairs_from_table_shape's docstring" - caught by mutation M356,
+    # fixed here rather than the mutation weakened.
+    assert "pairs_from_table_shape(" in source, (
+        "extract_facts's ruled-table loop still calls split_label_value "
+        "directly - the fix exists but was never wired in")

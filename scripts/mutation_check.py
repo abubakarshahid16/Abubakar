@@ -4195,6 +4195,46 @@ PROVIDER_SEAM = (
 )
 
 
+#: B58: a ruled table row's several values under several column headers were
+#: cross-paired against each other instead of scoped to the row's own label.
+_B58_TEST = "tests/test_datasheets.py"
+B58_TABLE_COLUMN_SCOPING = (
+    Mutation(
+        id="M356", phase=45,
+        description="PUT B58 BACK: route ruled-table shapes through the "
+                    "bare alternating-pair splitter again",
+        path=APP / "datasheets.py",
+        anchor="            found.extend(pairs_from_table_shape([list(row) for row in shape]))",
+        replacement="            for row in shape:\n"
+                    "                found.extend(split_label_value(list(row)))",
+        target=_B58_TEST,
+        keyword="a_row_labels_its_own_values or wired_into_extract_facts",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M357", phase=45,
+        description="stop carrying a spanning header cell forward, so a "
+                    "column under a merged header loses its parent name",
+        path=APP / "datasheets.py",
+        anchor="            if not out_row[i] and out_row[i - 1]:\n"
+               "                out_row[i] = out_row[i - 1]",
+        replacement="            if False:\n                out_row[i] = out_row[i - 1]",
+        target=_B58_TEST, keyword="spanning_header_cell_is_carried",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M358", phase=45,
+        description="stop detecting a second header line, so its column "
+                    "names get stored as if they were data",
+        path=APP / "datasheets.py",
+        anchor="        if not row1[0]:",
+        replacement="        if False:",
+        target=_B58_TEST, keyword="spanning_header_cell_is_carried",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4209,7 +4249,7 @@ ALL: tuple[Mutation, ...] = (
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
     + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
-    + B50_MODEL_SCHEMA + PROVIDER_SEAM
+    + B50_MODEL_SCHEMA + PROVIDER_SEAM + B58_TABLE_COLUMN_SCOPING
 )
 
 
