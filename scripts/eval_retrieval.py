@@ -115,6 +115,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
+from app import live_guard  # noqa: E402
 from app import search as search_mod  # noqa: E402
 from app.config import settings  # noqa: E402
 
@@ -369,6 +370,12 @@ def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUT_DIR / f"retrieval-{commit}.json"
 
+    # DIAGNOSTICS RUN ON A COPY. `search` reads through `db.connect()`, which
+    # opens a read-WRITE handle and is refused on a live database outside the
+    # server (live_guard). A consistent backup-API copy gives the same answers
+    # and cannot change the live file.
+    if live_guard.is_live_shaped(settings.db_path):
+        settings.db_path = live_guard.diagnostic_copy(settings.db_path)
     conn = open_db_readonly()
     try:
         docs = filename_index(conn)

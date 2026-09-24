@@ -18,7 +18,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from . import errors, job_queue, states
+from . import errors, job_queue, page_ledger, states
 from .chunker import chunk_document
 from . import telemetry
 from .db import connect
@@ -741,6 +741,7 @@ class IngestionWorker:
                     "UPDATE jobs SET state = 'done', updated_at = ? WHERE document_id = ?",
                     (_now(), doc_id),
                 )
+            _refresh_page_ledger(doc_id)
             return
 
         if row["embedded_count"] >= row["chunk_count"]:
@@ -765,6 +766,22 @@ class IngestionWorker:
             _extract_facts_if_contractor_submittal(doc_id)
             _classify_equipment_type_if_contractor_submittal(doc_id)
             _classify_metadata_if_contractor_submittal(doc_id)
+            # LAST, after fact extraction, so the ledger carries its outcome.
+            _refresh_page_ledger(doc_id)
+
+
+def _refresh_page_ledger(document_id: str) -> None:
+    """B3: account for every page of a finished document.
+
+    Best effort, like the other READY hooks: the ledger is rebuildable from
+    the stage tables, so a failure here is logged and left for the next
+    refresh (a review refreshes it too) rather than failing an ingest whose
+    evidence is already stored.
+    """
+    try:
+        page_ledger.refresh(document_id)
+    except Exception as exc:  # noqa: BLE001 - recorded, never fatal
+        errors.record_failure(exc, document_id=document_id, stage="page_ledger")
 
 
 def _queue_extraction_if_standard(document_id: str) -> None:

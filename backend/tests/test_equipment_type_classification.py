@@ -271,10 +271,16 @@ def test_reclassification_is_versioned_not_silently_overwritten(tmp_path):
     first = _classification(doc_id)
     assert first["equipment_type"] == "Centrifugal Pump"
 
+    # THE EVIDENCE CHANGES WHERE THE CLASSIFIER READS IT. Since #183 the title
+    # block is read from `pages` first and chunks second, so both change -
+    # editing only the chunk would leave the page-1 title saying "pump".
     conn = db.connect()
     with conn:
         conn.execute(
             "UPDATE chunks SET text = ? WHERE document_id = ? AND page_start = 1",
+            (PSV_COVER, doc_id))
+        conn.execute(
+            "UPDATE pages SET text = ? WHERE document_id = ? AND page_no = 1",
             (PSV_COVER, doc_id))
 
     from app import ingest as ingest_mod

@@ -2030,6 +2030,37 @@ class ReviewRunSummary(BaseModel):
     decided_by_name: str | None = None
     decided_at: str | None = None
     completeness: dict | None = None
+    # B3: the page ledger's summary AS OF THE RUN - which pages were read into
+    # fields, which were not and why. Null for a run made before the ledger
+    # existed; null renders as nothing, never as "every page read".
+    page_coverage: dict | None = None
+
+
+class PageLedgerRow(BaseModel):
+    """One page of one document, accounted for (master order B3)."""
+    page_no: int
+    native_status: str
+    native_chars: int | None = None
+    ocr_status: str
+    ocr_engine: str | None = None
+    ocr_mean_conf: float | None = None
+    index_status: str
+    index_reason: str | None = None
+    layout_status: str
+    vision_status: str
+    vision_reason: str | None = None
+    facts_status: str
+    facts_count: int | None = None
+    facts_reason: str | None = None
+    facts_recorded_by: str | None = None
+    updated_at: str
+
+
+class PageLedger(BaseModel):
+    """Every page of a document with its per-stage outcome, and the summary."""
+    document_id: str
+    pages: list[PageLedgerRow]
+    coverage: dict
 
 
 class ReviewCodeDecision(BaseModel):

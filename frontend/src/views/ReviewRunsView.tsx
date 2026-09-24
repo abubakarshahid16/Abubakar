@@ -25,8 +25,8 @@ import { FindingDetail } from "../components/review/FindingDetail";
 import { FindingsTable } from "../components/review/FindingsTable";
 import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
 import {
-  STATUS_ORDER, completenessLine, statusLabel, statusTone, whenLabel,
-  withDenominator,
+  STATUS_ORDER, completenessLine, pageCoverageLine, statusLabel, statusTone,
+  whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
 
 type Phase =
@@ -389,6 +389,7 @@ function RunCard({ run, selected, onOpen }: {
   run: ReviewRunSummary; selected: boolean; onOpen: () => void;
 }) {
   const completeness = completenessLine(run);
+  const pageCoverage = pageCoverageLine(run);
   const reasonStatesDenominator =
     (run.recommended_reason ?? "").includes("NOMINAL ESTIMATE");
   return (
@@ -434,6 +435,11 @@ function RunCard({ run, selected, onOpen }: {
           only never repeated. */}
       {completeness && !reasonStatesDenominator && (
         <p className="mt-1 text-xs text-slateish-500">{completeness}</p>
+      )}
+      {pageCoverage && (
+        <p className="mt-1 text-xs text-slateish-500" data-testid="page-coverage">
+          {pageCoverage}
+        </p>
       )}
     </button>
   );

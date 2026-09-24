@@ -45,7 +45,7 @@ carries the client's name; only the owner can rename it.
    when its feature is deleted — prove it by mutation. Vacuous tests are this
    project's documented recurring defect (`docs/status-honesty-audit.md`).
 7. **When something this project stated turns out false, record the retraction**
-   in `docs/status-honesty-audit.md`. It is at 49 entries. Several findings in
+   in `docs/status-honesty-audit.md`. It is at 51 entries. Several findings in
    `docs/code-review/` belong there.
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
@@ -86,6 +86,14 @@ carries the client's name; only the owner can rename it.
 - SQLite is **WAL mode**: the DB is three files (`.sqlite`, `-wal`, `-shm`).
   Copying only one loses documents. Never open the live DB from the VM
   (disk I/O error).
+- **Only the server writes the live DB.** Start it with `python run.py` (it
+  marks the process; uvicorn directly would be refused its own database).
+  Any other process that must write `backend/data/rag_intelligence.sqlite`
+  calls `app.live_guard.prepare_live_write(path, reason=...)`, which takes a
+  verified online backup and runs a restore drill first; `db.connect()`
+  refuses otherwise. Read-only work: `sqlite3 "file:...?mode=ro"`, or
+  `live_guard.diagnostic_copy()`. A script run from a git worktree once wrote
+  the main checkout's live DB (2026-09-24) - this is why.
 - Shell heredocs eat backslashes in regexes. Write Python patch scripts to a
   file, or use quoted heredocs (`<<'EOF'`).
 - `AUTH_MODE=demo_required` is on. `<img src>` cannot send the bearer token —
@@ -96,9 +104,9 @@ carries the client's name; only the owner can rename it.
 | Need | File |
 |---|---|
 | Full state, decisions, what's next | `docs/HANDOVER.md` |
-| Architecture as the code actually is | `docs/architecture.md` |
+| Architecture as the code actually is | `docs/architecture-call-graph.md` (current); `docs/architecture.md` (older, stale line refs) |
 | The 134 review findings, prioritised | `docs/code-review/README.md` |
-| Recorded false claims (48) | `docs/status-honesty-audit.md` |
+| Recorded false claims (51) | `docs/status-honesty-audit.md` |
 | Review any change against the project's own failure modes | `/review` (`.claude/commands/review.md`) |
 | Demo script and safe questions | `docs/HANDOVER.md` § Demo |
 | Run it | `backend`: `python run.py` · `frontend`: `npm run dev` · Ollama must be up |

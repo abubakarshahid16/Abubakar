@@ -42,7 +42,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from . import claims, orphan_guard, provenance, submittal_review, tables
+from . import claims, orphan_guard, page_ledger, provenance, submittal_review, tables
 from .db import connect
 
 #: Where a datasheet says a value is not filled in yet.
@@ -1878,6 +1878,9 @@ def extract_facts(
              "referenced_standards": [], "unparsed": [],
              "pages_unreadable": 0, "unreadable": [], "repaired": False}
     if not chunks:
+        # B3: no retrievable chunk at all - every page is accounted for as
+        # never reached, rather than the document simply having no pages.
+        page_ledger.refresh(document_id, as_submittal=True)
         return empty
 
     stored_path = chunks[0]["stored_path"]
@@ -1920,6 +1923,15 @@ def extract_facts(
     condition, sentence, repaired = pdf_condition(stored_path)
     if condition is not None:
         pages = sorted(by_page)
+        # B3: the file's condition goes on every page's ledger row, so a page
+        # nobody could open is never read later as a page with no values.
+        conn = connect()
+        with conn:
+            page_ledger.record_fact_pages(
+                conn, document_id,
+                {page: ("unreadable", 0, f"{condition}: {sentence}") for page in pages},
+                extractor_version=extractor_version)
+        page_ledger.refresh(document_id, as_submittal=True)
         return {**empty,
                 "pages_unreadable": len(pages),
                 "unreadable": [{"page": page, "rule": condition,
@@ -1929,6 +1941,7 @@ def extract_facts(
     written = blanks = 0
     seen: set[tuple] = set()
     unparsed: list[dict] = []
+    outcomes: dict[int, tuple] = {}
     corpus_text: list[str] = []
 
     # EVERY PAGE IS PAIRED BEFORE ANY FACT IS WRITTEN, because the furniture
@@ -2117,8 +2130,18 @@ def extract_facts(
                 if blank:
                     blanks += 1
             if page_written == 0:
-                unparsed.append({"page": page, "reason": _unparsed_reason(pairs, dropped)})
+                reason = _unparsed_reason(pairs, dropped)
+                unparsed.append({"page": page, "reason": reason})
+                outcomes[page] = ("no_facts", 0, reason)
+            else:
+                outcomes[page] = ("facts", page_written, None)
+        # B3: THE PER-PAGE OUTCOME IS KEPT, in the same transaction as the
+        # facts it describes. It used to be returned and discarded, so nothing
+        # downstream could tell a page with no values from a page never read.
+        page_ledger.record_fact_pages(conn, document_id, outcomes,
+                                      extractor_version=extractor_version)
 
+    page_ledger.refresh(document_id, as_submittal=True)
     pages_read = len(by_page)
     return {
         "document_id": document_id,

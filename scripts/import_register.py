@@ -58,6 +58,7 @@ sys.path.insert(0, str(BACKEND))
 import pymupdf  # noqa: E402  - after the path insert
 
 from app import classification  # noqa: E402
+from app import live_guard  # noqa: E402
 from app.db import connect, init_db  # noqa: E402
 
 # --------------------------------------------------------------- the guards
@@ -419,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\ndry run: nothing written")
         return 0
 
+    live_guard.clear_if_live(f"import_register {args.revision}")
     init_db()
     result = store(rows, subjects, args.revision)
     print(f"\nimported revision {args.revision!r}: "

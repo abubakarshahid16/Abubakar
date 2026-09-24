@@ -9,8 +9,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  STATUS_ORDER, completenessLine, confidenceLabel, matchMethodLabel,
-  orNothing, statusLabel, statusRank, statusTone, withDenominator,
+  STATUS_ORDER, completenessLine, confidenceLabel, findingLabel, matchMethodLabel,
+  orNothing, pageCoverageLine, pageList, statusLabel, statusRank, statusTone,
+  withDenominator,
 } from "./reviewFormat";
 import type { ReviewRunSummary } from "../../types/api";
 
@@ -53,7 +54,7 @@ describe("B9: needing another document is neither a failure nor an omission", ()
 
 describe("missing information is not a failure", () => {
   it("is not worded as one", () => {
-    expect(statusLabel("MISSING_INFORMATION")).toBe("No evidence submitted");
+    expect(statusLabel("MISSING_INFORMATION")).toBe("No value found in the fields read");
     expect(statusLabel("MISSING_INFORMATION").toLowerCase()).not.toContain("fail");
     expect(statusLabel("MISSING_INFORMATION").toLowerCase()).not.toContain("non-compliant");
   });
@@ -123,5 +124,55 @@ describe("a nominal denominator says it is nominal", () => {
 
   it("renders nothing when the run recorded no completeness", () => {
     expect(completenessLine({ completeness: null } as ReviewRunSummary)).toBe("");
+  });
+});
+
+describe("B3: a finding on an unread page says so in plain words", () => {
+  it("labels an UNREAD_PAGES finding 'Pages not yet readable - needs engineer review'", () => {
+    expect(findingLabel({
+      compliance_status: "NEEDS_ENGINEER_REVIEW",
+      ai_rationale: "UNREAD_PAGES: no value for this requirement was found ...",
+    })).toBe("Pages not yet readable - needs engineer review");
+  });
+
+  it("leaves every other finding reading as its status does", () => {
+    expect(findingLabel({ compliance_status: "NEEDS_ENGINEER_REVIEW",
+                          ai_rationale: "UNIT_MISMATCH: ..." })).toBe("Needs engineer review");
+    expect(findingLabel({ compliance_status: "MISSING_INFORMATION", ai_rationale: null }))
+      .toBe("No value found in the fields read");
+  });
+});
+
+describe("B3: which pages were read into fields", () => {
+  const coverage = (fact: number[], unread: number[], total: number | null = 11) =>
+    ({ page_coverage: {
+      pages_total: total, fact_pages: fact, pages_not_read_into_fields: unread,
+      not_read_reasons: {},
+    } } as unknown as ReviewRunSummary);
+
+  it("states the denominator and names the unread pages", () => {
+    const line = pageCoverageLine(coverage([4, 5], [1, 2, 3, 6, 7, 8, 9, 10, 11]));
+    expect(line).toContain("2 of 11 pages");
+    expect(line).toContain("pages 4-5");
+    expect(line).toContain("pages 1-3, 6-11 not read into fields");
+    expect(line).toContain("may still be there");
+  });
+
+  it("does not warn when every page was read", () => {
+    const line = pageCoverageLine(coverage([1, 2], [], 2));
+    expect(line).toBe("Fields read from 2 of 2 pages (pages 1-2).");
+  });
+
+  it("never reads 'no page accounted for' as 'every page read'", () => {
+    expect(pageCoverageLine(coverage([], [], null))).toContain("no value can be called missing");
+  });
+
+  it("renders nothing for a run made before the ledger existed", () => {
+    expect(pageCoverageLine({ page_coverage: null } as ReviewRunSummary)).toBe("");
+  });
+
+  it("compresses page runs the way the findings do", () => {
+    expect(pageList([7, 1, 2, 3])).toBe("1-3, 7");
+    expect(pageList([5])).toBe("5");
   });
 });

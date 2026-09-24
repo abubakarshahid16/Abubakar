@@ -43,6 +43,9 @@ ROW_FILLS = {
     "missing_information": PatternFill("solid", fgColor="FFEAEDED"),
     "requires_other_document": PatternFill("solid", fgColor="FFD6EAF8"),
     "missing_reference": PatternFill("solid", fgColor="FFEAEDED"),
+    # B3: pages the system has not read into fields - engineer work, pale
+    # amber like needs_engineer_review, never grey like "missing".
+    "pages_not_readable": PatternFill("solid", fgColor="FFFDF2E9"),
 }
 HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
            "Comment By", "Contractor's Response", "Final Resolution"]

@@ -72,7 +72,7 @@ describe("what a reviewer sees first", () => {
     await userEvent.click(screen.getByText(/101 requirements had no evidence/));
 
     expect(screen.getByText(/Hide the 101 with no evidence/)).toBeInTheDocument();
-    expect(screen.getAllByText("No evidence submitted").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("No value found in the fields read").length).toBeGreaterThan(1);
   });
 
   it("puts the row that needs a person above the ones that do not", async () => {
@@ -199,7 +199,7 @@ describe("B9: a requirement that needs another document", () => {
     expect(within(row!).getByText(
       "Requires another document - not answerable from this submittal type",
     )).toBeInTheDocument();
-    expect(within(row!).queryByText("No evidence submitted")).toBeNull();
+    expect(within(row!).queryByText("No value found in the fields read")).toBeNull();
   });
 
   it("shows each item's clause, page and text, not just a count", async () => {
@@ -215,5 +215,21 @@ describe("B9: a requirement that needs another document", () => {
     expect(within(row!).getByText(/clause 4\.3/)).toBeInTheDocument();
     expect(within(row!).getByText(/p7/)).toBeInTheDocument();
     expect(screen.getAllByText(/^Statement \d+$/)).toHaveLength(40);
+  });
+});
+
+describe("B3: a finding on an unread page, in the table", () => {
+  it("reads 'Pages not yet readable - needs engineer review', not a bare status", () => {
+    const rows = [finding({
+      id: "u", compliance_status: "NEEDS_ENGINEER_REVIEW", standard_clause: "5.1",
+      ai_rationale: "UNREAD_PAGES: no value for this requirement was found in the fields read from pages 4-5 of 11",
+    })];
+    render(<FindingsTable findings={rows} selectedId={null} onSelect={vi.fn()} />);
+
+    const label = screen.getByText("Pages not yet readable - needs engineer review");
+    const row = label.closest("tr");
+    expect(row).not.toBeNull();
+    // The status filter still lists the bare status; the ROW must not.
+    expect(within(row!).queryByText("Needs engineer review")).toBeNull();
   });
 });
