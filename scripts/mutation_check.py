@@ -5460,6 +5460,45 @@ B193_PAIRING = (
 )
 
 
+#: Master order B4: the pump datasheet's layout defects. Phase 59.
+_B4_TEST = "tests/test_b4_pump_layouts.py"
+B4_PUMP_LAYOUTS = (
+    Mutation(
+        id="M483", phase=59,
+        description="PUT IT BACK: an API clause reference stays in the field "
+                    "name as digits ('casing type 6 3 10') (B4 fix 1)",
+        path=APP / "datasheets.py",
+        anchor="    text = _CLAUSE_REF_BRACKET.sub(\" \", text)\n",
+        replacement="",
+        target=_B4_TEST, keyword="clause_reference_is_not_part or printed_label_keeps",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M484", phase=59,
+        description="strip ANY bracket holding a digit, so a note number or a "
+                    "unit bracket is cut out of a real field name (B4 fix 1, "
+                    "negative)",
+        path=APP / "datasheets.py",
+        anchor='    r"\\(\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?"\n'
+               '    r"(?:\\s*[,;&]?\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?)*\\s*\\)", re.IGNORECASE)\n',
+        replacement='    r"\\([^)]*\\d[^)]*\\)", re.IGNORECASE)\n',
+        target=_B4_TEST, keyword="not_a_clause_stays",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M485", phase=59,
+        description="the extraction scorer compares the normalised name again, "
+                    "so a correctly read field whose clause reference left the "
+                    "name counts as missed (B4 measurement)",
+        path=REPO / "scripts" / "eval_extraction.py",
+        anchor='            "field_name": (r["field_label"] or r["field_name"] or "").strip(),\n',
+        replacement='            "field_name": (r["field_name"] or r["field_label"] or "").strip(),\n',
+        target="tests/test_scorers_read_current_facts.py", keyword="printed_label",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -5482,6 +5521,7 @@ ALL: tuple[Mutation, ...] = (
     + B177_JOB_CLAIM_RETRY_PRIORITY
     + B3_PAGE_LEDGER
     + B193_PAIRING
+    + B4_PUMP_LAYOUTS
 )
 
 

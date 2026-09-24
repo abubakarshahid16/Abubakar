@@ -301,7 +301,11 @@ def facts_from_db(conn: sqlite3.Connection, doc_id: str) -> list[dict]:
         # the page as printed, so that is the like-for-like comparison.
         out.append({
             "index": index,
-            "field_name": (r["field_name"] or r["field_label"] or "").strip(),
+            # THE PRINTED LABEL, like for like with a key that records each
+            # field as printed (B4). The product's `field_name` drops clause
+            # references ("casing type"), so scoring it against the printed
+            # "CASING TYPE: (6.3.10)" counted a correctly read field as missed.
+            "field_name": (r["field_label"] or r["field_name"] or "").strip(),
             "value": (r["raw_value"] or r["field_value"] or "").strip(),
             "unit": (r["raw_unit"] or r["unit"] or "").strip(),
             "page": r["page"],
