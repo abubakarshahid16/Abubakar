@@ -84,7 +84,10 @@ VALIDATED = "validated"
 REVIEW = "needs_engineer_review"
 DROPPED = "dropped"
 
-_EDGE_PUNCT = "()[]{},;:*"
+#: Stripped from a word's EDGES only. The underscore is here because a form
+#: prints its answer INSIDE a drawn slot - `____OH2____` is one printed word -
+#: and without it every such value read as "not printed" (measured, #180).
+_EDGE_PUNCT = "()[]{},;:*_"
 _ROW_NUMBER = re.compile(r"^\d{1,3}$")
 _DATE = re.compile(r"^(?:\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}|\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})$")
 _DIGIT = re.compile(r"\d")

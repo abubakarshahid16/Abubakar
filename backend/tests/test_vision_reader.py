@@ -350,6 +350,28 @@ def test_180_the_named_four_field_form_is_read_and_its_empty_values_refused(
     assert "2 refused by the schema" in _routes(doc)[1]["vision_outcome"]
 
 
+def test_180_a_value_printed_inside_a_drawn_slot_is_found(tmp_path, monkeypatch, stub):
+    """Measured on the real pump sheet: values sit INSIDE drawn answer slots
+    (`____OH2____`), one printed word with the underscores. The page check
+    missed every one of them and dropped correct readings as "not printed".
+    Underscores at a word's edge are the slot, not the value."""
+    monkeypatch.setattr(settings, "vision_enabled", True)
+    stub["provider"] = StubProvider([["Casing split", "Normal", "RAD9", ""],
+                                     ["Casing split", "Normal", "RAD7", ""]])
+
+    def slots(page):
+        _draw_grid(page)
+        page.insert_text((60, 220), "Casing split", fontsize=9)
+        page.insert_text((290, 220), "___AXL___", fontsize=9)
+        page.insert_text((390, 220), "___RAD9___", fontsize=9)
+    doc = _ingest(_pdf(tmp_path / "slot.pdf", slots))
+
+    datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
+
+    vision = [f for f in _facts(doc) if f["extraction_method"].startswith("vision")]
+    assert [(f["field_value"], f["validation_state"]) for f in vision] == [("RAD9", None)], vision
+
+
 # ======================================================== recognised pages
 
 def test_180_a_value_read_from_a_recognised_page_is_never_a_fact(
