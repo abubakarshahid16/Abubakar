@@ -124,14 +124,14 @@ grant-table query). Applied as a mask before top-k in keyword and dense search, 
 
 ## 6. Gaps found (new issues)
 
-- **G1 — role set after READY skips downstream work.** `PUT .../classification` (`confirm`)
+- **G1 — role set after READY skips downstream work (#195).** `PUT .../classification` (`confirm`)
   setting `COMPANY_STANDARD` queues no requirement extraction (only `set_role` does);
   a `CONTRACTOR_SUBMITTAL` role set after READY by either route runs no fact extraction
   (lazy at review time) and **never** runs equipment/metadata classification.
-- **G2 — socket containment incomplete.** `notifications.py` opens an SMTP socket; the
+- **G2 — socket containment incomplete (#196).** `notifications.py` opens an SMTP socket; the
   containment test's network roots omit `smtplib`; CLAUDE.md said only `market_transport`
   may open a socket (false; retraction: honesty audit entry 49).
-- **G3 — dead and duplicate code.** `quotes.py`, `extraction_schema.py`,
+- **G3 — dead and duplicate code (#197).** `quotes.py`, `extraction_schema.py`,
   `standards.search_requirements`, the vision no-op; duplicate definitions of
   `analysis.is_comprehensive` (:73, :313), `analysis._synthesise` (:717, :754), and the
   `watch_*` settings — the later definition silently wins.
