@@ -4561,6 +4561,22 @@ B163_EVIDENCE_TYPE_GATE = (
 )
 
 
+B168_PIPELINE_REPAIR = (
+    Mutation(
+        id="M381", phase=50,
+        description="delete the chunk_signature skip-if-unchanged guard, so "
+                    "every re-chunk does a full rebuild instead of the "
+                    "incremental no-op issue #168 criterion 2 claims",
+        path=APP / "chunker.py",
+        anchor='    if not force and existing and doc["chunk_signature"] == signature:',
+        replacement='    if False:',
+        target="tests/test_incremental_reindex.py",
+        keyword="rechunking_unchanged_content_leaves_chunk_rows_untouched",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4577,6 +4593,7 @@ ALL: tuple[Mutation, ...] = (
     + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
     + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
     + B175_CASCADE_AND_CONFIDENCE + B163_EVIDENCE_TYPE_GATE
+    + B168_PIPELINE_REPAIR
 )
 
 
