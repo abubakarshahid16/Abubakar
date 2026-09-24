@@ -5517,6 +5517,45 @@ B4_PUMP_LAYOUTS = (
         target=_B4_TEST, keyword="real_yes_no_question",
         tags=("honesty",),
     ),
+    Mutation(
+        id="M488", phase=59,
+        description="PUT IT BACK: a two-unit cell 'm3/h (USGPM)' becomes a "
+                    "field label again (B4 fix 3)",
+        path=APP / "datasheets.py",
+        anchor="    if is_unit_cell(candidate):\n        return False\n",
+        replacement="",
+        target=_B4_TEST, keyword="unit_cell_is_never or no_unit_named_field",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M489", phase=59,
+        description="refuse a bare unit word as a label, so the pump sheet's "
+                    "'RPM' slot loses its field (B4 fix 3, negative)",
+        path=APP / "datasheets.py",
+        anchor='    return "(" in (text or "") and primary_unit(text) is not None\n',
+        replacement="    return primary_unit(text) is not None\n",
+        target=_B4_TEST, keyword="bare_unit_word",
+    ),
+    Mutation(
+        id="M490", phase=59,
+        description="ignore the unit a grid row states, so '24.8 (109)' under "
+                    "'m3/h (USGPM)' has no unit (B4 fix 3)",
+        path=APP / "datasheets.py",
+        anchor="    if value is not None and unit is None and unit_hint:\n",
+        replacement="    if False:\n",
+        target=_B4_TEST, keyword="takes_the_primary_unit",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M491", phase=59,
+        description="let the layout's unit hint override a unit printed in the "
+                    "value itself (B4 fix 3, negative)",
+        path=APP / "datasheets.py",
+        anchor="    if value is not None and unit is None and unit_hint:\n",
+        replacement="    if value is not None and unit_hint:\n",
+        target=_B4_TEST, keyword="not_overridden",
+        tags=("honesty",),
+    ),
 )
 
 

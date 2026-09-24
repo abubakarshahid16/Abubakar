@@ -636,6 +636,33 @@ def section_heading(chunk_section: str | None) -> str | None:
     return text if is_field_label(text) else None
 
 
+def primary_unit(cell: str | None) -> str | None:
+    """The unit a two-unit cell states first - "m3/h (USGPM)" -> "m3/h".
+
+    B4. Datasheets print a quantity in two unit systems, the second in
+    brackets. The unit outside the brackets is the one the first number is in;
+    None when that part is not a unit `claims` recognises (a gauge reference
+    such as "bar g" is split off before the check, as `create_fact` does).
+    Nothing is guessed from words that are not a unit.
+    """
+    outside = re.sub(r"\([^)]*\)", " ", cell or "")
+    outside = re.sub(r"\s+", " ", outside).strip()
+    if not outside:
+        return None
+    base, _reference = claims.split_reference(outside)
+    return outside if claims.is_unit(base or "") else None
+
+
+def is_unit_cell(text: str | None) -> bool:
+    """A TWO-UNIT cell - a unit with its bracketed alternate, "m3/h (USGPM)",
+    "bar (psi)" - which names how a quantity is measured, never a field.
+
+    The bracket is required: a bare "RPM" is a real field label on a pump
+    sheet (the rated speed's slot), measured by the #179 layout tests.
+    """
+    return "(" in (text or "") and primary_unit(text) is not None
+
+
 def is_field_label(text: str) -> bool:
     """True when `text` can be a FIELD LABEL rather than a value.
 
@@ -655,6 +682,11 @@ def is_field_label(text: str) -> bool:
         return False
     letters = sum(1 for ch in candidate if ch.isalpha())
     if letters < 3:
+        return False
+    # B4: A UNIT CELL NAMES HOW A QUANTITY IS MEASURED, NOT WHICH QUANTITY.
+    # "m3/h (USGPM)" beside "CAPACITY / FLOW:" was stored as the field
+    # "m3/h usgpm" - the value under it stays UNKNOWN rather than that.
+    if is_unit_cell(candidate):
         return False
     # A cell that reads as a quantity is a value, whatever position it landed
     # in. `measure_value` is the authority, so there is one definition of
@@ -1512,8 +1544,14 @@ def create_fact(
     equipment_tag: str | None = None, commit: bool = True,
     validation_state: str | None = None,
     extractor_version: str | None = None, input_hash: str | None = None,
+    unit: str | None = None,
 ) -> dict:
     """Record one fact. REFUSES a fact whose citation does not resolve.
+
+    `unit` (B4): the unit a layout states for this value OUTSIDE the value's
+    own cell - a grid row's unit column, whose primary unit `primary_unit`
+    read. Used only when the value itself prints no unit: "24.8 (109)" under
+    "m3/h (USGPM)" is 24.8 m3/h. A unit printed in the value always wins.
 
     `commit=False` writes INSIDE the caller's open transaction and commits
     nothing, so `extract_facts` can make a whole datasheet all-or-nothing
@@ -1544,7 +1582,11 @@ def create_fact(
         raise FactError(f"page {page} is outside the cited chunk")
 
     blank, marker = is_blank_value(raw_value)
+    unit_hint = unit
     value, unit, measurement = (None, None, None) if blank else measure_value(raw_value or "")
+    if value is not None and unit is None and unit_hint:
+        unit = unit_hint
+        measurement = claims.normalise(value, unit)
     # A RANGE, KEPT AS TWO NUMBERS. `parse_range` returns None for an ordinary
     # cell, so a single value is untouched and its min/max stay NULL.
     value_min = value_max = None

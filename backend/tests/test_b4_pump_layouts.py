@@ -133,3 +133,61 @@ class TestCheckboxOnAQuantityField:
     def test_a_number_on_a_quantity_limit_is_kept(self):
         """NEGATIVE: the rule refuses the checkbox, never the quantity."""
         assert not datasheets.checkbox_on_quantity("MAX RELATIVE DENSITY", "1.02")
+
+
+# ================================================= 3. values given in two units
+
+class TestTwoUnitCells:
+    """Page 2 prints the unit cell "m3/h" over "(USGPM)" beside "CAPACITY /
+    FLOW:", and the value "24.8 (109)" - one flow given in two units. The unit
+    cell was promoted to a field label and stored "m3/h usgpm = 24.8 (109)"
+    with no number parsed."""
+
+    def test_a_unit_cell_is_never_a_field_label(self):
+        assert not datasheets.is_field_label("m3/h (USGPM)")
+        assert not datasheets.is_field_label("bar g (psig)")
+        assert not datasheets.is_field_label("m (ft)")
+
+    def test_a_bare_unit_word_can_still_name_a_field(self):
+        """NEGATIVE: "RPM ___*___" is the rated-speed slot on a pump sheet."""
+        assert datasheets.is_field_label("RPM")
+
+    def test_the_page_two_shape_stores_no_unit_named_field(self, tmp_path):
+        """NEGATIVE: until the row is read under its own label (the grid
+        reader), the value stays UNKNOWN - never filed under the unit."""
+        doc = sheet(tmp_path, [(29, 288, "17"), (91, 288, "CAPACITY / FLOW:"),
+                               (169, 281, "m3/h"), (162, 288, "(USGPM)"),
+                               (246, 288, "24.8 (109)")])
+        names = by_name(doc)
+        assert not [n for n in names if "usgpm" in n or n.startswith("m3")], names
+
+    def test_the_primary_unit_is_the_one_outside_the_brackets(self):
+        assert datasheets.primary_unit("m3/h (USGPM)") == "m3/h"
+        assert datasheets.primary_unit("bar (psi)") == "bar"
+        assert datasheets.primary_unit("bar g (psig)") == "bar g"
+        assert datasheets.primary_unit("kW") == "kW"
+
+    def test_a_cell_that_names_no_unit_gives_none(self):
+        """NEGATIVE: no guessing a unit from words that are not one."""
+        assert datasheets.primary_unit("(USGPM)") is None
+        assert datasheets.primary_unit("CAPACITY / FLOW:") is None
+        assert datasheets.primary_unit("Top of Foundation") is None
+
+    def test_a_two_unit_value_takes_the_primary_unit(self, tmp_path):
+        sheet(tmp_path, [(68, 100, "RATED FLOW"), (246, 100, "24.8")])
+        fact = datasheets.create_fact(
+            submittal_document_id="doc_pump", chunk_id="doc_pump-c1",
+            field_label="RATED FLOW:", raw_value="24.8 (109)", page=1,
+            unit="m3/h")
+        assert fact["raw_value"] == "24.8"
+        assert fact["raw_unit"] == "m3/h"
+        assert fact["field_value"] == "24.8 (109)", "the printed value must be kept"
+
+    def test_a_unit_printed_in_the_value_is_not_overridden(self, tmp_path):
+        """NEGATIVE: the value's own printed unit is closer evidence than a hint."""
+        sheet(tmp_path, [(68, 100, "RATED FLOW"), (246, 100, "24.8")])
+        fact = datasheets.create_fact(
+            submittal_document_id="doc_pump", chunk_id="doc_pump-c1",
+            field_label="DIFFERENTIAL PRESSURE:", raw_value="7.6 bar", page=1,
+            unit="m3/h")
+        assert fact["raw_unit"] == "bar"
