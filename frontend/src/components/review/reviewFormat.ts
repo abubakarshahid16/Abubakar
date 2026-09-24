@@ -48,7 +48,9 @@ export const STATUS_LABEL: Record<ComplianceStatus, string> = {
   CONDITIONAL: "Conditional",
   COMPLIANT: "Compliant",
   NOT_APPLICABLE: "Not applicable",
-  MISSING_INFORMATION: "No evidence submitted",
+  // WHAT WAS CHECKED, not what the contractor did (honesty audit 50): the
+  // engine knows no field it read answered this, not that nothing was sent.
+  MISSING_INFORMATION: "No value found in the fields read",
   // The owner's approved client-facing wording, 2026-09-22.
   NOT_IN_DOCUMENT_SCOPE:
     "Requires another document - not answerable from this submittal type",
@@ -76,6 +78,29 @@ export const STATUS_TONE: Record<ComplianceStatus, string> = {
 export function statusLabel(status: string | null | undefined): string {
   if (!status) return "";
   return STATUS_LABEL[status as ComplianceStatus] ?? status;
+}
+
+/** B3: the reason code a finding's rationale leads with when its value may
+ *  sit on a page the system has not read into fields yet. */
+export const UNREAD_PAGES = "UNREAD_PAGES";
+
+/** The owner's plain wording for those findings (2026-09-25), so the drop in
+ *  "missing information" reads as honesty, not as a regression. */
+export const PAGES_NOT_READABLE_LABEL = "Pages not yet readable - needs engineer review";
+
+/**
+ * A FINDING's label, not just its status's: one status can carry different
+ * truths. A NEEDS_ENGINEER_REVIEW finding whose reason is UNREAD_PAGES says
+ * so in plain words; every other finding reads as its status does.
+ */
+export function findingLabel(finding: {
+  compliance_status?: string | null; ai_rationale?: string | null;
+}): string {
+  if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"
+      && (finding.ai_rationale ?? "").startsWith(UNREAD_PAGES)) {
+    return PAGES_NOT_READABLE_LABEL;
+  }
+  return statusLabel(finding.compliance_status);
 }
 
 export function statusTone(status: string | null | undefined): string {
@@ -152,6 +177,40 @@ export function completenessLine(run: ReviewRunSummary): string {
   return `${read.toLocaleString()} of approximately ${estimated.toLocaleString()} fields`
     + ` (a NOMINAL estimate: ${block.pages ?? "?"} pages x 35 fields per page,`
     + ` not a count of this document)`;
+}
+
+/** `[1, 2, 3, 7]` -> `1-3, 7`, the same shape the backend writes in findings. */
+export function pageList(pages: number[]): string {
+  const sorted = [...pages].sort((a, b) => a - b);
+  const out: string[] = [];
+  let start: number | null = null;
+  let prev: number | null = null;
+  for (const p of [...sorted, Number.NaN]) {
+    if (prev !== null && p === prev + 1) { prev = p; continue; }
+    if (start !== null && prev !== null) out.push(start === prev ? `${start}` : `${start}-${prev}`);
+    start = p; prev = p;
+  }
+  return out.join(", ");
+}
+
+/**
+ * B3: WHICH PAGES THE REVIEW READ INTO FIELDS, with its denominator, and the
+ * pages it did not - so "no value found" is never read as "the contractor
+ * left it out". Nothing when the run predates the ledger (null is nothing).
+ */
+export function pageCoverageLine(run: ReviewRunSummary): string {
+  const pc = run.page_coverage;
+  if (!pc) return "";
+  if (pc.pages_total === null || pc.pages_total === undefined) {
+    return "No page of this submittal was accounted for; no value can be called missing.";
+  }
+  const read = pc.fact_pages.length;
+  const head = `Fields read from ${read} of ${pc.pages_total} pages`
+    + (read ? ` (${read === 1 ? "page" : "pages"} ${pageList(pc.fact_pages)})` : "");
+  const unread = pc.pages_not_read_into_fields;
+  if (!unread.length) return `${head}.`;
+  return `${head}; ${unread.length === 1 ? "page" : "pages"} ${pageList(unread)}`
+    + " not read into fields, so a value not found may still be there.";
 }
 
 /** A timestamp as a person reads it, or nothing when there is none. */

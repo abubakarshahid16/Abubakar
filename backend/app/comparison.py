@@ -49,8 +49,8 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from . import (claims, conditions, datasheets, match_rules, requirements_3b,
-                schemas, submittal_review)
+from . import (claims, conditions, datasheets, match_rules, page_ledger,
+                requirements_3b, schemas, submittal_review)
 from .config import settings
 from .db import connect
 
@@ -395,7 +395,9 @@ def compare(requirement: dict, fact: dict | None, *,
             }
         return {
             "status": MISSING_INFORMATION,
-            "rationale": "the submittal states no value for this requirement",
+            # WHAT WAS CHECKED, not what the document says (honesty audit 50):
+            # extraction reads some fields of a page, not necessarily all.
+            "rationale": "no field read from the submittal answers this requirement",
             "limit": None, "observed": None, "exception_applied": None,
         }
     if fact.get("is_blank"):
@@ -787,6 +789,47 @@ def _required_action(status: str) -> str:
     }.get(status, "An engineer must review this manually.")
 
 
+#: B3. The reason code on a finding whose value could not be looked for on
+#: every page: the review may not call it the contractor's omission.
+UNREAD_PAGES = "UNREAD_PAGES"
+
+
+def qualify_by_pages(verdict: dict, pages: dict) -> dict:
+    """What a MISSING_INFORMATION verdict may claim, given the pages read.
+
+    NORTH-STAR 2.2: an omission finding preserves "the exact contractor
+    pages/sections/fields searched", and "not retrieved" never means "not
+    present". So:
+
+    - every page read into fields: still MISSING_INFORMATION, and the
+      rationale names the pages searched;
+    - any page NOT read into fields (no fields parsed, unreadable, never
+      reached, extraction never ran), or no page accounted for at all:
+      NEEDS_ENGINEER_REVIEW. The value may sit on the unread page, so the
+      review cannot tell the contractor it is missing.
+    """
+    total = pages.get("pages_total")
+    searched = pages.get("fact_pages") or []
+    unread = pages.get("pages_not_read_into_fields") or []
+    where = (f"page{'s' if len(searched) != 1 else ''} "
+             f"{page_ledger.page_list(searched)}" if searched else "no page")
+    if not total:
+        return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
+            f"{UNREAD_PAGES}: no page of this submittal is accounted for, so an "
+            "omission cannot be stated; an engineer must check the document")}
+    if unread:
+        return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
+            f"{UNREAD_PAGES}: no value for this requirement was found in the "
+            f"fields read from {where} of {total}; "
+            f"page{'s' if len(unread) != 1 else ''} {page_ledger.page_list(unread)} "
+            "were not read into fields, so the value may be there. An engineer "
+            "must check those pages before this becomes a comment to the "
+            "contractor")}
+    return {**verdict, "rationale": (
+        f"{verdict.get('rationale') or ''}; fields were read from every page "
+        f"({where} of {total})")}
+
+
 def _confidence_label(value: float) -> str:
     """CLAUDE.md rule 4: confidence is NEVER "high".
 
@@ -1023,6 +1066,10 @@ def run_comparison(
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
+    # B3: WHICH PAGES WERE READ INTO FIELDS, once per run, so no finding says
+    # the contractor omitted a value that could sit on a page nobody read.
+    page_ledger.refresh(submittal_id, as_submittal=True)
+    pages_read = page_ledger.coverage(submittal_id)
     # THE SHEET'S KIND, ONCE PER RUN. The classification's word when an
     # engineer or the classifier gave one; the field names otherwise.
     from . import classification as classification_mod
@@ -1126,6 +1173,10 @@ def run_comparison(
                     "no value was chosen, because choosing one arbitrarily "
                     "would attach a real number to the wrong requirement"),
             }
+        # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
+        # is only the contractor's omission if every page was read into fields.
+        if fact is None and verdict.get("status") == MISSING_INFORMATION:
+            verdict = qualify_by_pages(verdict, pages_read)
         # THE PAIRING NOTE GOES ON LAST, after every verdict adjustment above,
         # because the unit guard and the tie branch REPLACE the rationale. A
         # prefix written before them would be silently dropped on exactly the
@@ -1153,7 +1204,8 @@ def run_comparison(
         submittal_id, allowed_document_ids=allowed_document_ids,
         reference_coverage=reference_coverage)
     recommendation = recommend_code(findings, coverage)
-    _store_run_outcome(review_run_id, recommendation, coverage)
+    _store_run_outcome(review_run_id, recommendation, coverage,
+                       page_coverage=pages_read)
 
     return {
         "review_run_id": review_run_id,
@@ -1175,6 +1227,7 @@ def run_comparison(
                            NOT_IN_DOCUMENT_SCOPE)
         },
         "completeness": coverage,
+        "page_coverage": pages_read,
         "recommended_code": recommendation,
     }
 
@@ -1895,8 +1948,12 @@ def _match_fact(requirement: dict, by_field: dict) -> dict | None:
 
 
 def _store_run_outcome(review_run_id: str, recommendation: dict,
-                       coverage: dict) -> None:
+                       coverage: dict, *, page_coverage: dict | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
+
+    B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
+    which pages were read into fields and why the others were not - so the
+    run keeps saying what it searched after the ledger is refreshed again.
 
     The FINAL code is not written here. The AI recommends; the engineer
     decides, and `record_engineer_code` is where that happens - section 15's
@@ -1911,6 +1968,7 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 "recommended_code": recommendation["code"],
                 "reason": recommendation["reason"],
                 "completeness": coverage,
+                "page_coverage": page_coverage,
             }), _now(), review_run_id))
 
 

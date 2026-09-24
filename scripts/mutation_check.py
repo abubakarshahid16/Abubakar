@@ -718,8 +718,12 @@ PHASE_4 = (
         description="report a page that yielded nothing as parsed anyway",
         path=APP / "datasheets.py",
         # Re-anchored by B19: the write loop moved inside one transaction, +4.
-        anchor="            if page_written == 0:\n                unparsed.append({",
-        replacement="            if False:\n                unparsed.append({",
+        # Re-anchored by B3: the reason is kept for the page ledger too, so the
+        # mutant now reports the empty page as parsed in BOTH homes.
+        anchor="            if page_written == 0:\n"
+               "                reason = _unparsed_reason(pairs, dropped)\n",
+        replacement="            if False:\n"
+                    "                reason = _unparsed_reason(pairs, dropped)\n",
         target="tests/test_datasheets.py",
         keyword="unparsed_page_lowers_completeness",
         tags=("honesty", "completeness"),
@@ -2972,8 +2976,9 @@ CRS_EXPORT = (
         description="drop the GAP ROWS, so a run that found no breach exports "
                     "an empty sheet reading 'nothing to report'",
         path=APP / "main.py",
-        anchor="        findings, _missing_references(submittal_id, allowed), submittal_name)",
-        replacement="        findings, [], submittal_name)",
+        # Re-anchored by B3: the call gained `unread_pages=` on the next line.
+        anchor="        findings, _missing_references(submittal_id, allowed), submittal_name,\n",
+        replacement="        findings, [], submittal_name,\n",
         target="tests/test_crs_endpoint.py",
         keyword="no_includable_findings_still_exports_its_gap_rows",
         tags=("honesty", "critical"),
@@ -3947,7 +3952,8 @@ B9_NOT_IN_DOCUMENT_SCOPE = (
         description="word it as missing evidence on screen",
         path=_REVIEW_UI / "reviewFormat.ts",
         anchor='    "Requires another document - not answerable from this submittal type",',
-        replacement='    "No evidence submitted",',
+        # B3: follows the missing-information label, whatever it says.
+        replacement='    "No value found in the fields read",',
         target="src/components/review/reviewFormat.test.ts",
         keyword="approved wording",
         tags=("honesty", "ui"),
@@ -5082,6 +5088,308 @@ B177_JOB_CLAIM_RETRY_PRIORITY = (
 )
 
 
+#: Master order B3: the page ledger, and a review that never calls an unread
+#: page the contractor's omission. Phase 57.
+_B3_TEST = "tests/test_b3_page_ledger.py"
+_LIVE_GUARD_TEST = "tests/test_live_guard.py"
+B3_PAGE_LEDGER = (
+    Mutation(
+        id="M450", phase=57,
+        description="PUT IT BACK: fact extraction computes each page's outcome "
+                    "and throws it away again (B3)",
+        path=APP / "datasheets.py",
+        anchor="        page_ledger.record_fact_pages(conn, document_id, outcomes,\n"
+               "                                      extractor_version=extractor_version)\n",
+        replacement="",
+        target=_B3_TEST, keyword="records_each_pages_outcome or keeps_extractions_own",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M451", phase=57,
+        description="the review stops asking which pages were read, so 'no value "
+                    "found' is the contractor's omission again (B3)",
+        path=APP / "comparison.py",
+        anchor="        if fact is None and verdict.get(\"status\") == MISSING_INFORMATION:\n"
+               "            verdict = qualify_by_pages(verdict, pages_read)\n",
+        replacement="",
+        target=_B3_TEST, keyword="not_called_the_contractors_omission or decides_the_code",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M452", phase=57,
+        description="an unread page no longer blocks the omission claim (B3)",
+        path=APP / "comparison.py",
+        anchor="    if unread:\n        return {**verdict, \"status\": NEEDS_ENGINEER_REVIEW,",
+        replacement="    if False:\n        return {**verdict, \"status\": NEEDS_ENGINEER_REVIEW,",
+        target=_B3_TEST, keyword="not_called_the_contractors_omission",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M453", phase=57,
+        description="with no page accounted for at all, claim every page was "
+                    "read (B3)",
+        path=APP / "comparison.py",
+        anchor="    if not total:\n        return {**verdict, \"status\": NEEDS_ENGINEER_REVIEW,",
+        replacement="    if False:\n        return {**verdict, \"status\": NEEDS_ENGINEER_REVIEW,",
+        target=_B3_TEST, keyword="no_page_accounted_for",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M454", phase=57,
+        description="a page no retrievable chunk covers reads as an ordinary "
+                    "page with no fields, hiding that extraction never saw it (B3)",
+        path=APP / "page_ledger.py",
+        anchor='        elif index_status != "retrievable":\n',
+        replacement="        elif False:\n",
+        target=_B3_TEST, keyword="no_retrievable_chunk_covers",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M455", phase=57,
+        description="a refresh overwrites extraction's own per-page record with "
+                    "a derivation (B3)",
+        path=APP / "page_ledger.py",
+        anchor="        elif p in recorded:\n",
+        replacement="        elif False:\n",
+        target=_B3_TEST, keyword="keeps_extractions_own",
+    ),
+    Mutation(
+        id="M456", phase=57,
+        description="ingestion finishes without accounting for the document's "
+                    "pages (B3)",
+        path=APP / "ingest.py",
+        anchor="            # LAST, after fact extraction, so the ledger carries its outcome.\n"
+               "            _refresh_page_ledger(doc_id)\n",
+        replacement="",
+        target=_B3_TEST, keyword="ingestion_builds_the_ledger",
+    ),
+    Mutation(
+        id="M457", phase=57,
+        description="the run forgets which pages it searched (B3)",
+        path=APP / "comparison.py",
+        anchor='                "page_coverage": page_coverage,\n',
+        replacement="",
+        target=_B3_TEST, keyword="keeps_the_page_coverage",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M458", phase=57,
+        description="the page-ledger route stops checking the caller may read "
+                    "the document (B3)",
+        path=APP / "main.py",
+        anchor="    reject_unknown_params(request, set())\n"
+               "    require_document(document_id, scope)\n"
+               "    return {\"document_id\": document_id,\n"
+               "            \"pages\": page_ledger_mod.rows(document_id),",
+        replacement="    reject_unknown_params(request, set())\n"
+                    "    return {\"document_id\": document_id,\n"
+                    "            \"pages\": page_ledger_mod.rows(document_id),",
+        target=_B3_TEST, keyword="hides_a_document_outside",
+        tags=("permission", "critical"),
+    ),
+    Mutation(
+        id="M459", phase=57,
+        description="a page never reached by extraction is left out of the "
+                    "pages not read into fields (B3)",
+        path=APP / "page_ledger.py",
+        anchor='NOT_READ_INTO_FIELDS = frozenset({"no_facts", "unreadable", "not_reached", "not_run"})',
+        replacement='NOT_READ_INTO_FIELDS = frozenset({"no_facts", "unreadable", "not_run"})',
+        target=_B3_TEST, keyword="no_retrievable_chunk_covers",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M460", phase=57,
+        description="a document with nothing searchable finishes with its pages "
+                    "unaccounted for - the pages most at risk of vanishing (B3)",
+        path=APP / "ingest.py",
+        anchor="                    (_now(), doc_id),\n"
+               "                )\n"
+               "            _refresh_page_ledger(doc_id)\n"
+               "            return\n",
+        replacement="                    (_now(), doc_id),\n"
+                    "                )\n"
+                    "            return\n",
+        target=_B3_TEST, keyword="nothing_searchable_still_has_its_pages",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M461", phase=57,
+        description="PUT #183 BACK: the equipment classifier reads retrievable "
+                    "chunks only, so a stripped title block is never evidence",
+        path=APP / "classification.py",
+        anchor="    evidence = suggest_equipment_type_from_title(title_block_lines(pages))\n",
+        replacement="    evidence = None\n",
+        target="tests/test_183_title_block.py",
+        keyword="chunker_stripped or reprinted_header",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M462", phase=57,
+        description="treat every line of every page as the title block, so a "
+                    "body sentence naming other equipment names the sheet (#183)",
+        path=APP / "classification.py",
+        anchor="        edge = lines[:n] + lines[-n:] if len(lines) > 2 * n else lines\n",
+        replacement="        edge = lines\n",
+        target="tests/test_183_title_block.py",
+        keyword="body_sentence",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M463", phase=57,
+        description="ignore the header a datasheet reprints on every page, so "
+                    "the more specific name it carries is never read (#183)",
+        path=APP / "classification.py",
+        anchor="            if page_no == first_page or (norm in running and norm not in seen):\n",
+        replacement="            if page_no == first_page:\n",
+        target="tests/test_183_title_block.py",
+        keyword="reprinted_header",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M464", phase=57, runner="vitest",
+        description="the run card stops saying which pages were not read into "
+                    "fields (B3, UI)",
+        path=REPO / "frontend" / "src" / "views" / "ReviewRunsView.tsx",
+        anchor='        <p className="mt-1 text-xs text-slateish-500" data-testid="page-coverage">\n'
+               "          {pageCoverage}\n"
+               "        </p>\n",
+        replacement="        <></>\n",
+        target="src/views/ReviewRunsView.test.tsx",
+        keyword="which pages were not read",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M465", phase=57, runner="vitest",
+        description="the page-coverage line drops the unread pages and reads as "
+                    "'every page read' (B3, UI)",
+        path=REPO / "frontend" / "src" / "components" / "review" / "reviewFormat.ts",
+        anchor="  if (!unread.length) return `${head}.`;\n",
+        replacement="  return `${head}.`;\n",
+        target="src/components/review/reviewFormat.test.ts",
+        keyword="names the unread pages",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M466", phase=57,
+        description="PUT THE INCIDENT BACK: db.connect() opens a live database "
+                    "for any process, with no backup and no drill (live guard)",
+        path=APP / "live_guard.py",
+        anchor="    if not is_live_shaped(path) or is_server_process():\n        return\n",
+        replacement="    return\n",
+        target=_LIVE_GUARD_TEST, keyword="refused_without_a_verified_backup",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M467", phase=57,
+        description="clear a live write without comparing the backup with the "
+                    "live file, so a backup of the wrong contents is a rollback "
+                    "point (live guard)",
+        path=APP / "live_guard.py",
+        anchor="    if live_counts != report[\"tables\"]:\n",
+        replacement="    if False:\n",
+        target=_LIVE_GUARD_TEST, keyword="does_not_match_the_live_file",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M468", phase=57,
+        description="skip the restore drill: a backup nobody has restored is "
+                    "trusted as the rollback point (live guard)",
+        path=APP / "live_guard.py",
+        anchor="    _restore_drill(backup_path, report[\"tables\"])\n",
+        replacement="",
+        target=_LIVE_GUARD_TEST, keyword="failed_restore_drill",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M469", phase=57,
+        description="run.py stops marking the server, so the live API is "
+                    "refused its own database on the next restart (live guard)",
+        path=REPO / "backend" / "run.py",
+        anchor="    live_guard.mark_server_process()\n",
+        replacement="",
+        target=_LIVE_GUARD_TEST, keyword="marks_the_server",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M470", phase=57,
+        description="resetdoc writes a live database without the guard again - "
+                    "the raw sqlite path the connection layer cannot see",
+        path=REPO / "scripts" / "resetdoc.py",
+        anchor="    if live_guard.is_live_shaped(path):\n"
+               "        clearance = live_guard.prepare_live_write(path, reason=f\"resetdoc {args.doc_id}\")\n"
+               "        print(f\"rollback point: {clearance.backup_path}\")\n",
+        replacement="",
+        target=_LIVE_GUARD_TEST, keyword="resetdoc",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M471", phase=57,
+        description="a live write with no stated reason is cleared (live guard)",
+        path=APP / "live_guard.py",
+        anchor="    if not reason or not reason.strip():\n"
+               "        raise LiveWriteRefused(\"a live write needs a stated reason\")\n",
+        replacement="",
+        target=_LIVE_GUARD_TEST, keyword="needs_a_reason",
+    ),
+    Mutation(
+        id="M472", phase=57, runner="vitest",
+        description="an unread-page finding reads as a bare 'Needs engineer "
+                    "review', so the drop in missing information looks like a "
+                    "regression (B3, owner decision 5)",
+        path=_REVIEW_UI / "reviewFormat.ts",
+        anchor='  if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"\n',
+        replacement="  if (false\n",
+        target="src/components/review/reviewFormat.test.ts",
+        keyword="UNREAD_PAGES finding",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M473", phase=57, runner="vitest",
+        description="the findings table shows the status's label, not the "
+                    "finding's (B3, owner decision 5)",
+        path=_REVIEW_UI / "FindingsTable.tsx",
+        anchor="          {findingLabel(finding)}\n",
+        replacement="          {statusLabel(finding.compliance_status)}\n",
+        target="src/components/review/FindingsTable.test.tsx",
+        keyword="not a bare status",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M474", phase=57,
+        description="every unread-page finding enters the CRS as its own "
+                    "contractor comment again (B3)",
+        path=APP / "crs_mapping.py",
+        anchor='                if f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"\n'
+               "                and not _unread(f)]\n",
+        replacement='                if f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"]\n',
+        target="tests/test_b3_crs_unread_pages.py",
+        keyword="one_plain_summary_row",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M475", phase=57,
+        description="the CRS says nothing about the requirements it could not "
+                    "check, reading as if none existed (B3)",
+        path=APP / "crs_mapping.py",
+        anchor="    if unread_count:\n",
+        replacement="    if False:\n",
+        target="tests/test_b3_crs_unread_pages.py",
+        keyword="one_plain_summary_row",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M476", phase=57,
+        description="the CRS export stops passing the run's stored unread "
+                    "pages, so the summary names no page (B3)",
+        path=APP / "main.py",
+        anchor="        unread_pages=unread)\n",
+        replacement="        unread_pages=[])\n",
+        target=_B3_TEST, keyword="crs_names_the_unread_pages",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -5102,6 +5410,7 @@ ALL: tuple[Mutation, ...] = (
     + B179_EXTRACTION_QUALITY_2
     + B176_SUBMITTAL_METADATA
     + B177_JOB_CLAIM_RETRY_PRIORITY
+    + B3_PAGE_LEDGER
 )
 
 

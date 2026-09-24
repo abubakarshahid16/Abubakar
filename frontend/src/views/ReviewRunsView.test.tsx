@@ -123,3 +123,29 @@ describe("nominal-estimate reason on a run card", () => {
     expect(card.getAllByText(/NOMINAL/i)).toHaveLength(1);
   });
 });
+
+describe("B3: the pages a run read into fields", () => {
+  it("shows on the run card which pages were not read, with the denominator", async () => {
+    reviewRuns.mockResolvedValue({
+      ok: true,
+      data: { runs: [run({ page_coverage: {
+        pages_total: 11, fact_pages: [4, 5],
+        pages_not_read_into_fields: [1, 2, 3, 6, 7, 8, 9, 10, 11],
+        not_read_reasons: {},
+      } })] },
+    });
+    render(<ReviewRunsView />);
+
+    const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
+    const line = within(runButton).getByTestId("page-coverage");
+    expect(line).toHaveTextContent("Fields read from 2 of 11 pages (pages 4-5)");
+    expect(line).toHaveTextContent("pages 1-3, 6-11 not read into fields");
+  });
+
+  it("shows nothing for a run made before the page ledger existed", async () => {
+    render(<ReviewRunsView />);
+
+    const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
+    expect(within(runButton).queryByTestId("page-coverage")).toBeNull();
+  });
+});

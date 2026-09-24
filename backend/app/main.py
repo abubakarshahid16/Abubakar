@@ -20,6 +20,7 @@ from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import job_queue as job_queue_mod
 from . import orphan_guard
+from . import page_ledger as page_ledger_mod
 from . import highlight as highlight_mod
 from . import keyword as keyword_mod
 from . import metrics as metrics_mod
@@ -1657,6 +1658,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "decided_by_name": run.get("decided_by_name"),
         "decided_at": run.get("decided_at"),
         "completeness": outcome.get("completeness"),
+        "page_coverage": outcome.get("page_coverage"),
     }
 
 
@@ -2453,6 +2455,28 @@ def document_pages(
     }
 
 
+@app.get("/api/documents/{document_id}/page-ledger", response_model=schemas.PageLedger,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def document_page_ledger(
+    request: Request,
+    document_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Every page of one document with its per-stage outcome (master order B3).
+
+    SCOPED LIKE THE DOCUMENT: out of scope reads as not found. READ-ONLY: the
+    ledger is refreshed by ingestion, fact extraction and review runs, never
+    by a GET. A document with no ledger rows yet returns an empty list and a
+    `pages_total` of null - "not accounted for", never "zero pages".
+    Ids, statuses, counts and rule names only; never page text.
+    """
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return {"document_id": document_id,
+            "pages": page_ledger_mod.rows(document_id),
+            "coverage": page_ledger_mod.coverage(document_id)}
+
+
 #: Media types for the preview surfaces. A CLOSED MAP with an
 #: `application/octet-stream` default, never `mimetypes.guess_type`: the
 #: filename is user-supplied, and letting it choose the Content-Type is how a
@@ -3222,11 +3246,15 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
     for finding in findings:
         finding["standard_name"] = names.get(finding.get("standard_document_id"))
 
-    rows = crs_mapping_mod.build_crs_rows(
-        findings, _missing_references(submittal_id, allowed), submittal_name)
-
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=allowed) or {}
+    # B3: the pages this run could not read into fields, AS STORED ON THE RUN,
+    # so the CRS names the same pages the findings were decided on.
+    unread = ((outcome.get("page_coverage") or {})
+              .get("pages_not_read_into_fields") or [])
+    rows = crs_mapping_mod.build_crs_rows(
+        findings, _missing_references(submittal_id, allowed), submittal_name,
+        unread_pages=unread)
     stamp = _now_date()
     meta = {
         "document_title": submittal_name,

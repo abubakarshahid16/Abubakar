@@ -51,6 +51,34 @@ _NOT_IN_DOCUMENT_SCOPE = "NOT_IN_DOCUMENT_SCOPE"
 #: status is "needs another document".
 _REQUIRES_OTHER_DOCUMENT_MARKER = "requires_other_document"
 
+#: B3. The reason code `comparison.UNREAD_PAGES` leads `ai_rationale` with on a
+#: finding whose value could sit on a page not yet read into fields. Duplicated
+#: as a literal for the same reason as the two above. Such a finding is an
+#: instruction to the ENGINEER, never a comment to the contractor, so it never
+#: enters the CRS as its own row.
+_UNREAD_PAGES_MARKER = "UNREAD_PAGES"
+ROW_KIND_PAGES_NOT_READABLE = "pages_not_readable"
+
+
+def _page_list(pages: list[int]) -> str:
+    """`[1, 2, 3, 7]` -> `1-3, 7` - the shape the findings themselves use."""
+    out, run = [], []
+    for p in sorted(pages):
+        if run and p == run[-1] + 1:
+            run.append(p)
+            continue
+        if run:
+            out.append(f"{run[0]}-{run[-1]}" if len(run) > 1 else str(run[0]))
+        run = [p]
+    if run:
+        out.append(f"{run[0]}-{run[-1]}" if len(run) > 1 else str(run[0]))
+    return ", ".join(out)
+
+
+def _unread(finding: dict) -> bool:
+    return (finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
+            and (finding.get("ai_rationale") or "").startswith(_UNREAD_PAGES_MARKER))
+
 
 def _citation(finding: dict) -> str:
     parts = []
@@ -88,7 +116,8 @@ def _comment_text(finding: dict) -> str:
 
 
 def build_crs_rows(findings: list[dict], missing_references: list[str],
-                   submittal_name: str) -> list[dict]:
+                   submittal_name: str,
+                   unread_pages: list[int] | None = None) -> list[dict]:
     """One row per NON_COMPLIANT or NEEDS_ENGINEER_REVIEW finding, then one
     summary row each for MISSING_INFORMATION and requires-another-document
     findings (present only when the run has at least one), then one row per
@@ -103,14 +132,22 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     its own count, honouring CLAUDE.md rule 4 (every count states its
     boundary) the same way the missing-reference rows already do.
 
-    Order: NON_COMPLIANT, then NEEDS_ENGINEER_REVIEW, then the two summaries,
+    Order: NON_COMPLIANT, then NEEDS_ENGINEER_REVIEW, then the summaries,
     then the standards gaps.
+
+    B3: a NEEDS_ENGINEER_REVIEW finding whose reason is UNREAD_PAGES is not an
+    individual row either. It says "the value may be on a page nobody has read
+    into fields yet" - work for the reviewing engineer, not a question for the
+    contractor - and on today's regression documents there are 55 to 79 of
+    them per run. They get ONE plain summary row naming the pages
+    (`unread_pages`, the run's stored page coverage).
     """
     rows = []
     ordered = [f for f in findings
                if f.get("compliance_status") == "NON_COMPLIANT"]
     ordered += [f for f in findings
-                if f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"]
+                if f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
+                and not _unread(f)]
     for f in ordered:
         by = "AI Review"
         if f.get("confirmed_by"):
@@ -151,6 +188,27 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "row_kind": ROW_KIND_REQUIRES_OTHER_DOCUMENT,
         })
 
+    unread_count = sum(1 for f in findings if _unread(f))
+    if unread_count:
+        pages = _page_list(unread_pages or [])
+        where = (f"page{'s' if len(unread_pages or []) != 1 else ''} {pages} of "
+                 "this submittal" if pages else "some pages of this submittal")
+        rows.append({
+            "finding_id": "pages-not-readable-summary",
+            "document_name": submittal_name,
+            "page_section": f"Pages {pages}" if pages else "",
+            "comment": (
+                f"Pages not yet readable - needs engineer review. "
+                f"{unread_count} requirement{'s' if unread_count != 1 else ''} "
+                f"could not be checked because {where} "
+                f"{'are' if len(unread_pages or []) != 1 else 'is'} not yet read "
+                "into fields by the system, so the values may be there. An "
+                "engineer will check those pages; this is not a comment to the "
+                "contractor and nothing is missing until that check is done."),
+            "comment_by": "AI Review",
+            "row_kind": ROW_KIND_PAGES_NOT_READABLE,
+        })
+
     missing_info_count = sum(
         1 for f in findings
         if f.get("compliance_status") == _MISSING_INFORMATION)
@@ -159,13 +217,16 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "finding_id": "missing-information-summary",
             "document_name": submittal_name,
             "page_section": "",
+            # WHAT WAS CHECKED (honesty audit 50): "have no value stated for
+            # them in it" claimed the document was silent; what is known is
+            # that no field read from it answered them.
             "comment": (
                 f"{missing_info_count} requirement"
                 f"{'s' if missing_info_count != 1 else ''} reviewed against "
-                "this submittal have no value stated for them in it. This is "
-                "an absence, not a breach - the vendor has not been asked yet "
-                "- and is not itemized here for the same reason the count "
-                "above is not."),
+                "this submittal were not answered by any field read from it. "
+                "This is an absence, not a breach - the vendor has not been "
+                "asked yet - and is not itemized here for the same reason the "
+                "count above is not."),
             "comment_by": "AI Review",
             "row_kind": ROW_KIND_MISSING_INFORMATION,
         })

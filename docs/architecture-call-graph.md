@@ -37,9 +37,14 @@ then starts **exactly two background threads**: `IngestionWorker` (`ingest.py:90
 | Datasheet facts | `datasheets.extract_facts` (`datasheets.py:1843`): deterministic grid + text-block parsing; `replace=True` supersedes (ADR-0024). Vision tier `_pairs_from_vision_fallback` is a hard-coded `return []` | READY hook; `create_review_run` → `_extract_facts_if_none` | — | test_datasheets, test_179_layouts, test_b40_fact_orphan_guard | LIVE (vision tier DEAD) |
 | Classification | `suggest` at upload; `classify_equipment_type_for_submittal`, `classify_metadata_for_submittal` from READY hooks only; `confirm` from `PUT /api/documents/{id}/classification` (`main.py:1119`) | as stated | — | test_classification_*, test_document_roles | LIVE — **see gap G1** |
 
-**No per-page ledger.** Page state is spread over `pages` (text, `needs_ocr`,
-`equation_heavy`), `page_ocr` and `exclusions` (`scope='page'|'chunk'`). There is no single
-record of what happened to each page, why, with which version. This is stage B3's work.
+**Page ledger (B3, ADR-0025).** `page_ledger` table + `page_ledger.py`: one row per page of
+every document - native text status, OCR status, index status with the excluding rule,
+layout/vision status (both "no stage yet"), and for a submittal whether fields were read
+from the page and, if not, why. Refreshed by the ingest READY / no-searchable hooks, by
+`extract_facts` (which now records its per-page outcome instead of discarding it) and by
+every review run; read by `GET /api/documents/{id}/page-ledger` (scoped) and summarised on
+the run as `page_coverage`. Before B3 page state was spread over `pages`, `page_ocr` and
+`exclusions`, and the fact-parse outcome was not stored anywhere.
 
 ## 2. Engineering review
 
@@ -144,7 +149,7 @@ grant-table query). Applied as a mask before top-k in keyword and dense search, 
 | Target step | Today | Stage |
 |---|---|---|
 | Durable jobs | Only requirement extraction is a queued job; every other stage runs inline in one worker thread | B11 |
-| Page inspection and routing, page ledger | No ledger; OCR by `needs_ocr` flag only | B3 |
+| Page inspection and routing, page ledger | Ledger built (B3); OCR still routed by `needs_ocr` flag only | B3, B4 |
 | Native / OCR / table-layout / selective vision | Native + OCR + rule-based table parsing; vision DEAD | B4, B7 |
 | Cited facts, clauses, metadata | Yes, deterministic; metadata classifier from #176 | B4, B5 |
 | Structure-preserving chunks, embeddings, keyword index | Yes | B6 |

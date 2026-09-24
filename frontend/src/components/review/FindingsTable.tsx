@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 
 import type { ReviewFinding } from "../../types/api";
 import {
-  confidenceLabel, matchMethodLabel, matchMethodTone, orNothing,
+  confidenceLabel, findingLabel, matchMethodLabel, matchMethodTone, orNothing,
   statusLabel, statusRank, statusTone, withDenominator,
 } from "./reviewFormat";
 
@@ -261,7 +261,7 @@ function FindingRow({ finding, name, selected, onSelect }: {
       </td>
       <td className="px-3 py-2">
         <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${statusTone(finding.compliance_status)}`}>
-          {statusLabel(finding.compliance_status)}
+          {findingLabel(finding)}
         </span>
         {finding.confirmed_by && (
           <span className="mt-1 block text-xs text-emerald-300">

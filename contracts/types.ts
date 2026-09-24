@@ -455,6 +455,20 @@ export interface ReviewRunSummary {
     completeness?: number | null;
     sufficient?: boolean;
   } | null;
+  /** B3: the page ledger's summary AS OF THE RUN. Null on a run made before
+   *  the ledger existed - null renders as nothing, never "every page read". */
+  page_coverage?: PageCoverage | null;
+}
+
+/** Which pages of a submittal were read into fields, and why the rest were
+ *  not (master order B3). `pages_total` null = no page accounted for. */
+export interface PageCoverage {
+  pages_total: number | null;
+  fact_pages: number[];
+  pages_not_read_into_fields: number[];
+  /** Page number (as a string key) to the recorded or derived reason. */
+  not_read_reasons: Record<string, string | null>;
+  facts_source?: string | null;
 }
 
 /** The four codes of master plan section 15. Configurable there, fixed here

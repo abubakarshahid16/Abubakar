@@ -16,8 +16,8 @@ import { api, reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewFinding } from "../../types/api";
 import { DocumentPreview } from "../DocumentPreview";
 import {
-  confidenceLabel, matchMethodLabel, matchMethodTone, orNothing,
-  statusLabel, statusTone, whenLabel,
+  confidenceLabel, findingLabel, matchMethodLabel, matchMethodTone, orNothing,
+  statusTone, whenLabel,
 } from "./reviewFormat";
 
 export interface FindingDetailProps {
@@ -115,7 +115,7 @@ export function FindingDetail(
           )}
         </div>
         <span className={`ml-auto rounded-full border px-3 py-1 text-xs ${statusTone(finding.compliance_status)}`}>
-          {statusLabel(finding.compliance_status)}
+          {findingLabel(finding)}
         </span>
       </header>
 
