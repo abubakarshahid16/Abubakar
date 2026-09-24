@@ -56,7 +56,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 | PDF extraction | PyMuPDF (processes, never threads) |
 | Chunking | Custom structure-aware, 400-token target / 60-token overlap |
 | Embeddings | `intfloat/multilingual-e5-small`, local ONNX int8, 384-D normalized |
-| Vector search | Vectors as BLOBs in SQLite (`chunk_vectors`), memory-mapped into one numpy matrix (`vectorcache.py`), brute-force cosine. `lancedb` is still pinned in `backend/requirements.txt` but nothing imports it |
+| Vector search | Vectors as BLOBs in SQLite (`chunk_vectors`), memory-mapped into one numpy matrix (`vectorcache.py`), brute-force cosine |
 | Keyword search | SQLite FTS5 |
 | Fusion | Reciprocal Rank Fusion |
 | Reranking | Small local CPU cross-encoder — **mandatory**, not optional |
