@@ -17,6 +17,7 @@ Mutations: M49-M55, `python scripts/mutation_check.py --phase 5`.
 from __future__ import annotations
 
 import pathlib
+import re
 
 import pytest
 
@@ -667,6 +668,66 @@ def test_175_wired_into_extract_facts_not_just_the_function():
     assert "pairs_from_table_shape(" in source, (
         "extract_facts's ruled-table loop still calls split_label_value "
         "directly - the fix exists but was never wired in")
+
+
+# ==================================================================== #179
+#
+# Two real regression documents, re-audited independently after #175
+# shipped: `pairs_from_table_shape` treated column 0 as THE row's one label
+# in every case, which is wrong whenever column 0 is actually a bare KOC-
+# style row/line number rather than a name for the row. No client content:
+# the labels, headers and values below are invented, but each SHAPE - a
+# ruled row that packs two independent label:value sub-forms side by side
+# behind their own line numbers, and a ruled table whose row 0 is the
+# page's own repeating title rather than a real column header - reproduces
+# exactly what was measured on the two real regression documents' pages.
+
+# A pressure-safety-valve sheet's row: a PROCESS DATA sub-form and a
+# SPRING AND BONNET sub-form share one physical row, each introduced by its
+# own line number, with a blank spacer column on either side of each value.
+DUAL_SUBFORM_ROW_SHAPE = [
+    ["MAKE / MFR. MODEL NO.", "", "", "", "", "Design Standard: X", "", ""],
+    ["1", "Fluid", "", "Crude Oil/Gas (Dual Service)", "", "42",
+     "Bonnet type/ style", "Bolted/ closed"],
+]
+
+# A ruled table whose row 0 is the page's own repeating title (the actual
+# column header - "Ref. Clause | Description | Purchaser requirement |
+# Unit" - sits several rows further down and is itself introduced by a row
+# number, exactly like every other row on this sheet).
+ROW_NUMBERED_FORM_SHAPE = [
+    ["Row", "COMPANY NAME PROJECT TITLE", "", "", "", "", "", "", "Issue"],
+    ["4", "Identifier", "", "", "", "", "", "", ""],
+    ["5", "", "Tag number :", "TAG-0001A/B", "", "", "", "", ""],
+]
+
+
+def test_179_a_dual_subform_row_keeps_each_side_s_own_label():
+    """THE DEFECT. Column 0 ('1') is a row number, not a label - pairing
+    every value on the row against it turned the row's two REAL labels
+    ('Fluid', 'Bonnet type/ style') into values and left every fact on the
+    row named after a bare digit."""
+    pairs = datasheets.pairs_from_table_shape(DUAL_SUBFORM_ROW_SHAPE)
+    by_label = dict(pairs)
+
+    assert by_label.get("Fluid") == "Crude Oil/Gas (Dual Service)", pairs
+    assert by_label.get("Bonnet type/ style") == "Bolted/ closed", pairs
+    assert not any(re.fullmatch(r"\d{1,3}", label) for label, _ in pairs), (
+        f"a row number survived as a field_name: {pairs}")
+
+
+def test_179_a_row_numbered_form_does_not_quote_the_page_s_own_title():
+    """THE DEFECT. Row 0 is the page's own repeating title, not a column
+    header - scoping every value to it quoted the title text into
+    field_label instead of the real row label."""
+    pairs = datasheets.pairs_from_table_shape(ROW_NUMBERED_FORM_SHAPE)
+    by_label = dict(pairs)
+
+    assert by_label.get("Tag number :") == "TAG-0001A/B", pairs
+    assert not any("COMPANY NAME" in label for label, _ in pairs), (
+        f"the page's own title leaked into a field_label: {pairs}")
+    assert not any(re.fullmatch(r"\d{1,3}", label) for label, _ in pairs), (
+        f"a row number survived as a field_name: {pairs}")
 
 
 # --------------------------------------------------- OCR fallback (tier 2)

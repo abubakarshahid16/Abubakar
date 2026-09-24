@@ -4577,6 +4577,31 @@ B168_PIPELINE_REPAIR = (
 )
 
 
+B179_ROW_NUMBERED_TABLE_ROWS = (
+    Mutation(
+        id="M382", phase=51,
+        description="stop routing a row whose column 0 is a bare line "
+                    "number through split_label_value, so the row number "
+                    "goes back to being scoped-to-header's one row label "
+                    "(issue #179: bare-digit field names and page-title "
+                    "text leaking into field_label)",
+        path=APP / "datasheets.py",
+        anchor="        if re.fullmatch(r\"\\d{1,3}\", label):\n"
+               "            compact = [c for c in cells if c]\n"
+               "            out.extend(split_label_value(compact))\n"
+               "            continue",
+        replacement="        if False:\n"
+                    "            compact = [c for c in cells if c]\n"
+                    "            out.extend(split_label_value(compact))\n"
+                    "            continue",
+        target="tests/test_datasheets.py",
+        keyword="test_179_a_dual_subform_row_keeps_each_side_s_own_label or "
+                "test_179_a_row_numbered_form_does_not_quote_the_page_s_own_title",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4593,7 +4618,7 @@ ALL: tuple[Mutation, ...] = (
     + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
     + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
     + B175_CASCADE_AND_CONFIDENCE + B163_EVIDENCE_TYPE_GATE
-    + B168_PIPELINE_REPAIR
+    + B168_PIPELINE_REPAIR + B179_ROW_NUMBERED_TABLE_ROWS
 )
 
 

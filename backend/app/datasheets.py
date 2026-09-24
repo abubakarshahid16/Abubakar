@@ -990,6 +990,44 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
         label = cells[0]
         if not label:
             continue
+        # A ROW WHOSE OWN COLUMN 0 IS A BARE LINE NUMBER, measured on two
+        # real regression documents (issue #179). Column 0 is not a label
+        # here - it is a KOC-style row serial, exactly what split_label_value
+        # already strips wherever it appears - and this function's "one row
+        # label, several values under several headers" scoping does not
+        # apply to it.
+        #
+        # I-06 pairs a PROCESS DATA sub-form and a SPRING AND BONNET sub-form
+        # on the SAME physical row, each introduced by its own line number:
+        # `1 | Fluid | | Crude Oil/Gas (Dual Service) | | 42 | Bonnet type/
+        # style | Bolted/ closed`. Treating cells[0] ("1") as the row's one
+        # label turned the two REAL labels ("Fluid", "Bonnet type/ style")
+        # into VALUES paired against that bare digit, and the digit itself
+        # became the field_name recorded on the fact - 49 of the document's
+        # 268 facts were labelled "11", "12", "15" etc. this way, and the
+        # true label/value pairing was lost, not just misnamed.
+        #
+        # A second regression document is the same shape with one sub-form per row rather than
+        # two: the real label sits one cell past the row number
+        # (`5 | | Tag number : | 2003-47-V-0001A/B | ...`). Scoped-to-header
+        # naming then quoted the page's own repeating title text as if it
+        # were a column name, because that furniture line is what this
+        # table's ROW 0 actually contains - 8 of 10 spot-checked facts had
+        # `field_label` polluted with it.
+        #
+        # split_label_value already handles exactly this: it drops a bare
+        # line number wherever it sits in the cell list and pairs what is
+        # left, strictly left to right - the documented rule for "a KOC
+        # sheet is two forms side by side". It has no notion of this
+        # function's fixed-width PADDING, though: a blank spacer column
+        # between a label and its value (present in both documents' ruled
+        # tables) would otherwise be paired as the value instead of the
+        # real one cell further on, so the row's blanks are compacted out
+        # before handing it over.
+        if re.fullmatch(r"\d{1,3}", label):
+            compact = [c for c in cells if c]
+            out.extend(split_label_value(compact))
+            continue
         for i in range(1, width):
             value = cells[i]
             if not value:
