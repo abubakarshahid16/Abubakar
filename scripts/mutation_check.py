@@ -5651,6 +5651,62 @@ B4_PUMP_LAYOUTS = (
     ),
 )
 
+#: B5/#193: comparative-adjective and single-word-preposition limit forms
+#: ("closer than", "below 441degC") added to `_LIMIT`/`_OPERATOR`.
+B5_REQUIREMENT_TYPING = (
+    Mutation(
+        id="M501", phase=60,
+        description="drop the comparative-adjective alternative from _LIMIT, so "
+                    "'the gap shall be no closer than 5 mm' states no limit at all "
+                    "(B5 comparator fix)",
+        path=APP / "requirements_3b.py",
+        anchor='    r"|" + _COMPARATIVE_THAN +\n',
+        replacement='    r"|(?!)" +\n',
+        target="tests/test_standards_3b.py",
+        keyword="comparative_adjective_states_a_real_limit",
+        tags=("honesty", "requirement-typing"),
+    ),
+    Mutation(
+        id="M502", phase=60,
+        description="drop the single-word preposition alternative ('below', "
+                    "'under', 'beneath', 'above', 'over') from _LIMIT, so 'the "
+                    "design temperature shall be below 441degC' states no limit "
+                    "(B5 comparator fix)",
+        path=APP / "requirements_3b.py",
+        anchor='    r"|\\b(?:below|under|beneath|above|over)\\b)\\s*"',
+        replacement='    r")\\s*"',
+        target="tests/test_standards_3b.py",
+        keyword="comparative_adjective_states_a_real_limit",
+        tags=("honesty", "requirement-typing"),
+    ),
+    Mutation(
+        id="M503", phase=60,
+        description="swap which side of 'than' maps to < vs >, so 'closer than "
+                    "5 mm' is read as a minimum instead of a maximum (B5 "
+                    "comparator fix)",
+        path=APP / "requirements_3b.py",
+        anchor='    **{f"{word} than": "<" for word in _SMALLER_THAN},\n'
+               '    **{f"{word} than": ">" for word in _LARGER_THAN},\n',
+        replacement='    **{f"{word} than": ">" for word in _SMALLER_THAN},\n'
+                    '    **{f"{word} than": "<" for word in _LARGER_THAN},\n',
+        target="tests/test_standards_3b.py",
+        keyword="comparative_adjective_states_a_real_limit",
+        tags=("honesty", "requirement-typing"),
+    ),
+    Mutation(
+        id="M504", phase=60,
+        description="swap the single-word preposition operators, so 'below "
+                    "441degC' is read as a minimum instead of a maximum (B5 "
+                    "comparator fix)",
+        path=APP / "requirements_3b.py",
+        anchor='    "below": "<", "under": "<", "beneath": "<", "above": ">", "over": ">",',
+        replacement='    "below": ">", "under": ">", "beneath": ">", "above": "<", "over": "<",',
+        target="tests/test_standards_3b.py",
+        keyword="comparative_adjective_states_a_real_limit",
+        tags=("honesty", "requirement-typing"),
+    ),
+)
+
 
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
@@ -5675,6 +5731,7 @@ ALL: tuple[Mutation, ...] = (
     + B3_PAGE_LEDGER
     + B193_PAIRING
     + B4_PUMP_LAYOUTS
+    + B5_REQUIREMENT_TYPING
 )
 
 

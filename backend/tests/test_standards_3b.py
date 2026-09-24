@@ -689,6 +689,53 @@ def test_a_condition_is_the_circumstance_not_the_subject():
         "The coating shall be applied for corrosion protection.") is None
 
 
+@pytest.mark.parametrize(
+    ("sentence", "operator", "value"),
+    [
+        # #193/B5, measured on the live corpus: a comparative adjective other
+        # than the three already covered (less/more/greater) left a real limit
+        # as a statement. Same word family `_RELATIVE_TAIL` already vets for
+        # false positives, reused rather than a second vocabulary invented.
+        ("Welds shall not be closer than 25 mm to the head thickness.", "<", "25"),
+        ("The pipe wall shall be thicker than 6 mm.", ">", "6"),
+        ("The bolt diameter shall be larger than 20 mm.", ">", "20"),
+        ("The clearance shall be smaller than 3 mm.", "<", "3"),
+        # Single-word prepositions meaning "less/more than", not in the
+        # existing comparator set at all.
+        ("The design temperature shall be below 441 degC.", "<", "441"),
+        ("The design temperature shall be above 200 degC.", ">", "200"),
+        ("The coating thickness shall be under 0.050 mm.", "<", "0.050"),
+        ("The test pressure shall be over 6900 kPa.", ">", "6900"),
+    ],
+)
+def test_a_comparative_adjective_states_a_real_limit(sentence, operator, value):
+    """B5: "closer/thicker/larger/smaller than" and the single-word
+    "below/above/under/over" are ordinary comparators a standard's prose
+    uses beside "less/more/greater than" - the same meaning, different
+    adjective. Missing them left a real numeric limit as a statement no
+    review could check."""
+    limit = requirements_3b.parse_limit(sentence)
+    assert limit is not None, f"no limit recognised in: {sentence!r}"
+    assert limit["operator"] == operator
+    assert limit["raw_value"] == value
+
+
+def test_a_relative_margin_with_the_new_adjectives_is_still_excluded(tmp_path):
+    """NEGATIVE: the new comparators must not defeat the existing relative-
+    limit exclusion - "28 degC warmer than the dew point" states a margin,
+    not an absolute value, whichever adjective it uses."""
+    sentence = "The metal temperature shall be at least 28 degC higher than the calculated dew point."
+    assert requirements_3b.is_relative_limit(sentence)
+
+
+def test_below_does_not_swallow_an_unrelated_earlier_number(tmp_path):
+    """NEGATIVE: a clause number or an earlier unrelated figure must not be
+    picked up by the new single-word comparators - only a real "below/above/
+    under/over <value>" phrase parses."""
+    assert requirements_3b.parse_limit(
+        "Per clause 6.2, the fitting shall be installed as shown.") is None
+
+
 def test_an_obligation_with_no_recognised_limit_is_a_statement(tmp_path):
     """No requirement_type is invented for text the parser did not understand."""
     pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])

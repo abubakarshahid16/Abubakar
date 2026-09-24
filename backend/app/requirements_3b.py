@@ -125,6 +125,16 @@ _IN_EXCESS_RE = (r"(?:shall|must|may|should|will)\s+not\s+"
                  r"(?:\w+\s+){0,4}?in\s+excess\s+of")
 
 
+#: B5/#193: comparative adjectives beside "less/more/greater" a standard's
+#: prose uses with the same "than" grammar - SAME WORD FAMILY `_RELATIVE_TAIL`
+#: already vets below, one vocabulary rather than two (`contradicts_source`'s
+#: own docstring warns against exactly that drift). Split by which side of
+#: "smaller" each adjective means, so `_OPERATOR` below can map them without
+#: a second list to keep in step with this one.
+_SMALLER_THAN = ("closer", "smaller", "thinner", "lower", "shorter", "narrower")
+_LARGER_THAN = ("larger", "thicker", "higher", "longer", "wider")
+_COMPARATIVE_THAN = r"(?:" + "|".join(_SMALLER_THAN + _LARGER_THAN) + r")\s+than"
+
 _LIMIT = re.compile(
     r"(?P<cmp>" + _IN_NO_CASE_RE + r"(?:less|more|greater)\s+than"
     r"|" + _IN_NO_CASE_RE + r"exceed"
@@ -133,7 +143,12 @@ _LIMIT = re.compile(
     r"|(?:no|not)\s+(?:be\s+)?(?:more|greater)\s+than"
     r"|shall\s+exceed|at\s+least"
     r"|maximum|minimum|max|min|up\s+to"
-    r"|greater\s+than|less\s+than)\s*"
+    r"|greater\s+than|less\s+than"
+    r"|" + _COMPARATIVE_THAN +
+    # Single-word prepositions meaning "less/more than" - "the design
+    # temperature shall be below 441degC" - not covered by any "than" form.
+    # `\b` on both sides, so this never matches inside a longer word.
+    r"|\b(?:below|under|beneath|above|over)\b)\s*"
     r"(?:of\s+)?"
     r"(?P<value>[-+]?\d[\d.,]*)\s*"
     r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9()/%µμ°.\-]{0,15}"
@@ -152,6 +167,12 @@ _OPERATOR = {
     "up to": "<=", "maximum": "<=", "max": "<=", "less than": "<",
     "not less than": ">=", "at least": ">=", "minimum": ">=", "min": ">=",
     "greater than": ">", "shall exceed": ">",
+    # B5/#193: the comparative-adjective and single-word forms above, mapped
+    # from the same two lists `_LIMIT` builds its pattern from - generated,
+    # not hand-duplicated, so the two can never drift apart.
+    **{f"{word} than": "<" for word in _SMALLER_THAN},
+    **{f"{word} than": ">" for word in _LARGER_THAN},
+    "below": "<", "under": "<", "beneath": "<", "above": ">", "over": ">",
 }
 
 #: The leading negation of a negated comparison: "no", "not", "not be", and
