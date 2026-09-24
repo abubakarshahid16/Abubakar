@@ -5556,6 +5556,25 @@ B4_PUMP_LAYOUTS = (
         target=_B4_TEST, keyword="not_overridden",
         tags=("honesty",),
     ),
+    Mutation(
+        id="M492", phase=59,
+        description="stop reading an en dash as a range separator, so '5 - 150 "
+                    "M' printed with an en dash loses both ends (B4 fix 4 lock)",
+        path=APP / "datasheets.py",
+        anchor='(?:to|through|\\.\\.\\.|–|—|-)',
+        replacement='(?:to|through|\\.\\.\\.|—|-)',
+        target=_B4_TEST, keyword="every_dash_spelling or en_dash_range",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M493", phase=59,
+        description="create_fact stops keeping a range's two ends (B4 fix 4 lock)",
+        path=APP / "datasheets.py",
+        anchor="    found = None if blank else parse_range(raw_value)\n",
+        replacement="    found = None\n",
+        target=_B4_TEST, keyword="elevation_row or en_dash_range",
+        tags=("honesty",),
+    ),
 )
 
 

@@ -191,3 +191,41 @@ class TestTwoUnitCells:
             field_label="DIFFERENTIAL PRESSURE:", raw_value="7.6 bar", page=1,
             unit="m3/h")
         assert fact["raw_unit"] == "bar"
+
+
+# =============================================== 4. ranges written with a dash
+
+class TestDashRanges:
+    """Traced, and NOT a defect: "ELEVATION (MSL): 5 – 150 M" already stores
+    min 5 and max 150 (the single-value column stays empty by design - two ends
+    are two numbers, and averaging them would invent one). These tests lock
+    that in, on the real shape, so a later change cannot quietly lose it."""
+
+    @pytest.mark.parametrize("text", ["5 – 150 M", "5 — 150 M", "5 - 150 M"])
+    def test_every_dash_spelling_keeps_both_ends(self, text):
+        assert datasheets.parse_range(text) == ("5", "150", "M")
+
+    def test_the_elevation_row_stores_min_and_max(self, tmp_path):
+        # ONE printed line, as the real sheet has it (words contiguous, x 68-179).
+        # ASCII hyphen HERE ONLY because the PDF's built-in font cannot draw an
+        # en dash (it renders a middle dot); the en dash itself is proved at
+        # create_fact below and at parse_range above.
+        doc = sheet(tmp_path, [(29, 463, "31"),
+                               (68, 463, "ELEVATION (MSL):   5 - 150 M_______")])
+        [fact] = by_name(doc)["elevation msl"]
+        assert (fact["value_min"], fact["value_max"]) == (5.0, 150.0)
+        assert fact["raw_value"] is None, "a range was collapsed into one number"
+
+    def test_an_en_dash_range_is_stored_as_two_ends(self, tmp_path):
+        sheet(tmp_path, [(68, 100, "RATED FLOW"), (246, 100, "24.8")])
+        fact = datasheets.create_fact(
+            submittal_document_id="doc_pump", chunk_id="doc_pump-c1",
+            field_label="ELEVATION (MSL):", raw_value="5 – 150 M", page=1)
+        assert (fact["value_min"], fact["value_max"]) == (5.0, 150.0)
+        assert fact["raw_unit"] == "M"
+
+    @pytest.mark.parametrize("text", ["09-G-411 A/B", "EN 13463-1", "10-05-497"])
+    def test_a_hyphenated_identifier_is_never_a_range(self, text):
+        """NEGATIVE: a tag, a standard code or a drawing number stays what it
+        is - UNKNOWN as a quantity - never min/max."""
+        assert datasheets.parse_range(text) is None
