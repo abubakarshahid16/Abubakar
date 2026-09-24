@@ -93,6 +93,66 @@ def test_a_repeated_row_nobody_asked_for_is_one_spurious_and_the_rest_duplicates
     assert out["extracted_duplicates"] == 2
 
 
+# ------------------------------------------------ ranges (B4 §16.22 gap)
+
+
+def _got_range(page, name, lo, hi, unit, printed):
+    row = _got(page, name, printed, unit)
+    row["value_min"], row["value_max"] = lo, hi
+    return row
+
+
+def test_a_stored_range_matches_the_gold_range():
+    """THE MUTATION TARGET. Gold prints "5 - 150" M; the product stored
+    value_min=5, value_max=150, unit M and a raw string "5 – 150 M" (en dash,
+    unit inside). String comparison can never match these; the bounds do."""
+    agree, why = ev.values_agree(_gold(2, "Elevation (MSL)", "5 - 150", "M"),
+                                 _got_range(2, "Elevation (MSL)", 5.0, 150.0, "M",
+                                            "5 – 150 M"))
+    assert agree, why
+    assert why.startswith("range:")
+
+
+def test_a_range_with_a_different_bound_is_a_wrong_value():
+    agree, why = ev.values_agree(_gold(2, "Elevation (MSL)", "5 - 150", "M"),
+                                 _got_range(2, "Elevation (MSL)", 5.0, 120.0, "M",
+                                            "5 - 120 M"))
+    assert not agree
+    assert why.startswith("range_mismatch:")
+
+
+def test_a_scalar_is_never_credited_against_a_gold_range():
+    """"150" is the top of the range, not the range - a reader who wrote only
+    one end down missed the field."""
+    agree, why = ev.values_agree(_gold(2, "Elevation (MSL)", "5 - 150", "M"),
+                                 _got(2, "Elevation (MSL)", "150", "M"))
+    assert not agree
+    assert why == "range_vs_scalar:only_gold_is_a_range"
+
+
+def test_a_range_is_read_off_the_printed_string_when_no_bounds_are_stored():
+    """A copy made before value_min/value_max existed, or a model's raw
+    output, has no stored bounds - the printed string is parsed instead."""
+    agree, why = ev.values_agree(_gold(2, "Elevation (MSL)", "5 - 150", "M"),
+                                 _got(2, "Elevation (MSL)", "5 to 150", "M"))
+    assert agree, why
+
+
+def test_a_range_in_a_different_unit_is_a_unit_mismatch():
+    agree, why = ev.values_agree(_gold(2, "Elevation (MSL)", "5 - 150", "M"),
+                                 _got_range(2, "Elevation (MSL)", 5.0, 150.0, "barg",
+                                            "5 - 150 barg"))
+    assert not agree
+    assert "mismatch" in why
+
+
+def test_a_negative_number_is_not_a_range():
+    assert ev.parse_range("-150") is None
+    assert ev.parse_range("150") is None
+    assert ev.parse_range("5 - 150") == (5.0, 150.0)
+    assert ev.parse_range("5 – 150 M") == (5.0, 150.0)
+
+
 def test_a_right_value_on_the_wrong_page_is_not_recovered():
     """Name + value + unit + PAGE are scored together."""
     out = ev.breakdown(GOLD, [_got(3, "Rated flow", "120", "m3/h")])

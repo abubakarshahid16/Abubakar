@@ -287,10 +287,17 @@ def facts_from_db(conn: sqlite3.Connection, doc_id: str) -> list[dict]:
     current = (" AND superseded_at IS NULL"
                if "superseded_at" in {r[1] for r in conn.execute(
                    "PRAGMA table_info(submittal_facts)")} else "")
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(submittal_facts)")}
+    # RANGE BOUNDS, when the schema has them (B4 fix 4 stores "5 - 150 M" as
+    # value_min=5, value_max=150). A copy made before those columns existed
+    # scores from the printed string alone, exactly as before.
+    range_cols = (", value_min, value_max"
+                  if {"value_min", "value_max"} <= columns else
+                  ", NULL AS value_min, NULL AS value_max")
     rows = conn.execute(
         "SELECT field_name, field_label, field_value, unit, page, raw_value, "
-        "       raw_unit, is_blank, blank_marker, equipment_tag "
-        "FROM submittal_facts WHERE submittal_document_id = ? " + current +
+        "       raw_unit, is_blank, blank_marker, equipment_tag" + range_cols +
+        " FROM submittal_facts WHERE submittal_document_id = ? " + current +
         " ORDER BY page, field_name",
         (doc_id,),
     ).fetchall()
@@ -313,6 +320,8 @@ def facts_from_db(conn: sqlite3.Connection, doc_id: str) -> list[dict]:
             "blank_marker": (r["blank_marker"] or "").strip(),
             "equipment_tag": (r["equipment_tag"] or "").strip(),
             "source_text": "",
+            "value_min": r["value_min"],
+            "value_max": r["value_max"],
         })
     return out
 
@@ -447,6 +456,71 @@ def match_all(gold: list[dict], got: list[dict]) -> tuple[list[tuple], list[dict
 
 
 # ------------------------------------------------------------------ value match
+
+#: A printed range: two numbers joined by a dash (hyphen, en or em) or "to",
+#: optionally followed by a unit ("5 - 150", "5 – 150 M", "10 to 20"). Two
+#: numbers are REQUIRED, so "-150" (a negative) and "150" never read as one.
+_RANGE = re.compile(
+    r"^\s*(?P<lo>[-+]?\d[\d.,]*)\s*(?:[-–—]|\bto\b)\s*"
+    r"(?P<hi>[-+]?\d[\d.,]*)\s*(?P<tail>[^\d]*)$")
+
+
+def parse_range(text: str) -> tuple[float, float] | None:
+    """(low, high) when `text` prints a range, else None."""
+    m = _RANGE.match(text or "")
+    if not m:
+        return None
+    lo, hi = parse_value(m.group("lo")), parse_value(m.group("hi"))
+    if lo is None or hi is None:
+        return None
+    return (lo, hi)
+
+
+def _extracted_range(got: dict) -> tuple[float, float] | None:
+    """The stored bounds first (value_min/value_max, what the product actually
+    holds), the printed string only when the store has none - so a row the
+    product stored CORRECTLY as a range is scored as one."""
+    lo, hi = got.get("value_min"), got.get("value_max")
+    if lo is not None and hi is not None:
+        return (float(lo), float(hi))
+    return parse_range(got["value"])
+
+
+def _within(a: float, b: float) -> bool:
+    return abs(a - b) <= TOLERANCE * max(1.0, abs(a))
+
+
+def ranges_agree(gold: dict, got: dict, g_range: tuple[float, float] | None,
+                 e_range: tuple[float, float] | None) -> tuple[bool, str]:
+    """Rule 4 for RANGES (B4 §16.22 gap): a gold "5 - 150 M" against stored
+    value_min=5, value_max=150, unit=M is a hit. Before this the comparison
+    fell through to the raw strings ("5 - 150" vs "5 – 150 M"), which can
+    never match format-for-format, and a correctly stored range was scored as
+    a wrong value on every run."""
+    if g_range is None or e_range is None:
+        which = "gold" if g_range is not None else "extracted"
+        return False, f"range_vs_scalar:only_{which}_is_a_range"
+    g_lo = normalise(f"{g_range[0]:g}", gold["unit"])
+    g_hi = normalise(f"{g_range[1]:g}", gold["unit"])
+    e_lo = normalise(f"{e_range[0]:g}", got["unit"])
+    e_hi = normalise(f"{e_range[1]:g}", got["unit"])
+    if all(x.normalized_value is not None for x in (g_lo, g_hi, e_lo, e_hi)):
+        if g_lo.normalized_unit != e_lo.normalized_unit:
+            return False, f"unit_mismatch:{g_lo.normalized_unit}|{e_lo.normalized_unit}"
+        if (_within(g_lo.normalized_value, e_lo.normalized_value)
+                and _within(g_hi.normalized_value, e_hi.normalized_value)):
+            return True, (f"range:{g_lo.normalized_value:g}-"
+                          f"{g_hi.normalized_value:g} {g_lo.normalized_unit}")
+        return False, (f"range_mismatch:{g_range[0]:g}-{g_range[1]:g}|"
+                       f"{e_range[0]:g}-{e_range[1]:g} {g_lo.normalized_unit}")
+    if fold_value(gold["unit"]) != fold_value(got["unit"]):
+        return False, f"unit_string_mismatch:{gold['unit']}|{got['unit']}"
+    if _within(g_range[0], e_range[0]) and _within(g_range[1], e_range[1]):
+        return True, "range_no_unit"
+    return False, (f"range_mismatch:{g_range[0]:g}-{g_range[1]:g}|"
+                   f"{e_range[0]:g}-{e_range[1]:g}")
+
+
 def values_agree(gold: dict, got: dict) -> tuple[bool, str]:
     """Rules 4 and 5. Returns (agree, why) - `why` names the comparison used so
     a disagreement can be read without re-running anything."""
@@ -458,6 +532,10 @@ def values_agree(gold: dict, got: dict) -> tuple[bool, str]:
             return True, "both_blank"
         which = "gold" if gold["is_blank"] else "extracted"
         return False, f"blank_disagreement:only_{which}_says_blank"
+
+    g_range, e_range = parse_range(gold["value"]), _extracted_range(got)
+    if g_range is not None or e_range is not None:
+        return ranges_agree(gold, got, g_range, e_range)
 
     g = normalise(gold["value"], gold["unit"])
     e = normalise(got["value"], got["unit"])

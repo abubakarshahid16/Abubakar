@@ -5451,8 +5451,11 @@ B193_PAIRING = (
         description="the extraction scorer counts superseded rows again, so "
                     "every re-read field is scored twice (#193, audit 52)",
         path=REPO / "scripts" / "eval_extraction.py",
-        anchor='        "FROM submittal_facts WHERE submittal_document_id = ? " + current +\n',
-        replacement='        "FROM submittal_facts WHERE submittal_document_id = ? " +\n',
+        # Re-anchored 2026-09-25: the range-aware scorer prefixes this line
+        # with the optional value_min/value_max columns, so "FROM" now
+        # carries a leading space inside the string literal.
+        anchor='        " FROM submittal_facts WHERE submittal_document_id = ? " + current +\n',
+        replacement='        " FROM submittal_facts WHERE submittal_document_id = ? " +\n',
         target=_SCORERS_TEST, keyword="eval_extraction",
         tags=("honesty",),
     ),
@@ -5991,6 +5994,33 @@ B5_STANDARDS_INVENTORY = (
         target="tests/test_applicability_with_reasons.py",
         keyword="a_field_blank_on_one_side_is_never_reported_as_a_stated_mismatch",
         tags=("honesty", "applicability"),
+    ),
+    Mutation(
+        id="M525", phase=61,
+        description="skip the range branch, so a correctly stored range "
+                    "(value_min=5, value_max=150) is scored by raw-string "
+                    "comparison against the gold '5 - 150' and reported as "
+                    "a wrong value on every run (B4 s16.22 gap)",
+        path=REPO / "scripts" / "eval_extraction.py",
+        anchor="    if g_range is not None or e_range is not None:\n"
+               "        return ranges_agree(gold, got, g_range, e_range)",
+        replacement="    if False:\n"
+                    "        return ranges_agree(gold, got, g_range, e_range)",
+        target="tests/test_eval_extraction_harness.py",
+        keyword="a_stored_range_matches_the_gold_range",
+        tags=("honesty", "scorer"),
+    ),
+    Mutation(
+        id="M526", phase=61,
+        description="compare only the LOW bound of a range, so '5 - 120' is "
+                    "credited against a gold '5 - 150'",
+        path=REPO / "scripts" / "eval_extraction.py",
+        anchor="        if (_within(g_lo.normalized_value, e_lo.normalized_value)\n"
+               "                and _within(g_hi.normalized_value, e_hi.normalized_value)):",
+        replacement="        if _within(g_lo.normalized_value, e_lo.normalized_value):",
+        target="tests/test_eval_extraction_harness.py",
+        keyword="a_range_with_a_different_bound_is_a_wrong_value",
+        tags=("honesty", "scorer"),
     ),
 )
 
