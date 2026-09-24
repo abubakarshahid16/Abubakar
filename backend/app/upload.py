@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
-from . import access, classification, states
+from . import access, classification, job_queue, states
 from .config import settings
 from .db import connect
 from .errors import redact
@@ -234,10 +234,22 @@ def find_by_hash(sha256: str) -> sqlite3.Row | None:
     ).fetchone()
 
 
-def ingest(src: BinaryIO, raw_filename: str) -> tuple[sqlite3.Row, str | None, str | None]:
+def ingest(src: BinaryIO, raw_filename: str, *,
+           priority: int = job_queue.PRIORITY_INTERACTIVE,
+           ) -> tuple[sqlite3.Row, str | None, str | None]:
     """Stream, validate, hash, dedupe, store, record.
 
     Returns (document_row, job_id, duplicate_of).
+
+    PRIORITY (#177) defaults to INTERACTIVE because the one caller that does
+    not say otherwise is `POST /api/documents` - a person at the upload
+    screen, waiting for their document to become answerable. The watched
+    folder passes BACKFILL (`watcher.FolderWatcher._handle`): it ingests
+    whatever lands in a drop folder, typically a bulk load of historical
+    files, and nobody is waiting on any one of them. The worker takes higher
+    priority first, so an upload is not stuck behind hundreds of backfilled
+    documents. A DUPLICATE keeps the priority its first upload gave it - the
+    existing row is returned untouched, the same as every other field.
     """
     settings.ensure_dirs()
     temp_path = settings.upload_dir / f".incoming-{uuid.uuid4().hex}.part"
@@ -308,16 +320,19 @@ def ingest(src: BinaryIO, raw_filename: str) -> tuple[sqlite3.Row, str | None, s
     with conn:
         conn.execute(
             """INSERT INTO documents
-               (id, filename, sha256, size_bytes, stored_path, status, uploaded_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (doc_id, filename, sha256, size, str(final_path), status, now),
+               (id, filename, sha256, size_bytes, stored_path, status,
+                uploaded_at, priority)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (doc_id, filename, sha256, size, str(final_path), status, now,
+             priority),
         )
         if indexed:
             conn.execute(
                 """INSERT INTO jobs
-                   (id, document_id, stage, state, started_at, updated_at)
-                   VALUES (?, ?, 'extract', 'running', ?, ?)""",
-                (job_id, doc_id, now, now),
+                   (id, document_id, stage, state, started_at, updated_at,
+                    priority)
+                   VALUES (?, ?, 'extract', 'running', ?, ?, ?)""",
+                (job_id, doc_id, now, now, priority),
             )
 
     row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()

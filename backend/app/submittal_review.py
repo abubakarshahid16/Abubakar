@@ -208,6 +208,12 @@ def ensure_schema() -> None:
             # NULL is the honest default - most clauses state a property,
             # not a document to hand over, and this is never guessed.
             ("required_evidence_type", "TEXT"),
+            # #177 PROVENANCE: which extractor code wrote this row and from
+            # what input - see `provenance.py`. NULL on every row written
+            # before the columns existed, which is the truth: nobody recorded
+            # it then, and nothing here back-fills a guess.
+            ("extractor_version", "TEXT"),
+            ("input_hash", "TEXT"),
         ):
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.
@@ -368,6 +374,10 @@ def ensure_schema() -> None:
             # as a confirmed value until a human looks at it - additive and
             # nullable, set only by datasheets.create_fact.
             ("validation_state", "TEXT"),
+            # #177 PROVENANCE, as on standard_requirements: extractor code
+            # version and input hash (`provenance.py`). NULL on older rows.
+            ("extractor_version", "TEXT"),
+            ("input_hash", "TEXT"),
         ):
             add_column_if_missing(conn, "submittal_facts", _column, _type)
         conn.execute(
