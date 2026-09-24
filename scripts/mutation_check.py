@@ -6044,6 +6044,29 @@ B5_STANDARDS_INVENTORY = (
         keyword="a_case_difference_is_not_verified",
         tags=("honesty", "model"),
     ),
+    Mutation(
+        id="M529", phase=61,
+        description="treat EVERY page line as an evidence line (drop the "
+                    "title/tag/service filter), so 'COLUMN A' in a table "
+                    "header yields Pressure Vessel",
+        path=APP / "model_evidence.py",
+        anchor="        lines += [line for line in (text or \"\").splitlines() if _LABEL_LINE.match(line)]",
+        replacement="        lines += [line for line in (text or \"\").splitlines() if line.strip()]",
+        target="tests/test_model_vocabulary.py",
+        keyword="column_in_a_table_header_never_produces_pressure_vessel",
+        tags=("honesty", "model"),
+    ),
+    Mutation(
+        id="M530", phase=61,
+        description="match a synonym as a substring, so 'TANKER' counts as "
+                    "the Storage Tank synonym 'tank'",
+        path=APP / "model_evidence.py",
+        anchor='        if re.search(rf"\\b{re.escape(synonym)}\\b", _collapse(quote), re.IGNORECASE):',
+        replacement='        if synonym.lower() in _collapse(quote).lower():',
+        target="tests/test_model_vocabulary.py",
+        keyword="a_synonym_inside_a_longer_word_does_not_count",
+        tags=("honesty", "model"),
+    ),
 )
 
 
