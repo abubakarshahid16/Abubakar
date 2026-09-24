@@ -247,14 +247,33 @@ def table_lookup_input_conflict(requirement: dict, field_name: str) -> bool:
     name = _normalise(field_name)
     if not name:
         return False
+    marked = False
     for key in ("requirement_text", "source_text", "subject"):
         split = table_lookup_split(requirement.get(key))
         if split is None:
             continue
+        marked = True
         before, after = split
         if _contains_words(after, name) and not _contains_words(before, name):
             return True
-    return False
+    if marked:
+        return False
+    # A TABLE ROW WITH NO LEAD-IN SENTENCE (#193). The marker lives in the
+    # sentence introducing a table, and the chunker can file that sentence
+    # under a different requirement row - SAES-E-014 7.2.4 stores the same
+    # MOP -> design-pressure table as D-001 6.2.3 starting at its header, so
+    # the rule above never fired and the table's INPUT was paired to it. The
+    # structural fact that remains: a lookup table's FIRST header column is
+    # its key. A field that is exactly the start of a table row's header,
+    # with more header after it, is that key - the input, not the constrained
+    # quantity. Only for `table_row`: an ordinary limit whose subject starts
+    # with the field ("maximum operating pressure of the vessel") is the case
+    # the matcher exists for.
+    if requirement.get("requirement_type") != "table_row":
+        return False
+    # `name + " "`: the field must be followed by MORE header. A header that
+    # is the field alone names one quantity and has no input column.
+    return _normalise(requirement.get("subject") or "").startswith(name + " ")
 
 
 # ------------------------------------------------------------------ together

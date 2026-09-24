@@ -9,6 +9,11 @@
   `superseded_at IS NULL`; a finding resolves the fact it cited by id,
   unfiltered. The B40 refuse-unless-acknowledged guard on this path is
   retired because there is nothing left to refuse.
+- **Correction (2026-09-24, #193, honesty audit 52):** "every reader" was
+  checked in `backend/app` only. Two scoring scripts, `scripts/eval_extraction.py`
+  and `scripts/gold_pairs_score.py`, read every row; after the #179
+  re-extraction the pairing scorer reported 0/3 where production made 1/3.
+  Both now filter current facts, with a test and mutations M480-M481.
 
 ## The problem
 
