@@ -5839,6 +5839,24 @@ B5_STANDARDS_INVENTORY = (
         keyword="an_already_set_effective_date_is_never_overwritten",
         tags=("honesty", "inventory", "critical"),
     ),
+    Mutation(
+        id="M515", phase=61,
+        description="store an unparsed date fragment as effective_date "
+                    "instead of leaving it UNKNOWN, so a caller can no "
+                    "longer trust every stored date is ISO",
+        path=APP / "standards_inventory.py",
+        anchor="                if iso is not None:\n"
+               "                    effective_date = CoverField(\n"
+               "                        value=iso, page=page[\"page_no\"],\n"
+               "                        quote=match.group(0).strip())",
+        replacement="                effective_date = CoverField(\n"
+                    "                    value=iso or match.group(1),\n"
+                    "                    page=page[\"page_no\"],\n"
+                    "                    quote=match.group(0).strip())",
+        target="tests/test_standards_inventory.py",
+        keyword="extract_cover_metadata_also_refuses_an_unparseable_captured_date",
+        tags=("honesty", "inventory"),
+    ),
 )
 
 
