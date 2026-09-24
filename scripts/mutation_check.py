@@ -4602,6 +4602,60 @@ B179_ROW_NUMBERED_TABLE_ROWS = (
 )
 
 
+#: Issue #179, second pass. Phase 52, ids M400-M409.
+_EVAL = REPO / "scripts" / "eval_extraction.py"
+B179_EXTRACTION_QUALITY_2 = (
+    Mutation(
+        id="M400", phase=52,
+        description="stop telling a DUPLICATE extracted row from a SPURIOUS "
+                    "one in the scoring harness's breakdown, so 150 repeats "
+                    "of one row read as 150 invented facts (issue #179)",
+        path=_EVAL,
+        anchor="        if identity in matched_identities or identity in spurious_seen:",
+        replacement="        if False:",
+        target="tests/test_eval_extraction_harness.py",
+        keyword="duplicates_and_spurious or nobody_asked_for",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M401", phase=52,
+        description="let an EMPTY gold denominator through the scoring "
+                    "harness, so a sheet that parsed to nothing prints F1 "
+                    "0.0000 as if it were a measurement (issue #179)",
+        path=_EVAL,
+        anchor="    if not any(not g[\"is_blank\"] for g in gold_fields):",
+        replacement="    if False:",
+        target="tests/test_eval_extraction_harness.py",
+        keyword="empty_gold_denominator or empty_denominator",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M402", phase=52,
+        description="let ZERO extracted rows through the scoring harness "
+                    "without the explicit waiver, so a wrong --doc or --db "
+                    "scores as a real zero (issue #179)",
+        path=_EVAL,
+        anchor="    if not got_fields and not allow_empty_extraction:",
+        replacement="    if False:",
+        target="tests/test_eval_extraction_harness.py",
+        keyword="zero_extracted_rows",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M403", phase=52,
+        description="drop the breakdown from the persisted scoring JSON, so "
+                    "the only record a reader finds is the folded F1 "
+                    "(issue #179 criterion 3)",
+        path=_EVAL,
+        anchor='        "breakdown": breakdown(gold_fields, got_fields),\n',
+        replacement="",
+        target="tests/test_eval_extraction_harness.py",
+        keyword="persists_the_breakdown",
+        tags=("honesty",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4619,6 +4673,7 @@ ALL: tuple[Mutation, ...] = (
     + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
     + B175_CASCADE_AND_CONFIDENCE + B163_EVIDENCE_TYPE_GATE
     + B168_PIPELINE_REPAIR + B179_ROW_NUMBERED_TABLE_ROWS
+    + B179_EXTRACTION_QUALITY_2
 )
 
 
