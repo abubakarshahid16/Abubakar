@@ -501,8 +501,11 @@ PHASE_3A = (
         id="M33", phase=3,
         description="record recommendations ('should') as requirements",
         path=APP / "standards.py",
-        anchor=r'    r"\b(shall|must|is\s+required\s+to|are\s+required\s+to|is\s+to\s+be"',
-        replacement=r'    r"\b(shall|must|should|is\s+required\s+to|are\s+required\s+to|is\s+to\s+be"',
+        # Re-anchored 2026-09-24: the pattern gained a `must\s+not` branch and
+        # the old anchor matched 0 times, so this mutation had silently stopped
+        # being applied (the harness reported it as a harness error).
+        anchor=r'    r"\b(shall|must\s+not|must|is\s+required\s+to|are\s+required\s+to"',
+        replacement=r'    r"\b(shall|should|must\s+not|must|is\s+required\s+to|are\s+required\s+to"',
         target="tests/test_standards_library.py",
         keyword="recommendations_are_not_recorded",
         tags=("honesty",),
@@ -943,8 +946,10 @@ PHASE_5B = (
         id="M72", phase=7,
         description="let completeness average instead of taking the weakest link",
         path=APP / "comparison.py",
-        anchor="    overall = round(min(parts), 3) if parts else None",
-        replacement="    overall = round(sum(parts) / len(parts), 3) if parts else None",
+        # Re-anchored 2026-09-24: the line lost its `if parts else None` tail
+        # and moved one indent level, so the old anchor matched 0 times.
+        anchor="        overall = round(min(parts), 3)",
+        replacement="        overall = round(sum(parts) / len(parts), 3)",
         target="tests/test_comparison.py",
         keyword="weakest_link_not_the_average",
         tags=("honesty",),
@@ -1190,8 +1195,12 @@ DISCIPLINE = (
         # reported honestly by the harness as "anchor matched 0 times" rather
         # than as a passing mutation. This slice occurs exactly once in
         # standards.py (checked), which is all an anchor has to be.
-        anchor="(shall|must|is",
-        replacement="(shall|should|must|is",
+        # Re-anchored 2026-09-24 when `must\s+not` was added to the pattern:
+        # "(shall|must|is" matched 0 times and "(shall|must" alone now also
+        # occurs in the `\b(shall|must)\b` check, so the slice needs the
+        # `must\s+not` branch to stay unique.
+        anchor=r"(shall|must\s+not|must|is",
+        replacement=r"(shall|should|must\s+not|must|is",
         target="tests/test_standards_library.py",
         keyword="mandatory_vocabulary_is_saudi_aramcos_own",
         tags=("honesty", "critical"),
