@@ -502,6 +502,121 @@ def completeness(selected: dict, missing: list, submittal_document_id: str, *,
     }
 
 
+# --------------------------------------------- applicability with reasons
+
+#: Held, matched to this submittal, and has at least one extracted
+#: requirement to compare a submitted value against.
+STATUS_APPLICABLE_ASSESSABLE = "applicable_assessable"
+#: Held and matched, but nothing has been extracted from it yet - the
+#: standard applies, but this review cannot assess against it until that
+#: extraction (a document-side action, not a submittal defect) happens.
+STATUS_APPLICABLE_NEEDS_ANOTHER_DOCUMENT = "applicable_needs_another_document"
+#: Held, not matched by any rule, and the submittal and this standard have
+#: enough recorded attributes to say so with a stated reason.
+STATUS_NOT_APPLICABLE = "not_applicable"
+#: Held, not matched, but neither the submittal nor the standard records
+#: enough (equipment type, discipline, service, project) to judge either
+#: way - a real "don't know", not a disguised "not applicable".
+STATUS_UNKNOWN = "unknown"
+
+_COMPARABLE_FIELDS = ("equipment_type", "discipline", "service", "project")
+
+
+def applicability_with_reasons(submittal_document_id: str, *,
+                               allowed_document_ids: frozenset[str]) -> list[dict]:
+    """Every standard in the caller's library, classified for THIS submittal
+    into exactly one of four buckets - applicable and assessable, applicable
+    but needs another document, not applicable (with the reason), or
+    unknown - per the master order.
+
+    BUILT ENTIRELY FROM WHAT `select()` AND `standards.list_standards`
+    ALREADY COMPUTE. No new inference, no new confidence score, no claim
+    this system could not already support before this function existed -
+    it only RECLASSIFIES `select()`'s own output into the four buckets the
+    order asks for, and states a reason using the same attribute
+    comparisons `_match_attribute` already makes (never a semantic
+    judgement this system cannot back with a field-for-field comparison).
+
+    "NOT APPLICABLE" IS NEVER GUESSED FROM SILENCE. A standard with no
+    recorded equipment_type/discipline/service/project of its own, or a
+    submittal with none of its own, cannot be compared on those axes at
+    all - that is `STATUS_UNKNOWN`, not a "not applicable" this system has
+    no basis to assert.
+    """
+    result = select(submittal_document_id,
+                    allowed_document_ids=allowed_document_ids, persist=False)
+    selected_by_id = {row["standard_document_id"]: row
+                      for row in result["selected"]}
+    profile = _submittal_profile(submittal_document_id)
+    library = _library(allowed_document_ids)
+    requirement_counts = {
+        row["id"]: row["requirement_count"]
+        for row in standards.list_standards(
+            allowed_document_ids=allowed_document_ids, include_superseded=True)}
+
+    submittal_has_profile = any(
+        (profile.get(f) or "").strip() for f in _COMPARABLE_FIELDS)
+
+    out: list[dict] = []
+    for entry in library:
+        std_id = entry["id"]
+        selection = selected_by_id.get(std_id)
+        if selection is not None:
+            if requirement_counts.get(std_id):
+                status = STATUS_APPLICABLE_ASSESSABLE
+                reason = f"selected ({selection['method']}): {selection['reason']}"
+            else:
+                status = STATUS_APPLICABLE_NEEDS_ANOTHER_DOCUMENT
+                reason = (f"selected ({selection['method']}): "
+                          f"{selection['reason']}, but no requirements have "
+                          "been extracted from this standard yet - nothing "
+                          "here has been compared against the submittal")
+            out.append({"standard_document_id": std_id,
+                       "document_number": entry.get("document_number"),
+                       "filename": entry.get("filename"),
+                       "status": status, "reason": reason})
+            continue
+
+        standard_has_profile = any(
+            (entry.get(f) or "").strip() for f in _COMPARABLE_FIELDS)
+        if not submittal_has_profile or not standard_has_profile:
+            out.append({
+                "standard_document_id": std_id,
+                "document_number": entry.get("document_number"),
+                "filename": entry.get("filename"),
+                "status": STATUS_UNKNOWN,
+                "reason": ("not cited by the submittal, and " + (
+                    "the submittal" if not submittal_has_profile
+                    else "this standard") +
+                    " has no recorded equipment type, discipline, service "
+                    "or project to compare - applicability cannot be "
+                    "determined"),
+            })
+            continue
+
+        mismatches = [
+            f"{field.replace('_', ' ')} '{entry.get(field)}' does not match "
+            f"the submittal's '{profile.get(field)}'"
+            for field in _COMPARABLE_FIELDS
+            if (entry.get(field) or "").strip()
+            and (profile.get(field) or "").strip()
+            and entry[field].strip().lower() != profile[field].strip().lower()
+        ]
+        reason = ("; ".join(mismatches) if mismatches else
+                 "not cited by the submittal, and no shared equipment type, "
+                 "discipline, service or project recorded")
+        out.append({"standard_document_id": std_id,
+                   "document_number": entry.get("document_number"),
+                   "filename": entry.get("filename"),
+                   "status": STATUS_NOT_APPLICABLE, "reason": reason})
+
+    order = {STATUS_APPLICABLE_ASSESSABLE: 0,
+            STATUS_APPLICABLE_NEEDS_ANOTHER_DOCUMENT: 1,
+            STATUS_UNKNOWN: 2, STATUS_NOT_APPLICABLE: 3}
+    return sorted(out, key=lambda r: (
+        order[r["status"]], r["document_number"] or r["filename"] or ""))
+
+
 # ----------------------------------------------------------- persistence
 
 

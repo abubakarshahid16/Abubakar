@@ -2478,6 +2478,28 @@ def document_page_ledger(
             "coverage": page_ledger_mod.coverage(document_id)}
 
 
+@app.get("/api/documents/{document_id}/applicability",
+         response_model=list[schemas.ApplicabilityStatus],
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def document_applicability(
+    request: Request,
+    document_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Every standard in the library, classified for THIS submittal into
+    applicable-and-assessable, applicable-but-needs-another-document,
+    not-applicable-with-a-reason, or unknown (B5, per the master order).
+
+    READ-ONLY and RECOMPUTED, never a stored verdict - the same reason
+    `select()`'s own selection is never persisted as a claim about the
+    present without being asked to re-run.
+    """
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return applicability_mod.applicability_with_reasons(
+        document_id, allowed_document_ids=scope.allowed_document_ids)
+
+
 #: Media types for the preview surfaces. A CLOSED MAP with an
 #: `application/octet-stream` default, never `mimetypes.guess_type`: the
 #: filename is user-supplied, and letting it choose the Content-Type is how a
