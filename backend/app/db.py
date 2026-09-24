@@ -29,7 +29,11 @@ CREATE TABLE IF NOT EXISTS documents (
     error_code        TEXT,
     error_message     TEXT,
     uploaded_at       TEXT NOT NULL,
-    indexed_at        TEXT
+    indexed_at        TEXT,
+    -- #177. Also added by `_migrate` for databases written before it.
+    priority          INTEGER NOT NULL DEFAULT 0,
+    claimed_by        TEXT,
+    claimed_at        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -44,7 +48,12 @@ CREATE TABLE IF NOT EXISTS jobs (
     error_code            TEXT,
     error_message         TEXT,
     started_at            TEXT NOT NULL,
-    updated_at            TEXT NOT NULL
+    updated_at            TEXT NOT NULL,
+    -- #177. Also added by `_migrate` for databases written before it.
+    priority              INTEGER NOT NULL DEFAULT 0,
+    claimed_by            TEXT,
+    claimed_at            TEXT,
+    next_attempt_at       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS pages (
@@ -562,6 +571,17 @@ CREATE TABLE IF NOT EXISTS document_classification (
     -- through `confirm()` instead - a human's decision carries no classifier
     -- evidence to record.
     equipment_type_evidence TEXT,
+    -- #176: ONE JSON OBJECT for every other automatically classified field,
+    -- keyed by column name - {"revision": {value, page, quote, pages, method,
+    -- confidence, classifier_version, classified_at, superseded: [...]}}.
+    -- One map rather than a column per field: six more *_evidence columns
+    -- would be six more places for rule 8's "fixed in one of two places" to
+    -- happen, and nothing joins or filters on provenance. A field ABSENT from
+    -- the map was not written by the classifier (NULL, or set by a person or
+    -- the register) and the classifier will not overwrite it.
+    -- `superseded` is where a replaced free-text value is kept, because the
+    -- audit log may not carry document text (audit_events.detail comment).
+    field_evidence TEXT,
     -- A JSON array as TEXT. Acceptable here because it is a flat list of tags
     -- nothing joins on, filters by, or audits. The applicable-standards
     -- relation is a TABLE for exactly the opposite reason.
@@ -774,6 +794,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
             # `equipment_type` untouched and gains NULL evidence until the
             # classifier next runs over it.
             "equipment_type_evidence",
+            # #176's per-field evidence map. Additive and nullable: an
+            # existing row gains NULL, meaning no classifier wrote any of
+            # its fields - which is true of every row written before it.
+            "field_evidence",
         ):
             if _column not in classification_cols:
                 conn.execute(
@@ -811,6 +835,26 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_conversations_owner"
         " ON conversations(owner_user_id, updated_at DESC)"
     )
+    # ------------------------------------------------ job claiming (#177)
+    # ADDITIVE ONLY, AND NO HISTORICAL ROW IS REWRITTEN. `ADD COLUMN ...
+    # DEFAULT 0` changes no stored row - SQLite answers the default for rows
+    # that predate the column - and every other new column is NULL, meaning
+    # "not claimed / no retry scheduled". Priority 0 is BACKFILL, which is the
+    # honest reading of a row nobody marked urgent (`job_queue.PRIORITY_*`).
+    # An old 'failed' job stays 'failed': nothing here resurrects work an
+    # earlier build gave up on.
+    for _table, _column, _definition in (
+        ("documents", "priority", "INTEGER NOT NULL DEFAULT 0"),
+        ("documents", "claimed_by", "TEXT"),
+        ("documents", "claimed_at", "TEXT"),
+        ("jobs", "priority", "INTEGER NOT NULL DEFAULT 0"),
+        ("jobs", "claimed_by", "TEXT"),
+        ("jobs", "claimed_at", "TEXT"),
+        ("jobs", "next_attempt_at", "TEXT"),
+    ):
+        add_column_if_missing(conn, _table, _column, _definition)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_claim ON jobs(stage, state, priority)")
     # created after the migration so it cannot reference a missing column
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_chunks_retrievable ON chunks(retrievable)"

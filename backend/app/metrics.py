@@ -463,6 +463,13 @@ def _scoped_worker(status: dict, allowed: Allowed, corpus_wide: bool) -> dict:
     return {**status, "current_document": None, "last_error": None}
 
 
+def _queue() -> dict:
+    """Queue counts, with "pending document" defined exactly as the worker's
+    own backlog defines it - one predicate, not a second copy that can drift."""
+    from . import ingest, job_queue
+    return job_queue.queue_counts(*ingest.pending_documents_clause())
+
+
 def snapshot(worker_status: dict, allowed: Allowed = None,
              corpus_wide: bool = False, host: bool = False) -> dict:
     """Everything the dashboard shows, restricted to `allowed`.
@@ -501,6 +508,12 @@ def snapshot(worker_status: dict, allowed: Allowed = None,
         "throughput": telemetry.throughput(),
         "retrieval": telemetry.retrieval_latency(),
         **({"system": system()} if host else {}),
+        # #177 operator visibility: how much work is waiting, being worked,
+        # scheduled for retry, or poisoned. CORPUS-WIDE COUNTS, so behind the
+        # same explicit admin capability as `system` (audit rows 15 and 30) -
+        # not `corpus_wide`, which AUTH_MODE=disabled grants to anonymous
+        # readers. Omitted, not zeroed, for everyone else.
+        **({"queue": _queue()} if host else {}),
         "models": models(),
         "worker": _scoped_worker(worker_status, allowed, corpus_wide),
         "warnings": warnings(allowed, host),

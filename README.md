@@ -32,7 +32,7 @@ This is **not** an air-gapped system. It is a **locally-inferencing** system on 
 ```text
 PDF ──▶ stream + SHA-256 ──▶ page batches ──▶ PyMuPDF text ──▶ structure-aware chunks
                                      │                                    │
-                                     │                                    ├──▶ ONNX int8 E5 ──▶ LanceDB (brute-force)
+                                     │                                    ├──▶ ONNX int8 E5 ──▶ SQLite BLOBs (brute-force)
                                      │                                    └──▶ SQLite FTS5
                                      ▼
                               resumable checkpoint
@@ -56,7 +56,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 | PDF extraction | PyMuPDF (processes, never threads) |
 | Chunking | Custom structure-aware, 400-token target / 60-token overlap |
 | Embeddings | `intfloat/multilingual-e5-small`, local ONNX int8, 384-D normalized |
-| Vector search | LanceDB embedded, brute-force cosine |
+| Vector search | Vectors as BLOBs in SQLite (`chunk_vectors`), memory-mapped into one numpy matrix (`vectorcache.py`), brute-force cosine. `lancedb` is still pinned in `backend/requirements.txt` but nothing imports it |
 | Keyword search | SQLite FTS5 |
 | Fusion | Reciprocal Rank Fusion |
 | Reranking | Small local CPU cross-encoder — **mandatory**, not optional |

@@ -58,6 +58,7 @@ from . import access
 from . import admin as admin_mod
 from . import classification as classification_mod
 from . import errors
+from . import job_queue
 from . import upload as upload_mod
 from .config import settings
 from .db import connect
@@ -694,7 +695,12 @@ class FolderWatcher:
 
         try:
             with path.open("rb") as fh:
-                row, job_id, duplicate_of = upload_mod.ingest(fh, path.name)
+                # BACKFILL (#177): a drop folder is bulk-loaded with
+                # historical files nobody is waiting on one by one, so they
+                # yield to anything a person uploads through the UI. See the
+                # priority note on `upload.ingest`.
+                row, job_id, duplicate_of = upload_mod.ingest(
+                    fh, path.name, priority=job_queue.PRIORITY_BACKFILL)
         except upload_mod.UploadError as exc:
             # A refusal the upload route would have answered 400 to: not a
             # PDF, empty, or over the size ceiling. The client's own error,

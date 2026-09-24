@@ -18,6 +18,7 @@ from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
+from . import job_queue as job_queue_mod
 from . import orphan_guard
 from . import highlight as highlight_mod
 from . import keyword as keyword_mod
@@ -142,7 +143,8 @@ async def lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
         pass
     # Put back any extraction that was `running` when a previous process died.
-    # `next_extraction_job` only ever selects `queued`, so without this an
+    # `next_extraction_job` only ever claims `queued` (or a `retrying` job
+    # whose backoff is due, #177), so without this an
     # orphaned job is never picked up by anything - the standard is never
     # extracted and the status keeps reporting work in progress that no process
     # is doing. Before the worker starts, so a recovered job is in the queue by
@@ -2706,7 +2708,10 @@ def queue_standard_extraction(
     """
     reject_unknown_params(request, set())
     require_document(document_id, scope)
-    job_id = standards_mod.enqueue_extraction(document_id, actor=actor)
+    # INTERACTIVE (#177): an administrator is waiting on this one, so it
+    # runs ahead of the backfill the ingestion hook queues for every standard.
+    job_id = standards_mod.enqueue_extraction(
+        document_id, actor=actor, priority=job_queue_mod.PRIORITY_INTERACTIVE)
     return {"job_id": job_id, "document_id": document_id, "state": "queued"}
 
 

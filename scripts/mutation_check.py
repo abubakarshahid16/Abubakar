@@ -501,8 +501,11 @@ PHASE_3A = (
         id="M33", phase=3,
         description="record recommendations ('should') as requirements",
         path=APP / "standards.py",
-        anchor=r'    r"\b(shall|must|is\s+required\s+to|are\s+required\s+to|is\s+to\s+be"',
-        replacement=r'    r"\b(shall|must|should|is\s+required\s+to|are\s+required\s+to|is\s+to\s+be"',
+        # Re-anchored 2026-09-24: the pattern gained a `must\s+not` branch and
+        # the old anchor matched 0 times, so this mutation had silently stopped
+        # being applied (the harness reported it as a harness error).
+        anchor=r'    r"\b(shall|must\s+not|must|is\s+required\s+to|are\s+required\s+to"',
+        replacement=r'    r"\b(shall|should|must\s+not|must|is\s+required\s+to|are\s+required\s+to"',
         target="tests/test_standards_library.py",
         keyword="recommendations_are_not_recorded",
         tags=("honesty",),
@@ -762,8 +765,10 @@ PHASE_4 = (
         id="M56", phase=5,
         description="promote a value into a field label, inventing blank fields",
         path=APP / "datasheets.py",
-        anchor="        if not is_field_label(label):\n            continue",
-        replacement="        if False:\n            continue",
+        # Re-anchored 2026-09-24: #179 moved this gate into a helper that
+        # returns None; the old `continue` anchor matched 0 times.
+        anchor="    if not is_field_label(label):\n        return None",
+        replacement="    if False:\n        return None",
         target="tests/test_datasheets.py",
         keyword="value_is_never_promoted_into_a_field_label",
         tags=("honesty", "datasheet"),
@@ -943,8 +948,10 @@ PHASE_5B = (
         id="M72", phase=7,
         description="let completeness average instead of taking the weakest link",
         path=APP / "comparison.py",
-        anchor="    overall = round(min(parts), 3) if parts else None",
-        replacement="    overall = round(sum(parts) / len(parts), 3) if parts else None",
+        # Re-anchored 2026-09-24: the line lost its `if parts else None` tail
+        # and moved one indent level, so the old anchor matched 0 times.
+        anchor="        overall = round(min(parts), 3)",
+        replacement="        overall = round(sum(parts) / len(parts), 3)",
         target="tests/test_comparison.py",
         keyword="weakest_link_not_the_average",
         tags=("honesty",),
@@ -1190,8 +1197,12 @@ DISCIPLINE = (
         # reported honestly by the harness as "anchor matched 0 times" rather
         # than as a passing mutation. This slice occurs exactly once in
         # standards.py (checked), which is all an anchor has to be.
-        anchor="(shall|must|is",
-        replacement="(shall|should|must|is",
+        # Re-anchored 2026-09-24 when `must\s+not` was added to the pattern:
+        # "(shall|must|is" matched 0 times and "(shall|must" alone now also
+        # occurs in the `\b(shall|must)\b` check, so the slice needs the
+        # `must\s+not` branch to stay unique.
+        anchor=r"(shall|must\s+not|must|is",
+        replacement=r"(shall|should|must\s+not|must|is",
         target="tests/test_standards_library.py",
         keyword="mandatory_vocabulary_is_saudi_aramcos_own",
         tags=("honesty", "critical"),
@@ -1356,8 +1367,9 @@ DATASHEET = (
         description="stop taking the unit out of the label, losing it with no "
                     "trace that it existed",
         path=APP / "datasheets.py",
-        anchor="        label, carried = _unit_in_label(label)",
-        replacement="        label, carried = label, None",
+        # Re-anchored 2026-09-24: one indent level shallower after #179.
+        anchor="    label, carried = _unit_in_label(label)",
+        replacement="    label, carried = label, None",
         target="tests/test_datasheet_unit_layouts.py",
         keyword="unit_inside_the_label",
         tags=("critical",),
@@ -1482,8 +1494,13 @@ MATCHER = (
         description="treat a small integer followed by a unit as a line "
                     "number again, discarding most numeric rows on a page",
         path=APP / "datasheets.py",
-        anchor=("        if re.fullmatch(r" + chr(34) + chr(92) + "d{1,3}" + chr(34) + ", value) and not _unit_follows(parts, index + 2):"),
-        replacement=("        if re.fullmatch(r" + chr(34) + chr(92) + "d{1,3}" + chr(34) + ", value):"),
+        # Re-anchored 2026-09-24: #179 split the condition over two lines and
+        # added `not value_on_a_slot`; the mutation still removes only the
+        # unit-follows exemption.
+        anchor=(r'        if (not value_on_a_slot and re.fullmatch(r"\d{1,3}", value)'
+                "\n"
+                r'                and not _unit_follows(parts, index + 2)):'),
+        replacement=r'        if (not value_on_a_slot and re.fullmatch(r"\d{1,3}", value)):',
         target="tests/test_fact_gates.py",
         keyword="line_number or followed_by_a_unit",
         tags=("critical",),
@@ -2178,7 +2195,10 @@ REPEATED_FORM = (
         description="count an EMPTY cell as an answer, which makes every "
                     "header look answered on every page",
         path=APP / "datasheets.py",
-        anchor="            if answer:\n                answered_pages[name].add(page)",
+        # Re-anchored 2026-09-24: #179 added `and states_a_value(value)`.
+        # Replacing the whole condition keeps the original meaning - any cell,
+        # empty or not, counts as an answer.
+        anchor="            if answer and states_a_value(value):\n                answered_pages[name].add(page)",
         replacement="            if True:\n                answered_pages[name].add(page)",
         target="tests/test_repeated_form.py",
         keyword="mostly_empty_label or title_block",
@@ -2312,8 +2332,9 @@ RANGES_AND_COMPOUNDS = (
         description="REWRITE THE DEGREE GLYPH ANYWHERE, turning any word "
                     "ending in oc into a temperature",
         path=APP / "datasheets.py",
-        anchor=r'_DEGREE_GLYPH = re.compile(r"(?<=\d)[Oo]([CF])\b")',
-        replacement=r'_DEGREE_GLYPH = re.compile(r"[Oo]([CF])\b")',
+        # Re-anchored 2026-09-24: #179 added the º glyph to the class.
+        anchor=r'_DEGREE_GLYPH = re.compile(r"(?<=\d)[Ooº]([CF])\b")',
+        replacement=r'_DEGREE_GLYPH = re.compile(r"[Ooº]([CF])\b")',
         target="tests/test_ranges_and_compounds.py",
         keyword="word_ending_in_oc",
         tags=("critical",),
@@ -2367,8 +2388,10 @@ RANGES_AND_COMPOUNDS = (
         description="drop the range from the value gate, so every range is "
                     "discarded as free text before it reaches create_fact",
         path=APP / "datasheets.py",
-        anchor="            if parsed_value is None and parse_range(value) is not None:",
-        replacement="            if False:",
+        # Re-anchored 2026-09-24: #179 moved the value gate into its one home,
+        # `states_a_value`, which `extract_facts` gates on.
+        anchor="    if parsed is None and parse_range(value) is not None:\n        parsed = \"range\"",
+        replacement="    if False:\n        parsed = \"range\"",
         target="tests/test_ranges_and_compounds.py",
         keyword="survives_the_value_gate",
         tags=("critical",),
@@ -4727,6 +4750,271 @@ B179_EXTRACTION_QUALITY_2 = (
 )
 
 
+_B176_TARGET = "tests/test_submittal_metadata_classification.py"
+
+B176_SUBMITTAL_METADATA = (
+    Mutation(
+        id="M420", phase=54,
+        description="resolve disagreeing pages by taking the first value, so "
+                    "a submittal whose sheets carry two different revisions "
+                    "or document numbers is given one of them as fact (#176)",
+        path=APP / "classification.py",
+        anchor="        if len(keys) > 1:\n"
+               "            conflicts[field_name]",
+        replacement="        if False:\n"
+                    "            conflicts[field_name]",
+        target=_B176_TARGET,
+        keyword="disagreeing_revisions_are_a_conflict or "
+                "disagreeing_document_numbers_are_a_conflict",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M421", phase=54,
+        description="let the revision value sit on the NEXT line, so a "
+                    "revision-table header's row number reads as the "
+                    "document's revision (#176)",
+        path=APP / "classification.py",
+        anchor='    r"^[ \\t]*REV(?:ISION)?\\b\\.?[ \\t]*(?:NO\\b\\.?)?[ \\t]*:?[ \\t]*"',
+        replacement='    r"^[ \\t]*REV(?:ISION)?\\b\\.?[ \\t]*(?:NO\\b\\.?)?[ \\t]*:?\\s*"',
+        target=_B176_TARGET,
+        keyword="revision_table_row_number",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M422", phase=54,
+        description="accept a project NAME with no identifier, so 'Project: "
+                    "<prose>' becomes a filter key (#176)",
+        path=APP / "classification.py",
+        anchor='        if re.search(r"\\d", value) and not _is_placeholder(value):\n'
+               '            hits.append((value, _line_of(text, match)))',
+        replacement='        if not _is_placeholder(value):\n'
+                    '            hits.append((value, _line_of(text, match)))',
+        target=_B176_TARGET,
+        keyword="project_name_without_an_identifier",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M423", phase=54,
+        description="stop refusing the duty word CONTINUOUS, so API 610's "
+                    "'SERVICE: CONTINUOUS' duty cell becomes the equipment's "
+                    "service (#176)",
+        path=APP / "classification.py",
+        anchor='    "CONTINUOUS", "INTERMITTENT", "STANDBY", "SPARE", "CYCLIC", "BATCH",\n',
+        replacement='    "INTERMITTENT", "STANDBY", "SPARE", "CYCLIC", "BATCH",\n',
+        target=_B176_TARGET,
+        keyword="duty_field_labelled_service",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M424", phase=54,
+        description="make the colon after a same-line SERVICE label optional, "
+                    "so 'SERVICE ORDER NO. ...' is read as a service (#176)",
+        path=APP / "classification.py",
+        anchor='    r"^[ \\t]*SERVICE[ \\t]*:[ \\t]*(?P<value>',
+        replacement='    r"^[ \\t]*SERVICE[ \\t]*:?[ \\t]*(?P<value>',
+        target=_B176_TARGET,
+        keyword="service_near_misses or vessel_title_block",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M425", phase=54,
+        description="stop removing parenthetical remarks from a tag line, so "
+                    "a location code inside '(for AREA-9 ...)' becomes a tag "
+                    "(#176)",
+        path=APP / "classification.py",
+        anchor='        value = _PARENTHETICAL.sub(" ", value)',
+        replacement='        value = value',
+        target=_B176_TARGET,
+        keyword="psv_title_block or tag_near_misses",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M426", phase=54,
+        description="read the discipline title phrase on every page, so a "
+                    "body section heading becomes the document's discipline "
+                    "(#176)",
+        path=APP / "classification.py",
+        anchor='            if field_name == "discipline" and page_no != first_page:',
+        replacement='            if False:',
+        target=_B176_TARGET,
+        keyword="discipline_is_read_from_the_title_block_page_only",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M427", phase=54,
+        description="overwrite a value the classifier did not write, so a "
+                    "discipline set by the register or a backfill is replaced "
+                    "by a title-phrase match (#176)",
+        path=APP / "classification.py",
+        anchor="        if current is not None and not ours:\n"
+               "            continue",
+        replacement="        if False:\n"
+                    "            continue",
+        target=_B176_TARGET,
+        keyword="value_the_classifier_did_not_write",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M428", phase=54,
+        description="stop auditing a replaced value, so a reclassification "
+                    "leaves no audit_events row (#176 criterion 4)",
+        path=APP / "classification.py",
+        anchor="            replaced.append((field_name, current, evidence))",
+        replacement="            pass",
+        target=_B176_TARGET,
+        keyword="reclassification_is_audited or "
+                "controlled_vocabulary_reclassification",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M429", phase=54,
+        description="unwire the title-block classifier from ingestion, so "
+                    "every submittal keeps NULL fields however clearly its "
+                    "title block states them (#176)",
+        path=APP / "ingest.py",
+        anchor="            _classify_metadata_if_contractor_submittal(doc_id)\n",
+        replacement="",
+        target=_B176_TARGET,
+        keyword="ingestion_writes",
+        tags=("critical",),
+    ),
+)
+
+
+B177_JOB_CLAIM_RETRY_PRIORITY = (
+    Mutation(
+        id="M410", phase=53,
+        description="next_extraction_job writes the claimant's name but "
+                    "leaves the job 'queued', so the claim is not exclusive "
+                    "and a second poller is handed the same job (#177 gap 1)",
+        path=APP / "standards.py",
+        anchor="            f\"\"\"UPDATE jobs SET state = 'running', claimed_by = :me,\n"
+               "                       claimed_at = :now, updated_at = :now\n"
+               "                WHERE id = (SELECT id FROM jobs WHERE stage = :stage",
+        replacement="            f\"\"\"UPDATE jobs SET state = state, claimed_by = :me,\n"
+                    "                       claimed_at = :now, updated_at = :now\n"
+                    "                WHERE id = (SELECT id FROM jobs WHERE stage = :stage",
+        target="tests/test_job_claiming_race.py",
+        keyword="second_poller",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M411", phase=53,
+        description="run_extraction_job trusts its caller again: a worker "
+                    "that holds no claim runs the job anyway - the pre-#177 "
+                    "unchecked-rowcount behaviour (#177 gap 1)",
+        path=APP / "standards.py",
+        anchor="    if job is None:\n"
+               "        return {\"document_id\": document_id, \"state\": \"not_claimed\",\n"
+               "                \"requirements\": 0, \"table_values\": 0}\n",
+        replacement="    if job is None:\n"
+                    "        job = conn.execute(\"SELECT id FROM jobs WHERE document_id = ?\"\n"
+                    "            \" AND stage = ?\", (document_id, EXTRACTION_STAGE)).fetchone()\n",
+        target="tests/test_job_claiming_race.py",
+        keyword="someone_else_holds",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M412", phase=53,
+        description="the ingestion claim no longer checks who holds the "
+                    "document, so two IngestionWorkers take the same one "
+                    "(#177 gap 1, document side)",
+        path=APP / "ingest.py",
+        anchor="        free_d = (\"(d.claimed_by IS NULL OR d.claimed_by = :me\"\n"
+               "                  \" OR d.claimed_at IS NULL OR d.claimed_at < :stale)\")\n"
+               "        free = (\"(claimed_by IS NULL OR claimed_by = :me\"\n"
+               "                \" OR claimed_at IS NULL OR claimed_at < :stale)\")\n",
+        replacement="        free_d = \"(1 = 1)\"\n"
+                    "        free = \"(1 = 1)\"\n",
+        target="tests/test_job_claiming_race.py",
+        keyword="two_ingestion_workers",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M413", phase=53,
+        description="a stale claim is never taken over, so a document held "
+                    "by a worker that died mid-job is stranded forever after "
+                    "a restart (#177 restart recovery)",
+        path=APP / "ingest.py",
+        anchor="        free_d = (\"(d.claimed_by IS NULL OR d.claimed_by = :me\"\n"
+               "                  \" OR d.claimed_at IS NULL OR d.claimed_at < :stale)\")\n"
+               "        free = (\"(claimed_by IS NULL OR claimed_by = :me\"\n"
+               "                \" OR claimed_at IS NULL OR claimed_at < :stale)\")\n",
+        replacement="        free_d = (\"(d.claimed_by IS NULL OR d.claimed_by = :me)\")\n"
+                    "        free = (\"(claimed_by IS NULL OR claimed_by = :me)\")\n",
+        target="tests/test_job_queue_177.py",
+        keyword="held_by_a_dead_worker",
+    ),
+    Mutation(
+        id="M414", phase=53,
+        description="every failure poisons at once - no retry is ever "
+                    "scheduled, jobs.retries has no reader again (#177 gap 2)",
+        path=APP / "job_queue.py",
+        anchor="    if retries < settings.job_max_retries:\n",
+        replacement="    if False:\n",
+        target="tests/test_job_queue_177.py",
+        keyword="retried_after_a_backoff or retry_resumes or backoff_grows",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M415", phase=53,
+        description="retries never run out, so a job that always fails is "
+                    "retried forever and never marked poisoned (#177 gap 2)",
+        path=APP / "job_queue.py",
+        anchor="    if retries < settings.job_max_retries:\n",
+        replacement="    if True:\n",
+        target="tests/test_job_queue_177.py",
+        keyword="exhaustion or retried_then_poisoned",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M416", phase=53,
+        description="the backoff is ignored: a retrying job is claimable the "
+                    "moment it fails (#177 gap 2)",
+        path=APP / "standards.py",
+        anchor="              \" AND next_attempt_at IS NOT NULL AND next_attempt_at <= :now))\")",
+        replacement="              \" AND 1 = 1))\")",
+        target="tests/test_job_queue_177.py",
+        keyword="retried_after_a_backoff",
+    ),
+    Mutation(
+        id="M417", phase=53,
+        description="documents are claimed oldest-first again, so an "
+                    "interactive upload waits behind a backfill (#177 gap 3)",
+        path=APP / "ingest.py",
+        anchor="                                ORDER BY d.priority DESC, d.uploaded_at LIMIT 1)",
+        replacement="                                ORDER BY d.uploaded_at LIMIT 1)",
+        target="tests/test_job_queue_177.py",
+        keyword="outranks_an_earlier_backfill",
+    ),
+    Mutation(
+        id="M418", phase=53,
+        description="fact extraction stops recording its input hash, so a "
+                    "fact cannot say what it was read from (#177 gap 4)",
+        path=APP / "datasheets.py",
+        anchor="                        extractor_version=extractor_version,\n"
+               "                        input_hash=inputs,\n",
+        replacement="                        extractor_version=extractor_version,\n"
+                    "                        input_hash=None,\n",
+        target="tests/test_job_queue_177.py",
+        keyword="fact_extraction_records",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M419", phase=53,
+        description="the corpus-wide queue counts are served to every "
+                    "metrics caller, not only to the admin capability "
+                    "(#177 visibility; audit rows 15 and 30)",
+        path=APP / "metrics.py",
+        anchor="        **({\"queue\": _queue()} if host else {}),",
+        replacement="        **{\"queue\": _queue()},",
+        target="tests/test_job_queue_177.py",
+        keyword="queue_counts_reach_an_admin",
+        tags=("critical",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4745,6 +5033,8 @@ ALL: tuple[Mutation, ...] = (
     + B175_CASCADE_AND_CONFIDENCE + B163_EVIDENCE_TYPE_GATE
     + B168_PIPELINE_REPAIR + B179_ROW_NUMBERED_TABLE_ROWS
     + B179_EXTRACTION_QUALITY_2
+    + B176_SUBMITTAL_METADATA
+    + B177_JOB_CLAIM_RETRY_PRIORITY
 )
 
 
