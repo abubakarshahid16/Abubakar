@@ -4195,6 +4195,413 @@ PROVIDER_SEAM = (
 )
 
 
+#: B19's other half: fact extraction wired into ingestion completion (upload
+#: + watched folder), never a manually-started review run.
+_INGEST_FACTS_TEST = "tests/test_ingest_fact_extraction.py"
+INGEST_FACT_WIRING = (
+    Mutation(
+        id="M356", phase=45,
+        description="PUT THE WIRING BACK: drop the ingestion-side call, so a "
+                    "submittal that only ever gets uploaded never gets facts",
+        path=APP / "ingest.py",
+        anchor="            _queue_extraction_if_standard(doc_id)\n"
+               "            _extract_facts_if_contractor_submittal(doc_id)",
+        replacement="            _queue_extraction_if_standard(doc_id)",
+        target=_INGEST_FACTS_TEST,
+        keyword="gets_facts_from_ingestion_alone",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M357", phase=45,
+        description="drop the CONTRACTOR_SUBMITTAL role gate, so a "
+                    "COMPANY_STANDARD is read by the datasheet extractor too",
+        path=APP / "ingest.py",
+        anchor='    role = (record or {}).get("document_role")\n'
+               '    if role != "CONTRACTOR_SUBMITTAL":\n        return',
+        replacement='    role = (record or {}).get("document_role")\n'
+                    '    if False:\n        return',
+        target=_INGEST_FACTS_TEST,
+        keyword="a_company_standard_never_gets_datasheet_facts or "
+                "an_unclassified_document_gets_no_facts",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M358", phase=45,
+        description="drop the shared 'has no facts' guard as seen from the "
+                    "ingestion path, so re-ingesting a submittal with facts "
+                    "already extracted duplicates them",
+        path=APP / "submittal_review.py",
+        anchor="    if has_facts is not None:\n        return",
+        replacement="    if False:\n        return",
+        target=_INGEST_FACTS_TEST,
+        keyword="does_not_duplicate_them",
+        tags=("critical",),
+    ),
+)
+
+
+#: B9: automated, evidence-based `equipment_type` for CONTRACTOR_SUBMITTAL,
+#: wired into the same ingestion-completion point as B19's fact extraction.
+_EQUIPMENT_TYPE_TEST = "tests/test_equipment_type_classification.py"
+B9_EQUIPMENT_TYPE = (
+    Mutation(
+        id="M359", phase=46,
+        description="PUT THE WIRING BACK: drop the ingestion-side call, so a "
+                    "submittal that only ever gets uploaded never gets an "
+                    "equipment_type",
+        path=APP / "ingest.py",
+        anchor="            _extract_facts_if_contractor_submittal(doc_id)\n"
+               "            _classify_equipment_type_if_contractor_submittal(doc_id)",
+        replacement="            _extract_facts_if_contractor_submittal(doc_id)",
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_a_pump_datasheet_is_classified_as_a_pump_not_a_vessel"
+                " or test_a_psv_datasheet_is_classified_as_a_valve_not_a_pump",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M360", phase=46,
+        description="drop the CONTRACTOR_SUBMITTAL role gate, so a "
+                    "COMPANY_STANDARD (and an unclassified document) gets an "
+                    "equipment_type guessed for it too",
+        path=APP / "classification.py",
+        anchor='    if existing is None or existing["document_role"] != "CONTRACTOR_SUBMITTAL":\n'
+               '        return None',
+        replacement='    if existing is None or False:\n        return None',
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_a_company_standard_never_gets_equipment_type_set"
+                " or test_an_unclassified_document_gets_no_equipment_type",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M361", phase=46,
+        description="drop the confirmed-classification guard, so the "
+                    "automated classifier overwrites an administrator's own "
+                    "confirmed equipment_type",
+        path=APP / "classification.py",
+        anchor='    if existing["confirmed_by"] is not None:\n        return None',
+        replacement='    if False:\n        return None',
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_a_confirmed_classification_is_not_overwritten_by_the_classifier",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M362", phase=46,
+        description="drop the 'nothing matched' guard, so a document with no "
+                    "real evidence is no longer left NULL",
+        path=APP / "classification.py",
+        anchor="    evidence = suggest_equipment_type(chunks)\n"
+               "    if evidence is None:\n        return None",
+        replacement="    evidence = suggest_equipment_type(chunks)\n"
+                    "    if False:\n        return None",
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_a_document_with_no_evidence_stays_unclassified",
+        tags=("critical", "honesty"),
+    ),
+    Mutation(
+        id="M363", phase=46,
+        description="audit every first-time classification too (drop the "
+                    "'old_value is not None' guard), so a reclassification's "
+                    "audit trail is no longer distinguishable from an "
+                    "ordinary first ingest",
+        path=APP / "classification.py",
+        anchor="    if old_value is not None and evidence.equipment_type != old_value:",
+        replacement="    if evidence.equipment_type != old_value:",
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_reclassification_is_versioned_not_silently_overwritten",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M364", phase=46,
+        description="drop the reclassification audit call entirely, so a "
+                    "changed equipment_type silently loses its old value "
+                    "with no trace",
+        path=APP / "classification.py",
+        anchor="    if old_value is not None and evidence.equipment_type != old_value:\n"
+               "        _audit_equipment_type_change(\n"
+               "            document_id, old_value=old_value, evidence=evidence,\n"
+               "            classified_by=classified_by)\n"
+               "    return evidence",
+        replacement="    return evidence",
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_reclassification_is_versioned_not_silently_overwritten",
+        tags=("critical",),
+    ),
+)
+
+
+#: #175: cascaded extractor (table column-scoping, reused from the parked
+#: B58 fix, renumbered M356-M358 -> M365-M367 to avoid colliding with
+#: mutation ids already added on this branch since the two diverged), OCR
+#: fallback routing, and confidence-based NEEDS_ENGINEER_REVIEW routing.
+_B175_DATASHEET_TEST = "tests/test_datasheets.py"
+B175_CASCADE_AND_CONFIDENCE = (
+    Mutation(
+        id="M365", phase=47,
+        description="PUT B58 BACK: route ruled-table shapes through the "
+                    "bare alternating-pair splitter again",
+        path=APP / "datasheets.py",
+        anchor="            found.extend(pairs_from_table_shape([list(row) for row in shape]))",
+        replacement="            for row in shape:\n"
+                    "                found.extend(split_label_value(list(row)))",
+        target=_B175_DATASHEET_TEST,
+        keyword="a_row_labels_its_own_values or wired_into_extract_facts",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M366", phase=47,
+        description="stop carrying a spanning header cell forward, so a "
+                    "column under a merged header loses its parent name",
+        path=APP / "datasheets.py",
+        anchor="            if not out_row[i] and out_row[i - 1]:\n"
+               "                out_row[i] = out_row[i - 1]",
+        replacement="            if False:\n                out_row[i] = out_row[i - 1]",
+        target=_B175_DATASHEET_TEST, keyword="spanning_header_cell_is_carried",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M367", phase=47,
+        description="stop detecting a second header line, so its column "
+                    "names get stored as if they were data",
+        path=APP / "datasheets.py",
+        anchor="        if not row1[0]:",
+        replacement="        if False:",
+        target=_B175_DATASHEET_TEST, keyword="spanning_header_cell_is_carried",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M368", phase=47,
+        description="stop routing low-confidence facts to "
+                    "NEEDS_ENGINEER_REVIEW, so a guess is accepted as a "
+                    "confirmed fact",
+        path=APP / "datasheets.py",
+        anchor="    if validation_state is None and confidence is not None                     and confidence < LOW_CONFIDENCE_THRESHOLD:\n"
+               "        validation_state = NEEDS_ENGINEER_REVIEW",
+        replacement="    pass",
+        target=_B175_DATASHEET_TEST,
+        keyword="a_low_confidence_fact_is_routed_to_needs_engineer_review",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M369", phase=47,
+        description="let a page with native evidence ALSO be read from "
+                    "OCR, so a low-confidence guess can overwrite a "
+                    "confident native fact",
+        path=APP / "datasheets.py",
+        anchor="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
+               "        if not found:",
+        replacement="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
+                    "        if True:",
+        target=_B175_DATASHEET_TEST,
+        keyword="a_page_with_no_native_pairs_falls_back_to_its_ocr_text or "
+                "a_page_with_native_pairs_never_reaches_the_ocr_tier",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M370", phase=47,
+        description="stop folding a continuation header line into the "
+                    "composite column name for a STANDARDS table, so a "
+                    "merged multi-row header (region/sub-region/code) loses "
+                    "everything but its first line",
+        path=APP / "tables.py",
+        anchor="        if candidate[0]:\n            break",
+        replacement="        if True:\n            break",
+        target="tests/test_standards_3b.py",
+        keyword="merged_multi_row_header_still_names_its_column",
+        tags=("table", "honesty"),
+    ),
+    Mutation(
+        id="M371", phase=47,
+        description="stop requiring a submission verb before naming an "
+                    "evidence noun, so required_evidence_type gets guessed "
+                    "off any mention of a document kind",
+        path=APP / "requirements_3b.py",
+        anchor="    if not sentence or not _EVIDENCE_VERB.search(sentence):\n"
+               "        return None",
+        replacement="    if not sentence:\n        return None",
+        target="tests/test_standards_3b.py",
+        keyword="an_evidence_noun_with_no_submission_verb_is_not_enough_alone",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M372", phase=47,
+        description="reimplement requirement ranking directly off the RRF "
+                    "fusion helpers instead of calling the shared "
+                    "search.search entrypoint, so requirement retrieval "
+                    "silently forks into a second search stack",
+        path=APP / "standards.py",
+        anchor="    from . import search as search_mod\n"
+               "    result = search_mod.search(",
+        replacement="    from . import search as search_mod\n"
+                    "    def _bypass(*a, **k):\n"
+                    "        return {'hits': []}\n"
+                    "    result = _bypass(",
+        target="tests/test_standards_3b.py",
+        keyword="search_requirements_reuses_the_existing_hybrid_search",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M373", phase=47,
+        description="apply the structured pre-filter AFTER retrieval "
+                    "instead of narrowing the id set retrieval receives, "
+                    "so a filtered-out standard is still a candidate",
+        path=APP / "standards.py",
+        anchor="        scope = {r[\"id\"] for r in rows}\n"
+               "    narrowed = frozenset(scope)",
+        replacement="        pass\n"
+                    "    narrowed = frozenset(scope)",
+        target="tests/test_standards_3b.py",
+        keyword="a_prefilter_narrows_the_scope_handed_to_retrieval_before_ranking",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
+B163_EVIDENCE_TYPE_GATE = (
+    Mutation(
+        id="M374", phase=48,
+        description="drop the evidence-type gate: a numeric_limit clause "
+                    "that names its own evidence (a certificate, a drawing) "
+                    "reaches the arithmetic again and can be paired to an "
+                    "unrelated datasheet field and read COMPLIANT/"
+                    "NON_COMPLIANT for a document that was never reviewed",
+        path=APP / "comparison.py",
+        anchor="    required_evidence = requirement.get(\"required_evidence_type\")\n"
+               "    if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:",
+        replacement="    required_evidence = requirement.get(\"required_evidence_type\")\n"
+                    "    if False:",
+        target="tests/test_comparison.py",
+        keyword="required_evidence_type_of_a_certificate_is_not_in_document_scope",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M375", phase=48,
+        description="a requirement naming other evidence with NO paired "
+                    "fact falls back to MISSING_INFORMATION - the wrong-"
+                    "document case is misread as the contractor's omission",
+        path=APP / "comparison.py",
+        anchor="    required_evidence = requirement.get(\"required_evidence_type\")\n"
+               "    if required_evidence and required_evidence != requirements_3b.DATA_SHEET_EVIDENCE:",
+        replacement="    required_evidence = requirement.get(\"required_evidence_type\")\n"
+                    "    if False:",
+        target="tests/test_comparison.py",
+        keyword="required_evidence_type_of_a_certificate_with_no_fact_is_not_missing_information",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M376", phase=48,
+        description="run_comparison stops filtering out excluded standards, "
+                    "so a requirement from a standard ruled inapplicable is "
+                    "evaluated and can be reported COMPLIANT/NON_COMPLIANT "
+                    "against a submittal it does not govern",
+        path=APP / "comparison.py",
+        anchor="    applicable = submittal_review.list_applicable_standards(\n"
+               "        review_run_id, allowed_document_ids=allowed_document_ids,\n"
+               "        include_excluded=False)",
+        replacement="    applicable = submittal_review.list_applicable_standards(\n"
+                    "        review_run_id, allowed_document_ids=allowed_document_ids,\n"
+                    "        include_excluded=True)",
+        target="tests/test_comparison.py",
+        keyword="an_excluded_standards_requirements_produce_no_findings_at_all",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M377", phase=48,
+        description="drop the duplicate-finding gate in create_finding, so a "
+                    "second call for the same (review_run_id, requirement_id, "
+                    "fact_id) silently writes a second unconfirmed row instead "
+                    "of being refused (issue #164 criterion 3)",
+        path=APP / "comparison.py",
+        anchor="    if duplicate is not None:\n"
+               "        raise ComparisonError(",
+        replacement="    if False:\n"
+                    "        raise ComparisonError(",
+        target="tests/test_issue_164_verification_gates.py",
+        keyword="test_criterion_3_a_duplicate_finding_for_the_same_pair_in_the_same_run_is_blocked",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M378", phase=49,
+        description="drop the requires-other-document summary row, so a "
+                    "submittal with hundreds of NOT_IN_DOCUMENT_SCOPE "
+                    "findings exports a CRS that names none of them "
+                    "(issue #165 criterion 4)",
+        path=APP / "crs_mapping.py",
+        anchor="    if other_doc_count:",
+        replacement="    if False:",
+        target="tests/test_crs_mapping.py",
+        keyword="requires_other_document_gets_one_summary_row_not_individual_ones",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M379", phase=49,
+        description="drop the missing-information summary row, so a "
+                    "submittal with hundreds of MISSING_INFORMATION findings "
+                    "exports a CRS that reads as though none exist",
+        path=APP / "crs_mapping.py",
+        anchor="    if missing_info_count:",
+        replacement="    if False:",
+        target="tests/test_crs_mapping.py",
+        keyword="missing_information_never_enters_individually",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M380", phase=49,
+        description="stop colouring rows by row_kind, so a NON_COMPLIANT "
+                    "defect and a NEEDS_ENGINEER_REVIEW row look identical "
+                    "on the printed sheet (issue #165 criterion 4)",
+        path=APP / "crs_export.py",
+        anchor="            if fill is not None:\n"
+               "                cell.fill = fill",
+        replacement="            if False:\n"
+                    "                cell.fill = fill",
+        target="tests/test_crs_export.py",
+        keyword="rows_of_different_kinds_get_different_fill_colours",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
+B168_PIPELINE_REPAIR = (
+    Mutation(
+        id="M381", phase=50,
+        description="delete the chunk_signature skip-if-unchanged guard, so "
+                    "every re-chunk does a full rebuild instead of the "
+                    "incremental no-op issue #168 criterion 2 claims",
+        path=APP / "chunker.py",
+        anchor='    if not force and existing and doc["chunk_signature"] == signature:',
+        replacement='    if False:',
+        target="tests/test_incremental_reindex.py",
+        keyword="rechunking_unchanged_content_leaves_chunk_rows_untouched",
+        tags=("honesty",),
+    ),
+)
+
+
+B179_ROW_NUMBERED_TABLE_ROWS = (
+    Mutation(
+        id="M382", phase=51,
+        description="stop routing a row whose column 0 is a bare line "
+                    "number through split_label_value, so the row number "
+                    "goes back to being scoped-to-header's one row label "
+                    "(issue #179: bare-digit field names and page-title "
+                    "text leaking into field_label)",
+        path=APP / "datasheets.py",
+        anchor="        if re.fullmatch(r\"\\d{1,3}\", label):\n"
+               "            compact = [c for c in cells if c]\n"
+               "            out.extend(split_label_value(compact))\n"
+               "            continue",
+        replacement="        if False:\n"
+                    "            compact = [c for c in cells if c]\n"
+                    "            out.extend(split_label_value(compact))\n"
+                    "            continue",
+        target="tests/test_datasheets.py",
+        keyword="test_179_a_dual_subform_row_keeps_each_side_s_own_label or "
+                "test_179_a_row_numbered_form_does_not_quote_the_page_s_own_title",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4209,7 +4616,9 @@ ALL: tuple[Mutation, ...] = (
     + B7_ANALYSIS_GENERATION + B18_UNMEASURED_FACTOR + B19_FACT_EXTRACTION
     + B38_ORPHAN_GUARD + B40_FACT_GUARD + B9_NOT_IN_DOCUMENT_SCOPE
     + B42_STRUCTURED_SCOPE + B49_EVIDENCE_BY_ROLE + B44_UNREADABLE_FILE
-    + B50_MODEL_SCHEMA + PROVIDER_SEAM
+    + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
+    + B175_CASCADE_AND_CONFIDENCE + B163_EVIDENCE_TYPE_GATE
+    + B168_PIPELINE_REPAIR + B179_ROW_NUMBERED_TABLE_ROWS
 )
 
 

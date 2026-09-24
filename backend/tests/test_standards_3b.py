@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import claims, db, requirements_3b, standards, submittal_review, tables
+from app import claims, db, requirements_3b, search as search_mod, standards, submittal_review, tables
 from app.config import settings
 
 
@@ -221,6 +221,76 @@ def test_a_cell_that_is_not_a_number_is_not_recorded_as_a_value(tmp_path):
     _chunk("c1", doc, "table", kind="table", page=1)
     standards.extract_table_values("doc_t", allowed_document_ids=_scope(doc))
     assert standards.list_requirements("doc_t", allowed_document_ids=_scope(doc)) == []
+
+
+def _ruled_grid_pdf(path, all_rows) -> str:
+    """A one-page PDF with a REAL ruled grid drawn exactly as given - no
+    header/data split, so a MULTI-ROW header (a merged span written once and
+    left blank under the rest of its width, continued on a second and third
+    line) can be reproduced faithfully instead of forced through
+    `_ruled_table_pdf`'s single-header-row shape.
+    """
+    import pymupdf
+    doc = pymupdf.open()
+    page = doc.new_page(width=900, height=400)
+    x0, y0, cw, rh = 40, 60, 90, 30
+    for r, row in enumerate(all_rows):
+        for c, cell in enumerate(row):
+            rect = pymupdf.Rect(x0 + c * cw, y0 + r * rh,
+                             x0 + (c + 1) * cw, y0 + (r + 1) * rh)
+            page.draw_rect(rect, color=(0, 0, 0), width=0.7)
+            if cell:
+                page.insert_text((rect.x0 + 4, rect.y0 + 19), str(cell), fontsize=9)
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_a_merged_multi_row_header_still_names_its_column(tmp_path):
+    """THE MUTATION TARGET (M370). Measured on the live corpus: of the 4,246
+    table-derived requirements that carry a `table_row`, 2,983 (70%) have no
+    `field` at all - `standard_requirements.field IS NULL` - because a wide
+    table's header spans more than one physical column (a super-header like
+    "Red Sea" over "Marine"/"High value"/"Industrial", itself over region
+    codes "(C1)"/"(C2)"/"(C3)") and PyMuPDF's `find_tables` repeats a merged
+    cell's text once and leaves every column beneath it BLANK in that row.
+    Reading row 0 alone as "the header" (the old behaviour) hands
+    `requirements_3b.field_name` an empty string for every column after the
+    first in each span, and it correctly refuses to invent a name from
+    nothing - so the column identity that WAS on the page is lost before it
+    ever reaches `field_name`.
+
+    This is the same shape as B175's `pairs_from_table_shape` fix for
+    datasheets (`datasheets.py`, carry-forward + second-header-line merge,
+    M366/M367) - ported here for STANDARDS documents, where it was still
+    missing.
+    """
+    pdf = _ruled_grid_pdf(tmp_path / "region.pdf", [
+        ["Parameter", "Unit", "Red Sea", "", "Gulf", ""],
+        ["", "", "Marine", "Industrial", "Marine", "Industrial"],
+        ["Xylenes", "mg/L", "12", "20", "14", "22"],
+    ])
+    doc = _doc("doc_region", pdf)
+    _chunk("c1", doc, "table", kind="table", page=1)
+
+    parses = tables.parse_document_tables("doc_region", allowed_document_ids=_scope(doc))
+    assert len(parses) == 1
+    assert parses[0].parsed is True, parses[0].unparsed_reason
+    # Every column after the label carries the region it actually belongs to
+    # - not a blank cut off by the merge.
+    assert all(c for c in parses[0].columns[1:]), parses[0].columns
+
+    standards.extract_table_values("doc_region", allowed_document_ids=_scope(doc))
+    rows = standards.list_requirements("doc_region", allowed_document_ids=_scope(doc))
+    assert rows, "no requirements were written from a real ruled table"
+    fields = {r["field"] for r in rows}
+    assert None not in fields, "a table cell was recorded with no column identity"
+    # The two "Marine" columns (Red Sea and Gulf) must not collapse into one
+    # indistinguishable field - the super-header disambiguates them.
+    marine_fields = {f for f in fields if "Marine" in f}
+    assert len(marine_fields) == 2, marine_fields
+    assert any("Red Sea" in f for f in marine_fields)
+    assert any("Gulf" in f for f in marine_fields)
 
 
 # ========================================================= limits and exceptions
@@ -525,6 +595,74 @@ def test_must_not_is_recorded_as_a_prohibition(tmp_path):
     assert row["operator"] == "<="
     assert row["raw_value"] == "12"
     assert row["raw_unit"] == "bar"
+
+
+# ============================================== required evidence type (new field)
+
+def test_a_requirement_that_names_evidence_records_its_type(tmp_path):
+    """THE MUTATION TARGET (M371). Part 3's contract review: no existing
+    column says what document satisfies a clause - `category` is only ever
+    'prohibition' or None, `requirement_type` is the clause's SHAPE. This is
+    genuinely additive.
+
+    Populated only because the sentence itself both names a submission verb
+    and a document noun from the fixed vocabulary.
+    """
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_evidence", pdf)
+    source = ("The pressure test relief valve shall be accompanied with a "
+               "calibration certificate that includes the test date.")
+    _chunk("c-evidence", doc, source, section="7.1 Testing", page=4)
+
+    standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    row = standards.list_requirements(doc, allowed_document_ids=_scope(doc))[0]
+    assert row["required_evidence_type"] == "certificate"
+    # And it still resolves like every other field.
+    assert row["source_text"] == source
+
+
+def test_a_requirement_with_no_evidence_noun_stays_null_not_guessed(tmp_path):
+    """A limit with nothing to submit must not be handed a fabricated type."""
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_no_evidence", pdf)
+    _chunk("c-no-evidence", doc, "The vessel must not exceed 12 bar.",
+           section="6.1 Pressure", page=7)
+
+    standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    row = standards.list_requirements(doc, allowed_document_ids=_scope(doc))[0]
+    assert row["required_evidence_type"] is None
+
+
+def test_a_submission_verb_alone_with_no_named_document_stays_null(tmp_path):
+    """"Shall be verified" has an obligation but nothing to hand over - not a
+    submission verb from this vocabulary, and no document noun either."""
+    assert requirements_3b.required_evidence_type(
+        "The weld quality shall be verified prior to installation.") is None
+
+
+def test_an_evidence_noun_with_no_submission_verb_is_not_enough_alone():
+    """THE MUTATION TARGET for the verb gate specifically. "have a valid
+    certificate" names the noun but uses none of this vocabulary's
+    submission verbs - the sentence never says anything must be HANDED OVER,
+    so this must stay None rather than firing off the noun alone.
+    """
+    assert requirements_3b.required_evidence_type(
+        "The vessel shall have a valid certificate of conformance.") is None
+
+
+@pytest.mark.parametrize(
+    ("sentence", "expected"),
+    [
+        ("The vendor shall submit vendor drawings for approval.", "drawing"),
+        ("The contractor shall provide a hydrotest report.", "report"),
+        ("Material shall be traceable to manufacturer's test certificates.",
+         "certificate"),
+        ("The supplier shall furnish a data sheet for each item.", "data_sheet"),
+        ("A welding procedure shall be submitted for review.", "procedure"),
+    ],
+)
+def test_required_evidence_type_across_the_fixed_vocabulary(sentence, expected):
+    assert requirements_3b.required_evidence_type(sentence) == expected
 
 
 @pytest.mark.parametrize("description", [
@@ -965,3 +1103,86 @@ def test_the_mandatory_verb_branch_is_unreachable_for_a_comparator_sentence():
     assert requirements_3b._LIMIT.search(sentence)
     # The head stops at "at least", not at "shall" - the comparator wins.
     assert requirements_3b.subject_phrase(sentence) == "The vent shall be"
+
+
+# ================================================= requirement-level retrieval
+
+def _classify(doc_id: str, **fields):
+    """Set document_classification fields beyond `_doc`'s defaults, for the
+    structured pre-filter tests."""
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    with db.connect() as conn:
+        conn.execute(f"UPDATE document_classification SET {cols} "
+                     "WHERE document_id = ?", [*fields.values(), doc_id])
+
+
+def test_search_requirements_reuses_the_existing_hybrid_search(tmp_path, monkeypatch):
+    """THE MUTATION TARGET (M372). Not a second search stack: this must call
+    the SAME `search.search` everything else (Chat, Analysis) already uses -
+    lexical + dense fused by RRF - rather than reimplementing ranking over
+    `standard_requirements` directly. Proven by substituting the shared
+    entrypoint and confirming the substitute is what actually ran.
+    """
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_hybrid", pdf)
+    _chunk("c1", doc, NOISE, section="5.3.3 Noise", page=9)
+    standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
+    row = standards.list_requirements(doc, allowed_document_ids=_scope(doc))[0]
+
+    calls = []
+
+    def fake_search(query, *, limit, allowed_document_ids, **kw):
+        calls.append({"query": query, "limit": limit,
+                       "allowed_document_ids": allowed_document_ids, **kw})
+        return {"hits": [{"chunk_id": row["chunk_id"], "score": 0.9,
+                          "bm25": 1.2, "cosine": 0.5}]}
+
+    monkeypatch.setattr(search_mod, "search", fake_search)
+    results = standards.search_requirements(
+        "noise limit", allowed_document_ids=_scope(doc))
+
+    assert len(calls) == 1, "search_requirements did not call the shared hybrid search"
+    # dense is never disabled - the same hybrid path everything else uses.
+    assert calls[0].get("dense", True) is not False
+    assert len(results) == 1
+    assert results[0]["id"] == row["id"]
+    assert results[0]["retrieval"]["chunk_id"] == row["chunk_id"]
+
+
+def test_a_prefilter_narrows_the_scope_handed_to_retrieval_before_ranking(tmp_path, monkeypatch):
+    """THE MUTATION TARGET (M373). CLAUDE.md rule 5: a filter may only
+    NARROW what the caller already may read - intersection, never union.
+    `discipline="Civil"` must remove the Mechanical standard from the id set
+    retrieval is even given, not filter results after the fact.
+    """
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    mech = _doc("doc_mech", pdf, "MECH.pdf")
+    civil_pdf = _ruled_table_pdf(tmp_path / "c.pdf", ["a", "b"], [["1", "2"]])
+    civil = _doc("doc_civil", civil_pdf, "CIVIL.pdf")
+    _classify(civil, discipline_canonical="Civil")
+    _chunk("c-mech", mech, NOISE, section="5.3.3 Noise", page=9)
+    _chunk("c-civil", civil, NOISE, section="5.3.3 Noise", page=9)
+    standards.extract_requirements(mech, allowed_document_ids=_scope(mech))
+    standards.extract_requirements(civil, allowed_document_ids=_scope(civil))
+
+    captured = {}
+
+    def fake_search(query, *, limit, allowed_document_ids, **kw):
+        captured["allowed_document_ids"] = allowed_document_ids
+        return {"hits": []}
+
+    monkeypatch.setattr(search_mod, "search", fake_search)
+    standards.search_requirements(
+        "noise limit", allowed_document_ids=_scope(mech, civil),
+        discipline="Civil")
+
+    assert captured["allowed_document_ids"] == frozenset({civil})
+
+
+def test_an_empty_grant_and_an_empty_query_both_return_nothing(tmp_path):
+    """1=0, never a permissive default - the same rule every other read in
+    this module follows."""
+    assert standards.search_requirements("noise", allowed_document_ids=frozenset()) == []
+    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
+    doc = _doc("doc_q", pdf)
+    assert standards.search_requirements("   ", allowed_document_ids=_scope(doc)) == []

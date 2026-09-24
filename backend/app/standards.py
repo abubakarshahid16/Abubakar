@@ -574,7 +574,7 @@ def create_requirement(
     structured = structured or {}
     for key in ("requirement_type", "field", "operator", "value", "unit",
                 "raw_value", "raw_unit", "condition", "exceptions",
-                "discipline", "table_row", "subject"):
+                "discipline", "table_row", "subject", "required_evidence_type"):
         row[key] = structured.get(key)
     conn = connect()
     with conn:
@@ -585,14 +585,15 @@ def create_requirement(
                 confidence, created_at, updated_at,
                 requirement_type, field, operator, value, unit,
                 raw_value, raw_unit, condition, exceptions, discipline,
-                table_row, subject)
+                table_row, subject, required_evidence_type)
                VALUES (:id, :standard_document_id, :clause, :page, :chunk_id,
                        :requirement_text, :source_text, :category,
                        :extraction_method, :confidence, :created_at,
                        :updated_at,
                        :requirement_type, :field, :operator, :value, :unit,
                        :raw_value, :raw_unit, :condition, :exceptions,
-                       :discipline, :table_row, :subject)""", row)
+                       :discipline, :table_row, :subject,
+                       :required_evidence_type)""", row)
     return row
 
 
@@ -726,6 +727,7 @@ def extract_requirements(
                     # `subject_of`, which explains at length why these two must not
                     # become the same column.
                     "subject": subject_of(sentence),
+                    "required_evidence_type": requirements_3b.required_evidence_type(sentence),
                     **(limit or {}),
                 }
                 try:
@@ -1152,6 +1154,106 @@ def list_requirements(
         # a malformed value reads as "none recorded" rather than raising.
         item["exceptions"] = requirements_3b.decode_exceptions(item.get("exceptions"))
         out.append(item)
+    return out
+
+
+def search_requirements(
+    query: str, *, allowed_document_ids: frozenset[str], limit: int = 20,
+    discipline: str | None = None, equipment_type: str | None = None,
+    service: str | None = None, document_role: str | None = None,
+    project: str | None = None, standard_document_id: str | None = None,
+    revision: str | None = None,
+) -> list[dict]:
+    """Requirement-level HYBRID retrieval: pre-filter, then rank, never
+    dense-only.
+
+    THE DISCOVERY-TIME PATH `list_requirements` IS NOT. That function fetches
+    every requirement of ONE ALREADY-SELECTED standard - correct and
+    deterministic for comparison, and left untouched (ranking it would make a
+    comparison's completeness depend on a similarity cutoff). This answers a
+    different question: "which clauses, across every standard I may read,
+    talk about X" - and nothing in this codebase answered it before.
+
+    NOT A SECOND SEARCH STACK. `standard_requirements.chunk_id` already
+    points into the exact `chunks` rows `search.search` already indexes
+    (`chunks_fts`, `chunk_vectors` - see that column's own comment). So this
+    runs the SAME hybrid search everything else uses - lexical BM25 fused
+    with dense embeddings by RRF, optionally reranked; dense is never used
+    alone, because it never is anywhere else in this system either - and
+    resolves each hit's chunk back to the requirement rows it carries. A
+    chunk with no requirement (prose that was never atomised into one) simply
+    contributes nothing here, the same way a requirement whose chunk vanished
+    resolves to nothing in `list_requirements`.
+
+    PRE-FILTERS NARROW THE ID SET BEFORE RETRIEVAL, NEVER AFTER. Matches the
+    structured_search.py (B42) and CLAUDE.md rule 5 discipline: a filter may
+    only narrow what the caller already may read - intersection, never
+    union. `allowed_document_ids` is ANDed with the structured filters here
+    exactly as it is everywhere else in this module (`_scope_clause`), and
+    the narrowed set - never the original - is what retrieval receives, so a
+    requirement outside the filter is never even a retrieval candidate, let
+    alone one a rank could surface.
+    """
+    if not allowed_document_ids or not query.strip():
+        return []
+    submittal_review.ensure_schema()
+    scope = set(allowed_document_ids)
+    if standard_document_id is not None:
+        scope &= {standard_document_id}
+    filters: list[str] = []
+    fargs: list[str] = []
+    for column, value in (
+        ("dc.discipline_canonical", discipline),
+        ("dc.document_role", document_role),
+        ("dc.project", project),
+        ("dc.revision", revision),
+        ("dc.equipment_type", equipment_type),
+        ("dc.service", service),
+    ):
+        if value is not None:
+            filters.append(f"{column} = ?")
+            fargs.append(value)
+    if filters and scope:
+        marks = ",".join("?" for _ in scope)
+        rows = connect().execute(
+            f"SELECT d.id FROM documents d"
+            f" JOIN document_classification dc ON dc.document_id = d.id"
+            f" WHERE d.id IN ({marks}) AND " + " AND ".join(filters),
+            [*sorted(scope), *fargs],
+        ).fetchall()
+        scope = {r["id"] for r in rows}
+    narrowed = frozenset(scope)
+    if not narrowed:
+        return []
+
+    from . import search as search_mod
+    result = search_mod.search(
+        query, limit=max(limit * 4, limit), allowed_document_ids=narrowed)
+
+    where, args = _scope_clause(narrowed, "r.standard_document_id")
+    out: list[dict] = []
+    seen_ids: set[str] = set()
+    for rank, hit in enumerate(result["hits"]):
+        if len(out) >= limit:
+            break
+        rows = connect().execute(
+            "SELECT r.* FROM standard_requirements r" + where +
+            " AND r.chunk_id = ? ORDER BY r.created_at",
+            [*args, hit["chunk_id"]],
+        ).fetchall()
+        for row in rows:
+            if row["id"] in seen_ids or len(out) >= limit:
+                continue
+            seen_ids.add(row["id"])
+            item = dict(row)
+            item["exceptions"] = requirements_3b.decode_exceptions(item.get("exceptions"))
+            item["citation_resolves"] = True
+            item["retrieval"] = {
+                "chunk_id": hit["chunk_id"], "rank": rank,
+                "score": hit["score"], "bm25": hit["bm25"],
+                "cosine": hit["cosine"],
+            }
+            out.append(item)
     return out
 
 

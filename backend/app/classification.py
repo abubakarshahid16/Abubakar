@@ -342,6 +342,222 @@ def suggest(filename: str, first_page_text: str,
     )
 
 
+# ------------------------------------------------------ equipment type (B9)
+#
+# WHY TIER 1 NEVER REACHES `equipment_type`. `match_register` above requires a
+# loaded `deliverables_register`; on this corpus that table has zero rows, so
+# `suggest()` is legitimately always Tier 3 for every document uploaded so
+# far - not a bug, an empty register. `equipment_type` is not a register
+# column anyway (see the module docstring's THREE AXES): it is submittal-
+# review metadata, set only by an administrator through `confirm()` until
+# now. This section is the automated, evidence-based alternative, scoped to
+# CONTRACTOR_SUBMITTAL documents only - a company standard has no equipment.
+#
+# EVIDENCE, NOT INFERENCE. Every pattern below is a phrase measured on the
+# real submittal corpus's own page text (a centrifugal-pump datasheet, a PSV
+# datasheet, a pressure-vessel datasheet - see the classifier's caller for
+# which documents). No pattern here is a generic guess: each one is the exact
+# wording those documents use to name themselves. A document whose text
+# carries none of them gets NULL, never a default.
+
+#: Bumped whenever the pattern list or matching logic changes, so a stored
+#: `equipment_type_evidence.classifier_version` tells a reader whether a row
+#: was produced by the version currently running.
+EQUIPMENT_TYPE_CLASSIFIER_VERSION = "equipment-type-v1"
+
+#: Matched directly against a CHUNK'S OWN TEXT (not `normalise`d - the quote
+#: stored alongside a hit is exactly what matched, and lower-casing it first
+#: would make "exact quoted text" a lie). Case-insensitive, whitespace-
+#: tolerant. ORDER IS PRIORITY: checked top to bottom, first pattern with any
+#: hit anywhere in the document wins - "Pressure Safety Valve" is checked
+#: before the generic "Pump" pattern so a PSV sheet that happens to mention a
+#: pump elsewhere is never mislabelled.
+_EQUIPMENT_TYPE_PATTERNS: tuple[tuple[str, "re.Pattern[str]", float], ...] = (
+    ("Pressure Safety Valve",
+     re.compile(r"pressure\s+safety\s+valves?(?:\s*\(\s*psvs?\s*\))?|\bpsvs?\b", re.I),
+     0.85),
+    ("Centrifugal Pump", re.compile(r"centrifugal\s+pumps?", re.I), 0.85),
+    ("Pump", re.compile(r"pumps?\s+data\s*sheet", re.I), 0.75),
+    ("Pressure Vessel", re.compile(r"pressure\s+vessels?", re.I), 0.8),
+)
+
+
+@dataclass(frozen=True)
+class EquipmentTypeEvidence:
+    """What was matched, where, and how sure the classifier is.
+
+    Every field here is what CLAUDE.md rule 4 requires of a claim: a page it
+    can be checked against, the exact text that produced it, which method
+    produced it, and a confidence that is never "high" (capped at 0.85 below
+    by `_EQUIPMENT_TYPE_PATTERNS`).
+    """
+
+    equipment_type: str
+    page: int | None
+    quote: str
+    method: str
+    confidence: float
+    classifier_version: str
+    classified_at: str
+
+    def as_dict(self) -> dict:
+        return {
+            "page": self.page, "quote": self.quote, "method": self.method,
+            "confidence": self.confidence,
+            "classifier_version": self.classifier_version,
+            "classified_at": self.classified_at,
+        }
+
+
+def suggest_equipment_type(chunks: Sequence[dict]) -> EquipmentTypeEvidence | None:
+    """The equipment type a submittal's OWN TEXT names, or None.
+
+    `chunks` is a sequence of `{"page_start": int, "ordinal": int, "text":
+    str}` - exactly the shape a `SELECT page_start, ordinal, text FROM
+    chunks` row gives when read with `sqlite3.Row` and `dict()`. Sorted here
+    by page then ordinal so "first hit wins" means the earliest occurrence in
+    reading order, not the order SQLite happened to return rows in.
+
+    NEVER GUESSES. A document whose chunks carry none of
+    `_EQUIPMENT_TYPE_PATTERNS` returns None, and the caller leaves
+    `equipment_type` exactly as it was - NULL if it had no value, because an
+    unmatched document is a real answer and not a prompt to invent one.
+    """
+    ordered = sorted(
+        chunks, key=lambda c: (c.get("page_start") or 0, c.get("ordinal") or 0))
+    for label, pattern, base_confidence in _EQUIPMENT_TYPE_PATTERNS:
+        for chunk in ordered:
+            text = chunk.get("text") or ""
+            match = pattern.search(text)
+            if match is None:
+                continue
+            page = chunk.get("page_start")
+            # ON PAGE 1, this is almost always the title block - the same
+            # place a human reads to know what a datasheet is for. Deeper in
+            # the document (the pressure-vessel phrase, which this corpus's
+            # own vessel datasheet carries mainly in its welding and
+            # inspection clauses rather than its cover sheet) it is evidence
+            # from the BODY, and is recorded and scored as such rather than
+            # claimed to be a title match it is not.
+            is_title = (page or 0) <= 1
+            method = "title_phrase_match" if is_title else "body_phrase_match"
+            confidence = base_confidence if is_title else round(
+                max(0.5, base_confidence - 0.1), 2)
+            quote = _SPACE.sub(" ", match.group(0)).strip()
+            return EquipmentTypeEvidence(
+                equipment_type=label, page=page, quote=quote, method=method,
+                confidence=confidence,
+                classifier_version=EQUIPMENT_TYPE_CLASSIFIER_VERSION,
+                classified_at=_now())
+    return None
+
+
+def _audit_equipment_type_change(document_id: str, *, old_value: str | None,
+                                 evidence: EquipmentTypeEvidence,
+                                 classified_by: str) -> None:
+    """One row in `audit_events` per RECLASSIFICATION, never silently dropped.
+
+    RESPONSE-SAFE DETAIL ONLY, the same rule `applicability._audit` and the
+    `audit_events` schema comment both state: the old and new EQUIPMENT TYPE
+    LABELS (a short controlled word like "Pump" or "Pressure Vessel", not a
+    sentence from the document), the method and the confidence. Never the
+    quote and never the page - those are excerpts of the document's own text,
+    and the audit log is "the one table most likely to be exported" (schema
+    comment on `audit_events.detail`).
+
+    Swallows its own failure for the same reason every other write in this
+    module that touches a side table does: an unwritable audit log must not
+    turn an otherwise-successful classification into a failed ingest.
+    """
+    try:
+        conn = connect()
+        with conn:
+            conn.execute(
+                """INSERT INTO audit_events
+                       (at, actor_user_id, actor_username, action,
+                        resource_type, resource_id, outcome, detail)
+                   VALUES (?, NULL, ?, 'equipment_type_reclassified',
+                           'document_classification', ?, 'ok', ?)""",
+                (_now(), classified_by, document_id,
+                 json.dumps({
+                     "field": "equipment_type", "old": old_value,
+                     "new": evidence.equipment_type, "method": evidence.method,
+                     "confidence": evidence.confidence,
+                     "classifier_version": evidence.classifier_version,
+                 })))
+    except Exception:  # noqa: BLE001 - see docstring
+        pass
+
+
+def classify_equipment_type_for_submittal(
+    document_id: str, *, classified_by: str = "equipment_type_classifier",
+) -> EquipmentTypeEvidence | None:
+    """Infer and store `equipment_type` for ONE CONTRACTOR_SUBMITTAL document.
+
+    THE GUARDS, IN ORDER, each a reason to do nothing rather than guess:
+
+      1. No classification row, or `document_role` is not CONTRACTOR_SUBMITTAL
+         (NULL included - an unclassified document is not assumed to be one).
+         `document_classification.equipment_type` does not apply to a
+         COMPANY_STANDARD (CLAUDE.md rule 4: a claim needs a resolving
+         citation, and "what equipment is this standard about" has none).
+      2. `confirmed_by` is already set. An administrator's confirmed record -
+         set through `confirm()`, which may deliberately hold `equipment_type
+         = NULL` because nobody could tell from the sheet - is not this
+         function's to override, the same principle `write_suggestion` already
+         applies to `doc_type`/`discipline`.
+      3. No pattern matched. Returns None; the stored value, including NULL,
+         is left exactly as it was.
+
+    RECLASSIFICATION IS VERSIONED. When the new evidence's `equipment_type`
+    differs from a PREVIOUSLY STORED VALUE (not from NULL - a first
+    classification has no prior fact to lose), `_audit_equipment_type_change`
+    writes the OLD value to `audit_events` before it is overwritten - the
+    established pattern for "a fact that used to be true and is not any more"
+    in this codebase (`audit_events`' own schema comment: actor_username is
+    written at event time "so deletion cannot take it away"; the same
+    principle applies to a superseded value). When the new value equals the
+    old one, the evidence (page/quote/method/confidence) is still refreshed -
+    a later re-run with a newer classifier version should not leave a stale
+    quote behind - but nothing is audited, because nothing about the STORED
+    VALUE changed.
+    """
+    conn = connect()
+    existing = conn.execute(
+        "SELECT document_role, equipment_type, confirmed_by"
+        " FROM document_classification WHERE document_id = ?",
+        (document_id,)).fetchone()
+    if existing is None or existing["document_role"] != "CONTRACTOR_SUBMITTAL":
+        return None
+    if existing["confirmed_by"] is not None:
+        return None
+
+    chunks = [dict(r) for r in conn.execute(
+        "SELECT page_start, ordinal, text FROM chunks"
+        " WHERE document_id = ? AND retrievable = 1", (document_id,))]
+    evidence = suggest_equipment_type(chunks)
+    if evidence is None:
+        return None
+
+    old_value = existing["equipment_type"]
+    with conn:
+        conn.execute(
+            "UPDATE document_classification SET equipment_type = ?,"
+            " equipment_type_evidence = ? WHERE document_id = ?",
+            (evidence.equipment_type, json.dumps(evidence.as_dict()), document_id))
+    # AUDITED ONLY WHEN A REAL VALUE IS REPLACED. `old_value is None` is the
+    # FIRST classification, not a reclassification - there is no prior fact to
+    # lose, and auditing it would put an "equipment_type_reclassified" row in
+    # the trail for every ordinary first-time ingest, drowning the rows that
+    # actually matter: the ones where a stored value changed under a reader
+    # who had already seen the old one.
+    if old_value is not None and evidence.equipment_type != old_value:
+        _audit_equipment_type_change(
+            document_id, old_value=old_value, evidence=evidence,
+            classified_by=classified_by)
+    return evidence
+
+
 # ------------------------------------------------------------------- storage
 
 def write_suggestion(document_id: str, suggestion: Suggestion, *,
@@ -617,9 +833,15 @@ def confirm(document_id: str, *, doc_type: str | None,
         if metadata is not None:
             # Built from METADATA_FIELDS rather than spelled out, so a column
             # added to that tuple cannot be written in one place and forgotten
-            # in another.
+            # in another. `equipment_type_evidence` is cleared alongside it,
+            # off the same tuple's inclusion of `equipment_type`: an admin's
+            # PUT REPLACES the record (this function's own docstring), and a
+            # classifier's page/quote from a PREVIOUS automated value would
+            # misdescribe whatever the admin just typed.
             assignments = ", ".join(f"{name} = ?" for name in METADATA_FIELDS)
             values = [metadata.get(name) for name in METADATA_FIELDS]
+            if "equipment_type" in METADATA_FIELDS:
+                assignments += ", equipment_type_evidence = NULL"
             conn.execute(
                 f"UPDATE document_classification SET {assignments}"
                 " WHERE document_id = ?", [*values, document_id])
@@ -658,6 +880,13 @@ def of_document(document_id: str) -> dict | None:
     except (TypeError, ValueError):
         tags = []
     out["equipment_tags"] = tags if isinstance(tags, list) else []
+    # Same tolerance, for the classifier's own provenance object (B9). NULL
+    # for a row an admin confirmed by hand, or one no classifier has reached.
+    try:
+        evidence = json.loads(out.get("equipment_type_evidence") or "null")
+    except (TypeError, ValueError):
+        evidence = None
+    out["equipment_type_evidence"] = evidence if isinstance(evidence, dict) else None
     out["subjects"] = [dict(r) for r in connect().execute(
         "SELECT s.id, s.name, s.kind, ds.suggested_by, ds.confirmed_by"
         " FROM document_subjects ds JOIN subjects s ON s.id = ds.subject_id"

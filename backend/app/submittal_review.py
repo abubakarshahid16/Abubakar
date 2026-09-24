@@ -200,6 +200,14 @@ def ensure_schema() -> None:
             # comparable yet. So they live here, where a human can read them
             # and no join can consume them.
             ("subject", "TEXT"),
+            # WHAT DOCUMENT SATISFIES THIS CLAUSE, in a fixed vocabulary
+            # ("certificate", "drawing", "data_sheet", "calculation",
+            # "report", "procedure", "record", "plan"), populated only when
+            # `requirements_3b.required_evidence_type` found a submission
+            # verb AND a named document noun in the requirement's own text.
+            # NULL is the honest default - most clauses state a property,
+            # not a document to hand over, and this is never guessed.
+            ("required_evidence_type", "TEXT"),
         ):
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.
@@ -352,6 +360,14 @@ def ensure_schema() -> None:
             # heading the CHUNK carried, which on a two-column form is another
             # column's text.
             ("section_heading", "TEXT"),
+            # #175: NULL means "no validation state recorded" (every fact
+            # written before this column existed, and every confident fact
+            # written after it). 'needs_engineer_review' means the evidence
+            # behind this fact was low-confidence (OCR or vision fallback,
+            # see datasheets.LOW_CONFIDENCE_THRESHOLD) and must not be read
+            # as a confirmed value until a human looks at it - additive and
+            # nullable, set only by datasheets.create_fact.
+            ("validation_state", "TEXT"),
         ):
             add_column_if_missing(conn, "submittal_facts", _column, _type)
         conn.execute(
@@ -498,6 +514,46 @@ class FactExtractionFailed(RuntimeError):
     """The datasheet could not be read into facts; the run is marked failed."""
 
 
+def ensure_facts_extracted(document_id: str, allowed_document_ids: frozenset[str],
+                           *, review_run_id: str | None = None) -> dict | None:
+    """B19's guard, factored out so it has exactly ONE home.
+
+    GUARDED ON "HAS NO FACTS". Facts are per document and reused across runs
+    (master plan section 24), so a second call over the same sheet extracts
+    nothing and cannot duplicate them. Any existing fact - confirmed by an
+    engineer or not - means the sheet has been read; re-reading it is the
+    explicit re-extraction route's job, never a side effect of a review or of
+    ingestion.
+
+    Returns `extract_facts`'s result dict, or None when nothing ran because
+    facts already existed. Raises whatever `extract_facts` raises; callers
+    decide what "failed" means for them - a review run is marked `failed`,
+    ingestion records the failure and leaves the document READY (see
+    `ingest._extract_facts_if_contractor_submittal`).
+
+    `review_run_id` is nullable and may be None: facts read outside any
+    review run (ingestion) are not attributed to one, which is exactly what
+    the per-document rebuild of `submittal_facts` made nullable for.
+
+    TWO CALLERS, ONE GUARD. This used to be duplicated the moment a second
+    caller needed it - a duplicated guard is exactly the "fixed in one of two
+    places" defect CLAUDE.md rule 8 names, so both `_extract_facts_if_none`
+    (review runs) and `ingest._extract_facts_if_contractor_submittal`
+    (ingestion) call this instead of re-checking `submittal_facts`
+    themselves.
+    """
+    from . import datasheets  # datasheets imports this module
+
+    has_facts = connect().execute(
+        "SELECT 1 FROM submittal_facts WHERE submittal_document_id = ? LIMIT 1",
+        (document_id,)).fetchone()
+    if has_facts is not None:
+        return
+    return datasheets.extract_facts(
+        document_id, allowed_document_ids=allowed_document_ids,
+        review_run_id=review_run_id, replace=False)
+
+
 def _extract_facts_if_none(run_id: str, submittal_document_id: str,
                            allowed_document_ids: frozenset[str]) -> None:
     """B19: read the datasheet into facts, ONCE, before anything compares it.
@@ -506,28 +562,16 @@ def _extract_facts_if_none(run_id: str, submittal_document_id: str,
     datasheet was reviewed against ZERO facts and every requirement came back
     MISSING_INFORMATION - the submittal was never read.
 
-    GUARDED ON "HAS NO FACTS". Facts are per document and reused across runs
-    (master plan section 24), so a second review of the same sheet extracts
-    nothing and cannot duplicate them. Any existing fact - confirmed by an
-    engineer or not - means the sheet has been read; re-reading it is the
-    explicit re-extraction route's job, never a side effect of a review.
-
-    replace=False, so nothing is ever deleted here, and extract_facts writes
-    the whole sheet in ONE transaction, so a failure leaves no partial set
-    for this guard to mistake for a finished one. The run is marked failed
-    WITH the reason rather than left `running`.
+    The guard itself lives in `ensure_facts_extracted`; this wrapper is the
+    review-run-specific half - marking the run failed WITH the reason rather
+    than left `running`. extract_facts writes the whole sheet in ONE
+    transaction, so a failure leaves no partial set for the guard to mistake
+    for a finished one.
     """
-    from . import datasheets  # datasheets imports this module
-
-    has_facts = connect().execute(
-        "SELECT 1 FROM submittal_facts WHERE submittal_document_id = ? LIMIT 1",
-        (submittal_document_id,)).fetchone()
-    if has_facts is not None:
-        return
     try:
-        datasheets.extract_facts(
-            submittal_document_id, allowed_document_ids=allowed_document_ids,
-            review_run_id=run_id, replace=False)
+        ensure_facts_extracted(
+            submittal_document_id, allowed_document_ids,
+            review_run_id=run_id)
     except Exception as exc:  # recorded on the run, then raised
         conn = connect()
         with conn:
