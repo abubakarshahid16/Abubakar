@@ -9,7 +9,7 @@ canonical file wins and this index is wrong and must be corrected.
 ## 1. Canonical project memory - FIVE files, in authority order.
 ## Read all five before every task.
 
-All five live in `D:\project\Rag_chatbot\.cowork\`. Where two disagree, the lower number
+All five live in `C:\project\saudi-aramco-rag-chatbot\.cowork\`. Where two disagree, the lower number
 wins.
 
 **NOT ALL FIVE ARRIVE BY `git clone`.** Instruction 6 in section 0 of
@@ -29,7 +29,7 @@ applies: STOP and ask for the copy, do not substitute anything.
 
 ### Verify NORTH-STAR before using it
 
-    certutil -hashfile D:\project\Rag_chatbot\.cowork\NORTH-STAR.md SHA256
+    certutil -hashfile C:\project\saudi-aramco-rag-chatbot\.cowork\NORTH-STAR.md SHA256
 
 Expected: `3d0505be629a99631e8cbcc0681134c642b7a00ae962a5c9f5ebf9df43499619`
 
@@ -47,8 +47,8 @@ standards retrieval**. Not otherwise.
 
 | File | Why it matters |
 |---|---|
-| `D:\project\Rag_chatbot\docs\status-honesty-audit.md` | Its numbered rules are cited and enforced in practice. Rule 5 stopped a deletion when the archive was incomplete. Rule 16 stopped a failing gate being tuned green |
-| `D:\project\Rag_chatbot\docs\ZERO_REQUIREMENTS_CAUSE.md` | Prior investigation into zero-requirement outcomes. Bears on standards retrieval and on B9 |
+| `C:\project\saudi-aramco-rag-chatbot\docs\status-honesty-audit.md` | Its numbered rules are cited and enforced in practice. Rule 5 stopped a deletion when the archive was incomplete. Rule 16 stopped a failing gate being tuned green |
+| `C:\project\saudi-aramco-rag-chatbot\docs\ZERO_REQUIREMENTS_CAUSE.md` | Prior investigation into zero-requirement outcomes. Bears on standards retrieval and on B9 |
 
 ---
 
