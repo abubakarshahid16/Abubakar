@@ -515,11 +515,31 @@ STATUS_APPLICABLE_NEEDS_ANOTHER_DOCUMENT = "applicable_needs_another_document"
 #: enough recorded attributes to say so with a stated reason.
 STATUS_NOT_APPLICABLE = "not_applicable"
 #: Held, not matched, but neither the submittal nor the standard records
-#: enough (equipment type, discipline, service, project) to judge either
-#: way - a real "don't know", not a disguised "not applicable".
+#: enough (equipment type, service, project) to judge either way - a real
+#: "don't know", not a disguised "not applicable".
 STATUS_UNKNOWN = "unknown"
 
-_COMPARABLE_FIELDS = ("equipment_type", "discipline", "service", "project")
+#: THE FIELDS THIS FUNCTION MAY COMPARE FOR A "DOES NOT MATCH" CLAIM.
+#: `discipline` IS DELIBERATELY EXCLUDED, found and fixed 2026-09-25 by the
+#: owner's own spot-check of "not applicable" verdicts: `document_classification
+#: .discipline` for a COMPANY_STANDARD is the committee that owns it - "Piping
+#: Standards Committee", "Loss Prevention Standards Committee" - read verbatim
+#: off the cover page's "Document Responsibility" line (178 of 179 standards
+#: that have a discipline recorded are committee-shaped, measured on the live
+#: corpus). For a CONTRACTOR_SUBMITTAL, `discipline` is a broad category -
+#: "Mechanical" - read off the submittal's own title block
+#: (`classify_metadata_for_submittal`). These are two DIFFERENT VOCABULARIES,
+#: not two spellings of the same fact, and comparing them for equality can
+#: never produce a true confirmation - only a false "does not match". 9 of 10
+#: sampled `not_applicable` verdicts on the first regression submittal were
+#: exactly this: "discipline 'Piping Standards Committee' does not match the
+#: submittal's 'Mechanical'" - a standard whose governing committee is Piping
+#: reported as not applicable to a Mechanical submittal, which is backwards.
+#: No committee-to-category mapping exists in this codebase (`disciplines.py`'s
+#: `canonical()` only collapses SPELLING variants of the SAME committee name,
+#: it does not translate "Piping Standards Committee" to "Mechanical") - until
+#: one does, `discipline` is evidence to SHOW, never a fact to COMPARE here.
+_COMPARABLE_FIELDS = ("equipment_type", "service", "project")
 
 
 def applicability_with_reasons(submittal_document_id: str, *,
@@ -538,10 +558,11 @@ def applicability_with_reasons(submittal_document_id: str, *,
     judgement this system cannot back with a field-for-field comparison).
 
     "NOT APPLICABLE" IS NEVER GUESSED FROM SILENCE. A standard with no
-    recorded equipment_type/discipline/service/project of its own, or a
-    submittal with none of its own, cannot be compared on those axes at
-    all - that is `STATUS_UNKNOWN`, not a "not applicable" this system has
-    no basis to assert.
+    recorded equipment_type/service/project of its own, or a submittal with
+    none of its own, cannot be compared on those axes at all - that is
+    `STATUS_UNKNOWN`, not a "not applicable" this system has no basis to
+    assert. `discipline` is deliberately not one of the comparable axes -
+    see `_COMPARABLE_FIELDS`.
     """
     result = select(submittal_document_id,
                     allowed_document_ids=allowed_document_ids, persist=False)
@@ -588,9 +609,8 @@ def applicability_with_reasons(submittal_document_id: str, *,
                 "reason": ("not cited by the submittal, and " + (
                     "the submittal" if not submittal_has_profile
                     else "this standard") +
-                    " has no recorded equipment type, discipline, service "
-                    "or project to compare - applicability cannot be "
-                    "determined"),
+                    " has no recorded equipment type, service or project "
+                    "to compare - applicability cannot be determined"),
             })
             continue
 
@@ -604,7 +624,7 @@ def applicability_with_reasons(submittal_document_id: str, *,
         ]
         reason = ("; ".join(mismatches) if mismatches else
                  "not cited by the submittal, and no shared equipment type, "
-                 "discipline, service or project recorded")
+                 "service or project recorded")
         out.append({"standard_document_id": std_id,
                    "document_number": entry.get("document_number"),
                    "filename": entry.get("filename"),

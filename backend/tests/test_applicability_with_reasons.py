@@ -133,18 +133,59 @@ def test_a_submittal_with_no_profile_at_all_makes_every_unselected_standard_unkn
 def test_a_field_blank_on_one_side_is_never_reported_as_a_stated_mismatch():
     """THE MUTATION TARGET: a field only ONE side records is not evidence of
     a conflict - only a field BOTH sides state, and disagree on, may be
-    reported as a mismatch. The standard here records a discipline the
+    reported as a mismatch. The standard here records a service the
     submittal does not; that silence must not be reported as a clash."""
     std = _doc("std_x", "SAES-X-002.pdf", "COMPANY_STANDARD",
               document_number="SAES-X-002", equipment_type="transformer",
-              discipline="Electrical")
+              service="sour service")
     sub = _doc("sub", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
               equipment_type="pump")
     rows = applicability.applicability_with_reasons(
         sub, allowed_document_ids=_scope(std, sub))
     row = _status_of(rows, "SAES-X-002")
     assert row["status"] == applicability.STATUS_NOT_APPLICABLE
+    assert "service" not in row["reason"]
+
+
+def test_a_discipline_committee_name_never_produces_a_false_mismatch():
+    """THE REAL BUG FOUND BY THE OWNER'S SPOT-CHECK (2026-09-25): a
+    standard's `discipline` is the COMMITTEE that owns it ("Piping
+    Standards Committee"), read verbatim off its cover page. A submittal's
+    `discipline` is a broad CATEGORY ("Mechanical"), read off its own title
+    block. These are different vocabularies - comparing them can only ever
+    produce a false "does not match", never a true confirmation. 9 of 10
+    sampled not_applicable verdicts on the real corpus were exactly this:
+    a Piping-committee standard reported not applicable to a Mechanical
+    submittal. `discipline` must never appear in a stated mismatch."""
+    std = _doc("std_piping", "SAES-L-150.pdf", "COMPANY_STANDARD",
+              document_number="SAES-L-150", equipment_type="pump",
+              discipline="Piping Standards Committee")
+    sub = _doc("sub", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
+              equipment_type="pump", discipline="Mechanical")
+    rows = applicability.applicability_with_reasons(
+        sub, allowed_document_ids=_scope(std, sub))
+    row = _status_of(rows, "SAES-L-150")
+    # equipment_type matches on both sides here, so nothing is even a
+    # candidate mismatch - but the point stands for any standard whose
+    # discipline alone would otherwise have looked like a conflict.
     assert "discipline" not in row["reason"]
+    assert "Committee" not in row["reason"]
+
+
+def test_a_standard_known_only_by_its_committee_discipline_is_unknown():
+    """THE MUTATION TARGET: a standard recording ONLY a committee-shaped
+    discipline (no equipment_type/service/project of its own) has nothing
+    this system can actually compare - UNKNOWN, not a false NOT_APPLICABLE
+    manufactured from a vocabulary that was never comparable."""
+    std = _doc("std_piping", "SAES-L-150.pdf", "COMPANY_STANDARD",
+              document_number="SAES-L-150",
+              discipline="Piping Standards Committee")
+    sub = _doc("sub", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
+              equipment_type="pump", discipline="Mechanical")
+    rows = applicability.applicability_with_reasons(
+        sub, allowed_document_ids=_scope(std, sub))
+    row = _status_of(rows, "SAES-L-150")
+    assert row["status"] == applicability.STATUS_UNKNOWN
 
 
 def test_a_cited_standard_is_applicable_regardless_of_attributes():
