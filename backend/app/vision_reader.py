@@ -277,6 +277,9 @@ Return ONLY a JSON array, one element per printed value:
 Skip empty cells, '*' marks and drawn blank lines. Do not guess, and do not add anything the image does not show."""
 
 
+_COMPACT_KEYS = {"label", "column", "value", "unit"}
+
+
 @dataclass
 class ProposedRow:
     """One row the model proposed, and what validation made of it."""
@@ -347,6 +350,13 @@ def parse_rows(text: str, page_no: int) -> tuple[list[ProposedRow], list[str], s
     rows: list[ProposedRow] = []
     refusals: list[str] = []
     for index, raw in enumerate(parsed):
+        # The SAME four fields, named: measured on qwen3.5:4b, which answered
+        # the array prompt with objects keyed exactly label/column/value/unit.
+        # Only that exact key set is read this way - nothing is renamed,
+        # guessed or defaulted, and every value still goes through the schema.
+        if isinstance(raw, dict) and set(raw) == _COMPACT_KEYS \
+                and all(isinstance(x, str) for x in raw.values()):
+            raw = [raw["label"], raw["column"], raw["value"], raw["unit"]]
         if isinstance(raw, list) and len(raw) == 4 and all(isinstance(x, str) for x in raw):
             label, column, value, unit = raw
             raw = {"label": label, "column_header": column, "value": value,

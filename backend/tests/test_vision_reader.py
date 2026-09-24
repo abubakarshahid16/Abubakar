@@ -326,6 +326,30 @@ def test_180_a_schema_invalid_row_is_refused_not_coerced(tmp_path, monkeypatch, 
     assert [f["field_value"] for f in vision] == ["100.2"]
 
 
+def test_180_the_named_four_field_form_is_read_and_its_empty_values_refused(
+        tmp_path, monkeypatch, stub):
+    """qwen3.5:4b, measured on a real page, answered the array prompt with
+    objects keyed label/column/value/unit - the same four fields, named.
+    That exact key set is read; an EMPTY value in it is still refused by the
+    schema (the real answer was 29 such rows, every one refused), and an
+    object with any other key set is refused as it always was."""
+    monkeypatch.setattr(settings, "vision_enabled", True)
+    stub["provider"] = StubProvider([
+        {"label": "Capacity", "column": "Normal", "value": "100.2", "unit": ""},
+        {"label": "NPSH available", "column": "Normal", "value": "", "unit": ""},
+        {"label": "Differential head", "column": "Normal", "value": "80.1",
+         "unit": "", "confidence": "high"},
+    ])
+    doc = _ingest(_pdf(tmp_path / "grid.pdf", _draw_grid))
+
+    datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
+
+    vision = [f for f in _facts(doc) if f["extraction_method"].startswith("vision")]
+    assert [f["field_value"] for f in vision] == ["100.2"]
+    assert "3 rows proposed: 1 validated" in _routes(doc)[1]["vision_outcome"]
+    assert "2 refused by the schema" in _routes(doc)[1]["vision_outcome"]
+
+
 # ======================================================== recognised pages
 
 def test_180_a_value_read_from_a_recognised_page_is_never_a_fact(
