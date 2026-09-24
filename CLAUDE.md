@@ -45,7 +45,7 @@ carries the client's name; only the owner can rename it.
    when its feature is deleted — prove it by mutation. Vacuous tests are this
    project's documented recurring defect (`docs/status-honesty-audit.md`).
 7. **When something this project stated turns out false, record the retraction**
-   in `docs/status-honesty-audit.md`. It is at 52 entries. Several findings in
+   in `docs/status-honesty-audit.md`. It is at 53 entries. Several findings in
    `docs/code-review/` belong there.
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
