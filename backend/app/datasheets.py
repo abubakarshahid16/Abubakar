@@ -42,7 +42,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from . import claims, orphan_guard, submittal_review, tables
+from . import claims, orphan_guard, provenance, submittal_review, tables
 from .db import connect
 
 #: Where a datasheet says a value is not filled in yet.
@@ -1162,6 +1162,7 @@ def create_fact(
     confidence: float | None = None, extraction_method: str = "extracted",
     equipment_tag: str | None = None, commit: bool = True,
     validation_state: str | None = None,
+    extractor_version: str | None = None, input_hash: str | None = None,
 ) -> dict:
     """Record one fact. REFUSES a fact whose citation does not resolve.
 
@@ -1270,6 +1271,10 @@ def create_fact(
         "extraction_method": extraction_method,
         "confidence": confidence,
         "validation_state": validation_state,
+        # #177 provenance - see `provenance.py`. NULL when the caller did not
+        # say (a hand-entered fact has no extractor).
+        "extractor_version": extractor_version,
+        "input_hash": input_hash,
         "created_at": now,
         "updated_at": now,
     }
@@ -1281,14 +1286,16 @@ def create_fact(
             normalized_value, normalized_unit, unit, is_blank,
             blank_marker, page, section, source_text, extraction_method,
             confidence, created_at, updated_at, unit_reference,
-            value_min, value_max, equipment_tag, validation_state)
+            value_min, value_max, equipment_tag, validation_state,
+            extractor_version, input_hash)
            VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
                    :field_name, :field_label, :field_value, :raw_value,
                    :raw_unit, :normalized_value, :normalized_unit, :unit,
                    :is_blank, :blank_marker, :page, :section, :source_text,
                    :extraction_method, :confidence, :created_at,
                    :updated_at, :unit_reference, :value_min, :value_max,
-                   :equipment_tag, :validation_state)""")
+                   :equipment_tag, :validation_state,
+                   :extractor_version, :input_hash)""")
     if commit:
         with conn:
             conn.execute(insert, row)
@@ -1504,7 +1511,7 @@ def extract_facts(
     where, args = _scope_clause(allowed_document_ids, "document_id")
     chunks = connect().execute(
         "SELECT c.id, c.page_start, c.page_end, c.section, c.kind, c.text,"
-        "       d.stored_path"
+        "       d.stored_path, d.sha256"
         " FROM chunks c JOIN documents d ON d.id = c.document_id" + where +
         " AND c.document_id = ? AND c.retrievable = 1 ORDER BY c.ordinal",
         [*args, document_id],
@@ -1517,6 +1524,13 @@ def extract_facts(
         return empty
 
     stored_path = chunks[0]["stored_path"]
+    # #177 PROVENANCE: the code that reads this sheet (this module and the
+    # table parser it leans on) and exactly what it read - the stored file's
+    # hash plus every chunk's text, in order. See `provenance.py`. NOT
+    # covered: `page_ocr` text read by the OCR fallback tier, which carries
+    # its own engine/model/dpi record; a re-OCR is visible there, not here.
+    extractor_version = provenance.code_version("datasheets", "tables")
+    inputs = provenance.input_hash(chunks[0]["sha256"], *(c["text"] for c in chunks))
     # KEYED BY EVERY PAGE A CHUNK COVERS, not by the page it starts on.
     #
     # A chunk spanning pages 1 to 3 was filed under page 1 only, so page 2 was
@@ -1724,6 +1738,8 @@ def extract_facts(
                             else "extracted"),
                         equipment_tag=tags.get(page),
                         commit=False,
+                        extractor_version=extractor_version,
+                        input_hash=inputs,
                     )
                 except FactError:
                     dropped["refused by create_fact"] = dropped.get(

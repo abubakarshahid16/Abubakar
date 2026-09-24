@@ -2552,6 +2552,22 @@ class JobMetrics(BaseModel):
     failures: list[DocumentFailure]
 
 
+class QueueMetrics(BaseModel):
+    """Work on the one worker's queues, counted over the WHOLE corpus (#177).
+
+    Documents and background stage jobs together. A document counts as
+    `running` only while a live worker holds its claim - its ingestion job row
+    says 'running' from upload to completion whether or not anything is
+    working on it, so that row is not used as the signal.
+    """
+    queued: int = Field(description="waiting for a worker")
+    running: int = Field(description="held by a live worker right now")
+    retrying: int = Field(description="failed; another attempt is scheduled")
+    poisoned: int = Field(
+        description="failed on every allowed attempt; kept with its last "
+                    "error, never retried automatically")
+
+
 class MetricWarning(BaseModel):
     severity: Literal["info", "warning", "error"]
     code: str
@@ -2589,6 +2605,11 @@ class Metrics(BaseModel):
                     "document scoping could never have removed them. A "
                     "blanked block would state measurements that are false; "
                     "an absent one states nothing.",
+    )
+    queue: QueueMetrics | None = Field(
+        None,
+        description="#177. Corpus-wide work counts. ABSENT, not zeroed, for "
+                    "any caller without the admin capability, like `system`.",
     )
     models: ModelStatus
     worker: WorkerStatus

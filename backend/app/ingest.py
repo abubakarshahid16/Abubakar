@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 
-from . import errors, states
+from . import errors, job_queue, states
 from .chunker import chunk_document
 from . import telemetry
 from .db import connect
@@ -38,6 +39,20 @@ _worker_lock = threading.Lock()
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def pending_documents_clause() -> tuple[str, tuple]:
+    """What "a document still needing work" means, as a WHERE clause.
+
+    One home for it: the worker's backlog and the admin queue counts
+    (`metrics._queue`, #177) both read this rather than each keeping a copy.
+    """
+    terminal = sorted(states.TERMINAL_STATES)
+    return (
+        f"(status NOT IN ({','.join('?' * len(terminal))})"
+        " OR (status = ? AND (embedded_count < chunk_count OR indexed_at IS NULL)))",
+        (*terminal, states.PARTIALLY_SEARCHABLE),
+    )
 
 
 def _stuck_reason(conn, doc_id: str, row, status: str) -> str:
@@ -91,6 +106,9 @@ class IngestionWorker:
         # Response-safe only: code, short message, document id, timestamp.
         # The full traceback goes to the local log, never to the API.
         self.last_error: dict | None = None
+        # The name this worker claims documents under (#177). Random - never
+        # the host name or pid - and never put in a response.
+        self.worker_id = f"ingest-{uuid.uuid4().hex[:12]}"
 
     # ------------------------------------------------------------- lifecycle
 
@@ -117,12 +135,10 @@ class IngestionWorker:
 
     def backlog(self) -> tuple[int, float | None]:
         """How much non-terminal work is waiting, and how old the oldest is."""
+        clause, args = pending_documents_clause()
         row = connect().execute(
-            f"""SELECT COUNT(*) AS n, MIN(uploaded_at) AS oldest FROM documents
-                WHERE status NOT IN ({",".join("?" * len(states.TERMINAL_STATES))})
-                   OR (status = ? AND (embedded_count < chunk_count
-                                       OR indexed_at IS NULL))""",
-            (*sorted(states.TERMINAL_STATES), states.PARTIALLY_SEARCHABLE),
+            f"SELECT COUNT(*) AS n, MIN(uploaded_at) AS oldest FROM documents"
+            f" WHERE {clause}", args,
         ).fetchone()
         pending = row["n"] or 0
         if not pending or not row["oldest"]:
@@ -188,26 +204,98 @@ class IngestionWorker:
         # worker re-selected such a document forever, held it as
         # current_document, and kept pending_count at 1 - which disabled the
         # stall detector built to catch exactly that.
-        settled = tuple(states.TERMINAL_STATES | {states.PARTIALLY_SEARCHABLE})
-        row = connect().execute(
-            f"""SELECT id FROM documents
-                WHERE status NOT IN ({",".join("?" * len(settled))})
-                ORDER BY uploaded_at LIMIT 1""",
-            settled,
-        ).fetchone()
-        if row:
-            return row["id"]
-        # Answerable documents that are not finished: vectors still
-        # outstanding, or never stamped terminal at all (a document with zero
-        # retrievable chunks has nothing to embed but is still finished).
-        row = connect().execute(
-            """SELECT id FROM documents
-               WHERE status = ?
-                 AND (embedded_count < chunk_count OR indexed_at IS NULL)
-               ORDER BY uploaded_at LIMIT 1""",
-            (states.PARTIALLY_SEARCHABLE,),
-        ).fetchone()
-        return row["id"] if row else None
+        #
+        # CLAIMED, NOT MERELY READ (#177). This was a plain SELECT, so two
+        # worker instances on one database were both handed the same
+        # document. Each candidate class below is now taken with ONE
+        # conditional UPDATE that writes this worker's name onto the row only
+        # if nobody live holds it, and RETURNING says whether this call won.
+        # A claim this worker already holds is returned again (the loop polls
+        # every pass); a claim not refreshed for `job_queue.
+        # CLAIM_STALE_SECONDS` belongs to a dead worker and may be taken over
+        # - which is how a restart mid-document resumes it exactly once.
+        #
+        # ORDER: priority first, then oldest (#177). An interactive upload
+        # outranks a watched-folder backfill; see `upload.ingest`.
+        settled = tuple(sorted(states.TERMINAL_STATES | {states.PARTIALLY_SEARCHABLE}))
+        marks = {f"s{i}": s for i, s in enumerate(settled)}
+        candidates = (
+            (f"d.status NOT IN ({','.join(':' + k for k in marks)})", marks),
+            # Answerable documents that are not finished: vectors still
+            # outstanding, or never stamped terminal at all (a document with
+            # zero retrievable chunks has nothing to embed but is finished).
+            ("d.status = :partial AND (d.embedded_count < d.chunk_count"
+             " OR d.indexed_at IS NULL)", {"partial": states.PARTIALLY_SEARCHABLE}),
+            # A failed document whose retry is due (#177). Left `failed`
+            # while it waits: that is what its last attempt did, and the job
+            # row says `retrying` and when.
+            ("d.status = :failed AND EXISTS (SELECT 1 FROM jobs j"
+             " WHERE j.document_id = d.id AND j.stage IN ('extract', 'chunk')"
+             " AND j.state = :retrying AND j.next_attempt_at <= :now)",
+             {"failed": states.FAILED, "retrying": job_queue.RETRYING}),
+        )
+        for condition, extra in candidates:
+            doc_id = self._claim(condition, extra)
+            if doc_id is not None:
+                return doc_id
+        return None
+
+    def _claim(self, condition: str, extra: dict) -> str | None:
+        """Atomically claim the best document matching `condition`, or None."""
+        # Stated twice - once for the pick, once re-checked on the row being
+        # written - because the re-check is what makes the claim atomic: the
+        # pick alone is the old read-then-act race.
+        free_d = ("(d.claimed_by IS NULL OR d.claimed_by = :me"
+                  " OR d.claimed_at IS NULL OR d.claimed_at < :stale)")
+        free = ("(claimed_by IS NULL OR claimed_by = :me"
+                " OR claimed_at IS NULL OR claimed_at < :stale)")
+        now = _now()
+        params = {"me": self.worker_id, "now": now,
+                  "stale": job_queue.stale_cutoff(), **extra}
+        conn = connect()
+        with conn:
+            row = conn.execute(
+                f"""UPDATE documents SET claimed_by = :me, claimed_at = :now
+                    WHERE id = (SELECT d.id FROM documents d
+                                WHERE {condition} AND {free_d}
+                                ORDER BY d.priority DESC, d.uploaded_at LIMIT 1)
+                      AND {free}
+                    RETURNING id, status""", params).fetchone()
+            if row is None:
+                return None
+            if row["status"] == states.FAILED:
+                # Reviving a due retry, in the SAME transaction as the claim so
+                # no other worker can see it half-revived. EXTRACTING is the
+                # universal resume point: extraction is checkpointed per batch
+                # and chunking skips unchanged content, so work already done
+                # is not redone. The document's old error is cleared because
+                # it is being retried; the job row keeps it until success.
+                conn.execute(
+                    "UPDATE documents SET status = ?, error_code = NULL,"
+                    " error_message = NULL WHERE id = ?",
+                    (states.EXTRACTING, row["id"]))
+                conn.execute(
+                    "UPDATE jobs SET state = ?, updated_at = ?"
+                    " WHERE document_id = ? AND stage IN ('extract', 'chunk')"
+                    " AND state = ?",
+                    (job_queue.RUNNING, now, row["id"], job_queue.RETRYING))
+        return row["id"]
+
+    def _touch_claim(self, doc_id: str) -> None:
+        """Refresh this worker's claim so it is never mistaken for a dead one's."""
+        conn = connect()
+        with conn:
+            conn.execute(
+                "UPDATE documents SET claimed_at = ? WHERE id = ? AND claimed_by = ?",
+                (_now(), doc_id, self.worker_id))
+
+    def _release(self, doc_id: str) -> None:
+        """Give up this worker's claim. Never touches another worker's."""
+        conn = connect()
+        with conn:
+            conn.execute(
+                "UPDATE documents SET claimed_by = NULL, claimed_at = NULL"
+                " WHERE id = ? AND claimed_by = ?", (doc_id, self.worker_id))
 
     def _drain_standard_extraction(self) -> bool:
         """Run one queued standards extraction. True when one was run.
@@ -250,11 +338,17 @@ class IngestionWorker:
                     self._stop.wait(self.poll_seconds)
                     continue
                 self.current_document = doc_id
-                before = self._is_finished(doc_id)
-                self.process(doc_id)
-                if not before and self._is_finished(doc_id):
-                    self.last_progress = time.time()
-                    self._completed.add(doc_id)
+                try:
+                    before = self._is_finished(doc_id)
+                    self.process(doc_id)
+                    if not before and self._is_finished(doc_id):
+                        self.last_progress = time.time()
+                        self._completed.add(doc_id)
+                finally:
+                    # Released even on a crash of this pass, so the next pass
+                    # - or another worker - can take it without waiting out
+                    # the stale-claim margin.
+                    self._release(doc_id)
             except Exception as exc:  # noqa: BLE001
                 self.last_error = errors.record_failure(exc, stage="worker_loop")
                 self._stop.wait(self.poll_seconds)
@@ -302,6 +396,10 @@ class IngestionWorker:
                 if row is None:
                     return {"document_id": doc_id, "error": "unknown document"}
                 status = row["status"]
+                # Every pass proves this worker is alive to any other worker
+                # deciding whether the claim is stale (#177). A no-op when
+                # this worker holds no claim (a manual route calling process).
+                self._touch_claim(doc_id)
 
                 signature = (
                     status,
@@ -457,11 +555,23 @@ class IngestionWorker:
                     " WHERE id = ?",
                     (states.FAILED, errors.INTERNAL, safe_message, doc_id),
                 )
-                conn.execute(
-                    "UPDATE jobs SET state = 'failed', error_code = 'internal',"
-                    " error_message = ?, updated_at = ? WHERE document_id = ?",
-                    (safe_message, _now(), doc_id),
-                )
+                # RETRIED, THEN POISONED (#177) - on the document's INGESTION
+                # job only. This used to mark every job row of the document
+                # 'failed', which also clobbered an unrelated queued
+                # standards extraction; and `jobs.retries` existed with no
+                # reader, so a failure simply sat. The document is `failed`
+                # either way (that is what this attempt did); the job row says
+                # whether another attempt is scheduled and when, and
+                # `_next_document` revives it once due. A document with no
+                # ingestion job row (inserted outside `upload.ingest`) has
+                # nothing to schedule on and stays failed, as before.
+                job = conn.execute(
+                    "SELECT id FROM jobs WHERE document_id = ?"
+                    " AND stage IN ('extract', 'chunk')"
+                    " ORDER BY started_at DESC LIMIT 1", (doc_id,)).fetchone()
+                if job is not None:
+                    result["job_state"] = job_queue.fail(
+                        conn, job["id"], code=errors.INTERNAL, message=safe_message)
             result["error"] = self.last_error
             return result
 
@@ -519,6 +629,7 @@ class IngestionWorker:
             )
             batch_timer = now
             self.last_beat = now
+            self._touch_claim(doc_id)
         return done
 
     def _is_finished(self, doc_id: str) -> bool:
