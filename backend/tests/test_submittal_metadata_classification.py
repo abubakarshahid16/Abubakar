@@ -463,6 +463,83 @@ def test_ingestion_writes_the_pump_service_and_project(tmp_path):
     assert row["discipline"] is None
 
 
+# ============================================ the generalization proof
+#
+# THE 3 REAL REGRESSION DATASHEETS ARE REGRESSION CHECKS, NOT THE TARGET
+# (owner instruction, 2026-09-25). This SYNTHETIC document - a different
+# company, a different project-number style, a letter revision instead of
+# a number, a different discipline word (Piping, not Mechanical), a
+# different label wording throughout - proves the classifier reads LABEL
+# SHAPES from the document's own text, not the three real documents'
+# specific wording. Invented numbers and names throughout; the word
+# SYNTHETIC in every fixture name so nobody mistakes it for a real sheet.
+
+SYNTHETIC_PIPING_P1 = (
+    "GLOBAL ENERGY CONTRACTING LLC\n"
+    "PROJECT NO. GEC-55521\n"
+    "DOC. NO.: SYN-0007-PP-0099\n"
+    "Rev. No.: B\n"
+    "\n"
+    "PIPING DATA SHEET\n"
+    "CENTRIFUGAL PUMPS\n"
+    "\n"
+    "SERVICE:  DESALTED CRUDE TRANSFER\n"
+    "TAG NO.: P-7701A/B\n"
+)
+
+SYNTHETIC_NEGATIVE_P1 = (
+    "GLOBAL ENERGY CONTRACTING LLC\n"
+    "This datasheet supports the piping package for the new transfer pumps.\n"
+    "Document identifiers and revision history are maintained in the\n"
+    "vendor's own document control system and are not printed on this sheet.\n"
+    "SERVICE ORDER NO.: 4471\n"
+    "CONTRACT NO.: GEC-9000\n"
+)
+
+
+def test_synthetic_datasheet_with_a_different_layout_classifies_correctly(tmp_path):
+    """THE GENERALIZATION PROOF. Every label here is worded, ordered and
+    punctuated differently from all three real regression fixtures (a
+    letter revision "B" instead of a number; "PIPING DATA SHEET" instead
+    of "MECHANICAL DATASHEET"/blank; "DOC. NO.:" instead of "CONTRACTOR
+    DOC NO:"/"DATA SHEET NO.:"; a different project-number shape). If this
+    passes, the classifier is reading label SHAPES, not memorised text."""
+    doc_id = _submittal(TestClient(app), tmp_path, "synthetic-piping.pdf",
+                        [SYNTHETIC_PIPING_P1])
+    row = _row(doc_id)
+    assert row["document_number"] == "SYN-0007-PP-0099"
+    assert row["revision"] == "B"
+    assert row["project"] == "GEC-55521"
+    assert row["service"] == "DESALTED CRUDE TRANSFER"
+    assert row["discipline"] == "Piping"
+    assert json.loads(row["equipment_tags"]) == ["P-7701A/B"]
+    assert row["equipment_type"] == "Centrifugal Pump"
+
+    evidence = _evidence(doc_id)
+    for field in ("document_number", "revision", "project", "service",
+                 "discipline", "equipment_tags"):
+        assert evidence[field]["page"] == 1
+        assert evidence[field]["quote"], f"{field} has no quote"
+
+
+def test_synthetic_datasheet_with_no_real_labels_stays_entirely_unknown(tmp_path):
+    """THE NEGATIVE CASE THE GENERALIZATION PROOF REQUIRES. Plausible
+    prose mentions "pumps" and a project in passing, and two near-miss
+    labels ("SERVICE ORDER NO.", "CONTRACT NO.") that are shaped like the
+    real fields but are not them - none of it is a label this classifier
+    recognises, so every field must stay NULL. A novel layout is not
+    license to guess."""
+    doc_id = _submittal(TestClient(app), tmp_path, "synthetic-negative.pdf",
+                        [SYNTHETIC_NEGATIVE_P1])
+    row = _row(doc_id)
+    for name in ("document_number", "revision", "project", "service",
+                 "discipline"):
+        assert row[name] is None, name
+    assert row["equipment_type"] is None
+    assert row["equipment_tags"] is None
+    assert row["field_evidence"] is None
+
+
 def test_a_document_without_evidence_keeps_every_field_null(tmp_path):
     doc_id = _submittal(TestClient(app), tmp_path, "cover.pdf", [NO_EVIDENCE])
     row = _row(doc_id)
