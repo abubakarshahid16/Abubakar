@@ -187,6 +187,36 @@ def is_categorical_value(value: str | None) -> bool:
     return " ".join((value or "").strip().lower().split()) in _CATEGORICAL_VALUES
 
 
+#: B4. A label naming a LIMIT of a measurable quantity - a limit word and a
+#: quantity noun. Generic engineering vocabulary, not per-document: it only
+#: ever REFUSES a checkbox answer, never a number.
+_LIMIT_WORD = re.compile(
+    r"\b(?:max|min|maximum|minimum|rated|normal|design|operating)\b", re.IGNORECASE)
+_QUANTITY_NOUN = re.compile(
+    r"\b(?:pressure|temperature|temp|flow|capacity|head|speed|power|density|"
+    r"viscosity|diameter|weight|volume|thickness|level|rate|efficiency|npsh\w*|"
+    r"current|voltage|frequency|noise|gravity)\b", re.IGNORECASE)
+
+
+def checkbox_on_quantity(label: str | None, value: str | None) -> bool:
+    """A closed yes/no answer sitting on the LIMIT of a measurable quantity.
+
+    B4, measured on the pump regression sheet: a two-line question ("MAXIMUM
+    DISCHARGE PRESSURE TO INCLUDE" / indented "MAX RELATIVE DENSITY") answered
+    YES was split, and the second line was stored "max relative density =
+    YES". A density cannot be YES - the answer belongs to a question the
+    reader did not reassemble - so the pair is refused and the value stays
+    UNKNOWN. A real question ("VARIABLE SPEED REQUIRED" = NO) carries no limit
+    word and is untouched; a number on a limit ("MAX RELATIVE DENSITY" = 1.02)
+    is not a checkbox and is untouched.
+    """
+    answer = (value or "").strip(" _*").strip().lower()
+    if answer not in _CATEGORICAL_VALUES:
+        return False
+    text = label or ""
+    return bool(_LIMIT_WORD.search(text) and _QUANTITY_NOUN.search(text))
+
+
 def states_a_value(value: str | None) -> bool:
     """Does this cell say something a FACT can be made of?
 
@@ -2103,6 +2133,12 @@ def extract_facts(
                     # A quantity, an explicit blank, or a closed categorical answer
                     # - anything else is a caption.
                     dropped["value gate"] = dropped.get("value gate", 0) + 1
+                    continue
+                if checkbox_on_quantity(label, value):
+                    # B4: a yes/no answer on a quantity's limit belongs to a
+                    # question the reader did not reassemble - UNKNOWN, not
+                    # a density of YES.
+                    dropped["checkbox on quantity"] = dropped.get("checkbox on quantity", 0) + 1
                     continue
                 if normalise_field_name(label) in furniture:
                     # Page furniture: this label appeared on three or more pages

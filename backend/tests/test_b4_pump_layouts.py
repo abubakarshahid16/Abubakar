@@ -100,3 +100,36 @@ class TestClauseReferencesLeaveTheName:
             "PARTICULATE SIZE (DIA IN MICRONS)") == "particulate size dia in microns"
         assert datasheets.normalise_field_name("ELEVATION (MSL):") == "elevation msl"
         assert datasheets.normalise_field_name("CAPACITY (1)") == "capacity 1"
+
+
+# =========================================== 2. a YES/NO answer on a numeric field
+
+class TestCheckboxOnAQuantityField:
+    """Page 5 prints a two-line question - "MAXIMUM DISCHARGE PRESSURE TO
+    INCLUDE" / indented "MAX RELATIVE DENSITY" - answered YES. The second line
+    was paired with the YES alone and stored "max relative density = YES": a
+    density cannot be YES. The limit of a measurable quantity takes a number."""
+
+    def test_a_yes_is_never_stored_as_a_quantity_limit(self):
+        assert datasheets.checkbox_on_quantity("MAX RELATIVE DENSITY", "YES")
+        assert datasheets.checkbox_on_quantity("RATED POWER", "NO")
+        assert datasheets.checkbox_on_quantity("DESIGN PRESSURE", "REQUIRED")
+
+    def test_the_page_five_shape_leaves_the_value_unknown(self, tmp_path):
+        doc = sheet(tmp_path, [(29, 100, "38"), (69, 100, "MAXIMUM DISCHARGE PRESSURE TO INCLUDE"),
+                               (29, 112, "39"), (165, 112, "MAX RELATIVE DENSITY"),
+                               (280, 112, "YES")])
+        assert "max relative density" not in by_name(doc), \
+            "a YES was stored as the value of a density"
+
+    def test_a_real_yes_no_question_keeps_its_answer(self, tmp_path):
+        """NEGATIVE: 'variable speed required' is a question, not a limit."""
+        assert not datasheets.checkbox_on_quantity("VARIABLE SPEED REQUIRED", "NO")
+        assert not datasheets.checkbox_on_quantity("HARDNESS TEST REQUIRED", "YES")
+        doc = sheet(tmp_path, [(29, 100, "44"), (68, 100, "VARIABLE SPEED REQUIRED"),
+                               (320, 100, "_____NO______")])
+        assert by_name(doc)["variable speed required"][0]["field_value"].strip("_") == "NO"
+
+    def test_a_number_on_a_quantity_limit_is_kept(self):
+        """NEGATIVE: the rule refuses the checkbox, never the quantity."""
+        assert not datasheets.checkbox_on_quantity("MAX RELATIVE DENSITY", "1.02")

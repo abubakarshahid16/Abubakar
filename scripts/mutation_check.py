@@ -5496,6 +5496,27 @@ B4_PUMP_LAYOUTS = (
         target="tests/test_scorers_read_current_facts.py", keyword="printed_label",
         tags=("honesty",),
     ),
+    Mutation(
+        id="M486", phase=59,
+        description="PUT IT BACK: a YES/NO answer is stored as the value of a "
+                    "quantity limit ('max relative density = YES') (B4 fix 2)",
+        path=APP / "datasheets.py",
+        anchor="                if checkbox_on_quantity(label, value):\n",
+        replacement="                if False:\n",
+        target=_B4_TEST, keyword="page_five_shape",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M487", phase=59,
+        description="refuse a yes/no answer on ANY label naming a quantity, so "
+                    "a real question ('variable speed required = NO') loses "
+                    "its answer (B4 fix 2, negative)",
+        path=APP / "datasheets.py",
+        anchor="    return bool(_LIMIT_WORD.search(text) and _QUANTITY_NOUN.search(text))\n",
+        replacement="    return bool(_QUANTITY_NOUN.search(text))\n",
+        target=_B4_TEST, keyword="real_yes_no_question",
+        tags=("honesty",),
+    ),
 )
 
 
