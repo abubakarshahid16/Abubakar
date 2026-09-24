@@ -3,9 +3,10 @@
 WHY THIS EXISTS (issue #179). `scripts/eval_extraction.py` scores whatever is
 in `submittal_facts`. To score the CURRENT extractor on a real document, the
 facts have to be re-read with the current code - and `extract_facts(replace=
-True)` deletes and rewrites rows, which must never happen to the live database
-without the owner's decision. Until now every such run was a one-off script
-in a scratchpad. This is the committed, reproducible version.
+True)` supersedes the current rows and writes new ones (#179; before that it
+deleted them), which must never happen to the live database without the
+owner's decision. Until now every such run was a one-off script in a
+scratchpad. This is the committed, reproducible version.
 
 WHAT IT DOES, IN ORDER:
 
@@ -15,10 +16,10 @@ WHAT IT DOES, IN ORDER:
   2. Refuses if the destination IS the source, or if the source's size or
      mtime changed while it ran - the proof the original was not written.
   3. Points `settings.db_path` at the COPY and, per document, first counts
-     read-only what `orphan_guard` would report: unconfirmed facts the
-     re-extraction deletes, and review findings that cite them.
-  4. Re-extracts with `replace=True, acknowledge_orphaned_findings=True` -
-     acknowledged ONLY because the database is a disposable copy.
+     read-only what the re-extraction will supersede: current unconfirmed
+     facts, and the review findings that cite them (they keep resolving).
+  4. Re-extracts with `replace=True`. Nothing is deleted, so nothing has to
+     be acknowledged; the run is on a copy so the numbers can be checked.
 
 Output: a JSON summary on stdout (and to `--summary` if given). It carries
 document ids and counts only, never document text.
@@ -86,11 +87,13 @@ def main() -> int:
     before = _stat(args.source.resolve())
     copy = copy_database(args.source, args.dest_dir)
 
-    from app import datasheets, db, orphan_guard  # noqa: E402
+    from app import datasheets, db, orphan_guard, submittal_review  # noqa: E402
     from app.config import settings  # noqa: E402
 
     settings.db_path = copy
     db.reset_connection()
+    # The copy may predate `superseded_at` (#179); the counts below read it.
+    submittal_review.ensure_schema()
     conn = db.connect()
     summary: dict = {"copy": str(copy), "documents": {}}
     for doc_id in args.doc:
@@ -98,27 +101,31 @@ def main() -> int:
         if exists is None:
             summary["documents"][doc_id] = {"error": "document not found in the copy"}
             continue
-        where = "submittal_document_id = ? AND confirmed_by IS NULL"
+        current = "submittal_document_id = ? AND superseded_at IS NULL"
+        where = current + " AND confirmed_by IS NULL"
         facts_before = conn.execute(
-            "SELECT COUNT(*) FROM submittal_facts WHERE submittal_document_id = ?",
+            f"SELECT COUNT(*) FROM submittal_facts WHERE {current}",
             (doc_id,)).fetchone()[0]
         unconfirmed = conn.execute(
             f"SELECT COUNT(*) FROM submittal_facts WHERE {where}", (doc_id,)).fetchone()[0]
-        # What orphan_guard.check_facts would record and refuse on - counted
-        # with its own query, before anything is deleted.
-        orphaned = orphan_guard.findings_orphaned_by_facts(where, (doc_id,))
+        # The count `record_facts_superseded` will write - taken with its own
+        # query, before anything is marked (#179: nothing is deleted).
+        citing = orphan_guard.findings_orphaned_by_facts(where, (doc_id,))
         result = datasheets.extract_facts(
-            doc_id, allowed_document_ids=frozenset([doc_id]), replace=True,
-            acknowledge_orphaned_findings=True)
+            doc_id, allowed_document_ids=frozenset([doc_id]), replace=True)
         facts_after = conn.execute(
+            f"SELECT COUNT(*) FROM submittal_facts WHERE {current}",
+            (doc_id,)).fetchone()[0]
+        rows_total = conn.execute(
             "SELECT COUNT(*) FROM submittal_facts WHERE submittal_document_id = ?",
             (doc_id,)).fetchone()[0]
         summary["documents"][doc_id] = {
-            "facts_before": facts_before,
-            "unconfirmed_facts_deleted": unconfirmed,
-            "confirmed_facts_kept": facts_before - unconfirmed,
-            "review_findings_orphaned": orphaned,
-            "facts_after": facts_after,
+            "current_facts_before": facts_before,
+            "unconfirmed_facts_superseded": unconfirmed,
+            "confirmed_facts_kept_current": facts_before - unconfirmed,
+            "review_findings_citing_superseded": citing,
+            "current_facts_after": facts_after,
+            "rows_in_table_after": rows_total,
             "blanks_after": result.get("blanks"),
             "pages_read": result.get("pages_read"),
             "pages_unparsed": result.get("pages_unparsed"),

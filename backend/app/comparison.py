@@ -1724,7 +1724,8 @@ def _document_is_tag_scoped(submittal_document_id: str | None) -> bool:
     try:
         row = connect().execute(
             "SELECT COUNT(DISTINCT equipment_tag) AS n FROM submittal_facts"
-            " WHERE submittal_document_id = ? AND equipment_tag IS NOT NULL",
+            " WHERE submittal_document_id = ? AND equipment_tag IS NOT NULL"
+            " AND superseded_at IS NULL",           # current facts only (#179)
             (submittal_document_id,)).fetchone()
     except Exception:  # noqa: BLE001 - a database without the column yet
         return False
