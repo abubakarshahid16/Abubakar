@@ -1544,7 +1544,8 @@ def create_fact(
     equipment_tag: str | None = None, commit: bool = True,
     validation_state: str | None = None,
     extractor_version: str | None = None, input_hash: str | None = None,
-    unit: str | None = None,
+    unit: str | None = None, value_column: str | None = None,
+    one_quantity: bool = False,
 ) -> dict:
     """Record one fact. REFUSES a fact whose citation does not resolve.
 
@@ -1603,7 +1604,10 @@ def create_fact(
     # answers, and recording it against the compound label would attach a real
     # number to a field that is half wrong. The row is kept - the sheet does
     # say something - with its text and no parsed value.
-    if not blank and compound_label_parts(field_label) is not None:
+    # B4: `one_quantity` - the caller's layout evidence (a grid row stating one
+    # unit for a bare-noun pair like "CAPACITY / FLOW") that the label names
+    # ONE quantity twice. A shared-noun compound never gets it.
+    if not blank and not one_quantity and compound_label_parts(field_label) is not None:
         value, unit, measurement = None, None, None
         value_min = value_max = None
     # THE UNIT AS THE SHEET WROTE IT, AND THE UNIT THE TABLE UNDERSTANDS, kept
@@ -1666,6 +1670,7 @@ def create_fact(
         # say (a hand-entered fact has no extractor).
         "extractor_version": extractor_version,
         "input_hash": input_hash,
+        "value_column": value_column,
         "created_at": now,
         "updated_at": now,
     }
@@ -1678,7 +1683,7 @@ def create_fact(
             blank_marker, page, section, source_text, extraction_method,
             confidence, created_at, updated_at, unit_reference,
             value_min, value_max, equipment_tag, validation_state,
-            extractor_version, input_hash)
+            extractor_version, input_hash, value_column)
            VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
                    :field_name, :field_label, :field_value, :raw_value,
                    :raw_unit, :normalized_value, :normalized_unit, :unit,
@@ -1686,7 +1691,7 @@ def create_fact(
                    :extraction_method, :confidence, :created_at,
                    :updated_at, :unit_reference, :value_min, :value_max,
                    :equipment_tag, :validation_state,
-                   :extractor_version, :input_hash)""")
+                   :extractor_version, :input_hash, :value_column)""")
     if commit:
         with conn:
             conn.execute(insert, row)
@@ -1771,6 +1776,161 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
     except (pymupdf.FileNotFoundError, pymupdf.FileDataError):
         return []  # the FILE; named by pdf_condition, not guessed at here
     except Exception:  # noqa: BLE001 - a failure inside one page of a readable file
+        return []
+
+
+# ------------------------------------------------ B4 fix 5: column grids
+#
+# THE PROCESS DATA SITS IN A GRID THE TEXT READER FLATTENS. A pump sheet's
+# OPERATING CONDITIONS block prints a header "Units | Maximum | Rated | Normal
+# | Minimum" and rows "CAPACITY / FLOW: | m3/h (USGPM) | ... 24.8 (109) ...".
+# In reading order the unit column takes the value slot and the numbers are
+# left over, so every row was dropped (measured: flow, temperature, pressures
+# and head all missing on the pump regression sheet). WHICH column a value is
+# in is read from its POSITION under the header - the words' x-coordinates -
+# and a value whose box does not lie wholly inside one column band keeps its
+# number and unit but NO column: an engineer places it.
+
+#: Column-header words of an operating-conditions grid. Generic datasheet
+#: vocabulary (API 610 / API 526 style); a header needs a Units column and at
+#: least three of these on one line.
+_GRID_COLUMN_WORDS = frozenset({
+    "maximum", "minimum", "rated", "normal", "max", "min", "design", "operating"})
+#: The degree sign this sheet's font renders as a letter, in its PAIRED form
+#: only: "OC ( OF)" is Celsius printed with its Fahrenheit alternate.
+_DEGREE_PAIR = {re.compile(r"^o\s*c\s*\(\s*o\s*f\s*\)$", re.IGNORECASE): "°C",
+                re.compile(r"^o\s*f\s*\(\s*o\s*c\s*\)$", re.IGNORECASE): "°F"}
+
+
+def grid_unit(cell: str | None) -> str | None:
+    """The unit a grid row's Units cell states, or None.
+
+    "OC ( OF)" is the degree sign rendered as a letter, and the printed
+    Fahrenheit alternate is the evidence that it is one - decoded only in that
+    paired form. A lone "OC" is not provably degrees and stays UNKNOWN.
+    Everything else goes through `primary_unit`.
+    """
+    text = (cell or "").strip()
+    for pattern, unit in _DEGREE_PAIR.items():
+        if pattern.match(text):
+            return unit
+    return primary_unit(text)
+
+
+def _one_quantity(label: str) -> bool:
+    """A slash label whose parts are BARE NOUNS - "CAPACITY / FLOW" - names one
+    quantity twice when its row states one unit. A shared-noun compound -
+    "DESIGN / OPERATING PRESSURE" - names two, and stays unparsed."""
+    found = compound_label_parts(label)
+    if found is None:
+        return False
+    return all(len(part.strip(" :").split()) == 1 for part in found[1])
+
+
+def grid_facts(words: list[tuple]) -> list[dict]:
+    """Facts read from every column grid on one page's words.
+
+    `words` are pymupdf `get_text("words")` tuples (x0, y0, x1, y1, text, ...).
+    Returns dicts: label, value, unit (or None), column (or None when the
+    value's position is not decisive), one_quantity, source.
+    """
+    lines: list[list[tuple]] = []
+    for w in sorted(words, key=lambda w: (w[1], w[0])):
+        if lines and abs(w[1] - lines[-1][0][1]) <= 2.5:
+            lines[-1].append(w)
+        else:
+            lines.append([w])
+    out: list[dict] = []
+    i = 0
+    while i < len(lines):
+        header = lines[i]
+        units = [w for w in header if w[4].strip(":").lower() == "units"]
+        cols = [w for w in header if w[4].strip(":").lower() in _GRID_COLUMN_WORDS]
+        if len(units) != 1 or len(cols) < 3:
+            i += 1
+            continue
+        heads = sorted([units[0], *cols], key=lambda w: w[0])
+        centres = [(w[0] + w[2]) / 2 for w in heads]
+        names = [w[4].strip(":") for w in heads]
+        bands = []
+        for k, c in enumerate(centres):
+            left = (centres[k - 1] + c) / 2 if k else c - (centres[1] - c) / 2
+            right = ((c + centres[k + 1]) / 2 if k + 1 < len(centres)
+                     else c + (c - centres[k - 1]) / 2)
+            bands.append((left, right, names[k]))
+        unit_band = next(b for b in bands if b[2].lower() == "units")
+        value_bands = [b for b in bands if b is not unit_band]
+        grid_left, grid_right = unit_band[0], bands[-1][1]
+        pending: list[tuple] = []
+        pending_y = None
+        started = False
+        i += 1
+        while i < len(lines):
+            line = lines[i]
+            label_w, unit_w, value_w = [], [], []
+            for w in sorted(line, key=lambda w: w[0]):
+                centre = (w[0] + w[2]) / 2
+                if centre < grid_left:
+                    label_w.append(w)
+                elif centre <= unit_band[1]:
+                    unit_w.append(w)
+                elif centre <= grid_right:
+                    value_w.append(w)
+            # A row number printed in the margin is not part of the label.
+            if len(label_w) > 1 and label_w[0][4].isdigit():
+                label_w = label_w[1:]
+            if unit_w and not label_w and not value_w:
+                pending, pending_y = unit_w, line[0][1]   # unit printed a line above
+                i += 1
+                continue
+            if pending and pending_y is not None and line[0][1] - pending_y <= 12:
+                unit_w = pending + unit_w
+            pending, pending_y = [], None
+            if not unit_w:
+                if started:
+                    break                                  # the grid has ended
+                i += 1
+                continue
+            started = True
+            label = " ".join(w[4] for w in label_w).strip()
+            unit_text = " ".join(w[4] for w in unit_w)
+            groups: list[list[tuple]] = []
+            for w in value_w:
+                if groups and w[0] - groups[-1][-1][2] < 3.0:
+                    groups[-1].append(w)
+                else:
+                    groups.append([w])
+            for group in groups:
+                value = " ".join(w[4] for w in group)
+                # A note reference ("[Note - 3]") is not a value: it names no
+                # quantity, no blank marker and no categorical answer, so the
+                # existing value gate in extract_facts (states_a_value)
+                # refuses it - proved directly on that function's tests
+                # rather than duplicated here as unreachable code.
+                if not label:
+                    continue
+                x0, x1 = group[0][0], group[-1][2]
+                column = next((name for left, right, name in value_bands
+                               if x0 >= left - 0.5 and x1 <= right + 0.5), None)
+                out.append({"label": label, "value": value,
+                            "unit": grid_unit(unit_text), "column": column,
+                            "one_quantity": _one_quantity(label),
+                            "source": f"{label} {unit_text} {value}"})
+            i += 1
+    return out
+
+
+def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dict]:
+    """`grid_facts` for one page of the stored PDF; [] when it cannot be read."""
+    if not stored_path:
+        return []
+    try:
+        import pymupdf
+        with pymupdf.open(stored_path) as doc:
+            if not (1 <= page_no <= doc.page_count):
+                return []
+            return grid_facts(doc[page_no - 1].get_text("words"))
+    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
         return []
 
 
@@ -2043,6 +2203,7 @@ def extract_facts(
     # further down). A page resolved by the first tier never reaches the
     # second - the cascade stops at the first tier that produces evidence.
     low_confidence_pages: set[int] = set()
+    grid_by_page: dict[int, list[dict]] = {}
     for page in sorted(by_page):
         found: list[tuple[str, str]] = []
         for shape in tables.parse_page_tables(stored_path, page):
@@ -2053,7 +2214,9 @@ def extract_facts(
             # split_label_value unchanged inside that function.
             found.extend(pairs_from_table_shape([list(row) for row in shape]))
         found.extend(_pairs_from_pdf_page(stored_path, page))
-        if not found:
+        # B4 fix 5: column grids, read by word position (see grid_facts).
+        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)
+        if not found and not grid_by_page[page]:
             ocr_found = _pairs_from_ocr_fallback(document_id, page)
             if ocr_found:
                 found = ocr_found
@@ -2220,6 +2383,41 @@ def extract_facts(
                 page_written += 1
                 written += 1
                 if blank:
+                    blanks += 1
+            # B4 fix 5: GRID ROWS, each value under the column its position
+            # proves - or under no column, routed to an engineer.
+            for cell in grid_by_page.get(page, []):
+                key = (page, *_same_cell_key(cell["label"], cell["value"]),
+                       cell["column"] or "")
+                if key in seen:
+                    dropped["duplicate"] = dropped.get("duplicate", 0) + 1
+                    continue
+                seen.add(key)
+                if not states_a_value(cell["value"]):
+                    dropped["value gate"] = dropped.get("value gate", 0) + 1
+                    continue
+                grid_blank, _marker = is_blank_value(cell["value"])
+                try:
+                    create_fact(
+                        submittal_document_id=document_id, chunk_id=chunk["id"],
+                        field_label=cell["label"], raw_value=cell["value"], page=page,
+                        section=section_heading(chunk["section"]),
+                        source_text=cell["source"], review_run_id=review_run_id,
+                        confidence=0.6, extraction_method="grid",
+                        equipment_tag=tags.get(page), commit=False,
+                        validation_state=(None if cell["column"] or grid_blank
+                                          else NEEDS_ENGINEER_REVIEW),
+                        extractor_version=extractor_version, input_hash=inputs,
+                        unit=cell["unit"], value_column=cell["column"],
+                        one_quantity=cell["one_quantity"] and cell["unit"] is not None,
+                    )
+                except FactError:
+                    dropped["refused by create_fact"] = dropped.get(
+                        "refused by create_fact", 0) + 1
+                    continue
+                page_written += 1
+                written += 1
+                if grid_blank:
                     blanks += 1
             if page_written == 0:
                 reason = _unparsed_reason(pairs, dropped)

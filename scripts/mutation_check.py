@@ -2265,7 +2265,8 @@ RANGES_AND_COMPOUNDS = (
         description="parse the value of a compound label that never split, "
                     "recording a number against two fields at once",
         path=APP / "datasheets.py",
-        anchor="    if not blank and compound_label_parts(field_label) is not None:",
+        # Re-anchored by B4 fix 5: the condition gained "not one_quantity and".
+        anchor="    if not blank and not one_quantity and compound_label_parts(field_label) is not None:",
         replacement="    if False:",
         target="tests/test_ranges_and_compounds.py",
         keyword="did_not_split_stores_no_parsed_value",
@@ -4483,9 +4484,14 @@ B175_CASCADE_AND_CONFIDENCE = (
                     "OCR, so a low-confidence guess can overwrite a "
                     "confident native fact",
         path=APP / "datasheets.py",
+        # Re-anchored by B4 fix 5: grid_by_page[page] now sits between these
+        # two lines, and the guard gained "and not grid_by_page[page]".
         anchor="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
-               "        if not found:",
+               "        # B4 fix 5: column grids, read by word position (see grid_facts).\n"
+               "        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n"
+               "        if not found and not grid_by_page[page]:",
         replacement="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
+                    "        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n"
                     "        if True:",
         target=_B175_DATASHEET_TEST,
         keyword="a_page_with_no_native_pairs_falls_back_to_its_ocr_text or "
@@ -5574,6 +5580,74 @@ B4_PUMP_LAYOUTS = (
         replacement="    found = None\n",
         target=_B4_TEST, keyword="elevation_row or en_dash_range",
         tags=("honesty",),
+    ),
+    Mutation(
+        id="M494", phase=59,
+        description="PUT IT BACK: the column grid reader never runs, so the "
+                    "process-data rows (flow, temperature, pressures) stay "
+                    "dropped (B4 fix 5)",
+        path=APP / "datasheets.py",
+        anchor='        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n',
+        replacement="        grid_by_page[page] = []\n",
+        target=_B4_TEST, keyword="each_value_is_read_under_its_column",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M495", phase=59,
+        description="a value whose box straddles two columns is filed under "
+                    "one of them anyway, inventing which column it is in "
+                    "(B4 fix 5, negative)",
+        path=APP / "datasheets.py",
+        anchor="                column = next((name for left, right, name in value_bands\n"
+               "                               if x0 >= left - 0.5 and x1 <= right + 0.5), None)\n",
+        replacement="                column = min(value_bands, key=lambda b: abs((b[0] + b[1]) / 2 - (x0 + x1) / 2))[2]\n",
+        target=_B4_TEST, keyword="value_between_two_columns",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M496", phase=59,
+        description="a grid row with no column decided is written as a "
+                    "confident fact rather than routed to an engineer (B4 "
+                    "fix 5)",
+        path=APP / "datasheets.py",
+        anchor='                        validation_state=(None if cell["column"] or grid_blank\n'
+               "                                          else NEEDS_ENGINEER_REVIEW),\n",
+        replacement="                        validation_state=None,\n",
+        target=_B4_TEST, keyword="value_between_two_columns",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M498", phase=59,
+        description="a shared-noun compound like 'DESIGN / OPERATING "
+                    "PRESSURE' is treated as one quantity, attaching a real "
+                    "number to the wrong half of the pair (B4 fix 5, negative)",
+        path=APP / "datasheets.py",
+        anchor="    return all(len(part.strip(\" :\").split()) == 1 for part in found[1])\n",
+        replacement="    return True\n",
+        target=_B4_TEST, keyword="shared_noun_compound_stays_unparsed",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M499", phase=59,
+        description="a lone 'OC' with no printed Fahrenheit alternate is "
+                    "decoded as degrees anyway (B4 fix 5, negative)",
+        path=APP / "datasheets.py",
+        anchor="    return primary_unit(text)\n",
+        replacement='    return "\\u00b0C" if text.strip().upper() == "OC" else primary_unit(text)\n',
+        target=_B4_TEST, keyword="lone_degree_glyph_is_not_decoded",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M500", phase=59,
+        description="every grid cell is treated as blank for routing, so a "
+                    "REAL reading with no decided column ('7.6 (110)', "
+                    "straddling Rated/Normal) is accepted as confident instead "
+                    "of routed to an engineer (B4 fix 5)",
+        path=APP / "datasheets.py",
+        anchor="                grid_blank, _marker = is_blank_value(cell[\"value\"])\n",
+        replacement="                grid_blank, _marker = True, \"*\"\n",
+        target=_B4_TEST, keyword="value_between_two_columns",
+        tags=("honesty", "critical"),
     ),
 )
 

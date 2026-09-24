@@ -229,3 +229,116 @@ class TestDashRanges:
         """NEGATIVE: a tag, a standard code or a drawing number stays what it
         is - UNKNOWN as a quantity - never min/max."""
         assert datasheets.parse_range(text) is None
+
+
+# ============================================= 5. the process-data (grid) rows
+
+#: Page 2's OPERATING CONDITIONS grid, word by word at the x/y positions
+#: measured from the real PDF (pymupdf words, 2026-09-24). Values sit under a
+#: header "Units | Maximum | Rated | Normal | Minimum"; a right-hand panel of
+#: other fields starts at x=361; the grid ends at "SITE AND UTILITY DATA".
+GRID = [
+    (29, 249, "14"), (168, 249, "Units"), (205, 249, "Maximum"), (251, 249, "Rated"),
+    (290, 249, "Normal"), (326, 249, "Minimum"), (361, 249, "PARTICULATE SIZE (DIA IN MICRONS)"),
+    (29, 261, "15"), (108, 261, "NPSHa Datum:"), (252, 261, "Top of Foundation"),
+    (29, 273, "16"), (69, 273, "PUMPING TEMPERATURE:"), (165, 273, "OC ( OF)"),
+    # The bracketed alternates are at a measured gap (pymupdf word split
+    # tested directly, 2026-09-24): close enough to stay one grid cell,
+    # far enough that pymupdf keeps reporting two separate words.
+    (286.4, 273, "76.7"), (302.3, 273, "(170)"),
+    (169, 281, "m3/h"),
+    (29, 288, "17"), (91, 288, "CAPACITY / FLOW:"), (162, 288, "(USGPM)"),
+    (245.8, 288, "24.8"), (261.8, 288, "(109)"), (286.4, 288, "22.6"), (302.3, 288, "(100)"),
+    (29, 300, "18"), (76, 300, "DISCHARGE PRESSURE:"), (161, 300, "bar g (psig)"),
+    (265, 300, "[Note - 3]"),
+    (29, 328, "20"), (68, 328, "DIFFERENTIAL PRESSURE:"), (165, 328, "bar (psi)"),
+    (266, 328, "7.6"), (275.1, 328, "(110)"),
+    (29, 367, "23"), (84, 367, "HYDRAULIC POWER:"), (170, 367, "kW"), (257, 367, "*"),
+    (29, 379, "24"), (275, 379, "SITE AND UTILITY DATA"),
+]
+
+
+def grid_sheet(tmp_path, extra=()):
+    return sheet(tmp_path, [*GRID, *extra])
+
+
+class TestProcessDataGrid:
+    """The process data - flow, temperature, pressures - sat in a column grid
+    the text reader flattens, so the unit column took the value slot and every
+    row was dropped. Which column a value belongs to is read from its POSITION
+    under the header; where the position is not decisive the value is kept
+    but its column stays UNKNOWN."""
+
+    def test_each_value_is_read_under_its_column_with_the_rows_unit(self, tmp_path):
+        rows = by_name(grid_sheet(tmp_path))
+        flow = {f["value_column"]: f for f in rows["capacity / flow"]}
+        assert (flow["Rated"]["raw_value"], flow["Rated"]["raw_unit"]) == ("24.8", "m3/h")
+        assert (flow["Normal"]["raw_value"], flow["Normal"]["raw_unit"]) == ("22.6", "m3/h")
+        [temp] = rows["pumping temperature"]
+        assert (temp["raw_value"], temp["raw_unit"], temp["value_column"]) == ("76.7", "°C", "Normal")
+        assert temp["field_value"] == "76.7 (170)", "the printed value must be kept"
+
+    def test_a_value_between_two_columns_keeps_no_column(self, tmp_path):
+        """NEGATIVE: 7.6 (110) straddles Rated/Normal. The value and unit are
+        read; the column is UNKNOWN and an engineer must place it."""
+        [dp] = by_name(grid_sheet(tmp_path))["differential pressure"]
+        assert (dp["raw_value"], dp["raw_unit"]) == ("7.6", "bar")
+        assert dp["value_column"] is None
+        assert dp["validation_state"] == datasheets.NEEDS_ENGINEER_REVIEW
+
+    def test_a_note_reference_is_not_a_value(self, tmp_path):
+        """NEGATIVE: "[Note - 3]" (decided by the contractor) states nothing -
+        refused by the same value gate every other cell goes through
+        (`states_a_value`, proved directly below and in test_datasheets.py)."""
+        assert "discharge pressure" not in by_name(grid_sheet(tmp_path))
+        assert not datasheets.states_a_value("[Note - 3]")
+
+    def test_the_grid_stops_where_it_stops(self, tmp_path):
+        """NEGATIVE: the row after the grid, the row before its first unit
+        row, and the right-hand panel are never grid values."""
+        rows = by_name(grid_sheet(tmp_path))
+        grid_facts = [f for fs in rows.values() for f in fs if f.get("value_column")]
+        labels = {f["field_label"] for f in grid_facts}
+        assert not [l for l in labels if "SITE" in l or "PARTICULATE" in l or "NPSHa" in l], labels
+
+    def test_a_bare_star_is_not_read_as_a_blank(self, tmp_path):
+        """NEGATIVE: a lone '*' means 'supplier to advise' only through the
+        sheet's legend; elsewhere it is a footnote mark. Without that evidence
+        the value stays UNKNOWN - no fact. Refused by the same value gate
+        (`states_a_value`) as a note reference, not by the grid's own blank
+        check - proved directly, since neither reaches create_fact for this
+        input."""
+        assert "hydraulic power" not in by_name(grid_sheet(tmp_path))
+        assert not datasheets.states_a_value("*")
+
+    def test_a_real_grid_value_is_never_marked_blank(self, tmp_path):
+        """The distinguishing case for the grid's OWN blank check: a real
+        number in a grid cell must read is_blank=0, not the drawn-rule blank
+        a neighbouring cell in the same grid can carry."""
+        rows = by_name(grid_sheet(tmp_path))
+        flow = {f["value_column"]: f for f in rows["capacity / flow"]}
+        assert flow["Rated"]["is_blank"] == 0
+
+    def test_a_drawn_blank_in_a_grid_cell_is_recorded_as_blank(self, tmp_path):
+        doc = grid_sheet(tmp_path, extra=[
+            (29, 355, "33"), (68, 355, "SUCTION TEMPERATURE:"),
+            (165, 355, "bar (psi)"), (266, 355, "_____"),
+        ])
+        [temp] = by_name(doc)["suction temperature"]
+        assert temp["is_blank"] == 1
+
+    def test_a_lone_degree_glyph_is_not_decoded(self):
+        """NEGATIVE: 'OC' alone is not provably degrees - only the printed
+        pair 'OC ( OF)' is. An undecided unit stays UNKNOWN."""
+        assert datasheets.grid_unit("OC ( OF)") == "°C"
+        assert datasheets.grid_unit("OC") is None
+
+    def test_a_shared_noun_compound_stays_unparsed(self, tmp_path):
+        """NEGATIVE: 'DESIGN / OPERATING PRESSURE' names two quantities in one
+        unit; one number cannot be told apart, so no value is parsed."""
+        rows = by_name(grid_sheet(tmp_path, extra=[
+            (36, 340, "DESIGN / OPERATING PRESSURE:"),
+            (165, 340, "bar (psi)"), (246, 340, "12"),
+        ]))
+        facts_ = [f for fs in rows.values() for f in fs if "OPERATING PRESSURE" in f["field_label"]]
+        assert facts_ and all(f["raw_value"] is None for f in facts_), facts_

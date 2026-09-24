@@ -385,6 +385,10 @@ def ensure_schema() -> None:
             # fact. Every reader of current facts filters on this column;
             # by-id lookups (a finding resolving the fact it cited) do not.
             ("superseded_at", "TEXT"),
+            # B4: the grid column a value was printed under ("Rated",
+            # "Normal", ...), read from its position. NULL when the fact is not
+            # from a grid OR its position was not decisive - never guessed.
+            ("value_column", "TEXT"),
         ):
             add_column_if_missing(conn, "submittal_facts", _column, _type)
         conn.execute(
