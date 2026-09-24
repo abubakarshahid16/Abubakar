@@ -2,11 +2,14 @@
 cover-page backfill, and which standards a submittal or requirement cites.
 
 Per the owner's 2026-09-24 order. Scope of THIS module: the data model, the
-cover-page metadata extractor the backfill script calls, and the read-side
-query that assembles one inventory row per COMPANY_STANDARD document. The
-"cited but not held" CRS row-kind, the licensed-lookup transport, and the
-Standards Library UI are later stages, listed and NOT yet built at the
-bottom of this docstring so nobody mistakes silence for completion.
+cover-page metadata extractor the backfill script calls, the read-side query
+that assembles one inventory row per COMPANY_STANDARD document, and the
+"cited but not held" report (`cited_but_not_held`) - every standard cited by
+a submittal or by a SAES requirement's own normative reference that is not
+in the local library, with where it was cited. The licensed-lookup
+transport and the Standards Library UI page are later stages, listed and
+NOT yet built at the bottom of this docstring so nobody mistakes silence
+for completion.
 
 WHY LICENCE STATUS AND FAMILY ARE COMPUTED, NOT STORED AS A DUMPED GUESS.
 `default_licence_status` and `family_from_identifier` only ever assert what
@@ -14,21 +17,28 @@ the presence of a file, or the text of an identifier, actually establishes
 (CLAUDE.md rule 4: a guess is shown as a guess until a human confirms it).
 Neither function invents a family or a licence position it cannot support.
 
-WHY "CITED BY A SUBMITTAL" IS COMPUTED LIVE, NEVER STORED.
-`classification.py`'s own design note (on why it does not persist a
-submittal's cited-standards list) applies here without change: a stored copy
-goes stale the moment a document is re-chunked. This module recomputes the
-citation set from `datasheets.referenced_standards` over the SAME chunks
-`applicability.py` already reads for review selection, so the inventory can
-never disagree with what a real review saw.
+WHY CITATIONS ARE COMPUTED LIVE, NEVER STORED. `classification.py`'s own
+design note (on why it does not persist a submittal's cited-standards list)
+applies here without change: a stored copy goes stale the moment a document
+is re-chunked or re-extracted. This module recomputes a submittal's
+citations from `datasheets.referenced_standards` over the SAME chunks
+`applicability.py` already reads for review selection, and a requirement's
+own citation from `requirements_3b.cited_document` over the SAME
+`standard_requirements` row extraction already produced - so this report
+can never disagree with what a real review, or a real extraction, saw.
+
+CITED_BUT_NOT_HELD IS DELIBERATELY NOT MERGED INTO THE PER-SUBMITTAL CRS
+MISSING-REFERENCE ROW. `crs_mapping.build_crs_rows`'s existing
+`ROW_KIND_MISSING_REFERENCE` rows say "this submittal cites standard X" -
+true only for a citation that submittal's own text actually makes. A SAES
+requirement's citation was never made BY that submittal, and folding it
+into the same per-submittal row would misattribute it. `cited_but_not_held`
+is the combined, run-wide report (`GET /api/standards/cited-but-not-held`)
+the owner asked for to take to the standards body - the CRS's own
+per-submittal rows are unchanged and remain accurate to what that one
+submittal actually cites.
 
 NOT YET BUILT (tracked, not silently skipped):
-  - citations FROM a standard's own requirements (a SAES clause naming
-    another standard) - `requirements_3b.is_applicability_trigger` detects
-    that a sentence defers to a named document but discards which one; this
-    module does not yet capture it. Planned for the "cited but not held"
-    report stage.
-  - the CRS row-kind for the missing list.
   - the licensed-lookup transport (never fetches copyrighted text; records
     provenance only for freely published, authorized sources).
   - the Standards Library page addition.
@@ -441,3 +451,126 @@ def inventory_rows(*, allowed_document_ids: frozenset[str],
             "cited_by_submittal": bool(key) and key in cited,
         })
     return out
+
+
+# --------------------------------------------------- cited but not held
+
+def _submittal_citations(*, allowed_document_ids: frozenset[str]) -> list[dict]:
+    """One row per standard identifier cited by a CONTRACTOR_SUBMITTAL the
+    caller may read, attributed to the document it was read from."""
+    if not allowed_document_ids:
+        return []
+    marks = ",".join("?" for _ in allowed_document_ids)
+    rows = connect().execute(
+        f"""SELECT ch.document_id, d.filename, ch.text FROM chunks ch
+            JOIN document_classification c ON c.document_id = ch.document_id
+            JOIN documents d ON d.id = ch.document_id
+            WHERE ch.document_id IN ({marks})
+              AND c.document_role = 'CONTRACTOR_SUBMITTAL'""",
+        sorted(allowed_document_ids)).fetchall()
+    by_doc: dict[str, dict] = {}
+    for row in rows:
+        entry = by_doc.setdefault(
+            row["document_id"], {"filename": row["filename"], "chunks": []})
+        entry["chunks"].append(row["text"] or "")
+
+    out: list[dict] = []
+    for document_id, entry in by_doc.items():
+        text = " ".join(entry["chunks"])
+        for identifier in datasheets.referenced_standards(text):
+            out.append({
+                "identifier": identifier, "source_type": "submittal",
+                "document_id": document_id, "filename": entry["filename"],
+            })
+    return out
+
+
+def _requirement_citations(*, allowed_document_ids: frozenset[str]) -> list[dict]:
+    """One row per normative reference a COMPANY_STANDARD's own requirement
+    text names, attributed to the clause/page it was read from.
+
+    Scoped to NON-SUPERSEDED standards only (`c.superseded_by IS NULL`) - the
+    same currency rule `standards.selectable_standard_ids` applies elsewhere:
+    a superseded revision's own citations are history, not a live gap to
+    report.
+    """
+    from .requirements_3b import APPLICABILITY_TRIGGER, cited_document
+
+    if not allowed_document_ids:
+        return []
+    marks = ",".join("?" for _ in allowed_document_ids)
+    rows = connect().execute(
+        f"""SELECT r.standard_document_id, d.filename, r.clause, r.page,
+                   COALESCE(r.source_text, r.requirement_text) AS text
+            FROM standard_requirements r
+            JOIN document_classification c
+                ON c.document_id = r.standard_document_id
+            JOIN documents d ON d.id = r.standard_document_id
+            WHERE r.standard_document_id IN ({marks})
+              AND c.document_role = 'COMPANY_STANDARD'
+              AND c.superseded_by IS NULL
+              AND r.requirement_type = ?""",
+        [*sorted(allowed_document_ids), APPLICABILITY_TRIGGER]).fetchall()
+
+    out: list[dict] = []
+    for row in rows:
+        identifier = cited_document(row["text"] or "")
+        if identifier is None:
+            continue
+        out.append({
+            "identifier": identifier, "source_type": "requirement",
+            "document_id": row["standard_document_id"],
+            "filename": row["filename"], "clause": row["clause"],
+            "page": row["page"],
+        })
+    return out
+
+
+def cited_but_not_held(*, allowed_document_ids: frozenset[str]) -> list[dict]:
+    """Every standard cited by a submittal or a SAES requirement that is NOT
+    in the local library, with where it was cited - the missing list for
+    the CRS and for the owner to take to the standards body.
+
+    ONE HOME FOR THE MATCHING RULE, reusing `applicability._match_referenced`
+    exactly as `applicability.missing_references` does (that function's own
+    docstring: two independent copies of this rule disagreed about whether a
+    submittal citation was a document id or an identifier, and one of them
+    reported six held standards as missing). Matching here is by-name against
+    the SAME held library `standards.list_standards` returns, so a standard
+    reported "cited but not held" here can never be one this system actually
+    has under a different key.
+
+    Each returned row groups every citation for the SAME cited identifier
+    (a standard can be cited by more than one submittal, or by more than one
+    requirement) under one entry, listing every place it was cited - never
+    one row per citation, which would make "3 mentions of API 610" look like
+    three different missing standards.
+    """
+    from .applicability import _match_referenced, normalise_identifier
+
+    library = standards.list_standards(
+        allowed_document_ids=allowed_document_ids, include_superseded=True)
+    citations = (
+        _submittal_citations(allowed_document_ids=allowed_document_ids)
+        + _requirement_citations(allowed_document_ids=allowed_document_ids))
+
+    by_key: dict[str, dict] = {}
+    for citation in citations:
+        identifier = citation["identifier"]
+        key = normalise_identifier(identifier)
+        if not key:
+            continue
+        matched = _match_referenced(library, [identifier])
+        if matched:
+            continue  # held - not a gap
+        entry = by_key.setdefault(key, {
+            "identifier": identifier,
+            "standard_family": family_from_identifier(identifier),
+            "licence_status": default_licence_status(
+                family_from_identifier(identifier), held=False),
+            "cited_by": [],
+        })
+        entry["cited_by"].append({
+            k: v for k, v in citation.items() if k != "identifier"})
+
+    return sorted(by_key.values(), key=lambda e: e["identifier"])

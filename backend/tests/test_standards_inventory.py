@@ -45,6 +45,21 @@ def _doc(doc_id: str, filename: str, role: str, text: str = "", **meta) -> str:
 def _scope(*ids): return frozenset(ids)
 
 
+def _requirement(req_id: str, standard_document_id: str, *, text: str,
+                 requirement_type: str = "applicability_trigger",
+                 clause: str = "5.1", page: int = 3) -> None:
+    with db.connect() as conn:
+        conn.execute(
+            """INSERT INTO standard_requirements
+                (id, standard_document_id, clause, page, requirement_text,
+                 source_text, category, requirement_type, extraction_method,
+                 created_at, updated_at)
+               VALUES (?,?,?,?,?,?,'requirement',?,'test',
+                       '2026-09-18T00:00:00Z','2026-09-18T00:00:00Z')""",
+            (req_id, standard_document_id, clause, page, text, text,
+             requirement_type))
+
+
 # ===================================================== family_from_identifier
 
 @pytest.mark.parametrize("identifier,family", [
@@ -374,3 +389,120 @@ def test_a_citation_in_a_submittal_outside_the_callers_grants_does_not_count():
          text="Pump shall comply with API 610.", discipline="Mechanical")
     rows = standards_inventory.inventory_rows(allowed_document_ids=_scope(std))
     assert rows[0]["cited_by_submittal"] is False
+
+
+# ======================================================== cited_but_not_held
+
+def test_a_standard_cited_by_a_submittal_but_absent_is_reported_missing():
+    sub = _doc("sub1", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
+              text="Pump shall comply with API 610.", discipline="Mechanical")
+    rows = standards_inventory.cited_but_not_held(
+        allowed_document_ids=_scope(sub))
+    assert len(rows) == 1
+    assert rows[0]["identifier"] == "API 610"
+    assert rows[0]["standard_family"] == "API"
+    assert rows[0]["licence_status"] == standards_inventory.LICENCE_LICENSED_NOT_HELD
+    assert rows[0]["cited_by"] == [
+        {"source_type": "submittal", "document_id": "sub1",
+         "filename": "pump-datasheet.pdf"}]
+
+
+def test_a_standard_cited_by_a_submittal_and_actually_held_is_not_reported():
+    """THE MUTATION TARGET: a citation that resolves to a real held standard
+    must not appear in the missing list - `cited_but_not_held` reuses the
+    exact `_match_referenced` rule `applicability.missing_references` does,
+    not a second, possibly-disagreeing copy of it."""
+    std = _doc("std_610", "API-610.pdf", "COMPANY_STANDARD",
+              document_number="API 610", discipline="Mechanical")
+    sub = _doc("sub1", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
+              text="Pump shall comply with API 610.", discipline="Mechanical")
+    rows = standards_inventory.cited_but_not_held(
+        allowed_document_ids=_scope(std, sub))
+    assert rows == []
+
+
+def test_a_standard_cited_by_a_saes_requirement_but_absent_is_reported_missing():
+    std = _doc("std_d001", "SAES-D-001.pdf", "COMPANY_STANDARD",
+              document_number="SAES-D-001", discipline="Piping")
+    _requirement("req1", "std_d001",
+                text="For services greater than 45 barg, the vessel shall "
+                     "be in accordance with API 660.", clause="9.2", page=14)
+    rows = standards_inventory.cited_but_not_held(
+        allowed_document_ids=_scope(std))
+    assert len(rows) == 1
+    assert rows[0]["identifier"] == "API 660"
+    assert rows[0]["cited_by"] == [
+        {"source_type": "requirement", "document_id": "std_d001",
+         "filename": "SAES-D-001.pdf", "clause": "9.2", "page": 14}]
+
+
+def test_a_requirement_deferring_only_to_an_internal_clause_cites_nothing():
+    """"per paragraph 7.4.4" makes the sentence an applicability trigger but
+    names no real document - it must not appear as a missing standard."""
+    std = _doc("std_d001", "SAES-D-001.pdf", "COMPANY_STANDARD",
+              document_number="SAES-D-001", discipline="Piping")
+    _requirement("req1", "std_d001",
+                text="Insulation for lines operating at less than 10°C "
+                     "shall be per paragraph 7.4.4.")
+    rows = standards_inventory.cited_but_not_held(
+        allowed_document_ids=_scope(std))
+    assert rows == []
+
+
+def test_a_requirement_that_is_not_an_applicability_trigger_is_not_scanned():
+    """THE MUTATION TARGET: only requirement_type='applicability_trigger'
+    rows are scanned - a numeric_limit requirement that happens to mention a
+    standard's name in passing (e.g. inside a table caption) is not a
+    normative reference and must not be reported as a citation."""
+    std = _doc("std_d001", "SAES-D-001.pdf", "COMPANY_STANDARD",
+              document_number="SAES-D-001", discipline="Piping")
+    _requirement("req1", "std_d001", requirement_type="numeric_limit",
+                text="For services greater than 45 barg, the vessel shall "
+                     "be in accordance with API 660.")
+    rows = standards_inventory.cited_but_not_held(
+        allowed_document_ids=_scope(std))
+    assert rows == []
+
+
+def test_a_superseded_standards_requirement_citations_are_not_reported():
+    std_old = _doc("std_old", "SAES-D-001-old.pdf", "COMPANY_STANDARD",
+                   document_number="SAES-D-001")
+    std_new = _doc("std_new", "SAES-D-001-new.pdf", "COMPANY_STANDARD",
+                   document_number="SAES-D-001")
+    with db.connect() as conn:
+        conn.execute("UPDATE document_classification SET superseded_by = ?"
+                     " WHERE document_id = ?", (std_new, std_old))
+    _requirement("req1", "std_old",
+                text="For services greater than 45 barg, the vessel shall "
+                     "be in accordance with API 660.")
+    rows = standards_inventory.cited_but_not_held(
+        allowed_document_ids=_scope(std_old, std_new))
+    assert rows == []
+
+
+def test_two_citations_of_the_same_missing_standard_are_one_row_listing_both():
+    """A standard cited from two places is ONE gap, not two - "3 mentions of
+    API 610" must not look like three different missing standards."""
+    sub = _doc("sub1", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
+              text="Pump shall comply with API 610.", discipline="Mechanical")
+    std = _doc("std_d001", "SAES-D-001.pdf", "COMPANY_STANDARD",
+              document_number="SAES-D-001")
+    _requirement("req1", "std_d001",
+                text="Materials shall be in accordance with API 610.")
+    rows = standards_inventory.cited_but_not_held(
+        allowed_document_ids=_scope(sub, std))
+    assert len(rows) == 1
+    sources = {c["source_type"] for c in rows[0]["cited_by"]}
+    assert sources == {"submittal", "requirement"}
+
+
+def test_a_citation_outside_the_callers_grants_is_not_reported():
+    """CLAUDE.md rule 5: a caller must not see a citation from a document
+    outside their own grants."""
+    _doc("sub1", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
+        text="Pump shall comply with API 610.", discipline="Mechanical")
+    other = _doc("std_other", "SAES-Z-999.pdf", "COMPANY_STANDARD",
+                 document_number="SAES-Z-999")
+    rows = standards_inventory.cited_but_not_held(
+        allowed_document_ids=_scope(other))
+    assert rows == []

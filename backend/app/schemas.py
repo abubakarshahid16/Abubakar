@@ -420,6 +420,31 @@ class StandardInventoryEntry(StandardSummary):
                     "stored, so it can never go stale on re-chunk")
 
 
+class StandardCitation(BaseModel):
+    """Where a missing standard was cited from - one submittal or one SAES
+    requirement clause."""
+
+    source_type: str = Field(description="'submittal' or 'requirement'")
+    document_id: str
+    filename: str
+    clause: str | None = None
+    page: int | None = None
+
+
+class CitedButNotHeld(BaseModel):
+    """One standard cited by a submittal or a SAES requirement that is NOT
+    in the local library - the missing list for the CRS and for the owner
+    to take to the standards body. Every citation is listed; a standard
+    cited from three places is one row, not three."""
+
+    identifier: str = Field(description="as it was cited, not normalised")
+    standard_family: str
+    licence_status: str = Field(
+        description="never 'held' here by construction - this list is only "
+                    "standards NOT in the library")
+    cited_by: list[StandardCitation]
+
+
 class StandardExtraction(BaseModel):
     """What one extraction run did. Counts, with their boundary stated."""
 
