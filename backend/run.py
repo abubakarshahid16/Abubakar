@@ -51,6 +51,12 @@ from app.config import settings  # noqa: E402
 
 
 def main() -> None:
+    # THE SERVER OWNS THE LIVE DATABASE. Marked here and only here, before the
+    # app is imported, so `db.connect()` lets this process - and the worker
+    # processes it spawns, which inherit the environment - open the live file.
+    # Every other process must pass live_guard.prepare_live_write first.
+    from app import live_guard
+    live_guard.mark_server_process()
     uvicorn.run(
         "app.main:app",
         host=settings.host,

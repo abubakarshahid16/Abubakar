@@ -83,7 +83,8 @@ a discipline onto a document that spans all of them."""
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(settings.db_path))
+    # READ-ONLY by URI: this report only SELECTs (live_guard, 2026-09-25).
+    conn = sqlite3.connect(f"{settings.db_path.resolve().as_uri()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     return conn
 

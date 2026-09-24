@@ -17,6 +17,7 @@ import time
 
 import psutil
 
+from . import live_guard
 from .db import connect, init_db
 from .extract import extract_document
 
@@ -40,6 +41,8 @@ def main() -> int:
     ap.add_argument("--memlog")
     args = ap.parse_args()
 
+    # A live database only after a verified backup and a restore drill.
+    live_guard.clear_if_live(f"app.worker extract {'--all' if args.all else args.doc_id}")
     init_db()
     conn = connect()
 

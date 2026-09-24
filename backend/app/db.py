@@ -4,6 +4,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from . import live_guard
 from .config import settings
 
 _local = threading.local()
@@ -168,6 +169,51 @@ CREATE TABLE IF NOT EXISTS exclusions (
     -- detector: the classifier gate should keep this at zero.
     clause_headings INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL
+);
+
+-- THE PAGE LEDGER (master order B3). One row per page of every document, so a
+-- page never disappears silently: what its native text was, whether OCR was
+-- needed and ran, whether any retrievable chunk covers it (and if not, which
+-- rule excluded it), and - for a contractor submittal - whether fields were
+-- read from it and, if not, WHY. Before this the per-page parse outcome of
+-- `datasheets.extract_facts` was returned to its caller and thrown away, and
+-- a review wrote "the submittal states no value" about requirements whose
+-- value could sit on a page nobody had read into fields.
+--
+-- Rebuilt from `pages`, `page_ocr`, `chunks` and `exclusions` by
+-- `page_ledger.refresh` (idempotent); the `facts_*` columns are written by
+-- fact extraction itself (`facts_recorded_by = 'extraction'`) and otherwise
+-- DERIVED from the stored facts with the reason stated as not recorded.
+-- Rebuildable, so it holds no evidence of its own: deleting it loses nothing.
+CREATE TABLE IF NOT EXISTS page_ledger (
+    document_id     TEXT    NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    page_no         INTEGER NOT NULL,
+    file_sha256     TEXT,
+    -- 'text' | 'empty' | 'needs_ocr' | 'not_extracted'
+    native_status   TEXT    NOT NULL DEFAULT 'unknown',
+    native_chars    INTEGER,
+    -- 'not_required' | 'pending' | 'done'
+    ocr_status      TEXT    NOT NULL DEFAULT 'unknown',
+    ocr_engine      TEXT,
+    ocr_mean_conf   REAL,
+    ocr_seconds     REAL,
+    -- 'retrievable' | 'excluded' | 'not_retrievable' | 'no_chunk' | 'not_chunked'
+    index_status    TEXT    NOT NULL DEFAULT 'unknown',
+    index_reason    TEXT,
+    -- No layout/table-reconstruction stage and no vision tier exist yet; the
+    -- columns say so rather than being left out (B4, #180).
+    layout_status   TEXT    NOT NULL DEFAULT 'no_layout_stage',
+    vision_status   TEXT    NOT NULL DEFAULT 'not_attempted',
+    vision_reason   TEXT,
+    -- 'not_applicable' | 'facts' | 'no_facts' | 'unreadable' | 'not_reached' | 'not_run'
+    facts_status    TEXT    NOT NULL DEFAULT 'unknown',
+    facts_count     INTEGER,
+    facts_reason    TEXT,
+    -- 'extraction' (written by extract_facts) | 'derived' (inferred from rows)
+    facts_recorded_by TEXT,
+    extractor_version TEXT,
+    updated_at      TEXT    NOT NULL,
+    PRIMARY KEY (document_id, page_no)
 );
 
 -- ---------------------------------------------------------------- access
@@ -638,6 +684,10 @@ def connect() -> sqlite3.Connection:
     """Thread-local connection. WAL lets one writer and many readers coexist."""
     conn = getattr(_local, "conn", None)
     if conn is None:
+        # THE LIVE-WRITE GUARD (owner decision after the B3 incident): a live
+        # database is opened only by the server or by a process that passed
+        # live_guard.prepare_live_write (verified backup + restore drill).
+        live_guard.check_connect(settings.db_path)
         settings.ensure_dirs()
         conn = sqlite3.connect(settings.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row

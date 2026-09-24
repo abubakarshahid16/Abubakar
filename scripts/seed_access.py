@@ -38,6 +38,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
+from app import live_guard  # noqa: E402
 from app.db import connect, init_db  # noqa: E402
 
 #: The four engineering disciplines the demonstration dataset needs
@@ -359,6 +360,9 @@ def main(argv: list[str] | None = None) -> int:
                          "with no grants")
     args = ap.parse_args(argv)
 
+    # init_db() writes (schema + migrations) even for --verify-only, so every
+    # mode on a live database goes through the verified backup + drill first.
+    live_guard.clear_if_live("seed_access")
     init_db()
     conn = connect()
 
