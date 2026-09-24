@@ -1268,3 +1268,41 @@ bytecode before each run; the whole harness was re-run after the fix.
 20. **A harness verdict is evidence only if the run executed the code under test.**
    Stale bytecode, a cached build or a warm process can each run the previous state.
    Make the runner unable to reuse compiled state, not merely unlikely to.
+
+---
+
+## Standards inventory, 2026-09-24: `effective_date` was not stored as ISO, despite saying so
+
+Recorded by Claude Code (Cowork, desktop app) on ABUBAKAR, 2026-09-24.
+
+**The claim.** `standards_inventory.py`'s own module docstring, written the same
+session, described `effective_date` as a field the cover-page backfill would store
+alongside `document_number` and `revision`, each "a real fact... never guessed." What
+it actually stored for the date was the cover page's own collapsed prose - `"18 August
+2019"` - not `YYYY-MM-DD`. Nothing in the code or its tests asserted the ISO shape; the
+tests checked only that *a* value and *a* page were recorded, which the prose form
+satisfied just as well as ISO would have.
+
+**How it surfaced.** The owner, reviewing the field-count report before approving the
+live backfill, asked this system to confirm dates were stored as ISO with the original
+quoted text kept - not asked to trust the earlier report. Querying the live database
+directly showed every `effective_date` was prose, not ISO. The honest answer was "no,"
+reported as such rather than reframed.
+
+**Fixed** (`_to_iso_date`, PR #206): the extractor now parses all three cover-page date
+spellings into `YYYY-MM-DD` and stores that, while the document's own words stay
+unchanged in `effective_date_evidence`'s quote. The 230 rows already written in prose by
+the first live backfill were corrected in place (`scripts/fix_effective_date_iso.py
+--live`, under the same backup-first guard), re-deriving each ISO value from the SAME
+stored quote via the SAME parser the extractor uses - not a second, independently
+written parser that could itself disagree.
+
+### The rule this produces
+
+21. **A field's own name is not a test of its shape.** A test that checks "a value was
+   recorded" passes whether that value is `"18 August 2019"` or `"2019-08-18"` -
+   neither the code nor the tests caught the gap until the STORED FORMAT itself was
+   checked, on request, against what the field's own documented contract promised.
+   When a field name implies a specific representation (ISO date, a normalised key, a
+   canonical unit), a test must assert the representation, not merely that something
+   landed in the column.
