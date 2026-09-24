@@ -4586,17 +4586,16 @@ B179_ROW_NUMBERED_TABLE_ROWS = (
                     "(issue #179: bare-digit field names and page-title "
                     "text leaking into field_label)",
         path=APP / "datasheets.py",
+        # Anchor moved by #179's second pass (phase 52), which put the
+        # column-aware numbered-row reader inside this same branch.
         anchor="        if re.fullmatch(r\"\\d{1,3}\", label):\n"
-               "            compact = [c for c in cells if c]\n"
-               "            out.extend(split_label_value(compact))\n"
-               "            continue",
+               "            if 0 in serials:\n",
         replacement="        if False:\n"
-                    "            compact = [c for c in cells if c]\n"
-                    "            out.extend(split_label_value(compact))\n"
-                    "            continue",
+                    "            if 0 in serials:\n",
         target="tests/test_datasheets.py",
         keyword="test_179_a_dual_subform_row_keeps_each_side_s_own_label or "
                 "test_179_a_row_numbered_form_does_not_quote_the_page_s_own_title",
+        # + tests/test_179_layouts.py's genuine dual-column page, run by M406.
         tags=("honesty", "critical"),
     ),
 )
@@ -4651,6 +4650,78 @@ B179_EXTRACTION_QUALITY_2 = (
         replacement="",
         target="tests/test_eval_extraction_harness.py",
         keyword="persists_the_breakdown",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M404", phase=52,
+        description="stop collapsing the two readers' readings of one printed "
+                    "cell, so a wrapped or double-spaced cell is stored twice "
+                    "on the same page (issue #179, valve sheet)",
+        path=APP / "datasheets.py",
+        anchor="        pairs_by_page[page] = collapse_double_reads(split)",
+        replacement="        pairs_by_page[page] = split",
+        target="tests/test_179_layouts.py",
+        keyword="one_printed_cell_read_by_both_readers",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M405", phase=52,
+        description="drop the page from the duplicate key, so the same value "
+                    "for a DIFFERENT valve on another page is deleted as a "
+                    "duplicate (issue #179: legitimate repeats must stay)",
+        path=APP / "datasheets.py",
+        anchor="                key = (page, *_same_cell_key(label, value))",
+        replacement="                key = _same_cell_key(label, value)",
+        target="tests/test_179_layouts.py",
+        keyword="same_value_for_a_different_valve",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M406", phase=52,
+        description="stop reading a numbered table row by its columns, so a "
+                    "small-integer value is discarded as a line number and a "
+                    "clause column takes the label's place (issue #179)",
+        path=APP / "datasheets.py",
+        anchor="            if 0 in serials:\n",
+        replacement="            if False:\n",
+        target="tests/test_179_layouts.py",
+        keyword="small_integer_in_the_value_column or clause_number_column",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M407", phase=52,
+        description="let a page title carried across every column act as a "
+                    "column header again, so it is appended to field labels "
+                    "and the equipment tag (issue #179 criterion 2)",
+        path=APP / "datasheets.py",
+        anchor='    header = [text if i == 0 or spread.get(text, 0) < 3 else ""',
+        replacement='    header = [text if True else ""',
+        target="tests/test_179_layouts.py",
+        keyword="page_title_is_never_part or not_polluted_by_the_page_title",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M408", phase=52,
+        description="count a title-block fragment ('OF') as an answer in the "
+                    "furniture rule, so a title-block row is promoted to a "
+                    "field and a stray number becomes a fact (issue #179)",
+        path=APP / "datasheets.py",
+        anchor="            if answer and states_a_value(value):",
+        replacement="            if answer:",
+        target="tests/test_repeated_form.py",
+        keyword="title_block_fragment_is_not_an_answer",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M409", phase=52,
+        description="stop cutting an underscore-slot line into its fields, so "
+                    "a line of several label + drawn-slot pairs is one "
+                    "unlabelled cell again (issue #179, pump sheet recall)",
+        path=APP / "datasheets.py",
+        anchor="                 for piece in split_drawn_slots(c.strip())]",
+        replacement="                 for piece in [c.strip()]]",
+        target="tests/test_179_layouts.py",
+        keyword="each_drawn_slot_on_a_line_is_its_own_field",
         tags=("honesty",),
     ),
 )

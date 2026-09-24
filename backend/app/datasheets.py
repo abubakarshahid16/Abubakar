@@ -187,6 +187,28 @@ def is_categorical_value(value: str | None) -> bool:
     return " ".join((value or "").strip().lower().split()) in _CATEGORICAL_VALUES
 
 
+def states_a_value(value: str | None) -> bool:
+    """Does this cell say something a FACT can be made of?
+
+    A quantity (one number, or a range - `-3 to 55 C` is a value stated as
+    two), an explicit blank ("By Contractor", "TBA", a drawn rule), or a
+    closed categorical answer. Anything else beside a label is a caption:
+    "Prepared by: A. Engineer" has the shape of a filled field and states
+    nothing about the equipment.
+
+    ONE HOME (#179). `extract_facts` gates facts on it, and `furniture_labels`
+    counts only these as answers - a title block's stray fragment (`OF` from
+    "SHEET 3 OF 11") is not an answer, and counting it as one made a title-
+    block row look like an answered field.
+    """
+    _blank, marker = is_blank_value(value)
+    parsed, _unit, _measure = measure_value(value or "")
+    if parsed is None and parse_range(value) is not None:
+        parsed = "range"
+    return not (parsed is None and marker in (None, "empty")
+                and not is_categorical_value(value))
+
+
 def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
                      *, threshold: int = FURNITURE_PAGE_THRESHOLD) -> set[str]:
     """Normalised label names that repeat across `threshold` or more pages.
@@ -254,7 +276,14 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
             # Compared as the reader sees it: case and spacing are spelling,
             # not different answers.
             answer = " ".join((value or "").split()).lower()
-            if answer:
+            # AN ANSWER IS SOMETHING A FACT COULD BE MADE OF (#179). The
+            # vessel sheet's title-block row `<site name> | ... | OF` printed
+            # the fragment `OF` (from "SHEET n OF 11") on four pages and a
+            # stray `2003` on a fifth: counted as answers, that is "two
+            # distinct answers on most pages", a FIELD - and `2003` became a
+            # fact. `OF` answers nothing; only a value `states_a_value`
+            # accepts is evidence that somebody filled the form in.
+            if answer and states_a_value(value):
                 answered_pages[name].add(page)
                 answers_per_label[name].add(answer)
     furniture = set()
@@ -278,11 +307,15 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
 #: `Proc.` end in the same two letters and are words; `121OC` cannot be
 #: anything but a temperature. The lookbehind is what keeps the rule from
 #: rewriting prose.
-_DEGREE_GLYPH = re.compile(r"(?<=\d)[Oo]([CF])\b")
+#:
+#: AND THE MASCULINE ORDINAL `º` (U+00BA), which the same valve sheet uses
+#: for the degree sign in `220ºC` and which looks identical on the page.
+#: Unread, `201ºC` was not a quantity at all (#179).
+_DEGREE_GLYPH = re.compile(r"(?<=\d)[Ooº]([CF])\b")
 
 
 def normalise_degree_glyph(text: str | None) -> str:
-    """`121OC` -> `121°C`. Everything else untouched."""
+    """`121OC` / `220ºC` -> `121°C` / `220°C`. Everything else untouched."""
     return _DEGREE_GLYPH.sub(r"°\1", text or "")
 
 
@@ -779,6 +812,13 @@ _CROSS_REFERENCE = re.compile(
     r"|\d{1,3}(?:\.\d+){2,}",
     re.IGNORECASE)
 
+#: An annex clause (`D.6.1`, `A.4`) or a list of two or more clauses
+#: (`4.7.1.3, 8.2.1, A.5`). Never a value: a letter before the first dot, or
+#: a comma-separated run of dotted numbers, is not how a quantity is written.
+_LETTERED_CLAUSE = re.compile(
+    r"[A-Za-z]\.\d+(?:\.\d+)*"
+    r"|(?:[A-Za-z]|\d{1,3})(?:\.\d+)+(?:\s*,\s*(?:[A-Za-z]|\d{1,3})(?:\.\d+)+)+")
+
 #: A cell that is ONLY a bracketed qualifier.
 _PARENTHETICAL_ONLY = re.compile(r"\(([^()]{1,60})\)")
 
@@ -820,11 +860,20 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
     leading line numbers are dropped. Pairing is strictly left to right, which
     is the order the sheet is read in.
     """
-    parts = _join_continuations([c.strip() for c in cells if c is not None])
+    joined = _join_continuations([c.strip() for c in cells if c is not None])
+    # A cell written on a drawn answer line (`split_drawn_slots`) is a value.
+    slot = [p.startswith(_SLOT_MARK) for p in joined]
+    parts = [p[len(_SLOT_MARK):] if is_slot else p for p, is_slot in zip(joined, slot)]
     pairs: list[tuple[str, str]] = []
     index = 0
     while index < len(parts):
         part = parts[index]
+        # AN ANSWER WITH NO LABEL BEFORE IT names nothing, and is not paired
+        # with whatever follows it either - that would file it under the
+        # next field's label.
+        if slot[index]:
+            index += 1
+            continue
         # A bare line number introduces the pair that follows it.
         if re.fullmatch(r"\d{1,3}", part):
             index += 1
@@ -848,12 +897,25 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
         if _CROSS_REFERENCE.fullmatch(part):
             index += 1
             continue
+        # AND SO DOES AN ANNEX CLAUSE (`D.6.1`, `A.4`) OR A LIST OF CLAUSES
+        # (`8.2.1, A.5, B.3.2`) - issue #179, measured on the real vessel
+        # sheet: `10 | D.6.1 | <label, wrapped onto two lines> | not
+        # applicable` made the clause the label and the label's FIRST line
+        # its value, so the value was filed under the label's second line -
+        # a fragment that names nothing. A plain `5.7` is NOT skipped here:
+        # in a text block that is as likely a value (a 1.6 mm corrosion
+        # allowance) as a clause.
+        if _LETTERED_CLAUSE.fullmatch(part):
+            index += 1
+            continue
         if not part:
             index += 1
             continue
         label = part
         value = parts[index + 1] if index + 1 < len(parts) else ""
-        if re.fullmatch(r"\d{1,3}", value) and not _unit_follows(parts, index + 2):
+        value_on_a_slot = index + 1 < len(parts) and slot[index + 1]
+        if (not value_on_a_slot and re.fullmatch(r"\d{1,3}", value)
+                and not _unit_follows(parts, index + 2)):
             # The next cell is the NEXT pair's line number, so this label has
             # no value on the sheet - which is a blank, not a missing row.
             #
@@ -884,24 +946,159 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
                 if nxt and len(nxt) <= 14 and claims.is_unit(base or ""):
                     value = f"{value} {nxt}"
                     index += 1
-        # THE UNIT INSIDE THE LABEL. `| Design pressure (barg) | 3.5 |` puts it
-        # where nothing looked for it, so nothing recorded that a unit existed
-        # at all - worse than the case above, which at least left a trace.
-        #
-        # Stripped only when the parenthetical IS a unit: "(Note - 3)" and
-        # "(see 5.2)" are not, and must stay part of the label.
-        label, carried = _unit_in_label(label)
-        if carried and value and _is_numeric_cell(value):
-            value = f"{value} {carried}"
-        if normalise_field_name(label) in _HEADING_WORDS:
-            continue
-        # THE LABEL MUST BE A LABEL. See is_field_label: without this the
-        # pairing promotes values and drawing numbers into field names and
-        # then records each one as a required field left blank.
-        if not is_field_label(label):
-            continue
-        pairs.append((label, value))
+            # AN EMPTY DRAWN SLOT HAS A UNIT TOO (#179): `RATED POWER
+            # ___*___ kW  EFFICIENCY ...`. The unit is the slot's, not the
+            # next field's label - left in place it became a rejected label
+            # that swallowed `EFFICIENCY` as its value. Consumed, and not
+            # glued onto the blank: a blank has no value for a unit to
+            # qualify.
+            #
+            # UNLESS THE "UNIT" HAS A SLOT OF ITS OWN: `RPM ___*___` is a
+            # field called RPM, and `rpm` is also a unit. A unit is never
+            # followed by its own drawn slot; a label is.
+            elif index < len(parts) and is_blank_value(value)[1] == "placeholder":
+                nxt = parts[index]
+                base, _reference = claims.split_reference(nxt)
+                owns_a_slot = (index + 1 < len(parts)
+                               and is_blank_value(parts[index + 1])[1] == "placeholder")
+                if (nxt and len(nxt) <= 14 and claims.is_unit(base or "")
+                        and not owns_a_slot):
+                    index += 1
+        finished = _finish_pair(label, value)
+        if finished is not None:
+            pairs.append(finished)
     return pairs
+
+
+def _finish_pair(label: str, value: str) -> tuple[str, str] | None:
+    """The last checks every label:value pair passes, whichever reader built it.
+
+    One home, shared by `split_label_value` and the numbered-table reader
+    (#179), so the two cannot drift into two definitions of "a label".
+    """
+    # THE UNIT INSIDE THE LABEL. `| Design pressure (barg) | 3.5 |` puts it
+    # where nothing looked for it, so nothing recorded that a unit existed
+    # at all - worse than a unit in its own column, which at least left a
+    # trace.
+    #
+    # Stripped only when the parenthetical IS a unit: "(Note - 3)" and
+    # "(see 5.2)" are not, and must stay part of the label.
+    label, carried = _unit_in_label(label)
+    if carried and value and _is_numeric_cell(value):
+        value = f"{value} {carried}"
+    if normalise_field_name(label) in _HEADING_WORDS:
+        return None
+    # THE LABEL MUST BE A LABEL. See is_field_label: without this the
+    # pairing promotes values and drawing numbers into field names and
+    # then records each one as a required field left blank.
+    if not is_field_label(label):
+        return None
+    return label, value
+
+
+_SERIAL = re.compile(r"\d{1,3}")
+
+#: A clause reference, or a list of them, in front of a numbered form's
+#: label: `5.7`, `D.6.1`, `6.1.7, 8.2.2, A.4, B.2.3`. Only ever skipped in
+#: the LABEL position of a numbered row, where a number cannot be the value
+#: because nothing has named a field yet.
+_CLAUSE_LIST = re.compile(
+    r"[A-Za-z]?\d*(?:\.\d+)+(?:\s*,\s*[A-Za-z]?\d*(?:\.\d+)+)*")
+
+
+def _serial_columns(rows: list[list[str]], width: int) -> list[int]:
+    """The columns of a ruled table that hold the FORM'S OWN LINE NUMBERS.
+
+    ISSUE #179. A numbered form's line number is not data, and neither is the
+    column it sits in - but a value can be a small integer too (`Over
+    pressure % | 21`). Deciding row by row whether "21" is a line number
+    cannot be done; deciding COLUMN by column can, because a line-number
+    column says so down its whole length:
+
+      * at least three of its cells are bare 1-3 digit numbers,
+      * they make up at least half of the column's non-empty cells (the
+        rest being its header and the title block below the form), and
+      * they INCREASE strictly down the page - a form counts its lines.
+
+    Column 0 needs nothing more: a row serial is where a numbered form puts
+    it. Any OTHER column must also introduce a label - the next non-empty
+    cell to its right reads as a field label in most of its rows - because
+    that is what separates the second sub-form's numbering on a two-forms-
+    side-by-side sheet from, say, a column of nominal sizes that happens to
+    increase.
+    """
+    serials = []
+    for col in range(width):
+        numbers: list[int] = []
+        introduces_label = 0
+        non_empty = 0
+        for row in rows:
+            cell = row[col]
+            if not cell:
+                continue
+            non_empty += 1
+            if not _SERIAL.fullmatch(cell):
+                continue
+            numbers.append(int(cell))
+            following = next((c for c in row[col + 1:] if c), "")
+            if following and is_field_label(following):
+                introduces_label += 1
+        if len(numbers) < 3 or len(numbers) * 2 < non_empty:
+            continue
+        if any(b <= a for a, b in zip(numbers, numbers[1:])):
+            continue
+        if col > 0 and introduces_label * 3 < len(numbers) * 2:
+            continue
+        serials.append(col)
+    return serials
+
+
+def _pairs_from_numbered_row(cells: list[str], serials: list[int]) -> list[tuple[str, str]]:
+    """One pair per sub-form on a numbered row, read by COLUMN, not compacted.
+
+    ISSUE #179. The row is cut at each line-number column; each piece is one
+    sub-form's line. Within it:
+
+      * leading cells that cannot be a label - a clause reference (`5.7`,
+        `D.6.1`, `4.2.1`, `Table 2`) or an empty spacer - are skipped: they
+        sit in front of the label, they do not name the field;
+      * the label is the first cell that reads as one;
+      * the value is the next non-empty cell after it, WHATEVER IT LOOKS
+        LIKE - a `21` in the value column is a value, because this reader
+        already knows where the line numbers are;
+      * a numeric value takes the unit from its own unit column when the
+        next cell is a unit `claims` recognises.
+
+    One pair per piece. Anything further right on the piece (a notes column)
+    is not paired: a note beside a value is not a second field.
+    """
+    out: list[tuple[str, str]] = []
+    bounds = [*serials, len(cells)]
+    for start, end in zip(bounds, bounds[1:]):
+        piece = cells[start + 1:end]
+        label_at = None
+        for i, cell in enumerate(piece):
+            if not cell or _CROSS_REFERENCE.fullmatch(cell) or _CLAUSE_LIST.fullmatch(cell):
+                continue
+            # The first cell that is not a pointer IS the label position. If
+            # it cannot be a label (too long, mostly digits), the piece has
+            # no pair - never the NEXT cell promoted into its place, which is
+            # how a value ends up filed under a label fragment.
+            if is_field_label(cell):
+                label_at = i
+            break
+        if label_at is None:
+            continue
+        rest = [c for c in piece[label_at + 1:] if c]
+        value = rest[0] if rest else ""
+        if value and len(rest) > 1 and _is_numeric_cell(value):
+            base, _reference = claims.split_reference(rest[1])
+            if len(rest[1]) <= 14 and claims.is_unit(base or ""):
+                value = f"{value} {rest[1]}"
+        finished = _finish_pair(piece[label_at], value)
+        if finished is not None:
+            out.append(finished)
+    return out
 
 
 def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
@@ -984,11 +1181,36 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
             header = merged
             data_start = 2
 
+    # A CAPTION IS NOT A COLUMN HEADER (issue #179). The carry-forward above
+    # exists for a super-header over two or three sub-columns that a second
+    # header line then tells apart. A page's own title in row 0 is carried
+    # the same way - across EVERY column - and then appended to every field
+    # beneath it, including the title block's rows and the equipment tag
+    # row, measured on a real pressure-vessel sheet. One text over three or
+    # more columns, not told apart by anything beneath it, distinguishes no
+    # column from any other, so it names none of them.
+    spread: dict[str, int] = {}
+    for text in header[1:]:
+        if text:
+            spread[text] = spread.get(text, 0) + 1
+    header = [text if i == 0 or spread.get(text, 0) < 3 else ""
+              for i, text in enumerate(header)]
+
+    padded_rows = [_padded(row) for row in shape]
+    serials = _serial_columns(padded_rows[data_start:], width)
+
     out = []
     for row in shape[data_start:]:
         cells = _padded(row)
         label = cells[0]
-        if not label:
+        # A LABEL WITH NO LETTER NAMES NOTHING (#179). The vessel sheet's
+        # empty hold list is a ruled grid of `--` cells; this path scoped
+        # them into a field called `--`, blank-marked by its own dashes, and
+        # it was stored as a required field left blank. The pump sheet's
+        # line-number strip, merged by the table finder into one cell
+        # (`1 2 3 ... 57`), became a "label" the same way. A bare row
+        # serial never reaches here - it is read as a numbered row below.
+        if not re.search(r"[^\W\d_]", label) and not re.fullmatch(r"\d{1,3}", label):
             continue
         # A ROW WHOSE OWN COLUMN 0 IS A BARE LINE NUMBER, measured on two
         # real regression documents (issue #179). Column 0 is not a label
@@ -1015,16 +1237,24 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
         # table's ROW 0 actually contains - 8 of 10 spot-checked facts had
         # `field_label` polluted with it.
         #
-        # split_label_value already handles exactly this: it drops a bare
-        # line number wherever it sits in the cell list and pairs what is
-        # left, strictly left to right - the documented rule for "a KOC
-        # sheet is two forms side by side". It has no notion of this
-        # function's fixed-width PADDING, though: a blank spacer column
-        # between a label and its value (present in both documents' ruled
-        # tables) would otherwise be paired as the value instead of the
-        # real one cell further on, so the row's blanks are compacted out
-        # before handing it over.
+        # SECOND PASS (#179 again): READ BY COLUMN WHEN THE COLUMNS ARE
+        # KNOWN. Compacting the row threw its geometry away, and with it the
+        # only evidence that `15 | Over pressure % | 21 | 56 | Weather hood`
+        # has a VALUE of 21 rather than a line number 21 - so every such
+        # value was lost - and it let a clause column (`6 | 5.7 | Design
+        # life : | 25 | years`) take the label's place. When the table's
+        # line-number columns can be identified (`_serial_columns`), each
+        # sub-form is read from its own columns instead.
+        #
+        # The compacted split_label_value path stays for a shape too short
+        # to identify its columns from: it drops a bare line number wherever
+        # it sits and pairs what is left, strictly left to right, with the
+        # blank spacer columns compacted out so a spacer is never paired as
+        # the value.
         if re.fullmatch(r"\d{1,3}", label):
+            if 0 in serials:
+                out.extend(_pairs_from_numbered_row(cells, serials))
+                continue
             compact = [c for c in cells if c]
             out.extend(split_label_value(compact))
             continue
@@ -1035,6 +1265,80 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
             col_header = header[i] if i < len(header) else ""
             field = f"{label} - {col_header}" if col_header else label
             out.append((field, value))
+    return out
+
+
+#: A drawn answer line: three or more underscores in a row.
+_DRAWN_RULE = re.compile(r"_{3,}")
+
+#: Prefixed by `split_drawn_slots` to a cell that is a drawn SLOT's answer,
+#: and stripped by `split_label_value`, the only reader of it. It carries one
+#: fact across that boundary: this cell was written on an answer line, so it
+#: is a VALUE - never a label, and never the next line's line number, which
+#: is what a `2` written on a rule otherwise looks exactly like.
+_SLOT_MARK = "⁣"
+
+#: Slot content that is itself only placeholder ink - `*`, `-`, `.`.
+_PLACEHOLDER_INK = re.compile(r"[*\-.·–—]+")
+
+
+def split_drawn_slots(cell: str) -> list[str]:
+    """One text line of an underscore-slot form, cut into its cells.
+
+    ISSUE #179, THE PUMP DATASHEET. An API-style datasheet prints several
+    fields on ONE text line, each answered on a drawn line of underscores:
+
+        RATED POWER  _______*_______      kW      EFFICIENCY  ____*____  (%)
+        Number of Accelerometers                 __________2____________
+        MOUNTED AT:            _____GRADE___          • TROPICALISATION REQD
+
+    The text-block reader splits cells only at line breaks, so each of those
+    lines was ONE cell - one "label" with no value - and 309 of the 393
+    field slots the owner's gold sheet records for that document never
+    became a label at all. Measured, not guessed: that was the largest
+    single cause of its 2/196 recall.
+
+    THE RULE, read off the drawing and nothing else:
+
+      * only a line that contains a drawn rule (`___`) is touched - a
+        value like `220ºC    By Contractor` on another sheet keeps its
+        spaces and stays one cell;
+      * a gap of three or more spaces separates cells;
+      * text written ON a rule (touching the underscores, no space between)
+        is that slot's answer: `_____GRADE___`, `__8.5_`, `PROPOSAL_____`;
+      * a rule with no text on it is an EMPTY slot and becomes `___`, which
+        `is_blank_value` reads as a drawn placeholder - a blank, never 0;
+      * a slot holding only placeholder ink (`____*____`, the sheet's own
+        "manufacturer to advise" mark) stays a placeholder too.
+
+    No label list and no knowledge of any one form: it is the underscore
+    geometry that says where a slot is.
+    """
+    if not _DRAWN_RULE.search(cell or ""):
+        return [cell]
+    out: list[str] = []
+    for chunk in re.split(r"\s{3,}", cell.strip()):
+        tokens = re.split(r"(_+)", chunk)
+        touched: set[int] = set()
+        pieces: list[tuple[int, str]] = []
+        for i, token in enumerate(tokens):
+            if not token or token.startswith("_") or not token.strip():
+                continue
+            left = i > 0 and tokens[i - 1].startswith("_") and not token[0].isspace()
+            right = (i + 1 < len(tokens) and tokens[i + 1].startswith("_")
+                     and not token[-1].isspace())
+            text = token.strip()
+            if left:
+                touched.add(i - 1)
+            if right:
+                touched.add(i + 1)
+            if (left or right) and _PLACEHOLDER_INK.fullmatch(text):
+                text = f"___{text}___"
+            pieces.append((i, _SLOT_MARK + text if (left or right) else text))
+        for i, token in enumerate(tokens):
+            if token.startswith("_") and i not in touched:
+                pieces.append((i, _SLOT_MARK + "___"))
+        out.extend(text for _i, text in sorted(pieces))
     return out
 
 
@@ -1050,7 +1354,8 @@ def pairs_from_blocks(page_text_blocks: list[tuple[float, float, str]]) -> list[
     """
     out: list[tuple[str, str]] = []
     for _y, _x, text in sorted(page_text_blocks, key=lambda b: (round(b[0], 1), b[1])):
-        cells = [c.strip() for c in (text or "").split("\n") if c.strip()]
+        cells = [piece for c in (text or "").split("\n") if c.strip()
+                 for piece in split_drawn_slots(c.strip())]
         if len(cells) < 2:
             continue
         match = _NUMBERED_LABEL.match(cells[0])
@@ -1458,6 +1763,53 @@ def _pairs_from_vision_fallback(stored_path: str, page_no: int) -> list[tuple[st
     return []
 
 
+def _same_cell_key(label: str, value: str | None) -> tuple[str, str]:
+    """Two readings of one printed cell compare equal under this key.
+
+    The ruled-table reader collapses a cell's whitespace; the text-block
+    reader keeps what the PDF drew. `0.01cP  By Contractor` and
+    `0.01cP By Contractor` are one cell (#179).
+    """
+    return normalise_field_name(label), " ".join((value or "").split())
+
+
+def collapse_double_reads(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """One page's pairs with each printed cell counted ONCE.
+
+    ISSUE #179, MEASURED ON THE REAL VALVE SHEET. Both readers run over
+    every page by design (`extract_facts`), so every cell both of them can
+    read arrives twice. Identical readings were already dropped, but the
+    comparison was on the raw strings, so two readings that differed only in
+    whitespace were stored as two facts - and a wrapped cell, which the
+    text-block reader cuts at the line break (`5 m3/hr By Contractor (based
+    on`) while the table reader joins it, was stored twice as well. 8 facts
+    on a four-valve sheet, one per page per wrapped or double-spaced cell.
+
+    Within ONE PAGE only. The same value on another page is another
+    valve's value, and it is kept - the 15 "exact duplicates" the audit
+    counted on that sheet are all this, verified against the PDF pair by
+    pair.
+
+    The cut-at-the-wrap reading is dropped only when it has at least three
+    words and the longer reading of the SAME label on the SAME page starts
+    with it at a word boundary: a two-word value that happens to begin
+    another is far more likely a different answer than a truncated one.
+    """
+    keys = [_same_cell_key(label, value) for label, value in pairs]
+    out: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for (label, value), (name, text) in zip(pairs, keys):
+        if (name, text) in seen:
+            continue
+        if len(text.split()) >= 3 and any(
+                other_name == name and other.startswith(text + " ")
+                for other_name, other in keys):
+            continue
+        seen.add((name, text))
+        out.append((label, value))
+    return out
+
+
 def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
     """Why this page produced no facts, in the page's own numbers.
 
@@ -1556,6 +1908,7 @@ def extract_facts(
                 "referenced_standards": []}
 
     written = blanks = 0
+    seen: set[tuple] = set()
     unparsed: list[dict] = []
     corpus_text: list[str] = []
 
@@ -1602,7 +1955,9 @@ def extract_facts(
         split: list[tuple[str, str]] = []
         for one_label, one_value in found:
             split.extend(split_compound_pair(one_label, one_value))
-        pairs_by_page[page] = split
+        # #179: both readers ran over this page, so a cell they can both
+        # read is here twice - see collapse_double_reads.
+        pairs_by_page[page] = collapse_double_reads(split)
     furniture = furniture_labels(pairs_by_page)
     # WHICH EQUIPMENT EACH PAGE IS ABOUT, decided over the whole document
     # because the one-tag rule cannot be seen from a single page.
@@ -1643,9 +1998,13 @@ def extract_facts(
             # of the pipeline. On EF1975-DAS-I-06 that message was printed for five
             # pages from which 190 pairs each had been recovered and discarded.
             dropped: dict[str, int] = {}
-            seen: set[str] = set()
             for label, value in pairs:
-                key = f"{normalise_field_name(label)}|{(value or '').strip()}"
+                # Whitespace-insensitive, the same key collapse_double_reads
+                # uses (#179) - one definition of "the same cell", not two.
+                # THE PAGE IS PART OF THE KEY: the same value on another page
+                # is another valve's value on a one-valve-per-page sheet, and
+                # it is kept (the 15 "duplicates" #179 verified in the PDF).
+                key = (page, *_same_cell_key(label, value))
                 if not label.strip():
                     dropped["empty label"] = dropped.get("empty label", 0) + 1
                     continue
@@ -1653,14 +2012,7 @@ def extract_facts(
                     dropped["duplicate"] = dropped.get("duplicate", 0) + 1
                     continue
                 seen.add(key)
-                blank, marker = is_blank_value(value)
-                parsed_value, _unit, _measure = measure_value(value or "")
-                # A RANGE IS A QUANTITY. `measure_value` reads one number and a
-                # unit, so `-3 to 55 C` comes back as nothing at all - and the
-                # gate below would drop it as free text. The whole point of
-                # `parse_range` is that the cell IS a value, stated as two.
-                if parsed_value is None and parse_range(value) is not None:
-                    parsed_value = "range"
+                blank, _marker = is_blank_value(value)
                 # WHAT COUNTS AS A FACT. This is the line that stops the
                 # extractor inventing them.
                 #
@@ -1688,7 +2040,7 @@ def extract_facts(
                     # everywhere else; it is only as a FACT that it is wrong.
                     dropped["date"] = dropped.get("date", 0) + 1
                     continue
-                if parsed_value is None and marker in (None, "empty")                     and not is_categorical_value(value):
+                if not states_a_value(value):
                     # A LABEL WITH FREE TEXT BESIDE IT IS NOT A FACT. "Prepared by:
                     # A. Engineer" and "Facility: Al Khafji" have exactly the shape
                     # of a filled-in field and state nothing about the equipment.
