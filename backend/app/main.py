@@ -2598,6 +2598,27 @@ def standards_inventory(
         include_superseded=include_superseded)
 
 
+@app.get("/api/standards/cited-but-not-held",
+         response_model=list[schemas.CitedButNotHeld],
+         responses=schemas.ERRORS_422)
+def standards_cited_but_not_held(
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Every standard cited by a submittal or a SAES requirement's own
+    normative reference that is NOT in the local library, with where it was
+    cited - the missing list for the CRS and for the owner to take to the
+    standards body.
+
+    Same scope rule as every other standards route (CLAUDE.md rule 5): the
+    caller's own grants bound which submittals and which standards this can
+    ever see - never widened by this route.
+    """
+    reject_unknown_params(request, set())
+    return standards_inventory_mod.cited_but_not_held(
+        allowed_document_ids=scope.allowed_document_ids)
+
+
 @app.get("/api/standards/{document_id}/clauses",
          response_model=list[schemas.StandardClause],
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})

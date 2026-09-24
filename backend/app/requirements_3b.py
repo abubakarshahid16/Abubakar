@@ -348,8 +348,17 @@ _DOCUMENT_PART = (r"paragraph|clause|section|appendix|annex|division|div"
 #: rather than applied to the pattern. `[A-Z]{2,}` under `re.IGNORECASE`
 #: matches any two letters, which would make every word in the sentence a
 #: document reference and the check below would pass on anything.
+#:
+#: SPLIT OUT AS ITS OWN PATTERN (`_DOCUMENT_DESIGNATION`) so `cited_document`
+#: below can search for JUST the designation shape - never the internal
+#: cross-reference arm ("clause 5.2" is not a document to look up in a
+#: library) - while `_DOCUMENT_REF` still combines both, unchanged, built
+#: FROM this pattern rather than a second copy of it, so the two definitions
+#: cannot drift apart.
+_DOCUMENT_DESIGNATION = re.compile(r"\b[A-Z]{2,}[A-Z0-9]*(?:[-\s][A-Z0-9]+){0,3}\b")
+
 _DOCUMENT_REF = re.compile(
-    r"\b[A-Z]{2,}[A-Z0-9]*(?:[-\s][A-Z0-9]+){0,3}\b"
+    _DOCUMENT_DESIGNATION.pattern +
     rf"|(?i:\b(?:{_DOCUMENT_PART})\s+(?:\d+(?:\.\d+)*|[IVXLC]+)\b)")
 
 #: A number that is the sentence's OWN quantity: a digit that is not part of a
@@ -411,9 +420,11 @@ def is_relative_limit(sentence: str) -> bool:
     return bool(_RELATIVE_TAIL.match(text[match.start("value"):]))
 
 
-def is_applicability_trigger(sentence: str) -> bool:
-    """True when the obligation is "another document governs", under a
-    condition that carries the number.
+def _applicability_remainder(sentence: str) -> str | None:
+    """The deferral remainder when `sentence` passes every applicability-
+    trigger gate, else None. THE ONE PLACE THE THREE GATES ARE CHECKED -
+    `is_applicability_trigger` and `cited_document` both build on this, so
+    a sentence can never be a trigger for one and not the other.
 
     THREE THINGS MUST ALL HOLD, and each one is what stops a real requirement
     being reclassified away:
@@ -433,21 +444,49 @@ def is_applicability_trigger(sentence: str) -> bool:
     """
     text = " ".join((sentence or "").split())
     if not text:
-        return False
+        return None
     verb = _MANDATORY_HERE.search(text)
     if not verb:
-        return False
+        return None
     remainder = text[verb.end():]
     if not _DEFERRAL.search(remainder):
-        return False
+        return None
     if _TABLE_REFERENCE.search(remainder):
         # A table is not another document. `table_row` is that case and is
         # decided before this one.
-        return False
+        return None
     if not _DOCUMENT_REF.search(remainder):
-        return False
+        return None
     without_documents = _DOCUMENT_REF.sub(" ", remainder)
-    return not _BARE_NUMBER.search(without_documents)
+    if _BARE_NUMBER.search(without_documents):
+        return None
+    return remainder
+
+
+def is_applicability_trigger(sentence: str) -> bool:
+    """True when the obligation is "another document governs", under a
+    condition that carries the number. See `_applicability_remainder` for
+    the three gates."""
+    return _applicability_remainder(sentence) is not None
+
+
+def cited_document(sentence: str) -> str | None:
+    """The document `sentence` defers to, as printed - or None when the
+    sentence is not an applicability trigger at all, or defers only to an
+    internal cross-reference ("clause 5.2") rather than a real document.
+
+    `_applicability_remainder` already establishes THAT a real document is
+    named (the `_DOCUMENT_REF` gate); this reads WHICH one, searching the
+    same remainder with `_DOCUMENT_DESIGNATION` alone so an internal
+    cross-reference can never be returned as if it were a cited standard -
+    "refer to clause 5.2" is not a document this system can look up in the
+    library.
+    """
+    remainder = _applicability_remainder(sentence)
+    if remainder is None:
+        return None
+    match = _DOCUMENT_DESIGNATION.search(remainder)
+    return match.group(0).strip() if match else None
 
 
 #: Mandatory wording, duplicated from `standards` deliberately: importing it

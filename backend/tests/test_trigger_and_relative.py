@@ -76,6 +76,62 @@ def test_a_condition_that_defers_to_another_document_is_a_trigger(sentence):
     assert classify(sentence) == requirements_3b.APPLICABILITY_TRIGGER
 
 
+@pytest.mark.parametrize("sentence,document", [
+    ("When the design temperature is greater than 400°C, the flange "
+     "rating shall conform to API 660.", "API 660"),
+    ("If the chloride content is greater than 50 ppm, materials shall be as "
+     "specified in NACE MR0175.", "NACE MR0175"),
+])
+def test_cited_document_names_the_deferred_document(sentence, document):
+    """THE MUTATION TARGET. `is_applicability_trigger` only proves a document
+    is named; `cited_document` must read WHICH one, and it must be the real
+    designation, not a fragment of it."""
+    assert requirements_3b.is_applicability_trigger(sentence)
+    assert requirements_3b.cited_document(sentence) == document
+
+
+def test_cited_document_reads_only_the_leading_token_of_a_mixed_case_designation():
+    """KNOWN LIMITATION, NOT A NEW ONE: `_DOCUMENT_DESIGNATION` requires an
+    ALL-CAPS continuation ("CASE MATTERS ON THE FIRST ARM", its own comment).
+    "ASME Section VIII Division 2" breaks that continuation at "Section"
+    (mixed case), so only "ASME" - a real, if incomplete, designation - is
+    captured. Documented here rather than silently assumed, so a future
+    change to the shared pattern is caught by this test either way."""
+    sentence = ("For services greater than 45 barg, the vessel shall be in "
+                "accordance with ASME Section VIII Division 2.")
+    assert requirements_3b.is_applicability_trigger(sentence)
+    assert requirements_3b.cited_document(sentence) == "ASME"
+
+
+def test_cited_document_is_none_when_the_deferral_names_no_real_document():
+    """"per paragraph 7.4.4" makes the sentence a trigger (it defers, states
+    no quantity of its own) but names an INTERNAL CROSS-REFERENCE, not a
+    document this system could look up in a library - `cited_document` must
+    not return "paragraph 7.4.4" as if it were a standard."""
+    sentence = ("Insulation for lines operating at less than 10°C shall "
+                "be per paragraph 7.4.4.")
+    assert requirements_3b.is_applicability_trigger(sentence)
+    assert requirements_3b.cited_document(sentence) is None
+
+
+def test_cited_document_is_none_for_a_sentence_that_is_not_a_trigger_at_all():
+    assert requirements_3b.cited_document(
+        "The vessel shall be insulated in accordance with good engineering "
+        "practice.") is None
+
+
+def test_cited_document_ignores_a_document_named_outside_a_real_trigger():
+    """THE MUTATION TARGET: this sentence has no mandatory verb at all - it
+    is not an applicability trigger - but its own text names a real
+    designation (API 610). `cited_document` must still refuse it; naming a
+    document anywhere in a sentence is not the same as the sentence
+    DEFERRING to it."""
+    assert not requirements_3b.is_applicability_trigger(
+        "API 610 covers centrifugal pumps for petroleum service.")
+    assert requirements_3b.cited_document(
+        "API 610 covers centrifugal pumps for petroleum service.") is None
+
+
 @pytest.mark.parametrize("sentence", [
     # A CONDITION PLUS ITS OWN LIMIT. The obligation states a quantity, so the
     # sentence is a requirement however conditional its opening is.

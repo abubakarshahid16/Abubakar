@@ -2026,8 +2026,11 @@ GATE_FALLOUT = (
         description="let the trigger check swallow a sentence that states its "
                     "OWN quantity, deleting real requirements",
         path=APP / "requirements_3b.py",
-        anchor="    without_documents = _DOCUMENT_REF.sub(\" \", remainder)\n    return not _BARE_NUMBER.search(without_documents)",
-        replacement="    return True",
+        anchor="    without_documents = _DOCUMENT_REF.sub(\" \", remainder)\n"
+               "    if _BARE_NUMBER.search(without_documents):\n"
+               "        return None\n"
+               "    return remainder",
+        replacement="    return remainder",
         target="tests/test_trigger_and_relative.py",
         keyword="states_its_own_quantity_is_not_a_trigger",
         tags=("critical",),
@@ -2046,8 +2049,8 @@ GATE_FALLOUT = (
         id="M164", phase=12,
         description="call a sentence a trigger although it names no document",
         path=APP / "requirements_3b.py",
-        anchor="    if not _DOCUMENT_REF.search(remainder):\n        return False",
-        replacement="    if False:\n        return False",
+        anchor="    if not _DOCUMENT_REF.search(remainder):\n        return None",
+        replacement="    if False:\n        return None",
         target="tests/test_trigger_and_relative.py",
         keyword="states_its_own_quantity_is_not_a_trigger",
     ),
@@ -5855,6 +5858,97 @@ B5_STANDARDS_INVENTORY = (
                     "                    quote=match.group(0).strip())",
         target="tests/test_standards_inventory.py",
         keyword="extract_cover_metadata_also_refuses_an_unparseable_captured_date",
+        tags=("honesty", "inventory"),
+    ),
+    Mutation(
+        id="M516", phase=61,
+        description="search the whole _DOCUMENT_REF pattern (designation OR "
+                    "internal cross-reference) instead of the designation "
+                    "alone, so 'refer to clause 5.2' returns 'clause 5.2' "
+                    "as if it were a citable standard",
+        path=APP / "requirements_3b.py",
+        anchor="    match = _DOCUMENT_DESIGNATION.search(remainder)",
+        replacement="    match = _DOCUMENT_REF.search(remainder)",
+        target="tests/test_trigger_and_relative.py",
+        keyword="cited_document_is_none_when_the_deferral_names_no_real_document",
+        tags=("honesty", "inventory", "critical"),
+    ),
+    Mutation(
+        id="M517", phase=61,
+        description="skip the three-gate check entirely, so cited_document "
+                    "names a document out of ANY sentence, not just a real "
+                    "applicability trigger",
+        path=APP / "requirements_3b.py",
+        anchor="    remainder = _applicability_remainder(sentence)\n"
+               "    if remainder is None:\n"
+               "        return None\n"
+               "    match = _DOCUMENT_DESIGNATION.search(remainder)",
+        replacement="    remainder = sentence or \"\"\n"
+                    "    match = _DOCUMENT_DESIGNATION.search(remainder)",
+        target="tests/test_trigger_and_relative.py",
+        keyword="cited_document_ignores_a_document_named_outside_a_real_trigger",
+        tags=("honesty", "inventory", "critical"),
+    ),
+    Mutation(
+        id="M518", phase=61,
+        description="report a citation as missing even when it resolves to "
+                    "a held standard, re-flagging six real standards as "
+                    "gaps the way the pre-existing bug this rule was built "
+                    "to prevent once did",
+        path=APP / "standards_inventory.py",
+        anchor="        matched = _match_referenced(library, [identifier])\n"
+               "        if matched:\n"
+               "            continue  # held - not a gap",
+        replacement="        matched = _match_referenced(library, [identifier])\n"
+                    "        if False:\n"
+                    "            continue  # held - not a gap",
+        target="tests/test_standards_inventory.py",
+        keyword="a_standard_cited_by_a_submittal_and_actually_held_is_not_reported",
+        tags=("honesty", "inventory", "critical"),
+    ),
+    Mutation(
+        id="M519", phase=61,
+        description="scan every requirement_type for a cited document, not "
+                    "just applicability_trigger, so an ordinary numeric "
+                    "limit that names a standard in passing is reported as "
+                    "a normative reference",
+        path=APP / "standards_inventory.py",
+        anchor='              AND r.requirement_type = ?""",\n'
+               "        [*sorted(allowed_document_ids), APPLICABILITY_TRIGGER]).fetchall()",
+        replacement='              AND 1 = 1""",\n'
+                    "        [*sorted(allowed_document_ids)]).fetchall()",
+        target="tests/test_standards_inventory.py",
+        keyword="a_requirement_that_is_not_an_applicability_trigger_is_not_scanned",
+        tags=("honesty", "inventory"),
+    ),
+    Mutation(
+        id="M520", phase=61,
+        description="drop the superseded_by filter, so a superseded "
+                    "standard revision's own citations are still reported "
+                    "as a live gap",
+        path=APP / "standards_inventory.py",
+        anchor="              AND c.document_role = 'COMPANY_STANDARD'\n"
+               "              AND c.superseded_by IS NULL\n"
+               "              AND r.requirement_type = ?\"\"\",",
+        replacement="              AND c.document_role = 'COMPANY_STANDARD'\n"
+                    "              AND r.requirement_type = ?\"\"\",",
+        target="tests/test_standards_inventory.py",
+        keyword="a_superseded_standards_requirement_citations_are_not_reported",
+        tags=("honesty", "inventory"),
+    ),
+    Mutation(
+        id="M521", phase=61,
+        description="key the missing-standards report by citation instead "
+                    "of by normalised identifier, so the same standard "
+                    "cited twice produces two rows instead of one grouping "
+                    "both citations",
+        path=APP / "standards_inventory.py",
+        anchor='        entry = by_key.setdefault(key, {\n'
+               '            "identifier": identifier,',
+        replacement='        entry = by_key.setdefault(str(len(by_key)), {\n'
+                    '            "identifier": identifier,',
+        target="tests/test_standards_inventory.py",
+        keyword="two_citations_of_the_same_missing_standard_are_one_row_listing_both",
         tags=("honesty", "inventory"),
     ),
 )
