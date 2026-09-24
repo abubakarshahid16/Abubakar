@@ -56,6 +56,7 @@ from . import notifications as notifications_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import standards as standards_mod
+from . import standards_inventory as standards_inventory_mod
 from . import submittal_review as submittal_review_mod
 from . import workbook as workbook_mod
 from . import schemas
@@ -2571,6 +2572,28 @@ def list_standards(
     """
     reject_unknown_params(request, {"include_superseded"})
     return standards_mod.list_standards(
+        allowed_document_ids=scope.allowed_document_ids,
+        include_superseded=include_superseded)
+
+
+@app.get("/api/standards/inventory",
+         response_model=list[schemas.StandardInventoryEntry],
+         responses=schemas.ERRORS_422)
+def standards_inventory(
+    request: Request,
+    include_superseded: bool = Query(True),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The standards inventory (B5 part 2): every COMPANY_STANDARD the
+    caller may read, with family, licence status, source-file hash, and
+    whether any submittal the caller may read cites it.
+
+    Same scope rule as `/api/standards` (CLAUDE.md rule 5): the role decides
+    what belongs in the library, the grants decide what this caller may see,
+    ANDed - never widened by this route.
+    """
+    reject_unknown_params(request, {"include_superseded"})
+    return standards_inventory_mod.inventory_rows(
         allowed_document_ids=scope.allowed_document_ids,
         include_superseded=include_superseded)
 

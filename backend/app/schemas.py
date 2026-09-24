@@ -401,6 +401,25 @@ class StandardSummary(BaseModel):
     awaiting_verification: int
 
 
+class StandardInventoryEntry(StandardSummary):
+    """One row of the standards inventory (B5 part 2): `StandardSummary`
+    plus family, licence status, source-file hash, and whether any
+    submittal the caller may read cites this standard."""
+
+    standard_family: str = Field(
+        description="SAES/SAMSS/API/ASME/ASTM/ISO/IEC/NFPA/NACE/KOC/OTHER, "
+                    "read from the document number - never a guess beyond "
+                    "what the number itself states")
+    licence_status: str = Field(
+        description="held/licensed_not_held/not_licensed/unknown. A row "
+                    "here is always 'held' - it is in the local library")
+    source_file_sha256: str | None = None
+    cited_by_submittal: bool = Field(
+        description="computed live from the same citation detector "
+                    "applicability.py uses for review selection - never "
+                    "stored, so it can never go stale on re-chunk")
+
+
 class StandardExtraction(BaseModel):
     """What one extraction run did. Counts, with their boundary stated."""
 
