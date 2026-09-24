@@ -226,6 +226,13 @@ class TestTableLookupInput:
                           requirement_type="table_row")
         assert not match_rules.table_lookup_input_conflict(req, "design pressure")
 
+    def test_a_sentence_subject_is_not_a_header(self):
+        """Found by the full suite: 'X shall be according to the table' misses
+        the strict marker, but it is a sentence and X is what it constrains."""
+        req = requirement("internal design pressure shall be according to the table",
+                          requirement_type="table_row")
+        assert not match_rules.table_lookup_input_conflict(req, "internal design pressure")
+
     def test_the_header_rule_is_only_for_table_rows(self):
         """A numeric limit whose subject merely STARTS with the field is the
         ordinary case - "maximum operating pressure of the vessel" - never an

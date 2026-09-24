@@ -5400,7 +5400,7 @@ B193_PAIRING = (
         description="PUT THE FALSE PAIRING BACK: a table row with no lead-in "
                     "sentence pairs its lookup INPUT (#193, SAES-E-014 7.2.4)",
         path=APP / "match_rules.py",
-        anchor='    return _normalise(requirement.get("subject") or "").startswith(name + " ")',
+        anchor='    return header.startswith(name + " ")',
         replacement="    return False",
         target=_MATCH_RULES_TEST, keyword="header_only_table_row_refuses or measured_false_pairing",
         tags=("honesty", "critical"),
@@ -5424,6 +5424,18 @@ B193_PAIRING = (
         anchor='.startswith(name + " ")',
         replacement=".startswith(name)",
         target=_MATCH_RULES_TEST, keyword="names_only_one_quantity",
+    ),
+    Mutation(
+        id="M482", phase=58,
+        description="treat a sentence subject as a table header, so 'X shall "
+                    "be according to the table' refuses X, the constrained "
+                    "quantity - a correct pairing silenced (#193, found by the "
+                    "full suite)",
+        path=APP / "match_rules.py",
+        anchor="    if _HEADER_VERB.search(header):\n        return False\n",
+        replacement="",
+        target=_MATCH_RULES_TEST, keyword="sentence_subject_is_not_a_header",
+        tags=("honesty",),
     ),
     Mutation(
         id="M480", phase=58,

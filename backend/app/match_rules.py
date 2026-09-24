@@ -206,6 +206,11 @@ _TABLE_MARKER = re.compile(
     re.IGNORECASE)
 
 
+#: Words that make a subject a sentence rather than a table's column header.
+_HEADER_VERB = re.compile(
+    r"\b(?:shall|must|should|will|may|is|are|be|been|according|per)\b")
+
+
 def table_lookup_split(text: str | None) -> tuple[str, str] | None:
     """`(constrained part, input part)` of a table-lookup sentence, or None.
 
@@ -271,9 +276,16 @@ def table_lookup_input_conflict(requirement: dict, field_name: str) -> bool:
     # the matcher exists for.
     if requirement.get("requirement_type") != "table_row":
         return False
+    header = _normalise(requirement.get("subject") or "")
+    # A SENTENCE IS NOT A HEADER. "internal design pressure shall be according
+    # to the table" does not match the strict marker, but its first noun is
+    # what it constrains - refusing it would silence a correct pairing. Only a
+    # verbless subject (a bare column header) has a first column to refuse.
+    if _HEADER_VERB.search(header):
+        return False
     # `name + " "`: the field must be followed by MORE header. A header that
     # is the field alone names one quantity and has no input column.
-    return _normalise(requirement.get("subject") or "").startswith(name + " ")
+    return header.startswith(name + " ")
 
 
 # ------------------------------------------------------------------ together
