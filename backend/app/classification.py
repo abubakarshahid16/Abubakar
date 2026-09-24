@@ -363,7 +363,8 @@ def suggest(filename: str, first_page_text: str,
 #: Bumped whenever the pattern list or matching logic changes, so a stored
 #: `equipment_type_evidence.classifier_version` tells a reader whether a row
 #: was produced by the version currently running.
-EQUIPMENT_TYPE_CLASSIFIER_VERSION = "equipment-type-v1"
+#: v2 (#183): the title block is read from page text before the chunks.
+EQUIPMENT_TYPE_CLASSIFIER_VERSION = "equipment-type-v2"
 
 #: Matched directly against a CHUNK'S OWN TEXT (not `normalise`d - the quote
 #: stored alongside a hit is exactly what matched, and lower-casing it first
@@ -452,6 +453,70 @@ def suggest_equipment_type(chunks: Sequence[dict]) -> EquipmentTypeEvidence | No
     return None
 
 
+def title_block_lines(pages: Sequence[dict]) -> list[tuple[int, str]]:
+    """`(page, line)` for the lines a datasheet uses to NAME ITSELF (#183).
+
+    WHY NOT THE CHUNKS. Measured on the regression datasheets: a short
+    datasheet repeats its title block at the top of every page, so the
+    chunker's running-line stripping (`chunker.detect_running_lines`, meant
+    for a book's page headers) removes it from EVERY page, page 1 included -
+    and what survives on the PSV sheet's page 1 then fails the quality gate.
+    The classifier read retrievable chunks only, so it took its evidence from
+    a later page's body, or never saw "CENTRIFUGAL PUMP DATA SHEET" at all.
+
+    WHAT COUNTS AS THE TITLE BLOCK, using the chunker's own definition of a
+    page edge (`running_line_scan_lines`) so the two never disagree:
+      - the edge lines (top and bottom) of the FIRST page;
+      - every running line - repeated at the edge of many pages - at its
+        first occurrence, which is the title block the sheet reprints.
+    Never the middle of a page: a body sentence naming other equipment is not
+    the document naming itself. From `pages` (line-shaped, exact page), never
+    `page_ocr`: recognised text nobody checked does not name a document.
+
+    The chunker is untouched, so a STANDARD's cover page stays exactly as
+    excluded as it was.
+    """
+    from .chunker import detect_running_lines, normalise_line
+    from .config import settings
+
+    texts = [(p["page_no"], p.get("text") or "") for p in
+             sorted(pages, key=lambda p: p["page_no"])]
+    if not texts:
+        return []
+    running = detect_running_lines(texts)
+    n = settings.running_line_scan_lines
+    first_page = texts[0][0]
+    out: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for page_no, text in texts:
+        lines = [line for line in text.splitlines() if line.strip()]
+        edge = lines[:n] + lines[-n:] if len(lines) > 2 * n else lines
+        for line in edge:
+            norm = normalise_line(line)
+            if page_no == first_page or (norm in running and norm not in seen):
+                out.append((page_no, line.strip()))
+                seen.add(norm)
+    return out
+
+
+def suggest_equipment_type_from_title(lines: Sequence[tuple[int, str]]
+                                      ) -> EquipmentTypeEvidence | None:
+    """The equipment type the title block names, in `_EQUIPMENT_TYPE_PATTERNS`
+    priority order, as a `title_phrase_match` on the page the line is on."""
+    for label, pattern, base_confidence in _EQUIPMENT_TYPE_PATTERNS:
+        for page, line in lines:
+            match = pattern.search(line)
+            if match is None:
+                continue
+            return EquipmentTypeEvidence(
+                equipment_type=label, page=page,
+                quote=_SPACE.sub(" ", match.group(0)).strip(),
+                method="title_phrase_match", confidence=base_confidence,
+                classifier_version=EQUIPMENT_TYPE_CLASSIFIER_VERSION,
+                classified_at=_now())
+    return None
+
+
 def _audit_equipment_type_change(document_id: str, *, old_value: str | None,
                                  evidence: EquipmentTypeEvidence,
                                  classified_by: str) -> None:
@@ -532,10 +597,17 @@ def classify_equipment_type_for_submittal(
     if existing["confirmed_by"] is not None:
         return None
 
-    chunks = [dict(r) for r in conn.execute(
-        "SELECT page_start, ordinal, text FROM chunks"
-        " WHERE document_id = ? AND retrievable = 1", (document_id,))]
-    evidence = suggest_equipment_type(chunks)
+    # #183: THE TITLE BLOCK FIRST, from page text; the chunks only when it
+    # names no equipment type (then as body evidence, exactly as before).
+    pages = [dict(r) for r in conn.execute(
+        "SELECT page_no, text FROM pages WHERE document_id = ?"
+        " ORDER BY page_no", (document_id,))]
+    evidence = suggest_equipment_type_from_title(title_block_lines(pages))
+    if evidence is None:
+        chunks = [dict(r) for r in conn.execute(
+            "SELECT page_start, ordinal, text FROM chunks"
+            " WHERE document_id = ? AND retrievable = 1", (document_id,))]
+        evidence = suggest_equipment_type(chunks)
     if evidence is None:
         return None
 
