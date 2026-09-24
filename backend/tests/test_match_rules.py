@@ -200,6 +200,57 @@ class TestTableLookupInput:
         assert result["refused"] == [
             {"name": "maximum operating pressure", "reason": match_rules.TABLE_LOOKUP_INPUT}]
 
+    # #193, measured 2026-09-24 against the vessel regression document's
+    # labelled pairing sheet (gold/PAIRS-*): SAES-E-014
+    # 7.2.4 stores the SAME MOP -> design-pressure table as D-001 6.2.3, but
+    # its row starts at the header - the "shall be according to the following
+    # table" sentence landed in a different requirement row - so the marker
+    # rule never fired and "maximum operating pressure" was paired to it: the
+    # one false pairing on the sheet.
+    E014_7_2_4 = ("Maximum Operating Pressure (MOP) Design Pressure Up to 6,900 "
+                  "kPa (1,000 psi) Greater of MOP x 1.1")
+
+    def test_a_header_only_table_row_refuses_its_first_column(self):
+        """A lookup table's FIRST header column is its key: the input."""
+        req = requirement("Maximum Operating Pressure (MOP) Design Pressure",
+                          text=self.E014_7_2_4, requirement_type="table_row")
+        assert match_rules.table_lookup_input_conflict(req, "maximum operating pressure")
+
+    def test_a_header_only_table_row_allows_a_later_column(self):
+        req = requirement("Maximum Operating Pressure (MOP) Design Pressure",
+                          text=self.E014_7_2_4, requirement_type="table_row")
+        assert not match_rules.table_lookup_input_conflict(req, "design pressure")
+
+    def test_a_header_that_names_only_one_quantity_has_no_input_to_refuse(self):
+        req = requirement("Design Pressure", text="Design Pressure 10 bar",
+                          requirement_type="table_row")
+        assert not match_rules.table_lookup_input_conflict(req, "design pressure")
+
+    def test_a_sentence_subject_is_not_a_header(self):
+        """Found by the full suite: 'X shall be according to the table' misses
+        the strict marker, but it is a sentence and X is what it constrains."""
+        req = requirement("internal design pressure shall be according to the table",
+                          requirement_type="table_row")
+        assert not match_rules.table_lookup_input_conflict(req, "internal design pressure")
+
+    def test_the_header_rule_is_only_for_table_rows(self):
+        """A numeric limit whose subject merely STARTS with the field is the
+        ordinary case - "maximum operating pressure of the vessel" - never an
+        input column."""
+        req = requirement("maximum operating pressure of the vessel")
+        assert not match_rules.table_lookup_input_conflict(req, "maximum operating pressure")
+
+    def test_the_measured_false_pairing_is_now_silence(self):
+        req = requirement("Maximum Operating Pressure (MOP) Design Pressure",
+                          text=self.E014_7_2_4, requirement_type="table_row",
+                          raw_value="6,900", raw_unit="kPa")
+        facts = [fact("maximum operating pressure", raw_value="2.2", raw_unit="bar (ga)"),
+                 fact("internal design pressure", raw_value="3.5", raw_unit="bar (ga)")]
+        result = comparison.match_by_containment(req, facts)
+        assert result["fact"] is None
+        assert result["refused"] == [
+            {"name": "maximum operating pressure", "reason": match_rules.TABLE_LOOKUP_INPUT}]
+
     def test_without_the_constrained_field_the_input_alone_is_silence(self):
         req = requirement(D001_6_2_3, text=D001_6_2_3, raw_unit="bar")
         facts = [fact("maximum operating pressure", raw_unit="bar (ga)")]

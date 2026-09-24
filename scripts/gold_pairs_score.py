@@ -237,9 +237,19 @@ def run_matcher(matcher, conn: sqlite3.Connection, submittal_id: str,
     The matcher is handed the SAME two things `run_comparison` hands it - the
     requirement row and the whole document's facts - so a pairing scored here
     is the pairing an engineer would have seen, not a reconstruction of it.
+
+    CURRENT FACTS ONLY (#193, honesty audit 52). Since ADR-0024 a re-read
+    SUPERSEDES the old rows instead of deleting them, and production reads
+    `superseded_at IS NULL`. This read took every row, so after the #179
+    re-extraction each vessel field was present twice, the matcher saw a tie
+    and paired nothing - the scorer reported 0/3 while production made 1/3.
+    A copy made before the column existed has no superseded rows to skip.
     """
+    current = (" AND superseded_at IS NULL"
+               if "superseded_at" in {r[1] for r in conn.execute(
+                   "PRAGMA table_info(submittal_facts)")} else "")
     facts = [dict(r) for r in conn.execute(
-        "SELECT * FROM submittal_facts WHERE submittal_document_id = ?",
+        "SELECT * FROM submittal_facts WHERE submittal_document_id = ?" + current,
         (submittal_id,))]
     made: list[dict] = []
     for standard_id in standard_ids:

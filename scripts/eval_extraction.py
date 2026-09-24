@@ -280,11 +280,18 @@ def open_db_readonly(db_path: Path | None = None) -> sqlite3.Connection:
 
 
 def facts_from_db(conn: sqlite3.Connection, doc_id: str) -> list[dict]:
+    # CURRENT FACTS ONLY (#193, honesty audit 52): a re-read supersedes old
+    # rows (ADR-0024) instead of deleting them; scoring them too would count
+    # every re-read field twice. A copy made before the column existed has
+    # no superseded rows to skip.
+    current = (" AND superseded_at IS NULL"
+               if "superseded_at" in {r[1] for r in conn.execute(
+                   "PRAGMA table_info(submittal_facts)")} else "")
     rows = conn.execute(
         "SELECT field_name, field_label, field_value, unit, page, raw_value, "
         "       raw_unit, is_blank, blank_marker, equipment_tag "
-        "FROM submittal_facts WHERE submittal_document_id = ? "
-        "ORDER BY page, field_name",
+        "FROM submittal_facts WHERE submittal_document_id = ? " + current +
+        " ORDER BY page, field_name",
         (doc_id,),
     ).fetchall()
     out = []
