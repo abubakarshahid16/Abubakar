@@ -500,6 +500,13 @@ def locate_on_page(row: ProposedRow, words) -> ProposedRow:
         several columns without saying which.
     """
     page = _page_tokens(words)
+    if any(piece and not norm_token(piece) for piece in re.split(r"\s+", row.value)):
+        # A piece that is ONLY a marker - '*', a drawn '____' - is the sheet
+        # saying "not filled in". Measured: `* to * m3/h` validated on its
+        # remaining words and was stored as a filled value (#180).
+        row.outcome = REVIEW
+        row.note = "the proposed value contains a blank marker, not a printed value"
+        return row
     value_hits = _find_sequences(page, tokens(row.value))
     if not value_hits:
         row.outcome, row.note = DROPPED, "value is not printed on this page"

@@ -372,6 +372,31 @@ def test_180_a_value_printed_inside_a_drawn_slot_is_found(tmp_path, monkeypatch,
     assert [(f["field_value"], f["validation_state"]) for f in vision] == [("RAD9", None)], vision
 
 
+def test_180_a_blank_marker_proposed_as_a_value_is_never_a_fact(tmp_path, monkeypatch, stub):
+    """Measured on the real pump sheet: the model proposed `* to * m3/h` for a
+    slot the sheet leaves for the supplier ('*' = to advise). Its only real
+    words ('to', the unit) are printed in that row, so it passed the page
+    check and was stored as a FILLED value. A value carrying a blank marker
+    is not a printed value; it goes to review."""
+    monkeypatch.setattr(settings, "vision_enabled", True)
+    stub["provider"] = StubProvider([["Capacity", "Normal", "100.2", ""],
+                                     ["Rated flow", "Normal", "* to * m3/h", ""]])
+
+    def page(p):
+        _draw_grid(p)
+        p.insert_text((60, 220), "Rated flow", fontsize=9)
+        p.insert_text((300, 220), "12.5", fontsize=9)
+        p.insert_text((400, 220), "* to * m3/h", fontsize=9)
+    doc = _ingest(_pdf(tmp_path / "marker.pdf", page))
+
+    datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
+
+    vision = {f["field_value"]: f for f in _facts(doc)
+              if f["extraction_method"].startswith("vision")}
+    assert vision["100.2"]["validation_state"] is None, "the control was not a fact"
+    assert vision["* to * m3/h"]["validation_state"] == datasheets.NEEDS_ENGINEER_REVIEW
+
+
 # ======================================================== recognised pages
 
 def test_180_a_value_read_from_a_recognised_page_is_never_a_fact(
