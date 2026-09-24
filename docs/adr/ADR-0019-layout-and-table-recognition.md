@@ -35,7 +35,7 @@
 - **A held-out layout set** (DocLayNet's lesson): datasheets from vendors and
   templates *not* used to tune #162/#175/#179. Without it, every gain is
   in-sample.
-- Per-page wall time and peak RSS on the target laptop, measured the way
+- Per-page wall time and peak RSS on the target machine, measured the way
   ADR-0005 measured OCR (parent plus children, runs serialised).
 
 ## Measured benefit on our data
@@ -57,7 +57,10 @@ and hashed:
 | docling-models `tableformer_accurate.safetensors` (snapshot fc0f2d45) | 203 MB | `2a7d6c924b3cd12fb99a09280ca9c33a89c5d60b93253617d2e088c1a40374d9` |
 | docling-models `tableformer_fast.safetensors` (snapshot fc0f2d45) | 139 MB | `3119563aab5a7c96fda4d621119b63fd8806272b86c30936d15507616422f718` |
 
-Cost on this laptop (i7-1255U, CPU only, Ollama stopped):
+Cost on the benchmark machine - **Dell OptiPlex 7040, Intel Core i7-6700
+@ 3.40 GHz, 48 GB RAM**, CPU only, Ollama stopped (corrected 2026-09-25:
+the first version of this section named an i7-1255U 16 GB laptop, which is
+not the machine the run happened on):
 
 | sheet | table pages | tables found | pairs exported | wall time | per page | peak RSS |
 |---|---|---|---|---|---|---|
@@ -93,22 +96,35 @@ page by page:
 | 11 | standard-drawings applicability checklist | 53 | partly - drawing number + "X" marks, not design data |
 
 **Decision (rule from this ADR: adopt only if it lifts filled-F1 without
-dropping all-slots F1): NOT ADOPTED.** Both fall on the pump sheet, and on
-the vessel it does not turn the nozzle schedule or notes into usable
-label/value pairs. The integration risk above (torch in an ONNX-only stack;
-~2.3 GB per run, so it cannot run beside Ollama and the API on 16 GB)
-stands unchanged. The throwaway venv and cached weights stay outside the
-repo; nothing was added to `requirements.txt`. For #193's table pages the
-next candidate is the adopted local text model reading a table page's
-native text into verified pairs, which needs its own measured pilot.
+dropping all-slots F1): NOT ADOPTED - on ACCURACY ONLY.** Both fall on the
+pump sheet, and on the vessel it does not turn the nozzle schedule or notes
+into usable label/value pairs.
+
+**What this result is, and is not.** The label/value pairs were produced by
+a SIMPLE export written for the benchmark (first table column = label,
+every other non-empty cell = a value under its column header). It did not
+use TableFormer's own row/column-header cell metadata. So the result is
+**"not proven better"**, not "proven worse": a smarter export might score
+higher, and a re-benchmark with one would be a fair test.
+
+**Memory is NOT a reason to reject** (corrected 2026-09-25 - the first
+version said ~2.3 GB "cannot run beside Ollama and the API on 16 GB"; the
+machine has 48 GB, so a 2.1-2.4 GB peak fits beside Ollama and the API).
+What does stand from the integration risk above is the dependency shape:
+torch in a deliberately ONNX-only stack, and ~22-44 s per page on this CPU.
+The throwaway venv and cached weights stay outside the repo; nothing was
+added to `requirements.txt`. For #193's table pages the next candidates are
+a geometry-based reader over the PDF text layer and then the adopted local
+text model labelling columns - each measured before any is chosen.
 
 ## Cost on the stated hardware (estimate)
 
 - The paper reports 0.60–0.92 pages/s on a 16-core Xeon and ~6.2 GB peak
   memory (native backend, 4 threads), and 2–6 s per table on CPU. **Those are
-  the paper's machines, not ours.** On an i7-1255U with Ollama (~3.4 GB) and the
-  API (up to ~3.2 GB) resident, the same memory would not fit alongside them;
-  a benchmark must run with Ollama stopped or in a subprocess that exits.
+  the paper's machines, not ours.** (Original estimate assumed an i7-1255U
+  with 16 GB, and concluded the paper's ~6.2 GB would not fit beside Ollama
+  and the API. Corrected 2026-09-25: the machine is an OptiPlex 7040, i7-6700,
+  48 GB; measured peak on our pages was 2.1-2.4 GB - see above.)
 - Scoped to table pages only it is affordable; applied to all ~2 M planned
   pages at ~0.5 pages/s it would be ~46 days of continuous CPU (estimate,
   extrapolated). That alone rules out wholesale replacement.
