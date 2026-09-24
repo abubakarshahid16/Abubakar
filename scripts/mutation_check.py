@@ -6022,6 +6022,28 @@ B5_STANDARDS_INVENTORY = (
         keyword="a_range_with_a_different_bound_is_a_wrong_value",
         tags=("honesty", "scorer"),
     ),
+    Mutation(
+        id="M527", phase=61,
+        description="drop the whitespace collapse, so a real quotation that "
+                    "the page breaks across two lines is rejected",
+        path=APP / "model_evidence.py",
+        anchor="    return needle in _collapse(source_text)",
+        replacement="    return (quote or '') in (source_text or '')",
+        target="tests/test_model_evidence.py",
+        keyword="a_quote_joining_a_line_break_is_verified",
+        tags=("honesty", "model"),
+    ),
+    Mutation(
+        id="M528", phase=61,
+        description="fold case before comparing, so a lower-cased paraphrase "
+                    "passes as a quotation (case is not on the approved list)",
+        path=APP / "model_evidence.py",
+        anchor='    return _WHITESPACE.sub(" ", text or "").strip()',
+        replacement='    return _WHITESPACE.sub(" ", text or "").strip().lower()',
+        target="tests/test_model_evidence.py",
+        keyword="a_case_difference_is_not_verified",
+        tags=("honesty", "model"),
+    ),
 )
 
 
