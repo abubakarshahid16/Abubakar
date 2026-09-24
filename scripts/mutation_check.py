@@ -5951,6 +5951,47 @@ B5_STANDARDS_INVENTORY = (
         keyword="two_citations_of_the_same_missing_standard_are_one_row_listing_both",
         tags=("honesty", "inventory"),
     ),
+    Mutation(
+        id="M522", phase=61,
+        description="call a selected standard with zero extracted "
+                    "requirements assessable, so a review claims to have "
+                    "compared against a standard nothing was ever read from",
+        path=APP / "applicability.py",
+        anchor="            if requirement_counts.get(std_id):",
+        replacement="            if True:",
+        target="tests/test_applicability_with_reasons.py",
+        keyword="a_selected_standard_with_no_requirements_needs_another_document",
+        tags=("honesty", "applicability", "critical"),
+    ),
+    Mutation(
+        id="M523", phase=61,
+        description="skip the standard's-own-attributes check, so a "
+                    "standard recording no equipment_type/discipline/"
+                    "service/project of its own is called NOT APPLICABLE "
+                    "instead of UNKNOWN",
+        path=APP / "applicability.py",
+        anchor="        if not submittal_has_profile or not standard_has_profile:",
+        replacement="        if not submittal_has_profile:",
+        target="tests/test_applicability_with_reasons.py",
+        keyword="a_standard_with_no_comparable_fields_is_unknown_not_not_applicable",
+        tags=("honesty", "applicability", "critical"),
+    ),
+    Mutation(
+        id="M524", phase=61,
+        description="drop the case-insensitive/blank guard on the mismatch "
+                    "comparison, so a field either side left blank is "
+                    "reported as a stated conflict that was never observed",
+        path=APP / "applicability.py",
+        anchor="            for field in _COMPARABLE_FIELDS\n"
+               "            if (entry.get(field) or \"\").strip()\n"
+               "            and (profile.get(field) or \"\").strip()\n"
+               "            and entry[field].strip().lower() != profile[field].strip().lower()",
+        replacement="            for field in _COMPARABLE_FIELDS\n"
+                    "            if entry.get(field) != profile.get(field)",
+        target="tests/test_applicability_with_reasons.py",
+        keyword="a_field_blank_on_one_side_is_never_reported_as_a_stated_mismatch",
+        tags=("honesty", "applicability"),
+    ),
 )
 
 

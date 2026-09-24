@@ -445,6 +445,20 @@ class CitedButNotHeld(BaseModel):
     cited_by: list[StandardCitation]
 
 
+class ApplicabilityStatus(BaseModel):
+    """One standard, classified for one submittal (B5, per the master
+    order): applicable and assessable, applicable but needs another
+    document, not applicable (with a reason), or unknown."""
+
+    standard_document_id: str
+    document_number: str | None = None
+    filename: str
+    status: str = Field(
+        description="applicable_assessable | applicable_needs_another_"
+                    "document | not_applicable | unknown")
+    reason: str
+
+
 class StandardExtraction(BaseModel):
     """What one extraction run did. Counts, with their boundary stated."""
 
