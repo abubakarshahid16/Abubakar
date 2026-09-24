@@ -119,16 +119,42 @@ def test_a_document_number_and_revision_are_read_with_their_page_and_quote():
     assert meta.revision.page == 2
 
 
-@pytest.mark.parametrize("label,date_text", [
-    ("Issue Date", "18 August 2019"),
-    ("Effective Date", "18 August 2019"),
+@pytest.mark.parametrize("label,date_text,iso", [
+    ("Issue Date", "18 August 2019", "2019-08-18"),
+    ("Effective Date", "18 August 2019", "2019-08-18"),
+    ("Issue Date", "August 18, 2019", "2019-08-18"),
+    ("Issue Date", "2019-08-18", "2019-08-18"),
 ])
-def test_an_issue_or_effective_date_is_read_with_its_page_and_quote(label, date_text):
+def test_an_issue_or_effective_date_is_stored_as_iso_with_the_quote_kept(
+        label, date_text, iso):
+    """THE MUTATION TARGET: the STORED value must be ISO YYYY-MM-DD
+    regardless of which of the three cover-page date spellings produced it,
+    while `quote` keeps the document's own words."""
     pages = [_page(1, f"SAES-A-007\n{label}:   {date_text}")]
     meta = standards_inventory.extract_cover_metadata(pages)
     assert meta.effective_date is not None
-    assert meta.effective_date.value == date_text
+    assert meta.effective_date.value == iso
+    assert date_text in meta.effective_date.quote
     assert meta.effective_date.page == 1
+
+
+def test_an_unparseable_date_stays_unknown_rather_than_storing_raw_text():
+    """A date shape `_COVER_ISSUE_DATE` cannot actually match should never
+    arise, but if the captured text somehow fails to parse (e.g. an
+    out-of-range day), the field must stay None - never fall back to
+    storing the unparsed sentence fragment as if it were a real date."""
+    from app.standards_inventory import _to_iso_date
+    assert _to_iso_date("32 Rocktober 2019") is None
+
+
+def test_extract_cover_metadata_also_refuses_an_unparseable_captured_date():
+    """THE MUTATION TARGET: the regex's shape can capture text that does
+    not parse as a real date (an invented month name, an out-of-range day);
+    `extract_cover_metadata` itself must refuse it, not just `_to_iso_date`
+    in isolation."""
+    pages = [_page(1, "SAES-A-007\nIssue Date:   32 Rocktober 2019")]
+    meta = standards_inventory.extract_cover_metadata(pages)
+    assert meta.effective_date is None
 
 
 def test_previous_issue_is_not_read_as_the_effective_date():
@@ -267,17 +293,17 @@ def test_an_already_confirmed_document_number_is_never_overwritten():
     assert row["document_number"] == "SAES-D-001"
 
 
-def test_an_effective_date_is_backfilled_from_the_cover():
+def test_an_effective_date_is_backfilled_as_iso_with_the_quote_preserved():
     _doc_with_pages("std_4", "std4.pdf", [
         (1, "SAES-A-007"), (2, "Issue Date:   18 August 2019")])
     result = standards_inventory.backfill_cover_metadata("std_4")
-    assert result["effective_date"] == "18 August 2019"
+    assert result["effective_date"] == "2019-08-18"
     assert result["effective_date_page"] == 2
     row = dict(db.connect().execute(
         "SELECT effective_date, effective_date_evidence"
         " FROM document_classification WHERE document_id = 'std_4'").fetchone())
-    assert row["effective_date"] == "18 August 2019"
-    assert "Issue Date" in row["effective_date_evidence"]
+    assert row["effective_date"] == "2019-08-18"
+    assert "18 August 2019" in row["effective_date_evidence"]
 
 
 def test_an_already_set_effective_date_is_never_overwritten():

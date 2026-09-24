@@ -223,6 +223,31 @@ _COVER_ISSUE_DATE = re.compile(
     r"|\d{4}-\d{2}-\d{2})",                  # "2019-08-18"
     re.IGNORECASE)
 
+#: The three shapes `_COVER_ISSUE_DATE` can capture, each parsed to ISO.
+_DATE_INPUT_FORMATS = ("%d %B %Y", "%B %d, %Y", "%B %d %Y", "%Y-%m-%d")
+
+
+def _to_iso_date(raw: str) -> str | None:
+    """`raw`, as `_COVER_ISSUE_DATE` captured it, as `YYYY-MM-DD` - or None
+    if it does not parse as any of the shapes the pattern can produce.
+
+    STORED AS ISO, QUOTED AS PRINTED. `CoverField.value` becomes the ISO
+    form so every effective_date in the inventory sorts and compares the
+    same way regardless of which of the three cover-page phrasings produced
+    it; `CoverField.quote` keeps the document's own words, so the original
+    text is never lost - a caller who wants "18 August 2019" reads the
+    evidence, not the stored field.
+    """
+    from datetime import datetime
+
+    text = " ".join(raw.split())
+    for fmt in _DATE_INPUT_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
+
 #: How many of a standard's own leading pages to read for cover metadata.
 #: Cover sheet plus one following revision-log page, no further - reading
 #: into the body risks matching an unrelated internal revision reference
@@ -259,9 +284,15 @@ def extract_cover_metadata(pages: Sequence[dict]) -> CoverMetadata:
         if effective_date is None:
             match = _COVER_ISSUE_DATE.search(text)
             if match:
-                effective_date = CoverField(
-                    value=" ".join(match.group(1).split()),
-                    page=page["page_no"], quote=match.group(0).strip())
+                iso = _to_iso_date(match.group(1))
+                # A DATE THAT DOES NOT PARSE STAYS UNKNOWN, never stored as
+                # the raw text - a caller comparing `effective_date` values
+                # must be able to trust every one is ISO, not sometimes a
+                # sentence fragment the pattern happened to match.
+                if iso is not None:
+                    effective_date = CoverField(
+                        value=iso, page=page["page_no"],
+                        quote=match.group(0).strip())
         if number is not None and revision is not None and effective_date is not None:
             break
     return CoverMetadata(document_number=number, revision=revision,
