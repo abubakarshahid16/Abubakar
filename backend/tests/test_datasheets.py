@@ -788,11 +788,20 @@ def test_175_a_page_with_native_pairs_never_reaches_the_ocr_tier(tmp_path):
 
 # ----------------------------------------------- vision fallback (tier 3)
 
-def test_175_vision_fallback_is_a_documented_no_op_when_unconfigured():
-    """No vision-capable provider is implemented or configured anywhere on
-    this branch (`reasoning_provider.OllamaProvider` is text-only). The tier
-    must not invent an answer - it returns nothing, honestly."""
-    assert datasheets._pairs_from_vision_fallback("/no/such/file.pdf", 1) == []
+def test_175_vision_fallback_makes_no_call_while_the_flag_is_off(monkeypatch):
+    """#180 REPLACED the #175 no-op: the tier is connected, behind
+    `settings.vision_enabled`, which ships OFF. With it off, even a page
+    routed for vision gets no call and no answer - None, never an invented
+    one. (The connected path is tested in tests/test_vision_reader.py.)"""
+    from app import vision_reader
+
+    def boom():
+        raise AssertionError("a provider was built with the flag off")
+    monkeypatch.setattr(vision_reader, "make_provider", boom)
+    assert settings.vision_enabled is False
+    route = vision_reader.PageRoute(vision_reader.ROUTE_NEEDS_LAYOUT, "test",
+                                    region=(0, 0, 10, 10))
+    assert datasheets._pairs_from_vision_fallback("/no/such/file.pdf", 1, route) is None
 
 
 # --------------------------------------------- confidence routing (item 2)

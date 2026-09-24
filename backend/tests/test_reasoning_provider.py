@@ -147,6 +147,54 @@ def test_the_thinking_channel_is_kept_separate_from_the_answer(monkeypatch):
     assert "weighing" not in out.text
 
 
+# ================================================= #180: images and timeout
+
+
+def test_180_the_provider_passes_a_timeout_the_real_transport_requires(monkeypatch):
+    """THE LATENT DEFECT. `model_transport.post_json` takes a KEYWORD-ONLY
+    `timeout` with no default, and `OllamaProvider.reason` never passed one,
+    so every real call raised TypeError and came back as ProviderRefused. The
+    fakes above accept `**kwargs`, which is why nothing noticed: this fake has
+    the real signature."""
+    seen: dict = {}
+
+    def post_json(path, body, *, timeout):
+        seen["timeout"] = timeout
+        return REPLY
+    monkeypatch.setattr(model_transport, "post_json", post_json)
+
+    OllamaProvider().reason(Packet(prompt="q", num_ctx=4096, num_predict=10,
+                                   timeout_s=42.0))
+
+    assert seen["timeout"] == 42.0
+
+
+def test_180_images_are_sent_and_are_part_of_what_the_packet_hash_names(monkeypatch):
+    """A vision packet sends its images in Ollama's `images` field, and the
+    packet's sha256 covers them: two packets with one prompt and different
+    page images are different inputs, and a result tied to "the prompt"
+    alone could not say which page it read."""
+    seen: dict = {}
+    monkeypatch.setattr(model_transport, "post_json", _fake_post(REPLY, seen))
+    with_image = Packet(prompt="q", num_ctx=4096, num_predict=10, images=("aGVsbG8=",))
+    other_image = Packet(prompt="q", num_ctx=4096, num_predict=10, images=("d29ybGQ=",))
+
+    out = OllamaProvider().reason(with_image)
+
+    assert seen["body"]["images"] == ["aGVsbG8="]
+    assert with_image.sha256 != other_image.sha256
+    assert with_image.sha256 != Packet(prompt="q", num_ctx=4096, num_predict=10).sha256
+    assert out.prompt_sha256 == with_image.sha256
+
+
+def test_180_a_text_packet_sends_no_images_field(monkeypatch):
+    """The control: a text packet's body is unchanged by the vision work."""
+    seen: dict = {}
+    monkeypatch.setattr(model_transport, "post_json", _fake_post(REPLY, seen))
+    OllamaProvider().reason(PACKET)
+    assert "images" not in seen["body"]
+
+
 # ============================================== B54 on the pre-existing path
 
 
