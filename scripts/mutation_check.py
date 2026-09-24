@@ -4727,6 +4727,119 @@ B179_EXTRACTION_QUALITY_2 = (
 )
 
 
+#: Issue #180: page routing and the vision reader on the real extraction path.
+#: Every one of these is a way the model could reach a page it must not, or
+#: a proposed value could become a fact without the page saying so.
+_VISION_TEST = "tests/test_vision_reader.py"
+B180_VISION_READER = (
+    Mutation(
+        id="M430", phase=55,
+        description="route every native page needs_layout, so a page the rule "
+                    "reader read completely is sent to the vision model",
+        path=APP / "vision_reader.py",
+        anchor="    if total and len(unread) >= LAYOUT_MIN_UNREAD \\\n",
+        replacement="    if True or len(unread) >= LAYOUT_MIN_UNREAD \\\n",
+        target=_VISION_TEST,
+        keyword="native_text_page_the_rule_reader_read_never_reaches or every_page_gets_a_recorded_route",
+        tags=("privacy", "critical"),
+    ),
+    Mutation(
+        id="M431", phase=55,
+        description="drop the vision_enabled gate, so the shipped-OFF flag no "
+                    "longer stops the model call",
+        path=APP / "datasheets.py",
+        anchor="    if not settings.vision_enabled:\n        return None\n",
+        replacement="    if False:\n        return None\n",
+        target=_VISION_TEST, keyword="flag_off_means_no_call",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M432", phase=55,
+        description="stop requiring the value in the LABEL'S ROW, so a value "
+                    "printed in another row validates as this field's fact",
+        path=APP / "vision_reader.py",
+        anchor="            if not (ly0 - tol <= cy <= ly1 + tol) or vx0 < lx1 - 1.0:",
+        replacement="            if vx0 < lx1 - 1.0:",
+        target=_VISION_TEST, keyword="value_in_another_row_is_review",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M433", phase=55,
+        description="stop checking the named column heading is over the value, "
+                    "so a value under Normal validates as Rated",
+        path=APP / "vision_reader.py",
+        anchor="                if not ok:\n                    continue\n",
+        replacement="                pass\n",
+        target=_VISION_TEST, keyword="wrong_column_is_review",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M434", phase=55,
+        description="stop requiring the nearest value when no column is named, "
+                    "so the model may pick a column silently",
+        path=APP / "vision_reader.py",
+        anchor="                if between:\n                    continue\n",
+        replacement="                if False:\n                    continue\n",
+        target=_VISION_TEST, keyword="second_column_value_with_no_heading",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M435", phase=55,
+        description="write a proposed value the page does not print (as a "
+                    "review row) instead of dropping it",
+        path=APP / "datasheets.py",
+        anchor="                if row.outcome == vision_reader.DROPPED:\n"
+               "                    vision_dropped += 1\n"
+               "                    continue\n",
+        replacement="                if row.outcome == vision_reader.DROPPED:\n"
+                    "                    vision_dropped += 1\n",
+        target=_VISION_TEST, keyword="page_does_not_print_never_becomes_a_fact",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M436", phase=55,
+        description="treat every undropped proposal as validated, so a value "
+                    "that failed the page check is stored as a fact",
+        path=APP / "datasheets.py",
+        anchor="                validated = row.outcome == vision_reader.VALIDATED\n",
+        replacement="                validated = row.outcome != vision_reader.DROPPED\n",
+        target=_VISION_TEST, keyword="review_never_a_fact",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M437", phase=55,
+        description="stop recording which model read a vision fact",
+        path=APP / "datasheets.py",
+        anchor="                        model_tag=readings[page].model_tag, page_route=routes[page].route,\n",
+        replacement="                        model_tag=None, page_route=routes[page].route,\n",
+        target=_VISION_TEST, keyword="validated_value_is_a_fact_with_model_route_and_region",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M438", phase=55,
+        description="stop recording the located region, so a vision fact "
+                    "cannot be shown on its page",
+        path=APP / "datasheets.py",
+        anchor="                        bbox=row.bbox if validated else None,\n",
+        replacement="                        bbox=None,\n",
+        target=_VISION_TEST, keyword="validated_value_is_a_fact_with_model_route_and_region",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M439", phase=55,
+        description="let a value read from RECOGNISED text (no boxes, no "
+                    "region) validate as a fact",
+        path=APP / "vision_reader.py",
+        anchor="                row.outcome = REVIEW\n"
+               "                row.note = (\"value found beside its label in recognised text; \"\n",
+        replacement="                row.outcome = VALIDATED\n"
+                    "                row.note = (\"value found beside its label in recognised text; \"\n",
+        target=_VISION_TEST, keyword="recognised_page_is_never_a_fact",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4744,7 +4857,7 @@ ALL: tuple[Mutation, ...] = (
     + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
     + B175_CASCADE_AND_CONFIDENCE + B163_EVIDENCE_TYPE_GATE
     + B168_PIPELINE_REPAIR + B179_ROW_NUMBERED_TABLE_ROWS
-    + B179_EXTRACTION_QUALITY_2
+    + B179_EXTRACTION_QUALITY_2 + B180_VISION_READER
 )
 
 

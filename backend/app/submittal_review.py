@@ -368,8 +368,34 @@ def ensure_schema() -> None:
             # as a confirmed value until a human looks at it - additive and
             # nullable, set only by datasheets.create_fact.
             ("validation_state", "TEXT"),
+            # #180: WHAT READ THIS FACT, for a fact a vision model proposed.
+            # `model_tag` is the tag the ENGINE reported (never the one
+            # configuration asked for), `page_route` the route that sent the
+            # page, `validation_note` what the check against the page found.
+            # The located region goes in the pre-existing `bbox`, as JSON
+            # [x0, y0, x1, y1] in PDF points. All NULL for every other tier.
+            ("model_tag", "TEXT"),
+            ("page_route", "TEXT"),
+            ("validation_note", "TEXT"),
         ):
             add_column_if_missing(conn, "submittal_facts", _column, _type)
+        # #180: ONE ROUTE PER PAGE, WITH ITS REASON, recorded on every
+        # extraction whether or not the vision model is enabled - so "which
+        # pages would it read, and why" is answerable with it switched off.
+        # Replaced with the document's facts (same transaction).
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS page_routes (
+                document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                page_no INTEGER NOT NULL,
+                route TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                region TEXT,
+                vision_called INTEGER NOT NULL DEFAULT 0,
+                vision_outcome TEXT,
+                model_tag TEXT,
+                recorded_at TEXT NOT NULL,
+                PRIMARY KEY (document_id, page_no)
+            )""")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_submittal_facts_run "
             "ON submittal_facts(review_run_id, field_name, created_at DESC)")

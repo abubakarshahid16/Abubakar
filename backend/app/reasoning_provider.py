@@ -78,11 +78,27 @@ class Packet:
     think: bool = False
     seed: int | None = None
     options: dict[str, object] = field(default_factory=dict)
+    #: #180: base64-encoded images for a vision-capable model, sent in
+    #: Ollama's `images` field. Empty for every text packet, whose request
+    #: body is then byte-for-byte what it was before images existed.
+    images: tuple[str, ...] = ()
+    #: #180: seconds the transport waits. `model_transport.post_json` REQUIRES
+    #: one, and this interface used to pass none - see `OllamaProvider.reason`.
+    timeout_s: float = 300.0
 
     @property
     def sha256(self) -> str:
-        """What was actually sent, so a result can be tied to its input."""
-        return hashlib.sha256(self.prompt.encode("utf-8")).hexdigest()
+        """What was actually sent, so a result can be tied to its input.
+
+        The images are part of it: one prompt over two different page images
+        is two different inputs. A text packet hashes exactly as it always
+        did, so no stored `prompt_sha256` changes meaning.
+        """
+        digest = hashlib.sha256(self.prompt.encode("utf-8"))
+        for image in self.images:
+            digest.update(b"\x00image\x00")
+            digest.update(image.encode("ascii"))
+        return digest.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -165,9 +181,17 @@ class OllamaProvider:
             "think": packet.think,
             "options": options,
         }
+        if packet.images:
+            body["images"] = list(packet.images)
         started = time.time()
         try:
-            raw = model_transport.post_json("/api/generate", body)
+            # #180: the timeout is REQUIRED by `post_json` (keyword-only, no
+            # default). It was missing, so every real call raised TypeError
+            # and surfaced as a ProviderRefused - invisible to tests whose
+            # fakes took `**kwargs`. Measured when the vision reader made the
+            # first real call through this seam.
+            raw = model_transport.post_json("/api/generate", body,
+                                            timeout=packet.timeout_s)
         # Broad on purpose, and it RE-RAISES: every transport failure becomes a
         # named refusal rather than an empty answer. No `noqa` is needed -
         # ruff's blind-except rule is about swallowing, which this does not do.

@@ -293,6 +293,35 @@ class Settings(BaseSettings):
     # 4B model swaps regardless of this value.
     num_ctx: int = 4096
 
+    # ------------------------------------------ vision reader (issue #180)
+    #
+    # A LOCAL vision-language model reading the pages the rule reader could
+    # not: `vision_reader.route_page` names them (needs_layout / needs_visual)
+    # and only those are ever sent. Through `reasoning_provider.OllamaProvider`
+    # and therefore `model_transport` - loopback-validated, no new socket.
+    #
+    #: OFF BY DEFAULT, and only the owner turns it on (CLAUDE.md "who does
+    #: what": the user flips `.env` flags). Measured against a gate written
+    #: BEFORE any measurement (`.cowork/eval/vision-gate-PREDECLARED.md`); the
+    #: flag stays off unless that gate passes. Off means NO model call of any
+    #: kind - routed pages are recorded with their route and stay in engineer
+    #: review, exactly as before this existed.
+    vision_enabled: bool = False
+    #: The tag ASKED for. What ran is whatever the engine reports, recorded
+    #: on every fact (`submittal_facts.model_tag`).
+    vision_model: str = "qwen3.5:4b"
+    #: Render resolution of the region sent. Measured on qwen3.5:4b, CPU
+    #: only, one A4 datasheet page, full page: 50 dpi = 251 prompt tokens,
+    #: 72 dpi = 511, 100 dpi = 979 (prompt evaluation ~13 tokens/s). Tokens
+    #: scale with PIXELS, so the region is cropped before it is rendered.
+    vision_dpi: int = 150
+    #: Output cap. A truncated answer is refused as truncated, never read as
+    #: complete (`Response.truncated`).
+    vision_num_predict: int = 2000
+    vision_num_ctx: int = 8192
+    #: One page on this machine's CPU takes minutes, not seconds.
+    vision_timeout_seconds: float = 1800.0
+
     # -------------------------------- model-assisted requirement matching
     #
     # THE SECOND TIER OF §14, AND IT ONLY EVER CHOOSES. The model is handed a

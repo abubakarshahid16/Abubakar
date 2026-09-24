@@ -38,11 +38,13 @@ through a table parser would have produced nothing while reporting success.
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import datetime, timezone
 
-from . import claims, orphan_guard, submittal_review, tables
+from . import claims, orphan_guard, submittal_review, tables, vision_reader
+from .config import settings
 from .db import connect
 
 #: Where a datasheet says a value is not filled in yet.
@@ -1467,6 +1469,9 @@ def create_fact(
     confidence: float | None = None, extraction_method: str = "extracted",
     equipment_tag: str | None = None, commit: bool = True,
     validation_state: str | None = None,
+    model_tag: str | None = None, page_route: str | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+    validation_note: str | None = None,
 ) -> dict:
     """Record one fact. REFUSES a fact whose citation does not resolve.
 
@@ -1575,6 +1580,11 @@ def create_fact(
         "extraction_method": extraction_method,
         "confidence": confidence,
         "validation_state": validation_state,
+        # #180: provenance of a vision-read fact; NULL for every other tier.
+        "model_tag": model_tag,
+        "page_route": page_route,
+        "bbox": json.dumps(list(bbox)) if bbox is not None else None,
+        "validation_note": validation_note,
         "created_at": now,
         "updated_at": now,
     }
@@ -1586,14 +1596,16 @@ def create_fact(
             normalized_value, normalized_unit, unit, is_blank,
             blank_marker, page, section, source_text, extraction_method,
             confidence, created_at, updated_at, unit_reference,
-            value_min, value_max, equipment_tag, validation_state)
+            value_min, value_max, equipment_tag, validation_state,
+            model_tag, page_route, bbox, validation_note)
            VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
                    :field_name, :field_label, :field_value, :raw_value,
                    :raw_unit, :normalized_value, :normalized_unit, :unit,
                    :is_blank, :blank_marker, :page, :section, :source_text,
                    :extraction_method, :confidence, :created_at,
                    :updated_at, :unit_reference, :value_min, :value_max,
-                   :equipment_tag, :validation_state)""")
+                   :equipment_tag, :validation_state,
+                   :model_tag, :page_route, :bbox, :validation_note)""")
     if commit:
         with conn:
             conn.execute(insert, row)
@@ -1739,29 +1751,41 @@ def _pairs_from_ocr_fallback(document_id: str, page_no: int) -> list[tuple[str, 
     return pairs
 
 
-def _pairs_from_vision_fallback(stored_path: str, page_no: int) -> list[tuple[str, str]]:
-    """Label:value pairs from a vision-model reading of one page's image.
+#: #180: the confidence written for a vision-proposed value that VALIDATED
+#: against the page's own text - located in its label's row, under the
+#: heading it names. Not a probability: it places such a fact between the
+#: OCR tier (0.35, always review) and the native text/table tier (0.6), and
+#: at `LOW_CONFIDENCE_THRESHOLD`, so `create_fact` accepts it.
+VISION_VALIDATED_CONFIDENCE = 0.5
 
-    #175, cascade tier 3 - OPTIONAL and CLEARLY GATED. This is deliberately a
-    thin hook, not new model-serving code: `reasoning_provider.py` (B54)
-    defines exactly one provider that can actually make a model call today,
-    `OllamaProvider`, and it is a TEXT interface - no vision-capable provider
-    is implemented or configured anywhere on this branch (`ClaudeProvider` is
-    still the documented future adapter its own module describes, gated
-    behind `settings.standards_reader_enabled` and
-    `settings.standards_reader_allow_public_egress`, neither of which stands
-    up a vision path). Building a new vision integration here would be
-    exactly the "not a rebuild of the earlier vision experiments" scope this
-    issue explicitly rules out.
+#: #180: the confidence of a vision-proposed value that did NOT validate but
+#: is printed on the page. Below the threshold, so it can only ever be
+#: NEEDS_ENGINEER_REVIEW - never a fact.
+VISION_UNVALIDATED_CONFIDENCE = 0.2
 
-    So: this tier is a DOCUMENTED NO-OP whenever no vision-capable provider
-    is configured, which is every environment this system ships to today.
-    The moment a real vision provider exists behind its own explicit flag,
-    this is the one function that needs to change to call it - a single,
-    obvious home for that future decision, not a rewrite of `extract_facts`.
+
+def _pairs_from_vision_fallback(stored_path: str, page_no: int,
+                                route: "vision_reader.PageRoute", *,
+                                ocr_text: str | None = None,
+                                ) -> "vision_reader.VisionReading | None":
+    """A vision model's validated reading of one ROUTED page, or None.
+
+    #180 - the #175 no-op this used to be is gone. Called ONLY for a page
+    `vision_reader.route_document` routed needs_layout or needs_visual, and
+    ONLY with `settings.vision_enabled` - which ships False and is the
+    owner's to turn on. Either condition failing means no model call at all:
+    None, and the page stays exactly where the rule reader left it.
+
+    The call goes through `reasoning_provider` (`vision_reader.make_provider`)
+    and so through `model_transport`, loopback-validated. Every row the model
+    proposes comes back already checked against the page (`vision_reader`);
+    what is written, and at what state, is decided in `extract_facts`.
     """
-    return []
-
+    if not settings.vision_enabled:
+        return None
+    if route.route not in vision_reader.VISION_ROUTES:
+        return None
+    return vision_reader.read_page(stored_path, page_no, route, ocr_text=ocr_text)
 
 def _same_cell_key(label: str, value: str | None) -> tuple[str, str]:
     """Two readings of one printed cell compare equal under this key.
@@ -1809,6 +1833,25 @@ def collapse_double_reads(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]
         out.append((label, value))
     return out
 
+
+def _vision_outcome(reading: "vision_reader.VisionReading | None") -> str | None:
+    """One line for `page_routes.vision_outcome`, in the reading's own counts.
+
+    None when no call was made - which is not the same as a call that
+    produced nothing, and the two must not read alike.
+    """
+    if reading is None:
+        return None
+    if reading.page_refused:
+        return reading.page_refused
+    counts = {outcome: sum(1 for r in reading.rows if r.outcome == outcome)
+              for outcome in (vision_reader.VALIDATED, vision_reader.REVIEW,
+                              vision_reader.DROPPED)}
+    return (f"{len(reading.rows) + len(reading.refusals)} rows proposed: "
+            f"{counts[vision_reader.VALIDATED]} validated against the page, "
+            f"{counts[vision_reader.REVIEW]} to engineer review, "
+            f"{counts[vision_reader.DROPPED]} dropped (value not on the page), "
+            f"{len(reading.refusals)} refused by the schema")
 
 def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
     """Why this page produced no facts, in the page's own numbers.
@@ -1908,6 +1951,7 @@ def extract_facts(
                 "referenced_standards": []}
 
     written = blanks = 0
+    vision_validated = vision_review = vision_dropped = 0
     seen: set[tuple] = set()
     unparsed: list[dict] = []
     corpus_text: list[str] = []
@@ -1925,6 +1969,11 @@ def extract_facts(
     # further down). A page resolved by the first tier never reaches the
     # second - the cascade stops at the first tier that produces evidence.
     low_confidence_pages: set[int] = set()
+    # #180: what recognition produced for each page - (ran, text, paired by
+    # the OCR tier) - which routing needs to tell "not recognised yet" from
+    # "recognised, and nothing the OCR tier could pair".
+    ocr_rows = {row["page_no"]: row["text"] for row in connect().execute(
+        "SELECT page_no, text FROM page_ocr WHERE document_id = ?", (document_id,))}
     for page in sorted(by_page):
         found: list[tuple[str, str]] = []
         for shape in tables.parse_page_tables(stored_path, page):
@@ -1940,15 +1989,10 @@ def extract_facts(
             if ocr_found:
                 found = ocr_found
                 low_confidence_pages.add(page)
-            else:
-                # Tier 3: vision-model fallback. Thin, gated hook - see
-                # `_pairs_from_vision_fallback` docstring. A documented
-                # no-op whenever no vision-capable provider is configured,
-                # which is every environment this branch ships to today.
-                vision_found = _pairs_from_vision_fallback(stored_path, page)
-                if vision_found:
-                    found = vision_found
-                    low_confidence_pages.add(page)
+        # Tier 3 (#180) is NOT a fallback for "found nothing" any more: a page
+        # the rule reader half-read is exactly the page the vision model is
+        # for. It is decided by the page's ROUTE, after every page is paired -
+        # see `routes` below.
         # SPLIT BEFORE THE FURNITURE COUNT, so a repeated compound row is
         # counted as the two fields it becomes rather than as one label that
         # exists nowhere in the output.
@@ -1962,6 +2006,30 @@ def extract_facts(
     # WHICH EQUIPMENT EACH PAGE IS ABOUT, decided over the whole document
     # because the one-tag rule cannot be seen from a single page.
     tags = stamp_tags(pairs_by_page)
+
+    # #180: EVERY PAGE GETS A ROUTE AND A REASON, from what the rule reader
+    # actually READ - its pairs that pass the same gates the write loop
+    # applies below. Only needs_layout / needs_visual pages can be sent, and
+    # only with `settings.vision_enabled`; the call is made HERE, before the
+    # write transaction opens, because one page takes minutes on a CPU and a
+    # write lock must not be held across a model call.
+    read_pairs_by_page = {
+        page: [(label, value) for label, value in pairs
+               if label.strip() and tag_from_pair(label, value) is None
+               and not is_date_value(value) and states_a_value(value)]
+        for page, pairs in pairs_by_page.items()}
+    ocr_by_page = {page: (page in ocr_rows, ocr_rows.get(page),
+                          page in low_confidence_pages)
+                   for page in pairs_by_page}
+    routes = vision_reader.route_document(
+        stored_path, read_pairs_by_page=read_pairs_by_page, ocr_by_page=ocr_by_page)
+    readings: dict[int, vision_reader.VisionReading] = {}
+    for page, route in sorted(routes.items()):
+        reading = _pairs_from_vision_fallback(
+            stored_path, page, route,
+            ocr_text=None if route.native else (ocr_rows.get(page) or ""))
+        if reading is not None:
+            readings[page] = reading
 
     # B19: ONE DATASHEET, ONE TRANSACTION. Every fact used to commit on its
     # own, so an extraction that died on page 5 left pages 1-4 behind - and
@@ -1986,6 +2054,22 @@ def extract_facts(
                 "DELETE FROM submittal_facts"
                 " WHERE submittal_document_id = ? AND confirmed_by IS NULL",
                 (document_id,))
+        # #180: the routes are replaced with the facts, in the same
+        # transaction, so a page's route always describes the extraction
+        # that is actually stored.
+        conn.execute("DELETE FROM page_routes WHERE document_id = ?", (document_id,))
+        recorded_at = _now()
+        for page, route in sorted(routes.items()):
+            reading = readings.get(page)
+            conn.execute(
+                """INSERT INTO page_routes (document_id, page_no, route, reason,
+                   region, vision_called, vision_outcome, model_tag, recorded_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (document_id, page, route.route, route.reason,
+                 json.dumps(list(route.region)) if route.region else None,
+                 1 if reading is not None else 0,
+                 _vision_outcome(reading), reading.model_tag if reading else None,
+                 recorded_at))
         for page, page_chunks in sorted(by_page.items()):
             pairs = pairs_by_page[page]
             chunk = page_chunks[0]
@@ -2085,6 +2169,54 @@ def extract_facts(
                 written += 1
                 if blank:
                     blanks += 1
+            # #180: what the vision model proposed for this page, already
+            # checked against the page by `vision_reader`. The same gates as
+            # every other tier, plus one of its own: a row the check DROPPED
+            # (its value is not printed on the page) is never written at all.
+            for row in (readings[page].rows if page in readings else []):
+                if row.outcome == vision_reader.DROPPED:
+                    vision_dropped += 1
+                    continue
+                value = " ".join(part for part in (row.value, row.unit) if part)
+                key = (page, *_same_cell_key(row.label, value))
+                if key in seen or (page, *_same_cell_key(row.label, row.value)) in seen:
+                    # The rule reader already read this cell; its reading wins.
+                    dropped["vision duplicate of rule read"] = dropped.get(
+                        "vision duplicate of rule read", 0) + 1
+                    continue
+                if (tag_from_pair(row.label, value) is not None or is_date_value(row.value)
+                        or normalise_field_name(row.label) in furniture):
+                    dropped["vision: tag, date or furniture"] = dropped.get(
+                        "vision: tag, date or furniture", 0) + 1
+                    continue
+                seen.add(key)
+                validated = row.outcome == vision_reader.VALIDATED
+                try:
+                    create_fact(
+                        submittal_document_id=document_id, chunk_id=chunk["id"],
+                        field_label=row.label, raw_value=value, page=page,
+                        section=section_heading(chunk["section"]),
+                        source_text=row.source_text, review_run_id=review_run_id,
+                        confidence=(VISION_VALIDATED_CONFIDENCE if validated
+                                    else VISION_UNVALIDATED_CONFIDENCE),
+                        extraction_method="vision" if validated else "vision_review",
+                        equipment_tag=tags.get(page), commit=False,
+                        validation_state=None if validated else NEEDS_ENGINEER_REVIEW,
+                        model_tag=readings[page].model_tag, page_route=routes[page].route,
+                        bbox=row.bbox if validated else None,
+                        validation_note=(f"column: {row.column_header}; " if row.column_header
+                                         else "") + row.note,
+                    )
+                except FactError:
+                    dropped["refused by create_fact"] = dropped.get(
+                        "refused by create_fact", 0) + 1
+                    continue
+                page_written += 1
+                written += 1
+                if validated:
+                    vision_validated += 1
+                else:
+                    vision_review += 1
             if page_written == 0:
                 unparsed.append({"page": page, "reason": _unparsed_reason(pairs, dropped)})
 
@@ -2106,6 +2238,15 @@ def extract_facts(
         "pages_unreadable": 0,
         "unreadable": [],
         "repaired": repaired,
+        # #180: every page's route, counted; and what the vision tier did.
+        "routes": {name: sum(1 for r in routes.values() if r.route == name)
+                   for name in vision_reader.ROUTES},
+        "vision": {"enabled": settings.vision_enabled,
+                   "pages_sent": len(readings),
+                   "facts_validated": vision_validated,
+                   "facts_to_engineer_review": vision_review,
+                   "rows_dropped_not_on_page": vision_dropped,
+                   "pages_refused": sum(1 for r in readings.values() if r.page_refused)},
     }
 
 
