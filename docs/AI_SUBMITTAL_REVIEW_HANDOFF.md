@@ -257,8 +257,11 @@ static backend count was 956 while CI reported 1,174 passed; the difference is
 ## 12. What must not be changed
 
 1. Privacy boundary. No document text, filename or page reference may leave the
-   machine. Only `market_transport.py` may reach a public host; only
-   `model_transport.py` may reach the answer model.
+   machine. Only `market_transport.py` may reach a public host in normal use;
+   only `model_transport.py` may reach the answer model. Two further socket
+   modules exist, both off by default: `reader_transport.py` (cloud reader,
+   router unregistered) and `notifications.py` (SMTP). See
+   `docs/architecture-call-graph.md` §3 and honesty audit entry 49.
 2. `status` and `disposition` on `review_findings`. Existing guided-review rows
    depend on their current meaning. Add `compliance_status` alongside them.
 3. Deny by default. Absence of a row in `document_role_access` is the only way

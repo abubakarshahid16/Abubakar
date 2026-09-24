@@ -1,5 +1,14 @@
 # Architecture — RAG Intelligence System
 
+> **STALE LINE REFERENCES AND COUNTS (2026-09-24).** This document was derived at
+> `d5357a3`. The current call graph, component states (LIVE / OFF / DEAD) and the 23
+> statements below that no longer match the code are in
+> [`architecture-call-graph.md`](architecture-call-graph.md). In particular: there are now
+> 108 routes and ~87 modules; the submittal-review lane is missing from §1; invariant 8 now
+> HAS an enforcement point (`config.check_model_url` + `model_transport`); and four modules
+> open sockets, not one (`market_transport`, `model_transport`, `reader_transport`,
+> `notifications`). Read that file first.
+
 **What this document is.** A description of the system as the code has it, derived by reading
 `backend/app/` and `frontend/src/` at `d5357a3` (`feat/phase-1-ui-reaches-backend`), not by
 summarising the README. Where the README and the code disagree, the code is described here and

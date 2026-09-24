@@ -21,8 +21,13 @@ carries the client's name; only the owner can rename it.
 1. **Privacy is the product.** No document text, filename, page reference or
    anything derived from a document may leave the machine. The only outbound
    lane is the market search: the human-typed phrase alone, previewed and
-   approved per query. Only `backend/app/market_transport.py` may open a socket.
-   (Known violation to fix: `settings.ollama_url` is unvalidated — see review P1 #4.)
+   approved per query. Only four modules may open a socket, each behind a gate:
+   `market_transport.py` (market lane, off by default), `model_transport.py`
+   (local Ollama only — `ollama_url` validated by `config.check_model_url`),
+   `reader_transport.py` (cloud reader, unregistered and off) and
+   `notifications.py` (SMTP, off by default). Known gap: the socket-containment
+   test does not yet cover `smtplib` (honesty audit entry 49). Call graph:
+   `docs/architecture-call-graph.md`.
 2. **Never** commit `backend/.env`. Never print, log, paste or commit a secret.
    Never put a token in a URL. Keys live only in `backend/.env`.
 3. **The client's register PDF (`Engineering Deliverables.pdf`) is confidential.**
@@ -40,7 +45,7 @@ carries the client's name; only the owner can rename it.
    when its feature is deleted — prove it by mutation. Vacuous tests are this
    project's documented recurring defect (`docs/status-honesty-audit.md`).
 7. **When something this project stated turns out false, record the retraction**
-   in `docs/status-honesty-audit.md`. It is at 48 entries. Several findings in
+   in `docs/status-honesty-audit.md`. It is at 49 entries. Several findings in
    `docs/code-review/` belong there.
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
