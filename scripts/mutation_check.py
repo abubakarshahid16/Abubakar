@@ -4611,6 +4611,137 @@ B179_ROW_NUMBERED_TABLE_ROWS = (
 )
 
 
+_B176_TARGET = "tests/test_submittal_metadata_classification.py"
+
+B176_SUBMITTAL_METADATA = (
+    Mutation(
+        id="M420", phase=54,
+        description="resolve disagreeing pages by taking the first value, so "
+                    "a submittal whose sheets carry two different revisions "
+                    "or document numbers is given one of them as fact (#176)",
+        path=APP / "classification.py",
+        anchor="        if len(keys) > 1:\n"
+               "            conflicts[field_name]",
+        replacement="        if False:\n"
+                    "            conflicts[field_name]",
+        target=_B176_TARGET,
+        keyword="disagreeing_revisions_are_a_conflict or "
+                "disagreeing_document_numbers_are_a_conflict",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M421", phase=54,
+        description="let the revision value sit on the NEXT line, so a "
+                    "revision-table header's row number reads as the "
+                    "document's revision (#176)",
+        path=APP / "classification.py",
+        anchor='    r"^[ \\t]*REV(?:ISION)?\\b\\.?[ \\t]*(?:NO\\b\\.?)?[ \\t]*:?[ \\t]*"',
+        replacement='    r"^[ \\t]*REV(?:ISION)?\\b\\.?[ \\t]*(?:NO\\b\\.?)?[ \\t]*:?\\s*"',
+        target=_B176_TARGET,
+        keyword="revision_table_row_number",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M422", phase=54,
+        description="accept a project NAME with no identifier, so 'Project: "
+                    "<prose>' becomes a filter key (#176)",
+        path=APP / "classification.py",
+        anchor='        if re.search(r"\\d", value) and not _is_placeholder(value):\n'
+               '            hits.append((value, _line_of(text, match)))',
+        replacement='        if not _is_placeholder(value):\n'
+                    '            hits.append((value, _line_of(text, match)))',
+        target=_B176_TARGET,
+        keyword="project_name_without_an_identifier",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M423", phase=54,
+        description="stop refusing the duty word CONTINUOUS, so API 610's "
+                    "'SERVICE: CONTINUOUS' duty cell becomes the equipment's "
+                    "service (#176)",
+        path=APP / "classification.py",
+        anchor='    "CONTINUOUS", "INTERMITTENT", "STANDBY", "SPARE", "CYCLIC", "BATCH",\n',
+        replacement='    "INTERMITTENT", "STANDBY", "SPARE", "CYCLIC", "BATCH",\n',
+        target=_B176_TARGET,
+        keyword="duty_field_labelled_service",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M424", phase=54,
+        description="make the colon after a same-line SERVICE label optional, "
+                    "so 'SERVICE ORDER NO. ...' is read as a service (#176)",
+        path=APP / "classification.py",
+        anchor='    r"^[ \\t]*SERVICE[ \\t]*:[ \\t]*(?P<value>',
+        replacement='    r"^[ \\t]*SERVICE[ \\t]*:?[ \\t]*(?P<value>',
+        target=_B176_TARGET,
+        keyword="service_near_misses or vessel_title_block",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M425", phase=54,
+        description="stop removing parenthetical remarks from a tag line, so "
+                    "a location code inside '(for AREA-9 ...)' becomes a tag "
+                    "(#176)",
+        path=APP / "classification.py",
+        anchor='        value = _PARENTHETICAL.sub(" ", value)',
+        replacement='        value = value',
+        target=_B176_TARGET,
+        keyword="psv_title_block or tag_near_misses",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M426", phase=54,
+        description="read the discipline title phrase on every page, so a "
+                    "body section heading becomes the document's discipline "
+                    "(#176)",
+        path=APP / "classification.py",
+        anchor='            if field_name == "discipline" and page_no != first_page:',
+        replacement='            if False:',
+        target=_B176_TARGET,
+        keyword="discipline_is_read_from_the_title_block_page_only",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M427", phase=54,
+        description="overwrite a value the classifier did not write, so a "
+                    "discipline set by the register or a backfill is replaced "
+                    "by a title-phrase match (#176)",
+        path=APP / "classification.py",
+        anchor="        if current is not None and not ours:\n"
+               "            continue",
+        replacement="        if False:\n"
+                    "            continue",
+        target=_B176_TARGET,
+        keyword="value_the_classifier_did_not_write",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M428", phase=54,
+        description="stop auditing a replaced value, so a reclassification "
+                    "leaves no audit_events row (#176 criterion 4)",
+        path=APP / "classification.py",
+        anchor="            replaced.append((field_name, current, evidence))",
+        replacement="            pass",
+        target=_B176_TARGET,
+        keyword="reclassification_is_audited or "
+                "controlled_vocabulary_reclassification",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M429", phase=54,
+        description="unwire the title-block classifier from ingestion, so "
+                    "every submittal keeps NULL fields however clearly its "
+                    "title block states them (#176)",
+        path=APP / "ingest.py",
+        anchor="            _classify_metadata_if_contractor_submittal(doc_id)\n",
+        replacement="",
+        target=_B176_TARGET,
+        keyword="ingestion_writes",
+        tags=("critical",),
+    ),
+)
+
+
 B177_JOB_CLAIM_RETRY_PRIORITY = (
     Mutation(
         id="M410", phase=53,
@@ -4762,6 +4893,7 @@ ALL: tuple[Mutation, ...] = (
     + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
     + B175_CASCADE_AND_CONFIDENCE + B163_EVIDENCE_TYPE_GATE
     + B168_PIPELINE_REPAIR + B179_ROW_NUMBERED_TABLE_ROWS
+    + B176_SUBMITTAL_METADATA
     + B177_JOB_CLAIM_RETRY_PRIORITY
 )
 
