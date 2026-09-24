@@ -4611,6 +4611,140 @@ B179_ROW_NUMBERED_TABLE_ROWS = (
 )
 
 
+B177_JOB_CLAIM_RETRY_PRIORITY = (
+    Mutation(
+        id="M410", phase=53,
+        description="next_extraction_job writes the claimant's name but "
+                    "leaves the job 'queued', so the claim is not exclusive "
+                    "and a second poller is handed the same job (#177 gap 1)",
+        path=APP / "standards.py",
+        anchor="            f\"\"\"UPDATE jobs SET state = 'running', claimed_by = :me,\n"
+               "                       claimed_at = :now, updated_at = :now\n"
+               "                WHERE id = (SELECT id FROM jobs WHERE stage = :stage",
+        replacement="            f\"\"\"UPDATE jobs SET state = state, claimed_by = :me,\n"
+                    "                       claimed_at = :now, updated_at = :now\n"
+                    "                WHERE id = (SELECT id FROM jobs WHERE stage = :stage",
+        target="tests/test_job_claiming_race.py",
+        keyword="second_poller",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M411", phase=53,
+        description="run_extraction_job trusts its caller again: a worker "
+                    "that holds no claim runs the job anyway - the pre-#177 "
+                    "unchecked-rowcount behaviour (#177 gap 1)",
+        path=APP / "standards.py",
+        anchor="    if job is None:\n"
+               "        return {\"document_id\": document_id, \"state\": \"not_claimed\",\n"
+               "                \"requirements\": 0, \"table_values\": 0}\n",
+        replacement="    if job is None:\n"
+                    "        job = conn.execute(\"SELECT id FROM jobs WHERE document_id = ?\"\n"
+                    "            \" AND stage = ?\", (document_id, EXTRACTION_STAGE)).fetchone()\n",
+        target="tests/test_job_claiming_race.py",
+        keyword="someone_else_holds",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M412", phase=53,
+        description="the ingestion claim no longer checks who holds the "
+                    "document, so two IngestionWorkers take the same one "
+                    "(#177 gap 1, document side)",
+        path=APP / "ingest.py",
+        anchor="        free_d = (\"(d.claimed_by IS NULL OR d.claimed_by = :me\"\n"
+               "                  \" OR d.claimed_at IS NULL OR d.claimed_at < :stale)\")\n"
+               "        free = (\"(claimed_by IS NULL OR claimed_by = :me\"\n"
+               "                \" OR claimed_at IS NULL OR claimed_at < :stale)\")\n",
+        replacement="        free_d = \"(1 = 1)\"\n"
+                    "        free = \"(1 = 1)\"\n",
+        target="tests/test_job_claiming_race.py",
+        keyword="two_ingestion_workers",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M413", phase=53,
+        description="a stale claim is never taken over, so a document held "
+                    "by a worker that died mid-job is stranded forever after "
+                    "a restart (#177 restart recovery)",
+        path=APP / "ingest.py",
+        anchor="        free_d = (\"(d.claimed_by IS NULL OR d.claimed_by = :me\"\n"
+               "                  \" OR d.claimed_at IS NULL OR d.claimed_at < :stale)\")\n"
+               "        free = (\"(claimed_by IS NULL OR claimed_by = :me\"\n"
+               "                \" OR claimed_at IS NULL OR claimed_at < :stale)\")\n",
+        replacement="        free_d = (\"(d.claimed_by IS NULL OR d.claimed_by = :me)\")\n"
+                    "        free = (\"(claimed_by IS NULL OR claimed_by = :me)\")\n",
+        target="tests/test_job_queue_177.py",
+        keyword="held_by_a_dead_worker",
+    ),
+    Mutation(
+        id="M414", phase=53,
+        description="every failure poisons at once - no retry is ever "
+                    "scheduled, jobs.retries has no reader again (#177 gap 2)",
+        path=APP / "job_queue.py",
+        anchor="    if retries < settings.job_max_retries:\n",
+        replacement="    if False:\n",
+        target="tests/test_job_queue_177.py",
+        keyword="retried_after_a_backoff or retry_resumes or backoff_grows",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M415", phase=53,
+        description="retries never run out, so a job that always fails is "
+                    "retried forever and never marked poisoned (#177 gap 2)",
+        path=APP / "job_queue.py",
+        anchor="    if retries < settings.job_max_retries:\n",
+        replacement="    if True:\n",
+        target="tests/test_job_queue_177.py",
+        keyword="exhaustion or retried_then_poisoned",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M416", phase=53,
+        description="the backoff is ignored: a retrying job is claimable the "
+                    "moment it fails (#177 gap 2)",
+        path=APP / "standards.py",
+        anchor="              \" AND next_attempt_at IS NOT NULL AND next_attempt_at <= :now))\")",
+        replacement="              \" AND 1 = 1))\")",
+        target="tests/test_job_queue_177.py",
+        keyword="retried_after_a_backoff",
+    ),
+    Mutation(
+        id="M417", phase=53,
+        description="documents are claimed oldest-first again, so an "
+                    "interactive upload waits behind a backfill (#177 gap 3)",
+        path=APP / "ingest.py",
+        anchor="                                ORDER BY d.priority DESC, d.uploaded_at LIMIT 1)",
+        replacement="                                ORDER BY d.uploaded_at LIMIT 1)",
+        target="tests/test_job_queue_177.py",
+        keyword="outranks_an_earlier_backfill",
+    ),
+    Mutation(
+        id="M418", phase=53,
+        description="fact extraction stops recording its input hash, so a "
+                    "fact cannot say what it was read from (#177 gap 4)",
+        path=APP / "datasheets.py",
+        anchor="                        extractor_version=extractor_version,\n"
+               "                        input_hash=inputs,\n",
+        replacement="                        extractor_version=extractor_version,\n"
+                    "                        input_hash=None,\n",
+        target="tests/test_job_queue_177.py",
+        keyword="fact_extraction_records",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M419", phase=53,
+        description="the corpus-wide queue counts are served to every "
+                    "metrics caller, not only to the admin capability "
+                    "(#177 visibility; audit rows 15 and 30)",
+        path=APP / "metrics.py",
+        anchor="        **({\"queue\": _queue()} if host else {}),",
+        replacement="        **{\"queue\": _queue()},",
+        target="tests/test_job_queue_177.py",
+        keyword="queue_counts_reach_an_admin",
+        tags=("critical",),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -4628,6 +4762,7 @@ ALL: tuple[Mutation, ...] = (
     + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
     + B175_CASCADE_AND_CONFIDENCE + B163_EVIDENCE_TYPE_GATE
     + B168_PIPELINE_REPAIR + B179_ROW_NUMBERED_TABLE_ROWS
+    + B177_JOB_CLAIM_RETRY_PRIORITY
 )
 
 

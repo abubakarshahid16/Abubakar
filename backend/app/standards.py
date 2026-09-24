@@ -46,7 +46,8 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import claims, classification, orphan_guard, requirements_3b, submittal_review
+from . import claims, classification, orphan_guard, provenance, requirements_3b
+from . import submittal_review
 from . import tables as tables_mod
 from .db import connect
 
@@ -522,6 +523,7 @@ def create_requirement(
     source_text: str, clause: str | None, page: int | None,
     extraction_method: str = "extracted", confidence: float | None = None,
     category: str | None = None, structured: dict | None = None,
+    extractor_version: str | None = None, input_hash: str | None = None,
 ) -> dict:
     """Write one requirement. REFUSES a row whose citation does not resolve.
 
@@ -565,6 +567,10 @@ def create_requirement(
         "category": category,
         "extraction_method": extraction_method,
         "confidence": confidence,
+        # #177 provenance - see `provenance.py`. NULL for a row no extractor
+        # wrote (a human's, or a test's).
+        "extractor_version": extractor_version,
+        "input_hash": input_hash,
         "created_at": now,
         "updated_at": now,
     }
@@ -585,7 +591,8 @@ def create_requirement(
                 confidence, created_at, updated_at,
                 requirement_type, field, operator, value, unit,
                 raw_value, raw_unit, condition, exceptions, discipline,
-                table_row, subject, required_evidence_type)
+                table_row, subject, required_evidence_type,
+                extractor_version, input_hash)
                VALUES (:id, :standard_document_id, :clause, :page, :chunk_id,
                        :requirement_text, :source_text, :category,
                        :extraction_method, :confidence, :created_at,
@@ -593,7 +600,8 @@ def create_requirement(
                        :requirement_type, :field, :operator, :value, :unit,
                        :raw_value, :raw_unit, :condition, :exceptions,
                        :discipline, :table_row, :subject,
-                       :required_evidence_type)""", row)
+                       :required_evidence_type,
+                       :extractor_version, :input_hash)""", row)
     return row
 
 
@@ -637,6 +645,15 @@ def extract_requirements(
         "SELECT discipline, equipment_type, service FROM document_classification"
         " WHERE document_id = ?", (document_id,)).fetchone()
     discipline = classification["discipline"] if classification else None
+    # #177 PROVENANCE: the code that reads the clauses and exactly what it
+    # read - the stored file's hash plus every chunk's text, in order. See
+    # `provenance.py`.
+    stored = connect().execute(
+        "SELECT sha256 FROM documents WHERE id = ?", (document_id,)).fetchone()
+    extractor_version = provenance.code_version(
+        "standards", "requirements_3b", "claims")
+    inputs = provenance.input_hash(
+        stored["sha256"] if stored else None, *(c["text"] for c in chunks))
 
     if replace:
         orphan_guard.check(
@@ -746,6 +763,8 @@ def extract_requirements(
                         extraction_method="extracted",
                         confidence=confidence,
                         category="prohibition" if _PROHIBITION.search(sentence) else None,
+                        extractor_version=extractor_version,
+                        input_hash=inputs,
                     )
                 except RequirementError:
                     # A chunk that vanished between the read and the write. Skipped
@@ -795,6 +814,15 @@ def extract_table_values(
     submittal_review.ensure_schema()
     parses = tables_mod.parse_document_tables(
         document_id, allowed_document_ids=allowed_document_ids)
+    # #177 PROVENANCE, as in `extract_requirements`: the table parser is part
+    # of this extractor's code, and the parsed cells are what it read.
+    stored = connect().execute(
+        "SELECT sha256 FROM documents WHERE id = ?", (document_id,)).fetchone()
+    extractor_version = provenance.code_version("standards", "tables", "requirements_3b")
+    inputs = provenance.input_hash(
+        stored["sha256"] if stored else None,
+        *("\x1e".join("\x1f".join(c or "" for c in row) for row in (p.rows or []))
+          for p in parses))
     written = 0
     for parse in parses:
         if not parse.parsed or len(parse.rows) < 2:
@@ -840,7 +868,9 @@ def extract_table_values(
                             "value": measurement.normalized_value,
                             "unit": measurement.normalized_unit,
                             "table_row": row_index,
-                        })
+                        },
+                        extractor_version=extractor_version,
+                        input_hash=inputs)
                 except RequirementError:
                     continue
                 written += 1
@@ -979,6 +1009,12 @@ def decide_requirement(
 # `IngestionWorker` only when no document needs work, which is exactly what
 # "lowest priority" means on a single worker.
 #
+# ONE WORKER BY DESIGN IS NO LONGER ONE WORKER BY LUCK (#177). Until then the
+# sentence above was the only protection: the queue was read with a plain
+# SELECT, and a second worker on the same database ran every job twice. Jobs
+# are now claimed atomically (`next_extraction_job`), so a second worker is a
+# capacity decision rather than a correctness bug.
+#
 # The queue is the EXISTING `jobs` table with a new stage, not a new table -
 # master plan section 25: "Do not create a new table if an existing table can
 # be safely extended." `jobs` already carries document_id, stage, state and
@@ -987,19 +1023,31 @@ def decide_requirement(
 EXTRACTION_STAGE = "extract_requirements"
 
 
-def enqueue_extraction(document_id: str, *, actor: dict | None = None) -> str:
+def enqueue_extraction(document_id: str, *, actor: dict | None = None,
+                       priority: int | None = None) -> str:
     """Queue a standard for background extraction. Idempotent per document.
 
     A second request while one is pending returns the pending job rather than
     stacking another: re-extraction replaces the same rows, so running it twice
-    concurrently is work nobody asked for on a machine with 16 GB.
+    concurrently is work nobody asked for on a machine with 16 GB. A job
+    waiting out a retry backoff is pending too (#177). A POISONED one is not:
+    poison ends the automatic retries, and an operator asking again is exactly
+    how that standard gets another chance.
+
+    PRIORITY (#177), decided at the call site that knows who is waiting: the
+    admin Extract route passes INTERACTIVE, because a person pressed a button
+    and is watching for the result. The ingestion and classification hooks
+    queue every standard that lands, which is backfill, and take the default.
     """
     import uuid as _uuid
+    from . import job_queue
+    if priority is None:
+        priority = job_queue.PRIORITY_BACKFILL
     submittal_review.ensure_schema()
     conn = connect()
     existing = conn.execute(
         "SELECT id FROM jobs WHERE document_id = ? AND stage = ?"
-        " AND state IN ('queued','running')", (document_id, EXTRACTION_STAGE)
+        " AND state IN ('queued','running','retrying')", (document_id, EXTRACTION_STAGE)
     ).fetchone()
     if existing is not None:
         return existing["id"]
@@ -1007,9 +1055,10 @@ def enqueue_extraction(document_id: str, *, actor: dict | None = None) -> str:
     now = _now()
     with conn:
         conn.execute(
-            """INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at)
-               VALUES (?, ?, ?, 'queued', ?, ?)""",
-            (job_id, document_id, EXTRACTION_STAGE, now, now))
+            """INSERT INTO jobs (id, document_id, stage, state, started_at,
+                                 updated_at, priority)
+               VALUES (?, ?, ?, 'queued', ?, ?, ?)""",
+            (job_id, document_id, EXTRACTION_STAGE, now, now, priority))
     _audit("standard.extraction_queued", actor, document_id, detail=f"job={job_id}")
     return job_id
 
@@ -1029,8 +1078,11 @@ def recover_stale_extraction_jobs(*, older_than_minutes: int = STALE_EXTRACTION_
 
     THE ORPHAN NOBODY WOULD EVER SEE. `next_extraction_job` selects `queued`
     and only `queued`, so a job that was `running` when the process died is
-    never picked up again - by anything, ever. There is no sweeper, no
-    timeout and no retry anywhere in this codebase. The standard simply never
+    never picked up again - by anything, ever. When this was written there was
+    no sweeper, no timeout and no retry anywhere in this codebase; #177 added
+    retries for a stage that FAILS, but a process that dies mid-job never
+    reaches the failure handler, so this sweep is still the only thing that
+    finds it. The standard simply never
     gets extracted, `extraction_job_state` reports `running` forever, and the
     screen shows work in progress that no process is doing.
 
@@ -1047,23 +1099,69 @@ def recover_stale_extraction_jobs(*, older_than_minutes: int = STALE_EXTRACTION_
               ).isoformat(timespec="seconds").replace("+00:00", "Z")
     conn = connect()
     with conn:
+        # The dead claimant's name is cleared with its claim: it no longer
+        # holds anything, and leaving it would let `run_extraction_job` treat
+        # a returning stale caller as the owner.
         cur = conn.execute(
-            "UPDATE jobs SET state = 'queued', updated_at = ?"
+            "UPDATE jobs SET state = 'queued', claimed_by = NULL,"
+            " claimed_at = NULL, updated_at = ?"
             " WHERE stage = ? AND state = 'running' AND updated_at < ?",
             (_now(), EXTRACTION_STAGE, cutoff))
         return cur.rowcount
 
 
-def next_extraction_job() -> str | None:
-    """The oldest queued extraction, or None. Read by the ingestion worker."""
-    row = connect().execute(
-        "SELECT document_id FROM jobs WHERE stage = ? AND state = 'queued'"
-        " ORDER BY started_at LIMIT 1", (EXTRACTION_STAGE,)).fetchone()
+#: A job any worker may take right now: waiting its first turn, or a retry
+#: whose backoff has elapsed. One string, used by both claim paths below, so
+#: the two cannot disagree about what "claimable" means.
+_CLAIMABLE = ("(state = 'queued' OR (state = 'retrying'"
+              " AND next_attempt_at IS NOT NULL AND next_attempt_at <= :now))")
+
+
+def next_extraction_job(worker_id: str | None = None) -> str | None:
+    """CLAIM the next extraction and return its document id, or None.
+
+    #177: THIS WAS A PLAIN SELECT, and "ONE WORKER, NOT A SECOND ONE" above
+    was the only thing standing between it and duplicated work - two pollers
+    both read the same queued row and both ran it (test_job_claiming_race.py
+    reproduced that deterministically). It is now ONE conditional UPDATE: the
+    row moves to 'running' under this worker's name only if it is still
+    claimable at the moment of the write, and RETURNING says whether this
+    call is the one that moved it. A worker that got nothing back holds
+    nothing, whatever it read before.
+
+    Highest priority first, then oldest - so an extraction an administrator
+    asked for runs ahead of the backfill the ingestion hook queued.
+    """
+    from . import job_queue
+    me = worker_id or job_queue.worker_id()
+    now = _now()
+    conn = connect()
+    with conn:
+        row = conn.execute(
+            f"""UPDATE jobs SET state = 'running', claimed_by = :me,
+                       claimed_at = :now, updated_at = :now
+                WHERE id = (SELECT id FROM jobs WHERE stage = :stage
+                              AND {_CLAIMABLE}
+                            ORDER BY priority DESC, started_at LIMIT 1)
+                  AND {_CLAIMABLE}
+                RETURNING document_id""",
+            {"me": me, "now": now, "stage": EXTRACTION_STAGE}).fetchone()
     return row["document_id"] if row else None
 
 
-def run_extraction_job(document_id: str) -> dict:
-    """Run one queued extraction to completion. Called by the worker.
+def run_extraction_job(document_id: str, worker_id: str | None = None) -> dict:
+    """Run one claimed extraction to completion. Called by the worker.
+
+    THE CLAIM IS CHECKED HERE, NOT TRUSTED (#177). The job must be 'running'
+    under this worker's name - it came from `next_extraction_job` - or still
+    claimable, in which case it is claimed now with the same conditional
+    UPDATE. Anything else is somebody else's job and nothing is run: the
+    pre-#177 code issued its claiming UPDATE and went on to extract whether or
+    not that UPDATE touched a row.
+
+    A FAILURE IS RETRIED, THEN POISONED (#177), via `job_queue.fail`: the
+    error is kept on the row either way, and a poisoned job is never picked up
+    again on its own.
 
     THE WORKER HAS NO CALLER AND THEREFORE NO SCOPE, so it reads every document
     id and passes it explicitly. That is the same decision `access.
@@ -1072,13 +1170,31 @@ def run_extraction_job(document_id: str) -> dict:
     defaulted into by omitting an argument. The read paths still require the
     parameter; nothing here relaxes them.
     """
+    from . import errors, job_queue
+    me = worker_id or job_queue.worker_id()
     conn = connect()
     now = _now()
     with conn:
-        conn.execute(
-            "UPDATE jobs SET state = 'running', updated_at = ?"
-            " WHERE document_id = ? AND stage = ? AND state = 'queued'",
-            (now, document_id, EXTRACTION_STAGE))
+        job = conn.execute(
+            "SELECT id FROM jobs WHERE document_id = ? AND stage = ?"
+            " AND state = 'running' AND claimed_by = ?"
+            " ORDER BY started_at DESC LIMIT 1",
+            (document_id, EXTRACTION_STAGE, me)).fetchone()
+        if job is None:
+            job = conn.execute(
+                f"""UPDATE jobs SET state = 'running', claimed_by = :me,
+                           claimed_at = :now, updated_at = :now
+                    WHERE id = (SELECT id FROM jobs WHERE document_id = :doc
+                                  AND stage = :stage AND {_CLAIMABLE}
+                                ORDER BY started_at DESC LIMIT 1)
+                      AND {_CLAIMABLE}
+                    RETURNING id""",
+                {"me": me, "now": now, "doc": document_id,
+                 "stage": EXTRACTION_STAGE}).fetchone()
+    if job is None:
+        return {"document_id": document_id, "state": "not_claimed",
+                "requirements": 0, "table_values": 0}
+    job_id = job["id"]
     every_document = frozenset(
         r["id"] for r in conn.execute("SELECT id FROM documents"))
     try:
@@ -1086,16 +1202,24 @@ def run_extraction_job(document_id: str) -> dict:
             document_id, allowed_document_ids=every_document)
         tabular = extract_table_values(
             document_id, allowed_document_ids=every_document)
-        state, error = "done", None
     except Exception as exc:  # noqa: BLE001 - a failed job must not kill the worker
-        sentences, tabular = {}, {}
-        state, error = "failed", type(exc).__name__
+        safe = errors.record_failure(exc, document_id=document_id,
+                                     stage=EXTRACTION_STAGE)
+        with conn:
+            # error_code keeps its pre-#177 meaning (the exception's type
+            # name); the redacted message is what #177 adds.
+            state = job_queue.fail(conn, job_id, code=type(exc).__name__,
+                                   message=safe["message"])
+        return {"document_id": document_id, "state": state,
+                "requirements": 0, "table_values": 0}
     with conn:
+        # The retry count is history and is kept; the error and schedule
+        # belonged to attempts that are now superseded by a success.
         conn.execute(
-            "UPDATE jobs SET state = ?, error_code = ?, updated_at = ?"
-            " WHERE document_id = ? AND stage = ?",
-            (state, error, _now(), document_id, EXTRACTION_STAGE))
-    return {"document_id": document_id, "state": state,
+            "UPDATE jobs SET state = 'done', error_code = NULL,"
+            " error_message = NULL, next_attempt_at = NULL, updated_at = ?"
+            " WHERE id = ?", (_now(), job_id))
+    return {"document_id": document_id, "state": "done",
             "requirements": sentences.get("requirements", 0),
             "table_values": tabular.get("values", 0)}
 

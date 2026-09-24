@@ -373,6 +373,17 @@ class Settings(BaseSettings):
     extract_processes: int = 1
     embed_batch_size: int = 16
 
+    # ------------------------------------------------------- job retries (#177)
+    #: How many times a failed stage is RE-TRIED before it is poisoned. Three
+    #: retries is four attempts in all. Small on purpose: every stage here is
+    #: deterministic local work, so a failure that survives four attempts
+    #: spread over several minutes is a property of the input, not bad luck,
+    #: and retrying it further only burns the one worker's time.
+    job_max_retries: int = 3
+    #: First retry delay in seconds; each later retry doubles it (60, 120,
+    #: 240 s by default). See `job_queue.backoff_seconds`.
+    job_retry_base_seconds: float = 60.0
+
     # ------------------------------------------------------- watched folder
     #: The drop folder. EMPTY IS THE DEFAULT AND EMPTY MEANS OFF - there is no
     #: separate `watch_enabled` boolean, because two settings that can disagree

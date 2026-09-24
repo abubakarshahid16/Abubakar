@@ -1,36 +1,23 @@
-"""Issue #168, criterion 1 (\"horizontally scalable\"): two workers racing on
-the same `jobs` row.
+"""Issue #177 gap 1: two workers must never run the same job.
 
-THE CLAIM UNDER TEST. `standards.next_extraction_job` is a plain `SELECT ...
-WHERE state = 'queued'` with no row lock, no `claimed_by`/`claimed_at`, and no
-`SELECT ... FOR UPDATE`-equivalent (SQLite has none; the nearest available
-tool would be a single atomic `UPDATE ... WHERE state = 'queued' RETURNING`,
-which the code does not use). `run_extraction_job` issues an UPDATE guarded by
-`WHERE state = 'queued'`, but never checks that UPDATE's rowcount before
-proceeding to do the extraction work - so a second caller that read the same
-`queued` row before the first caller's UPDATE committed will still run
-`extract_requirements`/`extract_table_values` a second time, even though its
-own claiming UPDATE affected zero rows.
+HISTORY. This file used to be a MEASUREMENT of the bug (issue #168, commit
+46bd1f7): `standards.next_extraction_job` was a plain SELECT and
+`run_extraction_job` claimed with `UPDATE ... WHERE state = 'queued'` without
+reading the rowcount, so two workers that both read the queued row both ran
+the extraction. The old assertion was `len(requirement_calls) == 2`, with a
+note that it must be rewritten the day the gap closed. This is that rewrite:
+every test here FAILS on the pre-#177 code (verified by running it against
+origin/main 49b093f) and passes on the atomic claim.
 
-That is the concrete, current gap behind "not proven horizontally scalable":
-a second worker process pulling from the same `jobs` table can and does
-duplicate work on the same document. `standards.py`'s own comment above
-`enqueue_extraction` ("ONE WORKER, NOT A SECOND ONE... master plan section 24
-says one ingestion/review worker") confirms this was never designed to be
-run by two workers - this test proves it, rather than taking the comment's
-word for it.
+The same gap existed on the document side: `IngestionWorker._next_document`
+was a plain SELECT ordered by `uploaded_at`, so two worker instances polling
+one database both received the same document id.
 
-This test is a MEASUREMENT of the current gap, not a fix. Per issue #168's
-scope discipline, no locking column is added here - that is a separately
-sized fix (e.g. an atomic `UPDATE jobs SET state='running' WHERE state
-='queued' RETURNING document_id`, or a `claimed_by` column) left to the
-issue's owner to decide is worth building.
-
-Mutation: if `run_extraction_job` were changed to check the claiming UPDATE's
-rowcount and bail out when it is 0 (the actual fix), this test's assertion
-that BOTH threads ran the extraction would start failing - which is exactly
-the signal that the gap had been closed and this test should be rewritten to
-assert the opposite.
+THE DETERMINISTIC TESTS INTERLEAVE BY HAND. A thread race only reproduces a
+window when the scheduler cooperates; "A polls, B polls, then either works"
+is the exact interleaving that broke, written down so it happens every run.
+The threaded test is kept as well, because the real deployment shape is
+threads/processes against one SQLite file, not a hand-written schedule.
 """
 
 from __future__ import annotations
@@ -41,6 +28,7 @@ import pytest
 
 from app import db, standards, submittal_review
 from app.config import settings
+from app.ingest import IngestionWorker
 
 
 @pytest.fixture(autouse=True)
@@ -54,15 +42,15 @@ def temp_storage(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-def _doc(doc_id: str) -> None:
+def _doc(doc_id: str, status: str = "ready") -> None:
     with db.connect() as conn:
         conn.execute(
             """INSERT INTO documents
                (id, filename, sha256, size_bytes, stored_path, status,
                 page_count, uploaded_at)
-               VALUES (?,?,?,?,?,'ready',1,?)""",
+               VALUES (?,?,?,?,?,?,1,?)""",
             (doc_id, f"{doc_id}.pdf", f"sha-{doc_id}", 1, f"{doc_id}.pdf",
-             "2026-09-24T00:00:00Z"),
+             status, "2026-09-24T00:00:00Z"),
         )
         conn.execute(
             """INSERT INTO document_classification
@@ -73,47 +61,86 @@ def _doc(doc_id: str) -> None:
         )
 
 
-def test_two_workers_polling_next_extraction_job_both_run_the_same_job(monkeypatch):
-    """Reproduces the race directly: two threads, one `queued` job, no lock.
-
-    Each thread independently calls `next_extraction_job()` (the read a second
-    worker process would do) and then `run_extraction_job()` on whatever it
-    got back - exactly what a second horizontally-scaled worker would do
-    against the same database. Both are released together with a Barrier so
-    they are inside the race window at the same instant, the same technique
-    `test_migration_race.py` uses for the schema-migration race this project
-    already found and fixed.
-    """
-    doc_id = "doc_race_target"
-    _doc(doc_id)
-    standards.enqueue_extraction(doc_id)
-
-    calls = []
-    call_lock = threading.Lock()
+@pytest.fixture
+def counted_extraction(monkeypatch):
+    calls: list[tuple[str, str]] = []
+    lock = threading.Lock()
 
     def fake_extract_requirements(document_id, *, allowed_document_ids):
-        with call_lock:
-            calls.append(("requirements", document_id, threading.get_ident()))
+        with lock:
+            calls.append(("requirements", document_id))
         return {"requirements": 0}
 
     def fake_extract_table_values(document_id, *, allowed_document_ids):
-        with call_lock:
-            calls.append(("table_values", document_id, threading.get_ident()))
+        with lock:
+            calls.append(("table_values", document_id))
         return {"values": 0}
 
     monkeypatch.setattr(standards, "extract_requirements", fake_extract_requirements)
     monkeypatch.setattr(standards, "extract_table_values", fake_extract_table_values)
+    return calls
+
+
+def test_a_second_poller_does_not_receive_a_job_the_first_already_holds(
+        counted_extraction):
+    """A polls, B polls, both run: the interleaving that duplicated work."""
+    _doc("doc_race_target")
+    standards.enqueue_extraction("doc_race_target")
+
+    got_a = standards.next_extraction_job(worker_id="worker-a")
+    got_b = standards.next_extraction_job(worker_id="worker-b")
+
+    assert got_a == "doc_race_target"
+    assert got_b is None, (
+        "the second worker was handed a job the first had already taken - "
+        "the claim is not atomic")
+
+    for worker, got in (("worker-a", got_a), ("worker-b", got_b)):
+        if got is not None:
+            standards.run_extraction_job(got, worker_id=worker)
+    requirement_calls = [c for c in counted_extraction if c[0] == "requirements"]
+    assert len(requirement_calls) == 1
+
+
+def test_running_a_job_someone_else_holds_does_no_work(counted_extraction):
+    """`run_extraction_job` checks the claim; it does not trust its caller.
+
+    The pre-#177 code issued the claiming UPDATE and went on to extract
+    whether or not that UPDATE touched a row. A caller that arrives with a
+    stale id - it polled before the other worker claimed - must stop here.
+    """
+    _doc("doc_held")
+    standards.enqueue_extraction("doc_held")
+    assert standards.next_extraction_job(worker_id="worker-a") == "doc_held"
+
+    result = standards.run_extraction_job("doc_held", worker_id="worker-b")
+
+    assert result["state"] == "not_claimed"
+    assert counted_extraction == []
+    row = db.connect().execute(
+        "SELECT state, claimed_by, claimed_at FROM jobs WHERE document_id = ?",
+        ("doc_held",)).fetchone()
+    assert (row["state"], row["claimed_by"]) == ("running", "worker-a")
+    assert row["claimed_at"]
+
+
+def test_two_threads_polling_together_run_the_job_exactly_once(counted_extraction):
+    """The deployment shape: two threads, one queued job, released together.
+
+    Each thread uses the DEFAULT worker identity, which is per thread - so
+    this also proves that a caller who never heard of `worker_id` (the
+    ingestion worker's own call, any older call site) is still protected.
+    """
+    _doc("doc_race_threads")
+    standards.enqueue_extraction("doc_race_threads")
 
     barrier = threading.Barrier(2)
-    results = []
 
     def worker():
         barrier.wait(timeout=5)
         job_doc_id = standards.next_extraction_job()
-        if job_doc_id is None:
-            results.append(None)
-            return
-        results.append(standards.run_extraction_job(job_doc_id))
+        if job_doc_id is not None:
+            standards.run_extraction_job(job_doc_id)
 
     threads = [threading.Thread(target=worker) for _ in range(2)]
     for t in threads:
@@ -121,21 +148,34 @@ def test_two_workers_polling_next_extraction_job_both_run_the_same_job(monkeypat
     for t in threads:
         t.join(timeout=10)
 
-    requirement_calls = [c for c in calls if c[0] == "requirements"]
+    requirement_calls = [c for c in counted_extraction if c[0] == "requirements"]
+    assert len(requirement_calls) == 1, (
+        f"one queued job ran {len(requirement_calls)} time(s)")
+    state = db.connect().execute(
+        "SELECT state FROM jobs WHERE document_id = ?",
+        ("doc_race_threads",)).fetchone()["state"]
+    assert state == "done"
 
-    # THE GAP, MEASURED: with no claiming lock, both threads read the same
-    # `queued` document_id from `next_extraction_job()` before either
-    # `run_extraction_job()` UPDATE commits, so both proceed to do the
-    # extraction work. If a proper claim existed (an atomic claim-and-check,
-    # or a `claimed_by` column respected by both the read and the write
-    # side), exactly one thread would have called the extractor.
-    assert len(requirement_calls) == 2, (
-        "expected the unlocked queue to let both workers run the same "
-        f"extraction job - got {len(requirement_calls)} call(s); if this "
-        "is now 1, the claiming gap this test documents has been fixed and "
-        "this test should be rewritten to assert single execution instead"
-    )
 
-    # Both threads process the SAME document_id - confirming this is not
-    # merely two different jobs each running once, but one job run twice.
-    assert {c[1] for c in requirement_calls} == {doc_id}
+def test_two_ingestion_workers_never_take_the_same_document():
+    """The document side of the same gap: `_next_document` was a SELECT."""
+    _doc("doc_ingest_race", status="queued")
+    first = IngestionWorker()
+    second = IngestionWorker()
+
+    assert first._next_document() == "doc_ingest_race"
+    assert second._next_document() is None, (
+        "a second ingestion worker was handed a document the first holds")
+    # The holder polling again keeps its own document - a claim is not lost
+    # to its owner between passes of the loop.
+    assert first._next_document() == "doc_ingest_race"
+
+    row = db.connect().execute(
+        "SELECT claimed_by, claimed_at FROM documents WHERE id = ?",
+        ("doc_ingest_race",)).fetchone()
+    assert row["claimed_by"] == first.worker_id
+    assert row["claimed_at"]
+
+    # Released when the holder is done with it, and then available again.
+    first._release("doc_ingest_race")
+    assert second._next_document() == "doc_ingest_race"

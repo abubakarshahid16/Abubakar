@@ -29,7 +29,11 @@ CREATE TABLE IF NOT EXISTS documents (
     error_code        TEXT,
     error_message     TEXT,
     uploaded_at       TEXT NOT NULL,
-    indexed_at        TEXT
+    indexed_at        TEXT,
+    -- #177. Also added by `_migrate` for databases written before it.
+    priority          INTEGER NOT NULL DEFAULT 0,
+    claimed_by        TEXT,
+    claimed_at        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -44,7 +48,12 @@ CREATE TABLE IF NOT EXISTS jobs (
     error_code            TEXT,
     error_message         TEXT,
     started_at            TEXT NOT NULL,
-    updated_at            TEXT NOT NULL
+    updated_at            TEXT NOT NULL,
+    -- #177. Also added by `_migrate` for databases written before it.
+    priority              INTEGER NOT NULL DEFAULT 0,
+    claimed_by            TEXT,
+    claimed_at            TEXT,
+    next_attempt_at       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS pages (
@@ -811,6 +820,26 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_conversations_owner"
         " ON conversations(owner_user_id, updated_at DESC)"
     )
+    # ------------------------------------------------ job claiming (#177)
+    # ADDITIVE ONLY, AND NO HISTORICAL ROW IS REWRITTEN. `ADD COLUMN ...
+    # DEFAULT 0` changes no stored row - SQLite answers the default for rows
+    # that predate the column - and every other new column is NULL, meaning
+    # "not claimed / no retry scheduled". Priority 0 is BACKFILL, which is the
+    # honest reading of a row nobody marked urgent (`job_queue.PRIORITY_*`).
+    # An old 'failed' job stays 'failed': nothing here resurrects work an
+    # earlier build gave up on.
+    for _table, _column, _definition in (
+        ("documents", "priority", "INTEGER NOT NULL DEFAULT 0"),
+        ("documents", "claimed_by", "TEXT"),
+        ("documents", "claimed_at", "TEXT"),
+        ("jobs", "priority", "INTEGER NOT NULL DEFAULT 0"),
+        ("jobs", "claimed_by", "TEXT"),
+        ("jobs", "claimed_at", "TEXT"),
+        ("jobs", "next_attempt_at", "TEXT"),
+    ):
+        add_column_if_missing(conn, _table, _column, _definition)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_claim ON jobs(stage, state, priority)")
     # created after the migration so it cannot reference a missing column
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_chunks_retrievable ON chunks(retrievable)"
