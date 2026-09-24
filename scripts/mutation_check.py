@@ -129,7 +129,10 @@ PHASE_1 = (
         path=APP / "submittal_review.py",
         anchor='    where, args = _scope_clause(allowed_document_ids, "submittal_document_id")\n'
                '    sql = "SELECT * FROM submittal_facts" + where',
-        replacement='    where, args = "", []\n'
+        # A true WHERE, not an empty string: the line now appends
+        # " AND superseded_at IS NULL" (#179), and an empty scope would make
+        # the mutant a syntax error rather than the permission leak it models.
+        replacement='    where, args = " WHERE 1 = 1", []\n'
                     '    sql = "SELECT * FROM submittal_facts" + where',
         target="tests/test_submittal_review_foundation.py",
         keyword="submittal_facts or empty_grant_set",
@@ -3952,40 +3955,104 @@ B9_NOT_IN_DOCUMENT_SCOPE = (
 )
 
 
-#: B40: the same orphaning one table over - `extract_facts(replace=True)`
-#: deletes unconfirmed facts that findings cite by `fact_id`.
+#: B40 -> #179: `extract_facts(replace=True)` used to DELETE unconfirmed facts
+#: that findings cite by `fact_id` (B40 guarded it: count, record, refuse).
+#: Since #179 it SUPERSEDES them instead - the rows stay, marked
+#: `superseded_at`, and every reader of current facts leaves them out.
+#: M334-M336 keep their ids, re-anchored on the supersession; M440-M444 cover
+#: the readers and the record. Phase 56.
 _B40_TEST = "tests/test_b40_fact_orphan_guard.py"
 B40_FACT_GUARD = (
     Mutation(
-        id="M334", phase=39,
-        description="PUT B40 BACK: re-reading a datasheet deletes cited facts "
-                    "unguarded",
+        id="M334", phase=56,
+        description="PUT B40's DELETE BACK: a re-read deletes the cited rows "
+                    "instead of marking them, so the finding's fact_id points "
+                    "at nothing again (#179 supersession)",
         path=APP / "datasheets.py",
-        anchor='    if replace:\n        orphan_guard.check_facts(\n            "re_extract_facts",',
-        replacement='    if False:\n        orphan_guard.check_facts(\n            "re_extract_facts",',
-        target=_B40_TEST, keyword="recorded_and_refused or says_what_to_do",
+        anchor='                "UPDATE submittal_facts SET superseded_at = ? WHERE " + superseded_where,\n'
+               '                (datetime.now(timezone.utc).isoformat(timespec="seconds"),\n'
+               '                 document_id)).rowcount',
+        replacement='                "DELETE FROM submittal_facts WHERE " + superseded_where,\n'
+                    '                (document_id,)).rowcount',
+        target=_B40_TEST, keyword="keeps_the_cited_fact_resolvable",
         tags=("critical",),
     ),
     Mutation(
-        id="M335", phase=39,
-        description="count facts the caller may not even delete: confirmed ones "
-                    "block a re-read that was never a risk",
+        id="M335", phase=56,
+        description="supersede CONFIRMED facts too, so a human's confirmed "
+                    "reading is replaced by a re-parse (#179)",
         path=APP / "datasheets.py",
-        anchor='            fact_where="submittal_document_id = ? AND confirmed_by IS NULL",',
-        replacement='            fact_where="submittal_document_id = ?",',
-        target=_B40_TEST, keyword="confirmed_fact",
+        anchor='    superseded_where = ("submittal_document_id = ? AND confirmed_by IS NULL"\n'
+               '                        " AND superseded_at IS NULL")',
+        replacement='    superseded_where = ("submittal_document_id = ?"\n'
+                    '                        " AND superseded_at IS NULL")',
+        target=_B40_TEST, keyword="confirmed_fact_is_never_superseded",
+        tags=("critical",),
     ),
     Mutation(
-        id="M336", phase=39,
-        description="the facts guard counts REQUIREMENT citations instead, so a "
-                    "cited datasheet reads as safe",
+        id="M336", phase=56,
+        description="the citation count reads REQUIREMENT citations instead, so "
+                    "the record says no finding cites the superseded rows",
         path=APP / "orphan_guard.py",
         anchor="            \"SELECT COUNT(*) FROM review_findings WHERE fact_id IN\"\n"
                "            f\" (SELECT id FROM submittal_facts WHERE {fact_where})\",",
         replacement="            \"SELECT COUNT(*) FROM review_findings WHERE requirement_id IN\"\n"
                     "            f\" (SELECT id FROM submittal_facts WHERE {fact_where})\",",
-        target=_B40_TEST, keyword="recorded_and_refused",
+        target=_B40_TEST, keyword="recorded_without_refusing",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M440", phase=56,
+        description="list_facts returns superseded rows again, so a review "
+                    "and the CRS read two readings of one cell (#179)",
+        path=APP / "datasheets.py",
+        anchor='           " AND f.superseded_at IS NULL")',
+        replacement='           "")',
+        target=_B40_TEST, keyword="every_current_fact_reader",
         tags=("critical",),
+    ),
+    Mutation(
+        id="M441", phase=56,
+        description="list_submittal_facts returns superseded rows again - the "
+                    "same defect in its other home (#179)",
+        path=APP / "submittal_review.py",
+        anchor='    sql = "SELECT * FROM submittal_facts" + where + " AND superseded_at IS NULL"',
+        replacement='    sql = "SELECT * FROM submittal_facts" + where',
+        target=_B40_TEST, keyword="every_current_fact_reader",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M442", phase=56,
+        description="the has-no-facts guard counts superseded rows, so a sheet "
+                    "with no current fact is never read again (#179)",
+        path=APP / "submittal_review.py",
+        anchor='        "SELECT 1 FROM submittal_facts WHERE submittal_document_id = ?"\n'
+               '        " AND superseded_at IS NULL LIMIT 1",',
+        replacement='        "SELECT 1 FROM submittal_facts WHERE submittal_document_id = ?"\n'
+                    '        " LIMIT 1",',
+        target=_B40_TEST, keyword="has_no_facts_guard_reads_current",
+        tags=("critical",),
+    ),
+    Mutation(
+        id="M443", phase=56,
+        description="drop the supersession record, so a re-read that replaced "
+                    "cited facts leaves no audit row (#179)",
+        path=APP / "datasheets.py",
+        anchor="            if superseded:\n"
+               "                orphan_guard.record_facts_superseded(",
+        replacement="            if False:\n"
+                    "                orphan_guard.record_facts_superseded(",
+        target=_B40_TEST, keyword="recorded_without_refusing",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M444", phase=56,
+        description="the tag-scoping query counts superseded rows' tags, so a "
+                    "rejection is keyed on a tag no current fact carries (#179)",
+        path=APP / "comparison.py",
+        anchor='            " AND superseded_at IS NULL",           # current facts only (#179)',
+        replacement='            "",',
+        target=_B40_TEST, keyword="equipment_tag_scoping_ignores_superseded",
     ),
 )
 

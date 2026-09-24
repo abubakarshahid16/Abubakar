@@ -1,20 +1,27 @@
-"""B40: re-reading a datasheet must not orphan the findings that cite its fields.
+"""B40 -> #179: re-reading a datasheet must not orphan the findings that cite its fields.
 
-`extract_facts(replace=True)` deletes the document's unconfirmed
-`submittal_facts`, and `review_findings.fact_id` points at them with no
-foreign key and no guard - B38's guard covers `standard_requirements` only.
-Measured on the laptop database, 2026-09-22: of 18 findings citing a fact, 6
-already pointed at a row that was gone.
+B40 (2026-09-22) found that `extract_facts(replace=True)` deleted the
+document's unconfirmed `submittal_facts` while `review_findings.fact_id`
+pointed at them with no foreign key. Its answer was a GUARD: count, record,
+refuse unless acknowledged. The owner authorised the redesign on 2026-09-25
+(issue #179, live re-extraction "preserving the historical findings"):
+replace=True now SUPERSEDES. The old rows stay with `superseded_at` set, the
+finding's `fact_id` keeps resolving, and every reader of CURRENT facts leaves
+the superseded rows out. Nothing is deleted, so nothing is refused.
 
-ONE LIVE PATH, and the sweep that establishes that is in the register (row
-77): there is no fact re-extract route; the cascades are not orphaning paths
-(deleting a submittal takes its findings AND its facts together); nothing
-deletes `review_runs`. So this file guards `extract_facts(replace=True)`.
+What this file proves, each against a real ruled datasheet read twice:
 
-B19's own call is `replace=False` behind its "has no facts" guard and must
-stay unaffected - asserted here too.
+  - the cited fact survives the re-read, marked superseded, still cited;
+  - `list_facts`, `list_submittal_facts`, the has-no-facts guard and the
+    equipment-tag scoping query read CURRENT facts only;
+  - a CONFIRMED fact is never superseded;
+  - the re-read is recorded (`facts.superseded.re_extract_facts`) with the
+    number of rows marked and the number of findings citing them, and a
+    first read records nothing;
+  - B19's own path (replace=False behind the has-no-facts guard) is untouched.
 
-Mutations: M334-M336, `python scripts/mutation_check.py --phase 39`.
+Mutations: M334-M336 (re-anchored) and M440-M444,
+`python scripts/mutation_check.py --phase 56`.
 """
 
 from __future__ import annotations
@@ -24,12 +31,14 @@ import uuid
 import pymupdf
 import pytest
 
-from app import comparison, datasheets, db, orphan_guard, submittal_review
+from app import comparison, datasheets, db, submittal_review
 from app.config import settings
 
 NOW = "2026-09-22T00:00:00Z"
 ROWS = [("Design pressure", "23.5 barg"), ("Set pressure", "340 psig"),
         ("Compressibility factor", "0.892")]
+SUPERSEDED_ACTION = "facts.superseded.re_extract_facts"
+OLD_GUARD_ACTION = "findings.orphaning.re_extract_facts"
 
 
 @pytest.fixture(autouse=True)
@@ -80,14 +89,22 @@ def _datasheet(tmp_path, doc_id="doc_sheet") -> str:
             VALUES (?,?,?,1,1,1,NULL,'prose',?,1,?,1)""",
             (f"{doc_id}-c1", doc_id, f"{doc_id}.pdf", text, f"h-{doc_id}"))
     datasheets.extract_facts(doc_id, allowed_document_ids=frozenset({doc_id}))
-    assert _facts(doc_id), "precondition: the sheet was read into facts"
+    assert _current(doc_id), "precondition: the sheet was read into facts"
     return doc_id
 
 
-def _facts(doc: str) -> list[str]:
+def _rows(doc: str, where: str = "") -> list[str]:
     return [r[0] for r in db.connect().execute(
-        "SELECT id FROM submittal_facts WHERE submittal_document_id = ? ORDER BY id",
-        (doc,))]
+        "SELECT id FROM submittal_facts WHERE submittal_document_id = ?"
+        + where + " ORDER BY id", (doc,))]
+
+
+def _current(doc: str) -> list[str]:
+    return _rows(doc, " AND superseded_at IS NULL")
+
+
+def _superseded(doc: str) -> list[str]:
+    return _rows(doc, " AND superseded_at IS NOT NULL")
 
 
 def _finding_citing_a_fact(doc: str) -> str:
@@ -116,70 +133,86 @@ def _finding_citing_a_fact(doc: str) -> str:
     return fact["id"]
 
 
-def _audit() -> list[dict]:
+def _audit(action: str = SUPERSEDED_ACTION) -> list[dict]:
     return [dict(r) for r in db.connect().execute(
-        "SELECT * FROM audit_events WHERE action = 'findings.orphaning.re_extract_facts'")]
+        "SELECT * FROM audit_events WHERE action = ?", (action,))]
 
 
-def test_re_reading_a_sheet_whose_fields_are_cited_is_recorded_and_refused(tmp_path):
+def _re_read(doc: str) -> dict:
+    return datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}),
+                                    replace=True)
+
+
+def test_re_reading_a_cited_sheet_keeps_the_cited_fact_resolvable(tmp_path):
     doc = _datasheet(tmp_path)
-    before = _facts(doc)
-    _finding_citing_a_fact(doc)
+    before = _current(doc)
+    fact_id = _finding_citing_a_fact(doc)
 
-    with pytest.raises(orphan_guard.OrphaningRefused,
-                       match=r"^Re-reading this datasheet's fields is blocked"):
-        datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}),
-                                 replace=True)
+    _re_read(doc)                       # no flag, no refusal, nothing deleted
 
-    assert _facts(doc) == before, "the refused re-read deleted facts anyway"
-    [event] = _audit()
-    assert event["outcome"] == "refused"
-    assert event["detail"] == "findings_orphaned=1"
-    assert event["resource_id"] == doc
+    # The way comparison resolves a finding's fact: by id, unfiltered.
+    row = db.connect().execute(
+        "SELECT * FROM submittal_facts WHERE id = ?", (fact_id,)).fetchone()
+    assert row is not None, "the cited fact was deleted"
+    assert row["superseded_at"], "the cited fact is still read as current"
+    assert db.connect().execute(
+        "SELECT COUNT(*) FROM review_findings WHERE fact_id = ?",
+        (fact_id,)).fetchone()[0] == 1, "the finding lost its citation"
+    assert set(before) <= set(_rows(doc)), "old rows were deleted"
+    assert sorted(_superseded(doc)) == sorted(before)
+    assert _current(doc) and not set(_current(doc)) & set(before), \
+        "the re-read wrote no new current facts"
 
 
-def test_the_refusal_says_what_to_do_and_names_no_api_flag(tmp_path):
+def test_every_current_fact_reader_leaves_superseded_rows_out(tmp_path):
     doc = _datasheet(tmp_path)
-    _finding_citing_a_fact(doc)
+    before = _current(doc)
+    _re_read(doc)
 
-    with pytest.raises(orphan_guard.OrphaningRefused) as caught:
-        datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}),
-                                 replace=True)
+    listed = {f["id"] for f in datasheets.list_facts(
+        doc, allowed_document_ids=frozenset({doc}))}
+    assert listed == set(_current(doc))
+    assert not listed & set(before), "list_facts still returns superseded rows"
 
-    message = str(caught.value)
-    assert "1 review finding cites this datasheet's fields" in message
-    assert "A review reuses the fields already read" in message
-    assert "acknowledge_orphaned_findings" not in message
+    by_run = {f["id"] for f in submittal_review.list_submittal_facts(
+        allowed_document_ids=frozenset({doc}))}
+    assert by_run == set(_current(doc))
+    assert not by_run & set(before), "list_submittal_facts still returns superseded rows"
 
 
-def test_an_acknowledged_re_read_proceeds_and_is_recorded(tmp_path):
+def test_the_has_no_facts_guard_reads_current_facts_only(tmp_path):
+    """A sheet whose every fact was superseded has nothing a review can read;
+    the shared guard must send it back to the extractor."""
     doc = _datasheet(tmp_path)
-    before = _facts(doc)
-    _finding_citing_a_fact(doc)
+    with db.connect() as conn:
+        conn.execute("UPDATE submittal_facts SET superseded_at = ?"
+                     " WHERE submittal_document_id = ?", (NOW, doc))
+    assert _current(doc) == []
 
-    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}),
-                             replace=True, acknowledge_orphaned_findings=True)
+    submittal_review.ensure_facts_extracted(doc, frozenset({doc}))
 
-    assert _facts(doc) != before, "nothing was re-read"
-    [event] = _audit()
-    assert event["outcome"] == "ok"
-    assert event["detail"] == "findings_orphaned=1"
+    assert _current(doc), "the guard read superseded rows as 'has facts'"
 
 
-def test_a_sheet_no_finding_cites_is_re_read_freely(tmp_path):
-    """The ordinary case: no refusal, and no audit noise."""
+def test_equipment_tag_scoping_ignores_superseded_facts(tmp_path):
     doc = _datasheet(tmp_path)
-    before = _facts(doc)
+    ids = _current(doc)
+    with db.connect() as conn:
+        conn.execute("UPDATE submittal_facts SET equipment_tag = 'P-101A' WHERE id = ?",
+                     (ids[0],))
+        conn.execute("UPDATE submittal_facts SET equipment_tag = 'P-101B' WHERE id = ?",
+                     (ids[1],))
+    assert comparison._document_is_tag_scoped(doc) is True, "precondition"
 
-    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}), replace=True)
+    with db.connect() as conn:
+        conn.execute("UPDATE submittal_facts SET superseded_at = ? WHERE id = ?",
+                     (NOW, ids[1]))
 
-    assert _facts(doc) != before
-    assert _audit() == []
+    assert comparison._document_is_tag_scoped(doc) is False, \
+        "a superseded row's tag still makes the sheet multi-tag"
 
 
-def test_a_confirmed_fact_is_not_a_reason_to_refuse(tmp_path):
-    """replace=True never deletes a CONFIRMED fact, so a finding citing one is
-    not at risk and must not block the re-read."""
+def test_a_confirmed_fact_is_never_superseded(tmp_path):
     doc = _datasheet(tmp_path)
     fact_id = _finding_citing_a_fact(doc)
     with db.connect() as conn:
@@ -188,22 +221,46 @@ def test_a_confirmed_fact_is_not_a_reason_to_refuse(tmp_path):
         conn.execute("UPDATE submittal_facts SET confirmed_by='eng', confirmed_at=?"
                      " WHERE id=?", (NOW, fact_id))
 
-    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}), replace=True)
+    _re_read(doc)
 
-    assert fact_id in _facts(doc), "the confirmed fact was deleted"
+    assert fact_id in _current(doc), "the confirmed fact was superseded"
+    assert fact_id in {f["id"] for f in datasheets.list_facts(
+        doc, allowed_document_ids=frozenset({doc}))}
+    assert len(_superseded(doc)) == len(ROWS) - 1
+
+
+def test_a_re_read_of_cited_facts_is_recorded_without_refusing(tmp_path):
+    doc = _datasheet(tmp_path)
+    before = _current(doc)
+    _finding_citing_a_fact(doc)
+
+    _re_read(doc)
+
+    [event] = _audit()
+    assert event["outcome"] == "ok"
+    assert event["resource_id"] == doc
+    assert event["detail"] == f"facts_superseded={len(before)} findings_citing=1"
+    assert _audit(OLD_GUARD_ACTION) == [], "the retired guard still writes rows"
+
+
+def test_a_first_read_records_nothing(tmp_path):
+    """The fixture's first read superseded nothing: no audit noise."""
+    _datasheet(tmp_path)
     assert _audit() == []
+    assert _audit(OLD_GUARD_ACTION) == []
 
 
 def test_b19s_own_path_is_untouched(tmp_path):
     """A review reuses cached facts (replace=False behind the has-no-facts
-    guard), so it never reaches this guard even when findings cite them."""
+    guard), so it supersedes nothing even when findings cite them."""
     doc = _datasheet(tmp_path)
-    before = _facts(doc)
+    before = _current(doc)
     _finding_citing_a_fact(doc)
 
     run = submittal_review.create_review_run(
         submittal_document_id=doc, allowed_document_ids=frozenset({doc}))
 
     assert run
-    assert _facts(doc) == before
+    assert _current(doc) == before
+    assert _superseded(doc) == []
     assert _audit() == []

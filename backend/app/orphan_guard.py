@@ -17,14 +17,22 @@ FOUR PATHS DELETE REQUIREMENT ROWS, and each now asks this module first:
   4. `DELETE /api/documents/{id}` - `standard_requirements.standard_document_id
      ... ON DELETE CASCADE` takes every requirement of a deleted standard.
 
-THE CHEAP GUARD, NOT THE REDESIGN. Without a `superseded` column there is no
-way to keep an old row out of future reviews, so keeping referenced rows
-would trade orphans for duplicate findings. What is possible with no schema
-change: count the findings a deletion would orphan, write that to
-`audit_events` whatever happens, and REFUSE unless the caller explicitly
+THE CHEAP GUARD, NOT THE REDESIGN - for REQUIREMENTS. Without a `superseded`
+column there is no way to keep an old row out of future reviews, so keeping
+referenced rows would trade orphans for duplicate findings. What is possible
+with no schema change: count the findings a deletion would orphan, write that
+to `audit_events` whatever happens, and REFUSE unless the caller explicitly
 acknowledges it. So orphaning can no longer happen by default or silently.
-It does not repair the existing orphans, and the versioning redesign stays
-parked for the owner's sign-off.
+It does not repair the existing orphans, and the requirements versioning
+redesign stays parked for the owner's sign-off.
+
+FACTS GOT THE REDESIGN (#179, owner-authorised 2026-09-25). B40's fifth path,
+`datasheets.extract_facts(replace=True)`, no longer deletes anything:
+`submittal_facts.superseded_at` marks the replaced rows, every reader of
+current facts leaves them out, and a finding's `fact_id` keeps resolving. So
+there is no facts guard left to refuse; `findings_orphaned_by_facts` stays as
+the COUNT of findings that cite the rows being superseded, and
+`record_facts_superseded` writes that count beside the number of rows marked.
 
 `detail` carries ids and counts only - never requirement text or a title,
 because the audit table is the one most likely to be exported.
@@ -43,8 +51,6 @@ _BLOCKED = {
     "document_delete": "Delete is blocked",
     "reject": "Rejecting this requirement is blocked",
     "re_chunk": "Re-chunking is blocked",
-    # B40
-    "re_extract_facts": "Re-reading this datasheet's fields is blocked",
 }
 
 #: The way forward that EXISTS on screen. An updated standard is a new
@@ -52,17 +58,12 @@ _BLOCKED = {
 _WHAT_TO_DO = ("To update a standard, upload the new revision and set "
                "\"Superseded by\" on this standard in the Standards page.")
 
-#: B40. Facts are per document and REUSED across runs, so an ordinary review
-#: never needs them re-read; only a deliberate re-parse does.
-_WHAT_TO_DO_FACTS = ("A review reuses the fields already read from this "
-                     "datasheet, so it does not need them re-read. Re-read "
-                     "them only to correct a parsing fault, on purpose.")
-
 #: What each kind of citation is called in the message, and what to do about
-#: it. `requirements` wording is B38's, unchanged.
+#: it. `requirements` wording is B38's, unchanged. The `facts` kind B40 added
+#: is gone with the facts guard (#179 supersession) - facts are no longer
+#: deleted, so no message about deleting them is ever shown.
 _KINDS = {
     "requirements": ("this standard's requirements", _WHAT_TO_DO),
-    "facts": ("this datasheet's fields", _WHAT_TO_DO_FACTS),
 }
 
 
@@ -113,8 +114,11 @@ def findings_orphaned_by_facts(fact_where: str, params: tuple | list) -> int:
     """How many review findings cite a `submittal_facts` row the WHERE selects.
 
     B40, the same shape as `findings_orphaned_by` one table over:
-    `review_findings.fact_id` has no foreign key either, and
-    `extract_facts(replace=True)` deletes the unconfirmed rows it points at.
+    `review_findings.fact_id` has no foreign key either. Since #179 nothing
+    deletes those rows - `extract_facts(replace=True)` supersedes them - so
+    this is no longer a count of findings ABOUT to be orphaned but of
+    findings whose cited fact is about to stop being current, recorded by
+    `record_facts_superseded`. The name is kept for the callers that read it.
     """
     try:
         return connect().execute(
@@ -139,17 +143,30 @@ def check(action: str, *, requirement_where: str, params: tuple | list,
                    document_id, acknowledge, actor, kind="requirements")
 
 
-def check_facts(action: str, *, fact_where: str, params: tuple | list,
-                document_id: str | None, acknowledge: bool,
-                actor: dict | None = None) -> int:
-    """B40: the same decision for facts a finding cites.
+def record_facts_superseded(conn: sqlite3.Connection, action: str,
+                            document_id: str, *, superseded: int,
+                            findings_citing: int,
+                            actor: dict | None = None) -> None:
+    """#179: the record of a re-read that replaced current facts.
 
-    ONE LIVE PATH, measured 2026-09-22: `extract_facts(replace=True)`. The
-    cascades are not orphaning paths - deleting a submittal takes its findings
-    AND its facts together - and nothing deletes `review_runs`.
+    Written ON THE CALLER'S CONNECTION, inside the caller's transaction, so
+    the mark and its record commit together or not at all - the opposite of
+    `_record`, which must survive a refused deletion. Nothing is refused
+    here because nothing is destroyed: the rows stay and the findings still
+    resolve. `findings_citing` is how many findings cite one of the rows
+    marked, stated so a reader knows how much history now points at a
+    non-current reading. Counts only, never a fact's text.
     """
-    return _decide(action, findings_orphaned_by_facts(fact_where, params),
-                   document_id, acknowledge, actor, kind="facts")
+    conn.execute(
+        """INSERT INTO audit_events
+               (at, actor_user_id, actor_username, action,
+                resource_type, resource_id, outcome, detail)
+           VALUES (?, ?, ?, ?, 'document', ?, 'ok', ?)""",
+        (datetime.now(UTC).isoformat(timespec="seconds"),
+         (actor or {}).get("id"),
+         ((actor or {}).get("email") or "unauthenticated")[:200],
+         f"facts.superseded.{action}", document_id,
+         f"facts_superseded={superseded} findings_citing={findings_citing}"))
 
 
 def _decide(action: str, orphaned: int, document_id: str | None,

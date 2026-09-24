@@ -1843,9 +1843,14 @@ def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
 def extract_facts(
     document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, replace: bool = True,
-    acknowledge_orphaned_findings: bool = False,
 ) -> dict:
     """Read one datasheet into facts, by whichever path its pages support.
+
+    `replace=True` SUPERSEDES the document's current unconfirmed facts (#179):
+    they stay in the table with `superseded_at` set, so a finding that cited
+    one still resolves it by id, and only the new rows are current. Nothing
+    is deleted, so there is no orphaning to acknowledge any more - the
+    `acknowledge_orphaned_findings` flag B40 needed is gone from this path.
 
     BOTH PATHS RUN, and neither is a fallback for the other: the grid path for
     pages `tables.py` can parse, and the text-block path for pages it cannot -
@@ -1980,26 +1985,36 @@ def extract_facts(
     # B19: ONE DATASHEET, ONE TRANSACTION. Every fact used to commit on its
     # own, so an extraction that died on page 5 left pages 1-4 behind - and
     # the review path's "has no facts" guard then read that partial set as
-    # done and never extracted the sheet again. The replace=True DELETE is in
-    # the same transaction, so a failed re-extraction cannot leave the
-    # datasheet with FEWER facts than it had either. Pages are parsed above,
-    # before this block, so the write lock is held only for the writes.
-    # B40: the DELETE below takes unconfirmed facts that review findings cite
-    # by `fact_id` - no foreign key, so nothing refused or recorded it. Checked
-    # BEFORE the transaction opens, because the guard writes its own audit row.
-    if replace:
-        orphan_guard.check_facts(
-            "re_extract_facts",
-            fact_where="submittal_document_id = ? AND confirmed_by IS NULL",
-            params=(document_id,), document_id=document_id,
-            acknowledge=acknowledge_orphaned_findings)
+    # done and never extracted the sheet again. The replace=True supersession
+    # is in the same transaction, so a failed re-extraction cannot leave the
+    # datasheet with FEWER current facts than it had either. Pages are parsed
+    # above, before this block, so the write lock is held only for the writes.
+    #
+    # B40 -> #179 SUPERSESSION. replace=True used to DELETE the document's
+    # unconfirmed facts, and `review_findings.fact_id` (no foreign key) was
+    # left pointing at nothing; `orphan_guard` could only count and refuse.
+    # Now the old rows STAY, marked `superseded_at`: every finding that cited
+    # one still resolves it by id (comparison's by-id lookups), while every
+    # reader of CURRENT facts - `list_facts`, `list_submittal_facts`, the
+    # has-no-facts guard, `_document_is_tag_scoped` - leaves them out, so a
+    # review never sees two readings of one cell. A CONFIRMED fact is never
+    # superseded: a human's word outlives a re-parse. The audit row is in
+    # the same transaction as the mark, so neither exists without the other.
+    superseded_where = ("submittal_document_id = ? AND confirmed_by IS NULL"
+                        " AND superseded_at IS NULL")
     conn = connect()
     with conn:
         if replace:
-            conn.execute(
-                "DELETE FROM submittal_facts"
-                " WHERE submittal_document_id = ? AND confirmed_by IS NULL",
-                (document_id,))
+            findings_citing = orphan_guard.findings_orphaned_by_facts(
+                superseded_where, (document_id,))
+            superseded = conn.execute(
+                "UPDATE submittal_facts SET superseded_at = ? WHERE " + superseded_where,
+                (datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                 document_id)).rowcount
+            if superseded:
+                orphan_guard.record_facts_superseded(
+                    conn, "re_extract_facts", document_id,
+                    superseded=superseded, findings_citing=findings_citing)
         for page, page_chunks in sorted(by_page.items()):
             pairs = pairs_by_page[page]
             chunk = page_chunks[0]
@@ -2148,7 +2163,10 @@ def list_facts(document_id: str, *, allowed_document_ids: frozenset[str],
            " FROM submittal_facts f"
            " LEFT JOIN chunks c ON c.id = f.chunk_id"
            " JOIN documents d ON d.id = f.submittal_document_id" + where +
-           " AND f.submittal_document_id = ?")
+           " AND f.submittal_document_id = ?"
+           # Current facts only (#179); superseded rows live on for the
+           # findings that cite them by id.
+           " AND f.superseded_at IS NULL")
     params = [*args, document_id]
     if blanks_only:
         sql += " AND f.is_blank = 1"

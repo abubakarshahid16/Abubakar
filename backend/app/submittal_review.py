@@ -378,6 +378,13 @@ def ensure_schema() -> None:
             # version and input hash (`provenance.py`). NULL on older rows.
             ("extractor_version", "TEXT"),
             ("input_hash", "TEXT"),
+            # #179 SUPERSESSION. `extract_facts(replace=True)` used to DELETE
+            # the document's unconfirmed facts, and `review_findings.fact_id`
+            # (no foreign key) was left pointing at nothing. Now the old rows
+            # stay and carry the time they were replaced. NULL = a CURRENT
+            # fact. Every reader of current facts filters on this column;
+            # by-id lookups (a finding resolving the fact it cited) do not.
+            ("superseded_at", "TEXT"),
         ):
             add_column_if_missing(conn, "submittal_facts", _column, _type)
         conn.execute(
@@ -554,8 +561,11 @@ def ensure_facts_extracted(document_id: str, allowed_document_ids: frozenset[str
     """
     from . import datasheets  # datasheets imports this module
 
+    # CURRENT facts only (#179): a sheet whose every fact was superseded has
+    # nothing a review can read and must be read again.
     has_facts = connect().execute(
-        "SELECT 1 FROM submittal_facts WHERE submittal_document_id = ? LIMIT 1",
+        "SELECT 1 FROM submittal_facts WHERE submittal_document_id = ?"
+        " AND superseded_at IS NULL LIMIT 1",
         (document_id,)).fetchone()
     if has_facts is not None:
         return
@@ -702,8 +712,10 @@ def list_submittal_facts(
     this filter never needs a join to be correct.
     """
     ensure_schema()
+    # Current facts only (#179): a superseded row is kept for the findings
+    # that cite it, not for the next review to read twice.
     where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
-    sql = "SELECT * FROM submittal_facts" + where
+    sql = "SELECT * FROM submittal_facts" + where + " AND superseded_at IS NULL"
     if review_run_id is not None:
         sql += " AND review_run_id = ?"
         args = [*args, review_run_id]

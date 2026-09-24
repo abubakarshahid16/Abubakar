@@ -500,16 +500,19 @@ def test_fact_extraction_records_its_version_and_input_hash(tmp_path):
     assert len(rows[0]["input_hash"]) == 64
     first = rows[0]["input_hash"]
 
+    # CURRENT facts only: a re-read supersedes the old rows rather than
+    # deleting them (#179), so the superseded rows still carry `first`.
+    current = ("SELECT DISTINCT input_hash FROM submittal_facts"
+               " WHERE superseded_at IS NULL")
     datasheets.extract_facts("doc_fact", allowed_document_ids=scope)
-    assert connect().execute("SELECT DISTINCT input_hash FROM submittal_facts"
-                             ).fetchall()[0][0] == first
+    assert [r[0] for r in connect().execute(current).fetchall()] == [first]
 
     # A different file under the same chunks is a different input.
     with connect() as conn:
         conn.execute("UPDATE documents SET sha256 = 'other-bytes' WHERE id = 'doc_fact'")
     datasheets.extract_facts("doc_fact", allowed_document_ids=scope)
-    assert connect().execute("SELECT DISTINCT input_hash FROM submittal_facts"
-                             ).fetchall()[0][0] != first
+    [changed] = [r[0] for r in connect().execute(current).fetchall()]
+    assert changed != first
 
 
 # ------------------------------------------------------------ visibility
