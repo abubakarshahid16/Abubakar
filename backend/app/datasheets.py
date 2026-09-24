@@ -646,6 +646,14 @@ _HEADING_WORDS = frozenset({
 })
 
 
+#: B4: a bracket holding only standard-clause references - "(6.3.10)",
+#: "(8.3.3.2 b)", "(8.1.1 c, 8.3.3.5)". A dotted number is required, so a
+#: note number "(1)", a unit "(USGPM)" or a location "(MSL)" never matches.
+_CLAUSE_REF_BRACKET = re.compile(
+    r"\(\s*\d+(?:\.\d+)+(?:\s*[a-z]\b)?"
+    r"(?:\s*[,;&]?\s*\d+(?:\.\d+)+(?:\s*[a-z]\b)?)*\s*\)", re.IGNORECASE)
+
+
 def normalise_field_name(label: str) -> str:
     """A field label reduced to a comparable name.
 
@@ -653,10 +661,16 @@ def normalise_field_name(label: str) -> str:
     trailing clause references removed - "Design/Operating pressure (Note - 3)"
     and "DESIGN / OPERATING PRESSURE:" are the same field asked twice.
 
+    B4: AN API CLAUSE REFERENCE IS NOT PART OF THE NAME. "CASING TYPE:
+    (6.3.10)" was stored as the field "casing type 6 3 10" - the dots and
+    brackets went and the digits stayed - so no requirement about the casing
+    type could ever name it. Measured: 58 of the pump sheet's 175 facts.
+
     THE ORIGINAL LABEL IS KEPT BESIDE THIS, always. A normalised name is for
     matching; the reader is shown what the document actually wrote.
     """
     text = re.sub(r"\((?:note|see|ref)[^)]*\)", " ", label or "", flags=re.IGNORECASE)
+    text = _CLAUSE_REF_BRACKET.sub(" ", text)
     text = re.sub(r"[^\w\s/]", " ", text)
     text = re.sub(r"\s+", " ", text).strip().lower()
     return text
