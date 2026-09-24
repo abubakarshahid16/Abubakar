@@ -765,8 +765,10 @@ PHASE_4 = (
         id="M56", phase=5,
         description="promote a value into a field label, inventing blank fields",
         path=APP / "datasheets.py",
-        anchor="        if not is_field_label(label):\n            continue",
-        replacement="        if False:\n            continue",
+        # Re-anchored 2026-09-24: #179 moved this gate into a helper that
+        # returns None; the old `continue` anchor matched 0 times.
+        anchor="    if not is_field_label(label):\n        return None",
+        replacement="    if False:\n        return None",
         target="tests/test_datasheets.py",
         keyword="value_is_never_promoted_into_a_field_label",
         tags=("honesty", "datasheet"),
@@ -1365,8 +1367,9 @@ DATASHEET = (
         description="stop taking the unit out of the label, losing it with no "
                     "trace that it existed",
         path=APP / "datasheets.py",
-        anchor="        label, carried = _unit_in_label(label)",
-        replacement="        label, carried = label, None",
+        # Re-anchored 2026-09-24: one indent level shallower after #179.
+        anchor="    label, carried = _unit_in_label(label)",
+        replacement="    label, carried = label, None",
         target="tests/test_datasheet_unit_layouts.py",
         keyword="unit_inside_the_label",
         tags=("critical",),
@@ -1491,8 +1494,13 @@ MATCHER = (
         description="treat a small integer followed by a unit as a line "
                     "number again, discarding most numeric rows on a page",
         path=APP / "datasheets.py",
-        anchor=("        if re.fullmatch(r" + chr(34) + chr(92) + "d{1,3}" + chr(34) + ", value) and not _unit_follows(parts, index + 2):"),
-        replacement=("        if re.fullmatch(r" + chr(34) + chr(92) + "d{1,3}" + chr(34) + ", value):"),
+        # Re-anchored 2026-09-24: #179 split the condition over two lines and
+        # added `not value_on_a_slot`; the mutation still removes only the
+        # unit-follows exemption.
+        anchor=(r'        if (not value_on_a_slot and re.fullmatch(r"\d{1,3}", value)'
+                "\n"
+                r'                and not _unit_follows(parts, index + 2)):'),
+        replacement=r'        if (not value_on_a_slot and re.fullmatch(r"\d{1,3}", value)):',
         target="tests/test_fact_gates.py",
         keyword="line_number or followed_by_a_unit",
         tags=("critical",),
@@ -2187,7 +2195,10 @@ REPEATED_FORM = (
         description="count an EMPTY cell as an answer, which makes every "
                     "header look answered on every page",
         path=APP / "datasheets.py",
-        anchor="            if answer:\n                answered_pages[name].add(page)",
+        # Re-anchored 2026-09-24: #179 added `and states_a_value(value)`.
+        # Replacing the whole condition keeps the original meaning - any cell,
+        # empty or not, counts as an answer.
+        anchor="            if answer and states_a_value(value):\n                answered_pages[name].add(page)",
         replacement="            if True:\n                answered_pages[name].add(page)",
         target="tests/test_repeated_form.py",
         keyword="mostly_empty_label or title_block",
@@ -2321,8 +2332,9 @@ RANGES_AND_COMPOUNDS = (
         description="REWRITE THE DEGREE GLYPH ANYWHERE, turning any word "
                     "ending in oc into a temperature",
         path=APP / "datasheets.py",
-        anchor=r'_DEGREE_GLYPH = re.compile(r"(?<=\d)[Oo]([CF])\b")',
-        replacement=r'_DEGREE_GLYPH = re.compile(r"[Oo]([CF])\b")',
+        # Re-anchored 2026-09-24: #179 added the º glyph to the class.
+        anchor=r'_DEGREE_GLYPH = re.compile(r"(?<=\d)[Ooº]([CF])\b")',
+        replacement=r'_DEGREE_GLYPH = re.compile(r"[Ooº]([CF])\b")',
         target="tests/test_ranges_and_compounds.py",
         keyword="word_ending_in_oc",
         tags=("critical",),
@@ -2376,8 +2388,10 @@ RANGES_AND_COMPOUNDS = (
         description="drop the range from the value gate, so every range is "
                     "discarded as free text before it reaches create_fact",
         path=APP / "datasheets.py",
-        anchor="            if parsed_value is None and parse_range(value) is not None:",
-        replacement="            if False:",
+        # Re-anchored 2026-09-24: #179 moved the value gate into its one home,
+        # `states_a_value`, which `extract_facts` gates on.
+        anchor="    if parsed is None and parse_range(value) is not None:\n        parsed = \"range\"",
+        replacement="    if False:\n        parsed = \"range\"",
         target="tests/test_ranges_and_compounds.py",
         keyword="survives_the_value_gate",
         tags=("critical",),
@@ -4595,18 +4609,143 @@ B179_ROW_NUMBERED_TABLE_ROWS = (
                     "(issue #179: bare-digit field names and page-title "
                     "text leaking into field_label)",
         path=APP / "datasheets.py",
+        # Anchor moved by #179's second pass (phase 52), which put the
+        # column-aware numbered-row reader inside this same branch.
         anchor="        if re.fullmatch(r\"\\d{1,3}\", label):\n"
-               "            compact = [c for c in cells if c]\n"
-               "            out.extend(split_label_value(compact))\n"
-               "            continue",
+               "            if 0 in serials:\n",
         replacement="        if False:\n"
-                    "            compact = [c for c in cells if c]\n"
-                    "            out.extend(split_label_value(compact))\n"
-                    "            continue",
+                    "            if 0 in serials:\n",
         target="tests/test_datasheets.py",
         keyword="test_179_a_dual_subform_row_keeps_each_side_s_own_label or "
                 "test_179_a_row_numbered_form_does_not_quote_the_page_s_own_title",
+        # + tests/test_179_layouts.py's genuine dual-column page, run by M406.
         tags=("honesty", "critical"),
+    ),
+)
+
+
+#: Issue #179, second pass. Phase 52, ids M400-M409.
+_EVAL = REPO / "scripts" / "eval_extraction.py"
+B179_EXTRACTION_QUALITY_2 = (
+    Mutation(
+        id="M400", phase=52,
+        description="stop telling a DUPLICATE extracted row from a SPURIOUS "
+                    "one in the scoring harness's breakdown, so 150 repeats "
+                    "of one row read as 150 invented facts (issue #179)",
+        path=_EVAL,
+        anchor="        if identity in matched_identities or identity in spurious_seen:",
+        replacement="        if False:",
+        target="tests/test_eval_extraction_harness.py",
+        keyword="duplicates_and_spurious or nobody_asked_for",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M401", phase=52,
+        description="let an EMPTY gold denominator through the scoring "
+                    "harness, so a sheet that parsed to nothing prints F1 "
+                    "0.0000 as if it were a measurement (issue #179)",
+        path=_EVAL,
+        anchor="    if not any(not g[\"is_blank\"] for g in gold_fields):",
+        replacement="    if False:",
+        target="tests/test_eval_extraction_harness.py",
+        keyword="empty_gold_denominator or empty_denominator",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M402", phase=52,
+        description="let ZERO extracted rows through the scoring harness "
+                    "without the explicit waiver, so a wrong --doc or --db "
+                    "scores as a real zero (issue #179)",
+        path=_EVAL,
+        anchor="    if not got_fields and not allow_empty_extraction:",
+        replacement="    if False:",
+        target="tests/test_eval_extraction_harness.py",
+        keyword="zero_extracted_rows",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M403", phase=52,
+        description="drop the breakdown from the persisted scoring JSON, so "
+                    "the only record a reader finds is the folded F1 "
+                    "(issue #179 criterion 3)",
+        path=_EVAL,
+        anchor='        "breakdown": breakdown(gold_fields, got_fields),\n',
+        replacement="",
+        target="tests/test_eval_extraction_harness.py",
+        keyword="persists_the_breakdown",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M404", phase=52,
+        description="stop collapsing the two readers' readings of one printed "
+                    "cell, so a wrapped or double-spaced cell is stored twice "
+                    "on the same page (issue #179, valve sheet)",
+        path=APP / "datasheets.py",
+        anchor="        pairs_by_page[page] = collapse_double_reads(split)",
+        replacement="        pairs_by_page[page] = split",
+        target="tests/test_179_layouts.py",
+        keyword="one_printed_cell_read_by_both_readers",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M405", phase=52,
+        description="drop the page from the duplicate key, so the same value "
+                    "for a DIFFERENT valve on another page is deleted as a "
+                    "duplicate (issue #179: legitimate repeats must stay)",
+        path=APP / "datasheets.py",
+        anchor="                key = (page, *_same_cell_key(label, value))",
+        replacement="                key = _same_cell_key(label, value)",
+        target="tests/test_179_layouts.py",
+        keyword="same_value_for_a_different_valve",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M406", phase=52,
+        description="stop reading a numbered table row by its columns, so a "
+                    "small-integer value is discarded as a line number and a "
+                    "clause column takes the label's place (issue #179)",
+        path=APP / "datasheets.py",
+        anchor="            if 0 in serials:\n",
+        replacement="            if False:\n",
+        target="tests/test_179_layouts.py",
+        keyword="small_integer_in_the_value_column or clause_number_column",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M407", phase=52,
+        description="let a page title carried across every column act as a "
+                    "column header again, so it is appended to field labels "
+                    "and the equipment tag (issue #179 criterion 2)",
+        path=APP / "datasheets.py",
+        anchor='    header = [text if i == 0 or spread.get(text, 0) < 3 else ""',
+        replacement='    header = [text if True else ""',
+        target="tests/test_179_layouts.py",
+        keyword="page_title_is_never_part or not_polluted_by_the_page_title",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M408", phase=52,
+        description="count a title-block fragment ('OF') as an answer in the "
+                    "furniture rule, so a title-block row is promoted to a "
+                    "field and a stray number becomes a fact (issue #179)",
+        path=APP / "datasheets.py",
+        anchor="            if answer and states_a_value(value):",
+        replacement="            if answer:",
+        target="tests/test_repeated_form.py",
+        keyword="title_block_fragment_is_not_an_answer",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M409", phase=52,
+        description="stop cutting an underscore-slot line into its fields, so "
+                    "a line of several label + drawn-slot pairs is one "
+                    "unlabelled cell again (issue #179, pump sheet recall)",
+        path=APP / "datasheets.py",
+        anchor="                 for piece in split_drawn_slots(c.strip())]",
+        replacement="                 for piece in [c.strip()]]",
+        target="tests/test_179_layouts.py",
+        keyword="each_drawn_slot_on_a_line_is_its_own_field",
+        tags=("honesty",),
     ),
 )
 
@@ -4893,6 +5032,7 @@ ALL: tuple[Mutation, ...] = (
     + B50_MODEL_SCHEMA + PROVIDER_SEAM + INGEST_FACT_WIRING + B9_EQUIPMENT_TYPE
     + B175_CASCADE_AND_CONFIDENCE + B163_EVIDENCE_TYPE_GATE
     + B168_PIPELINE_REPAIR + B179_ROW_NUMBERED_TABLE_ROWS
+    + B179_EXTRACTION_QUALITY_2
     + B176_SUBMITTAL_METADATA
     + B177_JOB_CLAIM_RETRY_PRIORITY
 )

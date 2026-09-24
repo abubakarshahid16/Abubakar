@@ -125,12 +125,21 @@ the script says so and exits 0. Otherwise any real decrease in `filled` F1 or
 `all_slots` F1 - beyond 1e-9 - exits 1 naming the metric and the drop.
 
 PRIVACY. Read-only throughout: `file:...?mode=ro`. Output goes to
-`.cowork/eval/` and nowhere else, because it carries verbatim client field
-names and values. No network.
+`.cowork/eval/` (or `--out-dir`, which must be another gitignored place such
+as the main checkout's `.cowork/eval/`) and nowhere else, because it carries
+verbatim client field names and values. No network.
 
     python scripts/eval_extraction.py --doc doc_da3fcc0aaacc --gold gold/M03-FIELDS.csv
     python scripts/eval_extraction.py --doc <pressure-vessel-datasheet-doc-id> --gold gold/PAIRS-TEMPLATE.csv
     python scripts/eval_extraction.py --doc X --gold Y --rows model_output.json
+    python scripts/eval_extraction.py --doc X --gold Y --db <copy.sqlite> --out-dir <dir>
+
+BREAKDOWN (#179). Beside the P/R/F1 the output carries `breakdown`: filled
+slots recovered / wrong value / not extracted, blank-by-design slots, and
+extracted rows split into matched / DUPLICATE / SPURIOUS - never one number.
+AN EMPTY DENOMINATOR IS A HARNESS FAILURE: no gold rows in scope, no filled
+gold rows, or (unless --allow-empty-extraction) no extracted rows exits 2 and
+writes nothing.
 """
 
 from __future__ import annotations
@@ -259,8 +268,13 @@ def notes_pages(gold: list[dict], override: list[int] | None) -> set[int]:
 
 
 # ------------------------------------------------------------------ extraction
-def open_db_readonly() -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{settings.db_path}?mode=ro", uri=True)
+def open_db_readonly(db_path: Path | None = None) -> sqlite3.Connection:
+    path = Path(db_path) if db_path is not None else settings.db_path
+    if not path.exists():
+        # sqlite would CREATE an empty file here and the run would then score
+        # zero rows - an empty denominator dressed as a result.
+        raise HarnessFailure(f"database not found: {path}")
+    conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -534,6 +548,101 @@ def score(gold: list[dict], got: list[dict], label: str) -> dict:
     }
 
 
+class HarnessFailure(RuntimeError):
+    """A run that cannot produce a score. Never printed as F1 0.0000."""
+
+
+def require_denominators(gold_fields: list[dict], got_fields: list[dict], *,
+                         allow_empty_extraction: bool) -> None:
+    """ISSUE #179: AN EMPTY DENOMINATOR IS A HARNESS FAILURE, NOT A SCORE.
+
+    A gold sheet whose header parsed but whose rows did not, a notes-page
+    override that swallowed every page, or a document id that matched no
+    stored row all used to print `F1 0.0000` - indistinguishable from an
+    extractor that genuinely read nothing right. Each is a broken RUN.
+
+    Zero extracted rows CAN be a real result (the live table held no facts
+    for one regression datasheet before #175), so that side alone may be
+    waived - explicitly, by the caller, never by default.
+    """
+    # ONE CHECK, deliberately: an empty gold scope also has an empty FILLED
+    # scope, so a separate "no rows at all" test was dead code (mutation M401
+    # found it - no test could tell the two apart).
+    if not any(not g["is_blank"] for g in gold_fields):
+        raise HarnessFailure(
+            f"filled gold denominator is 0 ({len(gold_fields)} gold field rows "
+            "in scope, none filled - empty sheet, or every page excluded as a "
+            "notes page). The headline figure would be meaningless.")
+    if not got_fields and not allow_empty_extraction:
+        raise HarnessFailure(
+            "extracted denominator is 0: no extracted rows in scope for this "
+            "document (wrong --doc, wrong --db, or an extraction that never "
+            "ran). Pass --allow-empty-extraction only if an empty extraction "
+            "is the result you mean to record.")
+
+
+def _row_identity(row: dict) -> tuple:
+    """What makes two EXTRACTED rows the same row: page, name, value, unit
+    and blankness. Used only to tell a duplicate from a spurious row."""
+    return (row["page"], norm_name(row["field_name"]), fold_value(row["value"]),
+            fold_value(row["unit"]), bool(row["is_blank"]))
+
+
+def breakdown(gold_fields: list[dict], got_fields: list[dict]) -> dict:
+    """ISSUE #179: every gold slot and every extracted row, counted ONCE, in
+    the category it belongs to - never folded into one number.
+
+    Gold side: filled slots recovered / given a wrong value / not extracted;
+    blank-by-design slots recovered as blank / given a value / not extracted.
+
+    Extracted side: MATCHED to a gold slot (right or wrong value), a
+    DUPLICATE of another extracted row (same page, name, value, unit), or
+    SPURIOUS - no gold slot on that page. In a group of identical rows none
+    of which matched a slot, one is spurious and the rest are duplicates: the
+    extractor invented one thing and then repeated it.
+
+    Name + value + unit + page are scored together - `match_all` pairs within
+    a page and `values_agree` compares value and unit.
+    """
+    pairs, _miss_gold, extra_got, _fuzzy = match_all(gold_fields, got_fields)
+    out = {
+        "gold_filled": sum(1 for g in gold_fields if not g["is_blank"]),
+        "gold_blank_by_design": sum(1 for g in gold_fields if g["is_blank"]),
+        "filled_recovered": 0, "filled_wrong_value": 0, "filled_not_extracted": 0,
+        "blank_by_design_recovered": 0, "blank_by_design_given_a_value": 0,
+        "blank_by_design_not_extracted": 0,
+        "extracted_total": len(got_fields),
+        "extracted_matched": len(pairs),
+        "extracted_matched_wrong_value": 0,
+        "extracted_duplicates": 0, "extracted_spurious": 0,
+    }
+    matched_gold: set[int] = set()
+    matched_identities: set[tuple] = set()
+    for g, e, _score in pairs:
+        matched_gold.add(id(g))
+        matched_identities.add(_row_identity(e))
+        agree, _why = values_agree(g, e)
+        if not agree:
+            out["extracted_matched_wrong_value"] += 1
+        if g["is_blank"]:
+            out["blank_by_design_recovered" if agree else "blank_by_design_given_a_value"] += 1
+        else:
+            out["filled_recovered" if agree else "filled_wrong_value"] += 1
+    for g in gold_fields:
+        if id(g) not in matched_gold:
+            out["blank_by_design_not_extracted" if g["is_blank"] else "filled_not_extracted"] += 1
+
+    spurious_seen: set[tuple] = set()
+    for e in extra_got:
+        identity = _row_identity(e)
+        if identity in matched_identities or identity in spurious_seen:
+            out["extracted_duplicates"] += 1
+        else:
+            spurious_seen.add(identity)
+            out["extracted_spurious"] += 1
+    return out
+
+
 def headline(result: dict) -> str:
     note = ""
     if result["precision_undefined"]:
@@ -621,28 +730,61 @@ def main() -> int:
         help="override rule 2: treat these pages as prose notes. By default the "
              "pages are read from the gold sheet's own `note` text.",
     )
+    ap.add_argument(
+        "--db", type=Path, default=None,
+        help="score the submittal_facts of THIS database file (opened "
+             "read-only) instead of settings.db_path - e.g. a disposable copy "
+             "re-extracted by scripts/reextract_on_copy.py",
+    )
+    ap.add_argument(
+        "--out-dir", type=Path, default=OUT_DIR,
+        help="where the result JSON is written (default: <repo>/.cowork/eval, "
+             "gitignored). From a git worktree, point this at the main "
+             "checkout's .cowork/eval so runs are found by the regression gate.",
+    )
+    ap.add_argument(
+        "--label", default="",
+        help="appended to the output filename (letters, digits, '-', '_'), so "
+             "two runs at one commit do not overwrite each other",
+    )
+    ap.add_argument(
+        "--allow-empty-extraction", action="store_true",
+        help="record a run with ZERO extracted rows as a result. Without this "
+             "an empty extraction is a harness failure (exit 2).",
+    )
     args = ap.parse_args()
+    if args.label and not re.fullmatch(r"[A-Za-z0-9_-]+", args.label):
+        ap.error("--label may contain only letters, digits, '-' and '_'")
 
     commit = git_commit()
     gold_sha = sha256_of(args.gold)
     gold, shape = load_gold(args.gold)
     prose = notes_pages(gold, args.notes_pages)
 
-    if args.rows is not None:
-        got = rows_from_json(args.rows)
-        source = f"--rows {args.rows.name}"
-    else:
-        conn = open_db_readonly()
-        try:
-            got = facts_from_db(conn, args.doc)
-        finally:
-            conn.close()
-        source = f"submittal_facts of {args.doc}"
+    try:
+        if args.rows is not None:
+            got = rows_from_json(args.rows)
+            source = f"--rows {args.rows.name}"
+        else:
+            conn = open_db_readonly(args.db)
+            try:
+                got = facts_from_db(conn, args.doc)
+            finally:
+                conn.close()
+            source = (f"submittal_facts of {args.doc}"
+                      + (f" in {args.db.name}" if args.db is not None else ""))
 
-    gold_fields = [g for g in gold if g["page"] not in prose]
-    got_fields = [e for e in got if e["page"] not in prose]
-    gold_notes = [g for g in gold if g["page"] in prose]
-    got_notes = [e for e in got if e["page"] in prose]
+        gold_fields = [g for g in gold if g["page"] not in prose]
+        got_fields = [e for e in got if e["page"] not in prose]
+        gold_notes = [g for g in gold if g["page"] in prose]
+        got_notes = [e for e in got if e["page"] in prose]
+        require_denominators(gold_fields, got_fields,
+                             allow_empty_extraction=args.allow_empty_extraction)
+    except HarnessFailure as exc:
+        # Nothing is written: a failed run must not leave a score behind for
+        # the regression gate to compare against.
+        print(f"HARNESS FAILURE: {exc}", file=sys.stderr)
+        return 2
 
     metrics = {
         # Rule 1, headline: can it read what is printed?
@@ -661,8 +803,12 @@ def main() -> int:
         "notes": score(gold_notes, got_notes, "notes"),
     }
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / f"extraction-{args.doc}-{commit}.json"
+    out_dir = args.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Two runs at one commit (the live copy and a re-extracted copy, say)
+    # would otherwise overwrite each other's evidence.
+    suffix = f"-{args.label}" if args.label else ""
+    out_path = out_dir / f"extraction-{args.doc}-{commit}{suffix}.json"
 
     payload = {
         "header": HEADER,
@@ -695,9 +841,11 @@ def main() -> int:
             "extracted_rows_on_notes_pages": len(got_notes),
         },
         "metrics": metrics,
+        # #179: every slot and every extracted row in exactly one category.
+        "breakdown": breakdown(gold_fields, got_fields),
     }
 
-    prior = previous_run(OUT_DIR, args.doc, args.previous)
+    prior = previous_run(out_dir, args.doc, args.previous)
     code, lines = compare(payload, prior)
     payload["comparison"] = lines
     payload["regression"] = code != 0
@@ -717,6 +865,7 @@ def main() -> int:
     print(f"misses (filled): {len(head['misses'])}   "
           f"false extractions (filled): {len(head['false_extractions'])}   "
           f"of which on UNSURE gold rows: {head['misses_on_unsure_rows']}")
+    print("breakdown (field pages only): " + json.dumps(payload["breakdown"]))
     print(f"written: {out_path}")
     for line in lines:
         print(line)
