@@ -58,6 +58,19 @@ def test_eval_extraction_scores_current_facts_only(tmp_path, with_column):
     assert len(got) == 1, "a superseded row was scored as an extracted fact"
 
 
+def test_eval_extraction_compares_the_printed_label(tmp_path):
+    """B4: the answer key records each field AS PRINTED ("CASING TYPE:
+    (6.3.10)"); the product's normalised name drops the clause reference.
+    Scoring the normalised name against the printed key would count a
+    correctly-read field as missed - so the printed label is compared."""
+    ev = _load("eval_extraction")
+    conn = _db(tmp_path, with_column=True)
+    conn.execute("UPDATE submittal_facts SET field_name = 'casing type',"
+                 " field_label = 'CASING TYPE: (6.3.10)' WHERE id = 'new'")
+    [got] = ev.facts_from_db(conn, "doc")
+    assert ev.norm_name(got["field_name"]) == ev.norm_name("CASING TYPE: (6.3.10)")
+
+
 def test_gold_pairs_score_hands_the_matcher_current_facts_only(tmp_path):
     gp = _load("gold_pairs_score")
     conn = _db(tmp_path, with_column=True)

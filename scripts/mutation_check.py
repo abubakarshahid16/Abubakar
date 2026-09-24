@@ -2265,7 +2265,8 @@ RANGES_AND_COMPOUNDS = (
         description="parse the value of a compound label that never split, "
                     "recording a number against two fields at once",
         path=APP / "datasheets.py",
-        anchor="    if not blank and compound_label_parts(field_label) is not None:",
+        # Re-anchored by B4 fix 5: the condition gained "not one_quantity and".
+        anchor="    if not blank and not one_quantity and compound_label_parts(field_label) is not None:",
         replacement="    if False:",
         target="tests/test_ranges_and_compounds.py",
         keyword="did_not_split_stores_no_parsed_value",
@@ -4483,9 +4484,14 @@ B175_CASCADE_AND_CONFIDENCE = (
                     "OCR, so a low-confidence guess can overwrite a "
                     "confident native fact",
         path=APP / "datasheets.py",
+        # Re-anchored by B4 fix 5: grid_by_page[page] now sits between these
+        # two lines, and the guard gained "and not grid_by_page[page]".
         anchor="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
-               "        if not found:",
+               "        # B4 fix 5: column grids, read by word position (see grid_facts).\n"
+               "        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n"
+               "        if not found and not grid_by_page[page]:",
         replacement="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
+                    "        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n"
                     "        if True:",
         target=_B175_DATASHEET_TEST,
         keyword="a_page_with_no_native_pairs_falls_back_to_its_ocr_text or "
@@ -5460,6 +5466,192 @@ B193_PAIRING = (
 )
 
 
+#: Master order B4: the pump datasheet's layout defects. Phase 59.
+_B4_TEST = "tests/test_b4_pump_layouts.py"
+B4_PUMP_LAYOUTS = (
+    Mutation(
+        id="M483", phase=59,
+        description="PUT IT BACK: an API clause reference stays in the field "
+                    "name as digits ('casing type 6 3 10') (B4 fix 1)",
+        path=APP / "datasheets.py",
+        anchor="    text = _CLAUSE_REF_BRACKET.sub(\" \", text)\n",
+        replacement="",
+        target=_B4_TEST, keyword="clause_reference_is_not_part or printed_label_keeps",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M484", phase=59,
+        description="strip ANY bracket holding a digit, so a note number or a "
+                    "unit bracket is cut out of a real field name (B4 fix 1, "
+                    "negative)",
+        path=APP / "datasheets.py",
+        anchor='    r"\\(\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?"\n'
+               '    r"(?:\\s*[,;&]?\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?)*\\s*\\)", re.IGNORECASE)\n',
+        replacement='    r"\\([^)]*\\d[^)]*\\)", re.IGNORECASE)\n',
+        target=_B4_TEST, keyword="not_a_clause_stays",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M485", phase=59,
+        description="the extraction scorer compares the normalised name again, "
+                    "so a correctly read field whose clause reference left the "
+                    "name counts as missed (B4 measurement)",
+        path=REPO / "scripts" / "eval_extraction.py",
+        anchor='            "field_name": (r["field_label"] or r["field_name"] or "").strip(),\n',
+        replacement='            "field_name": (r["field_name"] or r["field_label"] or "").strip(),\n',
+        target="tests/test_scorers_read_current_facts.py", keyword="printed_label",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M486", phase=59,
+        description="PUT IT BACK: a YES/NO answer is stored as the value of a "
+                    "quantity limit ('max relative density = YES') (B4 fix 2)",
+        path=APP / "datasheets.py",
+        anchor="                if checkbox_on_quantity(label, value):\n",
+        replacement="                if False:\n",
+        target=_B4_TEST, keyword="page_five_shape",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M487", phase=59,
+        description="refuse a yes/no answer on ANY label naming a quantity, so "
+                    "a real question ('variable speed required = NO') loses "
+                    "its answer (B4 fix 2, negative)",
+        path=APP / "datasheets.py",
+        anchor="    return bool(_LIMIT_WORD.search(text) and _QUANTITY_NOUN.search(text))\n",
+        replacement="    return bool(_QUANTITY_NOUN.search(text))\n",
+        target=_B4_TEST, keyword="real_yes_no_question",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M488", phase=59,
+        description="PUT IT BACK: a two-unit cell 'm3/h (USGPM)' becomes a "
+                    "field label again (B4 fix 3)",
+        path=APP / "datasheets.py",
+        anchor="    if is_unit_cell(candidate):\n        return False\n",
+        replacement="",
+        target=_B4_TEST, keyword="unit_cell_is_never or no_unit_named_field",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M489", phase=59,
+        description="refuse a bare unit word as a label, so the pump sheet's "
+                    "'RPM' slot loses its field (B4 fix 3, negative)",
+        path=APP / "datasheets.py",
+        anchor='    return "(" in (text or "") and primary_unit(text) is not None\n',
+        replacement="    return primary_unit(text) is not None\n",
+        target=_B4_TEST, keyword="bare_unit_word",
+    ),
+    Mutation(
+        id="M490", phase=59,
+        description="ignore the unit a grid row states, so '24.8 (109)' under "
+                    "'m3/h (USGPM)' has no unit (B4 fix 3)",
+        path=APP / "datasheets.py",
+        anchor="    if value is not None and unit is None and unit_hint:\n",
+        replacement="    if False:\n",
+        target=_B4_TEST, keyword="takes_the_primary_unit",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M491", phase=59,
+        description="let the layout's unit hint override a unit printed in the "
+                    "value itself (B4 fix 3, negative)",
+        path=APP / "datasheets.py",
+        anchor="    if value is not None and unit is None and unit_hint:\n",
+        replacement="    if value is not None and unit_hint:\n",
+        target=_B4_TEST, keyword="not_overridden",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M492", phase=59,
+        description="stop reading an en dash as a range separator, so '5 - 150 "
+                    "M' printed with an en dash loses both ends (B4 fix 4 lock)",
+        path=APP / "datasheets.py",
+        anchor='(?:to|through|\\.\\.\\.|–|—|-)',
+        replacement='(?:to|through|\\.\\.\\.|—|-)',
+        target=_B4_TEST, keyword="every_dash_spelling or en_dash_range",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M493", phase=59,
+        description="create_fact stops keeping a range's two ends (B4 fix 4 lock)",
+        path=APP / "datasheets.py",
+        anchor="    found = None if blank else parse_range(raw_value)\n",
+        replacement="    found = None\n",
+        target=_B4_TEST, keyword="elevation_row or en_dash_range",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M494", phase=59,
+        description="PUT IT BACK: the column grid reader never runs, so the "
+                    "process-data rows (flow, temperature, pressures) stay "
+                    "dropped (B4 fix 5)",
+        path=APP / "datasheets.py",
+        anchor='        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n',
+        replacement="        grid_by_page[page] = []\n",
+        target=_B4_TEST, keyword="each_value_is_read_under_its_column",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M495", phase=59,
+        description="a value whose box straddles two columns is filed under "
+                    "one of them anyway, inventing which column it is in "
+                    "(B4 fix 5, negative)",
+        path=APP / "datasheets.py",
+        anchor="                column = next((name for left, right, name in value_bands\n"
+               "                               if x0 >= left - 0.5 and x1 <= right + 0.5), None)\n",
+        replacement="                column = min(value_bands, key=lambda b: abs((b[0] + b[1]) / 2 - (x0 + x1) / 2))[2]\n",
+        target=_B4_TEST, keyword="value_between_two_columns",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M496", phase=59,
+        description="a grid row with no column decided is written as a "
+                    "confident fact rather than routed to an engineer (B4 "
+                    "fix 5)",
+        path=APP / "datasheets.py",
+        anchor='                        validation_state=(None if cell["column"] or grid_blank\n'
+               "                                          else NEEDS_ENGINEER_REVIEW),\n",
+        replacement="                        validation_state=None,\n",
+        target=_B4_TEST, keyword="value_between_two_columns",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M498", phase=59,
+        description="a shared-noun compound like 'DESIGN / OPERATING "
+                    "PRESSURE' is treated as one quantity, attaching a real "
+                    "number to the wrong half of the pair (B4 fix 5, negative)",
+        path=APP / "datasheets.py",
+        anchor="    return all(len(part.strip(\" :\").split()) == 1 for part in found[1])\n",
+        replacement="    return True\n",
+        target=_B4_TEST, keyword="shared_noun_compound_stays_unparsed",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M499", phase=59,
+        description="a lone 'OC' with no printed Fahrenheit alternate is "
+                    "decoded as degrees anyway (B4 fix 5, negative)",
+        path=APP / "datasheets.py",
+        anchor="    return primary_unit(text)\n",
+        replacement='    return "\\u00b0C" if text.strip().upper() == "OC" else primary_unit(text)\n',
+        target=_B4_TEST, keyword="lone_degree_glyph_is_not_decoded",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M500", phase=59,
+        description="every grid cell is treated as blank for routing, so a "
+                    "REAL reading with no decided column ('7.6 (110)', "
+                    "straddling Rated/Normal) is accepted as confident instead "
+                    "of routed to an engineer (B4 fix 5)",
+        path=APP / "datasheets.py",
+        anchor="                grid_blank, _marker = is_blank_value(cell[\"value\"])\n",
+        replacement="                grid_blank, _marker = True, \"*\"\n",
+        target=_B4_TEST, keyword="value_between_two_columns",
+        tags=("honesty", "critical"),
+    ),
+)
+
+
 ALL: tuple[Mutation, ...] = (
     PHASE_1 + PHASE_2 + PHASE_2_XLSX + PHASE_2_UI + PHASE_3A + PHASE_3A_UI
     + PHASE_3B + PHASE_4 + PHASE_5A + PHASE_5B + ROLES_FIX + DISCIPLINE
@@ -5482,6 +5674,7 @@ ALL: tuple[Mutation, ...] = (
     + B177_JOB_CLAIM_RETRY_PRIORITY
     + B3_PAGE_LEDGER
     + B193_PAIRING
+    + B4_PUMP_LAYOUTS
 )
 
 
