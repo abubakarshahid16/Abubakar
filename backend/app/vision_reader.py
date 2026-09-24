@@ -500,6 +500,11 @@ def locate_on_page(row: ProposedRow, words) -> ProposedRow:
         several columns without saying which.
     """
     page = _page_tokens(words)
+    if not tokens(row.value):
+        # Nothing but markers ('*', '____'): the model reported a blank slot,
+        # and it was asked for printed values only.
+        row.outcome, row.note = DROPPED, "the proposed value is only a blank marker"
+        return row
     if any(piece and not norm_token(piece) for piece in re.split(r"\s+", row.value)):
         # A piece that is ONLY a marker - '*', a drawn '____' - is the sheet
         # saying "not filled in". Measured: `* to * m3/h` validated on its

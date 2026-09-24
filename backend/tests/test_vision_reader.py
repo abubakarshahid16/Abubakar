@@ -380,7 +380,8 @@ def test_180_a_blank_marker_proposed_as_a_value_is_never_a_fact(tmp_path, monkey
     is not a printed value; it goes to review."""
     monkeypatch.setattr(settings, "vision_enabled", True)
     stub["provider"] = StubProvider([["Capacity", "Normal", "100.2", ""],
-                                     ["Rated flow", "Normal", "* to * m3/h", ""]])
+                                     ["Rated flow", "Normal", "* to * m3/h", ""],
+                                     ["NPSH available", "Normal", "*", ""]])
 
     def page(p):
         _draw_grid(p)
@@ -395,6 +396,10 @@ def test_180_a_blank_marker_proposed_as_a_value_is_never_a_fact(tmp_path, monkey
               if f["extraction_method"].startswith("vision")}
     assert vision["100.2"]["validation_state"] is None, "the control was not a fact"
     assert vision["* to * m3/h"]["validation_state"] == datasheets.NEEDS_ENGINEER_REVIEW
+    # A value that is NOTHING but a marker is a reported blank, and the model
+    # was asked for printed values: dropped, not queued (measured: ~30 such
+    # rows on one real page would otherwise flood engineer review).
+    assert "*" not in vision
 
 
 # ======================================================== recognised pages
