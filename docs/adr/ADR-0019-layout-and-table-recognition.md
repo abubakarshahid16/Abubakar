@@ -40,7 +40,67 @@
 
 ## Measured benefit on our data
 
-**Not measured.** No Docling run has been made on this corpus.
+**Measured 2026-09-25 (owner-approved benchmark). Result: NOT ADOPTED - no
+measured gain.**
+
+Setup, exactly as approved: Docling 2.130.0 + torch 2.14.0 in a throwaway
+venv OUTSIDE the repo (`C:\project\docling-bench`), not in the project's
+dependencies; COPIES of the three regression PDFs split to their table
+pages (every page of all three has a table: vessel 11, PSV 5, pump 7);
+Ollama stopped for the run and restarted after; no cloud call. Weights were
+downloaded ONCE from the official HuggingFace repositories on the first run
+and hashed:
+
+| file | size | sha256 |
+|---|---|---|
+| docling-layout-heron `model.safetensors` (snapshot 8f39ad3c) | 164 MB | `00333a43451945aaf89db8ca9c0a17e75d1537c17db60fdb91aa95f4c7929e0c` |
+| docling-models `tableformer_accurate.safetensors` (snapshot fc0f2d45) | 203 MB | `2a7d6c924b3cd12fb99a09280ca9c33a89c5d60b93253617d2e088c1a40374d9` |
+| docling-models `tableformer_fast.safetensors` (snapshot fc0f2d45) | 139 MB | `3119563aab5a7c96fda4d621119b63fd8806272b86c30936d15507616422f718` |
+
+Cost on this laptop (i7-1255U, CPU only, Ollama stopped):
+
+| sheet | table pages | tables found | pairs exported | wall time | per page | peak RSS |
+|---|---|---|---|---|---|---|
+| vessel | 11 | 12 | 529 | 467 s | 42 s | 2.33 GB |
+| PSV | 5 | 5 | 830 | 218 s | 44 s | 2.13 GB |
+| pump | 7 | 4 | 43 | 155 s | 22 s | 2.43 GB |
+
+Quality on the one sheet with a gold key (pump, `gold/M03-FIELDS.csv`,
+scored by `scripts/eval_extraction.py --rows`, same harness as the live
+reader):
+
+| reader | filled P | filled R | filled F1 | all-slots F1 |
+|---|---|---|---|---|
+| current rule reader (live, range-aware, commit 81337df) | 0.698 (30/43) | 0.186 (30/161) | **0.294** | **0.504** |
+| Docling (table cells -> label/value, first column = label) | 0.372 (16/43) | 0.099 (16/161) | 0.157 | 0.073 |
+
+Docling found tables on only 3 of the pump's 7 pages and reads no blank
+slots, so both headline numbers fall. Caveat, stated not hidden: the
+label/value export is a first-column-is-label rule written for the
+benchmark; a smarter export over TableFormer's row/column headers could
+score higher. That is not a reason to adopt - it is a reason the gain, if
+any, is unproven.
+
+The question the benchmark was run for - issue #193's biggest lever, the
+vessel's pages 6-11 that the rule reader reads nothing from - answered
+page by page:
+
+| vessel page | content | Docling pairs | usable as label/value? |
+|---|---|---|---|
+| 6 | nozzle schedule | 123 | **no** - header row lost; labels come out as "row number + nozzle mark" ("4 N1 5") with the title-block text as the column header, and a row's cells (size, NPS, rating, facing) split into separate "values" |
+| 7 | drawing sheet | 0 | - |
+| 8, 9, 10 | notes | 10 each | **no** - only the repeated drawing title block (DWG TYPE, PLANT NO, DRAWING NO); the notes themselves are not tables |
+| 11 | standard-drawings applicability checklist | 53 | partly - drawing number + "X" marks, not design data |
+
+**Decision (rule from this ADR: adopt only if it lifts filled-F1 without
+dropping all-slots F1): NOT ADOPTED.** Both fall on the pump sheet, and on
+the vessel it does not turn the nozzle schedule or notes into usable
+label/value pairs. The integration risk above (torch in an ONNX-only stack;
+~2.3 GB per run, so it cannot run beside Ollama and the API on 16 GB)
+stands unchanged. The throwaway venv and cached weights stay outside the
+repo; nothing was added to `requirements.txt`. For #193's table pages the
+next candidate is the adopted local text model reading a table page's
+native text into verified pairs, which needs its own measured pilot.
 
 ## Cost on the stated hardware (estimate)
 
