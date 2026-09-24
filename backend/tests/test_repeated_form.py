@@ -153,11 +153,14 @@ def test_a_mostly_empty_label_with_stray_values_is_furniture():
         "the title block was promoted to a field by its own stray fragments")
 
 
+#: #179: an ANSWER is a value a fact could be made of (`states_a_value`), so
+#: the boundary tests below answer in quantities. They used the letters
+#: "a", "b", "c", which no longer count as answers - see the next test.
 def test_answered_on_exactly_half_the_pages_is_still_furniture():
     """THE BOUNDARY, and it is MORE than half. Half a form is not a form -
     and an off-by-one here is the difference between a title block that is
     stripped and one that files a fact."""
-    pages = {1: [("Somewhere", "a")], 2: [("Somewhere", "b")],
+    pages = {1: [("Somewhere", "1 bar")], 2: [("Somewhere", "2 bar")],
              3: [("Somewhere", "")], 4: [("Somewhere", "")]}
 
     assert "somewhere" in datasheets.furniture_labels(pages)
@@ -166,10 +169,27 @@ def test_answered_on_exactly_half_the_pages_is_still_furniture():
 def test_answered_on_more_than_half_is_a_field():
     """The guard on the boundary above: one more answered page and the same
     label is a field, so the test is standing where the comparison decides."""
-    pages = {1: [("Somewhere", "a")], 2: [("Somewhere", "b")],
-             3: [("Somewhere", "c")], 4: [("Somewhere", "")]}
+    pages = {1: [("Somewhere", "1 bar")], 2: [("Somewhere", "2 bar")],
+             3: [("Somewhere", "3 bar")], 4: [("Somewhere", "")]}
 
     assert "somewhere" not in datasheets.furniture_labels(pages)
+
+
+def test_a_title_block_fragment_is_not_an_answer():
+    """#179, MEASURED ON THE REAL VESSEL SHEET after its page title stopped
+    being appended to the title-block labels: the site-name row now carries
+    the same label on every page, beside the word `OF` (from "SHEET n OF
+    11") on four pages, a stray `D` on one and a stray `2003` on another.
+    Counting `OF` as an answer made that "answered on most pages, several
+    distinct answers" - a field - and `2003` became a numeric fact.
+    `OF` states nothing a fact could hold, so it is not an answer."""
+    pages = {p: [("SITE NAME FACILITY", "")] for p in range(1, 10)}
+    for p in (3, 4, 5, 6):
+        pages[p] = [("SITE NAME FACILITY", "OF")]
+    pages[7] = [("SITE NAME FACILITY", "2003")]
+
+    assert "site name facility" in datasheets.furniture_labels(pages), (
+        "a title-block row was promoted to a field by the word OF")
 
 
 def test_both_conditions_are_required_not_either():
