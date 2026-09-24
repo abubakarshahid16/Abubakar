@@ -1,0 +1,25 @@
+#!/bin/sh
+# Live-checkout guard (owner rule 2026-09-25). The MAIN working tree is the
+# checkout the live server runs from and must stay on `main`. Git has no
+# pre-checkout hook, so this post-checkout hook reports a switch to any other
+# branch as REFUSED and switches straight back (scripts/worktree_guard.py).
+#
+# Linked worktrees (.claude/worktrees/*) exit here, in shell, BEFORE any
+# Python: a worktree checked out at an older commit may not contain
+# worktree_guard.py at all, and a failing hook would make `git worktree add`
+# itself fail (caught by test_the_hook_leaves_a_linked_worktree_on_its_branch).
+#
+# $3 = 1 for a branch checkout, 0 for a file checkout (git checkout -- <path>).
+[ "$3" = "1" ] || exit 0
+git_dir="$(git rev-parse --path-format=absolute --git-dir)"
+common="$(git rev-parse --path-format=absolute --git-common-dir)"
+[ "$git_dir" = "$common" ] || exit 0
+top="$(git rev-parse --show-toplevel)"
+guard="$top/scripts/worktree_guard.py"
+if [ ! -f "$guard" ]; then
+  echo "live-checkout guard: $guard missing - cannot check the branch" >&2
+  exit 0
+fi
+py="${WORKTREE_GUARD_PYTHON:-$top/.venv/Scripts/python.exe}"
+[ -x "$py" ] || py="python"
+exec "$py" "$guard" --post-checkout

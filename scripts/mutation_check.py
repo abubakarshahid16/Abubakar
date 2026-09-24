@@ -6067,6 +6067,30 @@ B5_STANDARDS_INVENTORY = (
         keyword="a_synonym_inside_a_longer_word_does_not_count",
         tags=("honesty", "model"),
     ),
+    Mutation(
+        id="M531", phase=61,
+        description="treat every working tree as a linked worktree, so the "
+                    "live checkout on a feature branch is never flagged",
+        path=REPO / "scripts" / "worktree_guard.py",
+        anchor="    return git_dir == common",
+        replacement="    return False",
+        target="tests/test_worktree_guard.py",
+        keyword="the_main_working_tree_on_another_branch_is_a_violation",
+        tags=("safety", "live"),
+    ),
+    Mutation(
+        id="M532", phase=61,
+        description="report the violation but never switch back, so the "
+                    "live checkout stays on the feature branch",
+        path=REPO / "scripts" / "worktree_guard.py",
+        anchor='    back = subprocess.run(["git", "checkout", LIVE_BRANCH], cwd=cwd,\n'
+               '                          capture_output=True, text=True)',
+        replacement='    back = subprocess.run(["git", "status"], cwd=cwd,\n'
+                    '                          capture_output=True, text=True)',
+        target="tests/test_worktree_guard.py",
+        keyword="the_hook_switches_the_live_checkout_straight_back_to_main",
+        tags=("safety", "live"),
+    ),
 )
 
 
