@@ -558,6 +558,524 @@ def classify_equipment_type_for_submittal(
     return evidence
 
 
+# ------------------------------------------- submittal title-block fields (#176)
+#
+# THE SAME DISCIPLINE AS B9's equipment type above, for the fields a
+# datasheet's TITLE BLOCK labels: document number, revision, project, service,
+# equipment tags and - from the title phrase only - discipline. Scoped to
+# CONTRACTOR_SUBMITTAL, never auto-confirmed, never over a human's record,
+# NULL whenever the document's own text does not say.
+#
+# READ FROM `pages`, NOT `chunks`, and this is the one place it differs from
+# the equipment-type classifier. Measured on the three real regression
+# datasheets: chunk text has every newline collapsed to a space, so "Rev."
+# followed by a table ROW NUMBER on the next line reads as "Rev. 2" - a
+# revision that does not exist - and a chunk's `page_start` puts page 2's
+# "Rev. No.: 4" on page 1. The title-block labels are LINE-shaped, and the
+# `pages` table is the only stored text that still has lines and exact pages.
+# A page whose text came only from OCR (`page_ocr`) is NOT read, so a scanned
+# submittal gets NULL here rather than a value from recognised text nobody
+# has checked.
+#
+# EVERY PATTERN IS A LABEL, NEVER A GUESS. Each field is written only when a
+# LABEL the datasheet prints ("Doc. No.:", "PROJECT NO.", "Rev. No.:", "Tag
+# No.", a "SERVICE" form cell) is followed by a value; an unlabelled string
+# that merely looks like a document number or a tag is not evidence of which
+# one it is. Scalar fields that DISAGREE across pages are a conflict and stay
+# NULL - picking one would be the guess this module exists not to make.
+#
+# CONFIDENCE is an ordinal ranking of how directly the label names the field,
+# not a calibrated probability, and it is capped below 0.9 so it never reads
+# as "high" (CLAUDE.md rule 4).
+
+#: Bumped whenever a pattern or rule below changes, so a stored
+#: `field_evidence[<field>].classifier_version` says which rules produced it.
+SUBMITTAL_METADATA_CLASSIFIER_VERSION = "submittal-metadata-v1"
+
+#: The `audit_events.action` written when a stored value is REPLACED.
+FIELD_RECLASSIFIED_ACTION = "classification_field_reclassified"
+
+#: The fields in this issue's scope that have NO automated writer, and why.
+#: Stated in code rather than only in an issue comment, so the next reader of
+#: `classify_metadata_for_submittal` finds the decision where the writer is.
+OUT_OF_SCOPE_FIELDS: dict[str, str] = {
+    "contractor_vendor": (
+        "No real submittal in the corpus names one: all three regression "
+        "datasheets are purchaser-issued forms whose vendor cells are blank "
+        "placeholders ('* MANUFACTURER / SUPPLIER TO ADVISE', an empty 'MAKE / "
+        "MFR.' cell, no vendor field at all on the vessel sheet). Where the "
+        "label exists it is COMPONENT-scoped - the pump form prints "
+        "MANUFACTURER for the pump, the driver and the coupling - and nothing "
+        "in the extracted text binds a line to its component, so a filled "
+        "sheet would let a writer record the motor maker as the vendor. The "
+        "authoritative source is the transmittal, outside the document: an "
+        "administrator records it through confirm()."),
+    "cited_standards": (
+        "Not stored on the classification row. applicability."
+        "_referenced_in_submittal re-reads them from the submittal's own "
+        "chunks with datasheets.referenced_standards every time a review, the "
+        "dashboard or the CRS export asks, so a stored copy would be a second "
+        "source of truth that goes stale on re-chunk."),
+}
+
+#: Fields whose values are a SHORT CONTROLLED VOCABULARY, and therefore
+#: response-safe enough for `audit_events.detail` - the same test the
+#: equipment-type audit applies to its labels. Every other field here is free
+#: document text (a document number, a project number, a service name) and
+#: its values never enter the audit log; the superseded value is kept beside
+#: the field in `field_evidence` instead.
+_CONTROLLED_VOCABULARY_FIELDS = frozenset({"discipline"})
+
+#: The columns this classifier may write. `field` names are interpolated into
+#: SQL below and are NEVER caller data - this tuple is the whitelist.
+SUBMITTAL_METADATA_FIELDS: tuple[str, ...] = (
+    "document_number", "revision", "project", "service", "discipline",
+    "equipment_tags",
+)
+
+_FLAGS = re.I | re.M
+
+#: "Doc. No.:", "DOCUMENT NO.", "DATA SHEET NO.:", "CONTRACTOR DOC NO:".
+#: ANCHORED AT LINE START, which is what refuses "SUBCONTRACTOR DOC NO: NA"
+#: and "LICENSOR DOC NO: NA" (the vessel sheet prints both beneath the real
+#: number) - they are other parties' numbers, not this document's.
+_DOC_NUMBER = re.compile(
+    r"^[ \t]*(?:CONTRACTOR[ \t]+)?(?:DOC(?:UMENT)?\.?|DATA[ \t]*SHEET)"
+    r"[ \t]*NO\b\.?[ \t]*:?[ \t]*(?P<value>\S+)", _FLAGS)
+
+#: "Rev. No.: 4", "Rev. 1", "Rev. 00". The value must be ON THE LABEL'S OWN
+#: LINE: the pump sheet's revision-table header prints "Rev." with the form's
+#: ROW NUMBER on the next line, and `\s` here instead of `[ \t]` would read
+#: that row number as a revision. One or two digits, or ONE letter - so
+#: "REV NO" can never read as revision "NO".
+_REVISION = re.compile(
+    r"^[ \t]*REV(?:ISION)?\b\.?[ \t]*(?:NO\b\.?)?[ \t]*:?[ \t]*"
+    r"(?P<value>\d{1,2}|[A-Z])[ \t]*$", _FLAGS)
+
+#: "Project: RFP - 1234567", "PROJECT NO.: ...", "PROJECT NO. AB/1234". The
+#: label must be PROJECT followed directly by NO/NUMBER or a colon, which is
+#: what refuses "Project country :" and "Project region :".
+_PROJECT = re.compile(
+    r"^[ \t]*PROJECT[ \t]*(?:(?:NO\b\.?|NUMBER)[ \t]*:?|:)[ \t]*"
+    r"(?P<value>[^\n]*?)[ \t]*$", _FLAGS)
+
+#: A SERVICE label: either "SERVICE: <value>" on one line (the colon is
+#: required, so "SERVICE ORDER NO." and "SERVICE FACTOR" never match), or a
+#: bare "SERVICE" line whose value is the form cell on the NEXT line, written
+#: as an underscore-filled blank ("______RECYCLE WATER PUMPS______" - the
+#: pump sheet's own shape). A bare next line that is NOT a filled form cell -
+#: a nozzle table's "Service" header over "2003" or "Inlet" - is not a value.
+_SERVICE_SAME_LINE = re.compile(
+    r"^[ \t]*SERVICE[ \t]*:[ \t]*(?P<value>[^\n]*[A-Za-z][^\n]*?)[ \t]*$", _FLAGS)
+_SERVICE_LABEL_LINE = re.compile(r"^[ \t]*SERVICE[ \t]*:?[ \t]*$", re.I)
+_FORM_CELL = re.compile(r"^[ \t]*_{2,}(?P<value>[^_\n]+?)_*[ \t]*$")
+
+#: API 610's "SERVICE: CONTINUOUS / INTERMITTENT" is the DUTY CYCLE, printed
+#: under the same word on the same form as the equipment's service. A duty
+#: word is never what the equipment is for.
+_SERVICE_DUTY_WORDS = frozenset({
+    "CONTINUOUS", "INTERMITTENT", "STANDBY", "SPARE", "CYCLIC", "BATCH",
+    "YES", "NO", "NA", "N/A", "TBA", "TBC", "TBD"})
+
+#: "Tag No.", "Tag number", "TAG No. :", "Item No.:". A value ending in "&"
+#: or "," continues on the next line (the pump sheet wraps its item list).
+_TAGS = re.compile(
+    r"^[ \t]*(?:TAG[ \t]*(?:NO\b\.?|NUMBER)|ITEM[ \t]*NO\b\.?)[ \t]*:?[ \t]*"
+    r"(?P<value>[^\n]*)$", _FLAGS)
+#: One tag: hyphenated alphanumeric groups with a digit, an optional "/B"
+#: joined suffix and an optional spaced "A/B" train suffix - kept VERBATIM,
+#: never expanded into A and B, because expansion is an inference.
+_TAG_TOKEN = re.compile(
+    r"\b[A-Z0-9]+(?:-[A-Z0-9]+)+(?:/[A-Z0-9]+)*(?:[ \t][A-Z](?:/[A-Z])+)?")
+_PARENTHETICAL = re.compile(r"\([^()]*\)")
+
+#: "MECHANICAL DATASHEET" as the TITLE of the document: line start, and on
+#: the FIRST page only. The same phrase deeper in a document names a section
+#: or another deliverable ("based on the Process Datasheet ..."), not this
+#: one's discipline. A closed list, mapped to one spelling each.
+_DISCIPLINE_TITLE = re.compile(
+    r"^[ \t]*(?P<value>MECHANICAL|PROCESS|INSTRUMENT(?:ATION)?|ELECTRICAL"
+    r"|PIPING|CIVIL|STRUCTURAL|TELECOM(?:MUNICATIONS?)?|HVAC)"
+    r"[ \t]+DATA[ \t]*SHEETS?\b", _FLAGS)
+_DISCIPLINE_LABELS = {
+    "MECHANICAL": "Mechanical", "PROCESS": "Process",
+    "INSTRUMENT": "Instrumentation", "INSTRUMENTATION": "Instrumentation",
+    "ELECTRICAL": "Electrical", "PIPING": "Piping", "CIVIL": "Civil",
+    "STRUCTURAL": "Structural", "TELECOM": "Telecommunications",
+    "TELECOMMUNICATION": "Telecommunications",
+    "TELECOMMUNICATIONS": "Telecommunications", "HVAC": "HVAC",
+}
+
+_CONFIDENCE = {
+    "document_number": 0.8, "revision": 0.75, "project": 0.75,
+    "equipment_tags": 0.75, "service": 0.7, "discipline": 0.7,
+}
+
+_DASHES = re.compile(r"[?-??]")
+
+
+@dataclass(frozen=True)
+class FieldEvidence:
+    """One field's value and where the document says it.
+
+    `page`/`quote` are the FIRST occurrence in reading order; `pages` is every
+    page that stated the same value, so a reader can see a title-block field
+    repeated on every sheet rather than asserted once.
+    """
+
+    field: str
+    value: object
+    page: int
+    quote: str
+    pages: list
+    method: str
+    confidence: float
+    classifier_version: str
+
+    def as_dict(self, classified_at: str) -> dict:
+        return {
+            "value": self.value, "page": self.page, "quote": self.quote,
+            "pages": list(self.pages), "method": self.method,
+            "confidence": self.confidence,
+            "classifier_version": self.classifier_version,
+            "classified_at": classified_at,
+        }
+
+
+@dataclass(frozen=True)
+class MetadataSuggestion:
+    """What the title block says. `conflicts` holds every field whose pages
+    disagreed - reported, and deliberately NOT resolved."""
+
+    found: dict
+    conflicts: dict
+
+
+def _identity(value: str) -> str:
+    """Punctuation, dash style and case are not identity; the characters are.
+    "RFP - 1234567" and "RFP ? 1234567" (an en dash, on the next sheet) are one
+    project number."""
+    return re.sub(r"[^A-Z0-9]", "", _DASHES.sub("-", value).upper())
+
+
+def _clean(value: str) -> str:
+    value = _DASHES.sub("-", value)
+    # A run of 3+ spaces ends a cell: "PROJECT NO.: X      Sheet 2 of 7".
+    value = re.split(r"[ \t]{3,}", value.strip())[0]
+    return value.strip(" \t_*.,;:")
+
+
+def _is_placeholder(value: str) -> bool:
+    upper = value.strip().upper()
+    return (not upper or upper in _SERVICE_DUTY_WORDS
+            or upper.startswith("BY ") or not re.search(r"[A-Z0-9]", upper))
+
+
+def _line_of(text: str, match: "re.Match[str]") -> str:
+    start = text.rfind("\n", 0, match.start()) + 1
+    end = text.find("\n", match.start())
+    return _SPACE.sub(" ", text[start:end if end != -1 else None]).strip()
+
+
+def _document_number_hits(page_no: int, text: str) -> list[tuple[str, str]]:
+    hits = []
+    for match in _DOC_NUMBER.finditer(text):
+        value = _clean(match.group("value"))
+        # A document number carries a digit AND a separator. "NA", a blank
+        # form cell and a bare word are not one.
+        if re.search(r"\d", value) and re.search(r"[-/]", value) \
+                and not _is_placeholder(value):
+            hits.append((value, _line_of(text, match)))
+    return hits
+
+
+def _revision_hits(page_no: int, text: str) -> list[tuple[str, str]]:
+    return [(m.group("value").upper(), _line_of(text, m))
+            for m in _REVISION.finditer(text)]
+
+
+def _project_hits(page_no: int, text: str) -> list[tuple[str, str]]:
+    hits = []
+    for match in _PROJECT.finditer(text):
+        value = _clean(match.group("value"))
+        # A project IDENTIFIER, which carries a digit. "Project: A Refinery
+        # Debottlenecking Project" is a name, and names vary between sheets
+        # of the same project; recording one as the filter key would split
+        # one project into several.
+        if re.search(r"\d", value) and not _is_placeholder(value):
+            hits.append((value, _line_of(text, match)))
+    return hits
+
+
+def _service_hits(page_no: int, text: str) -> list[tuple[str, str]]:
+    hits = []
+    for match in _SERVICE_SAME_LINE.finditer(text):
+        value = _clean(match.group("value"))
+        if not _is_placeholder(value):
+            hits.append((value, _line_of(text, match)))
+    lines = text.split("\n")
+    for index, line in enumerate(lines[:-1]):
+        if not _SERVICE_LABEL_LINE.match(line):
+            continue
+        cell = _FORM_CELL.match(lines[index + 1])
+        if cell is None:
+            continue
+        value = _clean(cell.group("value"))
+        if not _is_placeholder(value) and re.search(r"[A-Za-z]{3}", value):
+            quote = _SPACE.sub(" ", f"{line.strip()} {lines[index + 1].strip()}")
+            hits.append((value, quote))
+    return hits
+
+
+def _tag_hits(page_no: int, text: str) -> list[tuple[list[str], str]]:
+    hits = []
+    lines = text.split("\n")
+    for match in _TAGS.finditer(text):
+        value = match.group("value")
+        quote = _line_of(text, match)
+        if value.rstrip().endswith(("&", ",")):
+            # The wrapped continuation: the pump sheet's item list breaks
+            # after "&" and finishes on the next line.
+            line_index = text.count("\n", 0, match.start())
+            if line_index + 1 < len(lines):
+                value = f"{value} {lines[line_index + 1]}"
+                quote = _SPACE.sub(" ", f"{quote} {lines[line_index + 1].strip()}")
+        # Remarks in brackets name LOCATIONS ("for AREA-9, 10 & 19"), never
+        # tags, and their hyphenated area codes look exactly like one.
+        value = _PARENTHETICAL.sub(" ", value)
+        tags = [t.strip() for t in _TAG_TOKEN.findall(value)
+                if re.search(r"\d", t)]
+        if tags:
+            hits.append((tags, quote))
+    return hits
+
+
+def _discipline_hits(page_no: int, text: str) -> list[tuple[str, str]]:
+    return [(_DISCIPLINE_LABELS[m.group("value").upper()], _line_of(text, m))
+            for m in _DISCIPLINE_TITLE.finditer(text)]
+
+
+_SCALAR_READERS = (
+    ("document_number", _document_number_hits),
+    ("revision", _revision_hits),
+    ("project", _project_hits),
+    ("service", _service_hits),
+    ("discipline", _discipline_hits),
+)
+
+
+def suggest_submittal_metadata(pages: Sequence[dict]) -> MetadataSuggestion:
+    """The title-block fields a submittal's OWN PAGE TEXT labels.
+
+    `pages` is `[{"page_no": int, "text": str}, ...]` - a `pages` row read
+    with `dict()`. Sorted here so "first occurrence" means reading order.
+
+    NEVER GUESSES: a field with no labelled value is simply absent from
+    `found`, and a scalar field whose pages DISAGREE is absent from `found`
+    and listed in `conflicts` with every value seen.
+    """
+    ordered = sorted(pages, key=lambda p: p.get("page_no") or 0)
+    first_page = ordered[0].get("page_no") if ordered else None
+    found: dict = {}
+    conflicts: dict = {}
+
+    for field_name, reader in _SCALAR_READERS:
+        occurrences: list[tuple[int, str, str]] = []
+        for page in ordered:
+            page_no = page.get("page_no")
+            if field_name == "discipline" and page_no != first_page:
+                continue
+            for value, quote in reader(page_no, page.get("text") or ""):
+                occurrences.append((page_no, value, quote))
+        if not occurrences:
+            continue
+        keys = {_identity(value) for _p, value, _q in occurrences}
+        if len(keys) > 1:
+            conflicts[field_name] = sorted({value for _p, value, _q in occurrences})
+            continue
+        page_no, value, quote = occurrences[0]
+        found[field_name] = FieldEvidence(
+            field=field_name, value=value, page=page_no, quote=quote,
+            pages=sorted({p for p, _v, _q in occurrences}),
+            method="title_block_label" if field_name != "discipline"
+            else "title_phrase_match",
+            confidence=_CONFIDENCE[field_name],
+            classifier_version=SUBMITTAL_METADATA_CLASSIFIER_VERSION)
+
+    # Tags are MANY by nature: a union in reading order, not a conflict.
+    tags: list[str] = []
+    tag_pages: list[int] = []
+    first: tuple[int, str] | None = None
+    for page in ordered:
+        for page_tags, quote in _tag_hits(page.get("page_no"), page.get("text") or ""):
+            if first is None:
+                first = (page.get("page_no"), quote)
+            if page.get("page_no") not in tag_pages:
+                tag_pages.append(page.get("page_no"))
+            for tag in page_tags:
+                if tag not in tags:
+                    tags.append(tag)
+    if tags and first is not None:
+        found["equipment_tags"] = FieldEvidence(
+            field="equipment_tags", value=tags, page=first[0], quote=first[1],
+            pages=tag_pages, method="title_block_label",
+            confidence=_CONFIDENCE["equipment_tags"],
+            classifier_version=SUBMITTAL_METADATA_CLASSIFIER_VERSION)
+
+    return MetadataSuggestion(found=found, conflicts=conflicts)
+
+
+def _load_evidence(raw: str | None) -> dict:
+    try:
+        value = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _stored_value(row, field_name: str):
+    value = row[field_name]
+    if field_name == "equipment_tags":
+        try:
+            decoded = json.loads(value or "[]")
+        except (TypeError, ValueError):
+            decoded = []
+        return decoded if isinstance(decoded, list) and decoded else None
+    return value
+
+
+def _audit_field_change(document_id: str, *, field_name: str, old_value,
+                        evidence: FieldEvidence, classified_by: str) -> None:
+    """One `audit_events` row per REPLACED value - the equipment-type pattern.
+
+    Old and new values are included ONLY for a controlled-vocabulary field.
+    A document number, project number or service name is the document's own
+    text, and `audit_events.detail` is "response-safe detail only" (its
+    schema comment); for those the superseded value is kept in
+    `field_evidence[field].superseded` on the row instead, which is where a
+    reader looking at the field will look for its history.
+
+    Swallows its own failure for the reason `_audit_equipment_type_change`
+    gives: an unwritable audit log must not fail an otherwise good ingest.
+    """
+    detail = {
+        "field": field_name, "method": evidence.method,
+        "confidence": evidence.confidence,
+        "classifier_version": evidence.classifier_version,
+    }
+    if field_name in _CONTROLLED_VOCABULARY_FIELDS:
+        detail["old"] = old_value
+        detail["new"] = evidence.value
+    else:
+        detail["previous_value_kept_in"] = "document_classification.field_evidence"
+    try:
+        conn = connect()
+        with conn:
+            conn.execute(
+                "INSERT INTO audit_events (at, actor_user_id, actor_username,"
+                " action, resource_type, resource_id, outcome, detail)"
+                " VALUES (?, NULL, ?, ?, 'document_classification', ?, 'ok', ?)",
+                (_now(), classified_by, FIELD_RECLASSIFIED_ACTION, document_id,
+                 json.dumps(detail)))
+    except Exception:  # noqa: BLE001 - see docstring
+        pass
+
+
+def classify_metadata_for_submittal(
+    document_id: str, *, classified_by: str = "submittal_metadata_classifier",
+) -> dict:
+    """Infer and store the title-block fields of ONE CONTRACTOR_SUBMITTAL.
+
+    Returns `{field: FieldEvidence}` for every field actually WRITTEN (empty
+    when nothing was). THE GUARDS, each a reason to write nothing:
+
+      1. No classification row, or the role is not CONTRACTOR_SUBMITTAL.
+      2. `confirmed_by` is set: an administrator's record is not ours.
+      3. PER FIELD: the column already holds a value this classifier did not
+         write (no `field_evidence` entry of its own) - the register tier, a
+         `set_discipline` backfill, anything a person put there. Unknown
+         provenance is treated as somebody else's decision.
+      4. PER FIELD: no labelled value, or pages that disagree.
+
+    A value the classifier wrote before and that no longer matches is LEFT as
+    it was - the equipment-type rule: a re-run that finds nothing has found
+    no evidence against the old value either.
+
+    RECLASSIFICATION IS VERSIONED: replacing a stored value appends the old
+    value to `field_evidence[field].superseded` and writes one
+    `audit_events` row; the first classification of a NULL field does not.
+    """
+    conn = connect()
+    existing = conn.execute(
+        "SELECT * FROM document_classification WHERE document_id = ?",
+        (document_id,)).fetchone()
+    if existing is None or existing["document_role"] != "CONTRACTOR_SUBMITTAL":
+        return {}
+    if existing["confirmed_by"] is not None:
+        return {}
+
+    pages = [dict(r) for r in conn.execute(
+        "SELECT page_no, text FROM pages WHERE document_id = ?"
+        " ORDER BY page_no", (document_id,))]
+    suggestion = suggest_submittal_metadata(pages)
+    if not suggestion.found:
+        return {}
+
+    evidence_map = _load_evidence(existing["field_evidence"])
+    now = _now()
+    written: dict = {}
+    replaced: list[tuple[str, object, FieldEvidence]] = []
+    for field_name in SUBMITTAL_METADATA_FIELDS:
+        evidence = suggestion.found.get(field_name)
+        if evidence is None:
+            continue
+        current = _stored_value(existing, field_name)
+        ours = field_name in evidence_map
+        if current is not None and not ours:
+            continue
+        entry = evidence.as_dict(now)
+        superseded = list((evidence_map.get(field_name) or {}).get("superseded") or [])
+        if current is not None and current != evidence.value:
+            previous = evidence_map.get(field_name) or {}
+            superseded.append({
+                "value": current, "page": previous.get("page"),
+                "classifier_version": previous.get("classifier_version"),
+                "classified_at": previous.get("classified_at"),
+                "superseded_at": now})
+            replaced.append((field_name, current, evidence))
+        if superseded:
+            entry["superseded"] = superseded
+        evidence_map[field_name] = entry
+        written[field_name] = evidence
+
+    if not written:
+        return {}
+
+    assignments: list[str] = []
+    values: list[object] = []
+    for field_name, evidence in written.items():
+        assignments.append(f"{field_name} = ?")
+        values.append(json.dumps(evidence.value) if field_name == "equipment_tags"
+                      else evidence.value)
+        if field_name == "discipline":
+            # Rule 8: both columns at the same write, as `write_suggestion`
+            # and `confirm` do, so the canonical one can never lag.
+            assignments.append("discipline_canonical = ?")
+            values.append(disciplines_mod.canonical(evidence.value))
+    assignments.append("field_evidence = ?")
+    values.append(json.dumps(evidence_map))
+    with conn:
+        conn.execute(
+            f"UPDATE document_classification SET {', '.join(assignments)}"
+            " WHERE document_id = ?", [*values, document_id])
+
+    for field_name, old_value, evidence in replaced:
+        _audit_field_change(document_id, field_name=field_name,
+                            old_value=old_value, evidence=evidence,
+                            classified_by=classified_by)
+    return written
+
+
 # ------------------------------------------------------------------- storage
 
 def write_suggestion(document_id: str, suggestion: Suggestion, *,
@@ -853,6 +1371,28 @@ def confirm(document_id: str, *, doc_type: str | None,
                 "UPDATE document_classification SET equipment_tags = ?"
                 " WHERE document_id = ?",
                 (json.dumps([str(t) for t in equipment_tags]), document_id))
+        # #176's per-field evidence, cleared for EXACTLY the fields this PUT
+        # replaced - the same reason `equipment_type_evidence` is cleared
+        # above: a classifier's page and quote for a value an administrator
+        # has just overwritten would misdescribe the new value. `discipline`
+        # is always replaced here; the metadata columns only when `metadata`
+        # was sent; the tags only when they were. Evidence for a field this
+        # call did not touch still describes that field and is kept.
+        replaced = {"discipline"}
+        if metadata is not None:
+            replaced.update(METADATA_FIELDS)
+        if equipment_tags is not None:
+            replaced.add("equipment_tags")
+        row = conn.execute(
+            "SELECT field_evidence FROM document_classification"
+            " WHERE document_id = ?", (document_id,)).fetchone()
+        kept = {name: entry for name, entry in
+                _load_evidence(row["field_evidence"] if row else None).items()
+                if name not in replaced}
+        conn.execute(
+            "UPDATE document_classification SET field_evidence = ?"
+            " WHERE document_id = ?",
+            (json.dumps(kept) if kept else None, document_id))
         conn.execute("DELETE FROM document_subjects WHERE document_id = ?",
                      (document_id,))
         for subject_id in subject_ids or ():
@@ -887,6 +1427,8 @@ def of_document(document_id: str) -> dict | None:
     except (TypeError, ValueError):
         evidence = None
     out["equipment_type_evidence"] = evidence if isinstance(evidence, dict) else None
+    # #176's per-field provenance map, same tolerance. NULL/malformed -> None.
+    out["field_evidence"] = _load_evidence(out.get("field_evidence")) or None
     out["subjects"] = [dict(r) for r in connect().execute(
         "SELECT s.id, s.name, s.kind, ds.suggested_by, ds.confirmed_by"
         " FROM document_subjects ds JOIN subjects s ON s.id = ds.subject_id"

@@ -562,6 +562,17 @@ CREATE TABLE IF NOT EXISTS document_classification (
     -- through `confirm()` instead - a human's decision carries no classifier
     -- evidence to record.
     equipment_type_evidence TEXT,
+    -- #176: ONE JSON OBJECT for every other automatically classified field,
+    -- keyed by column name - {"revision": {value, page, quote, pages, method,
+    -- confidence, classifier_version, classified_at, superseded: [...]}}.
+    -- One map rather than a column per field: six more *_evidence columns
+    -- would be six more places for rule 8's "fixed in one of two places" to
+    -- happen, and nothing joins or filters on provenance. A field ABSENT from
+    -- the map was not written by the classifier (NULL, or set by a person or
+    -- the register) and the classifier will not overwrite it.
+    -- `superseded` is where a replaced free-text value is kept, because the
+    -- audit log may not carry document text (audit_events.detail comment).
+    field_evidence TEXT,
     -- A JSON array as TEXT. Acceptable here because it is a flat list of tags
     -- nothing joins on, filters by, or audits. The applicable-standards
     -- relation is a TABLE for exactly the opposite reason.
@@ -774,6 +785,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
             # `equipment_type` untouched and gains NULL evidence until the
             # classifier next runs over it.
             "equipment_type_evidence",
+            # #176's per-field evidence map. Additive and nullable: an
+            # existing row gains NULL, meaning no classifier wrote any of
+            # its fields - which is true of every row written before it.
+            "field_evidence",
         ):
             if _column not in classification_cols:
                 conn.execute(
