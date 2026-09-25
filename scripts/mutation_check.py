@@ -4287,8 +4287,12 @@ PROVIDER_SEAM = (
         description="swallow a transport failure into an empty answer instead "
                     "of a named refusal",
         path=APP / "reasoning_provider.py",
-        anchor='            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc',
-        replacement='            raw = {"response": "", "model": self.requested_model}',
+        anchor=("        # ruff's blind-except rule is about swallowing, which this does not do.\n"
+                "        except Exception as exc:\n"
+                '            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc'),
+        replacement=("        # ruff's blind-except rule is about swallowing, which this does not do.\n"
+                     "        except Exception as exc:\n"
+                     '            raw = {"response": "", "model": self.requested_model}'),
         target=_PROVIDER_TEST, keyword="transport_failure_is_a_named_refusal",
         tags=("honesty", "critical"),
     ),
