@@ -43,6 +43,8 @@ the draft route is a read and needs only read access to the run.
 
 from __future__ import annotations
 
+from pydantic import BaseModel, ConfigDict
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from . import access, errors
@@ -161,7 +163,23 @@ def _datasheet_summary(submittal_id: str, scope: access.AccessScope) -> dict:
     }
 
 
-@router.post("/api/reviews/runs/{review_run_id}/claude/select-standards")
+class ClaudeRouteResult(BaseModel):
+    """What every Claude-lane route answers: the settlement fields `_settle`
+    adds (counts, whether the run completed or hit its call cap, usage and
+    the running spend) plus the route's own result fields, which differ per
+    route and are carried as extras. Typed where the lane is uniform."""
+
+    model_config = ConfigDict(extra="allow")
+
+    counts: dict = {}
+    complete: bool
+    calls_this_run: int | None = None
+    call_cap: int | None = None
+    usage: dict = {}
+    spend_total: dict = {}
+
+
+@router.post("/api/reviews/runs/{review_run_id}/claude/select-standards", response_model=ClaudeRouteResult)
 def claude_select_standards(
     review_run_id: str, request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
@@ -190,7 +208,7 @@ def claude_select_standards(
     }, exhausted, model_call)
 
 
-@router.post("/api/reviews/runs/{review_run_id}/claude/read-datasheet")
+@router.post("/api/reviews/runs/{review_run_id}/claude/read-datasheet", response_model=ClaudeRouteResult)
 def claude_read_datasheet(
     review_run_id: str, request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
@@ -218,7 +236,7 @@ def claude_read_datasheet(
     }, exhausted, model_call)
 
 
-@router.post("/api/reviews/runs/{review_run_id}/claude/recheck")
+@router.post("/api/reviews/runs/{review_run_id}/claude/recheck", response_model=ClaudeRouteResult)
 def claude_recheck_findings(
     review_run_id: str, request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
@@ -247,7 +265,7 @@ def claude_recheck_findings(
     }, exhausted, model_call)
 
 
-@router.get("/api/reviews/runs/{review_run_id}/claude/crs-draft")
+@router.get("/api/reviews/runs/{review_run_id}/claude/crs-draft", response_model=ClaudeRouteResult)
 def claude_crs_draft(
     review_run_id: str, request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
