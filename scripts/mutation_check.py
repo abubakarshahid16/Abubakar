@@ -6223,6 +6223,49 @@ B5_STANDARDS_INVENTORY = (
         keyword="unknown_equipment_type_never_yields_not_applicable",
         tags=("honesty", "applicability"),
     ),
+    # #193 section 5.1 - geometry reader (proposal stage, not wired live).
+    Mutation(
+        id="M550", phase=61,
+        description="header rebuild reads only a cell's own column: a parent "
+                    "spanning three columns no longer labels its children",
+        path=APP / "geometry_reader.py",
+        anchor="                if rect[0] <= centre <= rect[2]:\n",
+        replacement="                if k == j:\n",
+        target="tests/test_geometry_reader.py",
+        keyword="parent",
+        tags=("extraction",),
+    ),
+    Mutation(
+        id="M551", phase=61,
+        description="title rows are never recognised, so a full-width title "
+                    "above the header is kept as a header row",
+        path=APP / "geometry_reader.py",
+        anchor="        if (rect[2] - rect[0]) / width >= TITLE_SPAN_SHARE:\n",
+        replacement="        if False:\n",
+        target="tests/test_geometry_reader.py",
+        keyword="title",
+        tags=("extraction",),
+    ),
+    Mutation(
+        id="M552", phase=61,
+        description="an underscore field is read as a value instead of blank",
+        path=APP / "geometry_reader.py",
+        anchor='    if not re.search(r"[^\\W_]", residue) or (units and all(units)):\n',
+        replacement="    if False:\n",
+        target="tests/test_geometry_reader.py",
+        keyword="blank",
+        tags=("extraction", "honesty"),
+    ),
+    Mutation(
+        id="M553", phase=61,
+        description="number + unit split disabled: '10 barg' keeps no unit",
+        path=APP / "geometry_reader.py",
+        anchor="    m = _NUM_UNIT.match(stripped)\n",
+        replacement="    m = None\n",
+        target="tests/test_geometry_reader.py",
+        keyword="unit_split or form_label_value or celsius",
+        tags=("extraction", "units"),
+    ),
 )
 
 
