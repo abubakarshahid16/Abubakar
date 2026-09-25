@@ -32,10 +32,14 @@ REPLY = {
 
 
 def _fake_post(reply, seen=None):
-    def post_json(path, body, **kwargs):
+    def post_json(path, body, *, timeout):
+        # SAME SIGNATURE AS THE REAL ONE: `timeout` is required keyword-only.
+        # The old fake took **kwargs, so a provider that never passed a timeout
+        # passed every test and failed on its first real call (2026-09-25).
         if seen is not None:
             seen["path"] = path
             seen["body"] = body
+            seen["timeout"] = timeout
         return reply
     return post_json
 
@@ -90,6 +94,16 @@ def test_an_engine_that_reports_no_tag_is_marked_not_papered_over(monkeypatch):
     out = OllamaProvider(model="qwen3.5:4b").reason(PACKET)
 
     assert out.model_tag == "qwen3.5:4b (unreported)"
+
+
+def test_the_transport_is_given_an_explicit_timeout(monkeypatch):
+    """THE MUTATION TARGET (M572): the first real call failed because none
+    was passed; the strict fake above now has the real signature."""
+    seen = {}
+    monkeypatch.setattr(model_transport, "post_json", _fake_post(REPLY, seen))
+    OllamaProvider("qwen3.5:9b", timeout=42.0).reason(
+        Packet(prompt="q", num_ctx=2048, num_predict=64))
+    assert seen["timeout"] == 42.0
 
 
 def test_num_ctx_and_num_predict_are_sent_explicitly(monkeypatch):
