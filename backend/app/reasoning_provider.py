@@ -323,7 +323,13 @@ class ClaudeProvider:
         except reader_api.ReaderRefused as exc:
             raise ProviderRefused(f"{self.name}: {exc}") from exc
         body = dict(request["body"])
-        body["temperature"] = packet.temperature
+        if no_temperature(self.requested_model):
+            # MEASURED 2026-09-25: Sonnet 5 answers 400 "`temperature` is
+            # deprecated for this model". Sampling cannot be pinned there, so
+            # repeatability rests on the response cache and the code gates.
+            body.pop("temperature", None)
+        else:
+            body["temperature"] = packet.temperature
         if packet.system:
             body["system"] = [{"type": "text", "text": packet.system,
                                "cache_control": {"type": "ephemeral"}}]
@@ -375,6 +381,13 @@ class ClaudeProvider:
             wall_time_s=round(wall, 3), schema_errors=schema_errors(text, packet.json_schema),
             cost_usd=entry["cost_usd"],
         )
+
+
+def no_temperature(model: str) -> bool:
+    """True for a model id that rejects the `temperature` parameter
+    (`settings.claude_models_without_temperature`, prefix match)."""
+    name = (model or "").lower()
+    return any(name == p or name.startswith(p + "-") for p in settings.claude_models_without_temperature)
 
 
 # ----------------------------------------------------------- response cache

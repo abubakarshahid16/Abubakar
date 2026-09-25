@@ -6397,6 +6397,16 @@ B5_STANDARDS_INVENTORY = (
         keyword="explicit_timeout",
         tags=("model",),
     ),
+    Mutation(
+        id="M573", phase=61,
+        description="temperature is sent to a model that rejects it (Sonnet 5: 400)",
+        path=APP / "reasoning_provider.py",
+        anchor="        if no_temperature(self.requested_model):\n",
+        replacement="        if False:\n",
+        target="tests/test_claude_provider.py",
+        keyword="rejects_temperature",
+        tags=("model",),
+    ),
 )
 
 
