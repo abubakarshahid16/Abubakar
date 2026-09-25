@@ -336,4 +336,22 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="results_url_from_the_answer",
         tags=("privacy", "egress"),
     ),
+    Mutation(
+        id="M765", phase=67,
+        description="B6: a number inside a sentence ends the clause again (figured clauses unsearchable)",
+        path=APP / "quality.py",
+        anchor="            # non-word the run is already 0, so the left side needs no check).\n            continue\n",
+        replacement="            # non-word the run is already 0, so the left side needs no check).\n            run = 0\n",
+        target="tests/test_b6_measure_in_clause.py",
+        keyword="measurement_inside_a_sentence or figured",
+    ),
+    Mutation(
+        id="M766", phase=67,
+        description="B6: any number keeps a clause going, so contents columns and table rows read as prose",
+        path=APP / "quality.py",
+        anchor="        elif _is_measure(token) and i + 1 < len(tokens) and is_word(tokens[i + 1]):\n",
+        replacement="        elif _is_measure(token):\n",
+        target="tests/test_b6_measure_in_clause.py",
+        keyword="not_inside_a_sentence_still_break",
+    ),
 )

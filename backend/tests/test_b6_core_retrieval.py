@@ -92,14 +92,31 @@ def bench(tmp_path_factory):
     mp.undo()
 
 
-def _where(bench, hit) -> tuple[str, int]:
-    return bench["by_id"].get(hit["document_id"]), hit["page_start"]
+def _where(bench, hit) -> tuple[str | None, int, int]:
+    """(document key, first page, last page) of a hit, from its CHUNK row.
+
+    Keyword and dense hits carry only the chunk id (dense) or the id and
+    document (keyword); the page range is read from `chunks` so every stage is
+    judged the same way, on what the pipeline stored.
+    """
+    row = db.connect().execute(
+        "SELECT document_id, page_start, page_end FROM chunks WHERE id = ?",
+        (hit["chunk_id"],)).fetchone()
+    assert row is not None, f"hit {hit['chunk_id']} is not a stored chunk"
+    return bench["by_id"].get(row[0]), row[1], row[2]
+
+
+def _owner(hit) -> str:
+    return db.connect().execute(
+        "SELECT document_id FROM chunks WHERE id = ?", (hit["chunk_id"],)).fetchone()[0]
 
 
 def _rank(bench, hits, expected) -> int | None:
-    """1-based rank of the first hit on the expected (document, page)."""
+    """1-based rank of the first hit whose pages include the expected one."""
+    key, page = expected
     for i, hit in enumerate(hits, start=1):
-        if _where(bench, hit) == expected:
+        got, first, last = _where(bench, hit)
+        if got == key and first <= page <= last:
             return i
     return None
 
@@ -111,9 +128,25 @@ def test_the_corpus_was_really_ingested_and_embedded(bench):
     conn = db.connect()
     chunks = conn.execute("SELECT COUNT(*) FROM chunks WHERE retrievable = 1").fetchone()[0]
     vectors = conn.execute("SELECT COUNT(*) FROM chunk_vectors").fetchone()[0]
-    pages = sum(len(c) for c in CORPUS.values())
-    assert chunks >= pages
     assert vectors == chunks, f"{vectors} vectors for {chunks} retrievable chunks"
+
+
+def test_every_clause_in_the_corpus_is_searchable(bench):
+    """A clause no retrievable chunk covers can never be found, however good
+    the ranking. B6 found three of these fifteen dropped - the ones densest in
+    numbers and identifiers ("ASTM A216 WCB", "50 to 75 micrometres") - because
+    the quality gate read a number as the end of a sentence."""
+    conn = db.connect()
+    unreachable = []
+    for key, clauses in CORPUS.items():
+        for page in range(1, len(clauses) + 1):
+            covered = conn.execute(
+                "SELECT COUNT(*) FROM chunks WHERE document_id = ? AND retrievable = 1 "
+                "AND page_start <= ? AND page_end >= ?",
+                (bench["ids"][key], page, page)).fetchone()[0]
+            if not covered:
+                unreachable.append(f"{key} p{page} {clauses[page - 1][0]}")
+    assert unreachable == [], f"clauses no search can reach: {unreachable}"
 
 
 # ================================================================ 1. FTS5
@@ -161,7 +194,7 @@ def test_fusion_keeps_both_sides_and_ranks_agreement_first(bench):
                                allowed_document_ids=bench["all"])
         assert result["mode"] == "hybrid" and result["dense_candidates"] > 0
         top = result["hits"][0]
-        assert _where(bench, top) == expected, query
+        assert _rank(bench, [top], expected) == 1, (query, _where(bench, top))
         assert top["keyword_rank"] is not None and top["dense_rank"] is not None, query
 
 
@@ -194,7 +227,7 @@ def test_without_the_reranker_the_fused_order_is_kept_not_lost(bench, monkeypatc
     result = search.search("API 682 category 2 seal flush plan", limit=TOP_K,
                            rerank=True, allowed_document_ids=bench["all"])
     assert result["hits"], "a missing reranker must not empty the results"
-    assert _where(bench, result["hits"][0]) == ("PUMPSPEC", 2)
+    assert _rank(bench, result["hits"][:1], ("PUMPSPEC", 2)) == 1
 
 
 # ================================================================ 5. citations
@@ -207,7 +240,7 @@ def test_every_hit_cites_page_clause_and_a_verbatim_quote(bench):
     for query, _kind, _expected in POSITIVES:
         for hit in search.search(query, limit=TOP_K, rerank=False,
                                  allowed_document_ids=bench["all"])["hits"]:
-            key, page = _where(bench, hit)
+            key, page, _last = _where(bench, hit)
             assert key is not None and 1 <= page <= len(CORPUS[key])
             assert hit["page_end"] >= page
             pages = " ".join(r[0] or "" for r in conn.execute(
@@ -235,7 +268,7 @@ def test_a_document_outside_the_grants_is_absent_from_every_stage(bench):
             "hybrid": search.search(query, limit=10, allowed_document_ids=allowed)["hits"],
         }
         for stage, hits in stages.items():
-            assert hidden not in {h["document_id"] for h in hits}, (stage, query)
+            assert hidden not in {_owner(h) for h in hits}, (stage, query)
 
 
 def test_the_mask_applies_before_top_k_so_the_caller_loses_nothing(bench):
@@ -244,7 +277,7 @@ def test_the_mask_applies_before_top_k_so_the_caller_loses_nothing(bench):
     pump = frozenset({bench["ids"]["PUMPSPEC"]})
     hits = search.dense_search("which layers of paint are applied", limit=3,
                                allowed_document_ids=pump)
-    assert len(hits) == 3 and {h["document_id"] for h in hits} == set(pump)
+    assert len(hits) == 3 and {_owner(h) for h in hits} == set(pump)
 
 
 def test_an_empty_grant_returns_nothing_at_all(bench):

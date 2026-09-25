@@ -96,13 +96,36 @@ def is_word(token: str) -> bool:
     return any(ch in _VOWELS for ch in core)
 
 
+#: A plain number as written in a requirement: "50", "2.5", "4140", "1/2", "10%".
+_MEASURE = re.compile(r"^[-+]?\d+(?:[.,/]\d+)*%?$")
+
+
+def _is_measure(token: str) -> bool:
+    return bool(_MEASURE.match(token.strip(_EDGE_PUNCT)))
+
+
 def longest_clause(text: str) -> int:
-    """Longest run of consecutive real words."""
+    """Longest run of consecutive real words.
+
+    A number standing BETWEEN two words neither breaks the run nor counts in
+    it. Requirement text is full of them - "a surface profile of 50 to 75
+    micrometres", "the shaft AISI 4140 for all pumps" - and breaking the run at
+    each one made the densest requirement clauses read as debris: B6 measured
+    3 of 15 synthetic specification clauses dropped from retrieval that way
+    (quality gate and front-matter classifier alike). A number followed by
+    another number or ending the text - a table row, a contents column - still
+    breaks the run, so number walls and symbol debris stay out.
+    """
+    tokens = text.split()
     best = run = 0
-    for token in text.split():
+    for i, token in enumerate(tokens):
         if is_word(token):
             run += 1
             best = max(best, run)
+        elif _is_measure(token) and i + 1 < len(tokens) and is_word(tokens[i + 1]):
+            # A measurement followed by a word keeps the run going (after a
+            # non-word the run is already 0, so the left side needs no check).
+            continue
         else:
             run = 0
     return best
