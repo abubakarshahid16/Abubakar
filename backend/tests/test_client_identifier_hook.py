@@ -37,7 +37,9 @@ def _repo(tmp_path: pathlib.Path, patterns: str | None) -> tuple[pathlib.Path, d
     subprocess.run(["git", "config", "user.name", "test"], cwd=repo, check=True)
     hooks = repo / ".githooks"
     hooks.mkdir()
-    (hooks / "pre-commit").write_bytes(HOOK.read_bytes())
+    hook_copy = hooks / "pre-commit"
+    hook_copy.write_bytes(HOOK.read_bytes())
+    hook_copy.chmod(0o755)
     if patterns is not None:
         # BYTES, so the line endings are exactly the ones the test wrote -
         # write_text on Windows would turn "\r\n" into "\r\r\n".
