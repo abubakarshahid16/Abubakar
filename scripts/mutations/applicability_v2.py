@@ -14,10 +14,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a scope that lists OTHER equipment becomes NOT_APPLICABLE "
                     "(the v1 wrong-NA shape) instead of UNKNOWN",
         path=APP / "applicability_v2.py",
-        anchor="    if match:\n        return _result(APPLICABLE,",
+        anchor="    if match:\n        return _inclusion(",
         replacement="    if covered and not match and not generic:\n"
                     "        return _result(NOT_APPLICABLE, 'other equipment', covered[0])\n"
-                    "    if match:\n        return _result(APPLICABLE,",
+                    "    if match:\n        return _inclusion(",
         target="tests/test_applicability_v2.py",
         keyword="vessel_only_scope_does_not_make_a_pump",
         tags=("honesty", "applicability"),
@@ -93,6 +93,37 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="    return len(agreeing) >= 2\n",
         target="tests/test_applicability_v2.py",
         keyword="three_agreeing_rereads",
+        tags=("honesty", "applicability"),
+    ),
+    Mutation(
+        id="M606", phase=61,
+        description="a qualified sub-kind inclusion ('subsurface valves') is asserted "
+                    "APPLICABLE instead of a candidate",
+        path=APP / "applicability_v2.py",
+        anchor="    if not type_match and not _unqualified(match.get(\"term\"), lexicon):\n",
+        replacement="    if False:\n",
+        target="tests/test_applicability_v2.py",
+        keyword="qualified_sub_kind_inclusion",
+        tags=("honesty", "applicability"),
+    ),
+    Mutation(
+        id="M607", phase=61,
+        description="a repair/maintenance-only scope is asserted APPLICABLE to a new item",
+        path=APP / "applicability_v2.py",
+        anchor="    if profile.stage == \"new\" and ((activities and activities <= _EXISTING_ONLY) or existing_cue):\n",
+        replacement="    if profile.stage == \"new\" and existing_cue:\n",
+        target="tests/test_applicability_v2.py",
+        keyword="repair_only_scope",
+        tags=("honesty", "applicability"),
+    ),
+    Mutation(
+        id="M608", phase=61,
+        description="the verified-quote existing-equipment cue is ignored",
+        path=APP / "applicability_v2.py",
+        anchor="    existing_cue = _EXISTING_CUE.search(quotes) and not _NEW_CUE.search(quotes)\n",
+        replacement="    existing_cue = False\n",
+        target="tests/test_applicability_v2.py",
+        keyword="existing_equipment_quote",
         tags=("honesty", "applicability"),
     ),
 )
