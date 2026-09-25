@@ -45,6 +45,8 @@ class Profile:
     family: str | None
     cls: str | None
     facility: str | None = None                 # "onshore" / "offshore"
+    #: "new" for a contractor submittal of new equipment; None = unknown.
+    stage: str | None = None
     numbers: dict = field(default_factory=dict)  # kind -> (min, max, unit)
 
 
@@ -75,7 +77,9 @@ def _names_submittal(nodes: set[tuple[str, str]], p: Profile) -> bool:
 #: Words that do not narrow an equipment term ("all pumps", "pumps and
 #: compressors", "pump units").
 _NEUTRAL = frozenset("a an the all any and or of for in with type types kind kinds unit units "
-                     "equipment item items service services system systems".split())
+                     "equipment item items service services system systems "
+                     # context words that do not name a sub-kind
+                     "process new industrial plant plants facility facilities".split())
 
 
 def _unqualified(term: str | None, lexicon: dict[str, tuple[str, str]]) -> bool:
@@ -85,7 +89,8 @@ def _unqualified(term: str | None, lexicon: dict[str, tuple[str, str]]) -> bool:
     text = (term or "").lower()
     for phrase in sorted(lexicon, key=len, reverse=True):
         text = re.sub(rf"\b{re.escape(phrase)}(?:s|es)?\b", " ", text)
-    words = [w for w in re.split(r"[^a-z0-9]+", text) if w]
+    # hyphens kept: "in-service" is ONE qualifier, not the neutral "in" + "service"
+    words = [w for w in re.split(r"[^a-z0-9-]+", text) if w.strip("-")]
     return all(w in _NEUTRAL for w in words)
 
 
@@ -173,6 +178,29 @@ def _result(decision: str, basis: str, item: dict | None = None) -> dict:
             "term": item.get("term") if item else None}
 
 
+#: Activities that concern EXISTING equipment only. A scope limited to these
+#: does not govern a NEW item (M-03/vessel run 2026-09-25: in-service repair
+#: and re-rating standards were included for a new vessel).
+_EXISTING_ONLY = frozenset({"repair", "maintenance", "operation"})
+
+
+def _inclusion(match: dict, record: dict, profile: Profile, lexicon: dict) -> dict:
+    """APPLICABLE only for a STRONG inclusion: the covered term names the
+    submittal's type, or its family/class with no narrowing qualifier, and
+    the scope is not limited to existing equipment while the submittal is
+    new. Otherwise APPLICABLE_CANDIDATE with the reason - never excluded,
+    never asserted (the asymmetric rule, applied to inclusions)."""
+    nodes = nodes_for(match.get("term"), lexicon)
+    type_match = any(level == TYPE and name == profile.type for level, name in nodes)
+    if not type_match and not _unqualified(match.get("term"), lexicon):
+        return _result(APPLICABLE_CANDIDATE, "covered term is a qualified sub-kind - engineer to confirm", match)
+    activities = {a.get("activity") for a in record.get("covered_activities") or [] if _has_quote(a)}
+    if profile.stage == "new" and activities and activities <= _EXISTING_ONLY:
+        return _result(APPLICABLE_CANDIDATE, "scope covers only existing equipment "
+                       f"({', '.join(sorted(activities))}) - the submittal is new; engineer to confirm", match)
+    return _result(APPLICABLE, "covered equipment names the submittal", match)
+
+
 def decide(record: dict | None, profile: Profile, lexicon: dict[str, tuple[str, str]]) -> dict:
     """APPLICABLE / NOT_APPLICABLE / APPLICABLE_CANDIDATE / UNKNOWN for one
     (verified scope record, submittal profile) pair. See the module doc."""
@@ -207,7 +235,7 @@ def decide(record: dict | None, profile: Profile, lexicon: dict[str, tuple[str, 
                 return _result(NOT_APPLICABLE, f"submittal outside the {kind} limit", item)
 
     if match:
-        return _result(APPLICABLE, "covered equipment names the submittal", match)
+        return _inclusion(match, record, profile, lexicon)
     if generic:
         return _result(APPLICABLE_CANDIDATE, "generic scope, no exclusion", covered[0] if covered else None)
     return _result(UNKNOWN, "scope does not settle it")

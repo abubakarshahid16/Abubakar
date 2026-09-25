@@ -95,4 +95,25 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="three_agreeing_rereads",
         tags=("honesty", "applicability"),
     ),
+    Mutation(
+        id="M606", phase=61,
+        description="a qualified sub-kind inclusion ('subsurface valves') is asserted "
+                    "APPLICABLE instead of a candidate",
+        path=APP / "applicability_v2.py",
+        anchor="    if not type_match and not _unqualified(match.get(\"term\"), lexicon):\n",
+        replacement="    if False:\n",
+        target="tests/test_applicability_v2.py",
+        keyword="qualified_sub_kind_inclusion",
+        tags=("honesty", "applicability"),
+    ),
+    Mutation(
+        id="M607", phase=61,
+        description="a repair/maintenance-only scope is asserted APPLICABLE to a new item",
+        path=APP / "applicability_v2.py",
+        anchor="    if profile.stage == \"new\" and activities and activities <= _EXISTING_ONLY:\n",
+        replacement="    if False:\n",
+        target="tests/test_applicability_v2.py",
+        keyword="repair_only_scope",
+        tags=("honesty", "applicability"),
+    ),
 )

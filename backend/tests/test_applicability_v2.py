@@ -184,3 +184,37 @@ def test_not_applicable_needs_three_agreeing_rereads():
 
 def test_no_record_is_unknown():
     assert decide(None, PUMP, LEX)["decision"] == UNKNOWN
+
+
+# ------------------------- inclusion strength (owner 2026-09-25, 3-sheet run)
+
+NEW_VESSEL = Profile("Pressure Vessel", "Pressure vessels", "Static / Mechanical", stage="new")
+
+
+def test_a_qualified_sub_kind_inclusion_is_only_a_candidate():
+    """THE MUTATION TARGET (M606): a well 'subsurface' valve standard matched
+    'valve' and was included for a PSV."""
+    r = decide(rec(covered=[item("subsurface valves", "subsurface valves for wells", 2)]), PSV, LEX)
+    assert r["decision"] == APPLICABLE_CANDIDATE and "qualified" in r["basis"]
+
+
+def test_in_service_is_a_qualifier_not_two_neutral_words():
+    r = decide(rec(covered=[item("in-service pressure vessels", "repair of in-service pressure vessels", 3)]),
+               NEW_VESSEL, LEX)
+    assert r["decision"] == APPLICABLE_CANDIDATE
+
+
+def test_a_repair_only_scope_is_a_candidate_for_a_new_item():
+    """THE MUTATION TARGET (M607)."""
+    record = rec(covered=[item("pressure vessels", "pressure vessels", 3)])
+    record["covered_activities"] = [{"activity": "repair", "quote": "repair", "page": 3},
+                                    {"activity": "maintenance", "quote": "maintenance", "page": 3}]
+    assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE_CANDIDATE
+    assert decide(record, VESSEL, LEX)["decision"] == APPLICABLE          # stage unknown: no downgrade
+    record["covered_activities"].append({"activity": "design", "quote": "design", "page": 3})
+    assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE      # design covers new items
+
+
+def test_context_words_do_not_weaken_an_inclusion():
+    r = decide(rec(covered=[item("process pressure vessels", "process pressure vessels", 3)]), NEW_VESSEL, LEX)
+    assert r["decision"] == APPLICABLE
