@@ -312,10 +312,18 @@ def _ingest(tmp_path, rows, name) -> tuple[str, str]:
     return doc, status
 
 
+#: Tags and bare numbers - no word anywhere, so no chunk of this page can
+#: pass the quality gate however the chunker joins it. (It used to be ROWS,
+#: whose "Design pressure 23.5 barg" was excluded only because the gate read
+#: every number as the end of a sentence; since B6 a labelled value with its
+#: unit is searchable, as it should be - audit entry 58.)
+THIN_ROWS = [("P1", "23.5"), ("P2", "340")]
+
+
 def test_a_document_with_nothing_searchable_still_has_its_pages_accounted_for(tmp_path):
     """The other terminal state: every chunk excluded, nothing searchable.
     Those pages are exactly the ones that must not vanish."""
-    doc, status = _ingest(tmp_path, ROWS, "THIN.pdf")
+    doc, status = _ingest(tmp_path, THIN_ROWS, "THIN.pdf")
     chunks = [tuple(r) for r in db.connect().execute(
         "SELECT kind, retrievable, section, text FROM chunks WHERE document_id = ?", (doc,))]
     assert status == states.NO_SEARCHABLE_CONTENT, f"fixture reached {status}: {chunks}"
