@@ -147,5 +147,40 @@ def test_unknown_equipment_type_never_yields_not_applicable(record):
     assert decide(record, UNKNOWN_EQUIPMENT, LEX)["decision"] != NOT_APPLICABLE
 
 
+# --------------------------- M-03 run 2026-09-25: two measured wrong exclusions
+
+def test_excluding_a_sub_kind_does_not_exclude_its_sibling():
+    """THE MUTATION TARGET (M600): 'excluding submersible pumps' in the
+    centrifugal-pump standard must not exclude a centrifugal pump."""
+    r = decide(rec(covered=[item("centrifugal pumps", "requirements governing centrifugal pumps", 4)],
+                   exclusions=[item("submersible pumps", "excluding submersible pumps that are covered", 4)]),
+               PUMP, LEX)
+    assert r["decision"] == APPLICABLE
+
+
+def test_a_sentence_that_is_not_an_exclusion_does_not_exclude():
+    """THE MUTATION TARGET (M601): a procurement instruction ('shall not be
+    part of the package PO') read as a scope exclusion."""
+    r = decide(rec(exclusions=[item("rotating equipment",
+                                    "Rotating equipment standards shall not be part of the package PO", 7)]),
+               PUMP, LEX)
+    assert r["decision"] != NOT_APPLICABLE
+
+
+def test_an_unqualified_family_exclusion_with_a_cue_still_excludes():
+    r = decide(rec(exclusions=[item("all pumps", "This standard does not apply to all pumps", 2)]), PUMP, LEX)
+    assert r["decision"] == NOT_APPLICABLE
+
+
+def test_not_applicable_needs_three_agreeing_rereads():
+    """THE MUTATION TARGET (M602)."""
+    na = {"decision": NOT_APPLICABLE, "quote": "does not apply to pumps"}
+    from app.applicability_v2 import confirm_not_applicable
+    assert confirm_not_applicable([na, na, na])
+    assert not confirm_not_applicable([na, na, {"decision": UNKNOWN, "quote": None}])
+    assert not confirm_not_applicable([na, na])
+    assert not confirm_not_applicable([na, na, {"decision": NOT_APPLICABLE, "quote": ""}])
+
+
 def test_no_record_is_unknown():
     assert decide(None, PUMP, LEX)["decision"] == UNKNOWN

@@ -62,4 +62,37 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="unknown_equipment_type_never_yields_not_applicable",
         tags=("honesty", "applicability"),
     ),
+    # ---- M-03 run 2026-09-25: the two measured wrong exclusions ------------
+    Mutation(
+        id="M600", phase=61,
+        description="an exclusion of a SUB-KIND ('submersible pumps') excludes "
+                    "the whole family, so a centrifugal pump is wrongly excluded",
+        path=APP / "applicability_v2.py",
+        anchor="    return _names_submittal(nodes, profile) and _unqualified(item.get(\"term\"), lexicon)\n",
+        replacement="    return _names_submittal(nodes, profile)\n",
+        target="tests/test_applicability_v2.py",
+        keyword="sub_kind_does_not_exclude",
+        tags=("honesty", "applicability"),
+    ),
+    Mutation(
+        id="M601", phase=61,
+        description="an 'exclusion' whose quote carries no exclusion cue still "
+                    "excludes (a procurement sentence read as a scope exclusion)",
+        path=APP / "applicability_v2.py",
+        anchor="    if not _EXCLUSION_CUE.search(item.get(\"quote\") or \"\"):\n        return False\n",
+        replacement="",
+        target="tests/test_applicability_v2.py",
+        keyword="not_an_exclusion_does_not_exclude",
+        tags=("honesty", "applicability"),
+    ),
+    Mutation(
+        id="M602", phase=61,
+        description="NOT_APPLICABLE is confirmed by two agreeing re-reads instead of three",
+        path=APP / "applicability_v2.py",
+        anchor="    return len(rereads) >= needed and len(agreeing) == len(rereads)\n",
+        replacement="    return len(agreeing) >= 2\n",
+        target="tests/test_applicability_v2.py",
+        keyword="three_agreeing_rereads",
+        tags=("honesty", "applicability"),
+    ),
 )
