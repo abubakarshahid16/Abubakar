@@ -321,6 +321,15 @@ class Settings(BaseSettings):
     #: rationale - a review that silently stopped asking would look identical
     #: to one where the model declined every time.
     match_enabled: bool = False
+    #: #193 plan B4 (order 5.5): the geometry reader (`geometry_reader.py`)
+    #: adds its form and table readings to `submittal_facts` during
+    #: `datasheets.extract_facts`, as `extraction_method='geometry'` rows with
+    #: their boxes. OFF by default - OFF is the pre-B4 extraction, byte for
+    #: byte. When ON, a rule-reader fact for the same page and label always
+    #: wins; a geometry reading that DISAGREES with it is kept with
+    #: `validation_state='conflict'`, never used to overwrite it.
+    #: Env: GEOMETRY_READER_ENABLED. The owner flips it.
+    geometry_reader_enabled: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow

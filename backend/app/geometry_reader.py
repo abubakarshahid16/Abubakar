@@ -1,9 +1,10 @@
 """Geometry reader: tables and forms read from PDF positions (#193 section 5.1).
 
-PROPOSAL-STAGE CODE. Nothing in the running application imports this module;
-it is not wired into any live route, ingest step or review. It exists so the
-owner can measure what a geometry-only reader gets right on real submittal
-pages before anything depends on it.
+BEHIND A FLAG, OFF BY DEFAULT (#193 plan B4, order 5.5). The only caller is
+`datasheets.extract_facts`, and only when `settings.geometry_reader_enabled`
+(env GEOMETRY_READER_ENABLED) is on: it then writes `read_page_rows` as
+`extraction_method='geometry'` facts beside the rule readers' facts, which
+always win. With the flag off nothing calls this module.
 
 Pure functions over one `pymupdf.Page`. No model, no network, no database.
 
@@ -284,6 +285,28 @@ def table_score(table: Any, words: list[tuple], grid: tuple | None = None) -> di
             "score": round(clean * consistency ** 2, 3)}
 
 
+def _table_cell_value(text: str) -> dict[str, Any]:
+    """A table cell's value, cleaned EXACTLY as a form value is (B4 fix 3).
+
+    "___@ X__" in a cell used to reach the value with its underscore runs;
+    a run, "*", "By <party>" or "TBA" in a cell is a blank with its marker,
+    the same evidence rule `_parse_form_value` applies to forms. An EMPTY
+    cell keeps `is_blank=True` with NO marker - it is not evidence of a
+    blank field, and `read_page_rows` does not emit it. A cell that is only
+    a printed unit keeps the plain unit split it always had.
+    """
+    if not text:
+        return {"value": None, "unit": None, "is_blank": True, "blank_marker": None}
+    parsed = _parse_form_value(text)
+    if parsed["unit_only"]:
+        plain = split_value_unit(text)
+        return {"value": plain["value"], "unit": plain["unit"], "is_blank": False,
+                "blank_marker": None}
+    return {"value": parsed["value"], "unit": parsed["unit"],
+            "is_blank": parsed["is_blank"], "blank_marker": parsed["blank_marker"],
+            "condition": parsed.get("condition"), "note": parsed.get("note")}
+
+
 def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
                grid: tuple | None = None) -> dict[str, Any]:
     texts, rects = grid or _grid(table)
@@ -351,12 +374,10 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
         cells = []
         for j, label in labels.items():
             text = texts[r][j]
-            parsed = split_value_unit(text)
             cells.append({
                 "source": "table", "page": page_no, "table_id": table_id,
                 "row": r, "column": j, "label": label, "text": text,
-                "value": parsed["value"], "unit": parsed["unit"],
-                "is_blank": not text, "bbox": _bbox(rects[r][j]),
+                **_table_cell_value(text), "bbox": _bbox(rects[r][j]),
             })
         data_rows.append({"row": r, "cells": cells})
 
@@ -519,6 +540,11 @@ _DASHES = str.maketrans({"–": "-", "—": "-", "−": "-"})
 _RANGE = re.compile(rf"^(?P<a>{_NUM})\s*-\s*(?P<b>{_NUM})\s*(?P<u>.*)$")
 _PAREN_UNIT = re.compile(r"^(?P<v>.*?\S)\s*\((?P<u>[^()]+)\)$")
 _NUM_REST = re.compile(rf"^(?P<n>[<>~]?\s*{_NUM})\s+(?P<u>\S.*)$")
+#: A drawn field with its answer inside and text AFTER the closing run:
+#: "_ YES_ <HRC 25" -> inside "YES", after "<HRC 25". The text must open with
+#: a run; "10 barg" or "__ISO 15156 -1" (no closing run) never match.
+_ENCLOSED_FIELD = re.compile(
+    r"^\s*_+\s*(?P<inside>[^_]*[^\W_][^_]*?)\s*_+\s*(?P<after>[^_]*?)\s*_*\s*$")
 
 
 #: Alone, these are a letter or an English word ("GRADE: C", "A", "in").
@@ -599,9 +625,24 @@ def _parse_form_value(text: str) -> dict[str, Any]:
                     "unit_only": False, "condition": None}
         return {"value": None, "unit": None, "expected_units": expected, "is_blank": False,
                 "blank_marker": None, "unit_only": True, "condition": None}
+    note = None
+    enclosed = _ENCLOSED_FIELD.match(text)
+    if (enclosed and enclosed.group("after") and "@" not in enclosed.group("after")
+            and not is_unit_label(enclosed.group("after"), allow_single=True)):
+        # B4 FIX 2: THE FIELD IS WHAT THE RUNS ENCLOSE. "_ YES_ <HRC 25" is the
+        # answer "YES" written inside its drawn field, then a note printed
+        # after the field closes. The note is kept, apart - it is not the
+        # value. A unit after the closing run ("_ -3__ OC") is still the
+        # value's unit and never takes this branch.
+        residue, note = enclosed.group("inside").strip(), enclosed.group("after").strip()
     parsed = _parse_value(residue)
+    if parsed["value"] is None:
+        # B4 FIX 3: a value that is ONLY a condition ("___@ SUPPLIERS__") is
+        # still what the field says; before, the caller fell back to the raw
+        # text with its underscore runs.
+        parsed = {**parsed, "value": residue, "condition": None}
     return {**parsed, "expected_units": [], "is_blank": False, "blank_marker": None,
-            "unit_only": False}
+            "unit_only": False, "note": note}
 
 
 def _label_name(text: str) -> str:
@@ -615,14 +656,109 @@ def _label_like(seg: dict[str, Any]) -> bool:
     return bool(re.search(r"\(\s*[\d.]+[a-z.]*\s*\)\s*$", seg["text"]))
 
 
+_DRAWN_RUN = re.compile(r"_{2,}")
+
+
+def _label_line_has_run(segs: list[dict[str, Any]], lab: dict[str, Any]) -> bool:
+    """The label's own line carries a drawn underscore field to its right,
+    before any other label: this form draws its fields as runs."""
+    tol = 0.6 * lab["h"]
+    right = sorted((s for s in segs if s is not lab and abs(s["yc"] - lab["yc"]) <= tol
+                    and s["bbox"][0] >= lab["bbox"][2] - 1.0),
+                   key=lambda s: s["bbox"][0])
+    for s in right:
+        if s["kind"] == "label":
+            return False
+        if _DRAWN_RUN.search(s["text"]):
+            return True
+    return False
+
+
+def _heads_a_field(segs: list[dict[str, Any]], cand: dict[str, Any]) -> bool:
+    """`cand` has a drawn field (a segment opening with "_") on the NEXT line,
+    left-aligned with it: `cand` is that field's label, not a value."""
+    if _DRAWN_RUN.search(cand["text"]):
+        return False  # a drawn field is a field, not a label
+    return any(s is not cand and s["text"].startswith("_")
+               and 0.6 * cand["h"] < s["yc"] - cand["yc"] <= 1.8 * cand["h"]
+               and abs(s["bbox"][0] - cand["bbox"][0]) <= cand["h"]
+               for s in segs)
+
+
 def _below_candidates(segs: list[dict[str, Any]], lab: dict[str, Any], used: set[int]) -> list[int]:
+    """Text directly under the label that can be its value.
+
+    B4 FIX 4 - a heading, a section title or the next field's label is not a
+    value. Two generic, geometric proofs:
+
+    * RUN FORM: when the label's own line draws its field as an underscore
+      run, a value below must itself be a filled run ("___BEARING HOUSING___").
+      Plain text under such a label is the next row's label or a heading.
+    * FIELD HEAD: text that has its own drawn field directly beneath it is
+      that field's label.
+    """
     lx0 = lab["bbox"][0]
-    return sorted((k for k, s in enumerate(segs)
-                   if s["kind"] == "text" and k not in used
-                   and 0.6 * lab["h"] < s["yc"] - lab["yc"] <= 2.2 * lab["h"]
-                   and abs(s["bbox"][0] - lx0) <= lab["h"]
-                   and not _label_like(s)),
-                  key=lambda k: segs[k]["yc"])
+    run_form = _label_line_has_run(segs, lab)
+    aligned = sorted((k for k, s in enumerate(segs)
+                      if s is not lab
+                      and 0.6 * lab["h"] < s["yc"] - lab["yc"] <= 2.2 * lab["h"]
+                      and abs(s["bbox"][0] - lx0) <= lab["h"]),
+                     key=lambda k: segs[k]["yc"])
+    # ONLY THE NEAREST aligned segment can be the value: a label or heading
+    # between the label and a lower field means that field is someone else's.
+    return [k for k in aligned[:1]
+            if segs[k]["kind"] == "text" and k not in used
+            and not _label_like(segs[k])
+            and (not run_form or _DRAWN_RUN.search(segs[k]["text"]))
+            and not _heads_a_field(segs, segs[k])]
+
+
+#: B4 FIX 1: a value ending with a connector, or with a word that cannot end a
+#: phrase, is cut by a line wrap. English function words and list connectors -
+#: generic, not document vocabulary.
+_OPEN_ENDING = re.compile(
+    r"(?:[&,/+]|\b(?:and|or|of|the|a|an|to|on|in|for|with|at|by|from|per|as|than))\s*$",
+    re.IGNORECASE)
+#: How many wrapped lines one value may continue onto.
+MAX_CONTINUATION_LINES = 3
+
+
+def _continuation(segs: list[dict[str, Any]], lab: dict[str, Any], val: dict[str, Any],
+                  used: set[int], text: str) -> int | None:
+    """The segment on the next line that continues `val`, or None.
+
+    B4 FIX 1 - A WRAPPED VALUE. Taken only when ALL hold:
+    * it is on the next visual line (0.6-1.8 x the value's height below);
+    * it lies in this field's band: starts at or right of the label's left
+      edge, not right of the value's right edge, and nothing else on its line
+      sits between the label's left edge and it (else it belongs to its own
+      label);
+    * it is plain text, not a label, not a blank run, not a unit alone;
+    * AND the value is visibly unfinished (ends with "&", ",", "/", "+" or a
+      function word), OR the segment is indented wholly under the value.
+    """
+    h = val["h"]
+    band_x0 = lab["bbox"][0] - 1.0
+    open_end = bool(_OPEN_ENDING.search(text))
+    for k, s in sorted(enumerate(segs), key=lambda ks: ks[1]["yc"]):
+        if k in used or s is val or s["kind"] != "text" or _label_like(s):
+            continue
+        if not 0.6 * h < s["yc"] - val["yc"] <= 1.8 * h:
+            continue
+        x0, x1 = s["bbox"][0], s["bbox"][2]
+        if x0 < band_x0 or x0 > val["bbox"][2] or x1 > val["bbox"][2] + 2 * h:
+            continue
+        if any(o is not s and abs(o["yc"] - s["yc"]) <= 0.6 * h
+               and o["bbox"][2] > band_x0 and o["bbox"][0] < val["bbox"][2] + 2 * h
+               for o in segs):
+            continue  # its line has something else in this band: its own field
+        parsed = _parse_form_value(s["text"])
+        if parsed["is_blank"] or parsed["unit_only"]:
+            continue
+        indented = x0 >= val["bbox"][0] - 1.0 and x1 <= val["bbox"][2] + 1.0
+        if open_end or indented:
+            return k
+    return None
 
 
 def _filled_below(segs: list[dict[str, Any]], lab: dict[str, Any], used: set[int]) -> bool:
@@ -707,7 +843,29 @@ def read_form(page: Any) -> dict[str, Any]:
                              "label_bbox": _bbox(lab["bbox"])})
             continue
         val = segs[value_k]
-        parsed = _parse_form_value(val["text"])
+        val_text = val["text"]
+        val_box = val["bbox"]
+        parsed = _parse_form_value(val_text)
+        if unit_k is None and not parsed["is_blank"] and not parsed["unit_only"]:
+            # B4 FIX 1: a value wrapped onto the next line(s) of its band.
+            tail = val
+            for _n in range(MAX_CONTINUATION_LINES):
+                cont_k = _continuation(
+                    # The band is the FIRST line's x-range, every time: a
+                    # wide wrapped line must not widen what "indented under
+                    # the value" means for the line after it.
+                    segs, lab, {**tail, "bbox": (val["bbox"][0], tail["bbox"][1],
+                                                 val["bbox"][2], tail["bbox"][3])},
+                    used | {value_k}, val_text)
+                if cont_k is None:
+                    break
+                used.add(cont_k)
+                tail = segs[cont_k]
+                val_text = f"{val_text} {tail['text']}"
+                val_box = (min(val_box[0], tail["bbox"][0]), val_box[1],
+                           max(val_box[2], tail["bbox"][2]), tail["bbox"][3])
+            if val_text != val["text"]:
+                parsed = _parse_form_value(val_text)
         if parsed["unit_only"] and unit_k is None:
             # The printed unit column: neither a value nor proof of blank.
             unpaired.append({"source": "form", "page": page_no, "label": lab["text"],
@@ -725,14 +883,92 @@ def read_form(page: Any) -> dict[str, Any]:
             "label": _label_name(lab["text"]),
             "label_text": lab["text"], "label_cue": lab["cue"],
             "label_bbox": _bbox(lab["bbox"]),
-            "value_text": val["text"] if unit_text is None else f"{val['text']} {unit_text}",
+            "value_text": val_text if unit_text is None else f"{val_text} {unit_text}",
             "value": parsed["value"], "unit": parsed["unit"],
             "is_blank": parsed["is_blank"], "blank_marker": parsed["blank_marker"],
-            "condition": parsed["condition"],
+            "condition": parsed["condition"], "note": parsed.get("note"),
             "expected_units": parsed["expected_units"], "position": position,
-            "value_bbox": _bbox(val["bbox"] if unit_k is None else (
+            "value_bbox": _bbox(val_box if unit_k is None else (
                 val["bbox"][0], min(val["bbox"][1], segs[unit_k]["bbox"][1]),
                 segs[unit_k]["bbox"][2], max(val["bbox"][3], segs[unit_k]["bbox"][3]))),
         })
     return {"source": "form", "page": page_no, "pairs": pairs,
             "unpaired_labels": unpaired}
+
+
+# --------------------------------------------------------------------------
+# One page, as rows (the shape `datasheets.extract_facts` writes when the
+# `geometry_reader_enabled` flag is on)
+# --------------------------------------------------------------------------
+
+def _row_key(row: dict[str, Any]) -> tuple:
+    """Two rows are ONE reading when page, label and answer agree: the label
+    lowercased with punctuation and spacing folded, the value folded, and a
+    blank keyed by being blank."""
+    label = re.sub(r"\s+", " ", re.sub(r"[^\w\s/]", " ", row["label"] or "")).strip().lower()
+    answer = ("<blank>" if row["is_blank"]
+              else re.sub(r"\s+", " ", f"{row['value'] or ''} {row['unit'] or ''}").strip().lower())
+    return row["page"], label, answer
+
+
+def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
+                   tables: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Every label/value the two readers found on `page`, one row each.
+
+    FORM pairs as `read_form` pairs them. TABLE cells labelled "<row key>
+    <column label>", the row key being the row's first filled cell (a tag or
+    mark such as N1) - which is itself not emitted. An EMPTY table cell is
+    not emitted: an empty cell is not evidence of a blank field (addendum
+    3.7; `datasheets.extract_facts` makes the same rule for its readers).
+
+    DE-DUPLICATED (B4): a second row with the same page, label and answer as
+    an earlier one is the same reading twice and is dropped - the first one,
+    in reading order, keeps its provenance.
+
+    Every row keeps where it came from: `source` ("form" / "table"), the
+    value's box and the label's box (forms), and table id / row / column /
+    column label (tables).
+    """
+    form = form if form is not None else read_form(page)
+    tables = tables if tables is not None else read_tables(page)
+    rows: list[dict[str, Any]] = []
+    for p in form["pairs"]:
+        rows.append({
+            "source": "form", "page": p["page"], "label": p["label"],
+            "label_text": p["label_text"], "value_text": p["value_text"],
+            "value": p["value"], "unit": p["unit"], "is_blank": p["is_blank"],
+            "blank_marker": p["blank_marker"], "condition": p["condition"],
+            "note": p.get("note"), "bbox": p["value_bbox"],
+            "label_bbox": p["label_bbox"], "position": p["position"],
+            "table_id": None, "row": None, "column": None, "column_label": None,
+        })
+    for table in tables["tables"]:
+        for data in table["rows"]:
+            cells = sorted(data["cells"], key=lambda c: c["column"])
+            key_cell = next((c for c in cells if c["text"]), None)
+            if key_cell is None or not re.search(r"[^\W_]", key_cell["text"]):
+                # A row whose first filled cell is a mark ("*", "-") has no
+                # key: its cells cannot be told apart from another row's.
+                continue
+            for c in cells:
+                if c is key_cell or not c["text"]:
+                    continue
+                rows.append({
+                    "source": "table", "page": c["page"],
+                    "label": f"{key_cell['text']} {c['label']}".strip(),
+                    "label_text": c["label"], "value_text": c["text"],
+                    "value": c["value"], "unit": c["unit"], "is_blank": c["is_blank"],
+                    "blank_marker": c["blank_marker"], "condition": c.get("condition"),
+                    "note": c.get("note"), "bbox": c["bbox"], "label_bbox": None,
+                    "position": None, "table_id": c["table_id"], "row": c["row"],
+                    "column": c["column"], "column_label": c["label"],
+                })
+    out: list[dict[str, Any]] = []
+    seen: set[tuple] = set()
+    for row in rows:
+        key = _row_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
