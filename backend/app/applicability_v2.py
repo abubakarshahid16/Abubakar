@@ -72,6 +72,52 @@ def _names_submittal(nodes: set[tuple[str, str]], p: Profile) -> bool:
                or (level == CLASS and name == p.cls) for level, name in nodes)
 
 
+#: Words that do not narrow an equipment term ("all pumps", "pumps and
+#: compressors", "pump units").
+_NEUTRAL = frozenset("a an the all any and or of for in with type types kind kinds unit units "
+                     "equipment item items service services system systems".split())
+
+
+def _unqualified(term: str | None, lexicon: dict[str, tuple[str, str]]) -> bool:
+    """True when nothing in `term` narrows the taxonomy phrase it contains:
+    "pumps" and "all pumps" are unqualified; "submersible pumps" is NOT - it
+    names a SUB-KIND, and excluding a sub-kind never excludes its siblings."""
+    text = (term or "").lower()
+    for phrase in sorted(lexicon, key=len, reverse=True):
+        text = re.sub(rf"\b{re.escape(phrase)}(?:s|es)?\b", " ", text)
+    words = [w for w in re.split(r"[^a-z0-9]+", text) if w]
+    return all(w in _NEUTRAL for w in words)
+
+
+#: An exclusion must SAY it is one. Measured 2026-09-25 (M-03 run): "Rotating
+#: equipment SAESs shall not be part of the equipment package PO" was read as a
+#: scope exclusion; it is a procurement instruction.
+_EXCLUSION_CUE = re.compile(
+    r"\b(?:does not apply|do not apply|shall not apply|not applicable|not apply|does not cover|"
+    r"do not cover|not covered|shall not cover|exclud\w*|except(?:ing)?|outside (?:the )?scope|"
+    r"not within (?:the )?scope|beyond (?:the )?scope|not included|is not intended)\b",
+    re.IGNORECASE)
+
+
+def _excludes_submittal(item: dict, profile: Profile, lexicon: dict[str, tuple[str, str]]) -> bool:
+    """An exclusion excludes THIS submittal only when all hold: its quote says
+    it is an exclusion; its term names the submittal's type, or names its
+    family/class WITHOUT a narrowing qualifier."""
+    if not _EXCLUSION_CUE.search(item.get("quote") or ""):
+        return False
+    nodes = nodes_for(item.get("term"), lexicon)
+    if any(level == TYPE and name == profile.type for level, name in nodes):
+        return True
+    return _names_submittal(nodes, profile) and _unqualified(item.get("term"), lexicon)
+
+
+def confirm_not_applicable(rereads: list[dict], *, needed: int = 3) -> bool:
+    """Owner order 4.5.4: a NOT_APPLICABLE stands only when `needed`
+    independent re-reads ALL decide NOT_APPLICABLE, each with a quote."""
+    agreeing = [d for d in rereads if d.get("decision") == NOT_APPLICABLE and (d.get("quote") or "").strip()]
+    return len(rereads) >= needed and len(agreeing) == len(rereads)
+
+
 # --------------------------------------------------------- number comparison
 
 _TO_MPA = {"mpa": 1.0, "kpa": 0.001, "bar": 0.1, "barg": 0.1, "psi": 0.00689476, "psig": 0.00689476}
@@ -139,7 +185,7 @@ def decide(record: dict | None, profile: Profile, lexicon: dict[str, tuple[str, 
 
     # (a) an explicit exclusion naming the submittal - allowed even when generic
     for item in exclusions:
-        if _names_submittal(nodes_for(item.get("term"), lexicon), profile):
+        if _excludes_submittal(item, profile, lexicon):
             return _result(NOT_APPLICABLE, "explicit exclusion names the submittal", item)
 
     match = next((i for i in covered
