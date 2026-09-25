@@ -1550,6 +1550,7 @@ def create_fact(
     unit: str | None = None, value_column: str | None = None,
     one_quantity: bool = False,
     blank: tuple[bool, str | None] | None = None, bbox: str | None = None,
+    printed_unit: str | None = None,
 ) -> dict:
     """Record one fact. REFUSES a fact whose citation does not resolve.
 
@@ -1624,7 +1625,12 @@ def create_fact(
     # because that is what `claims` can convert; `unit_reference` is `gauge`
     # because losing it changes the number by an atmosphere.
     raw_unit = unit
-    base_unit, unit_reference = claims.split_reference(unit)
+    if raw_unit is None and printed_unit and not blank and value is None and found is None:
+        # B4 (geometry reader): a unit the READER split off a value that is
+        # not a plain quantity ("<85" + "dBA"). Kept as printed, so the unit
+        # is not lost; it never turns the value into a number.
+        raw_unit = printed_unit
+    base_unit, unit_reference = claims.split_reference(raw_unit)
     if unit_reference is not None:
         # Re-normalised against the BASE, which the table knows. Without this
         # every gauge pressure kept a null normalised value.
@@ -1979,12 +1985,20 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int) -> list[
         return []
 
 
-def _geometry_raw_value(row: dict) -> str:
-    """The text a geometry row hands `create_fact`: the printed text for a
-    blank (its marker is passed apart), else the cleaned value and its unit."""
+def _geometry_raw_value(row: dict) -> tuple[str, str | None]:
+    """(text for `create_fact`, unit to keep apart) for one geometry row.
+
+    A blank hands over its printed text (its marker is passed separately).
+    A value hands over "value unit" when that reads as a quantity or a
+    range; when it does not ("<85" + "dBA"), the value alone and the unit
+    APART, so the reader's split is not undone by gluing them back together.
+    """
     if row["is_blank"]:
-        return row["value_text"] or ""
-    return " ".join(p for p in (row["value"], row["unit"]) if p)
+        return row["value_text"] or "", None
+    joined = " ".join(p for p in (row["value"], row["unit"]) if p)
+    if row["unit"] and measure_value(joined)[0] is None and parse_range(joined) is None:
+        return row["value"] or "", row["unit"]
+    return joined, None
 
 
 def _fold(text: str | None) -> str:
@@ -2532,7 +2546,7 @@ def extract_facts(
                     dropped["empty label"] = dropped.get("empty label", 0) + 1
                     continue
                 name = normalise_field_name(label)
-                raw = _geometry_raw_value(row)
+                raw, printed_unit = _geometry_raw_value(row)
                 if (name in furniture or name in geometry_furniture
                         or tag_from_pair(label, row["value_text"] or "") is not None
                         or is_date_value(raw)):
@@ -2577,6 +2591,7 @@ def extract_facts(
                         blank=((True, row["blank_marker"] or "______")
                                if row["is_blank"] else None),
                         bbox=json.dumps(provenance_box, sort_keys=True),
+                        printed_unit=printed_unit,
                     )
                 except FactError:
                     dropped["refused by create_fact"] = dropped.get(

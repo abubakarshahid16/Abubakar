@@ -431,7 +431,7 @@ def test_real_pump_form_counts():
 
 # --------------------------------------------------------------------------
 # B4 (#193 5.5): the remaining wrong-value shapes, each with its negative.
-# Mutation proofs M580-M585, M592-M594 in scripts/mutation_check.py.
+# Mutation proofs M580-M585, M592-M594 in scripts/mutations/geometry_reader.py.
 # --------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")

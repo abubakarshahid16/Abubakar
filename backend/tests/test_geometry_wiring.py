@@ -9,7 +9,7 @@ behind `settings.geometry_reader_enabled`, OFF by default.
   the rule fact it contradicts.
 
 Synthetic PDFs only; no client document is read (CLAUDE.md rule 3).
-Mutation proofs: M586-M591 in scripts/mutation_check.py.
+Mutation proofs: M586-M589, M591, M595, M596 (scripts/mutations/datasheets.py).
 """
 from __future__ import annotations
 
@@ -184,7 +184,7 @@ def _row(label: str, value_text: str, *, value=None, unit=None, blank=False, mar
 
 
 def test_a_disagreement_is_recorded_as_a_conflict_not_written_over(tmp_path, monkeypatch, on):
-    """THE MUTATION TARGET (M589, M590): a geometry reading that contradicts
+    """THE MUTATION TARGET (M589): a geometry reading that contradicts
     the rule reader is kept beside it as `conflict`, naming the rule fact by
     id - and the rule fact is untouched."""
     doc = _store(tmp_path)
@@ -257,3 +257,18 @@ def test_geometry_readings_alone_do_not_make_a_page_read_into_fields(tmp_path, o
     cover = page_ledger.coverage(doc)
     assert cover["pages_not_read_into_fields"] == [1]
     assert "geometry-reader reading" in cover["not_read_reasons"]["1"]
+
+
+def test_a_non_quantity_value_keeps_the_unit_the_reader_split_off(tmp_path, monkeypatch, on):
+    """THE MUTATION TARGET (M596): "<85" + "dBA" is stored as the value "<85"
+    with the printed unit "dBA" - not glued back into "<85 dBA" with the
+    unit lost, and never turned into a number."""
+    doc = _store(tmp_path)
+    monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", lambda *_a: [
+        _row("SOUND LEVEL", "<85 (dBA)", value="<85", unit="dBA")])
+    _extract(doc)
+    fact = next(f for f in _current(doc) if f["field_name"] == "sound level")
+    assert (fact["field_value"], fact["raw_unit"], fact["raw_value"]) == ("<85", "dBA", None)
+    # negative: a real quantity is handed over whole and parses as one
+    assert datasheets._geometry_raw_value(_row("P", "10 barg", value="10", unit="barg")) == (
+        "10 barg", None)
