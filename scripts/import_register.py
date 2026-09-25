@@ -45,6 +45,8 @@ Nothing is written until every check has passed.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
 import sys
 import uuid
@@ -105,9 +107,8 @@ class RegisterRefused(SystemExit):
 #: vocabulary. Stated plainly because it is the one place this importer holds
 #: knowledge the register did not give it: the client named some of these
 #: (hot oil, firewater, MEG, flare, substation, beach valve station, produced
-#: water, diesel; Al-Khafji, Al-Zour/BVS, KJO, Dorra, onshore, offshore) and
-#: the rest are ordinary systems for a facility of this kind. Extend with
-#: --subjects when a revision introduces one.
+#: water, diesel) and the rest are ordinary systems for a facility of this
+#: kind. Extend with --subjects when a revision introduces one.
 #:
 #: A term that appears in no title is NOT emitted, so this list being too long
 #: costs nothing and a term missing from it shows up as a lower derived count.
@@ -125,10 +126,28 @@ CANDIDATE_SYSTEMS = (
     "gas lift", "slug catcher", "desalination", "boiler", "generator",
 )
 
-CANDIDATE_FACILITIES = (
-    "Al-Khafji", "Al Khafji", "Khafji", "Al-Zour", "Al Zour", "Zour",
-    "BVS", "KJO", "Dorra", "onshore", "offshore",
-)
+#: Facility names and site codes ARE client identifiers - unlike the generic
+#: systems above, they name the client's own sites. Read from a LOCAL,
+#: git-ignored file (scripts/register_facilities.local.json) so none is ever
+#: committed; see scripts/register_facilities.local.example.json for the
+#: shape. A missing file yields an empty tuple rather than a crash - fewer
+#: subjects are then derived, and MIN_SUBJECTS below still refuses the import
+#: if that leaves too few to be useful, so the omission cannot pass silently.
+_FACILITIES_CONFIG_ENV = "REGISTER_FACILITIES_CONFIG"
+_DEFAULT_FACILITIES_CONFIG = Path(__file__).resolve().parent / "register_facilities.local.json"
+
+
+def _load_candidate_facilities() -> tuple[str, ...]:
+    path = Path(os.environ.get(_FACILITIES_CONFIG_ENV, _DEFAULT_FACILITIES_CONFIG))
+    if not path.is_file():
+        print(f"register import: no local facility config at {path} - "
+              "facility subjects will not be derived. See "
+              "scripts/register_facilities.local.example.json.", file=sys.stderr)
+        return ()
+    return tuple(json.loads(path.read_text(encoding="utf-8")))
+
+
+CANDIDATE_FACILITIES = _load_candidate_facilities()
 
 
 def _now() -> str:

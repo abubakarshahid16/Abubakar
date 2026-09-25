@@ -1379,9 +1379,9 @@ def match_by_containment(requirement: dict, facts: list[dict], *,
     Maximum Operating Pressure ...", longest-wins picked `maximum operating
     pressure` (the input) over `internal design pressure` (the constrained
     quantity), and a filter applied afterwards could only have turned that
-    wrong pairing into silence. Measured on gold/PAIRS-216400C.csv: 8 false
-    pairings and 0 correct before; the rules are what made the correct one
-    reachable.
+    wrong pairing into silence. Measured on a filled gold pairing sheet (kept
+    local, not tracked - see `gold/README.md`): 8 false pairings and 0
+    correct before; the rules are what made the correct one reachable.
 
     `sheet_kind` is the equipment domain of the datasheet (see
     `match_rules.sheet_kind`); when the caller has none it is read from the
