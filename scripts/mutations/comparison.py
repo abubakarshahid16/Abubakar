@@ -250,9 +250,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M131", phase=8,
         description="re-propose a pairing a human already rejected",
         path=APP / "comparison.py",
-        # Re-anchored 2026-09-25: B4's field-name matcher repeats this line,
-        # so the anchor matched twice; the containment matcher is the one
-        # the target test exercises.
+        # Re-anchored (B4 quality): match_by_field_name has the same line.
         anchor="        return none\n\n    rejected = _rejected_keys_for(requirement)",
         replacement="        return none\n\n    rejected = set()",
         target="tests/test_findings_reachable.py",
