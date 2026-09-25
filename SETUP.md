@@ -123,7 +123,11 @@ git config --get core.hooksPath          # must print .githooks
 ```
 
 `core.hooksPath` is local git config and is **not** carried by the clone. Without it the
-gitleaks pre-commit hook **never runs**, and nothing warns you.
+gitleaks pre-commit hook **never runs**, and nothing warns you. The same setting enables
+`.githooks/post-checkout`, the live-checkout guard: in the main working tree (the one the
+server runs from) a checkout of any branch other than `main` prints `REFUSED` and switches
+straight back. `git pull origin main` is unaffected (post-checkout does not fire on a pull),
+and linked worktrees under `.claude/worktrees/` may use any branch.
 
 > **CI IS NOT RUNNING (as of 2026-09-21). The local hook is the only automated gate.**
 > GitHub Actions has hit the account's monthly minutes/spending limit. Every workflow
