@@ -51,3 +51,12 @@ def test_numbers_that_are_not_inside_a_sentence_still_break_the_run():
 
 def test_a_wall_of_numbers_has_no_clause_at_all():
     assert longest_clause("10 20 30 40 50 60 70 80 90 100 110 120 130 140") == 0
+
+
+def test_table_rows_are_not_read_as_one_sentence():
+    """A label/value table extracted one cell per line: the row number and the
+    value each end their line, so rows do not bridge into a 'sentence'."""
+    table = "1\nDesign pressure\n23.5 barg\n2\nSet pressure\n340 psig\n3\nCompressibility factor\n0.892\n"
+    assert longest_clause(table) == 3
+    # the same words laid out as a sentence on one line do bridge
+    assert longest_clause("Design pressure 23.5 barg and set pressure 340 psig") == 7
