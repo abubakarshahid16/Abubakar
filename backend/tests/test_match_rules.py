@@ -1,9 +1,10 @@
 """The three rules that decide which containment hit may be paired.
 
-Each rule is tested on the false pairing that motivated it, from
-gold/PAIRS-216400C.csv, and on the case where it must NOT refuse - because a
-rule that refuses when unsure turns a correct pairing into silence, and silence
-does not show up on anybody's screen.
+Each rule is tested on the false pairing that motivated it, from a filled gold
+pairing sheet (kept local, not tracked - see gold/README.md), and on the case
+where it must NOT refuse - because a rule that refuses when unsure turns a
+correct pairing into silence, and silence does not show up on anybody's
+screen.
 """
 
 from __future__ import annotations

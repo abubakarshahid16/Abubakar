@@ -2,9 +2,10 @@
 
 WHY THIS EXISTS. `comparison.match_by_containment` joins a requirement to a
 datasheet field by whole-word containment and resolves ties by "longest field
-name wins". Measured on `gold/PAIRS-216400C.csv` that made 8 pairings, of which
-0 were right and 8 were FALSE - every one a real clause number and a real page
-attached to a number the clause was not about:
+name wins". Measured on a filled gold pairing sheet (kept local, not tracked -
+see `gold/README.md`) that made 8 pairings, of which 0 were right and 8 were
+FALSE - every one a real clause number and a real page attached to a number
+the clause was not about:
 
   * `design life = 25 years` on a pressure vessel paired with SAES-P-103 5.2.5,
     "the design life of the BATTERY shall be at least 20 years";
