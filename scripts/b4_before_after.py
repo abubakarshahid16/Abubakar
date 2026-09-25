@@ -9,8 +9,8 @@ WHAT IT DOES, IN ORDER (the owner's B4 steps 2-5 and 8):
   2. Two disposable copies are made from that backup: one for BEFORE, one for
      AFTER. Neither path is live-shaped, so `db.connect()` opens them freely
      and nothing here can reach the live file.
-  3. Each document is found by a filename fragment (default: M-03, I-06,
-     216400C). A fragment matching none, or more than one document, stops the
+  3. Each document is found by a filename fragment (passed with --doc;
+     no default). A fragment matching none, or more than one document, stops the
      run - a guess at which document was meant is not a measurement.
   4. BEFORE: `--before-checkout` (a checkout of the code being replaced, e.g.
      `git worktree add ../b4-before origin/main`) re-extracts into its copy
@@ -28,7 +28,8 @@ commit or paste them (CLAUDE.md rules 1 and 3).
     git worktree add ../b4-before origin/main
     mkdir C:\\b4-backups   (the backup tool never creates its folder)
     python scripts/b4_before_after.py --before-checkout ../b4-before \\
-        --backup-dir C:\\b4-backups --scratch C:\\b4-scratch --out b4-result.json
+        --backup-dir C:\\b4-backups --scratch C:\\b4-scratch --out b4-result.json \\
+        --doc <fragment 1> --doc <fragment 2> --doc <fragment 3>
 
 Run with the backend STOPPED or running - the backup API is safe with the
 server up. `GEOMETRY_READER_ENABLED` is read from the environment as usual;
@@ -47,7 +48,6 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 sys.path.insert(0, str(REPO / "scripts"))
 
-DEFAULT_DOCS = ("M-03", "I-06", "216400C")
 METRICS = ("rows", "filled", "blank", "duplicate", "garbled", "numeric_filled")
 
 
@@ -98,8 +98,8 @@ def main() -> int:
     ap.add_argument("--before-checkout", required=True, type=Path)
     ap.add_argument("--scratch", required=True, type=Path)
     ap.add_argument("--backup-dir", type=Path, default=None)
-    ap.add_argument("--doc", action="append", default=None,
-                    help="filename fragment (repeatable); default M-03, I-06, 216400C")
+    ap.add_argument("--doc", action="append", required=True,
+                    help="filename fragment (repeatable, required); document names are never stored in the repo")
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
 
@@ -123,7 +123,7 @@ def main() -> int:
     after_src = copy_database(snapshot, args.scratch / "after-src")
 
     # 3. The documents, by fragment.
-    docs = find_documents(snapshot, args.doc or list(DEFAULT_DOCS))
+    docs = find_documents(snapshot, args.doc)
     ids = list(docs.values())
 
     # 4. Re-extract: old code, then new code, each into its own copy.
