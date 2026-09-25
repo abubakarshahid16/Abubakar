@@ -94,7 +94,7 @@ def test_a_standard_named_in_the_datasheet_is_selected_as_referenced():
 
 
 def test_a_one_letter_koc_discipline_code_is_read_as_a_citation():
-    """#161: a real KOC pump datasheet's reference list names standards under
+    """#161: a real client pump datasheet's reference list names standards under
     BOTH one-letter (KOC-E-003, electrical) and two-letter (KOC-ME-008,
     mechanical equipment) discipline codes in the same document. Before the
     fix, `referenced_standards` required exactly two letters, so the

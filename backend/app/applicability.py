@@ -359,7 +359,7 @@ def _semantic_cannot_cover_a_missing_reference(
     the selection - a semantically similar standard may well be worth reading -
     but it is never allowed to mark a citation satisfied.
 
-    Concretely: a KOC pump datasheet cites API 610. API 610 is not in the
+    Concretely: a client pump datasheet cites API 610. API 610 is not in the
     library. Dense retrieval finds a NORSOK coating standard. Without this, the
     coating standard appears as "applicable", the API 610 line disappears, and
     a review that could not have been performed reads as complete.
@@ -386,7 +386,7 @@ def select(
     the submittal cites that the library does not hold.
 
     ZERO APPLICABLE STANDARDS IS A VALID ANSWER, not an error. On this
-    repository's corpus it is the CORRECT answer for a KOC datasheet: every
+    repository's corpus it is the CORRECT answer for a client datasheet: every
     standard those sheets cite is absent, and a system that found some anyway
     would be lying.
     """

@@ -1,4 +1,4 @@
-# KJO EPC requirements scorecard
+# Client EPC requirements scorecard
 
 Status is evidence-based: DONE means the feature is usable in the UI and has
 automated coverage; PARTIAL means infrastructure or a screen is still missing;

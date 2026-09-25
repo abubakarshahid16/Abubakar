@@ -452,6 +452,14 @@ class Settings(BaseSettings):
     #: ingesting into a void. See `watcher.resolve_owner`.
     watch_owner_email: str = ""
 
+    # ------------------------------------------------------- CRS export
+    #: Row 1 of the Comment Resolution Sheet when the caller names no company.
+    #: FROM `.env` (CRS_COMPANY_NAME), never a literal in tracked code: the
+    #: operating company's name is a client identifier and does not belong in
+    #: git. EMPTY BY DEFAULT, and empty prints nothing - a sheet headed by a
+    #: guessed company name would misstate who issued it.
+    crs_company_name: str = ""
+
     # ------------------------------------------------------- watched folder
     #: The drop folder. EMPTY IS THE DEFAULT AND EMPTY MEANS OFF - there is no
     #: separate `watch_enabled` boolean, because two settings that can disagree

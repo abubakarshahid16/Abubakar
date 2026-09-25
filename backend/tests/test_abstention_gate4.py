@@ -6,7 +6,7 @@ text that was not in its input.
 
 The packet is the Phase 0.5 pairing, so these cases exercise the same shapes the
 slice will: SAES-A-133 clause 7.1.2.1 (>= 1.6 mm minimum corrosion allowance)
-against 216400C page 4 "Design corrosion allowance for welded internals" = 0 mm.
+against P-1000001 page 4 "Design corrosion allowance for welded internals" = 0 mm.
 
 MUTATION-SENSITIVE BY CONSTRUCTION. Each case names the branch of
 `comparison.compare` (or `match_rules.refusal`) it depends on, and
@@ -57,7 +57,7 @@ def requirement(**over) -> dict:
 
 def fact(**over) -> dict:
     base = {
-        "id": "fact-216400c-ca-welded-internals",
+        "id": "fact-p-1000001-ca-welded-internals",
         "submittal_document_id": "doc_2ec2934f8d3f",
         "field_name": "Design corrosion allowance for welded internals",
         "field_value": "0 mm",

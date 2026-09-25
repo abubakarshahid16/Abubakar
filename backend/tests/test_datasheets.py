@@ -7,7 +7,7 @@ whether the extractor uses it.
 
 The datasheets here are built by the fixture with real ruled geometry and real
 label-value text, because the repository must not depend on the client's files:
-the two real KOC sheets live outside it and `CLAUDE.md` rule 3 forbids a test
+the two real client sheets live outside it and `CLAUDE.md` rule 3 forbids a test
 depending on confidential client material. Phase 4's measurements against those
 real sheets are recorded in the progress file instead.
 
@@ -284,7 +284,7 @@ def test_a_document_with_no_chunks_reports_a_null_fraction(tmp_path):
 # ====================================================== referenced standards
 
 def test_a_referenced_standard_named_in_the_datasheet_is_detected(tmp_path):
-    """THE MUTATION TARGET (M52). The stack both real KOC sheets name."""
+    """THE MUTATION TARGET (M52). The stack both real client sheets name."""
     text = ("Design Standard: API RP 520 Pt-1&2, KOC-MP-027 Pt-1. "
             "Materials per NACE MR-0175 / ISO 15156 and ASTM A216. "
             "Pump per API 610 and KOC-ME-008.")

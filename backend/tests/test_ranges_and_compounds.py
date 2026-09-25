@@ -1,6 +1,6 @@
 """Two numbers in one cell, and two fields in one label.
 
-MEASURED ON THE KOC PSV SHEET. Seventeen values on it are range-shaped and
+MEASURED ON THE CLIENT PSV SHEET. Seventeen values on it are range-shaped and
 none of them parsed: `-3 to 55 C & 0 to 100%` is two quantities sharing a row,
 `23.5 / 11.03 barg` is the design pressure and the operating pressure, and
 `-3 to 121OC` writes its degree sign as a letter. Every one was recorded as

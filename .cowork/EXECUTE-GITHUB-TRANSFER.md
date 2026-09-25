@@ -167,7 +167,7 @@ Answer all six. **Any failure stops the push.**
     git remote -v
 
 Then confirm the repository's visibility on GitHub. **If it is public, STOP and report.**
-This project holds work derived from Saudi Aramco standards and KJO contractor documents.
+This project holds work derived from Saudi Aramco standards and the client's contractor documents.
 
 ## 3.2 Does history contain anything that must never leave?
 
@@ -225,7 +225,7 @@ That is a structural observation worth acting on later. **Do not refactor it now
 
 - **Commit the 9 Git-safe files.**
 - **Direct-copy the 36 evidence files.**
-- **The 3 files naming 216400C** - V3, `ADDENDUM-GAP-ANALYSIS.md`, `B24-B23-PREFLIGHT.md`
+- **The 3 files naming the pressure-vessel submittal number** - V3, `ADDENDUM-GAP-ANALYSIS.md`, `B24-B23-PREFLIGHT.md`
   - **direct-copy, do not redact.** §3.1 names filenames specifically, so redaction is a
   thin fix that also degrades the records.
 
@@ -342,7 +342,7 @@ channel that logs them.** Record which variable **names** were set, never their 
 
 ### 5.3.2 Source documents - the primary transfer
 
-Copy the PDFs directly - USB or a network share KJO's IT permits, not cloud storage.
+Copy the PDFs directly - USB or a network share the client's IT permits, not cloud storage.
 These are controlled client documents.
 
 Record the **file count and total size** on both sides and confirm they match.

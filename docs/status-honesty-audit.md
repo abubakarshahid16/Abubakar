@@ -702,7 +702,7 @@ denominator was not itself controlled for.
 **A fifteenth, 2026-09-18 (phase 4), and it is a correction to entry 14's
 neighbour.** Phase 3B reported "SAES-A-105 IS NOT IN THIS REPOSITORY" and built
 its argument on it. That was true of the REPOSITORY and false of the MACHINE:
-the file is in `~/Downloads`, along with the two real KOC datasheets, and phase
+the file is in `~/Downloads`, along with the two real client datasheets, and phase
 4 found it in about a minute by looking outside the repo. The 3B statement was
 literally accurate and practically misleading - it read as "this file does not
 exist here" when what was true was "nobody has ingested it". **Absence from a
@@ -1161,10 +1161,10 @@ document_classification GROUP BY 1` → `COMPANY_STANDARD` 272,
 several documents because nobody ran it. Note also that the role does not live
 where two audits looked for it: `documents` has no role column.
 
-**Fourth: "216400C previously selected standards, then selected zero."** Two
-different documents were compressed into one bug. 216400C has **never** selected
+**Fourth: "P-1000001 previously selected standards, then selected zero."** Two
+different documents were compressed into one bug. P-1000001 has **never** selected
 zero: it went 10 → 10 → **6**, with findings 1,609 → 815, between
-2026-09-20T09:01Z and 10:04Z. The run that selected zero is **EF1975-DAS-M-03**,
+2026-09-20T09:01Z and 10:04Z. The run that selected zero is **DS-0000-DAS-M-01**,
 a different submittal, which also extracted **0** `submittal_facts`. A bug report
 naming the wrong document sends the fix to the wrong code.
 

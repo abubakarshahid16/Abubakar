@@ -2,17 +2,17 @@
 
 WHICH EXTRACTION PATH, AND WHY - DECIDED BY MEASURING, NOT BY HOPE
 
-Step zero of this phase was to ingest the two real KOC datasheets and measure
+Step zero of this phase was to ingest the two real client datasheets and measure
 what `tables.py` actually recovers from them. The answer was different for each,
 and that is the whole design:
 
-  EF1975-DAS-M-03 (centrifugal pump, 7 pages) - `find_tables()` recovers a real
+  DS-0000-DAS-M-01 (centrifugal pump, 7 pages) - `find_tables()` recovers a real
   grid on 7 of 7 pages, and reading it shows genuine data:
 
       ['VAPOR PRESSURE:', 'bar a (psia)', '0.42 (6.09)']
       ['SPECIFIC GRAVITY:', '0.974 @ 170 OF']
 
-  EF1975-DAS-I-06 (pressure safety valves, 5 pages) - `find_tables()` reports a
+  DS-0000-DAS-I-01 (pressure safety valves, 5 pages) - `find_tables()` reports a
   table on 5 of 5 pages too, and the rate is MEANINGLESS: every one of them is
   the two-row title block. The actual PSV data is not in it at all.
 
@@ -66,7 +66,7 @@ _BLANK_MARKERS = re.compile(
 #: A form draws them where a value goes, and they are blanks, not values.
 _PLACEHOLDER = re.compile(r"^[\s_\-*.·–—]{2,}$")
 
-#: A referenced standard named inside a datasheet. Both real KOC sheets name a
+#: A referenced standard named inside a datasheet. Both real client sheets name a
 #: stack of them, and phase 5 needs to know which standards a submittal itself
 #: invokes. Spellings vary by vendor, so each family is matched on its own
 #: shape rather than by one loose pattern that would also match a tag number.
@@ -76,7 +76,7 @@ _REFERENCED_STANDARD = re.compile(
     # KOC discipline codes are ONE letter (E electrical, G general, I
     # instrumentation, P painting, Q quality...) or TWO (ME mechanical
     # equipment, MP mechanical piping...) depending on the discipline, not a
-    # fixed width - a real KOC datasheet's own reference list names both in
+    # fixed width - a real client datasheet's own reference list names both in
     # the same document. `{1,2}` reads either; a fixed `{2}` silently dropped
     # every one-letter citation (KOC-E-003, KOC-P-001, ...) as invisible to
     # the citation pattern, never applicable and never reported missing.
@@ -182,7 +182,7 @@ def is_categorical_value(value: str | None) -> bool:
 
     The list is CLOSED, deliberately. Anything open would let a free-text
     answer back in, and free text beside a label is exactly what produced
-    fields called "emad kishta" and "al khafji onshore facility".
+    fields called "emad kishta" and "onshore facility a".
     """
     return " ".join((value or "").strip().lower().split()) in _CATEGORICAL_VALUES
 
@@ -254,7 +254,7 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
     page is a five-row section, not furniture.
 
     AND THE VALUE DECIDES, NOT THE LABEL ALONE. Repetition by itself was wrong
-    and it cost a whole document: `EF1975-DAS-I-06` is FIVE INSTANCES OF ONE
+    and it cost a whole document: `DS-0000-DAS-I-01` is FIVE INSTANCES OF ONE
     FORM, one pressure safety valve per page, so every real field - `Set
     pressure`, `Relieving temperature`, `Density at relieving temper.` -
     appears on every page. The page-count rule classified the entire form as a
@@ -269,8 +269,8 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
     is called.
 
     AND EMPTINESS IS THE SECOND HALF OF IT. Distinct answers alone is not
-    enough, measured on the drum sheet: its title block `AL KHAFJI ONSHORE
-    FACILITY` is empty on six of the eight pages it appears on and picks up a
+    enough, measured on the drum sheet: its title block `ONSHORE FACILITY
+    A` is empty on six of the eight pages it appears on and picks up a
     stray neighbouring fragment on the other two - `D` on page 5, `2003` on
     page 7. That is two distinct non-empty answers, so a distinctness test
     alone promotes the title block to a field and `2003` becomes a fact.
@@ -283,7 +283,7 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
       1. it has two or more distinct non-empty answers, and
       2. it is non-empty on MORE THAN HALF the pages it appears on.
 
-    Otherwise it is furniture. `AL KHAFJI ONSHORE FACILITY` fails the second
+    Otherwise it is furniture. `ONSHORE FACILITY A` fails the second
     at 2 of 8; `Set pressure` passes both at 4 distinct answers on 4 of 4
     pages.
 
@@ -530,7 +530,7 @@ def split_compound_pair(label: str, value: str) -> list[tuple[str, str]]:
 #:   `Tag number :` | `2003-47-V-0001A/B`     - label and value, two cells
 #:   `Tag No. PSV-4301 A/B (for GC-9, 10 & 19)` | ``   - all one cell
 #:
-#: The second is the KOC PSV sheet, where the text block carries the key and
+#: The second is the client PSV sheet, where the text block carries the key and
 #: the tag together and there is no value beside it. A reader that only
 #: understood the first shape would find no tag on any page of it.
 #:
@@ -931,7 +931,7 @@ def _join_continuations(parts: list[str]) -> list[str]:
 def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
     """Label-value pairs out of one row of a form.
 
-    A KOC sheet is TWO FORMS SIDE BY SIDE - "5 | Design pressure | 23.5 barg |
+    A client sheet is TWO FORMS SIDE BY SIDE - "5 | Design pressure | 23.5 barg |
     46 | Bonnet material | CS" - so a row yields more than one pair and the
     leading line numbers are dropped. Pairing is strictly left to right, which
     is the order the sheet is read in.
@@ -1290,7 +1290,7 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
             continue
         # A ROW WHOSE OWN COLUMN 0 IS A BARE LINE NUMBER, measured on two
         # real regression documents (issue #179). Column 0 is not a label
-        # here - it is a KOC-style row serial, exactly what split_label_value
+        # here - it is a client-style row serial, exactly what split_label_value
         # already strips wherever it appears - and this function's "one row
         # label, several values under several headers" scoping does not
         # apply to it.
@@ -2070,7 +2070,7 @@ def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
     from this page" is true of a scanned page with no text and of a page whose
     every pair was filtered out, and those want opposite responses: the first
     is an OCR question, the second is a rule that is too strict. The second is
-    what happened to every page of EF1975-DAS-I-06, and the message sent the
+    what happened to every page of DS-0000-DAS-I-01, and the message sent the
     reader looking for a parsing problem that was not there.
 
     So the sentence is only used when it is TRUE, and otherwise the page says
@@ -2286,7 +2286,7 @@ def extract_facts(
             # used to say "no label-value pairs recovered" whatever had happened,
             # so a page whose pairs were all FILTERED read exactly like a page that
             # could not be parsed at all - and it sent the reader to the wrong half
-            # of the pipeline. On EF1975-DAS-I-06 that message was printed for five
+            # of the pipeline. On DS-0000-DAS-I-01 that message was printed for five
             # pages from which 190 pairs each had been recovered and discarded.
             dropped: dict[str, int] = {}
             for label, value in pairs:
@@ -2333,7 +2333,7 @@ def extract_facts(
                     continue
                 if not states_a_value(value):
                     # A LABEL WITH FREE TEXT BESIDE IT IS NOT A FACT. "Prepared by:
-                    # A. Engineer" and "Facility: Al Khafji" have exactly the shape
+                    # A. Engineer" and "Facility: Example Bay" have exactly the shape
                     # of a filled-in field and state nothing about the equipment.
                     # A quantity, an explicit blank, or a closed categorical answer
                     # - anything else is a caption.

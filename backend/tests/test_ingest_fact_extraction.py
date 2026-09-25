@@ -144,7 +144,7 @@ def test_a_company_standard_never_gets_datasheet_facts(tmp_path):
     """The role gate. A standard document must never run the datasheet
     extractor - it gets `standard_requirements` extraction instead."""
     client = TestClient(app)
-    doc_id = _upload(client, tmp_path, name="KOC-XX-001.pdf")
+    doc_id = _upload(client, tmp_path, name="STD-XX-001.pdf")
     classification.set_role(doc_id, "COMPANY_STANDARD")
 
     status = _run_to_settled(doc_id)

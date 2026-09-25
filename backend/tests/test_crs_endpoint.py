@@ -306,14 +306,14 @@ def test_the_transmittal_numbers_are_blank_rather_than_invented():
 
 
 def test_the_title_and_date_come_from_real_data():
-    doc = _submittal(filename="216400C-2003-SP-0810-0003_00.pdf")
+    doc = _submittal(filename="P-1000001-2003-SP-0810-0003_00.pdf")
     run_id = _run(doc)
 
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
 
     title_row = 3 + [k for _, k in HEADER_FIELDS].index("document_title")
     assert ws.cell(row=title_row, column=3).value == (
-        "216400C-2003-SP-0810-0003_00.pdf")
+        "P-1000001-2003-SP-0810-0003_00.pdf")
     issued = ws.cell(row=title_row + 1, column=3).value
     assert issued and len(issued) == 10 and issued[4] == "-"
 
@@ -357,13 +357,13 @@ def test_the_engineers_final_code_supersedes_the_recommendation_in_the_file():
 
 
 def test_the_filename_names_the_submittal_and_the_date():
-    doc = _submittal(filename="216400C-2003-SP-0810-0003_00.pdf")
+    doc = _submittal(filename="P-1000001-2003-SP-0810-0003_00.pdf")
     run_id = _run(doc)
 
     response = _client(doc).get(f"/api/reviews/runs/{run_id}/crs")
 
     disposition = response.headers["content-disposition"]
-    assert "CRS_216400C-2003-SP-0810-0003_00_" in disposition
+    assert "CRS_P-1000001-2003-SP-0810-0003_00_" in disposition
     assert disposition.endswith('.xlsx"')
 
 
@@ -532,10 +532,14 @@ def test_the_contractor_columns_come_back_empty_rather_than_missing():
         assert row["final_resolution"] == ""
 
 
-def test_the_preview_is_the_workbook_row_for_row():
+def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
     """THE POINT OF THE WHOLE FEATURE. Both renderings of one run, read back
     and compared cell by cell: the header block, the column headers, every
     data row across all seven columns, and the recommended code line.
+
+    A company name is configured so row 1 carries real text: with none, the
+    title is empty in both renderings and comparing nothing to nothing would
+    prove nothing about the title.
 
     A preview that showed something other than the file the client receives
     would be worse than no preview at all, and the only reason this passes is
@@ -543,7 +547,8 @@ def test_the_preview_is_the_workbook_row_for_row():
     `crs_export.build_crs_view`. Give either one its own builder and this
     test is what fails.
     """
-    doc = _submittal(filename="216400C-2003-SP-0810-0003_00.pdf")
+    monkeypatch.setattr(settings, "crs_company_name", "EXAMPLE OPERATING COMPANY (EOC)")
+    doc = _submittal(filename="P-1000001-2003-SP-0810-0003_00.pdf")
     _submittal("doc_std", "SAES-D-001.pdf")
     run_id = _run(doc)
     _finding(doc, run_id, "NON_COMPLIANT")
@@ -663,12 +668,12 @@ def test_the_submittal_number_on_the_sheet_is_the_submittals_own():
     is NOT either transmittal number, which stay blank because nobody has
     issued one."""
     doc = _submittal()
-    _number(doc, "KJO-SUB-2024-0417")
+    _number(doc, "EOC-SUB-2024-0417")
     run_id = _run(doc)
 
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
 
-    assert _submittal_no(ws) == "KJO-SUB-2024-0417"
+    assert _submittal_no(ws) == "EOC-SUB-2024-0417"
     assert ws.cell(row=3, column=3).value in (None, ""), "COMPANY transmittal"
     assert ws.cell(row=4, column=3).value in (None, ""), "CONTRACTOR transmittal"
 
@@ -773,7 +778,7 @@ def test_the_additions_left_the_template_at_seven_columns():
     """P0-5. The client's template has seven columns; widening it is a change
     they have to sign off. The reference rides in the comment text instead."""
     doc = _submittal()
-    _number(doc, "KJO-SUB-2024-0417")
+    _number(doc, "EOC-SUB-2024-0417")
     run_id = _run(doc)
     _finding(doc, run_id, "NON_COMPLIANT")
 

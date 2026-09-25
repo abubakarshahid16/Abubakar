@@ -1,4 +1,4 @@
-# Cold evaluation: KOC PSV datasheet (EF1975-DAS-I-06), 2026-09-19
+# Cold evaluation: client PSV datasheet (DS-0000-DAS-I-01), 2026-09-19
 
 Measurement only. No code was changed, no fixture written, no defect repaired.
 Working tree was clean at `3b8d95d` before and after.
@@ -7,7 +7,7 @@ Working tree was clean at `3b8d95d` before and after.
 
 The task was set as "nothing in the codebase has ever seen it". **That is not
 true of this document.** `docs/AI_SUBMITTAL_REVIEW_PROGRESS.md` §55 records it
-by name as "KOC PSV (I-06)" with the same 8 missing references measured below,
+by name as "client PSV (I-01)" with the same 8 missing references measured below,
 and §54 records **37 facts** recovered from it during Phase 4. Its strings are
 quoted in the source: `datasheets.py:236` cites `0.01cP By Contractor` as a
 label the extractor once invented, and that string is on page 1 of this file.
@@ -31,7 +31,7 @@ scan (it requires size and mtime unchanged across two passes).
 | | |
 |---|---|
 | id | `doc_d30f4c63d481` |
-| filename | EF1975-DAS-I-06.pdf |
+| filename | DS-0000-DAS-I-01.pdf |
 | role | CONTRACTOR_SUBMITTAL, from the `submittals/` folder |
 | status | ready |
 | pages | 5 |
@@ -46,8 +46,8 @@ Exactly two CONTRACTOR_SUBMITTAL rows now exist. ✅
 `API RP 520 Pt-1`, `KOC-MP-027`, `ASTM A216`, `ASTM A193`, `API RP 578`,
 `NACE MR-0175`, `ISO 15156`, `ASTM B633`.
 
-The library is 272 Saudi Aramco (SAES) standards. This is a Kuwait Oil Company
-sheet citing API/ASTM/NACE/ISO/KOC. Identical to the figure §55 recorded for
+The library is 272 Saudi Aramco (SAES) standards. This is a client
+sheet citing API/ASTM/NACE/ISO and its own company standards. Identical to the figure §55 recorded for
 this sheet in Phase 5A. **Not a defect** - the system reports it correctly.
 
 ## 3. Applicability
@@ -223,7 +223,7 @@ Supplementary, since the standard side is the only citation the run emitted:
 2. **"Unparsed" conflates "could not read" with "read and discarded".** A
    diagnostic that points an operator at the wrong half of the pipeline.
 3. **A library with zero overlap with the submittal.** 272 SAES standards, a
-   KOC sheet, no intersection. The system behaves correctly but the output is
+   client sheet, no intersection. The system behaves correctly but the output is
    870 findings that are all "no value submitted" against standards nobody
    cited - a review whose every row is noise, produced honestly.
 4. **Multi-tag documents have no representation.** Four PSV tags on four
@@ -250,7 +250,7 @@ label a field: two or more distinct non-empty answers, AND non-empty on more
 than half the pages it appears on. Otherwise furniture.
 
 Distinctness alone was not enough. This document's own title block on the drum
-sheet - `AL KHAFJI ONSHORE FACILITY` - is empty on six of the eight pages it
+sheet - `ONSHORE FACILITY A` - is empty on six of the eight pages it
 appears on and catches a stray neighbouring fragment on two (`D` on page 5,
 `2003` on page 7). Two distinct non-empty answers, so condition 1 alone
 promotes it to a field and `2003` becomes a numeric fact. Condition 2 kills
@@ -258,7 +258,7 @@ it at 2 of 8.
 
 | | before the fix | after |
 |---|---|---|
-| PSV facts (EF1975-DAS-I-06) | 0 | **35** |
+| PSV facts (DS-0000-DAS-I-01) | 0 | **35** |
 | PSV pages unparsed | 5 of 5 | **1 of 5** (page 5 is the notes page) |
 | PSV blank-marked facts | 0 | **25 of 35**, all surviving |
 | drum facts | 48 | **48**, unchanged, junk row dead |

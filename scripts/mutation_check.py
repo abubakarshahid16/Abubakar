@@ -2158,7 +2158,7 @@ REPEATED_FORM = (
     Mutation(
         id="M174", phase=13,
         description="COUNT PAGES ALONE AGAIN, so a form repeated on every "
-                    "page is stripped as a header - EF1975-DAS-I-06 back to "
+                    "page is stripped as a header - DS-0000-DAS-I-01 back to "
                     "zero facts from 162 rows",
         path=APP / "datasheets.py",
         anchor="        is_field = distinct >= 2 and answered * 2 > len(pages)",
@@ -2182,7 +2182,7 @@ REPEATED_FORM = (
         id="M176", phase=13,
         description="DROP CONDITION 2, so a mostly-empty title block that "
                     "caught two stray fragments files them as facts - the "
-                    "`al khafji onshore facility` row returning",
+                    "`onshore facility a` row returning",
         path=APP / "datasheets.py",
         anchor="        is_field = distinct >= 2 and answered * 2 > len(pages)",
         replacement="        is_field = distinct >= 2",
@@ -3006,7 +3006,7 @@ CRS_EXPORT = (
                     "own provenance to whoever receives it",
         path=APP / "main.py",
         anchor='        "company_transmittal": "",',
-        replacement='        "company_transmittal": "KJO-TRX-0001",',
+        replacement='        "company_transmittal": "EOC-TRX-0001",',
         target="tests/test_crs_endpoint.py",
         keyword="transmittal_numbers_are_blank_rather_than_invented",
         tags=("honesty", "critical"),
@@ -6265,6 +6265,53 @@ B5_STANDARDS_INVENTORY = (
         target="tests/test_geometry_reader.py",
         keyword="unit_split or form_label_value or celsius",
         tags=("extraction", "units"),
+    ),
+    # Owner order 2026-09-25 (item 3a): client identifiers out of git. The
+    # CRS company comes from configuration, and the pre-commit hook reads its
+    # blocked patterns from a local, git-ignored file.
+    Mutation(
+        id="M540", phase=61,
+        description="ignore CRS_COMPANY_NAME: the CRS company is no longer "
+                    "read from settings",
+        path=APP / "crs_export.py",
+        anchor='    return settings.crs_company_name or ""\n',
+        replacement='    return ""\n',
+        target="tests/test_crs_export.py",
+        keyword="default_company_comes_from_settings",
+        tags=("privacy",),
+    ),
+    Mutation(
+        id="M541", phase=61,
+        description="the hook stops reading the local identifier list, so a "
+                    "staged client identifier is committed",
+        path=REPO / ".githooks" / "pre-commit",
+        anchor='    client_ids="${client_ids:+$client_ids|}$pattern"\n',
+        replacement="    :\n",
+        target="tests/test_client_identifier_hook.py",
+        keyword="added_line_matching_a_local_pattern_is_blocked",
+        tags=("privacy", "safety"),
+    ),
+    Mutation(
+        id="M542", phase=61,
+        description="the hook reads the list but never matches added lines "
+                    "against it",
+        path=REPO / ".githooks" / "pre-commit",
+        anchor='      | grep -E -- "$client_ids" || true)\n',
+        replacement="      | grep -E -- 'a^' || true)\n",
+        target="tests/test_client_identifier_hook.py",
+        keyword="added_line_matching_a_local_pattern_is_blocked",
+        tags=("privacy", "safety"),
+    ),
+    Mutation(
+        id="M543", phase=61,
+        description="a missing local list blocks every commit instead of "
+                    "printing a notice",
+        path=REPO / ".githooks" / "pre-commit",
+        anchor='  echo "${YLW}notice: no .githooks/client-identifiers.local patterns - client identifier scan skipped${NC}"\n',
+        replacement='  echo "${RED}BLOCKED: no client identifier list${NC}"; fail=1\n',
+        target="tests/test_client_identifier_hook.py",
+        keyword="missing_list_is_a_notice_not_a_block",
+        tags=("safety",),
     ),
 )
 

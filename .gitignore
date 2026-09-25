@@ -122,3 +122,8 @@ gold/*.csv
 # Every OTHER filled sheet stays ignored. Do not add to this list.
 !gold/SAES-A-105.csv
 !gold/PAIRS-216400C.csv
+
+# Client identifiers the pre-commit hook blocks in added lines. LOCAL ONLY:
+# the list is itself a list of client identifiers, so it never enters git.
+# One regex per line; see .githooks/pre-commit section 2b.
+.githooks/client-identifiers.local

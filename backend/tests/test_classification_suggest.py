@@ -60,7 +60,7 @@ def vocabulary():
         "hot_oil": _subject("hot oil"),
         "firewater": _subject("firewater"),
         "substation": _subject("substation"),
-        "khafji": _subject("Al-Khafji", "facility"),
+        "facility_a": _subject("Example Bay", "facility"),
         "project_wide": _subject(classification.PROJECT_WIDE, "project_wide"),
     }
     ids["register"] = _register(
@@ -151,9 +151,9 @@ def test_a_subject_in_the_first_page_text_counts(vocabulary):
     """The first page is matched as well as the title: a drawing whose
     filename is a document number still says what it is about on its face."""
     got = classification.suggest(
-        "DWG-11223.pdf", "FIREWATER RING MAIN — Al-Khafji terminal", REVISION)
+        "DWG-11223.pdf", "FIREWATER RING MAIN — Example Bay terminal", REVISION)
     assert set(got.subject_ids) == {vocabulary["firewater"],
-                                    vocabulary["khafji"]}
+                                    vocabulary["facility_a"]}
 
 
 @pytest.mark.parametrize("text,expected", [
