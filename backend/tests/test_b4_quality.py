@@ -297,9 +297,12 @@ def test_a_vision_reading_of_a_rule_fact_label_is_never_a_second_row(world, monk
     assert result["vision_dropped"] == {"same as rule/geometry reader": 1}
 
 
-def test_the_noise_filter_runs_only_with_the_flag_on(world, monkeypatch):
-    """THE MUTATION TARGET (M651): title-block furniture is dropped with the
-    flag on, and counted; with it off the rule reader is untouched."""
+def test_the_noise_filter_runs_with_the_flag_off_too(world, monkeypatch):
+    """THE MUTATION TARGET (M651): title-block furniture is dropped on the
+    DEFAULT path as well as with the flag on. The filter is code only - no
+    model, no egress - so gating it behind the geometry flag left the default
+    extraction storing fragments such as "MAX:" as fields (changed
+    2026-09-25)."""
     doc = _store(world)
     _extract(doc)
     off = {f["field_label"] for f in _facts(doc)}
@@ -308,8 +311,8 @@ def test_the_noise_filter_runs_only_with_the_flag_on(world, monkeypatch):
     _with_vision(monkeypatch, None)
     _extract(doc)
     on = {f["field_label"] for f in _facts(doc)}
-    assert "MAX:" in off and "MAX:" not in on
-    assert "DESIGN PRESSURE:" in on
+    assert "MAX:" not in off and "MAX:" not in on
+    assert "DESIGN PRESSURE:" in off and "DESIGN PRESSURE:" in on
 
 
 def test_a_page_with_only_vision_readings_is_not_read_and_says_why(world, monkeypatch):

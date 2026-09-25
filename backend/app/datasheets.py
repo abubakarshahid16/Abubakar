@@ -218,7 +218,29 @@ def checkbox_on_quantity(label: str | None, value: str | None) -> bool:
     if answer not in _CATEGORICAL_VALUES:
         return False
     text = label or ""
-    return bool(_LIMIT_WORD.search(text) and _QUANTITY_NOUN.search(text))
+    if _LIMIT_WORD.search(text) and _QUANTITY_NOUN.search(text):
+        return True
+    if answer not in _YES_NO:
+        # "N/A" on a count or a pressure is a real answer - not applicable.
+        return False
+    return bool(_COUNT_LABEL.search(text) or quantity_head_noun(text))
+
+
+#: B4: only a yes/no is an impossible value for a count or a quantity; "N/A"
+#: says the field does not apply and is kept.
+_YES_NO = frozenset({"yes", "no", "y", "n"})
+#: A label asking HOW MANY - "NUMBER OF STAGES", "NO. OF IMPELLERS", "QTY".
+_COUNT_LABEL = re.compile(
+    r"\b(?:number|no\.?|qty\.?|quantity)\s+of\b|^\s*(?:qty\.?|quantity)\b", re.IGNORECASE)
+
+
+def quantity_head_noun(label: str | None) -> bool:
+    """Does the label END on a measurable quantity - "HYDROTEST PRESSURE",
+    "SHUTOFF HEAD"? The last word of an English noun phrase is what it names,
+    so "PRESSURE TEST WITNESSED" (a question about a test) and "VARIABLE SPEED
+    REQUIRED" (a question) do not, and their YES/NO answers stand."""
+    words = normalise_field_name(label or "").split()
+    return bool(words) and bool(_QUANTITY_NOUN.fullmatch(words[-1]))
 
 
 def states_a_value(value: str | None) -> bool:
@@ -361,7 +383,7 @@ def normalise_degree_glyph(text: str | None) -> str:
 #: remainder is allowed for the same reason `measure_value` allows one - a
 #: datasheet writes `(Note - 3)` after a real quantity.
 _RANGE = re.compile(
-    r"^\s*(?P<lo>[-+]?\d[\d.,]*)\s*(?:to|through|\.\.\.|–|—|-)\s*"
+    r"^\s*(?P<lo>[-+]?\d[\d.,]*)\s*(?:to|through|\.\.\.|–|—|-|~)\s*"
     r"(?P<hi>[-+]?\d[\d.,]*)\s*"
     r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?\s*(?P<rest>.*)$",
     re.IGNORECASE)
@@ -716,8 +738,26 @@ _HEADING_WORDS = frozenset({
 #: "(8.3.3.2 b)", "(8.1.1 c, 8.3.3.5)". A dotted number is required, so a
 #: note number "(1)", a unit "(USGPM)" or a location "(MSL)" never matches.
 _CLAUSE_REF_BRACKET = re.compile(
-    r"\(\s*\d+(?:\.\d+)+(?:\s*[a-z]\b)?"
-    r"(?:\s*[,;&]?\s*\d+(?:\.\d+)+(?:\s*[a-z]\b)?)*\s*\)", re.IGNORECASE)
+    r"[\(\[]\s*\d+(?:\.\d+)+(?:\s*[a-z]\b)?"
+    r"(?:\s*[,;&]?\s*\d+(?:\.\d+)+(?:\s*[a-z]\b)?)*\s*[\)\]]", re.IGNORECASE)
+
+#: B4: A CLAUSE NUMBER PRINTED IN FRONT OF THE LABEL - "6.1.2 MAX ALLOW
+#: WORKING PRESSURE" was stored as the field "6 1 2 max allow working
+#: pressure". Two dots and a following word: "4.2.1 Fabricated weight" is a
+#: clause; "1.6" alone is a value and never reaches here as a label. A
+#: one-dot prefix is read as a clause only when the next word is NOT a unit,
+#: so "6.1 MAX PRESSURE" loses its clause and "4.5 KW MOTOR" keeps its rating.
+_LEADING_CLAUSE = re.compile(
+    r"^\s*(?P<clause>[1-9]\d?(?:\.\d{1,3}){1,4}[a-z]?)\s+(?P<next>[A-Za-z][\w/]*)")
+
+
+def _strip_leading_clause(text: str) -> str:
+    match = _LEADING_CLAUSE.match(text or "")
+    if match is None:
+        return text
+    if match["clause"].count(".") == 1 and claims.is_unit(match["next"]):
+        return text
+    return text[match.start("next"):]
 
 
 def normalise_field_name(label: str) -> str:
@@ -736,6 +776,7 @@ def normalise_field_name(label: str) -> str:
     matching; the reader is shown what the document actually wrote.
     """
     text = re.sub(r"\((?:note|see|ref)[^)]*\)", " ", label or "", flags=re.IGNORECASE)
+    text = _strip_leading_clause(text)
     text = _CLAUSE_REF_BRACKET.sub(" ", text)
     text = re.sub(r"[^\w\s/]", " ", text)
     text = re.sub(r"\s+", " ", text).strip().lower()
@@ -994,7 +1035,15 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
         label = part
         value = parts[index + 1] if index + 1 < len(parts) else ""
         value_on_a_slot = index + 1 < len(parts) and slot[index + 1]
+        # B4: A COUNT'S ANSWER IS A SMALL INTEGER, and on the row's LAST cell
+        # it cannot be the next pair's line number - no pair follows it.
+        # "NUMBER OF STAGES | 2" lost its 2 to the line-number rule below.
+        # Only a label asking HOW MANY qualifies: any other label with a
+        # trailing integer keeps the measured rule, because a two-column form
+        # prints the right-hand form's line number exactly there.
+        count_answer = (index + 2 == len(parts) and _COUNT_LABEL.search(label) is not None)
         if (not value_on_a_slot and re.fullmatch(r"\d{1,3}", value)
+                and not count_answer
                 and not _unit_follows(parts, index + 2)):
             # The next cell is the NEXT pair's line number, so this label has
             # no value on the sheet - which is a blank, not a missing row.
@@ -1445,6 +1494,88 @@ def pairs_from_blocks(page_text_blocks: list[tuple[float, float, str]]) -> list[
     return out
 
 
+#: B4: ONE QUANTITY WRITTEN IN TWO UNIT SYSTEMS WITH A SLASH - "150 °C / 302
+#: °F", "10 barg / 145 psig". The bracketed form "10 barg (145 psig)" was
+#: already read; the slash form was refused as prose and the whole field was
+#: lost. Each side must be a number with its own unit - "120 m3/h" never
+#: matches, because the slash there is inside a unit and no number follows it.
+_DUAL_SLASH = re.compile(
+    r"^(?P<v1>[-+]?\d[\d.,]*)\s*(?P<u1>[^\s/()\d][^/()]*?)\s*/\s*"
+    r"(?P<v2>[-+]?\d[\d.,]*)\s*(?P<u2>[^\s/()\d][^/()]*?)\s*$")
+
+#: How closely the two halves of a dual-unit cell must agree once converted.
+#: Printed conversions are rounded ("145 psig" for 10 barg is 145.04), so an
+#: exact match would refuse every real sheet; two different quantities
+#: ("20 barg / 25 barg", rated and maximum) differ by far more than this.
+DUAL_UNIT_TOLERANCE = 0.02
+
+
+def _celsius(value: float, unit: str) -> float | None:
+    folded = unit.replace("°", "").replace("º", "").strip().lower()
+    if folded in {"c", "degc", "deg c"}:
+        return value
+    if folded in {"f", "degf", "deg f"}:
+        return (value - 32.0) * 5.0 / 9.0
+    if folded == "k":
+        return value - 273.15
+    return None
+
+
+def same_quantity_twice(v1: str, u1: str, v2: str, u2: str) -> bool:
+    """Do `v1 u1` and `v2 u2` state ONE quantity in two unit systems?
+
+    Both units must be units of the same dimension and both values must
+    convert to within `DUAL_UNIT_TOLERANCE` of each other. Two numbers that
+    do not convert to each other are two quantities, and choosing either
+    would be a guess - the caller refuses the cell.
+    """
+    b1, _r1 = claims.split_reference(u1.strip())
+    b2, _r2 = claims.split_reference(u2.strip())
+    if not (b1 and b2 and claims.is_unit(b1) and claims.is_unit(b2)):
+        return False
+    d1, d2 = claims.unit_dimension(b1), claims.unit_dimension(b2)
+    if d1 is None or d1 != d2:
+        return False
+    x1, x2 = claims.parse_value(v1), claims.parse_value(v2)
+    if x1 is None or x2 is None:
+        return False
+    if d1 == "temperature":
+        c1, c2 = _celsius(x1, b1), _celsius(x2, b2)
+        if c1 is None or c2 is None:
+            return False
+        return abs(c1 - c2) <= max(1.0, DUAL_UNIT_TOLERANCE * abs(c1))
+    m1, m2 = claims.normalise(v1, b1), claims.normalise(v2, b2)
+    n1, n2 = m1.normalized_value, m2.normalized_value
+    if n1 is None or n2 is None or m1.normalized_unit != m2.normalized_unit:
+        return False
+    if n1 == n2:
+        return True
+    return abs(n1 - n2) <= DUAL_UNIT_TOLERANCE * max(abs(n1), abs(n2))
+
+
+#: B4: AN INCH FRACTION IS A NUMBER. Nozzle and connection sizes are written
+#: "1-1/2 in", "3/4\"", "1 1/2 inch" - the hyphen made the cell look like a
+#: range or a code, and the size was dropped. Only binary fractions (halves to
+#: sixty-fourths) with an inch unit are read: "5/40 mm" is a ratio or a code,
+#: not a size, and stays refused.
+_INCH_FRACTION = re.compile(
+    r"^(?:(?P<whole>\d{1,3})(?:\s*-\s*|\s+))?(?P<num>\d{1,2})\s*/\s*"
+    r"(?P<den>2|4|8|16|32|64)\s*(?P<unit>\"|in\.?|inch(?:es)?)\s*(?P<rest>\(.*\))?\s*$",
+    re.IGNORECASE)
+
+
+def inch_fraction(text: str) -> str | None:
+    """The decimal an inch fraction states - "1-1/2 in" -> "1.5" - or None."""
+    match = _INCH_FRACTION.match(" ".join((text or "").split()))
+    if match is None:
+        return None
+    num, den = int(match.group("num")), int(match.group("den"))
+    if num == 0 or num >= den:
+        return None
+    whole = int(match.group("whole") or 0)
+    return f"{whole + num / den:g}"
+
+
 def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement | None]:
     """`(value, unit, measurement)` out of a datasheet cell.
 
@@ -1458,6 +1589,15 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     text = normalise_degree_glyph((raw or "").strip())
     if not text:
         return None, None, None
+    fraction = inch_fraction(text)
+    if fraction is not None:
+        return fraction, "in", claims.normalise(fraction, "in")
+    dual = _DUAL_SLASH.match(" ".join(text.split()))
+    if dual is not None:
+        if not same_quantity_twice(dual["v1"], dual["u1"], dual["v2"], dual["u2"]):
+            return None, None, None
+        # The FIRST system is the value; the second is its printed conversion.
+        text = f"{dual['v1']} {dual['u1'].strip()}"
     match = _VALUE_UNIT.match(text)
     if not match:
         return None, None, None
@@ -1813,7 +1953,9 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
 #: vocabulary (API 610 / API 526 style); a header needs a Units column and at
 #: least three of these on one line.
 _GRID_COLUMN_WORDS = frozenset({
-    "maximum", "minimum", "rated", "normal", "max", "min", "design", "operating"})
+    "maximum", "minimum", "rated", "normal", "max", "min", "design", "operating",
+    # B4: the abbreviated normal column ("MIN | NORM | RATED").
+    "norm"})
 #: The degree sign this sheet's font renders as a letter, in its PAIRED form
 #: only: "OC ( OF)" is Celsius printed with its Fahrenheit alternate.
 _DEGREE_PAIR = {re.compile(r"^o\s*c\s*\(\s*o\s*f\s*\)$", re.IGNORECASE): "°C",
@@ -1845,6 +1987,27 @@ def _one_quantity(label: str) -> bool:
     return all(len(part.strip(" :").split()) == 1 for part in found[1])
 
 
+def label_unit(label: str) -> tuple[str, str | None]:
+    """`(label, unit)` for a grid row whose label CARRIES its unit - "CAPACITY
+    m3/h", "SUCTION PRESSURE barg", "NPSHA (m)" - or the label and None.
+
+    B4: a grid with no Units column prints the unit at the end of the row's
+    label. It is split off only when the last token is a unit `claims`
+    recognises, so "PUMP TYPE OH2" keeps its whole label and no unit.
+    """
+    base, unit = _unit_in_label(label)
+    if unit is not None:
+        return base, unit
+    words = (label or "").split()
+    if len(words) < 2:
+        return label, None
+    last = words[-1]
+    unit_base, _reference = claims.split_reference(last)
+    if not claims.is_unit(unit_base or ""):
+        return label, None
+    return " ".join(words[:-1]), last
+
+
 def grid_facts(words: list[tuple]) -> list[dict]:
     """Facts read from every column grid on one page's words.
 
@@ -1864,10 +2027,15 @@ def grid_facts(words: list[tuple]) -> list[dict]:
         header = lines[i]
         units = [w for w in header if w[4].strip(":").lower() == "units"]
         cols = [w for w in header if w[4].strip(":").lower() in _GRID_COLUMN_WORDS]
-        if len(units) != 1 or len(cols) < 3:
+        # B4: a grid may have NO Units column - "MIN | NORM | RATED", with the
+        # unit at the end of each row's label. Every header word must then be
+        # a column word, so a prose line that happens to contain "normal" and
+        # "rated" is never taken for a header.
+        unitless = (not units and len(cols) >= 3 and len(cols) == len(header))
+        if not unitless and (len(units) != 1 or len(cols) < 3):
             i += 1
             continue
-        heads = sorted([units[0], *cols], key=lambda w: w[0])
+        heads = sorted([*units, *cols], key=lambda w: w[0])
         centres = [(w[0] + w[2]) / 2 for w in heads]
         names = [w[4].strip(":") for w in heads]
         bands = []
@@ -1876,12 +2044,21 @@ def grid_facts(words: list[tuple]) -> list[dict]:
             right = ((c + centres[k + 1]) / 2 if k + 1 < len(centres)
                      else c + (c - centres[k - 1]) / 2)
             bands.append((left, right, names[k]))
-        unit_band = next(b for b in bands if b[2].lower() == "units")
-        value_bands = [b for b in bands if b is not unit_band]
+        if unitless:
+            # No unit column: a zero-width band at the grid's left edge, so
+            # nothing is ever read as a unit cell and the label keeps its unit.
+            unit_band = (bands[0][0], bands[0][0], "units")
+            value_bands = bands
+        else:
+            unit_band = next(b for b in bands if b[2].lower() == "units")
+            value_bands = [b for b in bands if b is not unit_band]
         grid_left, grid_right = unit_band[0], bands[-1][1]
         pending: list[tuple] = []
         pending_y = None
         started = False
+        header_y = header[0][1]
+        last_row_y = None
+        row_step = None
         i += 1
         while i < len(lines):
             line = lines[i]
@@ -1904,14 +2081,39 @@ def grid_facts(words: list[tuple]) -> list[dict]:
             if pending and pending_y is not None and line[0][1] - pending_y <= 12:
                 unit_w = pending + unit_w
             pending, pending_y = [], None
-            if not unit_w:
+            label = " ".join(w[4] for w in label_w).strip()
+            if unitless:
+                label, unit_text = label_unit(label)
+                unit_text = unit_text or ""
+                row_has_cells = bool(value_w) and bool(label)
+            else:
+                row_has_cells = bool(unit_w)
+                unit_text = " ".join(w[4] for w in unit_w)
+            if unitless and row_has_cells:
+                # B4: A GRID WITHOUT A UNITS COLUMN ENDS WHERE ITS SPACING OR
+                # ITS CONVENTION ENDS. Its units are in the labels, so a cell
+                # that prints its own unit ("CORROSION ALLOWANCE | 3 mm") is an
+                # ordinary field below the grid, and so is a row after a gap
+                # well beyond the grid's own row pitch. Either one read as a
+                # grid row would file an ordinary value under MIN/NORM/RATED.
+                y = line[0][1]
+                step = y - (last_row_y if last_row_y is not None else header_y)
+                too_far = row_step is not None and step > 1.6 * row_step
+                own_unit = measure_value(" ".join(w[4] for w in value_w))[1] is not None
+                if started and (too_far or own_unit):
+                    break
+                if not started and own_unit:
+                    row_has_cells = False
+                if row_step is None and row_has_cells:
+                    row_step = step
+                if row_has_cells:
+                    last_row_y = y
+            if not row_has_cells:
                 if started:
                     break                                  # the grid has ended
                 i += 1
                 continue
             started = True
-            label = " ".join(w[4] for w in label_w).strip()
-            unit_text = " ".join(w[4] for w in unit_w)
             groups: list[list[tuple]] = []
             for w in value_w:
                 if groups and w[0] - groups[-1][-1][2] < 3.0:
@@ -2481,6 +2683,12 @@ def extract_facts(
             # of the pipeline. On DS-0000-DAS-I-01 that message was printed for five
             # pages from which 190 pairs each had been recovered and discarded.
             dropped: dict[str, int] = {}
+            # B4: a row the GRID reader read by position is not read again by
+            # the flat text reader, which flattens the row and keeps whichever
+            # number came first ("suction pressure barg" = 1.2 of MIN/NORM/
+            # RATED). The grid's reading carries the column and the unit.
+            grid_names = {normalise_field_name(cell["label"])
+                          for cell in grid_by_page.get(page, [])}
             for label, value in pairs:
                 # Whitespace-insensitive, the same key collapse_double_reads
                 # uses (#179) - one definition of "the same cell", not two.
@@ -2495,9 +2703,16 @@ def extract_facts(
                     dropped["duplicate"] = dropped.get("duplicate", 0) + 1
                     continue
                 seen.add(key)
+                if grid_names and (
+                        normalise_field_name(label) in grid_names
+                        or normalise_field_name(label_unit(label)[0]) in grid_names):
+                    dropped["read as a grid row"] = dropped.get("read as a grid row", 0) + 1
+                    continue
                 blank, _marker = is_blank_value(value)
+                # B4: CODE ONLY, so it runs whether or not the geometry
+                # reader is on - a title block is not a field on any path.
                 noise = (row_noise.noise_reason(label, value)
-                         if geometry_on and not blank else None)
+                         if not blank else None)
                 if noise:
                     # B4 item 3 (flag on): page furniture, not a field.
                     dropped[noise] = dropped.get(noise, 0) + 1
@@ -2598,7 +2813,7 @@ def extract_facts(
                     continue
                 grid_blank, _marker = is_blank_value(cell["value"])
                 noise = (row_noise.noise_reason(cell["label"], cell["value"])
-                         if geometry_on and not grid_blank else None)
+                         if not grid_blank else None)
                 if noise:
                     dropped[noise] = dropped.get(noise, 0) + 1
                     continue

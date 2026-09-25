@@ -9,8 +9,10 @@ be, a whole block of the page glued into one "label".
 Each rule names ONE shape and is document-independent: no document's words,
 no answer key. `noise_reason` returns the rule's name (a drop reason the
 page ledger counts) or None. It is applied in `datasheets.extract_facts`
-only behind `settings.geometry_reader_enabled` (OFF by default), to every
-reader's rows - rule reader, grid, geometry and vision alike.
+to every reader's rows - rule reader, grid, geometry and vision alike. It ran
+only behind `settings.geometry_reader_enabled` until 2026-09-25; being code
+only, with no model and no egress, it now runs on the default path too, so a
+title block is filtered whether or not the geometry reader is on.
 
 A BLANK IS NEVER NOISE HERE. "[Note - 3]" beside DISCHARGE PRESSURE is the
 sheet saying the value is elsewhere; `is_blank_value` decides what that is.
@@ -27,9 +29,10 @@ HEADER_AS_VALUE = "noise: column heading read as a value"
 REFERENCE_ONLY = "noise: value is only a note or clause reference"
 FRAGMENT_LABEL = "noise: label is a fragment"
 MERGED_BLOCK = "noise: a block of the page read as one field"
+IDENTIFIER_NUMBER = "noise: an identifier's number is not a measurement"
 
 RULES = (RULER, REVISION, DOCUMENT_ID, HEADER_AS_VALUE, REFERENCE_ONLY,
-         FRAGMENT_LABEL, MERGED_BLOCK)
+         FRAGMENT_LABEL, MERGED_BLOCK, IDENTIFIER_NUMBER)
 
 _WS = re.compile(r"\s+")
 
@@ -46,7 +49,17 @@ _REVISION = re.compile(
 _DOCUMENT_LABEL = re.compile(
     r"^\s*(project|(data\s*)?sheet\s*no\.?|sp\s*sht\s*no\.?|page|"
     r"(contractor\s+|licensor\s+|subcontractor\s+)?doc(ument)?\.?\s*no\.?|"
-    r"contract\s*no\.?|(service\s+)?order\s*no\.?)\s*:?\s*$", re.IGNORECASE)
+    r"contract\s*no\.?|(service\s+|purchase\s+)?order\s*no\.?|"
+    r"job\s*no\.?|p\.?\s*o\.?\s*no\.?|requisition\s*no\.?|"
+    r"(inquiry|enquiry|proposal|quotation)\s*no\.?)\s*:?\s*$", re.IGNORECASE)
+
+#: B4: a label that NAMES something by number - it ends "No.", "Number" or
+#: "#" - with a bare, unitless integer beside it. "JOB NO. 21087" and "P.O.
+#: NO. 4500012345" were stored as numeric facts that no requirement can be
+#: about. A count ("NUMBER OF STAGES 2") asks HOW MANY and does not end on
+#: the word; a tag ("ITEM NO. 09-G-411 A/B") is not a bare integer.
+_IDENTIFIER_LABEL = re.compile(r"(?:\bno\.?|\bnumber|#)\s*:?\s*$", re.IGNORECASE)
+_BARE_INTEGER = re.compile(r"^\d{1,12}$")
 #: A title block glued into a label: "NO.: ABC - 1234567 ATA SHEE".
 _DOCUMENT_GLUE = re.compile(r"\bNO\.\s*:", re.IGNORECASE)
 #: A value that is a sheet or revision number: "Sheet 5", "of 7", "Rev. No.: 4".
@@ -99,4 +112,6 @@ def noise_reason(label: str | None, value: str | None) -> str | None:
         return FRAGMENT_LABEL
     if len(label.split()) > _BLOCK_WORDS or len(label) > _BLOCK_CHARS:
         return MERGED_BLOCK
+    if _IDENTIFIER_LABEL.search(label) and _BARE_INTEGER.match(value):
+        return IDENTIFIER_NUMBER
     return None

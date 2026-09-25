@@ -15,6 +15,8 @@ from ._base import (
 )
 
 
+_D = 'tests/test_b4_defects.py'
+
 MUTATIONS: tuple[Mutation, ...] = (
     # ---- from PHASE_4 -----------------------------------------------------
     #: Phase 4: datasheet intelligence. `phase=5` because --phase 4 already
@@ -1116,10 +1118,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description='B4 noise: the noise filter never runs on the rule reader',
         path=APP / 'datasheets.py',
         anchor=('                noise = (row_noise.noise_reason(label, value)\n'
-                '                         if geometry_on and not blank else None)\n'),
+                '                         if not blank else None)\n'),
         replacement=('                noise = (row_noise.noise_reason(label, value)\n'
                      '                         if False else None)\n'),
-        target='tests/test_b4_quality.py', keyword='noise_filter_runs_only_with_the_flag_on',
+        target='tests/test_b4_quality.py', keyword='noise_filter_runs_with_the_flag_off_too',
     ),
     Mutation(
         id='M652', phase=64,
@@ -1150,5 +1152,135 @@ MUTATIONS: tuple[Mutation, ...] = (
         target='tests/test_b4_quality.py',
         keyword='disagrees_with_the_rule_reader or never_a_second_row',
         tags=('honesty', 'critical'),
+    ),
+
+    # ---- B4 defects, 2026-09-25 (tests/test_b4_defects.py)
+    Mutation(
+        id='M700', phase=65, description='B4d: a slash dual is accepted without the two halves agreeing',
+        path=APP / 'datasheets.py',
+        anchor='        if not same_quantity_twice(dual["v1"], dual["u1"], dual["v2"], dual["u2"]):\n            return None, None, None\n',
+        replacement='',
+        target=_D, keyword='two_different_quantities_are_never_one_value', tags=('honesty',),
+    ),
+    Mutation(
+        id='M701', phase=65, description='B4d: a slash dual-unit cell is never recognised',
+        path=APP / 'datasheets.py',
+        anchor='    dual = _DUAL_SLASH.match(" ".join(text.split()))\n',
+        replacement='    dual = None\n',
+        target=_D, keyword='one_quantity_in_two_systems or bar_and_psi',
+    ),
+    Mutation(
+        id='M702', phase=65, description='B4d: the dual-unit tolerance accepts two different temperatures',
+        path=APP / 'datasheets.py',
+        anchor='DUAL_UNIT_TOLERANCE = 0.02\n', replacement='DUAL_UNIT_TOLERANCE = 10.0\n',
+        target=_D, keyword='two_different_quantities_are_never_one_value', tags=('honesty',),
+    ),
+    Mutation(
+        id='M703', phase=65, description='B4d: a tilde is not a range separator',
+        path=APP / 'datasheets.py',
+        anchor='(?:to|through|\\.\\.\\.|–|—|-|~)', replacement='(?:to|through|\\.\\.\\.|–|—|-)',
+        target=_D, keyword='tilde_range_keeps_both_ends',
+    ),
+    Mutation(
+        id='M704', phase=65, description='B4d: an inch fraction is not read as a size',
+        path=APP / 'datasheets.py',
+        anchor='    if fraction is not None:\n        return fraction, "in", claims.normalise(fraction, "in")\n',
+        replacement='',
+        target=_D, keyword='nozzle_size_is_stored_in_inches',
+    ),
+    Mutation(
+        id='M705', phase=65, description='B4d: an improper fraction (4/4) is read as a size',
+        path=APP / 'datasheets.py',
+        anchor='    if num == 0 or num >= den:\n        return None\n', replacement='',
+        target=_D, keyword='ratio_or_code_is_not_a_fraction', tags=('honesty',),
+    ),
+    Mutation(
+        id='M706', phase=65, description='B4d: a leading clause number stays in the field name',
+        path=APP / 'datasheets.py',
+        anchor='    text = _strip_leading_clause(text)\n', replacement='',
+        target=_D, keyword='clause_is_not_part_of_the_name',
+    ),
+    Mutation(
+        id='M707', phase=65, description='B4d: a one-dot rating before a unit is stripped as a clause',
+        path=APP / 'datasheets.py',
+        anchor='    if match["clause"].count(".") == 1 and claims.is_unit(match["next"]):\n        return text\n',
+        replacement='',
+        target=_D, keyword='number_that_is_not_a_clause_stays', tags=('honesty',),
+    ),
+    Mutation(
+        id='M708', phase=65, description='B4d: a square-bracketed clause stays in the field name',
+        path=APP / 'datasheets.py',
+        anchor='    r"[\\(\\[]\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?"\n',
+        replacement='    r"\\(\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?"\n',
+        target=_D, keyword='clause_is_not_part_of_the_name or keeps_the_printed_label',
+    ),
+    Mutation(
+        id='M709', phase=65, description='B4d: YES on a count or a quantity head noun is stored',
+        path=APP / 'datasheets.py',
+        anchor='    return bool(_COUNT_LABEL.search(text) or quantity_head_noun(text))\n',
+        replacement='    return False\n',
+        target=_D, keyword='yes_is_never_a_count or keeps_counts_and_drops', tags=('honesty',),
+    ),
+    Mutation(
+        id='M710', phase=65, description='B4d: N/A on a quantity is refused like a YES',
+        path=APP / 'datasheets.py',
+        anchor='    if answer not in _YES_NO:\n',
+        replacement='    if False:\n',
+        target=_D, keyword='real_answer_stands',
+    ),
+    Mutation(
+        id='M711', phase=65, description='B4d: a count loses its trailing integer to the line-number rule',
+        path=APP / 'datasheets.py',
+        anchor='                and not count_answer\n', replacement='',
+        target=_D, keyword='keeps_counts_and_drops',
+    ),
+    Mutation(
+        id='M712', phase=65, description='B4d: a count followed by another field keeps a line number as its value',
+        path=APP / 'datasheets.py',
+        anchor='        count_answer = (index + 2 == len(parts) and _COUNT_LABEL.search(label) is not None)\n',
+        replacement='        count_answer = _COUNT_LABEL.search(label) is not None\n',
+        target=_D, keyword='count_followed_by_another_field', tags=('honesty',),
+    ),
+    Mutation(
+        id='M713', phase=65, description='B4d: a grid without a Units column is not read',
+        path=APP / 'datasheets.py',
+        anchor='        unitless = (not units and len(cols) >= 3 and len(cols) == len(header))\n',
+        replacement='        unitless = False\n',
+        target=_D, keyword='under_its_column_with_the_labels_unit',
+    ),
+    Mutation(
+        id='M714', phase=65, description='B4d: a prose line with column words is taken for a grid header',
+        path=APP / 'datasheets.py',
+        anchor='        unitless = (not units and len(cols) >= 3 and len(cols) == len(header))\n',
+        replacement='        unitless = (not units and len(cols) >= 3)\n',
+        target=_D, keyword='prose_with_column_words', tags=('honesty',),
+    ),
+    Mutation(
+        id='M715', phase=65, description='B4d: a field below a unitless grid is filed under a grid column',
+        path=APP / 'datasheets.py',
+        anchor='                if started and (too_far or own_unit):\n                    break\n',
+        replacement='',
+        target=_D, keyword='grid_ends_where_its_rows_end', tags=('honesty',),
+    ),
+    Mutation(
+        id='M716', phase=65, description='B4d: the flat reader stores a grid row a second time, garbled',
+        path=APP / 'datasheets.py',
+        anchor='                    dropped["read as a grid row"] = dropped.get("read as a grid row", 0) + 1\n                    continue\n',
+        replacement='                    pass\n',
+        target=_D, keyword='flat_reader_does_not_also_store', tags=('honesty',),
+    ),
+    Mutation(
+        id='M717', phase=65, description='B4d: a unit at the end of a grid label is never split off',
+        path=APP / 'datasheets.py',
+        anchor='    return " ".join(words[:-1]), last\n',
+        replacement='    return label, None\n',
+        target=_D, keyword='under_its_column_with_the_labels_unit or split_off_a_label_only',
+    ),
+    Mutation(
+        id='M718', phase=65, description='B4d: any last word of a grid label is taken for its unit',
+        path=APP / 'datasheets.py',
+        anchor='    if not claims.is_unit(unit_base or ""):\n        return label, None\n    return " ".join(words[:-1]), last\n',
+        replacement='    return " ".join(words[:-1]), last\n',
+        target=_D, keyword='split_off_a_label_only_when_it_is_a_unit', tags=('honesty',),
     ),
 )
