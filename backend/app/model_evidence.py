@@ -2,16 +2,23 @@
 assistance, owner-approved 2026-09-25).
 
 A model-assisted value is only ever kept when its quote is found in the
-document text the model was given. "Found" means EXACT, with ONE closed
-normalisation the owner approved: runs of whitespace and line breaks
-collapse to a single space on both sides before comparing. Nothing else is
-normalised - not case, not dashes, not quotes, not punctuation - because
-each of those would let a paraphrase pass as a quotation.
+document text the model was given. "Found" means EXACT, after the owner's
+CLOSED normalisation list (2026-09-25), applied to both sides:
 
-Why whitespace at all: a PDF's stored page text breaks a title across lines
-("DATA SHEET FOR\\nPRESSURE SAFETY VALVES (PSVs)") while the model quotes it
-as one line. Measured on the regression sheets: 2 of 4 quote rejections
-were exactly this, and both were real quotations.
+  1. curly quotes to straight: U+2018 U+2019 -> '   U+201C U+201D -> "
+  2. en dash U+2013 and em dash U+2014 -> hyphen-minus
+  3. non-breaking space U+00A0 -> space
+  4. whitespace and line breaks collapse to one space; ends trimmed
+
+Nothing else - not case, not digits, not other punctuation or symbols (the
+minus sign U+2212, the degree sign, units) - because each of those would let
+a paraphrase pass as a quotation.
+
+Why these: a PDF's stored page text breaks a title across lines ("DATA SHEET
+FOR\\nPRESSURE SAFETY VALVES (PSVs)") while the model quotes it as one line
+(2 of 4 quote rejections on the regression sheets); and a model re-types a
+typographic quote or dash as the plain keyboard character (the scope pilot
+lost SAES-L-109's real quotation to curly vs straight quotes).
 """
 from __future__ import annotations
 
@@ -19,14 +26,25 @@ import re
 
 _WHITESPACE = re.compile(r"\s+")
 
+#: The owner's closed list, items 1-3. Item 4 is `_WHITESPACE`.
+APPROVED_CHARACTER_MAP = {
+    "‘": "'", "’": "'",   # curly single quotes
+    "“": '"', "”": '"',   # curly double quotes
+    "–": "-",                  # en dash
+    "—": "-",                  # em dash
+    " ": " ",                  # non-breaking space
+}
+_APPROVED = str.maketrans(APPROVED_CHARACTER_MAP)
+
 
 def _collapse(text: str | None) -> str:
-    return _WHITESPACE.sub(" ", text or "").strip()
+    text = (text or "").translate(_APPROVED)
+    return _WHITESPACE.sub(" ", text).strip()
 
 
 def quote_verified(quote: str | None, source_text: str | None) -> bool:
     """True when `quote` occurs in `source_text` character for character,
-    after collapsing whitespace and line breaks on both sides only."""
+    after the closed normalisation list on both sides only."""
     needle = _collapse(quote)
     if not needle:
         return False

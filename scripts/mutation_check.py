@@ -6038,8 +6038,8 @@ B5_STANDARDS_INVENTORY = (
         description="fold case before comparing, so a lower-cased paraphrase "
                     "passes as a quotation (case is not on the approved list)",
         path=APP / "model_evidence.py",
-        anchor='    return _WHITESPACE.sub(" ", text or "").strip()',
-        replacement='    return _WHITESPACE.sub(" ", text or "").strip().lower()',
+        anchor='    return _WHITESPACE.sub(" ", text).strip()',
+        replacement='    return _WHITESPACE.sub(" ", text).strip().lower()',
         target="tests/test_model_evidence.py",
         keyword="a_case_difference_is_not_verified",
         tags=("honesty", "model"),
@@ -6148,6 +6148,28 @@ B5_STANDARDS_INVENTORY = (
         keyword="the_four_routes_are_registered",
         tags=("gate",),
     ),
+    Mutation(
+        id="M538", phase=61,
+        description="drop the en dash item from the closed list, so a model's "
+                    "re-typed hyphen no longer verifies",
+        path=APP / "model_evidence.py",
+        anchor=r'    "–": "-",                  # en dash' + "\n",
+        replacement="",
+        target="tests/test_model_evidence.py",
+        keyword="en_dash_matches_hyphen",
+        tags=("honesty", "model"),
+    ),
+    Mutation(
+        id="M539", phase=61,
+        description="drop the curly double quote item - the scope-pilot "
+                    "SAES-L-109 failure shape comes back",
+        path=APP / "model_evidence.py",
+        anchor=r"""    "“": '"', "”": '"',   # curly double quotes""" + "\n",
+        replacement="",
+        target="tests/test_model_evidence.py",
+        keyword="curly_double_quotes_match_straight",
+        tags=("honesty", "model"),
+    ),
 )
 
 
@@ -6235,9 +6257,13 @@ def _run_tests(mutation: Mutation) -> tuple[int, str]:
            "-p", "no:cacheprovider"]
     if mutation.keyword:
         cmd += ["-k", mutation.keyword]
+    # UTF-8 with replacement: decoding pytest's output with the Windows code
+    # page (text=True's default) crashed the reader thread on a failure
+    # message quoting a curly quote or minus sign, leaving stdout None and the
+    # whole run aborted (found 2026-09-25 with M538/M539).
     proc = subprocess.run(cmd, cwd=BACKEND, capture_output=True, text=True,
-                          timeout=900)
-    lines = [ln for ln in proc.stdout.strip().splitlines() if ln.strip()]
+                          encoding="utf-8", errors="replace", timeout=900)
+    lines = [ln for ln in (proc.stdout or "").strip().splitlines() if ln.strip()]
     return proc.returncode, (lines[-1] if lines else "(no output)")
 
 
