@@ -188,10 +188,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         # Re-anchored 2026-09-24: #179 split the condition over two lines and
         # added `not value_on_a_slot`; the mutation still removes only the
         # unit-follows exemption.
-        anchor=(r'        if (not value_on_a_slot and re.fullmatch(r"\d{1,3}", value)'
+        # Re-anchored 2026-09-25: B4 added the count-answer exemption between
+        # the two lines; the mutation still removes only the unit exemption.
+        anchor=(r'                and not count_answer'
                 "\n"
                 r'                and not _unit_follows(parts, index + 2)):'),
-        replacement=r'        if (not value_on_a_slot and re.fullmatch(r"\d{1,3}", value)):',
+        replacement=r'                and not count_answer):',
         target="tests/test_fact_gates.py",
         keyword="line_number or followed_by_a_unit",
         tags=("critical",),
@@ -878,8 +880,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "unit bracket is cut out of a real field name (B4 fix 1, "
                     "negative)",
         path=APP / "datasheets.py",
-        anchor='    r"\\(\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?"\n'
-               '    r"(?:\\s*[,;&]?\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?)*\\s*\\)", re.IGNORECASE)\n',
+        # Re-anchored 2026-09-25: the clause bracket also closes on "]" now.
+        anchor='    r"[\\(\\[]\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?"\n'
+               '    r"(?:\\s*[,;&]?\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?)*\\s*[\\)\\]]", re.IGNORECASE)\n',
         replacement='    r"\\([^)]*\\d[^)]*\\)", re.IGNORECASE)\n',
         target=_B4_TEST, keyword="not_a_clause_stays",
         tags=("honesty",),
@@ -900,8 +903,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "a real question ('variable speed required = NO') loses "
                     "its answer (B4 fix 2, negative)",
         path=APP / "datasheets.py",
-        anchor="    return bool(_LIMIT_WORD.search(text) and _QUANTITY_NOUN.search(text))\n",
-        replacement="    return bool(_QUANTITY_NOUN.search(text))\n",
+        # Re-anchored 2026-09-25: the limit rule became the first of three.
+        anchor="    if _LIMIT_WORD.search(text) and _QUANTITY_NOUN.search(text):\n",
+        replacement="    if _QUANTITY_NOUN.search(text):\n",
         target=_B4_TEST, keyword="real_yes_no_question",
         tags=("honesty",),
     ),
@@ -949,8 +953,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="stop reading an en dash as a range separator, so '5 - 150 "
                     "M' printed with an en dash loses both ends (B4 fix 4 lock)",
         path=APP / "datasheets.py",
-        anchor='(?:to|through|\\.\\.\\.|–|—|-)',
-        replacement='(?:to|through|\\.\\.\\.|—|-)',
+        # Re-anchored 2026-09-25: "~" joined the separators.
+        anchor='(?:to|through|\\.\\.\\.|–|—|-|~)',
+        replacement='(?:to|through|\\.\\.\\.|—|-|~)',
         target=_B4_TEST, keyword="every_dash_spelling or en_dash_range",
         tags=("honesty",),
     ),

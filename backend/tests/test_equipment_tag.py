@@ -191,6 +191,12 @@ def test_the_tag_row_never_becomes_a_fact(temp_storage, tmp_path):
         # field called `item no` holding the value 2003, which a matcher can
         # then pair with a requirement.
         ("Item No.", "2003"),
+        # 2026-09-25: a bare integer beside an identifier label is now ALSO
+        # refused by row_noise's IDENTIFIER_NUMBER rule, which masked this
+        # skip under mutation (M207). A tag with a suffix letter parses as a
+        # quantity - `2003A` reads as 2003 amperes - and only the tag-row
+        # rule stands between it and a fact.
+        ("Tag No.", "2003A"),
         ("Design pressure", "23.5 barg")]]))
 
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
@@ -198,6 +204,7 @@ def test_the_tag_row_never_becomes_a_fact(temp_storage, tmp_path):
 
     assert "tag number" not in names
     assert "item no" not in names, "a numeric tag was recorded as a fact"
+    assert "tag no" not in names, "a tag reading as a current was recorded as a fact"
     # AND THE REAL ROW ON THE SAME PAGE IS STILL A FACT, so this is not
     # passing because the page yielded nothing.
     assert "design pressure" in names
