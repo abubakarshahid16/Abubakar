@@ -6439,6 +6439,28 @@ B5_STANDARDS_INVENTORY = (
         keyword="far_empty_run_is_not",
         tags=("extraction", "honesty"),
     ),
+    Mutation(
+        id="M574", phase=61,
+        description="a discipline word anywhere on a title line counts as STATED "
+                    "(the 'Process' signature-cell case is accepted)",
+        path=APP / "model_evidence.py",
+        anchor="    if line is not None and _TITLE_CUE.search(line) and states:\n",
+        replacement="    if line is not None and states:\n",
+        target="tests/test_discipline_evidence.py",
+        keyword="signature_cell_word_is_inferred",
+        tags=("honesty", "model"),
+    ),
+    Mutation(
+        id="M575", phase=61,
+        description="a discipline counts as STATED although the quote does not "
+                    "say it (inferred from a document number)",
+        path=APP / "model_evidence.py",
+        anchor="    if line is not None and _TITLE_CUE.search(line) and states:\n",
+        replacement="    if line is not None and _TITLE_CUE.search(line):\n",
+        target="tests/test_discipline_evidence.py",
+        keyword="inferred_from_a_document_number",
+        tags=("honesty", "model"),
+    ),
 )
 
 

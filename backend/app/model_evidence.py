@@ -102,3 +102,42 @@ def stated_via_vocabulary(value: str | None, quote: str | None, *,
             return {"class": STATED_VIA_VOCABULARY, "value": value,
                     "synonym": synonym, "quote": quote, "evidence_line": line}
     return None
+
+
+# ------------------------------------------------ discipline: STATED or INFERRED
+#
+# Owner rule 2026-09-25 (title-block matrix): a discipline value whose quote does
+# not LITERALLY state it is INFERRED and goes to engineer review - never
+# accepted automatically. Measured failures it stops: the single word "Process"
+# quoted from a signature cell, and "Mechanical" inferred from a
+# document-number line. A verified quote proves the words are on the page, not
+# that they say what the model concluded.
+
+STATED, INFERRED, REJECTED = "STATED", "INFERRED", "REJECTED"
+
+#: A line that names the kind of document ("MECHANICAL DATA SHEET",
+#: "PIPING SPECIFICATION") - where a sheet states its own discipline.
+_TITLE_CUE = re.compile(r"\b(?:DATA\s*SHEETS?|DATASHEETS?|SPECIFICATIONS?|DRAWINGS?|REQUISITIONS?)\b",
+                        re.IGNORECASE)
+
+
+def discipline_evidence(value: str | None, quote: str | None, *,
+                        title_lines: list[str], source_text: str | None) -> dict:
+    """STATED only when ALL hold: the quote is on the page; it lies inside ONE
+    title line that names the document kind; and the quote itself contains
+    the discipline word (whole word). Anything else with a verified quote is
+    INFERRED (needs_engineer_review); an unverified quote is REJECTED."""
+    if not value or not str(value).strip():
+        return {"class": None, "value": None, "needs_engineer_review": False}
+    if not quote_verified(quote, source_text):
+        return {"class": REJECTED, "value": value, "needs_engineer_review": False,
+                "reason": "quote not found on the page"}
+    line = next((ln for ln in title_lines if quote_verified(quote, ln)), None)
+    states = re.search(rf"\b{re.escape(str(value).strip())}\b", _collapse(quote), re.IGNORECASE)
+    if line is not None and _TITLE_CUE.search(line) and states:
+        return {"class": STATED, "value": value, "needs_engineer_review": False,
+                "quote": quote, "evidence_line": line}
+    why = ("the quote does not state the discipline" if not states
+           else "the quote is not on a sheet-title line")
+    return {"class": INFERRED, "value": value, "needs_engineer_review": True,
+            "quote": quote, "reason": why}
