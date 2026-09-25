@@ -64,6 +64,28 @@ class ProviderRefused(RuntimeError):
 
 
 @dataclass(frozen=True)
+class PageImage:
+    """One image sent WITH a packet (B4 vision reader): a rendered datasheet
+    page. Only the Claude provider can carry it, through the one request
+    builder (`reader_api.build_request`) and the one transport. `data` is
+    base64; `width`/`height` are pixels, used only for the worst-case cost."""
+
+    media_type: str
+    data: str
+    width: int
+    height: int
+
+    @property
+    def sha256(self) -> str:
+        return hashlib.sha256(self.data.encode("ascii")).hexdigest()
+
+    @property
+    def tokens(self) -> int:
+        """Anthropic's published estimate: width x height / 750."""
+        return self.width * self.height // 750 + 1
+
+
+@dataclass(frozen=True)
 class Packet:
     """What is sent. Built by Python, never by a model.
 
@@ -95,11 +117,24 @@ class Packet:
     think: bool = False
     seed: int | None = None
     options: dict[str, object] = field(default_factory=dict)
+    #: B4 vision reader: page images sent with the prompt. Empty for every
+    #: text-only caller, whose digest and cache key are unchanged by it.
+    images: tuple[PageImage, ...] = ()
+    #: Seconds for the Claude call; None keeps the 120 s default. A page read
+    #: from an image answers at length and needs longer.
+    timeout_s: float | None = None
+    #: Claude `output_config.effort` ("low" ... "max"); None sends nothing and
+    #: keeps the model's default. Measured 2026-09-25 on a datasheet page:
+    #: default effort spent ~6,300 output tokens to write ~1,500 of answer.
+    effort: str | None = None
 
     @property
     def sha256(self) -> str:
-        """What was actually sent, so a result can be tied to its input."""
+        """What was actually sent, so a result can be tied to its input -
+        every image included, so two pages never share one cached answer."""
         text = self.prompt if not self.system else self.system + "\x00" + self.prompt
+        if self.images:
+            text += "".join("\x00image:" + image.sha256 for image in self.images)
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -175,6 +210,10 @@ class OllamaProvider:
         self.timeout = timeout
 
     def reason(self, packet: Packet) -> Response:
+        if packet.images:
+            # The local engine is not a vision reader here; an image packet is
+            # refused rather than sent as text that silently lost its page.
+            raise ProviderRefused(f"{self.name}: this provider does not read images")
         options: dict[str, object] = {
             "temperature": packet.temperature,
             "num_ctx": packet.num_ctx,
@@ -318,9 +357,12 @@ class ClaudeProvider:
             prompt += ("\n\nReturn ONLY one JSON value that satisfies this JSON schema, with no "
                        "other text:\n" + json.dumps(packet.json_schema, separators=(",", ":")))
         cfg = replace(reader_api.ReaderSettings.from_env(), model=self.requested_model,
-                      max_tokens=packet.num_predict, timeout_seconds=120.0)
+                      max_tokens=packet.num_predict,
+                      timeout_seconds=float(packet.timeout_s or 120.0))
         try:
-            request = reader_api.build_request(prompt, cfg=cfg)
+            request = reader_api.build_request(
+                prompt, cfg=cfg,
+                images=[(image.media_type, image.data) for image in packet.images])
         except reader_api.ReaderRefused as exc:
             raise ProviderRefused(f"{self.name}: {exc}") from exc
         body = dict(request["body"])
@@ -331,6 +373,8 @@ class ClaudeProvider:
             body.pop("temperature", None)
         else:
             body["temperature"] = packet.temperature
+        if packet.effort:
+            body["output_config"] = {"effort": packet.effort}
         if packet.system:
             body["system"] = [{"type": "text", "text": packet.system,
                                "cache_control": {"type": "ephemeral"}}]
@@ -409,7 +453,9 @@ class ClaudeProvider:
                 continue
             request, body, prompt = self._request(packet)
             worst += claude_spend.worst_case_usd(self.requested_model, len(packet.system) + len(prompt),
-                                                 packet.num_predict, batch=True)
+                                                 packet.num_predict,
+                                                 image_tokens=sum(i.tokens for i in packet.images),
+                                                 batch=True)
             todo[f"r{i}"] = (i, packet, key, step)
             batch_requests.append({"custom_id": f"r{i}", "params": body})
         if batch_requests:
@@ -449,7 +495,8 @@ class ClaudeProvider:
             return hit
         claude_spend.ensure_affordable(
             step, claude_spend.worst_case_usd(self.requested_model, len(packet.system) + len(prompt),
-                                              packet.num_predict))
+                                              packet.num_predict,
+                                              image_tokens=sum(i.tokens for i in packet.images)))
         started = time.time()
         try:
             payload = self._send()(request["url"], headers=request["headers"], body=body,
@@ -478,6 +525,9 @@ def cache_key(model: str, packet: Packet) -> str:
     parts = [model, packet.prompt_version, packet.sha256,
              json.dumps(packet.json_schema, sort_keys=True), str(packet.temperature),
              str(packet.seed), str(packet.num_predict)]
+    if packet.effort:
+        # Appended only when set, so every key cached before it existed holds.
+        parts.append("effort=" + packet.effort)
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
 

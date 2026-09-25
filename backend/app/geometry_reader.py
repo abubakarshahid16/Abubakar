@@ -1,10 +1,14 @@
 """Geometry reader: tables and forms read from PDF positions (#193 section 5.1).
 
-BEHIND A FLAG, OFF BY DEFAULT (#193 plan B4, order 5.5). The only caller is
+BEHIND FLAGS (#193 plan B4, order 5.5): the full reader OFF by default, its
+TABLE path alone ON by default (owner decision 2026-09-25). The only caller is
 `datasheets.extract_facts`, and only when `settings.geometry_reader_enabled`
 (env GEOMETRY_READER_ENABLED) is on: it then writes `read_page_rows` as
 `extraction_method='geometry'` facts beside the rule readers' facts, which
-always win. With the flag off nothing calls this module.
+always win. `settings.geometry_table_reader_enabled` (env
+GEOMETRY_TABLE_READER_ENABLED) writes the TABLE rows alone - schedules such
+as a nozzle table - without the form path. With both off nothing calls this
+module.
 
 Pure functions over one `pymupdf.Page`. No model, no network, no database.
 

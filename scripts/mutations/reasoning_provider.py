@@ -129,4 +129,23 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="rejects_temperature",
         tags=("model",),
     ),
+    Mutation(
+        id="M642", phase=64,
+        description="B4 vision: the effort setting is never sent",
+        path=APP / "reasoning_provider.py",
+        anchor='            body["output_config"] = {"effort": packet.effort}\n',
+        replacement="            pass\n",
+        target="tests/test_b4_quality.py", keyword="sends_the_image_and_the_effort",
+        tags=("model",),
+    ),
+    Mutation(
+        id="M643", phase=64,
+        description="B4 vision: the image is not part of the digest (two pages share a cached answer)",
+        path=APP / "reasoning_provider.py",
+        anchor='            text += "".join("\\x00image:" + image.sha256 for image in self.images)\n',
+        replacement="            pass\n",
+        target="tests/test_b4_quality.py",
+        keyword="digest",
+        tags=("model", "critical"),
+    ),
 )

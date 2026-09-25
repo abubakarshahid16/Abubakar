@@ -924,8 +924,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id='M590', phase=63,
         description='B4 5.3: a model-named pairing carries a COMPLIANT/NON_COMPLIANT verdict',
         path=APP / 'comparison.py',
-        anchor='            held = verdict.get("status") in (COMPLIANT, NON_COMPLIANT)\n',
-        replacement='            held = False\n',
+        # Re-anchored (B4 quality): every status is now held.
+        anchor='                       "status": NEEDS_ENGINEER_REVIEW,\n                       "rationale": (\n                           f"{FIELD_NAME_PAIR_PREFIX}',
+        replacement='                       "status": status,\n                       "rationale": (\n                           f"{FIELD_NAME_PAIR_PREFIX}',
         target='tests/test_field_naming.py',
         keyword='never_carries_a_verdict',
         tags=('honesty', 'critical'),
@@ -939,5 +940,47 @@ MUTATIONS: tuple[Mutation, ...] = (
         target='tests/test_field_naming.py',
         keyword='equal_field_names_pair',
         tags=('matching',),
+    ),
+    Mutation(
+        id='M655', phase=64,
+        description='B4 item 2: a blank field never pairs by field name',
+        path=APP / 'comparison.py',
+        anchor='            if (fact_has_number(f) or f.get("is_blank"))\n',
+        replacement='            if fact_has_number(f)\n',
+        target='tests/test_b4_quality.py', keyword='blank_field_pairs',
+        tags=('matching',),
+    ),
+    Mutation(
+        id='M656', phase=64,
+        description='B4 item 2: among all-blank candidates the named field is not preferred',
+        path=APP / 'comparison.py',
+        anchor='            ordered = sorted(allowed, key=lambda f: (field not in own_names(f),\n',
+        replacement='            ordered = sorted(allowed, key=lambda f: (False,\n',
+        target='tests/test_b4_quality.py', keyword='all_blank_cites',
+        tags=('matching',),
+    ),
+    Mutation(
+        id='M657', phase=64,
+        description='B4 item 2: a model-named blank pairing carries MISSING_INFORMATION unheld',
+        path=APP / 'comparison.py',
+        anchor=('            verdict = {**verdict,\n'
+                '                       "status": NEEDS_ENGINEER_REVIEW,\n'
+                '                       "rationale": (\n'
+                '                           f"{FIELD_NAME_PAIR_PREFIX}'),
+        replacement=('            verdict = {**verdict,\n'
+                     '                       "status": (NEEDS_ENGINEER_REVIEW if status in '
+                     '(COMPLIANT, NON_COMPLIANT) else status),\n'
+                     '                       "rationale": (\n'
+                     '                           f"{FIELD_NAME_PAIR_PREFIX}'),
+        target='tests/test_b4_quality.py', keyword='blank_field_pairing_is_held',
+        tags=('honesty', 'critical'),
+    ),
+    Mutation(
+        id='M659', phase=64,
+        description='B4 item 2: the unit guard overwrites a blank field\'s own answer',
+        path=APP / 'comparison.py',
+        anchor='        if (fact is not None and not fact.get("is_blank")\n',
+        replacement='        if (fact is not None\n',
+        target='tests/test_b4_quality.py', keyword='blank_field_pairing_is_held',
     ),
 )

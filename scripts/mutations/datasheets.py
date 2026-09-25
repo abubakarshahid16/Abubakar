@@ -15,6 +15,8 @@ from ._base import (
 )
 
 
+_D = 'tests/test_b4_defects.py'
+
 MUTATIONS: tuple[Mutation, ...] = (
     # ---- from PHASE_4 -----------------------------------------------------
     #: Phase 4: datasheet intelligence. `phase=5` because --phase 4 already
@@ -137,8 +139,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="lose the gauge reference, comparing a gauge pressure "
                     "against an absolute limit",
         path=APP / "datasheets.py",
-        anchor="    base_unit, unit_reference = claims.split_reference(unit)",
-        replacement="    base_unit, unit_reference = unit, None",
+        # Re-anchored (B4 quality): the printed unit is split since B4.
+        anchor="    base_unit, unit_reference = claims.split_reference(raw_unit)",
+        replacement="    base_unit, unit_reference = raw_unit, None",
         target="tests/test_fact_gates.py",
         keyword="reference_is_stored_on_the_fact_row",
         tags=("critical",),
@@ -185,10 +188,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         # Re-anchored 2026-09-24: #179 split the condition over two lines and
         # added `not value_on_a_slot`; the mutation still removes only the
         # unit-follows exemption.
-        anchor=(r'        if (not value_on_a_slot and re.fullmatch(r"\d{1,3}", value)'
+        # Re-anchored 2026-09-25: B4 added the count-answer exemption between
+        # the two lines; the mutation still removes only the unit exemption.
+        anchor=(r'                and not count_answer'
                 "\n"
                 r'                and not _unit_follows(parts, index + 2)):'),
-        replacement=r'        if (not value_on_a_slot and re.fullmatch(r"\d{1,3}", value)):',
+        replacement=r'                and not count_answer):',
         target="tests/test_fact_gates.py",
         keyword="line_number or followed_by_a_unit",
         tags=("critical",),
@@ -720,6 +725,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
                "        # B4 fix 5: column grids, read by word position (see grid_facts).\n"
                "        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n"
+               "        if geometry_on:\n"
+               "            # B4 (#193 5.5): read, not yet written - see the write loop.\n"
+               "            geometry_by_page[page] = _geometry_rows_from_pdf_page(stored_path, page)\n"
+               "            vision_by_page[page] = _vision_reading(\n"
+               "                stored_path, page, geometry_by_page[page], vision_provider)\n"
                "        if not found and not grid_by_page[page]:",
         replacement="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
                     "        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n"
@@ -870,8 +880,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "unit bracket is cut out of a real field name (B4 fix 1, "
                     "negative)",
         path=APP / "datasheets.py",
-        anchor='    r"\\(\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?"\n'
-               '    r"(?:\\s*[,;&]?\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?)*\\s*\\)", re.IGNORECASE)\n',
+        # Re-anchored 2026-09-25: the clause bracket also closes on "]" now.
+        anchor='    r"[\\(\\[]\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?"\n'
+               '    r"(?:\\s*[,;&]?\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?)*\\s*[\\)\\]]", re.IGNORECASE)\n',
         replacement='    r"\\([^)]*\\d[^)]*\\)", re.IGNORECASE)\n',
         target=_B4_TEST, keyword="not_a_clause_stays",
         tags=("honesty",),
@@ -892,8 +903,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "a real question ('variable speed required = NO') loses "
                     "its answer (B4 fix 2, negative)",
         path=APP / "datasheets.py",
-        anchor="    return bool(_LIMIT_WORD.search(text) and _QUANTITY_NOUN.search(text))\n",
-        replacement="    return bool(_QUANTITY_NOUN.search(text))\n",
+        # Re-anchored 2026-09-25: the limit rule became the first of three.
+        anchor="    if _LIMIT_WORD.search(text) and _QUANTITY_NOUN.search(text):\n",
+        replacement="    if _QUANTITY_NOUN.search(text):\n",
         target=_B4_TEST, keyword="real_yes_no_question",
         tags=("honesty",),
     ),
@@ -941,8 +953,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="stop reading an en dash as a range separator, so '5 - 150 "
                     "M' printed with an en dash loses both ends (B4 fix 4 lock)",
         path=APP / "datasheets.py",
-        anchor='(?:to|through|\\.\\.\\.|–|—|-)',
-        replacement='(?:to|through|\\.\\.\\.|—|-)',
+        # Re-anchored 2026-09-25: "~" joined the separators.
+        anchor='(?:to|through|\\.\\.\\.|–|—|-|~)',
+        replacement='(?:to|through|\\.\\.\\.|—|-|~)',
         target=_B4_TEST, keyword="every_dash_spelling or en_dash_range",
         tags=("honesty",),
     ),
@@ -1083,5 +1096,238 @@ MUTATIONS: tuple[Mutation, ...] = (
         target='tests/test_geometry_wiring.py',
         keyword='keeps_the_unit_the_reader',
         tags=('extraction', 'units'),
+    ),
+    Mutation(
+        id='M649', phase=64,
+        description='B4 vision: the vision provider is asked with the flag off',
+        path=APP / 'datasheets.py',
+        anchor=('    if geometry_on:\n'
+                '        from . import vision_reader\n'
+                '        vision_provider, vision_unavailable = vision_reader.provider()\n'),
+        replacement=('    if True:\n'
+                     '        from . import vision_reader\n'
+                     '        vision_provider, vision_unavailable = vision_reader.provider()\n'),
+        target='tests/test_b4_quality.py', keyword='off_never_asks_the_vision_reader',
+        tags=('egress', 'critical'),
+    ),
+    Mutation(
+        id='M650', phase=64,
+        description='B4 vision: proved vision readings are never written',
+        path=APP / 'datasheets.py',
+        anchor='            vision_by_page[page] = _vision_reading(\n',
+        replacement='            vision_by_page[page] = None and _vision_reading(\n',
+        target='tests/test_b4_quality.py', keyword='records_proved_vision_readings',
+    ),
+    Mutation(
+        id='M651', phase=64,
+        description='B4 noise: the noise filter never runs on the rule reader',
+        path=APP / 'datasheets.py',
+        anchor=('                noise = (row_noise.noise_reason(label, value)\n'
+                '                         if not blank else None)\n'),
+        replacement=('                noise = (row_noise.noise_reason(label, value)\n'
+                     '                         if False else None)\n'),
+        target='tests/test_b4_quality.py', keyword='noise_filter_runs_with_the_flag_off_too',
+    ),
+    Mutation(
+        id='M652', phase=64,
+        description='B4 vision: the ledger no longer says what the vision reader did',
+        path=APP / 'datasheets.py',
+        anchor='                    reason = f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}"\n',
+        replacement='                    pass\n',
+        target='tests/test_b4_quality.py', keyword='only_vision_readings_is_not_read',
+        tags=('honesty',),
+    ),
+    Mutation(
+        id='M653', phase=64,
+        description='B4 vision: a unit the quantity reader cannot join is lost',
+        path=APP / 'datasheets.py',
+        anchor='                        unit=printed_unit, printed_unit=printed_unit,\n',
+        replacement='                        printed_unit=printed_unit,\n',
+        target='tests/test_b4_quality.py', keyword='keeps_a_unit_the_quantity_reader',
+        tags=('units',),
+    ),
+    Mutation(
+        id='M658', phase=64,
+        description='B4 vision: a vision reading is stored beside a rule-reader fact it contradicts',
+        path=APP / 'datasheets.py',
+        anchor=('                if same_label:\n'
+                '                    why = ("same as rule/geometry reader"\n'),
+        replacement=('                if False:\n'
+                     '                    why = ("same as rule/geometry reader"\n'),
+        target='tests/test_b4_quality.py',
+        keyword='disagrees_with_the_rule_reader or never_a_second_row',
+        tags=('honesty', 'critical'),
+    ),
+
+    # ---- B4 defects, 2026-09-25 (tests/test_b4_defects.py)
+    Mutation(
+        id='M700', phase=65, description='B4d: a slash dual is accepted without the two halves agreeing',
+        path=APP / 'datasheets.py',
+        anchor='        if not same_quantity_twice(dual["v1"], dual["u1"], dual["v2"], dual["u2"]):\n            return None, None, None\n',
+        replacement='',
+        target=_D, keyword='two_different_quantities_are_never_one_value', tags=('honesty',),
+    ),
+    Mutation(
+        id='M701', phase=65, description='B4d: a slash dual-unit cell is never recognised',
+        path=APP / 'datasheets.py',
+        anchor='    dual = _DUAL_SLASH.match(" ".join(text.split()))\n',
+        replacement='    dual = None\n',
+        target=_D, keyword='one_quantity_in_two_systems or bar_and_psi',
+    ),
+    Mutation(
+        id='M702', phase=65, description='B4d: the dual-unit tolerance accepts two different temperatures',
+        path=APP / 'datasheets.py',
+        anchor='DUAL_UNIT_TOLERANCE = 0.02\n', replacement='DUAL_UNIT_TOLERANCE = 10.0\n',
+        target=_D, keyword='two_different_quantities_are_never_one_value', tags=('honesty',),
+    ),
+    Mutation(
+        id='M703', phase=65, description='B4d: a tilde is not a range separator',
+        path=APP / 'datasheets.py',
+        anchor='(?:to|through|\\.\\.\\.|–|—|-|~)', replacement='(?:to|through|\\.\\.\\.|–|—|-)',
+        target=_D, keyword='tilde_range_keeps_both_ends',
+    ),
+    Mutation(
+        id='M704', phase=65, description='B4d: an inch fraction is not read as a size',
+        path=APP / 'datasheets.py',
+        anchor='    if fraction is not None:\n        return fraction, "in", claims.normalise(fraction, "in")\n',
+        replacement='',
+        target=_D, keyword='nozzle_size_is_stored_in_inches',
+    ),
+    Mutation(
+        id='M705', phase=65, description='B4d: an improper fraction (4/4) is read as a size',
+        path=APP / 'datasheets.py',
+        anchor='    if num == 0 or num >= den:\n        return None\n', replacement='',
+        target=_D, keyword='ratio_or_code_is_not_a_fraction', tags=('honesty',),
+    ),
+    Mutation(
+        id='M706', phase=65, description='B4d: a leading clause number stays in the field name',
+        path=APP / 'datasheets.py',
+        anchor='    text = _strip_leading_clause(text)\n', replacement='',
+        target=_D, keyword='clause_is_not_part_of_the_name',
+    ),
+    Mutation(
+        id='M707', phase=65, description='B4d: a one-dot rating before a unit is stripped as a clause',
+        path=APP / 'datasheets.py',
+        anchor='    if match["clause"].count(".") == 1 and claims.is_unit(match["next"]):\n        return text\n',
+        replacement='',
+        target=_D, keyword='number_that_is_not_a_clause_stays', tags=('honesty',),
+    ),
+    Mutation(
+        id='M708', phase=65, description='B4d: a square-bracketed clause stays in the field name',
+        path=APP / 'datasheets.py',
+        anchor='    r"[\\(\\[]\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?"\n',
+        replacement='    r"\\(\\s*\\d+(?:\\.\\d+)+(?:\\s*[a-z]\\b)?"\n',
+        target=_D, keyword='clause_is_not_part_of_the_name or keeps_the_printed_label',
+    ),
+    Mutation(
+        id='M709', phase=65, description='B4d: YES on a count or a quantity head noun is stored',
+        path=APP / 'datasheets.py',
+        anchor='    return bool(_COUNT_LABEL.search(text) or quantity_head_noun(text))\n',
+        replacement='    return False\n',
+        target=_D, keyword='yes_is_never_a_count or keeps_counts_and_drops', tags=('honesty',),
+    ),
+    Mutation(
+        id='M710', phase=65, description='B4d: N/A on a quantity is refused like a YES',
+        path=APP / 'datasheets.py',
+        anchor='    if answer not in _YES_NO:\n',
+        replacement='    if False:\n',
+        target=_D, keyword='real_answer_stands',
+    ),
+    Mutation(
+        id='M711', phase=65, description='B4d: a count loses its trailing integer to the line-number rule',
+        path=APP / 'datasheets.py',
+        anchor='                and not count_answer\n', replacement='',
+        target=_D, keyword='keeps_counts_and_drops',
+    ),
+    Mutation(
+        id='M712', phase=65, description='B4d: a count followed by another field keeps a line number as its value',
+        path=APP / 'datasheets.py',
+        anchor='        count_answer = (index + 2 == len(parts) and _COUNT_LABEL.search(label) is not None)\n',
+        replacement='        count_answer = _COUNT_LABEL.search(label) is not None\n',
+        target=_D, keyword='count_followed_by_another_field', tags=('honesty',),
+    ),
+    Mutation(
+        id='M713', phase=65, description='B4d: a grid without a Units column is not read',
+        path=APP / 'datasheets.py',
+        anchor='        unitless = (not units and len(cols) >= 3 and len(cols) == len(header))\n',
+        replacement='        unitless = False\n',
+        target=_D, keyword='under_its_column_with_the_labels_unit',
+    ),
+    Mutation(
+        id='M714', phase=65, description='B4d: a prose line with column words is taken for a grid header',
+        path=APP / 'datasheets.py',
+        anchor='        unitless = (not units and len(cols) >= 3 and len(cols) == len(header))\n',
+        replacement='        unitless = (not units and len(cols) >= 3)\n',
+        target=_D, keyword='prose_with_column_words', tags=('honesty',),
+    ),
+    Mutation(
+        id='M715', phase=65, description='B4d: a field below a unitless grid is filed under a grid column',
+        path=APP / 'datasheets.py',
+        anchor='                if started and (too_far or own_unit):\n                    break\n',
+        replacement='',
+        target=_D, keyword='grid_ends_where_its_rows_end', tags=('honesty',),
+    ),
+    Mutation(
+        id='M716', phase=65, description='B4d: the flat reader stores a grid row a second time, garbled',
+        path=APP / 'datasheets.py',
+        anchor='                    dropped["read as a grid row"] = dropped.get("read as a grid row", 0) + 1\n                    continue\n',
+        replacement='                    pass\n',
+        target=_D, keyword='flat_reader_does_not_also_store', tags=('honesty',),
+    ),
+    Mutation(
+        id='M717', phase=65, description='B4d: a unit at the end of a grid label is never split off',
+        path=APP / 'datasheets.py',
+        anchor='    return " ".join(words[:-1]), last\n',
+        replacement='    return label, None\n',
+        target=_D, keyword='under_its_column_with_the_labels_unit or split_off_a_label_only',
+    ),
+    Mutation(
+        id='M718', phase=65, description='B4d: any last word of a grid label is taken for its unit',
+        path=APP / 'datasheets.py',
+        anchor='    if not claims.is_unit(unit_base or ""):\n        return label, None\n    return " ".join(words[:-1]), last\n',
+        replacement='    return " ".join(words[:-1]), last\n',
+        target=_D, keyword='split_off_a_label_only_when_it_is_a_unit', tags=('honesty',),
+    ),
+    Mutation(
+        id="M780", phase=67, description="B4 schedules: the table-only reader is OFF by default",
+        path=APP / "config.py",
+        anchor="    geometry_table_reader_enabled: bool = True\n",
+        replacement="    geometry_table_reader_enabled: bool = False\n",
+        target="tests/test_b4_schedule_tables.py", keyword="table_flag_is_on_by_default",
+    ),
+    Mutation(
+        id="M781", phase=67, description="B4 schedules: the table flag is ignored - a schedule yields nothing",
+        path=APP / "datasheets.py",
+        anchor="    geometry_tables = geometry_on or bool(settings.geometry_table_reader_enabled)\n",
+        replacement="    geometry_tables = geometry_on\n",
+        target="tests/test_b4_schedule_tables.py", keyword="every_schedule_cell",
+    ),
+    Mutation(
+        id="M782", phase=67, description="B4 schedules: table-only mode also writes the form reader's pairings",
+        path=APP / "datasheets.py",
+        anchor='                rows if geometry_on else [r for r in rows if r["source"] == "table"])\n',
+        replacement="                rows)\n",
+        target="tests/test_b4_schedule_tables.py", keyword="writes_no_form_reading",
+    ),
+    Mutation(
+        id="M783", phase=67, description="B4 schedules: a revision table's rows are written as facts",
+        path=APP / "datasheets.py",
+        anchor="                if row.get(\"table_id\") in revision_tables:\n",
+        replacement="                if False:\n",
+        target="tests/test_b4_schedule_tables.py", keyword="revision_table_is_dropped", tags=("honesty",),
+    ),
+    Mutation(
+        id="M784", phase=67, description="B4 schedules: one revision word makes a revision table",
+        path=APP / "row_noise.py",
+        anchor="               if any(marker.search(text) for text in texts)) >= 2\n",
+        replacement="               if any(marker.search(text) for text in texts)) >= 1\n",
+        target="tests/test_b4_schedule_tables.py", keyword="one_revision_word",
+    ),
+    Mutation(
+        id="M785", phase=67, description="B4 schedules: table-only mode writes a cell the rule reader already read",
+        path=APP / "datasheets.py",
+        anchor="                if geometry_tables:\n                    rule_facts.setdefault(written_row[\"field_name\"], []).append(written_row)\n                page_written += 1\n                written += 1\n                if blank:\n",
+        replacement="                if geometry_on:\n                    rule_facts.setdefault(written_row[\"field_name\"], []).append(written_row)\n                page_written += 1\n                written += 1\n                if blank:\n",
+        target="tests/test_b4_schedule_tables.py", keyword="not_written_twice",
     ),
 )

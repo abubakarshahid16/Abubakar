@@ -45,8 +45,9 @@ from .db import connect
 from .model_evidence import quote_verified
 
 #: The claude_spend step every naming call is charged to.
-NAMING_STEP = "b4-naming"
-PROMPT_VERSION = "b4-naming-v1"
+#: v2 (B4 item 2): every numeric AND blank datasheet label is named.
+NAMING_STEP = "b4-naming2"
+PROMPT_VERSION = "b4-naming-v3"
 #: Items per model call.
 BATCH = 40
 #: Requirement text shown to the model (and verified against) - the head of
@@ -118,13 +119,35 @@ def _numeric(fact: dict) -> bool:
             or (fact.get("value_min") is not None and fact.get("value_max") is not None))
 
 
+def _nameable(fact: dict) -> bool:
+    """A fact a numeric requirement could be paired with: a number, or a
+    field the sheet prints BLANK (B4 item 2 - "left to be provided" is an
+    answer about the quantity). A free-text answer is never named."""
+    return _numeric(fact) or bool(fact.get("is_blank"))
+
+
+def own_names(fact: dict) -> list[str]:
+    """The names a fact already has, by CODE: the extractor's normalised field
+    name, and - for a grouped label "ROW - COLUMN" (a table cell) - the row
+    label alone, the quantity the row names ("DIFFERENTIAL PRESSURE - Rated"
+    is a differential pressure). Short noun phrases only."""
+    names = [_noun_phrase(fact.get("field_name"))]
+    label = fact.get("field_label") or ""
+    if re.search(r"\s-\s", label):
+        names.append(_noun_phrase(re.split(r"\s+-\s+", label)[0]))
+    return [n for i, n in enumerate(names) if n and n not in names[:i]]
+
+
+def sheet_names(facts: list[dict]) -> list[str]:
+    """The datasheet's vocabulary: every nameable fact's own names, sorted."""
+    return sorted({n for f in facts if _nameable(f) for n in own_names(f)})
+
+
 def build_dictionary(requirements: list[dict], facts: list[dict]) -> list[str]:
-    """The REQUIREMENT-side dictionary: the extractor's own names for the
-    submittal's numeric fields FIRST (the datasheet's vocabulary; short
-    names starting with a letter), then the numeric requirements' own
-    subjects. Sorted within each part, each name once."""
-    from_facts = sorted({n for f in facts if _numeric(f)
-                         for n in [_noun_phrase(f.get("field_name"))] if n})
+    """The REQUIREMENT-side dictionary: the datasheet's own field names FIRST
+    (`sheet_names` - numeric AND blank fields), then the numeric
+    requirements' own subjects. Sorted within each part, each name once."""
+    from_facts = sheet_names(facts)
     from_reqs = sorted({n for r in requirements if r.get("requirement_type") in NUMERIC_TYPES
                         for n in [_noun_phrase(r.get("subject"))] if n} - set(from_facts))
     return from_facts + from_reqs
@@ -197,8 +220,17 @@ _SCHEMA = {
 }
 
 
-def _system(dictionary: list[str]) -> str:
-    lines = "\n".join(f"{n}: {name}" for n, name in enumerate(dictionary))
+def _system(dictionary: list[str], sheet_count: int | None = None) -> str:
+    if sheet_count:
+        # B4 item 2: the datasheet's own fields are listed FIRST and PREFERRED:
+        # only a sheet field can be paired with a value.
+        lines = ("DATASHEET FIELDS (prefer these):\n"
+                 + "\n".join(f"{n}: {name}" for n, name in enumerate(dictionary[:sheet_count]))
+                 + "\nSTANDARD SUBJECTS (only when no datasheet field names the quantity):\n"
+                 + "\n".join(f"{n}: {name}" for n, name in enumerate(dictionary)
+                              if n >= sheet_count))
+    else:
+        lines = "\n".join(f"{n}: {name}" for n, name in enumerate(dictionary))
     return (
         "You name engineering fields. You are given a NUMBERED FIELD DICTIONARY and a list "
         "of ITEMS (datasheet labels or requirement sentences). For each item, answer the "
@@ -209,7 +241,13 @@ def _system(dictionary: list[str]) -> str:
         "When two entries name exactly the same quantity, answer the LOWER number. With "
         "each answer give `quote`: the exact words, copied character for character from "
         "the item, that name that quantity. Never write a value, a number from the item, "
-        "or a name that is not in the dictionary. If unsure, answer null.\n\n"
+        "or a name that is not in the dictionary. The quote may include the unit printed "
+        "with a limit when the unit is what names the quantity ('5,000 RPM' names rpm). "
+        "Your quote must contain EVERY word of the entry you answer (abbreviations as "
+        "printed in the item). A condition ('if the X is less than ...') is about X. "
+        "Prefer the most specific DATASHEET FIELD that names the item's quantity - also "
+        "one that names it by its unit or abbreviation - over a STANDARD SUBJECT that only "
+        "repeats the item's own words. If unsure, answer null.\n\n"
         "FIELD DICTIONARY:\n" + lines)
 
 
@@ -245,7 +283,8 @@ def verify(answer: dict, items: list[tuple[str, str]], dictionary: list[str]) ->
     return i, {"field_name": dictionary[field], "quote": quote}
 
 
-def name_items(kind: str, items: list[tuple[str, str]], dictionary: list[str], provider) -> dict[str, dict]:
+def name_items(kind: str, items: list[tuple[str, str]], dictionary: list[str], provider,
+               sheet_count: int | None = None) -> dict[str, dict]:
     """Name `items` = [(key, text)] not yet named under this dictionary, in
     batches, and store every verified answer (mapped or unmapped). Returns
     the answers for ALL `items` (stored + new). A provider refusal stops the
@@ -254,7 +293,7 @@ def name_items(kind: str, items: list[tuple[str, str]], dictionary: list[str], p
 
     known = stored_names(kind, [k for k, _t in items], dictionary)
     todo = [(k, t) for k, t in items if k not in known]
-    system = _system(dictionary)
+    system = _system(dictionary, sheet_count)
     for start in range(0, len(todo), BATCH):
         batch = todo[start:start + BATCH]
         prompt = json.dumps({"kind": kind, "items": [{"i": n, "text": t}
@@ -307,7 +346,7 @@ def ensure_names(requirements: list[dict], facts: list[dict], *, provider=None) 
     numeric = [r for r in requirements if r.get("requirement_type") in NUMERIC_TYPES]
     req_items = [(str(r["id"]), " ".join((r.get("requirement_text") or "").split())[:REQUIREMENT_CHARS])
                  for r in numeric]
-    labels = {label_key(_label_of(f)): " ".join(_label_of(f).split()) for f in facts if _numeric(f)}
+    labels = {label_key(_label_of(f)): " ".join(_label_of(f).split()) for f in facts if _nameable(f)}
     label_items = sorted((k, v) for k, v in labels.items() if k)
     refused = None
     req_names: dict[str, dict] = {}
@@ -316,7 +355,8 @@ def ensure_names(requirements: list[dict], facts: list[dict], *, provider=None) 
     if dictionary and req_items:
         provider = provider or get_provider("labelling", step=NAMING_STEP)
         try:
-            req_names = name_items(REQUIREMENT, req_items, dictionary, provider)
+            req_names = name_items(REQUIREMENT, req_items, dictionary, provider,
+                                   sheet_count=len(sheet_names(facts)))
             label_dictionary = sorted({v["field_name"] for v in req_names.values() if v.get("field_name")})
             if label_dictionary and label_items:
                 label_names = name_items(LABEL, label_items, label_dictionary, provider)
@@ -326,9 +366,18 @@ def ensure_names(requirements: list[dict], facts: list[dict], *, provider=None) 
             label_dictionary = sorted({v["field_name"] for v in req_names.values() if v.get("field_name")})
             label_names = stored_names(LABEL, [k for k, _t in label_items], label_dictionary)
     fact_names = {}
+    received = set(label_dictionary)
     for f in facts:
+        if not _nameable(f):
+            continue
         named = (label_names.get(label_key(_label_of(f))) or {}).get("field_name")
-        if named and _numeric(f):
+        if not named:
+            # B4 item 2: A FACT IS ITS OWN NAME. When a requirement was named
+            # (model, verified quote that names the field) to a sheet field's
+            # own name, the fact carrying that name needs no second model
+            # answer - the name IS its label, set by code.
+            named = next((n for n in own_names(f) if n in received), None)
+        if named:
             fact_names[str(f["id"])] = named
     return {
         "requirements": {k: v["field_name"] for k, v in req_names.items() if v.get("field_name")},
