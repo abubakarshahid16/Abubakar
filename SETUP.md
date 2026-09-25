@@ -225,6 +225,12 @@ Run from `backend/`: `python -m pytest -q --no-header -p no:cacheprovider`
 `test_review_code` x3). This is bug **B28**. So the count depends on whether `.env` is
 configured:
 
+> **Current gate (owner order 2026-09-25): "green" means 0 failed and 0 unexpected
+> passes (XPASS).** Measured 2026-09-25 on a worktree of `main` at `0e519bd` with no
+> `backend/.env`, `-n 4`: 3,340 passed, 27 skipped, 18 xfailed, and 5 failed - exactly the
+> `test_claude_api` five, which are now `xfail(strict=True)` (#222). The table below is
+> the 2026-09-21 history and is kept for the failure names.
+
 | State | Failed | Passed | Skipped | Deselected | xfailed |
 |---|---|---|---|---|---|
 | Fresh clone, **no** `backend/.env` | **26** | 2,850 | 27 | 1 | 18 |
@@ -239,7 +245,8 @@ Both were measured on `main` at `09abc5d`, 2026-09-21:
 
 The difference between the two rows is exactly the 16 B28 tests. The 10 that fail
 either way are known and registered:
-- `test_claude_api` x5: the Claude router is deliberately not registered (B5);
+- `test_claude_api` x5: the Claude router is deliberately not registered (B5) -
+  **since 2026-09-25 these are `xfail(strict=True)` (#222), no longer failures;**
 - `test_analysis_routes` x4 (B7);
 - `test_extraction_quality` x1 (B6).
 
@@ -260,7 +267,7 @@ expected on a fresh clone, all in `backend/tests/`:
   - `test_an_engineer_cannot_decide_a_run_they_may_not_read`
   - `test_an_engineer_who_is_not_an_admin_can_record_the_final_code`
   - `test_the_route_still_refuses_an_override_with_no_reason`
-- `test_claude_api.py` (5, **B5**):
+- `test_claude_api.py` (5, **B5**; xfail(strict) since 2026-09-25, #222):
   - `test_the_four_routes_are_registered`
   - `test_an_unknown_run_is_404_before_the_model_is_asked[...]` x4 (`select-standards`, `read-datasheet`, `recheck`, `crs-draft`)
 - `test_analysis_routes.py` (4, **B7**):

@@ -99,7 +99,8 @@ ms-marco-MiniLM-L-6-v2 int8 ONNX; OCR PP-OCRv6 tiny ONNX.
 **DEAD model code:** `claude_api.router` defines four `/claude/` routes but is never
 registered, so `claude_api`, `claude_selection`, `claude_datasheet`, `claude_recheck`,
 `claude_crs_comments`, `claude_budget`, `reader_api`, `reader_transport` have no production
-path (the 5 baseline failures in `tests/test_claude_api.py` are this). The
+path (the 5 tests in `tests/test_claude_api.py` that need the router are marked
+`xfail(strict=True)` for this, issue #222; until 2026-09-25 they were "baseline failures"). The
 `reasoning_provider.py` seam (`OllamaProvider`) is imported only by its test (issue #181).
 Cloud transmission stays unauthorised in this run; the lane is left unregistered on purpose.
 
