@@ -316,7 +316,9 @@ def test_a_document_with_nothing_searchable_still_has_its_pages_accounted_for(tm
     """The other terminal state: every chunk excluded, nothing searchable.
     Those pages are exactly the ones that must not vanish."""
     doc, status = _ingest(tmp_path, ROWS, "THIN.pdf")
-    assert status == states.NO_SEARCHABLE_CONTENT, f"fixture reached {status}"
+    chunks = [tuple(r) for r in db.connect().execute(
+        "SELECT kind, retrievable, section, text FROM chunks WHERE document_id = ?", (doc,))]
+    assert status == states.NO_SEARCHABLE_CONTENT, f"fixture reached {status}: {chunks}"
 
     rows = _ledger(doc)
     assert set(rows) == {1}, "a document with nothing searchable lost its page"
