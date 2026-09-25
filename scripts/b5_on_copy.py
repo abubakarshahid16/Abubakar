@@ -6,8 +6,8 @@ WHAT IT DOES, IN ORDER (the owner's B5 steps 8 and 9, before any live run):
      comparison, restore drill). Nothing else runs if it fails.
   2. One disposable copy of a consistent snapshot; `settings.db_path` points
      at the copy, so nothing here can reach the live file.
-  3. Each document is found by a filename fragment (default M-03, I-06,
-     216400C); a fragment matching none or several stops the run.
+  3. Each document is found by a filename fragment (passed with --doc;
+     no default); a fragment matching none or several stops the run.
   4. For each, exactly what `POST /api/reviews/run` does: create the run,
      `applicability.select(persist=True)`, then `comparison.run_comparison`
      with the selection's reference coverage and missing references.
@@ -26,7 +26,8 @@ the document). The copy under --scratch holds document text: delete it when
 done, never commit or paste it (CLAUDE.md rules 1 and 3).
 
     mkdir C:\\b5-backups
-    python scripts/b5_on_copy.py --backup-dir C:\\b5-backups --scratch C:\\b5-scratch
+    python scripts/b5_on_copy.py --backup-dir C:\\b5-backups --scratch C:\\b5-scratch \\
+        --doc <fragment 1> --doc <fragment 2> --doc <fragment 3>
 """
 from __future__ import annotations
 
@@ -41,7 +42,6 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 sys.path.insert(0, str(REPO / "scripts"))
 
-DEFAULT_DOCS = ("M-03", "I-06", "216400C")
 
 
 def find_documents(db_path: Path, fragments: list[str]) -> dict[str, str]:
@@ -67,7 +67,8 @@ def main() -> int:
                     default=REPO / "backend" / "data" / "rag_intelligence.sqlite")
     ap.add_argument("--scratch", required=True, type=Path)
     ap.add_argument("--backup-dir", type=Path, default=None)
-    ap.add_argument("--doc", action="append", default=None)
+    ap.add_argument("--doc", action="append", required=True,
+                    help="filename fragment (repeatable, required); document names are never stored in the repo")
     ap.add_argument("--show", action="store_true",
                     help="also print standard identifiers (local use only)")
     ap.add_argument("--out", type=Path, default=None)
@@ -81,7 +82,7 @@ def main() -> int:
     print("backup:", json.dumps({k: str(v) for k, v in proof.items()}, indent=2))
     snapshot = live_guard.diagnostic_copy(live)
     copy = copy_database(snapshot, args.scratch)
-    docs = find_documents(copy, args.doc or list(DEFAULT_DOCS))
+    docs = find_documents(copy, args.doc)
 
     from app import (access, applicability, comparison, db,  # noqa: E402
                      submittal_review)
