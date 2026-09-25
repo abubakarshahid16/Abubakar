@@ -583,3 +583,14 @@ def test_page_rows_label_table_cells_by_row_key_and_skip_empty_cells(synthetic_t
     cell = next(r for r in rows if r["label"] == "P1 Parent Alpha")
     assert (cell["source"], cell["column_label"], cell["table_id"]) == (
         "table", "Parent Alpha", table["table_id"])
+
+
+def test_page_rows_skip_a_row_whose_key_is_only_a_mark(synthetic_table):
+    """A row keyed by "*" cannot be told from any other row: its cells are
+    not emitted (they read "* Rating" and paired with an unrelated rating)."""
+    _result, table = synthetic_table
+    starred = {**table, "rows": [{**table["rows"][0], "cells": [
+        {**c, "text": "*"} if c["label"] == "Mark" else c
+        for c in table["rows"][0]["cells"]]}]}
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [starred]}) == []
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})  # negative

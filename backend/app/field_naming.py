@@ -64,6 +64,8 @@ which but when where than that this these those all any each not no note
 #: one quantity, and a requirement says "shall not exceed" where a label says
 #: "MAX." - so these never have to be quoted.
 _QUALIFIERS = frozenset("maximum minimum max min allowable allow allowed required reqd req".split())
+#: Words that make one quantity a DIFFERENT quantity of the same kind.
+_STATES = ("maximum", "minimum", "normal", "rated", "design", "operating", "test")
 _WORD = re.compile(r"[a-z][a-z0-9]*")
 
 
@@ -88,8 +90,14 @@ def names_the_field(quote: str | None, field_name: str) -> bool:
     "pressure"). One shared word is not enough: "interpass temperature" does
     not name "operating temperature"."""
     quoted = _content_words(quote or "")
-    needed = [w for w in _content_words(field_name) if w not in _QUALIFIERS]
-    return bool(needed) and all(any(_same_word(fw, qw) for qw in quoted) for fw in needed)
+    field_words = _content_words(field_name)
+    needed = [w for w in field_words if w not in _QUALIFIERS]
+    if not needed or not all(any(_same_word(fw, qw) for qw in quoted) for fw in needed):
+        return False
+    # A STATE the quote names and the field does not is another quantity:
+    # "Normal operating pressure" does not name "maximum operating pressure".
+    return not any(_same_word(state, qw) for qw in quoted for state in _STATES
+                   if not any(_same_word(state, fw) for fw in field_words))
 
 
 def _noun_phrase(subject: str | None) -> str | None:

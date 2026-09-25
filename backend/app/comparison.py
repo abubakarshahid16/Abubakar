@@ -1203,9 +1203,19 @@ def run_comparison(
                 f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
                 f"{verdict.get('rationale') or ''}")}
         elif match["method"] == METHOD_FIELD_NAME:
-            verdict = {**verdict, "rationale": (
-                f"{FIELD_NAME_PAIR_PREFIX}{match.get('matched_phrase') or ''}. "
-                f"{verdict.get('rationale') or ''}")}
+            # A MODEL-NAMED PAIRING NEVER CARRIES A VERDICT. The arithmetic
+            # is shown, the status waits for an engineer: measured on a copy
+            # (2026-09-25) a seal-selection table's temperature band, paired
+            # by name with the sheet's pumping temperature, read
+            # NON_COMPLIANT - the right field and the wrong kind of rule.
+            held = verdict.get("status") in (COMPLIANT, NON_COMPLIANT)
+            verdict = {**verdict,
+                       "status": NEEDS_ENGINEER_REVIEW if held else verdict.get("status"),
+                       "rationale": (
+                           f"{FIELD_NAME_PAIR_PREFIX}{match.get('matched_phrase') or ''}. "
+                           + (f"The numbers read {verdict.get('status')}, held for "
+                              "an engineer because the pairing is unconfirmed. " if held else "")
+                           + f"{verdict.get('rationale') or ''}")}
         elif model_reason:
             # WHY NO MODEL PAIRING WAS MADE, in words, on the finding itself.
             # Without it "the model was off" and "the model was asked and

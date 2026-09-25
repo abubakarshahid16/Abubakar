@@ -25,6 +25,7 @@ def temp_db(tmp_path, monkeypatch):
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
+    submittal_review.migrate_facts_to_per_document()
     yield
     db.reset_connection()
 
@@ -203,3 +204,79 @@ def test_field_name_pairing_negatives():
     kpa = _req("r1", "Discharge pressure shall not exceed 1,724 kPa", value="1724", unit="kPa")
     assert comparison.match_by_field_name(kpa, [_fact("f1", "a", "24", "mm")], one) is None
     assert comparison.match_by_field_name(kpa, [_fact("f1", "a", "12", "bar")], one)["fact"]
+
+
+# ------------------------------------------------ through run_comparison
+
+NOW = "2026-09-25T00:00:00Z"
+
+
+def _world(fact_label: str, fact_value: str):
+    """One standard with one numeric requirement, one submittal fact, one run."""
+    import uuid
+
+    from app import datasheets, standards
+    std, sub = "std-1", "sub-1"
+    with db.connect() as conn:
+        for doc_id, role in ((std, "COMPANY_STANDARD"), (sub, "CONTRACTOR_SUBMITTAL")):
+            conn.execute("INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,"
+                         "status,page_count,uploaded_at) VALUES (?,?,?,1,?,'ready',1,?)",
+                         (doc_id, f"{doc_id}.pdf", f"sha-{doc_id}", f"{doc_id}.pdf", NOW))
+            conn.execute("INSERT INTO document_classification (document_id,suggested_by,"
+                         "document_role) VALUES (?,?,?)", (doc_id, "test", role))
+        for chunk_id, doc_id in (("sc", std), ("fc", sub)):
+            conn.execute("INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,"
+                         "section,kind,text,token_count,content_hash,retrievable) VALUES "
+                         "(?,?,?,0,1,1,NULL,'prose','x',1,?,1)", (chunk_id, doc_id, "f.pdf", f"h-{chunk_id}"))
+    req = standards.create_requirement(
+        standard_document_id=std, chunk_id="sc",
+        requirement_text="The maximum allowable working pressure shall be 10 bar.",
+        source_text="The maximum allowable working pressure shall be 10 bar.", clause="6.4.1", page=1,
+        structured={"subject": "the maximum allowable working pressure", "operator": "<=",
+                    "raw_value": "10", "raw_unit": "bar", "requirement_type": "numeric_limit"})
+    fact = datasheets.create_fact(submittal_document_id=sub, chunk_id="fc", field_label=fact_label,
+                                  raw_value=fact_value, page=1)
+    run_id = str(uuid.uuid4())
+    with db.connect() as conn:
+        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,created_at,updated_at)"
+                     " VALUES (?,?,'pending',?,?)", (run_id, sub, NOW, NOW))
+        conn.execute("INSERT INTO review_applicable_standards (id,review_run_id,standard_document_id,"
+                     "selection_reason,selection_method,included,created_at) VALUES "
+                     "(?,?,?,'cited','referenced',1,?)", (str(uuid.uuid4()), run_id, std, NOW))
+    return req, fact, run_id, frozenset({std, sub})
+
+
+def test_a_field_name_pairing_never_carries_a_verdict(monkeypatch):
+    """THE MUTATION TARGET (M590): the numbers read NON_COMPLIANT (12 > 10),
+    but a model-named pairing is held for an engineer, with the arithmetic
+    stated and model-assisted confidence."""
+    req, fact, run, scope = _world("Shell working press.", "12 bar")
+    monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    monkeypatch.setattr(field_naming, "ensure_names", lambda *_a, **_k: {
+        "requirements": {str(req["id"]): "working pressure"},
+        "facts": {str(fact["id"]): "working pressure"}})
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+    found = result["findings"][0]
+    assert found["match_method"] == comparison.METHOD_FIELD_NAME
+    assert found["fact_id"] == fact["id"]
+    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "read NON_COMPLIANT" in found["ai_rationale"]
+    assert found["ai_rationale"].startswith(comparison.FIELD_NAME_PAIR_PREFIX)
+    assert result["field_name_matches"] == 1 and result["matches_made"] == 0
+
+
+def test_with_the_flag_off_no_naming_runs(monkeypatch):
+    req, fact, run, scope = _world("Shell working press.", "12 bar")
+
+    def explode(*_a, **_k):
+        raise AssertionError("field naming ran with the flag off")
+
+    monkeypatch.setattr(field_naming, "ensure_names", explode)
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+    assert "field_name_matches" not in result
+    assert result["findings"][0]["match_method"] != comparison.METHOD_FIELD_NAME
+
+
+def test_a_different_state_is_a_different_quantity():
+    assert not field_naming.names_the_field("Normal operating pressure", "maximum operating pressure")
+    assert field_naming.names_the_field("Maximum Operating Pressure (MOP)", "maximum operating pressure")

@@ -946,7 +946,9 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
         for data in table["rows"]:
             cells = sorted(data["cells"], key=lambda c: c["column"])
             key_cell = next((c for c in cells if c["text"]), None)
-            if key_cell is None:
+            if key_cell is None or not re.search(r"[^\W_]", key_cell["text"]):
+                # A row whose first filled cell is a mark ("*", "-") has no
+                # key: its cells cannot be told apart from another row's.
                 continue
             for c in cells:
                 if c is key_cell or not c["text"]:

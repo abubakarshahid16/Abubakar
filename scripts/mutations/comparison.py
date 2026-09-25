@@ -918,4 +918,25 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_B3_TEST, keyword="keeps_the_page_coverage",
         tags=("honesty",),
     ),
+    # #193 plan B4 (5.3): field-name pairing.
+    Mutation(
+        id='M590', phase=63,
+        description='B4 5.3: a model-named pairing carries a COMPLIANT/NON_COMPLIANT verdict',
+        path=APP / 'comparison.py',
+        anchor='            held = verdict.get("status") in (COMPLIANT, NON_COMPLIANT)\n',
+        replacement='            held = False\n',
+        target='tests/test_field_naming.py',
+        keyword='never_carries_a_verdict',
+        tags=('honesty', 'critical'),
+    ),
+    Mutation(
+        id='M599', phase=63,
+        description='B4 5.3: field-name equality pairing never pairs (requirement name ignored)',
+        path=APP / 'comparison.py',
+        anchor='    field = (names.get("requirements") or {}).get(str(requirement.get("id")))\n',
+        replacement='    field = None\n',
+        target='tests/test_field_naming.py',
+        keyword='equal_field_names_pair',
+        tags=('matching',),
+    ),
 )
