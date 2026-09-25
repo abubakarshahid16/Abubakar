@@ -54,9 +54,18 @@ def test_a_wall_of_numbers_has_no_clause_at_all():
 
 
 def test_table_rows_are_not_read_as_one_sentence():
-    """A label/value table extracted one cell per line: the row number and the
-    value each end their line, so rows do not bridge into a 'sentence'."""
+    """A label/value table extracted one cell per line: each row number is
+    followed by a capitalised label, so rows do not bridge into a 'sentence'."""
     table = "1\nDesign pressure\n23.5 barg\n2\nSet pressure\n340 psig\n3\nCompressibility factor\n0.892\n"
     assert longest_clause(table) == 3
     # the same words laid out as a sentence on one line do bridge
     assert longest_clause("Design pressure 23.5 barg and set pressure 340 psig") == 7
+
+
+def test_a_table_joined_onto_one_line_still_reads_as_rows():
+    """The chunker joins a table's cells with spaces, so the line rule alone
+    cannot see the rows there. A row number is followed by a capitalised
+    label; a measurement by its lower-case unit or the rest of the sentence."""
+    flat = "1 Design pressure 23.5 barg 2 Set pressure 340 psig 3 Compressibility factor 0.892"
+    assert longest_clause(flat) == 3
+    assert not assess(flat)["ok"]
