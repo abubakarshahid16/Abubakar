@@ -6135,6 +6135,19 @@ B5_STANDARDS_INVENTORY = (
         keyword="real_app_startup_logs_the_warning",
         tags=("safety", "live"),
     ),
+    Mutation(
+        id="M537", phase=61,
+        description="register the parked Claude router: the strict xfail "
+                    "must turn the unexpected pass into a failure (#222)",
+        path=BACKEND / "app" / "main.py",
+        anchor="app.include_router(watch_api_mod.router)\n",
+        replacement="app.include_router(watch_api_mod.router)\n"
+                    "from . import claude_api as _parked_claude_api\n"
+                    "app.include_router(_parked_claude_api.router)\n",
+        target="tests/test_claude_api.py",
+        keyword="the_four_routes_are_registered",
+        tags=("gate",),
+    ),
 )
 
 
