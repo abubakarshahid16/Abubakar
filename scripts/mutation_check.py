@@ -6104,6 +6104,37 @@ B5_STANDARDS_INVENTORY = (
         keyword="git_pull_on_main_in_the_live_checkout_is_not_refused",
         tags=("safety", "live"),
     ),
+    Mutation(
+        id="M534", phase=61,
+        description="treat an unset core.hooksPath as fine, so a checkout "
+                    "with the hooks off boots silently",
+        path=BACKEND / "app" / "hooks_check.py",
+        anchor="    if configured:\n",
+        replacement="    if configured is None:\n        return None\n    if configured:\n",
+        target="tests/test_hooks_check.py",
+        keyword="unset_hooks_path_is_warned",
+        tags=("safety", "live"),
+    ),
+    Mutation(
+        id="M535", phase=61,
+        description="the boot step computes the warning but never logs it",
+        path=BACKEND / "app" / "main.py",
+        anchor='        logging.getLogger("uvicorn.error").warning(message)\n',
+        replacement="        pass\n",
+        target="tests/test_hooks_check.py",
+        keyword="boot_logs_the_warning",
+        tags=("safety", "live"),
+    ),
+    Mutation(
+        id="M536", phase=61,
+        description="lifespan no longer runs the hooks check",
+        path=BACKEND / "app" / "main.py",
+        anchor="    _log_hooks_path()\n",
+        replacement="",
+        target="tests/test_hooks_check.py",
+        keyword="real_app_startup_logs_the_warning",
+        tags=("safety", "live"),
+    ),
 )
 
 
