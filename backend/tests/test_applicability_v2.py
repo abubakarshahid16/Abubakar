@@ -207,12 +207,24 @@ def test_in_service_is_a_qualifier_not_two_neutral_words():
 def test_a_repair_only_scope_is_a_candidate_for_a_new_item():
     """THE MUTATION TARGET (M607)."""
     record = rec(covered=[item("pressure vessels", "pressure vessels", 3)])
-    record["covered_activities"] = [{"activity": "repair", "quote": "repair", "page": 3},
-                                    {"activity": "maintenance", "quote": "maintenance", "page": 3}]
+    # quotes free of cue words, so ONLY the activity tags can trigger (M607)
+    record["covered_activities"] = [{"activity": "repair", "quote": "restoration work", "page": 3},
+                                    {"activity": "maintenance", "quote": "periodic upkeep", "page": 3}]
     assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE_CANDIDATE
     assert decide(record, VESSEL, LEX)["decision"] == APPLICABLE          # stage unknown: no downgrade
     record["covered_activities"].append({"activity": "design", "quote": "design", "page": 3})
     assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE      # design covers new items
+
+
+def test_an_existing_equipment_quote_makes_a_new_item_a_candidate():
+    """THE MUTATION TARGET (M608): the model tagged an in-service standard
+    'repair, inspection, testing' - the verified quote says in-service."""
+    record = rec(covered=[item("pressure vessels", "repair and re-rating of in-service pressure vessels", 5)])
+    record["covered_activities"] = [{"activity": "inspection", "quote": "inspection", "page": 5},
+                                    {"activity": "testing", "quote": "testing", "page": 5}]
+    assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE_CANDIDATE
+    record["covered_equipment"][0]["quote"] = "design and fabrication of new pressure vessels and their repair"
+    assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE
 
 
 def test_context_words_do_not_weaken_an_inclusion():

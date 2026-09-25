@@ -182,6 +182,12 @@ def _result(decision: str, basis: str, item: dict | None = None) -> dict:
 #: does not govern a NEW item (M-03/vessel run 2026-09-25: in-service repair
 #: and re-rating standards were included for a new vessel).
 _EXISTING_ONLY = frozenset({"repair", "maintenance", "operation"})
+#: The same test on the VERIFIED QUOTES (the model's activity tags were
+#: 'repair, inspection, testing' for an in-service standard): existing-
+#: equipment words and no new-equipment words.
+_EXISTING_CUE = re.compile(r"\b(?:in-service|existing|repairs?|re-rating|re-rate|alterations?|"
+                           r"modifications?|retrofit\w*)\b", re.IGNORECASE)
+_NEW_CUE = re.compile(r"\b(?:new|design|fabricat\w*|construction|manufactur\w*)\b", re.IGNORECASE)
 
 
 def _inclusion(match: dict, record: dict, profile: Profile, lexicon: dict) -> dict:
@@ -194,8 +200,11 @@ def _inclusion(match: dict, record: dict, profile: Profile, lexicon: dict) -> di
     type_match = any(level == TYPE and name == profile.type for level, name in nodes)
     if not type_match and not _unqualified(match.get("term"), lexicon):
         return _result(APPLICABLE_CANDIDATE, "covered term is a qualified sub-kind - engineer to confirm", match)
-    activities = {a.get("activity") for a in record.get("covered_activities") or [] if _has_quote(a)}
-    if profile.stage == "new" and activities and activities <= _EXISTING_ONLY:
+    acts = [a for a in record.get("covered_activities") or [] if _has_quote(a)]
+    activities = {a.get("activity") for a in acts}
+    quotes = " ".join([match.get("quote") or ""] + [a.get("quote") or "" for a in acts])
+    existing_cue = _EXISTING_CUE.search(quotes) and not _NEW_CUE.search(quotes)
+    if profile.stage == "new" and ((activities and activities <= _EXISTING_ONLY) or existing_cue):
         return _result(APPLICABLE_CANDIDATE, "scope covers only existing equipment "
                        f"({', '.join(sorted(activities))}) - the submittal is new; engineer to confirm", match)
     return _result(APPLICABLE, "covered equipment names the submittal", match)
