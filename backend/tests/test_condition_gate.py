@@ -1,7 +1,7 @@
 """B24 — a conditional requirement may not reach a verdict on an unevaluated condition.
 
 The defect: SAES-A-133 7.1.2.1 requires a minimum corrosion allowance of 1.6 mm
-"For carbon steel, low-alloy steel and alloy steel systems". 216400C submits 0 mm
+"For carbon steel, low-alloy steel and alloy steel systems". P-1000001 submits 0 mm
 and every one of its material fields reads "N/A". The engine did the arithmetic and
 returned NON_COMPLIANT — a verdict on a clause nobody had shown applies.
 

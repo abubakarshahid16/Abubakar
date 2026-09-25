@@ -1,4 +1,4 @@
-"""CRS (Comment Resolution Sheet) generator - KJO DORRA format.
+"""CRS (Comment Resolution Sheet) generator - client CRS format.
 
 Built against the client's real template (CRS - Form of Agreement_2028 1.xlsx,
 sheet 'FOA and SCH H'): seven columns from row 8, header block rows 1-7 with
@@ -52,9 +52,15 @@ HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
 WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0,
           "G": 15.0}
 
-#: Printed on row 1 when the caller names no company. The client's own
-#: template carries it; it is not a guess about who issued the sheet.
-DEFAULT_COMPANY = "AL-KHAFJI JOINT OPERATIONS (KJO)"
+def default_company() -> str:
+    """Printed on row 1 when the caller names no company.
+
+    Read from `settings.crs_company_name` (env CRS_COMPANY_NAME) at call time,
+    so the client's company name lives in the operator's `.env` and never in
+    git. Empty when unset, and empty prints nothing rather than a guess about
+    who issued the sheet."""
+    from .config import settings
+    return settings.crs_company_name or ""
 
 #: Row 2, and not a caller's to change: this IS what the document is.
 SUBTITLE = "COMMENT RESOLUTION SHEET"
@@ -166,7 +172,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     The response and resolution columns are ALWAYS empty - they belong to the
     contractor, and pre-filling them would put words in their mouth.
     """
-    company = meta.get("company_name", DEFAULT_COMPANY)
+    company = meta.get("company_name", default_company())
     project = meta.get("project", "")
 
     # Item numbers are assigned HERE, not taken from the caller, so they are
@@ -216,7 +222,9 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         })
 
     return {
-        "title": f"{company}\n {project}".rstrip(),
+        # Absent parts print nothing: an unset company must not leave the
+        # title starting with a blank line.
+        "title": "\n ".join(p for p in (company, project) if p).rstrip(),
         "subtitle": SUBTITLE,
         # A missing value renders as NOTHING, never as "None": a CRS carrying
         # a plausible-looking transmittal number lies about its own provenance.

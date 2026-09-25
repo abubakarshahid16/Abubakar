@@ -1406,8 +1406,8 @@ are NATIVE TEXT (not scanned):
 
 | File | Pages | What it is |
 |---|---|---|
-| `EF1975-DAS-M-03.pdf` | 7 | KOC centrifugal pump datasheet (recycle brine pumps) |
-| `EF1975-DAS-I-06.pdf` | 5 | KOC pressure safety valve datasheet |
+| `DS-0000-DAS-M-01.pdf` | 7 | client centrifugal pump datasheet (recycle brine pumps) |
+| `DS-0000-DAS-I-01.pdf` | 5 | client pressure safety valve datasheet |
 | `SAES-A-105.pdf` | 14 | Saudi Aramco standard |
 
 **`SAES-A-105.pdf` exists after all.** Phase 3B reported it absent from the
@@ -1419,15 +1419,15 @@ honesty audit.
 
 | File | Pages with a parsed table | Rate |
 |---|---|---|
-| `EF1975-DAS-M-03.pdf` | 7 of 7 | **100%** |
-| `EF1975-DAS-I-06.pdf` | 5 of 5 | **100%** |
+| `DS-0000-DAS-M-01.pdf` | 7 of 7 | **100%** |
+| `DS-0000-DAS-I-01.pdf` | 5 of 5 | **100%** |
 | `SAES-A-105.pdf` | 3 of 14 | 21% |
 
 **The I-06 figure is worthless, and reading the content is what showed it.**
 Every one of those five "tables" is the two-row title block:
 
 ```
-['KUWAIT OIL COMPANY', 'DATA SHEET FOR PRESSURE SAFETY VALVES (PSVs)', 'DOCUMENT NO. EF1975-DAS-I-06']
+['EXAMPLE OPERATING COMPANY', 'DATA SHEET FOR PRESSURE SAFETY VALVES (PSVs)', 'DOCUMENT NO. DS-0000-DAS-I-01']
 ['PROJECT NO. EF/1975', '', 'Sheet 2 of 6', 'Rev. 1']
 ```
 
@@ -1512,8 +1512,8 @@ preference.
 
 | | facts | blanks | pages | unparsed | fraction |
 |---|---|---|---|---|---|
-| `EF1975-DAS-I-06.pdf` | 37 | 25 | 5 | 1 | 0.80 |
-| `EF1975-DAS-M-03.pdf` | 9 | 8 | 7 | 4 | 0.43 |
+| `DS-0000-DAS-I-01.pdf` | 37 | 25 | 5 | 1 | 0.80 |
+| `DS-0000-DAS-M-01.pdf` | 9 | 8 | 7 | 4 | 0.43 |
 
 What it gets right is genuinely right:
 
@@ -1637,10 +1637,10 @@ stops a selection heuristic becoming a compliance verdict.
 
 ## 55. The real run, and it is the phase working correctly
 
-Both real KOC datasheets, with `SAES-A-105` loaded as the only library
+Both real client datasheets, with `SAES-A-105` loaded as the only library
 standard:
 
-| | KOC pump (M-03) | KOC PSV (I-06) |
+| | client pump (M-01) | client PSV (I-01) |
 |---|---|---|
 | Library size | 1 | 1 |
 | Standards the sheet cites | 15 | 8 |
@@ -1659,7 +1659,7 @@ On the PSV sheet: `API RP 520 Pt-1`, `KOC-MP-027`, `NACE MR-0175`,
 system says so.** That is the correct answer, not a failure.
 
 The single selected row is `SAES-A-105`, chosen by **discipline match** and
-labelled as exactly that. It has nothing to do with a KOC pump - and
+labelled as exactly that. It has nothing to do with a client pump - and
 critically, **it does not mark any citation satisfied**. `reference_coverage`
 stays 0.0 with it on the list. That is the whole phase in one line: something
 was found, and finding it changed nothing about what is missing.
@@ -1840,7 +1840,7 @@ assertions.
    nothing measurable, and an unmeasured retrieval path is exactly what this
    phase warns against. 5B's call, once there is a library to retrieve from.
 2. **The library is one document.** Every measurement above is against a
-   library of size 1. Load the KOC standards and the numbers change
+   library of size 1. Load the client's standards and the numbers change
    completely - reporting 0.0 now is the point.
 3. **No equipment-type mapping table.** Rule 2 matches on exact string
    equality; "centrifugal pump" does not match "pump".
@@ -1867,7 +1867,7 @@ evidence on both sides, and what code does that add up to.
 
 Checked before building anything: the live database has **zero** documents
 with a `document_role`, **zero** standard requirements, **zero** submittal
-facts, **zero** review runs and **zero** findings. The KOC datasheets and
+facts, **zero** review runs and **zero** findings. The client datasheets and
 `SAES-A-105.pdf` are still only in `~/Downloads`, never ingested.
 
 So 5B was built and proven against **constructed fixtures**, and the numbers
@@ -2522,7 +2522,7 @@ was visible in one glance at the sheet.
 handed to the browser as a blob. The filename comes from the server's
 `Content-Disposition`, so one definition of "what is this file called" exists
 rather than two that can disagree. Verified by driving the real button in a
-real browser: `CRS_216400C-2003-SP-0810-0003_00_2026-09-19.xlsx`, 18 data
+real browser: `CRS_P-1000001-2003-SP-0810-0003_00_2026-09-19.xlsx`, 18 data
 rows, opened and checked.
 
 ## 96. Mutations - M237-M241, phase 22

@@ -11,7 +11,7 @@ import openpyxl
 from app.crs_export import (COLUMN_HEADER_ROW, FIRST_DATA_ROW,
                             HEADER_FIELDS, HEADERS, build_crs)
 
-META = {"project": "DORRA", "document_title": "Doc T",
+META = {"project": "EXAMPLE PROJECT", "document_title": "Doc T",
         "date_issued": "2026-09-19"}
 
 
@@ -40,13 +40,13 @@ def test_item_numbers_are_assigned_1_to_n_with_no_gaps():
 
 def test_the_header_block_carries_the_meta():
     ws = load([], {"project": "DFDP", "document_title": "Sour Water Drums",
-                   "company_transmittal": "KJO-TX-001",
+                   "company_transmittal": "EOC-TX-001",
                    "date_issued": "2026-09-19"})
     keys = [key for _, key in HEADER_FIELDS]
     assert "DFDP" in ws.cell(row=1, column=1).value
     assert ws.cell(row=2, column=1).value == "COMMENT RESOLUTION SHEET"
     assert ws.cell(row=3 + keys.index("company_transmittal"),
-                   column=3).value == "KJO-TX-001"
+                   column=3).value == "EOC-TX-001"
     assert ws.cell(row=3 + keys.index("document_title"),
                    column=3).value == "Sour Water Drums"
 
@@ -134,9 +134,9 @@ def test_a_row_with_no_kind_gets_no_fill():
 # "verified by opening the file" that checked presence and spelling, never
 # truth, and let six false rows ship.
 
-SUB = {"project": "DORRA", "document_title": "Doc T",
+SUB = {"project": "EXAMPLE PROJECT", "document_title": "Doc T",
        "date_issued": "2026-09-19", "review_run_id": "run_1",
-       "company_transmittal": "KJO-TX-001",
+       "company_transmittal": "EOC-TX-001",
        "contractor_transmittal": "CTR-TX-009",
        "submittal_number": "SUB-2024-0417"}
 
@@ -170,7 +170,7 @@ def test_the_submittal_number_is_beside_the_two_transmittals_not_either_of_them(
     values = {ws.cell(row=_header_row(k), column=3).value
               for k in ("company_transmittal", "contractor_transmittal",
                         "submittal_number")}
-    assert values == {"KJO-TX-001", "CTR-TX-009", "SUB-2024-0417"}
+    assert values == {"EOC-TX-001", "CTR-TX-009", "SUB-2024-0417"}
 
 
 def test_a_submittal_with_no_number_prints_nothing_not_none():
@@ -257,3 +257,28 @@ def test_a_row_with_no_comment_still_carries_its_reference():
                 "comment": "", "finding_id": "missing-reference:X"}], SUB)
     value = _comment(ws)
     assert value.startswith("Ref: RF-") and "\n" not in value
+
+
+# ------------------------------------------------ the company name is config
+
+def test_the_default_company_comes_from_settings(monkeypatch):
+    """THE MUTATION TARGET (M540). The company printed on row 1 when the
+    caller names none is read from `settings.crs_company_name` (env
+    CRS_COMPANY_NAME) - a client identifier kept in `.env`, not in git."""
+    from app.config import settings
+    from app.crs_export import build_crs_view
+    monkeypatch.setattr(settings, "crs_company_name", "EXAMPLE OPERATING COMPANY (EOC)")
+    view = build_crs_view([], {"project": "EXAMPLE PROJECT"})
+    assert view["title"] == "EXAMPLE OPERATING COMPANY (EOC)\n EXAMPLE PROJECT"
+    ws = load([], {"project": "EXAMPLE PROJECT"})
+    assert ws.cell(row=1, column=1).value.startswith("EXAMPLE OPERATING COMPANY (EOC)")
+
+
+def test_an_unset_company_prints_nothing_rather_than_a_guess(monkeypatch):
+    """Empty is the default, and empty prints nothing - no invented company,
+    and no stray blank line in front of the project."""
+    from app.config import settings
+    from app.crs_export import build_crs_view
+    monkeypatch.setattr(settings, "crs_company_name", "")
+    assert build_crs_view([], {"project": "EXAMPLE PROJECT"})["title"] == "EXAMPLE PROJECT"
+    assert build_crs_view([], {})["title"] == ""

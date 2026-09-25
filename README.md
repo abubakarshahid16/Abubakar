@@ -393,7 +393,7 @@ linked deliverables in one access-scoped response.
 Overdue deliverables now use distinct audited reminder and escalation functions;
 they are not collapsed into the daily summary.
 
-The current KJO requirements scorecard is maintained in
+The current client requirements scorecard is maintained in
 [`docs/requirements-audit.md`](docs/requirements-audit.md); it separates
 shippable UI from backend scaffolding and client-blocked templates.
 

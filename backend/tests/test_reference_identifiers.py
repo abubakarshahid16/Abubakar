@@ -77,7 +77,7 @@ def test_an_incomplete_asme_reference_is_not_a_citation(text):
 
 @pytest.mark.parametrize("text,expected", [
     # KOC standard numbers use BOTH one-letter and two-letter discipline
-    # codes (M-03's own reference list, page 7: KOC-ME-008 Pt1/Pt2 are
+    # codes (the pump datasheet's own reference list, page 7: KOC-ME-008 Pt1/Pt2 are
     # two-letter "mechanical equipment"; KOC-E-003, KOC-E-004, KOC-E-010,
     # KOC-E-020 are one-letter "electrical"; KOC-P-001 is one-letter
     # "painting"). The pattern required exactly two letters, so a real
@@ -124,7 +124,7 @@ def test_a_library_filename_resolves_to_its_padded_number(filename, expected):
 
 
 @pytest.mark.parametrize("filename", [
-    "216400C-2003-SP-0810-0003_00.pdf",     # a submittal, not a standard
+    "P-1000001-2003-SP-0810-0003_00.pdf",     # a submittal, not a standard
     "Engineering Deliverables.pdf",
     "notes about SAES-B-014.pdf",           # the number is not at the start
 ])

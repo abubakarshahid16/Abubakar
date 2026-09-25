@@ -32,9 +32,9 @@ from app import claims, datasheets
 def test_a_label_on_three_pages_is_furniture():
     """The threshold, from the side that must be caught."""
     pairs = {
-        1: [("Document number", "216400C"), ("Design pressure", "3.5 barg")],
-        2: [("Document number", "216400C"), ("Shell thickness", "12 mm")],
-        3: [("Document number", "216400C")],
+        1: [("Document number", "P-1000001"), ("Design pressure", "3.5 barg")],
+        2: [("Document number", "P-1000001"), ("Shell thickness", "12 mm")],
+        3: [("Document number", "P-1000001")],
     }
 
     furniture = datasheets.furniture_labels(pairs)
@@ -81,7 +81,7 @@ def test_a_closed_categorical_answer_is_a_fact(value):
 
 @pytest.mark.parametrize("value", [
     "Emad Kishta",                    # a signature
-    "Al Khafji",                      # a place
+    "Example Bay",                      # a place
     "Sour Water Drums",               # a description
     "SA 516 Gr 70N",                  # a material, which is free text here
     "",
@@ -91,7 +91,7 @@ def test_free_text_is_not_a_categorical_answer(value):
     """THE LIST IS CLOSED, and this is why.
 
     Anything open lets free text back in, and free text beside a label is what
-    produced fields called "emad kishta" and "al khafji onshore facility" - a
+    produced fields called "emad kishta" and "onshore facility a" - a
     person and a place, recorded as properties of a pressure vessel.
     """
     assert datasheets.is_categorical_value(value) is False
@@ -116,7 +116,7 @@ def test_a_small_integer_followed_by_a_unit_is_a_value_not_a_line_number():
 
 
 def test_a_small_integer_followed_by_a_label_is_still_a_line_number():
-    """THE GUARD. A KOC sheet is two forms side by side - "5 | Design pressure
+    """THE GUARD. A client sheet is two forms side by side - "5 | Design pressure
     | 23.5 barg | 46 | Bonnet material | CS" - and 46 there really is the next
     pair's line number. It is not followed by a unit, so it still reads as one.
     """

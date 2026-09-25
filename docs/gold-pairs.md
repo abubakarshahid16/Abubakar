@@ -48,7 +48,7 @@ and every future change to the matching is measured against it automatically.
 
 1. Open `gold/PAIRS-TEMPLATE.csv` in Excel.
 2. Pick a datasheet somebody has already put through the system. Save a copy of
-   the template named after it, for example `gold/PAIRS-216400C.csv`.
+   the template named after it, for example `gold/PAIRS-P-1000001.csv`.
 3. Ask whoever gave you this for the list of fields that datasheet carries, and
    the list of standards the review treated as applicable. **One row per
    field.** They come pre-filled if somebody has run the export for you.
@@ -59,7 +59,7 @@ and every future change to the matching is measured against it automatically.
 
 | Column | What to put | Example |
 |---|---|---|
-| `submittal` | The file name of the datasheet | `216400C-2003-SP-0810-0003_00.pdf` |
+| `submittal` | The file name of the datasheet | `P-1000001-2003-SP-0810-0003_00.pdf` |
 | `equipment_tag` | The item this value belongs to, if the sheet covers several | `2003-47-V-0001A/B` |
 | `field` | The field name as the datasheet writes it | `internal design pressure` |
 | `value` | The number on the datasheet. Copied, not judged | `3.5` |
@@ -128,11 +128,11 @@ Five fields from a pressure-vessel datasheet:
 
 | submittal | equipment_tag | field | value | unit | page | standard | clause | notes |
 |---|---|---|---|---|---|---|---|---|
-| 216400C-...pdf | 2003-47-V-0001A/B | internal design pressure | 3.5 | bar (ga) | 4 | SAES-D-001.pdf | 6.2.3 | the design pressure table |
-| 216400C-...pdf | 2003-47-V-0001A/B | concrete bearing stress | 8300 | kPa | 4 | SAES-D-001.pdf | 9.1.6 | allowable is stated as 8,300 kPa |
-| 216400C-...pdf | 2003-47-V-0001A/B | maximum operating pressure | 2.2 | bar (ga) | 4 | NONE | | the table's input, not something it limits |
-| 216400C-...pdf | 2003-47-V-0001A/B | operating weight l3 | 21670 | kg | 5 | NONE | | stated for the civil design, not limited |
-| 216400C-...pdf | 2003-47-V-0001A/B | internal maximum design temperature | 95 | °C | 4 | | | left blank - SAES-D-001 section 6.3 may govern it, please check |
+| P-1000001-...pdf | 2003-47-V-0001A/B | internal design pressure | 3.5 | bar (ga) | 4 | SAES-D-001.pdf | 6.2.3 | the design pressure table |
+| P-1000001-...pdf | 2003-47-V-0001A/B | concrete bearing stress | 8300 | kPa | 4 | SAES-D-001.pdf | 9.1.6 | allowable is stated as 8,300 kPa |
+| P-1000001-...pdf | 2003-47-V-0001A/B | maximum operating pressure | 2.2 | bar (ga) | 4 | NONE | | the table's input, not something it limits |
+| P-1000001-...pdf | 2003-47-V-0001A/B | operating weight l3 | 21670 | kg | 5 | NONE | | stated for the civil design, not limited |
+| P-1000001-...pdf | 2003-47-V-0001A/B | internal maximum design temperature | 95 | °C | 4 | | | left blank - SAES-D-001 section 6.3 may govern it, please check |
 
 ## What happens next
 

@@ -63,7 +63,7 @@ function run(over: Partial<ReviewRunSummary> = {}): ReviewRunSummary {
 /** A preview body shaped exactly as the route returns one. */
 function sheet(over: Partial<CrsPreview> = {}): CrsPreview {
   return {
-    title: "AL-KHAFJI JOINT OPERATIONS (KJO)",
+    title: "EXAMPLE OPERATING COMPANY (EOC)",
     subtitle: "COMMENT RESOLUTION SHEET",
     header: [
       { label: "COMPANY Transmittal No.:", value: "" },
@@ -144,7 +144,7 @@ describe("the CRS preview", () => {
     const panel = within(await openThePreview());
 
     expect(previewCrs).toHaveBeenCalledWith("run-1");
-    expect(panel.getByText(/AL-KHAFJI JOINT OPERATIONS/)).toBeInTheDocument();
+    expect(panel.getByText(/EXAMPLE OPERATING COMPANY/)).toBeInTheDocument();
     expect(panel.getByText("COMMENT RESOLUTION SHEET")).toBeInTheDocument();
     // THE VALUE UNDER ITS OWN LABEL. "drum.pdf" is also the Document Name of
     // every row, so a bare text query would pass on a header block that never

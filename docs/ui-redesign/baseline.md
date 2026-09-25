@@ -292,7 +292,7 @@ chat disclosure there would be incorrect.
 
 ## 0.7 Questions requiring product/client answers
 
-1. Does the real KJO corpus contain Arabic documents that engineers must read
+1. Does the real client corpus contain Arabic documents that engineers must read
    or search? Arabic/RTL work remains unapproved until this is confirmed.
 2. What browser and typical screen resolution do the reviewing engineers use?
 3. Does any intended user rely on a screen reader? If yes, which screen reader

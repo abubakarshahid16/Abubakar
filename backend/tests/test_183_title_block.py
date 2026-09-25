@@ -93,7 +93,7 @@ def _evidence(doc: str) -> dict:
 # ============================================================ the PSV shape
 
 def test_a_title_block_the_chunker_stripped_is_still_the_title_evidence(tmp_path):
-    title = ["KUWAIT OIL COMPANY", "DATA SHEET FOR", "PRESSURE SAFETY VALVES (PSVs)"]
+    title = ["EXAMPLE OPERATING COMPANY", "DATA SHEET FOR", "PRESSURE SAFETY VALVES (PSVs)"]
     doc = _submittal(tmp_path, [title + _rows(14, f"p{p}") for p in range(1, 6)],
                      body_chunk_page=2)
 

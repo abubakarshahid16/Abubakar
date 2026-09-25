@@ -69,52 +69,72 @@ fi
 # ---------------------------------------------------------------------------
 # 2b. New client identifiers, in ADDED LINES ONLY
 # ---------------------------------------------------------------------------
-# Owner decision 2026-09-23. Client document numbers and the client's own
-# abbreviation are ALREADY in 18 tracked files - that is B27, an accepted risk,
-# and this hook does not reopen it. What it stops is the next one.
+# Owner decisions 2026-09-23 and 2026-09-25. The identifiers themselves - client
+# document numbers, the client's company, facility and project names - must
+# not live in ANY tracked file, this hook included: a hook that names what it
+# blocks publishes the list. So the patterns live in a LOCAL, git-ignored file
+# next to this hook:
 #
-# ADDED LINES ONLY, deliberately. A rule that blocked any file containing these
-# strings would block every commit to comparison.py, datasheets.py,
-# match_rules.py, eight test files and four docs, and a hook that blocks
-# ordinary work gets bypassed until it is worthless. Scanning `^+` lines means
-# existing occurrences are invisible and only new ones are refused.
+#     .githooks/client-identifiers.local
 #
-# This file is excluded from its own scan: it has to name the strings it looks
-# for, and it cannot be committed if it trips on itself.
-client_ids='216400C|EF1975|DAS-M-03|DAS-I-06|KJO'
+# One extended regex (grep -E) per line, case-sensitive; blank lines and lines
+# starting with `#` are ignored. It travels by direct copy, like the register.
+# Missing or empty, the scan is skipped with a one-line notice - a fresh clone
+# has no list, and blocking every commit for that would get the hook bypassed.
+#
+# ADDED LINES ONLY, deliberately. Scanning `^+` lines means an occurrence that
+# is already tracked is not re-reported on every edit to its file; only a new
+# one is refused.
+#
+# The file is found next to THIS SCRIPT ($0), not in the working tree: with
+# core.hooksPath set to the main checkout's .githooks, a commit from a linked
+# worktree runs the main checkout's hook, and reads the main checkout's list.
+client_ids_file="$(dirname "$0")/client-identifiers.local"
+client_ids=''
+if [ -f "$client_ids_file" ]; then
+  while IFS= read -r pattern || [ -n "$pattern" ]; do
+    pattern=${pattern%$'\r'}
+    case "$pattern" in ''|'#'*) continue ;; esac
+    client_ids="${client_ids:+$client_ids|}$pattern"
+  done < "$client_ids_file"
+fi
+
 client_hits=''
-for f in $staged; do
-  case "$f" in
-    .githooks/pre-commit) continue ;;
-  esac
-  # `-E` ON BOTH GREPS. The second one was written `grep -v '^\+\+\+'` and
-  # silently matched nothing useful: without -E, GNU grep reads `\+` as the
-  # BRE repetition operator rather than a literal plus, so the filter dropped
-  # every line and the check passed a file that did contain an identifier.
-  # Caught by testing the block against a file that should have failed.
-  hits=$(git diff --cached -U0 --diff-filter=ACMR -- "$f" \
-    | grep -E '^\+' | grep -vE '^\+\+\+' \
-    | grep -E "$client_ids" || true)
-  if [ -n "$hits" ]; then
-    client_hits="${client_hits}${f}:
+if [ -z "$client_ids" ]; then
+  echo "${YLW}notice: no .githooks/client-identifiers.local patterns - client identifier scan skipped${NC}"
+else
+  for f in $staged; do
+    # `-E` ON BOTH GREPS. The second one was written `grep -v '^\+\+\+'` and
+    # silently matched nothing useful: without -E, GNU grep reads `\+` as the
+    # BRE repetition operator rather than a literal plus, so the filter dropped
+    # every line and the check passed a file that did contain an identifier.
+    # Caught by testing the block against a file that should have failed.
+    hits=$(git diff --cached -U0 --diff-filter=ACMR -- "$f" \
+      | grep -E '^\+' | grep -vE '^\+\+\+' \
+      | grep -E -- "$client_ids" || true)
+    if [ -n "$hits" ]; then
+      client_hits="${client_hits}${f}:
 $(printf '%s\n' "$hits" | sed 's/^/      /')
 "
-  fi
-done
+    fi
+  done
+fi
 
 if [ -n "$client_hits" ]; then
-  echo "${RED}BLOCKED: a new client identifier in an added line${NC}"
+  echo "${RED}BLOCKED: a client identifier in an added line${NC}"
   printf '%s' "$client_hits"
   echo ""
-  echo "  Client document numbers and the client's abbreviation must not enter"
-  echo "  new lines in tracked files. Existing occurrences are B27, an accepted"
-  echo "  risk, and are not blocked - this is only about not adding more."
+  echo "  A line being committed matches a pattern in"
+  echo "  .githooks/client-identifiers.local. Client document numbers and the"
+  echo "  client's company, facility and project names must not enter tracked"
+  echo "  files."
   echo ""
   echo "  Write the ROLE the document plays instead:"
   echo "      the tuning document | the pump datasheet regression document"
   echo "      a multi-column material field | the client"
-  echo "  and keep names, values and counts in the register, which is"
-  echo "  direct-copy and never in git."
+  echo "  or a made-up fixture (EXAMPLE OPERATING COMPANY, P-1000001,"
+  echo "  DS-0000-DAS-M-01), and keep real names, values and counts in the"
+  echo "  register, which is direct-copy and never in git."
   fail=1
 fi
 

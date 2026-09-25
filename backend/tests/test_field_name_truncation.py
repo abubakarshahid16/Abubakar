@@ -136,7 +136,7 @@ def test_a_single_dot_number_is_a_value_and_not_a_clause():
     # over deletes this row.
     (["Insulation", "None"], [("Insulation", "None")]),
     (["Boot material", "N/A"], [("Boot material", "N/A")]),
-    # Two forms side by side, with their line numbers. The KOC layout.
+    # Two forms side by side, with their line numbers. The client layout.
     (["5", "Design pressure", "23.5 barg", "46", "Bonnet material", "CS"],
      [("Design pressure", "23.5 barg"), ("Bonnet material", "CS")]),
     # A unit in its own column.

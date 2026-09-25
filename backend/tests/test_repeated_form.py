@@ -1,6 +1,6 @@
 """A form repeated on every page is not a title block.
 
-THE DEFECT, MEASURED ON A REAL DOCUMENT. `EF1975-DAS-I-06` is a KOC pressure
+THE DEFECT, MEASURED ON A REAL DOCUMENT. `DS-0000-DAS-I-01` is a client pressure
 safety valve datasheet: five pages, one valve per page, the SAME FORM each
 time. Every real field - `Set pressure`, `Relieving temperature`, `Density at
 relieving temper.` - therefore appears on all five pages, and the furniture
@@ -13,7 +13,7 @@ regression introduced by a later fix, on a document the project had already
 measured.
 
 WHAT SEPARATES THE TWO, AND IT TOOK TWO CONDITIONS. Distinctness alone was
-not enough: the drum sheet's title block `AL KHAFJI ONSHORE FACILITY` is empty
+not enough: the drum sheet's title block `ONSHORE FACILITY A` is empty
 on six of the eight pages it appears on and catches a stray neighbouring
 fragment on the other two - `D` on page 5, `2003` on page 7. That is two
 distinct non-empty answers, so a distinctness test promotes the title block to
@@ -24,12 +24,12 @@ A form field is ANSWERED. So a repeating label is a FIELD only when BOTH:
   1. two or more distinct non-empty answers, and
   2. non-empty on MORE THAN HALF the pages it appears on.
 
-`AL KHAFJI ONSHORE FACILITY` fails the second at 2 of 8. `Set pressure`
+`ONSHORE FACILITY A` fails the second at 2 of 8. `Set pressure`
 passes both at 3 distinct answers over 4 of 4 pages.
 
 MEASURED ON BOTH REAL SHEETS BEFORE THESE FIXTURES WERE WRITTEN:
 
-  drum  48 facts, unchanged, and the `al khafji onshore facility` row dead.
+  drum  48 facts, unchanged, and the `onshore facility a` row dead.
   PSV   0 -> 35 facts, and all 25 `By Contractor` blank-marked facts survive -
         their answers differ per valve, so condition 1 is satisfied and no
         blank-marker exemption is needed.
@@ -50,7 +50,7 @@ import pytest
 from app import datasheets
 
 
-TITLE_BLOCK = ("DOCUMENT NO.", "EF1975-DAS-I-06")
+TITLE_BLOCK = ("DOCUMENT NO.", "DS-0000-DAS-I-01")
 FOOTER = ("Company General Use", "")
 
 
@@ -76,7 +76,7 @@ def test_a_repeated_form_with_per_page_values_is_not_furniture():
 
     assert "set pressure" not in furniture, (
         "the form field was stripped as a header - this is the defect that "
-        "took EF1975-DAS-I-06 from 37 facts to zero")
+        "took DS-0000-DAS-I-01 from 37 facts to zero")
     assert "relieving temperature" not in furniture
 
 
@@ -125,9 +125,9 @@ def test_a_label_on_too_few_pages_is_never_furniture():
 def test_case_and_spacing_are_spelling_not_a_different_answer():
     """"340 PSIG" and "340  psig" are one answer written twice. Treating them
     as two would let any title block whose case wobbles survive as a field."""
-    pages = {1: [("Document no", "EF1975")],
-             2: [("Document no", "ef1975")],
-             3: [("Document no", "EF1975 ")]}
+    pages = {1: [("Document no", "DS-0000")],
+             2: [("Document no", "ds-0000")],
+             3: [("Document no", "DS-0000 ")]}
 
     assert "document no" in datasheets.furniture_labels(pages)
 
@@ -137,19 +137,19 @@ def test_case_and_spacing_are_spelling_not_a_different_answer():
 def test_a_mostly_empty_label_with_stray_values_is_furniture():
     """THE DRUM SHEET'S TITLE BLOCK, AS THE EXTRACTOR ACTUALLY SEES IT.
 
-    `AL KHAFJI ONSHORE FACILITY` on 8 pages: empty on 6, and on two of them
+    `ONSHORE FACILITY A` on 8 pages: empty on 6, and on two of them
     the extractor catches a neighbouring cell - `D` and `2003`. Two distinct
     non-empty answers, so condition 1 alone calls it a field and `2003`
     becomes a numeric fact on page 7. Condition 2 is what kills it: answered
     on 2 of 8 pages is not a form somebody filled in.
     """
-    pages = {p: [("AL KHAFJI ONSHORE FACILITY", "")] for p in range(1, 9)}
-    pages[5] = [("AL KHAFJI ONSHORE FACILITY", "D")]
-    pages[7] = [("AL KHAFJI ONSHORE FACILITY", "2003")]
+    pages = {p: [("ONSHORE FACILITY A", "")] for p in range(1, 9)}
+    pages[5] = [("ONSHORE FACILITY A", "D")]
+    pages[7] = [("ONSHORE FACILITY A", "2003")]
 
     furniture = datasheets.furniture_labels(pages)
 
-    assert "al khafji onshore facility" in furniture, (
+    assert "onshore facility a" in furniture, (
         "the title block was promoted to a field by its own stray fragments")
 
 
@@ -272,7 +272,7 @@ def test_a_page_with_no_pairs_says_exactly_that():
 def test_a_page_whose_pairs_were_filtered_names_the_filters():
     """THE MESSAGE THAT SENT A READER TO THE WRONG HALF OF THE PIPELINE.
 
-    Five pages of EF1975-DAS-I-06 reported "no label-value pairs recovered"
+    Five pages of DS-0000-DAS-I-01 reported "no label-value pairs recovered"
     while 190 pairs per page had been recovered and discarded. One sentence
     covered both a scanned page with no text and a rule that was too strict,
     and those want opposite responses.
