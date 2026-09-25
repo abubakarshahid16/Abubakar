@@ -71,7 +71,7 @@ jobs:
 
       - name: Run the suite
         working-directory: backend
-        run: python -m pytest -q --durations=10
+        run: python -m pytest -q -n auto --durations=10
 
   frontend:
     name: frontend (vitest + tsc)

@@ -48,6 +48,7 @@ et-xmlfile==2.0.0
 # Tests
 pytest==8.4.2
 pytest-asyncio==1.4.0
+pytest-xdist==3.8.0
 
 # OCR for scanned pages - RapidOCR on the SAME onnxruntime pinned above.
 # No PaddlePaddle, no torch. The weights are NOT installed by pip: they are

@@ -94,7 +94,9 @@ def test_a_linked_worktree_may_be_on_any_branch(tmp_path):
 def _install_hook(repo: pathlib.Path) -> dict:
     hooks = repo / ".githooks"
     hooks.mkdir()
-    (hooks / "post-checkout").write_bytes((REPO / ".githooks" / "post-checkout").read_bytes())
+    hook_copy = hooks / "post-checkout"
+    hook_copy.write_bytes((REPO / ".githooks" / "post-checkout").read_bytes())
+    hook_copy.chmod(0o755)
     (repo / "scripts").mkdir()
     (repo / "scripts" / "worktree_guard.py").write_bytes(
         (REPO / "scripts" / "worktree_guard.py").read_bytes())
