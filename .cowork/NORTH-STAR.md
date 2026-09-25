@@ -296,3 +296,13 @@ Muhammad Usman alone records approval here.
 - Approved by: `<name>`
 - CRS scope/FEED wording: awaiting exact client confirmation.
 - Release structure: awaiting owner decision.
+
+## Owner notes (recorded by Claude Code at the owner's instruction; rule text above unchanged)
+
+- 2026-09-25 - Owner decision (Muhammad Usman): the Claude API is an owner-approved
+  reasoning lane for this project's development and measurement work. It is used ONLY
+  through `backend/app/reader_transport.py`, ONLY under the budget of USD 5 per step and
+  USD 20 in total (enforced in code by `claude_spend`, stop before exceeding), with NO
+  document text in logs, GitHub issues, PRs or CI. Every other outbound path for document
+  content stays forbidden. This is the "explicitly authorized benchmark or escalation lane"
+  of section 2.1; it does not close any offline acceptance gate (section 2.1, last bullet).
