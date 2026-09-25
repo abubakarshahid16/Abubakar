@@ -14,10 +14,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a scope that lists OTHER equipment becomes NOT_APPLICABLE "
                     "(the v1 wrong-NA shape) instead of UNKNOWN",
         path=APP / "applicability_v2.py",
-        anchor="    if match:\n        return _inclusion(",
+        anchor="    if match:\n        result = _inclusion(",
         replacement="    if covered and not match and not generic:\n"
                     "        return _result(NOT_APPLICABLE, 'other equipment', covered[0])\n"
-                    "    if match:\n        return _inclusion(",
+                    "    if match:\n        result = _inclusion(",
         target="tests/test_applicability_v2.py",
         keyword="vessel_only_scope_does_not_make_a_pump",
         tags=("honesty", "applicability"),
