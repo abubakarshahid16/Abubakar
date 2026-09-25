@@ -128,5 +128,24 @@ def test_an_unknown_submittal_number_never_decides():
     assert r["decision"] == APPLICABLE
 
 
+# ------------------------------ addendum 5 (B5): uncertain metadata never excludes
+
+UNKNOWN_EQUIPMENT = Profile(None, None, None)
+
+
+@pytest.mark.parametrize("record", [
+    rec(covered=[item("pressure vessels")],
+        limits=[item("pressure vessels", "applies only to pressure vessels", kind="equipment")]),
+    rec(covered=[item("pressure vessels")], exclusions=[item("centrifugal pumps")]),
+    rec(covered=[item("equipment")], generic=True,
+        limits=[item("pressure vessels", kind="equipment")]),
+    None,
+], ids=["equipment-limit", "exclusion", "generic", "missing-scope"])
+def test_unknown_equipment_type_never_yields_not_applicable(record):
+    """THE MUTATION TARGET (M564): when the submittal's equipment type is
+    unknown, nothing can show it falls outside the scope."""
+    assert decide(record, UNKNOWN_EQUIPMENT, LEX)["decision"] != NOT_APPLICABLE
+
+
 def test_no_record_is_unknown():
     assert decide(None, PUMP, LEX)["decision"] == UNKNOWN

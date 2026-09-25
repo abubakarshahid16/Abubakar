@@ -6213,6 +6213,16 @@ B5_STANDARDS_INVENTORY = (
         keyword="pressure_limits_are_compared_by_code",
         tags=("honesty", "applicability"),
     ),
+    Mutation(
+        id="M564", phase=61,
+        description="an equipment limit excludes a submittal whose type is UNKNOWN",
+        path=APP / "applicability_v2.py",
+        anchor="if nodes and not _names_submittal(nodes, profile) and profile.type:",
+        replacement="if nodes and not _names_submittal(nodes, profile):",
+        target="tests/test_applicability_v2.py",
+        keyword="unknown_equipment_type_never_yields_not_applicable",
+        tags=("honesty", "applicability"),
+    ),
 )
 
 
