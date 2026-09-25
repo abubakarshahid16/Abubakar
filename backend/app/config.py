@@ -336,6 +336,18 @@ class Settings(BaseSettings):
     #: field naming covers blank fields too.
     #: Env: GEOMETRY_READER_ENABLED. The owner flips it.
     geometry_reader_enabled: bool = False
+    #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
+    #: grid read cell by cell under its column heading ("N1 Size 4", "N1
+    #: Flange Rating CL-150"). A schedule is one row per item across many
+    #: columns, which the label/value readers pair into nonsense ("raised face
+    #: -> <the nozzle's service>") that the value gate then rightly rejects, so a
+    #: whole nozzle schedule was lost. The FORM path and the vision reader stay
+    #: behind GEOMETRY_READER_ENABLED: on a pump sheet the form path paired
+    #: "IMPELLER DIA." with "RATED *". The same precedence as the full flag
+    #: applies - a rule-reader fact always wins, and a geometry reading never
+    #: makes a page "read into fields" in the ledger.
+    #: Env: GEOMETRY_TABLE_READER_ENABLED. OFF by default; the owner flips it.
+    geometry_table_reader_enabled: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow

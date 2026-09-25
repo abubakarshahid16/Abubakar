@@ -94,6 +94,44 @@ def _clean(text: str | None) -> str:
     return _WS.sub(" ", (text or "")).strip()
 
 
+#: The revision block's own column headings and status wording. ONE of them
+#: in a table proves nothing ("Checked" can be a field); TWO distinct ones
+#: are the revision history's header - Rev / Description / Prepared /
+#: Checked / Approved - and no equipment schedule carries two.
+_REVISION_TABLE_MARKERS = (
+    re.compile(r"^\s*rev(ision)?\b\.?", re.IGNORECASE),
+    re.compile(r"\bprepared\b", re.IGNORECASE),
+    re.compile(r"\bchecked\b", re.IGNORECASE),
+    re.compile(r"\bapproved\b", re.IGNORECASE),
+    re.compile(r"\bissued\s+for\b", re.IGNORECASE),
+    re.compile(r"\bstatus\s+description\b", re.IGNORECASE),
+)
+
+
+def revision_table_ids(rows: list[dict]) -> set[str]:
+    """Ids of the geometry reader's tables that are a revision history.
+
+    Row by row a revision block reads as fields - the table reader labels
+    each cell by its row and column, so "00 SERVICE ORDER NO. ... -> <a
+    person's name>" passes every per-row rule. The table as a whole does not:
+    its cells carry the revision header's words. A table whose cells match
+    two or more DISTINCT markers is the revision history, and all its rows
+    are page furniture. Form rows (no table id) are never grouped.
+    """
+    cells: dict[str, list[str]] = {}
+    for row in rows:
+        table = row.get("table_id")
+        if table is None:
+            continue
+        cells.setdefault(table, []).extend(
+            _clean(row.get(key)) for key in ("label", "label_text", "value_text"))
+    return {
+        table for table, texts in cells.items()
+        if sum(1 for marker in _REVISION_TABLE_MARKERS
+               if any(marker.search(text) for text in texts)) >= 2
+    }
+
+
 def noise_reason(label: str | None, value: str | None) -> str | None:
     """The rule this (label, value) row breaks, or None when it may be a field."""
     label, value = _clean(label), _clean(value)

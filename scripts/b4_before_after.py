@@ -32,8 +32,9 @@ commit or paste them (CLAUDE.md rules 1 and 3).
         --doc <fragment 1> --doc <fragment 2> --doc <fragment 3>
 
 Run with the backend STOPPED or running - the backup API is safe with the
-server up. `GEOMETRY_READER_ENABLED` is read from the environment as usual;
-leave it unset to measure the default path.
+server up. `GEOMETRY_READER_ENABLED` and `GEOMETRY_TABLE_READER_ENABLED` are
+read from the environment as usual; leave them unset to measure the default
+path.
 """
 from __future__ import annotations
 

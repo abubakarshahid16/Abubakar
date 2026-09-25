@@ -2561,6 +2561,11 @@ def extract_facts(
     # B4 (#193 5.5): read ONCE per extraction, so a flag flipped mid-run
     # cannot give one datasheet two different extractions.
     geometry_on = bool(settings.geometry_reader_enabled)
+    # B4 nozzle schedules: the geometry reader's TABLE path on its own (see
+    # config.geometry_table_reader_enabled). Everything below that reads or
+    # writes geometry rows keys off this; the vision reader stays on the full
+    # flag.
+    geometry_tables = geometry_on or bool(settings.geometry_table_reader_enabled)
     geometry_by_page: dict[int, list[dict]] = {}
     # B4 item 1: THE VISION READER, same flag, and only where Claude may be
     # used (it is the only provider that reads an image). Unavailable is a
@@ -2582,9 +2587,12 @@ def extract_facts(
         found.extend(_pairs_from_pdf_page(stored_path, page))
         # B4 fix 5: column grids, read by word position (see grid_facts).
         grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)
-        if geometry_on:
+        if geometry_tables:
             # B4 (#193 5.5): read, not yet written - see the write loop.
-            geometry_by_page[page] = _geometry_rows_from_pdf_page(stored_path, page)
+            rows = _geometry_rows_from_pdf_page(stored_path, page)
+            geometry_by_page[page] = (
+                rows if geometry_on else [r for r in rows if r["source"] == "table"])
+        if geometry_on:
             vision_by_page[page] = _vision_reading(
                 stored_path, page, geometry_by_page[page], vision_provider)
         if not found and not grid_by_page[page]:
@@ -2618,7 +2626,7 @@ def extract_facts(
     vision_written = 0
     vision_dropped: dict[str, int] = {}
     vision_pages_asked = 0
-    if geometry_on:
+    if geometry_tables:
         # The geometry reader reads title blocks too; the same counted rule
         # (a label with the same answer on three or more pages) sets its
         # page furniture aside.
@@ -2793,7 +2801,7 @@ def extract_facts(
                     dropped["refused by create_fact"] = dropped.get(
                         "refused by create_fact", 0) + 1
                     continue
-                if geometry_on:
+                if geometry_tables:
                     rule_facts.setdefault(written_row["field_name"], []).append(written_row)
                 page_written += 1
                 written += 1
@@ -2835,7 +2843,7 @@ def extract_facts(
                     dropped["refused by create_fact"] = dropped.get(
                         "refused by create_fact", 0) + 1
                     continue
-                if geometry_on:
+                if geometry_tables:
                     rule_facts.setdefault(written_row["field_name"], []).append(written_row)
                 page_written += 1
                 written += 1
@@ -2843,10 +2851,18 @@ def extract_facts(
                     blanks += 1
             # B4 (#193 5.5): GEOMETRY READINGS, only with the flag on, and
             # only AFTER both rule readers so the rule reader always wins.
+            # A REVISION TABLE IS DROPPED WHOLE: row by row it reads as fields
+            # ("00 SERVICE ORDER NO. ... -> <a name>"), and only the table as
+            # a whole says it is the revision history - see
+            # row_noise.revision_table_ids.
+            revision_tables = row_noise.revision_table_ids(geometry_by_page.get(page, []))
             for row in geometry_by_page.get(page, []):
                 label = (row["label"] or "").strip()
                 if not label:
                     dropped["empty label"] = dropped.get("empty label", 0) + 1
+                    continue
+                if row.get("table_id") in revision_tables:
+                    dropped[row_noise.REVISION] = dropped.get(row_noise.REVISION, 0) + 1
                     continue
                 name = normalise_field_name(label)
                 raw, printed_unit = _geometry_raw_value(row)
@@ -3015,7 +3031,7 @@ def extract_facts(
                         "vision_unavailable": vision_unavailable,
                         "vision_refused": sorted({r.refused for r in vision_by_page.values()
                                                   if r is not None and r.refused})}
-                       if geometry_on else {})
+                       if geometry_tables else {})
     return {
         **geometry_counts,
         "document_id": document_id,
