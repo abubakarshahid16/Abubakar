@@ -222,6 +222,13 @@ app.add_middleware(
 # the only place routing is declared, without this file growing a feature.
 app.include_router(watch_api_mod.router)
 
+# THE CLAUDE LANE (#222, revived by owner decision 2026-09-25). Every route is
+# gated on the reader's two egress flags and answers 409 model_disabled when
+# they are off; nothing leaves the machine from here unless both are true.
+from . import claude_api as claude_api_mod  # noqa: E402
+
+app.include_router(claude_api_mod.router)
+
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):

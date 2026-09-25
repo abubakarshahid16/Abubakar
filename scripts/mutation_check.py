@@ -4287,8 +4287,12 @@ PROVIDER_SEAM = (
         description="swallow a transport failure into an empty answer instead "
                     "of a named refusal",
         path=APP / "reasoning_provider.py",
-        anchor='            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc',
-        replacement='            raw = {"response": "", "model": self.requested_model}',
+        anchor=("        # ruff's blind-except rule is about swallowing, which this does not do.\n"
+                "        except Exception as exc:\n"
+                '            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc'),
+        replacement=("        # ruff's blind-except rule is about swallowing, which this does not do.\n"
+                     "        except Exception as exc:\n"
+                     '            raw = {"response": "", "model": self.requested_model}'),
         target=_PROVIDER_TEST, keyword="transport_failure_is_a_named_refusal",
         tags=("honesty", "critical"),
     ),
@@ -6137,13 +6141,10 @@ B5_STANDARDS_INVENTORY = (
     ),
     Mutation(
         id="M537", phase=61,
-        description="register the parked Claude router: the strict xfail "
-                    "must turn the unexpected pass into a failure (#222)",
+        description="the revived Claude lane's router is no longer registered (#222)",
         path=BACKEND / "app" / "main.py",
-        anchor="app.include_router(watch_api_mod.router)\n",
-        replacement="app.include_router(watch_api_mod.router)\n"
-                    "from . import claude_api as _parked_claude_api\n"
-                    "app.include_router(_parked_claude_api.router)\n",
+        anchor="app.include_router(claude_api_mod.router)\n",
+        replacement="",
         target="tests/test_claude_api.py",
         keyword="the_four_routes_are_registered",
         tags=("gate",),
@@ -6312,6 +6313,78 @@ B5_STANDARDS_INVENTORY = (
         target="tests/test_client_identifier_hook.py",
         keyword="missing_list_is_a_notice_not_a_block",
         tags=("safety",),
+    ),
+    Mutation(
+        id="M565", phase=61,
+        description="get_provider ignores REASONING_PROVIDER and always uses ollama",
+        path=APP / "reasoning_provider.py",
+        anchor="    ok, why = claude_available()\n    if ok:\n",
+        replacement="    ok, why = claude_available()\n    if False:\n",
+        target="tests/test_claude_provider.py",
+        keyword="claude_is_selected_only_when",
+        tags=("model",),
+    ),
+    Mutation(
+        id="M566", phase=61,
+        description="a missing API key no longer forces the ollama fallback",
+        path=APP / "reasoning_provider.py",
+        anchor='        return False, "no ANTHROPIC_API_KEY"\n',
+        replacement="        pass\n",
+        target="tests/test_claude_provider.py",
+        keyword="missing_key_falls_back",
+        tags=("model", "safety"),
+    ),
+    Mutation(
+        id="M567", phase=61,
+        description="the provider's refusal message carries the request headers (the key)",
+        path=APP / "reasoning_provider.py",
+        anchor=("            # TYPE only - reader_transport never puts headers in it).\n"
+                '            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc\n'),
+        replacement=("            # TYPE only - reader_transport never puts headers in it).\n"
+                     '            raise ProviderRefused(f"{self.name}: {exc} {request}") from exc\n'),
+        target="tests/test_claude_provider.py",
+        keyword="key_never_reaches",
+        tags=("safety",),
+    ),
+    Mutation(
+        id="M568", phase=61,
+        description="the budget check before a Claude call is skipped",
+        path=APP / "reasoning_provider.py",
+        anchor="        claude_spend.ensure_affordable(\n",
+        replacement="        (lambda *a, **k: None)(\n",
+        target="tests/test_claude_provider.py",
+        keyword="step_cap_stops or total_cap_counts",
+        tags=("safety", "budget"),
+    ),
+    Mutation(
+        id="M569", phase=61,
+        description="the total cap only counts the current step",
+        path=APP / "claude_spend.py",
+        anchor="    step_spent, total_spent = spent(step), spent()\n",
+        replacement="    step_spent, total_spent = spent(step), spent(step)\n",
+        target="tests/test_claude_provider.py",
+        keyword="total_cap_counts",
+        tags=("safety", "budget"),
+    ),
+    Mutation(
+        id="M570", phase=61,
+        description="the JSON schema gate trusts the model (no code check)",
+        path=APP / "reasoning_provider.py",
+        anchor='    _check(value, schema, "", errors)\n',
+        replacement="    pass\n",
+        target="tests/test_claude_provider.py",
+        keyword="schema_gate_is_code",
+        tags=("honesty", "model"),
+    ),
+    Mutation(
+        id="M571", phase=61,
+        description="the response cache is never read, so a repeat call is bought again",
+        path=APP / "reasoning_provider.py",
+        anchor="        cached = _cache_read(key)\n",
+        replacement="        cached = None\n",
+        target="tests/test_claude_provider.py",
+        keyword="served_from_cache",
+        tags=("budget",),
     ),
 )
 

@@ -690,6 +690,32 @@ class Settings(BaseSettings):
     #: a dump of one.
     anthropic_api_key: str = ""
 
+    # --------------------------------------------- the reasoning provider
+    #
+    # OWNER DECISION 2026-09-25: AI reasoning may run on the Claude API.
+    # `claude` is chosen ONLY when this says claude AND both standards-reader
+    # egress flags above are true AND a key is present - the new switch is
+    # ANDed with the old ones, never ORed (reasoning_provider's EGRESS rule).
+    # Anything missing: the local Ollama engine, with the reason logged.
+    reasoning_provider: str = "ollama"
+    #: Model ids from CONFIGURATION, never from code: reasoning (Sonnet class)
+    #: and simple labelling (Haiku class). Checked against the key's model list
+    #: (`reader_transport.list_models`) before a measured run.
+    claude_reasoning_model: str = "claude-sonnet-5"
+    claude_labelling_model: str = "claude-haiku-4-5-20251001"
+    #: USD caps, enforced in code BEFORE a call leaves (`claude_spend`): the
+    #: worst case of the next call must fit under both. Owner: 5 per step,
+    #: 20 in total.
+    claude_budget_usd_per_step: float = 5.0
+    claude_budget_usd_total: float = 20.0
+    #: Local JSONL ledger: one line per call - time, step, model, tokens, cost,
+    #: prompt digest. Never prompt or document text, never the key.
+    claude_spend_log: Path = BACKEND_DIR / "data" / "claude_spend.jsonl"
+    #: Response cache: a repeat of (model, prompt version, input) is served
+    #: from here at USD 0. Local only; it holds model answers, so it sits with
+    #: the database under the same access rules, never in git.
+    claude_cache_dir: Path = BACKEND_DIR / "data" / "claude_cache"
+
     #: THE ONE HOST ALLOWLIST. Every outbound URL any tier builds is checked
     #: against this and refused if its host is not here. One list, in one
     #: place, so "where can this talk to" has a single answer that can be read

@@ -31,21 +31,14 @@ ROUTES = [
     ("get", "/api/reviews/runs/run-x/claude/crs-draft"),
 ]
 
-# PARKED LANE (#222): the claude_api router is defined but main.py never
-# includes it (preserved-only commit 3713eb6). strict=True: if the router is
-# ever registered these turn into failures, forcing the marks off.
-PARKED = pytest.mark.xfail(strict=True, reason="#222: parked Claude lane - claude_api router "
-                                                "is not registered in main.py")
 
 
-@PARKED
 def test_the_four_routes_are_registered():
     paths = set(app.openapi()["paths"])
     for _method, path in ROUTES:
         assert path.replace("run-x", "{review_run_id}") in paths
 
 
-@PARKED
 @pytest.mark.parametrize("method,path", ROUTES)
 def test_an_unknown_run_is_404_before_the_model_is_asked(method, path, monkeypatch):
     monkeypatch.setattr(claude_api.reader_transport_mod, "transport",

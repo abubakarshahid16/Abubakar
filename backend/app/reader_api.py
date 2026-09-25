@@ -758,6 +758,19 @@ def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None) -
             "headers": headers, "body": body, "timeout": cfg.timeout_seconds}
 
 
+MODELS_PATH = "/v1/models"
+
+
+def build_models_request(*, cfg: ReaderSettings | None = None, env=None) -> dict:
+    """The GET that lists the models this key may use - same gates as
+    `build_request` (both flags, https, allowed host, key present), because it
+    carries the same key to the same host."""
+    probe = build_request("", cfg=cfg, env=env)
+    return {"url": probe["url"].replace(MESSAGES_PATH, MODELS_PATH) + "?limit=100",
+            "headers": {k: v for k, v in probe["headers"].items() if k != "content-type"},
+            "timeout": probe["timeout"]}
+
+
 def response_text(payload) -> str:
     """The model's text out of a Messages response.
 

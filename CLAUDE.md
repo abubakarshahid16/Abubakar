@@ -19,12 +19,19 @@ carries the client's name; only the owner can rename it.
 ## Standing rules — these are not preferences
 
 1. **Privacy is the product.** No document text, filename, page reference or
-   anything derived from a document may leave the machine. The only outbound
-   lane is the market search: the human-typed phrase alone, previewed and
-   approved per query. Only four modules may open a socket, each behind a gate:
+   anything derived from a document may leave the machine - with ONE
+   owner-approved lane (owner decision 2026-09-25): the **Claude API**, only
+   through `reader_transport.py`, only under the budget of **USD 5 per step /
+   USD 20 in total** (enforced in `claude_spend`), and with **no document text
+   in logs, GitHub issues, PRs or CI**. Every other outbound path for document
+   content stays forbidden. The market search sends only the human-typed
+   phrase, previewed and approved per query. Only four modules may open a
+   socket, each behind a gate:
    `market_transport.py` (market lane, off by default), `model_transport.py`
    (local Ollama only — `ollama_url` validated by `config.check_model_url`),
-   `reader_transport.py` (cloud reader, unregistered and off) and
+   `reader_transport.py` (Claude API: the reasoning provider and the reader;
+   off unless `REASONING_PROVIDER=claude` AND both `STANDARDS_READER_*` egress
+   flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`) and
    `notifications.py` (SMTP, off by default). Known gap: the socket-containment
    test does not yet cover `smtplib` (honesty audit entry 49). Call graph:
    `docs/architecture-call-graph.md`.
