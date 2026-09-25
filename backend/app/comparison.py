@@ -698,7 +698,7 @@ def create_finding(
     if unresolved:
         status = NEEDS_ENGINEER_REVIEW
         confidence = CONFIDENCE_UNRESOLVED
-    elif model_opinion or match_method == METHOD_MODEL_CHOICE:
+    elif model_opinion or match_method in (METHOD_MODEL_CHOICE, METHOD_FIELD_NAME):
         # A MODEL CHOSE THE PAIRING, so the finding is only as good as that
         # choice however deterministic the arithmetic on top of it was. 0.5,
         # label "medium", never "high" (CLAUDE.md rule 4).
@@ -1085,21 +1085,38 @@ def run_comparison(
     # from turning into a review that calls a model thousands of times.
     model_cache: dict = {}
     budget = _Budget(settings.match_max_calls_per_run)
+    # B4 (#193 5.2/5.3), FLAG-GATED: canonical field names for the numeric
+    # requirements and the facts' labels, named by the labelling model under
+    # code-verified gates (see field_naming). None with the flag off - the
+    # pre-B4 matching, untouched.
+    field_names = None
+    field_name_matches = 0
+    if settings.geometry_reader_enabled:
+        from . import field_naming
+        field_names = field_naming.ensure_names(requirements, facts)
     for requirement in requirements:
         # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
         # equality between a requirement's subject and a datasheet caption
         # matched 0 of 77; containment matched the pairs an engineer picked.
         if is_matchable(requirement):
             matches_attempted += 1
-        match = match_by_containment(requirement, facts, sheet_kind=sheet)
+        match = None
+        if field_names is not None:
+            # FIELD-NAME EQUALITY FIRST (B4 5.3), then containment as before.
+            match = match_by_field_name(requirement, facts, field_names, sheet_kind=sheet)
+        if match is None:
+            match = match_by_containment(requirement, facts, sheet_kind=sheet)
         fact = match["fact"]
         for refusal in match.get("refused", ()):
             rule_refusals[refusal["reason"]] = rule_refusals.get(refusal["reason"], 0) + 1
         # COUNTED HERE, BEFORE THE MODEL TIER, so `matches_made` keeps meaning
         # "paired deterministically". The model's pairings are reported
         # separately as `model_matches`; folding them into one number would
-        # make a tier that guesses look like the tier that knows.
-        if fact is not None:
+        # make a tier that guesses look like the tier that knows. A
+        # field-name pairing rests on model-assigned names: `field_name_matches`.
+        if fact is not None and match["method"] == METHOD_FIELD_NAME:
+            field_name_matches += 1
+        elif fact is not None:
             matches_made += 1
 
         # THE MODEL TIER. Second, never first, and only where containment had
@@ -1185,6 +1202,20 @@ def run_comparison(
             verdict = {**verdict, "rationale": (
                 f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
                 f"{verdict.get('rationale') or ''}")}
+        elif match["method"] == METHOD_FIELD_NAME:
+            # A MODEL-NAMED PAIRING NEVER CARRIES A VERDICT. The arithmetic
+            # is shown, the status waits for an engineer: measured on a copy
+            # (2026-09-25) a seal-selection table's temperature band, paired
+            # by name with the sheet's pumping temperature, read
+            # NON_COMPLIANT - the right field and the wrong kind of rule.
+            held = verdict.get("status") in (COMPLIANT, NON_COMPLIANT)
+            verdict = {**verdict,
+                       "status": NEEDS_ENGINEER_REVIEW if held else verdict.get("status"),
+                       "rationale": (
+                           f"{FIELD_NAME_PAIR_PREFIX}{match.get('matched_phrase') or ''}. "
+                           + (f"The numbers read {verdict.get('status')}, held for "
+                              "an engineer because the pairing is unconfirmed. " if held else "")
+                           + f"{verdict.get('rationale') or ''}")}
         elif model_reason:
             # WHY NO MODEL PAIRING WAS MADE, in words, on the finding itself.
             # Without it "the model was off" and "the model was asked and
@@ -1215,6 +1246,10 @@ def run_comparison(
         "matches_attempted": matches_attempted,
         "matches_made": matches_made,
         "model_matches": model_matches,
+        **({"field_name_matches": field_name_matches,
+            "field_naming": {k: v for k, v in field_names.items()
+                             if k not in ("requirements", "facts")}}
+           if field_names is not None else {}),
         "model_calls": budget.calls,
         "model_reasons": model_reasons,
         "sheet_kind": sheet,
@@ -1464,6 +1499,63 @@ def match_by_containment(requirement: dict, facts: list[dict], *,
     return {"fact": best[0]["fact"], "matched_phrase": best[0]["name"],
             "method": METHOD_CONTAINMENT, "reason": None, "candidates": [],
             "refused": refused}
+
+
+# ------------------------------------------- B4 5.3: field-name equality
+#
+# Behind `settings.geometry_reader_enabled`. A requirement and a fact are
+# paired when the labelling model gave BOTH the same canonical field name
+# under `field_naming`'s code gates (dictionary index, verified quote, the
+# quote names the field). The model never saw a value; it only named.
+
+#: How the pairing was made: equal model-assigned field names. Not
+#: deterministic - the names came from a model - so a finding paired this way
+#: carries CONFIDENCE_MODEL_ASSISTED and says so in its rationale.
+METHOD_FIELD_NAME = "field_name"
+FIELD_NAME_PAIR_PREFIX = ("Paired by model-assigned field name; engineer must "
+                          "confirm. Field: ")
+
+
+def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
+                        sheet_kind: str | None = None) -> dict | None:
+    """The fact whose canonical field name EQUALS the requirement's, or None
+    to let containment decide.
+
+    Every guard containment has still applies: only a matchable requirement
+    with a number, only facts with a number, never a pairing an engineer
+    rejected, and the `match_rules` refusals. Two or more facts under the
+    same name is a TIE, returned as AMBIGUOUS_MATCH - never a pick.
+    None (fall through) when the requirement is unnamed or no fact passes.
+    """
+    if not is_matchable(requirement) or requirement.get("raw_value") in (None, ""):
+        return None
+    field = (names.get("requirements") or {}).get(str(requirement.get("id")))
+    if not field:
+        return None
+    fact_names = names.get("facts") or {}
+    rejected = _rejected_keys_for(requirement)
+    tag_scoped = facts_are_tag_scoped(facts)
+    hits = [f for f in facts
+            if fact_has_number(f) and fact_names.get(str(f.get("id"))) == field
+            and fact_key(f, tag_scoped=tag_scoped) not in rejected]
+    sheet = sheet_kind if sheet_kind is not None else match_rules.sheet_kind(facts)
+    refused: list[dict] = []
+    allowed: list[dict] = []
+    for fact in hits:
+        reason = match_rules.refusal(requirement, fact, sheet=sheet)
+        if reason is None:
+            allowed.append(fact)
+        else:
+            refused.append({"name": field, "reason": reason})
+    if not allowed:
+        return None
+    if len(allowed) > 1:
+        return {"fact": None, "matched_phrase": None, "method": None,
+                "reason": AMBIGUOUS_MATCH,
+                "candidates": sorted({f"{field} (page {f.get('page')})" for f in allowed}),
+                "refused": refused}
+    return {"fact": allowed[0], "matched_phrase": field, "method": METHOD_FIELD_NAME,
+            "reason": None, "candidates": [], "refused": refused}
 
 
 # ------------------------------------------------- the model tier (§14, 2nd)
