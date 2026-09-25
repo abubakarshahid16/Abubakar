@@ -42,7 +42,10 @@ import re
 import uuid
 from datetime import datetime, timezone
 
+import json
+
 from . import claims, orphan_guard, page_ledger, provenance, submittal_review, tables
+from .config import settings
 from .db import connect
 
 #: Where a datasheet says a value is not filled in yet.
@@ -1546,6 +1549,7 @@ def create_fact(
     extractor_version: str | None = None, input_hash: str | None = None,
     unit: str | None = None, value_column: str | None = None,
     one_quantity: bool = False,
+    blank: tuple[bool, str | None] | None = None, bbox: str | None = None,
 ) -> dict:
     """Record one fact. REFUSES a fact whose citation does not resolve.
 
@@ -1582,7 +1586,11 @@ def create_fact(
     if page is not None and not (chunk["page_start"] <= page <= chunk["page_end"]):
         raise FactError(f"page {page} is outside the cited chunk")
 
-    blank, marker = is_blank_value(raw_value)
+    # B4 (geometry reader): `blank` is the caller's OWN evidence of a blank
+    # field - the drawn run or printed marker the geometry reader saw, which
+    # it has already separated from any printed unit ("____ bar g"). None
+    # (every other caller) keeps the one text rule below.
+    blank, marker = blank if blank is not None else is_blank_value(raw_value)
     unit_hint = unit
     value, unit, measurement = (None, None, None) if blank else measure_value(raw_value or "")
     if value is not None and unit is None and unit_hint:
@@ -1671,6 +1679,9 @@ def create_fact(
         "extractor_version": extractor_version,
         "input_hash": input_hash,
         "value_column": value_column,
+        # B4: where on the page the value sits (JSON), when the reader knows -
+        # the geometry reader's boxes and table cell. NULL otherwise.
+        "bbox": bbox,
         "created_at": now,
         "updated_at": now,
     }
@@ -1683,7 +1694,7 @@ def create_fact(
             blank_marker, page, section, source_text, extraction_method,
             confidence, created_at, updated_at, unit_reference,
             value_min, value_max, equipment_tag, validation_state,
-            extractor_version, input_hash, value_column)
+            extractor_version, input_hash, value_column, bbox)
            VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
                    :field_name, :field_label, :field_value, :raw_value,
                    :raw_unit, :normalized_value, :normalized_unit, :unit,
@@ -1691,7 +1702,7 @@ def create_fact(
                    :extraction_method, :confidence, :created_at,
                    :updated_at, :unit_reference, :value_min, :value_max,
                    :equipment_tag, :validation_state,
-                   :extractor_version, :input_hash, :value_column)""")
+                   :extractor_version, :input_hash, :value_column, :bbox)""")
     if commit:
         with conn:
             conn.execute(insert, row)
@@ -1932,6 +1943,73 @@ def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dic
             return grid_facts(doc[page_no - 1].get_text("words"))
     except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
         return []
+
+
+# ------------------------------------------ B4 (#193 5.5): geometry reader
+#
+# Behind `settings.geometry_reader_enabled`, OFF by default. When ON, the
+# geometry reader's form pairs and table cells are written beside the rule
+# readers' facts. The rule reader WINS: a geometry reading of a page+label the
+# rule readers already wrote is dropped when it agrees and kept as a
+# `conflict` row when it does not - never written over the rule reader's.
+
+#: `submittal_facts.validation_state` of a geometry reading that disagrees
+#: with a rule-reader fact for the same page and label. Both rows stay; an
+#: engineer decides. Never resolved silently.
+GEOMETRY_CONFLICT = "conflict"
+GEOMETRY_METHOD = "geometry"
+
+
+def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int) -> list[dict]:
+    """`geometry_reader.read_page_rows` for one page; [] when it cannot be read.
+
+    A failure here never touches the rule readers' facts - the geometry
+    reader only ever ADDS rows."""
+    if not stored_path:
+        return []
+    try:
+        import pymupdf
+
+        from . import geometry_reader
+        with pymupdf.open(stored_path) as doc:
+            if not (1 <= page_no <= doc.page_count):
+                return []
+            return geometry_reader.read_page_rows(doc[page_no - 1])
+    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        return []
+
+
+def _geometry_raw_value(row: dict) -> str:
+    """The text a geometry row hands `create_fact`: the printed text for a
+    blank (its marker is passed apart), else the cleaned value and its unit."""
+    if row["is_blank"]:
+        return row["value_text"] or ""
+    return " ".join(p for p in (row["value"], row["unit"]) if p)
+
+
+def _fold(text: str | None) -> str:
+    return " ".join((text or "").split()).lower()
+
+
+def _geometry_agrees(raw_value: str, is_blank: bool, fact: dict) -> bool:
+    """Does a geometry reading say what an already-written fact says?
+
+    Blank against blank agrees. Otherwise the numbers decide when both have
+    one (normalised when both normalise, raw otherwise), and the folded text
+    decides when neither does."""
+    if is_blank or fact["is_blank"]:
+        return bool(is_blank) == bool(fact["is_blank"])
+    number, _unit, measurement = measure_value(raw_value)
+    if number is not None and fact["raw_value"] is not None:
+        if (measurement is not None and fact["normalized_value"] is not None
+                and measurement.normalized_unit == fact["normalized_unit"]):
+            return abs(measurement.normalized_value - fact["normalized_value"]) <= 1e-9 * max(
+                1.0, abs(fact["normalized_value"]))
+        try:
+            return float(number.replace(",", ".")) == float(str(fact["raw_value"]).replace(",", "."))
+        except ValueError:
+            return _fold(number) == _fold(fact["raw_value"])
+    return _fold(raw_value) == _fold(fact["field_value"])
 
 
 #: #175: the confidence written for a fact recovered only by the OCR (or
@@ -2204,6 +2282,10 @@ def extract_facts(
     # second - the cascade stops at the first tier that produces evidence.
     low_confidence_pages: set[int] = set()
     grid_by_page: dict[int, list[dict]] = {}
+    # B4 (#193 5.5): read ONCE per extraction, so a flag flipped mid-run
+    # cannot give one datasheet two different extractions.
+    geometry_on = bool(settings.geometry_reader_enabled)
+    geometry_by_page: dict[int, list[dict]] = {}
     for page in sorted(by_page):
         found: list[tuple[str, str]] = []
         for shape in tables.parse_page_tables(stored_path, page):
@@ -2216,6 +2298,9 @@ def extract_facts(
         found.extend(_pairs_from_pdf_page(stored_path, page))
         # B4 fix 5: column grids, read by word position (see grid_facts).
         grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)
+        if geometry_on:
+            # B4 (#193 5.5): read, not yet written - see the write loop.
+            geometry_by_page[page] = _geometry_rows_from_pdf_page(stored_path, page)
         if not found and not grid_by_page[page]:
             ocr_found = _pairs_from_ocr_fallback(document_id, page)
             if ocr_found:
@@ -2240,6 +2325,17 @@ def extract_facts(
         # read is here twice - see collapse_double_reads.
         pairs_by_page[page] = collapse_double_reads(split)
     furniture = furniture_labels(pairs_by_page)
+    geometry_furniture: set[str] = set()
+    geometry_version = None
+    geometry_written = geometry_conflicts = 0
+    if geometry_on:
+        # The geometry reader reads title blocks too; the same counted rule
+        # (a label with the same answer on three or more pages) sets its
+        # page furniture aside.
+        geometry_furniture = furniture_labels(
+            {page: [(row["label"], row["value_text"] or "") for row in rows]
+             for page, rows in geometry_by_page.items()})
+        geometry_version = provenance.code_version("datasheets", "tables", "geometry_reader")
     # WHICH EQUIPMENT EACH PAGE IS ABOUT, decided over the whole document
     # because the one-tag rule cannot be seen from a single page.
     tags = stamp_tags(pairs_by_page)
@@ -2282,6 +2378,11 @@ def extract_facts(
             chunk = page_chunks[0]
             corpus_text.extend(c["text"] or "" for c in page_chunks)
             page_written = 0
+            # B4: the rule readers' facts on this page, by normalised label -
+            # what a geometry reading is checked against. Filled only when the
+            # geometry reader is on.
+            rule_facts: dict[str, list[dict]] = {}
+            page_geometry = 0
             # WHY EACH PAIR WAS DROPPED, counted per page. The reason string below
             # used to say "no label-value pairs recovered" whatever had happened,
             # so a page whose pairs were all FILTERED read exactly like a page that
@@ -2362,7 +2463,7 @@ def extract_facts(
                     fact_confidence = (
                         OCR_FALLBACK_CONFIDENCE if page in low_confidence_pages
                         else 0.6)
-                    create_fact(
+                    written_row = create_fact(
                         submittal_document_id=document_id, chunk_id=chunk["id"],
                         field_label=label.strip(), raw_value=value, page=page,
                         section=section_heading(chunk["section"]),
@@ -2380,6 +2481,8 @@ def extract_facts(
                     dropped["refused by create_fact"] = dropped.get(
                         "refused by create_fact", 0) + 1
                     continue
+                if geometry_on:
+                    rule_facts.setdefault(written_row["field_name"], []).append(written_row)
                 page_written += 1
                 written += 1
                 if blank:
@@ -2398,7 +2501,7 @@ def extract_facts(
                     continue
                 grid_blank, _marker = is_blank_value(cell["value"])
                 try:
-                    create_fact(
+                    written_row = create_fact(
                         submittal_document_id=document_id, chunk_id=chunk["id"],
                         field_label=cell["label"], raw_value=cell["value"], page=page,
                         section=section_heading(chunk["section"]),
@@ -2415,12 +2518,90 @@ def extract_facts(
                     dropped["refused by create_fact"] = dropped.get(
                         "refused by create_fact", 0) + 1
                     continue
+                if geometry_on:
+                    rule_facts.setdefault(written_row["field_name"], []).append(written_row)
                 page_written += 1
                 written += 1
                 if grid_blank:
                     blanks += 1
+            # B4 (#193 5.5): GEOMETRY READINGS, only with the flag on, and
+            # only AFTER both rule readers so the rule reader always wins.
+            for row in geometry_by_page.get(page, []):
+                label = (row["label"] or "").strip()
+                if not label:
+                    dropped["empty label"] = dropped.get("empty label", 0) + 1
+                    continue
+                name = normalise_field_name(label)
+                raw = _geometry_raw_value(row)
+                if (name in furniture or name in geometry_furniture
+                        or tag_from_pair(label, row["value_text"] or "") is not None
+                        or is_date_value(raw)):
+                    dropped["geometry: furniture, tag or date"] = dropped.get(
+                        "geometry: furniture, tag or date", 0) + 1
+                    continue
+                same_label = rule_facts.get(name, [])
+                if any(_geometry_agrees(raw, row["is_blank"], f) for f in same_label):
+                    # The rule reader already wrote this reading: no duplicate.
+                    dropped["geometry: same as rule reader"] = dropped.get(
+                        "geometry: same as rule reader", 0) + 1
+                    continue
+                key = (page, name, "<blank>" if row["is_blank"] else _fold(raw), "geometry")
+                if key in seen:
+                    dropped["duplicate"] = dropped.get("duplicate", 0) + 1
+                    continue
+                seen.add(key)
+                provenance_box = {
+                    "reader": "geometry_reader", "source": row["source"],
+                    "value_bbox": row["bbox"], "label_bbox": row["label_bbox"],
+                    "position": row["position"], "table_id": row["table_id"],
+                    "row": row["row"], "column": row["column"],
+                    "condition": row["condition"], "note": row["note"],
+                    # A DISAGREEMENT IS RECORDED, NOT RESOLVED: the rule
+                    # facts this reading contradicts, by id.
+                    "conflicts_with": [f["id"] for f in same_label] or None,
+                }
+                try:
+                    geometry_row = create_fact(
+                        submittal_document_id=document_id, chunk_id=chunk["id"],
+                        field_label=label, raw_value=raw, page=page,
+                        section=section_heading(chunk["section"]),
+                        source_text=row["value_text"], review_run_id=review_run_id,
+                        confidence=0.6, extraction_method=GEOMETRY_METHOD,
+                        equipment_tag=tags.get(page), commit=False,
+                        validation_state=GEOMETRY_CONFLICT if same_label else None,
+                        extractor_version=geometry_version, input_hash=inputs,
+                        value_column=row["column_label"],
+                        # The reader's own blank evidence; a filled reading
+                        # still goes through the text rule, so "217C By
+                        # Contractor" stays the blank it is everywhere else.
+                        blank=((True, row["blank_marker"] or "______")
+                               if row["is_blank"] else None),
+                        bbox=json.dumps(provenance_box, sort_keys=True),
+                    )
+                except FactError:
+                    dropped["refused by create_fact"] = dropped.get(
+                        "refused by create_fact", 0) + 1
+                    continue
+                geometry_written += 1
+                geometry_conflicts += 1 if same_label else 0
+                # NOT `page_written`: see the ledger note below.
+                page_geometry += 1
+                written += 1
+                if geometry_row["is_blank"]:
+                    blanks += 1
             if page_written == 0:
                 reason = _unparsed_reason(pairs, dropped)
+                if page_geometry:
+                    # B4: A GEOMETRY READING DOES NOT MAKE A PAGE "READ INTO
+                    # FIELDS". The ledger's word decides whether an unmatched
+                    # requirement is the contractor's MISSING_INFORMATION or
+                    # an engineer's question (comparison.qualify_by_pages).
+                    # Measured on a copy (2026-09-25, PSV sheet): ONE geometry reading on an otherwise
+                    # unread page turned 79 engineer-review findings into
+                    # contractor omissions. The page keeps the rule readers'
+                    # verdict until the owner decides otherwise.
+                    reason = (f"{reason}; {page_geometry} geometry-reader reading(s) "
+                              "recorded, not counted as the page read into fields")
                 unparsed.append({"page": page, "reason": reason})
                 outcomes[page] = ("no_facts", 0, reason)
             else:
@@ -2433,7 +2614,11 @@ def extract_facts(
 
     page_ledger.refresh(document_id, as_submittal=True)
     pages_read = len(by_page)
+    # Only with the flag on, so the OFF result is exactly the pre-B4 one.
+    geometry_counts = ({"geometry_facts": geometry_written,
+                        "geometry_conflicts": geometry_conflicts} if geometry_on else {})
     return {
+        **geometry_counts,
         "document_id": document_id,
         "facts": written,
         "blanks": blanks,
