@@ -133,6 +133,11 @@ export function ChatView({
   const bottom = useRef<HTMLDivElement>(null);
 
   const asking = askingIn !== null;
+  // A question is in flight AND it belongs to the transcript on screen. The
+  // bare `askingIn === current` was true at rest - both null in a fresh chat -
+  // so "Working on this machine · 0s" sat under an empty transcript with
+  // nothing asked, and the empty-state hint beneath it never rendered.
+  const waitingHere = asking && askingIn === current;
   const searchStructured = useCallback(async () => {
     const query = question.trim();
     if (!query) return;
@@ -579,7 +584,7 @@ export function ChatView({
           </div>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-6">
-          {messages.length === 0 && askingIn !== current && (
+          {messages.length === 0 && !waitingHere && (
             <EmptyState
               title="Ask a question about the indexed documents"
               hint="Choose a written explanation or an exact quotation. Open the sources to check the evidence, then ask a follow-up."
@@ -619,7 +624,7 @@ export function ChatView({
             ),
           )}
 
-          {askingIn === current && (
+          {waitingHere && (
             <LocalWork elapsed={elapsed} progress={progress} />
           )}
 
