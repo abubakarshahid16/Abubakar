@@ -181,3 +181,12 @@ def test_the_schema_gate_is_code_not_the_model(text, ok):
     """THE MUTATION TARGET (M570)."""
     r = rp.ClaudeProvider(transport=_transport(text=text)).reason(_packet(json_schema=SCHEMA))
     assert (r.schema_errors == ()) is ok
+
+
+def test_a_model_that_rejects_temperature_is_not_sent_one():
+    """THE MUTATION TARGET (M573): Sonnet 5 answers 400 when temperature is sent."""
+    seen = []
+    rp.ClaudeProvider("claude-sonnet-5", transport=_transport(seen=seen)).reason(_packet())
+    rp.ClaudeProvider("claude-haiku-4-5-20251001", transport=_transport(seen=seen)).reason(_packet())
+    assert "temperature" not in seen[0]["body"]
+    assert seen[1]["body"]["temperature"] == 0.0
