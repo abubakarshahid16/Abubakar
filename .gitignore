@@ -109,6 +109,9 @@ Claude outputs/
 # Claude Code per-machine permissions (never shared)
 .claude/settings.local.json
 
+# Per-machine local config (e.g. backend/client_profile.local.json) - never shared
+*.local.json
+
 # Filled gold sheets describe client standards - template only (gold/README.md)
 gold/*.csv
 !gold/TEMPLATE.csv
