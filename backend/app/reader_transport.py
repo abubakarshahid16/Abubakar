@@ -167,3 +167,26 @@ def transport():
 
     _send.usage = usage
     return _send
+
+
+def list_models() -> list[str]:
+    """The model ids this key may use (GET /v1/models), through the same gates
+    as `transport()`: both flags, https, allowed host. Ids only - nothing else
+    from the response is returned or logged."""
+    from .reader_api import build_models_request  # the one request builder
+
+    if not available():
+        raise TransportRefused("standards reader egress is disabled")
+    request = build_models_request()
+    host = model_host_of(request["url"])
+    if not request["url"].startswith("https://") or host not in ReaderSettings.from_env().allowed_hosts:
+        raise ReaderRefused(f"reader transport refuses host {host!r}")
+    sent_headers = {"User-Agent": USER_AGENT, "Accept": "application/json", **request["headers"]}
+    with httpx.Client(timeout=httpx.Timeout(request["timeout"]), follow_redirects=False,
+                      cookies=None, trust_env=False) as client:
+        response = client.get(request["url"], headers=sent_headers)
+    if response.status_code >= 400:
+        raise httpx.HTTPStatusError(f"{response.status_code} from {host}",
+                                    request=response.request, response=response)
+    log.warning("standards reader: listed models at %s status=%d", host, response.status_code)
+    return [str(m.get("id")) for m in response.json().get("data", []) if isinstance(m, dict)]

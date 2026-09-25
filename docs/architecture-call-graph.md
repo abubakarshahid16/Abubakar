@@ -96,13 +96,11 @@ Models configured: `answer_model="qwen3.5:4b"` (Ollama 0.34.3 at 127.0.0.1:11434
 `qwen3.5:4b`, `qwen3.5:9b`, `mistral:7b`); embeddings e5-small int8 ONNX; reranker
 ms-marco-MiniLM-L-6-v2 int8 ONNX; OCR PP-OCRv6 tiny ONNX.
 
-**DEAD model code:** `claude_api.router` defines four `/claude/` routes but is never
-registered, so `claude_api`, `claude_selection`, `claude_datasheet`, `claude_recheck`,
-`claude_crs_comments`, `claude_budget`, `reader_api`, `reader_transport` have no production
-path (the 5 tests in `tests/test_claude_api.py` that need the router are marked
-`xfail(strict=True)` for this, issue #222; until 2026-09-25 they were "baseline failures"). The
-`reasoning_provider.py` seam (`OllamaProvider`) is imported only by its test (issue #181).
-Cloud transmission stays unauthorised in this run; the lane is left unregistered on purpose.
+**The Claude lane (revived 2026-09-25, #222):** `claude_api.router` is registered in `main.py`; its routes answer
+409 `model_disabled` unless both standards-reader egress flags are on. `reasoning_provider.get_provider()` picks
+`ClaudeProvider` only when `REASONING_PROVIDER=claude` AND both flags AND a key; otherwise `OllamaProvider`, with
+the reason logged. Every Claude call leaves through `reader_transport` (the one socket), is priced and capped by
+`claude_spend` (USD per step and total, ledger without text), and is cached by (model, prompt version, input hash).
 
 ## 4. Conversation
 
