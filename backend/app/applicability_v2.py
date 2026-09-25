@@ -18,11 +18,14 @@ engineer - the worst error - so NOT_APPLICABLE needs positive evidence:
   (a) an explicit EXCLUSION whose term names the submittal's type, family
       or class, or
   (b) an explicit LIMIT that restricts the standard to other equipment, or
-      to numbers / a facility the submittal clearly falls outside of, or to
-      in-service / existing equipment when the submittal is new.
+      to numbers / a facility the submittal clearly falls outside of.
+An ACTIVITY / STAGE limit (in-service / existing equipment only, while the
+submittal is new) is NEVER an exclusion ground (owner decision 4c,
+2026-09-25): it keeps the standard APPLICABLE_CANDIDATE ("scope covers
+existing equipment - engineer to confirm"). It is read only from an
+un-negated "in-service / existing" quote.
 The exclusion or limit must SAY so (an exclusion cue; "only / limited to"
-for an equipment or facility limit; an un-negated "in-service / existing"
-for a stage limit), in the quote or in the words before it on the verified
+for an equipment or facility limit), in the quote or in the words before it on the verified
 page (`cue_context`); and the phrase that names equipment must be in the
 verified quote itself, not only in the model's term.
 A scope that merely lists OTHER equipment is UNKNOWN, never NOT_APPLICABLE.
@@ -246,7 +249,8 @@ _EXISTING_ONLY = frozenset({"repair", "maintenance", "operation"})
 _EXISTING_CUE = re.compile(r"\b(?:in-service|existing|repairs?|re-rating|re-rate|alterations?|"
                            r"modifications?|retrofit\w*)\b", re.IGNORECASE)
 _NEW_CUE = re.compile(r"\b(?:new|design|fabricat\w*|construction|manufactur\w*)\b", re.IGNORECASE)
-#: A stage LIMIT that can exclude a new submittal must say so in these words;
+#: A stage LIMIT that holds a new submittal as a candidate (never excludes it -
+#: owner decision 4c) must say so in these words;
 #: "repair" alone is not enough (a repair clause sits in many new-build
 #: standards).
 _EXISTING_ONLY_CUE = re.compile(r"\b(?:in-service|existing)\b", re.IGNORECASE)
@@ -257,6 +261,7 @@ _EXISTING_ONLY_CUE = re.compile(r"\b(?:in-service|existing)\b", re.IGNORECASE)
 _NEGATED = re.compile(r"\b(?:not|no|never|nor|retroactiv\w*)\b|n't\b", re.IGNORECASE)
 #: An equipment / facility limit must SAY it restricts. "This standard covers
 #: submarine pipelines" lists; "applies only to pipelines" restricts.
+_STAGE_CANDIDATE = "scope covers existing equipment - engineer to confirm"
 _LIMIT_CUE = re.compile(r"\b(?:only|limited to|restricted to|solely|exclusively)\b", re.IGNORECASE)
 
 
@@ -295,6 +300,7 @@ def decide(record: dict | None, profile: Profile, lexicon: dict[str, tuple[str, 
     exclusions = [i for i in record.get("explicit_exclusions") or [] if _has_quote(i)]
     limits = [i for i in record.get("explicit_limits") or [] if _has_quote(i)]
     generic = bool(record.get("generic_scope"))
+    stage_limit = None
 
     # (a) an explicit exclusion naming the submittal - allowed even when generic
     for item in exclusions:
@@ -319,17 +325,23 @@ def decide(record: dict | None, profile: Profile, lexicon: dict[str, tuple[str, 
                         and want != profile.facility and want in (item.get("quote") or "").lower()):
                     return _result(NOT_APPLICABLE, "limit restricts it to another facility", item)
             elif kind == "stage":
-                if (profile.stage == "new" and profile.type
+                # OWNER DECISION 4c (2026-09-25): an ACTIVITY / STAGE limit is
+                # never an exclusion ground. It only keeps an inclusion a
+                # candidate for the engineer to confirm.
+                if (stage_limit is None and profile.stage == "new"
                         and _EXISTING_ONLY_CUE.search(item.get("quote") or "")
                         and not _NEGATED.search(_cue_text(item))
                         and not _NEW_CUE.search(_cue_text(item)) and not _new_construction(record)):
-                    return _result(NOT_APPLICABLE, "limit restricts it to existing (in-service) equipment - "
-                                   "the submittal is new", item)
+                    stage_limit = item
             elif kind in ("pressure", "temperature", "size") and _outside(item, profile):
                 return _result(NOT_APPLICABLE, f"submittal outside the {kind} limit", item)
 
     if match:
-        return _inclusion(match, record, profile, lexicon)
-    if generic:
-        return _result(APPLICABLE_CANDIDATE, "generic scope, no exclusion", covered[0] if covered else None)
-    return _result(UNKNOWN, "scope does not settle it")
+        result = _inclusion(match, record, profile, lexicon)
+    elif generic:
+        result = _result(APPLICABLE_CANDIDATE, "generic scope, no exclusion", covered[0] if covered else None)
+    else:
+        return _result(UNKNOWN, "scope does not settle it")
+    if stage_limit is not None:
+        return _result(APPLICABLE_CANDIDATE, _STAGE_CANDIDATE, stage_limit)
+    return result

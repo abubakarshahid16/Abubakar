@@ -160,12 +160,12 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     Mutation(
         id="M668", phase=62,
-        description="any stage limit ('as a repair') excludes a new item, not only an in-service one",
+        description="any stage limit ('as a repair') holds a new item as a candidate, not only an 'in-service / existing' one",
         path=APP / "applicability_v2.py",
         anchor="                        and _EXISTING_ONLY_CUE.search(item.get(\"quote\") or \"\")\n",
         replacement="",
         target="tests/test_applicability_v2.py",
-        keyword="in_service_stage_limit",
+        keyword="only_an_in_service_or_existing_quote",
         tags=("honesty", "applicability"),
     ),
     Mutation(
@@ -198,5 +198,28 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="tests/test_applicability_v2.py",
         keyword="listed_kind_under_an_exclusion_intro",
         tags=("applicability",),
+    ),
+    # ---- owner decision 4c 2026-09-25: activity / stage is never an exclusion ground
+    Mutation(
+        id="M680", phase=62,
+        description="an in-service / existing stage limit is an exclusion ground again (NOT_APPLICABLE for a "
+                    "new submittal) - retracted by owner decision 4c",
+        path=APP / "applicability_v2.py",
+        anchor="                    stage_limit = item\n",
+        replacement="                    return _result(NOT_APPLICABLE, 'stage limit', item)\n",
+        target="tests/test_applicability_v2.py",
+        keyword="stage_limit",
+        tags=("honesty", "applicability"),
+    ),
+    Mutation(
+        id="M681", phase=62,
+        description="the stage-limit candidate hold is dropped - an in-service repair scope is asserted "
+                    "APPLICABLE to a new submittal",
+        path=APP / "applicability_v2.py",
+        anchor="    if stage_limit is not None:\n",
+        replacement="    if False:\n",
+        target="tests/test_applicability_v2.py",
+        keyword="keeps_a_new_item_a_candidate",
+        tags=("honesty", "applicability"),
     ),
 )
