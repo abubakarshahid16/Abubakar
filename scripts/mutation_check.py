@@ -6386,6 +6386,17 @@ B5_STANDARDS_INVENTORY = (
         keyword="served_from_cache",
         tags=("budget",),
     ),
+    Mutation(
+        id="M572", phase=61,
+        description="OllamaProvider calls the transport without a timeout "
+                    "(the first real call failed with a TypeError)",
+        path=APP / "reasoning_provider.py",
+        anchor='            raw = model_transport.post_json("/api/generate", body, timeout=self.timeout)\n',
+        replacement='            raw = model_transport.post_json("/api/generate", body)\n',
+        target="tests/test_reasoning_provider.py",
+        keyword="explicit_timeout",
+        tags=("model",),
+    ),
 )
 
 
