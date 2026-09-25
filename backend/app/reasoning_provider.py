@@ -306,12 +306,13 @@ class ClaudeProvider:
                                       "STANDARDS_READER_ALLOW_PUBLIC_EGRESS)")
         return self._transport
 
-    def reason(self, packet: Packet) -> Response:
+    def _request(self, packet: Packet) -> tuple[dict, dict, str]:
+        """(request from `reader_api.build_request`, final body, prompt) -
+        one builder for a single call and a batch request alike."""
         from dataclasses import replace
 
-        from . import claude_spend, reader_api
+        from . import reader_api
 
-        step = self._step or packet.step
         prompt = packet.prompt
         if packet.json_schema is not None:
             prompt += ("\n\nReturn ONLY one JSON value that satisfies this JSON schema, with no "
@@ -333,41 +334,38 @@ class ClaudeProvider:
         if packet.system:
             body["system"] = [{"type": "text", "text": packet.system,
                                "cache_control": {"type": "ephemeral"}}]
-        # RESPONSE CACHE (owner rule 2026-09-25): the same (model, prompt
-        # version, input) is answered from disk at USD 0, never re-bought.
-        key = cache_key(self.requested_model, packet)
+        return request, body, prompt
+
+    def _cached(self, key: str, packet: Packet, step: str) -> Response | None:
+        from . import claude_spend
+
         cached = _cache_read(key)
-        if cached is not None:
-            claude_spend.record(step=step, model=cached["model_tag"], usage={},
-                                prompt_sha256=packet.sha256, wall_time_s=0.0,
-                                finish_reason="cache_hit")
-            return Response(
-                text=cached["text"], provider=self.name, model_tag=cached["model_tag"],
-                digest=hashlib.sha256(cached["text"].encode("utf-8")).hexdigest(),
-                finish_reason=cached["finish_reason"], prompt_sha256=packet.sha256,
-                tokens_in=cached.get("tokens_in"), tokens_out=cached.get("tokens_out"),
-                wall_time_s=0.0, schema_errors=schema_errors(cached["text"], packet.json_schema),
-                cost_usd=0.0)
-        claude_spend.ensure_affordable(
-            step, claude_spend.worst_case_usd(self.requested_model, len(packet.system) + len(prompt),
-                                              packet.num_predict))
-        started = time.time()
-        try:
-            payload = self._send()(request["url"], headers=request["headers"], body=body,
-                                   timeout=request["timeout"])
-        except ProviderRefused:
-            raise
-        except Exception as exc:
-            # The type and the transport's own message (status + host + error
-            # TYPE only - reader_transport never puts headers in it).
-            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc
-        wall = time.time() - started
-        text = reader_api.response_text(payload).strip()
+        if cached is None:
+            return None
+        claude_spend.record(step=step, model=cached["model_tag"], usage={},
+                            prompt_sha256=packet.sha256, wall_time_s=0.0,
+                            finish_reason="cache_hit")
+        return Response(
+            text=cached["text"], provider=self.name, model_tag=cached["model_tag"],
+            digest=hashlib.sha256(cached["text"].encode("utf-8")).hexdigest(),
+            finish_reason=cached["finish_reason"], prompt_sha256=packet.sha256,
+            tokens_in=cached.get("tokens_in"), tokens_out=cached.get("tokens_out"),
+            wall_time_s=0.0, schema_errors=schema_errors(cached["text"], packet.json_schema),
+            cost_usd=0.0)
+
+    def _answered(self, payload: dict | None, packet: Packet, key: str, step: str, wall: float,
+                  *, batch: bool = False) -> Response:
+        """Ledger, cache and Response for one Messages answer."""
+        from . import claude_spend, reader_api
+
+        text = reader_api.response_text(payload).strip() if payload else ""
         usage = payload.get("usage") if isinstance(payload, dict) else None
         reported = str((payload or {}).get("model") or "")
-        finish = _STOP.get(str((payload or {}).get("stop_reason") or ""), str((payload or {}).get("stop_reason") or ""))
+        stop = str((payload or {}).get("stop_reason") or "")
+        finish = _STOP.get(stop, stop or "error")
         entry = claude_spend.record(step=step, model=reported or self.requested_model, usage=usage,
-                                    prompt_sha256=packet.sha256, wall_time_s=wall, finish_reason=finish)
+                                    prompt_sha256=packet.sha256, wall_time_s=wall, finish_reason=finish,
+                                    batch=batch)
         if finish == "stop":   # a truncated answer is not worth keeping
             _cache_write(key, {"text": text, "model_tag": reported or self.requested_model,
                                "finish_reason": finish, "tokens_in": (usage or {}).get("input_tokens"),
@@ -381,6 +379,88 @@ class ClaudeProvider:
             wall_time_s=round(wall, 3), schema_errors=schema_errors(text, packet.json_schema),
             cost_usd=entry["cost_usd"],
         )
+
+    def reason_batch(self, packets: list[Packet], *, poll_seconds: float = 30.0, max_wait_s: float = 86400.0,
+                     sleep=time.sleep, client=None) -> list[Response]:
+        """Many packets through the Message Batches API at half price, one
+        Response per packet in order. Cached packets are answered from disk
+        and never sent. Before the batch is created, the WORST CASE of every
+        uncached request together (batch-priced) must fit the caps
+        (`claude_spend.ensure_affordable`) - one refusal, nothing sent. A
+        request that errored or expired comes back as an empty "error"
+        Response, which a caller's validity check rejects."""
+        from . import claude_spend
+
+        if client is None:
+            from . import reader_transport
+            if not reader_transport.available():
+                raise ProviderRefused("claude: egress is disabled (STANDARDS_READER_ENABLED / "
+                                      "STANDARDS_READER_ALLOW_PUBLIC_EGRESS)")
+            client = reader_transport
+        out: list[Response | None] = [None] * len(packets)
+        todo: dict[str, tuple[int, Packet, str, str]] = {}
+        batch_requests, worst, request = [], 0.0, None
+        for i, packet in enumerate(packets):
+            step = self._step or packet.step
+            key = cache_key(self.requested_model, packet)
+            hit = self._cached(key, packet, step)
+            if hit is not None:
+                out[i] = hit
+                continue
+            request, body, prompt = self._request(packet)
+            worst += claude_spend.worst_case_usd(self.requested_model, len(packet.system) + len(prompt),
+                                                 packet.num_predict, batch=True)
+            todo[f"r{i}"] = (i, packet, key, step)
+            batch_requests.append({"custom_id": f"r{i}", "params": body})
+        if batch_requests:
+            steps = {s for _, _, _, s in todo.values()}
+            for step in steps:
+                claude_spend.ensure_affordable(step, worst)
+            started = time.time()
+            batch = client.batch_create(request["url"], headers=request["headers"], requests=batch_requests)
+            while batch.get("processing_status") != "ended":
+                if time.time() - started > max_wait_s:
+                    raise ProviderRefused(f"{self.name}: batch not ended after {max_wait_s:.0f} s")
+                sleep(poll_seconds)
+                batch = client.batch_retrieve(request["url"], str(batch.get("id")), headers=request["headers"])
+            wall = time.time() - started
+            for row in client.batch_results(str(batch.get("results_url")), headers=request["headers"]):
+                slot = todo.pop(str(row.get("custom_id")), None)
+                if slot is None:
+                    continue
+                i, packet, key, step = slot
+                result = row.get("result") or {}
+                message = result.get("message") if result.get("type") == "succeeded" else None
+                out[i] = self._answered(message, packet, key, step, wall, batch=True)
+            for i, packet, key, step in todo.values():      # no result row at all
+                out[i] = self._answered(None, packet, key, step, wall, batch=True)
+        return out  # type: ignore[return-value]
+
+    def reason(self, packet: Packet) -> Response:
+        from . import claude_spend
+
+        step = self._step or packet.step
+        request, body, prompt = self._request(packet)
+        # RESPONSE CACHE (owner rule 2026-09-25): the same (model, prompt
+        # version, input) is answered from disk at USD 0, never re-bought.
+        key = cache_key(self.requested_model, packet)
+        hit = self._cached(key, packet, step)
+        if hit is not None:
+            return hit
+        claude_spend.ensure_affordable(
+            step, claude_spend.worst_case_usd(self.requested_model, len(packet.system) + len(prompt),
+                                              packet.num_predict))
+        started = time.time()
+        try:
+            payload = self._send()(request["url"], headers=request["headers"], body=body,
+                                   timeout=request["timeout"])
+        except ProviderRefused:
+            raise
+        except Exception as exc:
+            # The type and the transport's own message (status + host + error
+            # TYPE only - reader_transport never puts headers in it).
+            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc
+        return self._answered(payload, packet, key, step, time.time() - started)
 
 
 def no_temperature(model: str) -> bool:

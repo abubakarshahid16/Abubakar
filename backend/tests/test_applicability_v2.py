@@ -22,7 +22,10 @@ VESSEL = Profile("Pressure Vessel", "Pressure vessels", "Static / Mechanical",
 PSV = Profile("Pressure Safety / Relief Valve", "Pressure relief devices", "Pressure relief and valves")
 
 
-def item(term, quote="q", page=1, **kw):
+def item(term, quote=..., page=1, **kw):
+    """`quote` defaults to the term itself (a quote must contain the phrase that
+    names the equipment); pass None for an item with no quote."""
+    quote = term if quote is ... else quote
     return {"term": term, "quote": quote, "page": page, **kw}
 
 
@@ -84,10 +87,12 @@ def test_an_exclusion_of_something_else_does_not_exclude_the_submittal():
 
 
 def test_an_item_without_a_quote_never_decides():
-    """THE MUTATION TARGET (M561)."""
+    """THE MUTATION TARGET (M561). A NUMERIC limit reads no words from its
+    quote, so only the quote gate keeps an unquoted one from deciding."""
     r = decide(rec(covered=[item("pressure vessels")],
-                   limits=[item("pressure vessels", quote=None, kind="equipment")]), PUMP, LEX)
-    assert r["decision"] == UNKNOWN
+                   limits=[item("design pressure", quote=None, kind="pressure", min=1.0, unit="MPa")]),
+               VESSEL, LEX)
+    assert r["decision"] == APPLICABLE
 
 
 # ---------------------------------------------------------- generic scope
@@ -96,7 +101,7 @@ def test_generic_scope_never_yields_not_applicable():
     """THE MUTATION TARGET (M562): a generic scope with a limit the
     submittal is outside of is still not NOT_APPLICABLE."""
     r = decide(rec(covered=[item("equipment")], generic=True,
-                   limits=[item("pressure vessels", kind="equipment"),
+                   limits=[item("pressure vessels", "applies only to pressure vessels", kind="equipment"),
                            item("pressure", kind="pressure", min=10, unit="MPa")]), PUMP, LEX)
     assert r["decision"] == APPLICABLE_CANDIDATE
 
@@ -230,3 +235,142 @@ def test_an_existing_equipment_quote_makes_a_new_item_a_candidate():
 def test_context_words_do_not_weaken_an_inclusion():
     r = decide(rec(covered=[item("process pressure vessels", "process pressure vessels", 3)]), NEW_VESSEL, LEX)
     assert r["decision"] == APPLICABLE
+
+
+# ------------------- v4 record (b5-quality 2026-09-25): cues, quotes, stage, new build
+
+LEX_RV = {**LEX, "relief valve": ("family", "Pressure relief devices")}
+
+
+def test_a_list_item_under_an_exclusion_intro_excludes():
+    """THE MUTATION TARGET (M665): the cue is in the list intro the code cut
+    from the page, not in the short quote."""
+    excl = item("relief valves", "safety-relief, relief and pilot valves", 6,
+                cue_context="Specifically excluded from the scope are: ... a) Control,")
+    assert decide(rec(exclusions=[excl]), PSV, LEX_RV)["decision"] == NOT_APPLICABLE
+    excl["cue_context"] = "This standard covers"
+    assert decide(rec(exclusions=[excl]), PSV, LEX_RV)["decision"] != NOT_APPLICABLE
+
+
+def test_a_term_its_own_quote_does_not_contain_never_decides():
+    """THE MUTATION TARGET (M666): the model wrote 'centrifugal pumps' for
+    the quote 'excluding submersible pumps'."""
+    r = decide(rec(exclusions=[item("centrifugal pumps", "excluding submersible pumps", 4)]), PUMP, LEX)
+    assert r["decision"] != NOT_APPLICABLE
+    r = decide(rec(covered=[item("pressure vessels", "covers heat exchangers", 3)]), VESSEL, LEX)
+    assert r["decision"] != APPLICABLE
+
+
+def test_an_equipment_limit_must_say_it_restricts():
+    """THE MUTATION TARGET (M667): 'design of pressure vessels' lists; only
+    'only / limited to' restricts (owner rule: listing other equipment is
+    UNKNOWN)."""
+    listing = item("pressure vessels", "design and installation of pressure vessels", 2, kind="equipment")
+    assert decide(rec(limits=[listing]), PUMP, LEX)["decision"] == UNKNOWN
+    listing["cue_context"] = "This standard is limited to the"
+    assert decide(rec(limits=[listing]), PUMP, LEX)["decision"] == NOT_APPLICABLE
+
+
+def _in_service_repair_record():
+    """The REAL-LAYOUT shape of the measured in-service repair standard
+    (cached v4 scope record, 2026-09-25; synthetic text): several covered-
+    equipment items on the scope page, five activity items, a stage limit on
+    the scope page with a code-cut cue context, an unrelated exclusion on a
+    later page, no new-construction quote. Covered quotes carry no
+    existing-equipment word, so ONLY the stage limit can hold it back."""
+    record = rec(
+        covered=[item("pressure vessels", "pressure vessels, heat exchangers and storage tanks", 5),
+                 item("heat exchangers", "pressure vessels, heat exchangers and storage tanks", 5),
+                 item("pressure vessels", "vessels in plant service", 40)],
+        exclusions=[item("fired heaters", "excluded are fired heaters and boilers", 8,
+                         cue_context="The following are")],
+        limits=[item("in-service", "in-service pressure vessels and heat exchangers", 5, kind="stage",
+                     cue_context="This standard covers the repair of")])
+    record["covered_activities"] = [{"activity": a, "quote": a, "page": 5}
+                                    for a in ("inspection", "testing", "welding", "heat treatment", "documentation")]
+    record["new_construction"] = []
+    return record
+
+
+def test_an_in_service_stage_limit_keeps_a_new_item_a_candidate_never_excludes():
+    """OWNER DECISION 4c (2026-09-25). THE MUTATION TARGETS (M680: the stage
+    limit is an exclusion ground again; M681: the candidate hold is dropped
+    and the standard is asserted APPLICABLE). An in-service repair scope vs a
+    NEW submittal stays APPLICABLE_CANDIDATE - 'scope covers existing
+    equipment - engineer to confirm' - with the stage quote and page."""
+    record = _in_service_repair_record()
+    r = decide(record, NEW_VESSEL, LEX)
+    assert r["decision"] == APPLICABLE_CANDIDATE
+    assert r["basis"] == "scope covers existing equipment - engineer to confirm"
+    assert r["page"] == 5 and "in-service" in r["quote"]
+    assert decide(record, VESSEL, LEX)["decision"] == APPLICABLE                  # stage unknown: no hold
+    record["new_construction"] = [{"quote": "design of new pressure vessels", "page": 5}]
+    assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE              # new build also covered
+
+
+def test_a_stage_limit_never_yields_not_applicable_on_any_path():
+    """NEGATIVE (4c): whatever the rest of the record, a stage limit alone
+    never excludes - unknown type, generic scope, no covered match, a limit
+    that also names 'existing'. An explicit exclusion quote that names the
+    submittal (the SAES-L-108 shape) still excludes."""
+    stage = item("existing", "existing pressure vessels only", 5, kind="stage", cue_context="applies to")
+    for record in (rec(limits=[stage]),
+                   rec(covered=[item("equipment")], generic=True, limits=[stage]),
+                   rec(covered=[item("heat exchangers")], limits=[stage]),
+                   _in_service_repair_record()):
+        for profile in (NEW_VESSEL, Profile(None, None, None, stage="new")):
+            assert decide(record, profile, LEX)["decision"] != NOT_APPLICABLE
+    excl = item("relief valves", "safety-relief, relief and pilot valves", 6,
+                cue_context="Specifically excluded from the scope are: ... a) Control,")
+    new_psv = Profile(PSV.type, PSV.family, PSV.cls, stage="new")
+    assert decide(rec(exclusions=[excl], limits=[stage]), new_psv, LEX_RV)["decision"] == NOT_APPLICABLE
+
+
+def test_only_an_in_service_or_existing_quote_holds_a_new_item():
+    """THE MUTATION TARGET (M668): 'as a repair or field modification' is not
+    a stage limit ('repair' sits in many new-build standards), so the
+    inclusion stands."""
+    record = rec(covered=[item("pressure vessels", "welding of pressure vessels", 5)],
+                 limits=[item("repair", "as a repair or field modification", 5, kind="stage")])
+    assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE
+    record["explicit_limits"][0]["quote"] = "for in-service equipment"
+    assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE_CANDIDATE
+
+
+def test_a_verified_new_construction_quote_keeps_an_inclusion():
+    """THE MUTATION TARGET (M669): 'repair welds' tagged the welding
+    standard existing-only although it covers new fabrication."""
+    record = rec(covered=[item("pressure vessels", "on-plot pipes, pressure vessels and", 5)])
+    record["covered_activities"] = [{"activity": "repair", "quote": "production and repair welds", "page": 12}]
+    assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE_CANDIDATE
+    record["new_construction"] = [{"quote": "welding of new pressure vessels", "page": 5}]
+    assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE
+
+
+def test_a_negated_existing_equipment_sentence_is_not_a_stage_limit():
+    """THE MUTATION TARGET (M674). MEASURED 2026-09-25: 'not applied
+    retroactively to ... existing facilities' was read as a stage limit by
+    three agreeing re-reads, and a welding standard for NEW vessels was
+    excluded - a wrong NOT_APPLICABLE."""
+    stage = item("existing facilities", "not applied retroactively to the repair of existing facilities", 6,
+                 kind="stage", cue_context="This standard is generally")
+    record = rec(covered=[item("pressure vessels", "welding of pressure vessels", 6)], limits=[stage])
+    assert decide(record, NEW_VESSEL, LEX)["decision"] == APPLICABLE
+
+
+def test_a_listed_kind_under_an_exclusion_intro_excludes_whatever_the_model_called_the_item():
+    """THE MUTATION TARGET (M675): a valve-selection standard excludes
+    'Control, safety-relief, relief, surge relief, solenoid, pilot, and other
+    valves'; the model tagged the item 'control valves'. Code reads the list:
+    'relief' is an item, so relief valves are excluded - but 'surge relief'
+    alone, or 'other valves', would not exclude a relief valve."""
+    quote = "Control, safety-relief, relief, surge relief, solenoid, pilot, and other valves"
+    intro = "1.2 Specifically excluded from the scope are: a)"
+    excl = item("control valves", quote, 6, cue_context=intro)
+    assert decide(rec(exclusions=[excl]), PSV, LEX_RV)["decision"] == NOT_APPLICABLE
+    for other in ("Control, safety-relief, surge relief, solenoid and pilot valves",
+                  "Control, solenoid, pilot, and other valves"):
+        assert decide(rec(exclusions=[item("control valves", other, 6, cue_context=intro)]),
+                      PSV, LEX_RV)["decision"] != NOT_APPLICABLE
+    no_intro = item("control valves", quote, 6, cue_context="This standard covers")
+    assert decide(rec(exclusions=[no_intro]), PSV, LEX_RV)["decision"] != NOT_APPLICABLE

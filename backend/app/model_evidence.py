@@ -104,6 +104,75 @@ def stated_via_vocabulary(value: str | None, quote: str | None, *,
     return None
 
 
+# ------------------------------ which vocabulary value a quote names (addendum 4)
+#
+# Owner addendum 2026-09-25, section 4.5-4.7: a keyword in the quote is NOT
+# proof of the type. Several equipment words in one title ("PUMP MOTOR",
+# "TANK HEATER"), a word with a non-equipment meaning ("SUPPLY VESSEL" is a
+# ship, "battery limit" a plant boundary) or a table header ("COLUMN A") must
+# never become a confident type - they are UNKNOWN or NEEDS_ENGINEER_REVIEW,
+# because a wrong type can hide an applicable standard.
+
+UNKNOWN_TYPE = "UNKNOWN"
+NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
+
+
+def _vocabulary_hits(text: str, vocabulary: dict[str, tuple[str, ...]]) -> list[tuple[str, str]]:
+    """(value, synonym) for every synonym in `text`, whole word, optional
+    plural; longest synonyms first, and a synonym inside an already-matched
+    longer one does not count again ("PRESSURE SAFETY VALVE" is not also
+    "valve", "CENTRIFUGAL PUMP" is not also "pump")."""
+    pairs = sorted(((s.lower(), v) for v, syns in vocabulary.items() for s in syns),
+                   key=lambda p: len(p[0]), reverse=True)
+    hits, taken = [], []
+    for synonym, value in pairs:
+        for m in re.finditer(rf"\b{re.escape(synonym)}(?:s|es)?\b", text):
+            if any(m.start() >= a and m.end() <= b for a, b in taken):
+                continue
+            taken.append((m.start(), m.end()))
+            hits.append((value, synonym))
+    return hits
+
+
+def classify_via_vocabulary(quote: str | None, *, vocabulary: dict[str, tuple[str, ...]],
+                            evidence_lines: list[str], ambiguous: frozenset[str] = frozenset(),
+                            not_equipment: tuple[str, ...] = ()) -> dict:
+    """The equipment type a verified evidence-line quote names, or why not.
+
+    - the quote must verify against ONE evidence line, else UNKNOWN;
+    - `not_equipment` phrases ("battery limit", "instrument air") are removed
+      first - they name no equipment;
+    - no synonym left: UNKNOWN;
+    - synonyms of TWO OR MORE values: NEEDS_ENGINEER_REVIEW, all candidates
+      listed (the model may propose one; code never picks);
+    - one value, but only through an `ambiguous` synonym ("vessel" may be a
+      ship, "column" a table column): NEEDS_ENGINEER_REVIEW with that value
+      as a proposal;
+    - otherwise STATED via approved vocabulary (still a proposal until the
+      vocabulary itself is approved).
+    `vocabulary`, `ambiguous` and `not_equipment` are PARAMETERS: all three
+    lists await owner approval."""
+    out = {"status": UNKNOWN_TYPE, "value": None, "candidates": [], "synonyms": [], "evidence_line": None}
+    text = _collapse(quote).lower()
+    line = next((l for l in evidence_lines if quote_verified(quote, l)), None) if text else None
+    if line is None:
+        return {**out, "reason": "quote is not an equipment evidence line"}
+    for phrase in not_equipment:
+        text = re.sub(rf"\b{re.escape(phrase.lower())}\b", " ", text)
+    hits = _vocabulary_hits(text, vocabulary)
+    values = sorted({v for v, _ in hits})
+    out.update({"candidates": values, "synonyms": [s for _, s in hits], "evidence_line": line})
+    if not values:
+        return {**out, "reason": "no vocabulary word names equipment here"}
+    if len(values) > 1:
+        return {**out, "status": NEEDS_ENGINEER_REVIEW,
+                "reason": f"names {len(values)} vocabulary values - engineer to choose"}
+    if all(s in ambiguous for _, s in hits):
+        return {**out, "status": NEEDS_ENGINEER_REVIEW, "value": values[0],
+                "reason": "only an ambiguous word names it - engineer to confirm"}
+    return {**out, "status": STATED_VIA_VOCABULARY, "value": values[0], "reason": "one value, unambiguous word"}
+
+
 # ------------------------------------------------ discipline: STATED or INFERRED
 #
 # Owner rule 2026-09-25 (title-block matrix): a discipline value whose quote does
