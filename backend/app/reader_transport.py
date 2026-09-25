@@ -46,6 +46,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from collections.abc import Mapping
 
 import httpx
@@ -190,3 +191,98 @@ def list_models() -> list[str]:
                                     request=response.request, response=response)
     log.warning("standards reader: listed models at %s status=%d", host, response.status_code)
     return [str(m.get("id")) for m in response.json().get("data", []) if isinstance(m, dict)]
+
+
+# ------------------------------------------------------ Message Batches API
+#
+# The same lane, the same three gates, for many requests at once at half the
+# price (owner order 2026-09-25: the one-time scope records of every held
+# standard). Three calls - create, retrieve, results - each through `_gated`:
+# both flags, https, allowed host, no redirects / cookies / proxy. The body of
+# a create is the list of Messages bodies `reader_api.build_request` built;
+# nothing here adds text. Logged: counts, bytes and a digest - never a prompt,
+# never an answer, never the key.
+
+#: Bytes. The results file of a few hundred scope records is a few MB.
+MAX_BATCH_RESULTS_BYTES = 64 * 1024 * 1024
+BATCHES_SUFFIX = "/batches"
+
+
+def _gated(method: str, url: str, *, headers: Mapping[str, str], timeout: float,
+           content: bytes | None = None, limit: int = MAX_RESPONSE_BYTES):
+    """One request through the gates; returns the httpx response."""
+    if not available():
+        raise TransportRefused(
+            "standards reader egress is disabled; both "
+            "STANDARDS_READER_ENABLED and STANDARDS_READER_ALLOW_PUBLIC_EGRESS "
+            "must be true")
+    host = model_host_of(url)
+    if not url.startswith("https://") or host not in ReaderSettings.from_env().allowed_hosts:
+        raise ReaderRefused(f"reader transport refuses host {host!r}")
+    sent = {"User-Agent": USER_AGENT, "Accept": "application/json", **dict(headers or {})}
+    with httpx.Client(timeout=httpx.Timeout(timeout), follow_redirects=False,
+                      cookies=None, trust_env=False) as client:
+        response = (client.post(url, headers=sent, content=content) if method == "POST"
+                    else client.get(url, headers=sent))
+    if response.status_code >= 400:
+        kind = ""
+        try:
+            err = response.json().get("error", {})
+            kind = str(err.get("type") or "") if isinstance(err, dict) else ""
+        except ValueError:
+            pass
+        raise httpx.HTTPStatusError(f"{response.status_code} from {host}" + (f" ({kind})" if kind else ""),
+                                    request=response.request, response=response)
+    if len(response.content) > limit:
+        raise TransportRefused(f"response from {host} is {len(response.content)} bytes, over the {limit} limit")
+    return response
+
+
+def batch_create(messages_url: str, *, headers: Mapping[str, str], requests: list[dict],
+                 timeout: float = 120.0) -> dict:
+    """POST `{"requests": [{"custom_id", "params"}]}` to the Message Batches
+    endpoint beside `messages_url` (the URL `reader_api.build_request` built).
+    Returns the batch object (id, processing_status, ...)."""
+    url = messages_url.rstrip("/") + BATCHES_SUFFIX
+    body = {"requests": list(requests)}
+    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    response = _gated("POST", url, headers=headers, timeout=timeout, content=payload)
+    decoded = response.json()
+    log.warning("standards reader: batch create sent %d bytes (%d requests) to %s status=%d digest=%s",
+                len(payload), len(body["requests"]), model_host_of(url), response.status_code, _digest(body))
+    return decoded
+
+
+def batch_retrieve(messages_url: str, batch_id: str, *, headers: Mapping[str, str],
+                   timeout: float = 60.0) -> dict:
+    """GET one batch's status object."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", batch_id or ""):
+        raise TransportRefused("batch id is not a plain identifier")
+    url = messages_url.rstrip("/") + BATCHES_SUFFIX + "/" + batch_id
+    response = _gated("GET", url, headers=headers, timeout=timeout)
+    decoded = response.json()
+    counts = decoded.get("request_counts") if isinstance(decoded, dict) else None
+    log.warning("standards reader: batch status %s at %s status=%d counts=%s",
+                decoded.get("processing_status") if isinstance(decoded, dict) else None,
+                model_host_of(url), response.status_code, json.dumps(counts, sort_keys=True))
+    return decoded
+
+
+def batch_results(results_url: str, *, headers: Mapping[str, str], timeout: float = 300.0) -> list[dict]:
+    """GET the JSONL results file of an ended batch. `results_url` comes from
+    the API's own answer, so it is held to the same https + allowed-host gate
+    as every other URL here."""
+    response = _gated("GET", results_url, headers=headers, timeout=timeout, limit=MAX_BATCH_RESULTS_BYTES)
+    rows = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    kinds: dict[str, int] = {}
+    tokens_in = tokens_out = 0
+    for row in rows:
+        result = row.get("result") or {}
+        kinds[str(result.get("type"))] = kinds.get(str(result.get("type")), 0) + 1
+        usage = (result.get("message") or {}).get("usage") or {}
+        tokens_in += int(usage.get("input_tokens") or 0)
+        tokens_out += int(usage.get("output_tokens") or 0)
+    log.warning("standards reader: batch results %d rows from %s status=%d types=%s in=%d out=%d",
+                len(rows), model_host_of(results_url), response.status_code, json.dumps(kinds, sort_keys=True),
+                tokens_in, tokens_out)
+    return rows
