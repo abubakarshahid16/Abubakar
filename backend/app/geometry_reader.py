@@ -418,6 +418,10 @@ def read_tables(page: Any) -> dict[str, Any]:
 FORM_MAX_GAP_SHARE = 0.45
 #: A unit in its own phrase attaches to a numeric value within this gap (pt).
 FORM_UNIT_GAP = 80.0
+#: An empty underscore run proves THIS label's field is blank only when it
+#: starts within this gap (pt) of the label; farther away it belongs to
+#: another column (two-column API forms put a column break about 230 pt away).
+FORM_BLANK_NEAR = 120.0
 
 
 def _visual_lines(words: list[tuple]) -> list[list[tuple]]:
@@ -494,22 +498,110 @@ def _split_phrase(ws: list[tuple]) -> list[dict[str, Any]]:
     return out
 
 
-def _parse_form_value(text: str) -> dict[str, Any]:
-    """Underscore runs and dash runs are an EMPTY field, not a missed read.
+#: Words a printed UNIT LABEL is made of ("bar a (psia)", "m3/h", "KJ / Kg - K",
+#: "(USGPM)", "OC ( OF)"). Units are universal, not document-specific; a
+#: text made only of these (and brackets, slashes, dashes) is a unit label.
+_UNIT_WORDS = frozenset("""
+bar bara barg a g psi psia psig kpa kpag mpa mpag pa atm mbar mmhg mmh2o inh2o
+c f k oc of degc degf deg
+m mm cm km ft in inch inches nps
+m3 m3h h hr s min sec l lit litre liter gpm usgpm igpm bpd bbl
+kg g lb lbs t ton tonne kgm3 kj kw w mw hp bhp kwh kva kv v a hz rpm
+cp cst mpas ppm ppmw ppmv wt vol mol pct db dba sg api
+m2 m3 mm2 cm3 ft2 ft3 nm3 sm3
+""".split())
+#: A printed marker meaning "not filled here": the API legend's "*" (to be
+#: advised), "By <party>", "(Note 3)" / "[Note - 3]", TBA / TBC / TBD.
+_BLANK_MARKER = re.compile(
+    r"^(?:\*|by\s+[a-z][\w\s/&.-]*|[\[(]?\s*note\s*[-–—]?\s*\d+\s*[\])]?|tb[acd]|later)$",
+    re.IGNORECASE)
+_DASHES = str.maketrans({"–": "-", "—": "-", "−": "-"})
+_RANGE = re.compile(rf"^(?P<a>{_NUM})\s*-\s*(?P<b>{_NUM})\s*(?P<u>.*)$")
+_PAREN_UNIT = re.compile(r"^(?P<v>.*?\S)\s*\((?P<u>[^()]+)\)$")
+_NUM_REST = re.compile(rf"^(?P<n>[<>~]?\s*{_NUM})\s+(?P<u>\S.*)$")
 
-    What is left after removing them decides: nothing, punctuation, or only
-    unit words ("bar g @ oC" - the printed units of two empty slots) is a
-    blank field. The printed units are kept as `expected_units`.
+
+#: Alone, these are a letter or an English word ("GRADE: C", "A", "in").
+_AMBIGUOUS_UNIT_WORDS = frozenset("a c f g k m s t l v w h in".split())
+
+
+def is_unit_label(text: str | None, *, allow_single: bool = False) -> bool:
+    """True when `text` is only a printed unit label - no value in it. Text
+    made only of ambiguous single letters ("C", "A") is NOT a unit label
+    unless `allow_single` (e.g. right after a '*' marker: "* m")."""
+    words = [w for w in re.split(r"[\s()/\-·.,°º\[\]]+", (text or "").lower()) if w]
+    if not words or not all(w in _UNIT_WORDS for w in words):
+        return False
+    return allow_single or not all(w in _AMBIGUOUS_UNIT_WORDS for w in words)
+
+
+def _unit_of(text: str) -> str:
+    """A unit label without its bracketed alternative: 'bar a (psia)' -> 'bar a'."""
+    main = re.sub(r"\([^()]*\)", " ", text).strip()
+    return re.sub(r"\s+", " ", main or text.strip("() ")).strip()
+
+
+def _parse_value(text: str) -> dict[str, Any]:
+    """A filled value: number + unit, range, bracketed unit, '@ condition'."""
+    head, _, cond = text.partition("@")
+    head = head.strip().translate(_DASHES)
+    condition = f"@{cond}".strip() if cond else None
+    m = _RANGE.match(head)
+    if m and (not m.group("u") or is_unit_label(m.group("u"), allow_single=True)):
+        return {"value": f"{m.group('a').strip()} - {m.group('b').strip()}",
+                "unit": _unit_of(m.group("u")) or None, "condition": condition}
+    m = _PAREN_UNIT.match(head)
+    if m and is_unit_label(m.group("u")) and not is_unit_label(m.group("v")):
+        head_value = split_value_unit(m.group("v"))
+        return {"value": head_value["value"], "unit": _unit_of(m.group("u")), "condition": condition}
+    parsed = split_value_unit(head)
+    if parsed["unit"] is None:
+        m = _NUM_REST.match(head)
+        if m and is_unit_label(m.group("u"), allow_single=True):
+            return {"value": re.sub(r"\s+", "", m.group("n")), "unit": _unit_of(m.group("u")),
+                    "condition": condition}
+    return {"value": parsed["value"], "unit": parsed["unit"], "condition": condition}
+
+
+def _parse_form_value(text: str) -> dict[str, Any]:
+    """Decide blank / unit-only / value - and NEVER call a field blank
+    without evidence (addendum 3.7: not found is not blank).
+
+    * BLANK needs evidence: an underscore or dash run (the drawn empty
+      field), or a printed marker ("*", "By EPC", "(Note 3)").
+    * UNIT ONLY ("cP", "bar a (psia)") with no run: the printed unit column.
+      That is NOT a value and NOT proof of blank - `unit_only` = True, the
+      value is missing and the caller must not report it as either.
     """
+    had_run = bool(_BLANK_RUN.search(text))
     residue = re.sub(r"\s+", " ", _BLANK_RUN.sub(" ", text)).strip()
+    star = re.match(r"^\*\s*(?P<rest>.*)$", residue)
+    if star and (not star.group("rest") or is_unit_label(star.group("rest"), allow_single=True)):
+        rest = star.group("rest")
+        return {"value": None, "unit": None, "expected_units": [_unit_of(rest)] if rest else [],
+                "is_blank": True, "blank_marker": "*", "unit_only": False, "condition": None}
+    if residue and _BLANK_MARKER.match(residue):
+        return {"value": None, "unit": None, "expected_units": [], "is_blank": True,
+                "blank_marker": residue, "unit_only": False, "condition": None}
     parts = [x.strip() for x in residue.split("@")]
-    units = [standalone_unit(x) for x in parts if x]
-    if not re.search(r"[^\W_]", residue) or (units and all(units)):
-        return {"value": None, "unit": units[0] if len(units) == 1 else None,
-                "expected_units": units, "is_blank": True}
-    parsed = split_value_unit(residue)
-    return {"value": parsed["value"], "unit": parsed["unit"],
-            "expected_units": [], "is_blank": False}
+    unit_parts = [x for x in parts if x]
+    units_only = bool(unit_parts) and all(is_unit_label(x) for x in unit_parts)
+    if not re.search(r"[^\W_]", residue):
+        # Nothing but a drawn run or printed punctuation ("-", "--", "/"):
+        # the author's own mark for an empty field.
+        return {"value": None, "unit": None, "expected_units": [], "is_blank": True,
+                "blank_marker": residue or "______", "unit_only": False, "condition": None}
+    if units_only:
+        expected = [standalone_unit(x) or _unit_of(x) for x in unit_parts]
+        if had_run:
+            return {"value": None, "unit": expected[0] if len(expected) == 1 else None,
+                    "expected_units": expected, "is_blank": True, "blank_marker": "______",
+                    "unit_only": False, "condition": None}
+        return {"value": None, "unit": None, "expected_units": expected, "is_blank": False,
+                "blank_marker": None, "unit_only": True, "condition": None}
+    parsed = _parse_value(residue)
+    return {**parsed, "expected_units": [], "is_blank": False, "blank_marker": None,
+            "unit_only": False}
 
 
 def _label_name(text: str) -> str:
@@ -521,6 +613,22 @@ def _label_name(text: str) -> str:
 def _label_like(seg: dict[str, Any]) -> bool:
     """A text segment ending in a clause reference reads as a label, not a value."""
     return bool(re.search(r"\(\s*[\d.]+[a-z.]*\s*\)\s*$", seg["text"]))
+
+
+def _below_candidates(segs: list[dict[str, Any]], lab: dict[str, Any], used: set[int]) -> list[int]:
+    lx0 = lab["bbox"][0]
+    return sorted((k for k, s in enumerate(segs)
+                   if s["kind"] == "text" and k not in used
+                   and 0.6 * lab["h"] < s["yc"] - lab["yc"] <= 2.2 * lab["h"]
+                   and abs(s["bbox"][0] - lx0) <= lab["h"]
+                   and not _label_like(s)),
+                  key=lambda k: segs[k]["yc"])
+
+
+def _filled_below(segs: list[dict[str, Any]], lab: dict[str, Any], used: set[int]) -> bool:
+    return any(not _parse_form_value(segs[k]["text"])["is_blank"]
+               and not _parse_form_value(segs[k]["text"])["unit_only"]
+               for k in _below_candidates(segs, lab, used))
 
 
 def read_form(page: Any) -> dict[str, Any]:
@@ -576,6 +684,13 @@ def read_form(page: Any) -> dict[str, Any]:
                 continue
             if k in used or _label_like(s):
                 break
+            if (s["bbox"][0] - lx1 > FORM_BLANK_NEAR
+                    and _parse_form_value(s["text"])["is_blank"]
+                    and _filled_below(segs, lab, used)):
+                # A FAR empty run while a FILLED field sits right below the
+                # label: the run is another column's field (two-column API
+                # forms); the value below is this label's.
+                break
             value_k, position = k, "right"
             if n + 1 < len(right):
                 nxt = segs[right[n + 1]]
@@ -584,21 +699,22 @@ def read_form(page: Any) -> dict[str, Any]:
                     unit_k = right[n + 1]
             break
         if value_k is None:
-            below = sorted((k for k, s in enumerate(segs)
-                            if s["kind"] == "text" and k not in used
-                            and 0.6 * lab["h"] < s["yc"] - lab["yc"] <= 2.2 * lab["h"]
-                            and abs(s["bbox"][0] - lx0) <= lab["h"]
-                            and not _label_like(s)),
-                           key=lambda k: segs[k]["yc"])
+            below = _below_candidates(segs, lab, used)
             if below:
                 value_k, position = below[0], "below"
         if value_k is None:
             unpaired.append({"source": "form", "page": page_no, "label": lab["text"],
                              "label_bbox": _bbox(lab["bbox"])})
             continue
-        used.add(value_k)
         val = segs[value_k]
         parsed = _parse_form_value(val["text"])
+        if parsed["unit_only"] and unit_k is None:
+            # The printed unit column: neither a value nor proof of blank.
+            unpaired.append({"source": "form", "page": page_no, "label": lab["text"],
+                             "label_bbox": _bbox(lab["bbox"]), "reason": "unit label only",
+                             "expected_units": parsed["expected_units"]})
+            continue
+        used.add(value_k)
         unit_text = None
         if unit_k is not None and parsed["unit"] is None and parsed["value"] is not None:
             used.add(unit_k)
@@ -611,7 +727,8 @@ def read_form(page: Any) -> dict[str, Any]:
             "label_bbox": _bbox(lab["bbox"]),
             "value_text": val["text"] if unit_text is None else f"{val['text']} {unit_text}",
             "value": parsed["value"], "unit": parsed["unit"],
-            "is_blank": parsed["is_blank"],
+            "is_blank": parsed["is_blank"], "blank_marker": parsed["blank_marker"],
+            "condition": parsed["condition"],
             "expected_units": parsed["expected_units"], "position": position,
             "value_bbox": _bbox(val["bbox"] if unit_k is None else (
                 val["bbox"][0], min(val["bbox"][1], segs[unit_k]["bbox"][1]),

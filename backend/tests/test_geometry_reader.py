@@ -229,6 +229,77 @@ def test_form_unit_negative_cases(synthetic_form):
     assert (grade["value"], grade["unit"]) == ("C", None)
 
 
+# ---------------------------------------- blank needs evidence (addendum 3.7)
+
+@pytest.fixture(scope="module")
+def evidence_form():
+    doc, page = _form_page([
+        (50, 100, "VISCOSITY:"), (150, 100, "cP"),
+        (50, 130, "VAPOUR PRESSURE:"), (170, 130, "bar a (psia)"),
+        (50, 160, "HYDRAULIC POWER:"), (170, 160, "* kW"),
+        (50, 190, "BOWL:"), (150, 190, "By EPC Contractor"),
+        (50, 220, "ELEVATION:"), (150, 220, "5 - 150 M"),
+        (50, 250, "SOUND LEVEL:"), (170, 250, "<85 (dBA)"),
+        (50, 280, "SPECIFIC GRAVITY:"), (170, 280, "0.974 @ 170 OF"),
+        # Two-column form: the far-right run belongs to the RIGHT column; this
+        # label's value is on the next line, inside its underscore field.
+        (50, 320, "Mounting location"), (360, 320, "______________________"),
+        (48, 334, "______BEARING HOUSING______"),
+        (50, 370, "SUCTION:"), (140, 370, "_________ bar g"),
+    ])
+    yield gr.read_form(page)
+    doc.close()
+
+
+def test_a_unit_label_alone_is_neither_value_nor_blank(evidence_form):
+    """THE MUTATION TARGET (M554): the printed unit column must not be
+    reported as a value, and must not become a false blank."""
+    for label in ("VISCOSITY", "VAPOUR PRESSURE"):
+        assert not [p for p in evidence_form["pairs"] if p["label"] == label]
+    reasons = {u["label"].rstrip(":"): u.get("reason") for u in evidence_form["unpaired_labels"]}
+    assert reasons.get("VISCOSITY") == "unit label only"
+    assert reasons.get("VAPOUR PRESSURE") == "unit label only"
+
+
+def test_star_marker_is_a_blank_with_its_unit(evidence_form):
+    """THE MUTATION TARGET (M555)."""
+    p = _pair(evidence_form, "HYDRAULIC POWER")
+    assert (p["is_blank"], p["blank_marker"], p["value"]) == (True, "*", None)
+    assert p["expected_units"] == ["kW"]
+
+
+def test_by_party_marker_is_a_blank(evidence_form):
+    p = _pair(evidence_form, "BOWL")
+    assert p["is_blank"] and p["blank_marker"] == "By EPC Contractor"
+
+
+def test_range_bracketed_unit_and_condition(evidence_form):
+    assert (_pair(evidence_form, "ELEVATION")["value"], _pair(evidence_form, "ELEVATION")["unit"]) == ("5 - 150", "M")
+    # the base-14 test font cannot draw an en dash; the parser is checked directly
+    assert gr._parse_form_value("5 – 150 M")["value"] == "5 - 150"
+    sound = _pair(evidence_form, "SOUND LEVEL")
+    assert (sound["value"], sound["unit"]) == ("<85", "dBA")
+    sg = _pair(evidence_form, "SPECIFIC GRAVITY")
+    assert (sg["value"], sg["unit"], sg["condition"]) == ("0.974", None, "@ 170 OF")
+
+
+def test_a_far_empty_run_is_not_this_fields_blank(evidence_form):
+    """THE MUTATION TARGET (M556): the real-layout false blank - a two-
+    column form's other-column run must not make this field blank."""
+    p = _pair(evidence_form, "Mounting location")
+    assert p["is_blank"] is False and p["value"] == "BEARING HOUSING" and p["position"] == "below"
+
+
+def test_an_adjacent_empty_run_is_still_a_blank(evidence_form):
+    p = _pair(evidence_form, "SUCTION")
+    assert p["is_blank"] is True and p["expected_units"] == ["barg"]
+
+
+@pytest.mark.parametrize("text", ["C", "A", "in", "YES", "OH2", "10", "T3"])
+def test_letters_and_words_are_not_unit_labels(text):
+    assert not gr.is_unit_label(text)
+
+
 def test_form_pairs_keep_both_boxes(synthetic_form):
     p = _pair(synthetic_form, "DESIGN PRESSURE")
     assert p["source"] == "form" and p["page"] == 1

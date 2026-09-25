@@ -6251,7 +6251,7 @@ B5_STANDARDS_INVENTORY = (
         id="M552", phase=61,
         description="an underscore field is read as a value instead of blank",
         path=APP / "geometry_reader.py",
-        anchor='    if not re.search(r"[^\\W_]", residue) or (units and all(units)):\n',
+        anchor='    if not re.search(r"[^\\W_]", residue):\n',
         replacement="    if False:\n",
         target="tests/test_geometry_reader.py",
         keyword="blank",
@@ -6406,6 +6406,38 @@ B5_STANDARDS_INVENTORY = (
         target="tests/test_claude_provider.py",
         keyword="rejects_temperature",
         tags=("model",),
+    ),
+    Mutation(
+        id="M554", phase=61,
+        description="a printed unit label alone becomes a false BLANK "
+                    "(addendum 3.7: not found is never blank)",
+        path=APP / "geometry_reader.py",
+        anchor="        if had_run:\n",
+        replacement="        if True:\n",
+        target="tests/test_geometry_reader.py",
+        keyword="unit_label_alone_is_neither",
+        tags=("extraction", "honesty"),
+    ),
+    Mutation(
+        id="M555", phase=61,
+        description="the '*' (to be advised) marker is read as a value",
+        path=APP / "geometry_reader.py",
+        anchor='    star = re.match(r"^\\*\\s*(?P<rest>.*)$", residue)\n',
+        replacement="    star = None\n",
+        target="tests/test_geometry_reader.py",
+        keyword="star_marker_is_a_blank",
+        tags=("extraction", "honesty"),
+    ),
+    Mutation(
+        id="M556", phase=61,
+        description="a far empty run in another column makes this field blank "
+                    "although a filled value sits below it",
+        path=APP / "geometry_reader.py",
+        anchor="                    and _filled_below(segs, lab, used)):\n",
+        replacement="                    and False):\n",
+        target="tests/test_geometry_reader.py",
+        keyword="far_empty_run_is_not",
+        tags=("extraction", "honesty"),
     ),
 )
 
