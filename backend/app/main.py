@@ -89,6 +89,21 @@ def _log_match_tier() -> None:
             "so in their rationale.")
 
 
+def _log_hooks_path() -> None:
+    """Warn at boot when the git hooks are off (app.hooks_check). A log line,
+    never a crash: a failing check must not stop the server."""
+    import logging
+
+    from . import hooks_check
+
+    try:
+        message = hooks_check.hooks_path_warning()
+    except Exception:  # noqa: BLE001 - boot must not depend on git
+        return
+    if message:
+        logging.getLogger("uvicorn.error").warning(message)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
@@ -134,6 +149,8 @@ async def lifespan(app: FastAPI):
     # operator who does not know it is off reads "no pairing" as "the machine
     # looked and found nothing".
     _log_match_tier()
+    # SAY WHEN THE GIT HOOKS ARE OFF (secret scan, live-checkout guard).
+    _log_hooks_path()
     # A REVIEW RUN LEFT `running` BY A DEAD PROCESS IS FAILED, NOT BUSY. Same
     # reasoning as the extraction sweep below, and the same moment: this
     # process has just begun, so a run still marked running belongs to one
