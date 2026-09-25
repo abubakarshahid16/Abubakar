@@ -63,12 +63,14 @@ def cost_usd(model: str | None, usage: dict | None) -> float:
             + int(usage.get("cache_read_input_tokens") or 0) * p_read) / 1_000_000
 
 
-def worst_case_usd(model: str | None, prompt_chars: int, max_tokens: int) -> float:
+def worst_case_usd(model: str | None, prompt_chars: int, max_tokens: int,
+                   image_tokens: int = 0) -> float:
     """The most one call can cost: prompt at ~3 chars per token (generous -
-    English runs nearer 4), priced as an uncached cache WRITE (the dearest
-    input rate), plus every allowed output token."""
+    English runs nearer 4), plus any image's tokens (width x height / 750),
+    priced as an uncached cache WRITE (the dearest input rate), plus every
+    allowed output token."""
     p_in, p_out, p_write, _ = price_for(model)
-    tokens_in = prompt_chars // 3 + 1
+    tokens_in = prompt_chars // 3 + 1 + max(0, int(image_tokens))
     return (tokens_in * max(p_in, p_write) + max_tokens * p_out) / 1_000_000
 
 

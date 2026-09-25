@@ -1150,7 +1150,11 @@ def run_comparison(
         # tells a reviewer to go and reconcile kPa with bar, which would leave
         # them comparing a design pressure against a lookup boundary once the
         # units agreed.
-        if fact is not None and requirement.get("requirement_type") != requirements_3b.TABLE_ROW:
+        # A BLANK FIELD HAS NO NUMBER AND NO UNIT TO GUARD (B4 item 2: a blank
+        # can now be paired by field name); `compare` has already said what
+        # it is - left to be provided.
+        if (fact is not None and not fact.get("is_blank")
+                and requirement.get("requirement_type") != requirements_3b.TABLE_ROW):
             # THE UNIT GUARD. A match says the two are ABOUT the same thing; it
             # says nothing about whether their numbers can be compared. A
             # length against a pressure is not a breach and not a pass - it is
@@ -1208,13 +1212,23 @@ def run_comparison(
             # (2026-09-25) a seal-selection table's temperature band, paired
             # by name with the sheet's pumping temperature, read
             # NON_COMPLIANT - the right field and the wrong kind of rule.
-            held = verdict.get("status") in (COMPLIANT, NON_COMPLIANT)
+            # B4 item 2: EVERY status is held, not only the two verdicts -
+            # a blank field paired by a model-assigned name reads
+            # MISSING_INFORMATION only if the pairing is right, so it waits
+            # for the engineer too, with the comparison's own words kept.
+            status = verdict.get("status")
+            held = status != NEEDS_ENGINEER_REVIEW
+            said = ("The numbers read" if status in (COMPLIANT, NON_COMPLIANT)
+                    else "The comparison read")
+            others = match.get("candidates") or []
             verdict = {**verdict,
-                       "status": NEEDS_ENGINEER_REVIEW if held else verdict.get("status"),
+                       "status": NEEDS_ENGINEER_REVIEW,
                        "rationale": (
                            f"{FIELD_NAME_PAIR_PREFIX}{match.get('matched_phrase') or ''}. "
-                           + (f"The numbers read {verdict.get('status')}, held for "
+                           + (f"{said} {status}, held for "
                               "an engineer because the pairing is unconfirmed. " if held else "")
+                           + (f"Blank fields under the same name, not used: {', '.join(others)}. "
+                              if others else "")
                            + f"{verdict.get('rationale') or ''}")}
         elif model_reason:
             # WHY NO MODEL PAIRING WAS MADE, in words, on the finding itself.
@@ -1535,8 +1549,11 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     fact_names = names.get("facts") or {}
     rejected = _rejected_keys_for(requirement)
     tag_scoped = facts_are_tag_scoped(facts)
+    # B4 item 2: a BLANK field pairs too - "the sheet leaves this to be
+    # provided" is an answer about the requirement's quantity.
     hits = [f for f in facts
-            if fact_has_number(f) and fact_names.get(str(f.get("id"))) == field
+            if (fact_has_number(f) or f.get("is_blank"))
+            and fact_names.get(str(f.get("id"))) == field
             and fact_key(f, tag_scoped=tag_scoped) not in rejected]
     sheet = sheet_kind if sheet_kind is not None else match_rules.sheet_kind(facts)
     refused: list[dict] = []
@@ -1550,6 +1567,30 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
     if not allowed:
         return None
     if len(allowed) > 1:
+        filled = [f for f in allowed if fact_has_number(f) and not f.get("is_blank")]
+        if not filled:
+            # EVERY CANDIDATE IS BLANK: whichever is cited, the answer is the
+            # same - the sheet leaves this quantity to be provided. The one
+            # whose OWN label is the name comes first, then by page and label;
+            # the others are NAMED; no value was chosen between.
+            from .field_naming import own_names
+            ordered = sorted(allowed, key=lambda f: (field not in own_names(f),
+                                                     f.get("page") or 0,
+                                                     f.get("field_label") or ""))
+            return {"fact": ordered[0], "matched_phrase": field, "method": METHOD_FIELD_NAME,
+                    "reason": None,
+                    "candidates": sorted({f"{f.get('field_label') or field} (page {f.get('page')})"
+                                          for f in ordered[1:]}),
+                    "refused": refused}
+        if len(filled) == 1:
+            # ONE FILLED VALUE AND THE REST BLANK is not a tie: the blanks
+            # are the columns the sheet left open (NORMAL beside RATED). The
+            # filled one is used and the blanks are NAMED in the rationale.
+            return {"fact": filled[0], "matched_phrase": field, "method": METHOD_FIELD_NAME,
+                    "reason": None,
+                    "candidates": sorted({f"{f.get('field_label') or field} (page {f.get('page')})"
+                                          for f in allowed if f is not filled[0]}),
+                    "refused": refused}
         return {"fact": None, "matched_phrase": None, "method": None,
                 "reason": AMBIGUOUS_MATCH,
                 "candidates": sorted({f"{field} (page {f.get('page')})" for f in allowed}),

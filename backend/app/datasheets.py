@@ -9,8 +9,8 @@ and that is the whole design:
   DS-0000-DAS-M-01 (centrifugal pump, 7 pages) - `find_tables()` recovers a real
   grid on 7 of 7 pages, and reading it shows genuine data:
 
-      ['VAPOR PRESSURE:', 'bar a (psia)', '0.42 (6.09)']
-      ['SPECIFIC GRAVITY:', '0.974 @ 170 OF']
+      ['VAPOR PRESSURE:', 'bar a (psia)', '0.35 (6.09)']
+      ['SPECIFIC GRAVITY:', '0.85 @ 150 OF']
 
   DS-0000-DAS-I-01 (pressure safety valves, 5 pages) - `find_tables()` reports a
   table on 5 of 5 pages too, and the rate is MEANINGLESS: every one of them is
@@ -44,7 +44,8 @@ from datetime import datetime, timezone
 
 import json
 
-from . import claims, orphan_guard, page_ledger, provenance, submittal_review, tables
+from . import (claims, orphan_guard, page_ledger, provenance, row_noise, submittal_review,
+               tables)
 from .config import settings
 from .db import connect
 
@@ -116,7 +117,7 @@ _REFERENCED_STANDARD = re.compile(
 #: The leading number is the sheet's own line number, not data.
 _NUMBERED_LABEL = re.compile(r"^\s*(?P<no>\d{1,3})\s*[|.\)]?\s*(?P<rest>\S.*)$")
 
-#: A value with a unit at the end: "9970 Kg/hr", "23.5 barg", "0.42 (6.09)".
+#: A value with a unit at the end: "9970 Kg/hr", "23.5 barg", "0.35 (6.09)".
 #:
 #: PARENTHESES BELONG INSIDE A UNIT when it starts with a letter, because
 #: "dB(A)" is one unit and "dB" is a different one - A-weighting is part of
@@ -126,13 +127,13 @@ _NUMBERED_LABEL = re.compile(r"^\s*(?P<no>\d{1,3})\s*[|.\)]?\s*(?P<rest>\S.*)$")
 #: silently unevaluable because of a character class. Found by phase 5B's
 #: end-to-end test.
 #:
-#: "0.42 (6.09)" is unaffected: the unit group must START with a letter, so a
+#: "0.35 (6.09)" is unaffected: the unit group must START with a letter, so a
 #: bare parenthetical is not a unit and is handled as a dual-unit remainder.
 _VALUE_UNIT = re.compile(
     r"^(?P<value>[-+]?\d[\d.,]*)\s*(?P<unit>[A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?"
 )
 
-#: A cell that is nothing but a number - "340", "0.892". Used to decide
+#: A cell that is nothing but a number - "340", "0.911". Used to decide
 #: whether trailing letters were a unit or the start of prose.
 _BARE_NUMBER = re.compile(r"[-+]?\d[\d.,]*")
 
@@ -1478,11 +1479,11 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     #
     # What actually separates them is what FOLLOWS. A measurement is the whole
     # cell, give or take a parenthetical alternate that datasheets use for
-    # dual units - "0.42 (6.09)" is bar and psia. Words after the number mean
+    # dual units - "0.35 (6.09)" is bar and psia. Words after the number mean
     # the cell was a sentence that happened to start with a digit.
     remainder = text[match.end():].strip()
     # A PARENTHETICAL CAN BE PART OF THE UNIT RATHER THAN AN ALTERNATE.
-    # `3.5 bar (ga)` is one measurement in gauge pressure; `0.42 (6.09)` is one
+    # `3.5 bar (ga)` is one measurement in gauge pressure; `0.35 (6.09)` is one
     # measurement given twice in different units. Both end in brackets, and
     # treating the first like the second dropped the reference - which is a
     # whole atmosphere, in the direction that makes a vessel look compliant.
@@ -1556,7 +1557,7 @@ def create_fact(
 
     `unit` (B4): the unit a layout states for this value OUTSIDE the value's
     own cell - a grid row's unit column, whose primary unit `primary_unit`
-    read. Used only when the value itself prints no unit: "24.8 (109)" under
+    read. Used only when the value itself prints no unit: "12.0 (53)" under
     "m3/h (USGPM)" is 24.8 m3/h. A unit printed in the value always wins.
 
     `commit=False` writes INSIDE the caller's open transaction and commits
@@ -1800,7 +1801,7 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
 #
 # THE PROCESS DATA SITS IN A GRID THE TEXT READER FLATTENS. A pump sheet's
 # OPERATING CONDITIONS block prints a header "Units | Maximum | Rated | Normal
-# | Minimum" and rows "CAPACITY / FLOW: | m3/h (USGPM) | ... 24.8 (109) ...".
+# | Minimum" and rows "CAPACITY / FLOW: | m3/h (USGPM) | ... 12.0 (53) ...".
 # In reading order the unit column takes the value slot and the numbers are
 # left over, so every row was dropped (measured: flow, temperature, pressures
 # and head all missing on the pump regression sheet). WHICH column a value is
@@ -1985,6 +1986,66 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int) -> list[
         return []
 
 
+def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[dict],
+                    provider):
+    """`vision_reader.read_page` for one page, or None when the page cannot
+    be opened. A refusal (budget, egress) comes back ON the reading."""
+    if not stored_path or provider is None:
+        return None
+    try:
+        import pymupdf
+
+        from . import vision_reader
+        with pymupdf.open(stored_path) as doc:
+            if not (1 <= page_no <= doc.page_count):
+                return None
+            return vision_reader.read_page(doc[page_no - 1], page_no, provider,
+                                           geometry_rows=geometry_rows)
+    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        return None
+
+
+#: Unicode vulgar fractions -> the same fraction in ASCII. "¾" and "3/4" are one
+#: number; only the ASCII spelling is read as one downstream. The source text
+#: keeps the character as printed.
+_VULGAR = str.maketrans({"¼": "1/4", "½": "1/2", "¾": "3/4", "⅛": "1/8", "⅜": "3/8",
+                         "⅝": "5/8", "⅞": "7/8"})
+
+
+def _vision_raw_value(reading: dict) -> tuple[str, str | None]:
+    """(text for `create_fact`, unit kept apart) - `_geometry_raw_value`'s
+    rule for a kept vision reading. A unit the quantity reader cannot join
+    ("0.35" + "bar a") is handed over APART, and `extract_facts` passes it as
+    the unit hint so it is never lost."""
+    value = reading["value"].translate(_VULGAR)
+    joined = " ".join(p for p in (value, reading["unit"]) if p)
+    if reading["unit"] and measure_value(joined)[0] is None and parse_range(joined) is None:
+        return value, reading["unit"]
+    return joined, None
+
+
+def _sum_drops(readings: dict) -> dict[str, int]:
+    """The vision reader's own drop counts (unproved proposals), summed."""
+    out: dict[str, int] = {}
+    for reading in readings.values():
+        for reason, n in (getattr(reading, "dropped", None) or {}).items():
+            out[reason] = out.get(reason, 0) + n
+    return out
+
+
+def _vision_ledger_note(reading, kept_here: int, unavailable: str | None) -> str:
+    """One clause for the page ledger: what the vision reader did here."""
+    if reading is None:
+        return f"vision reader not run ({unavailable or 'page could not be rendered'})"
+    if reading.refused and not reading.asked:
+        return f"vision reader refused ({reading.refused})"
+    kind = f"page kind '{reading.page_kind}' (the model's word, unverified)" if reading.page_kind \
+        else "page kind not given"
+    return (f"vision reader: {kind}; {reading.proposed} field(s) proposed, "
+            f"{len(reading.kept)} proved against the page, {kept_here} recorded, "
+            "not counted as the page read into fields")
+
+
 def _geometry_raw_value(row: dict) -> tuple[str, str | None]:
     """(text for `create_fact`, unit to keep apart) for one geometry row.
 
@@ -2087,23 +2148,22 @@ def _pairs_from_ocr_fallback(document_id: str, page_no: int) -> list[tuple[str, 
 def _pairs_from_vision_fallback(stored_path: str, page_no: int) -> list[tuple[str, str]]:
     """Label:value pairs from a vision-model reading of one page's image.
 
-    #175, cascade tier 3 - OPTIONAL and CLEARLY GATED. This is deliberately a
-    thin hook, not new model-serving code: `reasoning_provider.py` (B54)
-    defines exactly one provider that can actually make a model call today,
-    `OllamaProvider`, and it is a TEXT interface - no vision-capable provider
-    is implemented or configured anywhere on this branch (`ClaudeProvider` is
-    still the documented future adapter its own module describes, gated
-    behind `settings.standards_reader_enabled` and
-    `settings.standards_reader_allow_public_egress`, neither of which stands
-    up a vision path). Building a new vision integration here would be
-    exactly the "not a rebuild of the earlier vision experiments" scope this
-    issue explicitly rules out.
+    #175, cascade tier 3 - STILL A DOCUMENTED NO-OP, and deliberately so.
 
-    So: this tier is a DOCUMENTED NO-OP whenever no vision-capable provider
-    is configured, which is every environment this system ships to today.
-    The moment a real vision provider exists behind its own explicit flag,
-    this is the one function that needs to change to call it - a single,
-    obvious home for that future decision, not a rewrite of `extract_facts`.
+    UPDATED 2026-09-25 (B4 item 1): a vision-capable provider now exists -
+    `reasoning_provider.ClaudeProvider` carries page images through the one
+    request builder and `reader_transport` - and the B4 VISION READER
+    (`vision_reader.py`) uses it. That reader is NOT this tier: it runs on
+    every page (not only pages nothing else read), behind
+    `settings.geometry_reader_enabled` (OFF by default) and Claude's egress
+    flags, and it keeps a model's reading only where code proves it against
+    the page's text layer or a geometry cell. Its readings reach
+    `extract_facts` through the flag-on write loop as
+    `extraction_method='vision'` rows.
+
+    This hook stays `[]` so the flag-off cascade is byte-for-byte what it was:
+    an unverified vision pair entering here would bypass every one of those
+    checks.
     """
     return []
 
@@ -2300,6 +2360,14 @@ def extract_facts(
     # cannot give one datasheet two different extractions.
     geometry_on = bool(settings.geometry_reader_enabled)
     geometry_by_page: dict[int, list[dict]] = {}
+    # B4 item 1: THE VISION READER, same flag, and only where Claude may be
+    # used (it is the only provider that reads an image). Unavailable is a
+    # recorded reason, never a silent skip.
+    vision_by_page: dict[int, object] = {}
+    vision_provider, vision_unavailable = None, None
+    if geometry_on:
+        from . import vision_reader
+        vision_provider, vision_unavailable = vision_reader.provider()
     for page in sorted(by_page):
         found: list[tuple[str, str]] = []
         for shape in tables.parse_page_tables(stored_path, page):
@@ -2315,16 +2383,18 @@ def extract_facts(
         if geometry_on:
             # B4 (#193 5.5): read, not yet written - see the write loop.
             geometry_by_page[page] = _geometry_rows_from_pdf_page(stored_path, page)
+            vision_by_page[page] = _vision_reading(
+                stored_path, page, geometry_by_page[page], vision_provider)
         if not found and not grid_by_page[page]:
             ocr_found = _pairs_from_ocr_fallback(document_id, page)
             if ocr_found:
                 found = ocr_found
                 low_confidence_pages.add(page)
             else:
-                # Tier 3: vision-model fallback. Thin, gated hook - see
-                # `_pairs_from_vision_fallback` docstring. A documented
-                # no-op whenever no vision-capable provider is configured,
-                # which is every environment this branch ships to today.
+                # Tier 3: vision-model fallback. Thin hook, still a no-op -
+                # see `_pairs_from_vision_fallback`. The B4 vision reader
+                # (`vision_reader.py`) is a separate, verified reader that
+                # runs on every page behind GEOMETRY_READER_ENABLED.
                 vision_found = _pairs_from_vision_fallback(stored_path, page)
                 if vision_found:
                     found = vision_found
@@ -2342,6 +2412,10 @@ def extract_facts(
     geometry_furniture: set[str] = set()
     geometry_version = None
     geometry_written = geometry_conflicts = 0
+    vision_version = None
+    vision_written = 0
+    vision_dropped: dict[str, int] = {}
+    vision_pages_asked = 0
     if geometry_on:
         # The geometry reader reads title blocks too; the same counted rule
         # (a label with the same answer on three or more pages) sets its
@@ -2350,6 +2424,7 @@ def extract_facts(
             {page: [(row["label"], row["value_text"] or "") for row in rows]
              for page, rows in geometry_by_page.items()})
         geometry_version = provenance.code_version("datasheets", "tables", "geometry_reader")
+        vision_version = provenance.code_version("datasheets", "vision_reader", "row_noise")
     # WHICH EQUIPMENT EACH PAGE IS ABOUT, decided over the whole document
     # because the one-tag rule cannot be seen from a single page.
     tags = stamp_tags(pairs_by_page)
@@ -2397,6 +2472,8 @@ def extract_facts(
             # geometry reader is on.
             rule_facts: dict[str, list[dict]] = {}
             page_geometry = 0
+            page_vision = 0
+            page_geometry_facts: dict[str, list[dict]] = {}
             # WHY EACH PAIR WAS DROPPED, counted per page. The reason string below
             # used to say "no label-value pairs recovered" whatever had happened,
             # so a page whose pairs were all FILTERED read exactly like a page that
@@ -2419,6 +2496,12 @@ def extract_facts(
                     continue
                 seen.add(key)
                 blank, _marker = is_blank_value(value)
+                noise = (row_noise.noise_reason(label, value)
+                         if geometry_on and not blank else None)
+                if noise:
+                    # B4 item 3 (flag on): page furniture, not a field.
+                    dropped[noise] = dropped.get(noise, 0) + 1
+                    continue
                 # WHAT COUNTS AS A FACT. This is the line that stops the
                 # extractor inventing them.
                 #
@@ -2514,6 +2597,11 @@ def extract_facts(
                     dropped["value gate"] = dropped.get("value gate", 0) + 1
                     continue
                 grid_blank, _marker = is_blank_value(cell["value"])
+                noise = (row_noise.noise_reason(cell["label"], cell["value"])
+                         if geometry_on and not grid_blank else None)
+                if noise:
+                    dropped[noise] = dropped.get(noise, 0) + 1
+                    continue
                 try:
                     written_row = create_fact(
                         submittal_document_id=document_id, chunk_id=chunk["id"],
@@ -2547,6 +2635,11 @@ def extract_facts(
                     continue
                 name = normalise_field_name(label)
                 raw, printed_unit = _geometry_raw_value(row)
+                noise = (None if row["is_blank"]
+                         else row_noise.noise_reason(label, row["value_text"] or raw))
+                if noise:
+                    dropped[noise] = dropped.get(noise, 0) + 1
+                    continue
                 if (name in furniture or name in geometry_furniture
                         or tag_from_pair(label, row["value_text"] or "") is not None
                         or is_date_value(raw)):
@@ -2604,6 +2697,69 @@ def extract_facts(
                 written += 1
                 if geometry_row["is_blank"]:
                     blanks += 1
+                # What a vision reading of this label is checked against.
+                page_geometry_facts.setdefault(name, []).append(geometry_row)
+            # B4 item 1: VISION READINGS, last, flag on only. Every one was
+            # already proved against the page by `vision_reader.verify`; here
+            # the same furniture, noise and precedence rules as the geometry
+            # reader apply, and a rule-reader or geometry fact for the same
+            # label always wins - a disagreeing vision reading is DROPPED
+            # (counted), never stored beside it.
+            reading = vision_by_page.get(page)
+            if reading is not None and reading.asked:
+                vision_pages_asked += 1
+            for kept in (reading.kept if reading is not None else []):
+                label = kept["label"]
+                name = normalise_field_name(label)
+                raw, printed_unit = _vision_raw_value(kept)
+                noise = row_noise.noise_reason(label, kept["value"])
+                if noise:
+                    vision_dropped[noise] = vision_dropped.get(noise, 0) + 1
+                    continue
+                if (name in furniture or name in geometry_furniture
+                        or tag_from_pair(label, kept["value"]) is not None
+                        or is_date_value(raw) or is_blank_value(raw)[0]):
+                    vision_dropped["furniture, tag, date or blank"] = vision_dropped.get(
+                        "furniture, tag, date or blank", 0) + 1
+                    continue
+                same_label = rule_facts.get(name, []) + page_geometry_facts.get(name, [])
+                if same_label:
+                    why = ("same as rule/geometry reader"
+                           if any(_geometry_agrees(raw, False, f) for f in same_label)
+                           else "disagrees with rule/geometry reader (not stored)")
+                    vision_dropped[why] = vision_dropped.get(why, 0) + 1
+                    continue
+                key = (page, name, _fold(raw), "vision")
+                if key in seen:
+                    vision_dropped["duplicate"] = vision_dropped.get("duplicate", 0) + 1
+                    continue
+                seen.add(key)
+                provenance_box = {
+                    "reader": "vision_reader", "proof": kept["proof"],
+                    "value_bbox": kept["value_bbox"], "label_bbox": kept["label_bbox"],
+                    "model_tag": kept.get("model_tag"),
+                    "prompt_version": vision_reader.PROMPT_VERSION,
+                }
+                try:
+                    create_fact(
+                        submittal_document_id=document_id, chunk_id=chunk["id"],
+                        field_label=label, raw_value=raw, page=page,
+                        section=section_heading(chunk["section"]),
+                        source_text=" ".join(p for p in (label, kept["value"], kept["unit"]) if p),
+                        review_run_id=review_run_id,
+                        confidence=0.6, extraction_method=vision_reader.METHOD,
+                        equipment_tag=tags.get(page), commit=False,
+                        extractor_version=vision_version, input_hash=inputs,
+                        bbox=json.dumps(provenance_box, sort_keys=True),
+                        unit=printed_unit, printed_unit=printed_unit,
+                    )
+                except FactError:
+                    vision_dropped["refused by create_fact"] = vision_dropped.get(
+                        "refused by create_fact", 0) + 1
+                    continue
+                vision_written += 1
+                page_vision += 1
+                written += 1
             if page_written == 0:
                 reason = _unparsed_reason(pairs, dropped)
                 if page_geometry:
@@ -2617,6 +2773,11 @@ def extract_facts(
                     # verdict until the owner decides otherwise.
                     reason = (f"{reason}; {page_geometry} geometry-reader reading(s) "
                               "recorded, not counted as the page read into fields")
+                if geometry_on:
+                    # B4 item 1: what the vision reader did with this page -
+                    # the same ledger rule as the geometry reader (a reading
+                    # is recorded; it does not make the page "read").
+                    reason = f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}"
                 unparsed.append({"page": page, "reason": reason})
                 outcomes[page] = ("no_facts", 0, reason)
             else:
@@ -2631,7 +2792,15 @@ def extract_facts(
     pages_read = len(by_page)
     # Only with the flag on, so the OFF result is exactly the pre-B4 one.
     geometry_counts = ({"geometry_facts": geometry_written,
-                        "geometry_conflicts": geometry_conflicts} if geometry_on else {})
+                        "geometry_conflicts": geometry_conflicts,
+                        "vision_facts": vision_written,
+                        "vision_pages_asked": vision_pages_asked,
+                        "vision_dropped": dict(sorted(vision_dropped.items())),
+                        "vision_proposals_dropped": dict(sorted(_sum_drops(vision_by_page).items())),
+                        "vision_unavailable": vision_unavailable,
+                        "vision_refused": sorted({r.refused for r in vision_by_page.values()
+                                                  if r is not None and r.refused})}
+                       if geometry_on else {})
     return {
         **geometry_counts,
         "document_id": document_id,

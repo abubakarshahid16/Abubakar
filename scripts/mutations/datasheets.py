@@ -137,8 +137,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="lose the gauge reference, comparing a gauge pressure "
                     "against an absolute limit",
         path=APP / "datasheets.py",
-        anchor="    base_unit, unit_reference = claims.split_reference(unit)",
-        replacement="    base_unit, unit_reference = unit, None",
+        # Re-anchored (B4 quality): the printed unit is split since B4.
+        anchor="    base_unit, unit_reference = claims.split_reference(raw_unit)",
+        replacement="    base_unit, unit_reference = raw_unit, None",
         target="tests/test_fact_gates.py",
         keyword="reference_is_stored_on_the_fact_row",
         tags=("critical",),
@@ -720,6 +721,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
                "        # B4 fix 5: column grids, read by word position (see grid_facts).\n"
                "        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n"
+               "        if geometry_on:\n"
+               "            # B4 (#193 5.5): read, not yet written - see the write loop.\n"
+               "            geometry_by_page[page] = _geometry_rows_from_pdf_page(stored_path, page)\n"
+               "            vision_by_page[page] = _vision_reading(\n"
+               "                stored_path, page, geometry_by_page[page], vision_provider)\n"
                "        if not found and not grid_by_page[page]:",
         replacement="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
                     "        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n"
@@ -1083,5 +1089,66 @@ MUTATIONS: tuple[Mutation, ...] = (
         target='tests/test_geometry_wiring.py',
         keyword='keeps_the_unit_the_reader',
         tags=('extraction', 'units'),
+    ),
+    Mutation(
+        id='M649', phase=64,
+        description='B4 vision: the vision provider is asked with the flag off',
+        path=APP / 'datasheets.py',
+        anchor=('    if geometry_on:\n'
+                '        from . import vision_reader\n'
+                '        vision_provider, vision_unavailable = vision_reader.provider()\n'),
+        replacement=('    if True:\n'
+                     '        from . import vision_reader\n'
+                     '        vision_provider, vision_unavailable = vision_reader.provider()\n'),
+        target='tests/test_b4_quality.py', keyword='off_never_asks_the_vision_reader',
+        tags=('egress', 'critical'),
+    ),
+    Mutation(
+        id='M650', phase=64,
+        description='B4 vision: proved vision readings are never written',
+        path=APP / 'datasheets.py',
+        anchor='            vision_by_page[page] = _vision_reading(\n',
+        replacement='            vision_by_page[page] = None and _vision_reading(\n',
+        target='tests/test_b4_quality.py', keyword='records_proved_vision_readings',
+    ),
+    Mutation(
+        id='M651', phase=64,
+        description='B4 noise: the noise filter never runs on the rule reader',
+        path=APP / 'datasheets.py',
+        anchor=('                noise = (row_noise.noise_reason(label, value)\n'
+                '                         if geometry_on and not blank else None)\n'),
+        replacement=('                noise = (row_noise.noise_reason(label, value)\n'
+                     '                         if False else None)\n'),
+        target='tests/test_b4_quality.py', keyword='noise_filter_runs_only_with_the_flag_on',
+    ),
+    Mutation(
+        id='M652', phase=64,
+        description='B4 vision: the ledger no longer says what the vision reader did',
+        path=APP / 'datasheets.py',
+        anchor='                    reason = f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}"\n',
+        replacement='                    pass\n',
+        target='tests/test_b4_quality.py', keyword='only_vision_readings_is_not_read',
+        tags=('honesty',),
+    ),
+    Mutation(
+        id='M653', phase=64,
+        description='B4 vision: a unit the quantity reader cannot join is lost',
+        path=APP / 'datasheets.py',
+        anchor='                        unit=printed_unit, printed_unit=printed_unit,\n',
+        replacement='                        printed_unit=printed_unit,\n',
+        target='tests/test_b4_quality.py', keyword='keeps_a_unit_the_quantity_reader',
+        tags=('units',),
+    ),
+    Mutation(
+        id='M658', phase=64,
+        description='B4 vision: a vision reading is stored beside a rule-reader fact it contradicts',
+        path=APP / 'datasheets.py',
+        anchor=('                if same_label:\n'
+                '                    why = ("same as rule/geometry reader"\n'),
+        replacement=('                if False:\n'
+                     '                    why = ("same as rule/geometry reader"\n'),
+        target='tests/test_b4_quality.py',
+        keyword='disagrees_with_the_rule_reader or never_a_second_row',
+        tags=('honesty', 'critical'),
     ),
 )

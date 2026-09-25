@@ -328,6 +328,12 @@ class Settings(BaseSettings):
     #: byte. When ON, a rule-reader fact for the same page and label always
     #: wins; a geometry reading that DISAGREES with it is kept with
     #: `validation_state='conflict'`, never used to overwrite it.
+    #: B4 items 1-3 (same flag): the VISION READER (`vision_reader.py`, Claude
+    #: only - it also needs REASONING_PROVIDER=claude and both standards-reader
+    #: egress flags) adds page-image readings kept only where code proves them
+    #: against the text layer (`extraction_method='vision'`); a code-only noise
+    #: filter (`row_noise.py`) drops page furniture from every reader; and
+    #: field naming covers blank fields too.
     #: Env: GEOMETRY_READER_ENABLED. The owner flips it.
     geometry_reader_enabled: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
