@@ -82,6 +82,23 @@ ON, a rule-reader fact for the same page and label always wins; a disagreeing
 geometry reading is stored with `validation_state='conflict'`, never used to
 overwrite. Live: OFF.
 
+**Table path alone - `GEOMETRY_TABLE_READER_ENABLED` (default `False`),
+2026-09-25.** Measured on a real vessel datasheet (owner-approved cloud test,
+no document content in the repo): its nozzle schedule - 20 nozzles, one row
+each across Mark / Size / Unit / Rating / Type / Facing / Service - produced
+0 facts on the default path (44 label/value pairs recovered, all rightly
+rejected by the value gate), and 123 correct facts from the table path. The
+form path on a pump sheet mis-paired fields ("IMPELLER DIA." -> "RATED *"),
+so the new flag turns on the TABLE path only; the form path and the vision
+reader stay behind `GEOMETRY_READER_ENABLED`. Same precedence: a rule-reader
+fact wins, and a geometry reading does not make a page "read into fields" in
+the ledger. The table path also read the page-1 revision block as facts
+(names under a service-order row label), so a geometry table carrying two or
+more distinct revision-header words (Rev, Prepared, Checked, Approved,
+"Issued for", "Status Description") is dropped whole, under either flag
+(`row_noise.revision_table_ids`). Tests `test_b4_schedule_tables.py`,
+mutations M780-M785. **Live: ON by default** (owner decision 2026-09-25); `GEOMETRY_TABLE_READER_ENABLED=false` switches it off.
+
 ## Options considered
 
 | option | measured result | outcome |
