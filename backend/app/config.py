@@ -346,8 +346,10 @@ class Settings(BaseSettings):
     #: "IMPELLER DIA." with "RATED *". The same precedence as the full flag
     #: applies - a rule-reader fact always wins, and a geometry reading never
     #: makes a page "read into fields" in the ledger.
-    #: Env: GEOMETRY_TABLE_READER_ENABLED. OFF by default; the owner flips it.
-    geometry_table_reader_enabled: bool = False
+    #: Env: GEOMETRY_TABLE_READER_ENABLED. ON by default - owner decision
+    #: 2026-09-25, after the measurement above; set it false to go back to the
+    #: rule readers alone.
+    geometry_table_reader_enabled: bool = True
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow

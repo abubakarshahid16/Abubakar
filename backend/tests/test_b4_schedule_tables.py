@@ -11,7 +11,8 @@ the page-1 revision block into "facts" (people's names under a service-order
 label).
 
 So, and only this:
-  * GEOMETRY_TABLE_READER_ENABLED (off by default) runs the table path alone;
+  * GEOMETRY_TABLE_READER_ENABLED runs the table path alone - ON by default
+    (owner decision 2026-09-25);
   * a table carrying the revision header's words is dropped whole.
 
 Synthetic PDFs only - no client document is read (CLAUDE.md rule 3).
@@ -129,8 +130,9 @@ def _all_current(doc_id: str) -> dict[str, str]:
 
 # ------------------------------------------------------------------ the flag
 
-def test_the_table_flag_is_off_by_default():
-    assert Settings.model_fields["geometry_table_reader_enabled"].default is False
+def test_the_table_flag_is_on_by_default():
+    """Owner decision 2026-09-25: schedules are read unless switched off."""
+    assert Settings.model_fields["geometry_table_reader_enabled"].default is True
 
 
 def test_off_the_schedule_yields_no_geometry_fact(tmp_path):

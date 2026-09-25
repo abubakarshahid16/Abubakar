@@ -97,7 +97,7 @@ the ledger. The table path also read the page-1 revision block as facts
 more distinct revision-header words (Rev, Prepared, Checked, Approved,
 "Issued for", "Status Description") is dropped whole, under either flag
 (`row_noise.revision_table_ids`). Tests `test_b4_schedule_tables.py`,
-mutations M780-M785. Live: OFF until the owner flips it.
+mutations M780-M785. **Live: ON by default** (owner decision 2026-09-25); `GEOMETRY_TABLE_READER_ENABLED=false` switches it off.
 
 ## Options considered
 

@@ -169,6 +169,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "b4q.sqlite")
     monkeypatch.setattr(settings, "geometry_reader_enabled", False)
+    monkeypatch.setattr(settings, "geometry_table_reader_enabled", False)
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()

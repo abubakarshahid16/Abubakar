@@ -1289,11 +1289,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_D, keyword='split_off_a_label_only_when_it_is_a_unit', tags=('honesty',),
     ),
     Mutation(
-        id="M780", phase=67, description="B4 schedules: the table-only reader is ON by default",
+        id="M780", phase=67, description="B4 schedules: the table-only reader is OFF by default",
         path=APP / "config.py",
-        anchor="    geometry_table_reader_enabled: bool = False\n",
-        replacement="    geometry_table_reader_enabled: bool = True\n",
-        target="tests/test_b4_schedule_tables.py", keyword="table_flag_is_off_by_default",
+        anchor="    geometry_table_reader_enabled: bool = True\n",
+        replacement="    geometry_table_reader_enabled: bool = False\n",
+        target="tests/test_b4_schedule_tables.py", keyword="table_flag_is_on_by_default",
     ),
     Mutation(
         id="M781", phase=67, description="B4 schedules: the table flag is ignored - a schedule yields nothing",
