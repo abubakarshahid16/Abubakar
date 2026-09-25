@@ -42,6 +42,7 @@ import type {
   ReviewDashboard,
   CrsPreview,
   ReviewRunStandard,
+  ReviewRunMissingReference,
   ReviewRunSummary,
   PagesResponse,
   ClassificationVocabulary,
@@ -346,7 +347,7 @@ export const reviews = {
     ),
   /** Which standards a run compared against, and why each one is there. */
   reviewRunStandards: (runId: string) =>
-    request<{ standards: ReviewRunStandard[] }>(
+    request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
       `/reviews/runs/${encodeURIComponent(runId)}/standards`,
       undefined,
       hasArrayField("standards"),

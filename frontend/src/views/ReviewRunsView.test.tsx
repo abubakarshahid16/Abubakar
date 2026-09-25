@@ -149,3 +149,46 @@ describe("B3: the pages a run read into fields", () => {
     expect(within(runButton).queryByTestId("page-coverage")).toBeNull();
   });
 });
+
+describe("B5: the standards in scope carry their evidence and the missing ones", () => {
+  it("shows the citation line and the cited standards not held", async () => {
+    reviewRunStandards.mockResolvedValue({
+      ok: true,
+      data: {
+        standards: [{
+          standard_document_id: "std-610", filename: "API-610.pdf",
+          selection_method: "referenced",
+          selection_reason: "named in the submittal as API 610 (page 1)",
+          confidence: 0.9, included: true, exclusion_reason: null,
+          evidence_page: 1, evidence_quote: "Pump shall comply with API 610 and API 682.",
+          scope_decision: null,
+        }],
+        missing_references: [{ identifier: "API 682", status: "MISSING_LOCALLY" }],
+      },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /standards in scope — why\?/i }));
+
+    // Positive first: the applied standard and its reason rendered.
+    expect(await screen.findByText("API-610.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/Evidence, page 1: “Pump shall comply with API 610 and API 682\.”/))
+      .toBeInTheDocument();
+    const note = screen.getByRole("note");
+    expect(within(note).getByText(/not held locally - not checked \(1\)/)).toBeInTheDocument();
+    expect(within(note).getByText("API 682")).toBeInTheDocument();
+  });
+
+  it("names the missing standards even when nothing was selected", async () => {
+    reviewRunStandards.mockResolvedValue({
+      ok: true,
+      data: { standards: [], missing_references: [{ identifier: "API 682", status: "MISSING_LOCALLY" }] },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /standards in scope — why\?/i }));
+
+    expect(await screen.findByText("No standards were selected for this run.")).toBeInTheDocument();
+    expect(within(screen.getByRole("note")).getByText("API 682")).toBeInTheDocument();
+  });
+});

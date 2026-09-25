@@ -40,9 +40,11 @@ keyword-only, so access filters before ranking rather than after.
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from . import datasheets, keyword, standards, submittal_review
 from .db import connect
@@ -59,6 +61,27 @@ METHOD_SERVICE = "service"                # 4. service / operating conditions
 METHOD_SEMANTIC = "semantic"              # 5. dense retrieval
 METHOD_PROJECT = "project"                # 6. contract / project requirement
 METHOD_MANUAL = "manual"                  # an engineer's own decision
+#: B5: the standard's own SCOPE CLAUSE names the submittal's equipment
+#: (applicability_v2.decide on a stored, verified scope record).
+METHOD_SCOPE = "scope"
+
+#: B5 (live wiring, 2026-09-25): methods that are EVIDENCE a standard governs
+#: this submittal - it is cited, or it is classified for this equipment,
+#: service or project, or its scope clause names it. A discipline match alone
+#: ("mechanical" and "mechanical") and textual similarity are only reasons to
+#: LOOK: before this, both were included, so every mechanical standard in the
+#: library was compared against every mechanical datasheet. They are recorded
+#: as considered and not included, with the reason, and an engineer may add
+#: any of them (`override`).
+INCLUDING_METHODS = frozenset({
+    "manual", "referenced", "equipment_type", "scope", "service", "project"})
+CANDIDATE_ONLY_REASON = {
+    "discipline": ("a shared discipline alone is not evidence that this standard "
+                   "governs this equipment; considered, not included - an engineer "
+                   "may add it"),
+    "semantic": ("similar wording alone is not evidence of applicability; "
+                 "considered, not included - an engineer may add it"),
+}
 
 #: Priority order, lowest number wins when two rules pick the same standard.
 #: A standard both cited and semantically similar is recorded as CITED: the
@@ -67,6 +90,7 @@ _PRIORITY = {
     METHOD_MANUAL: 0,
     METHOD_REFERENCED: 1,
     METHOD_EQUIPMENT: 2,
+    METHOD_SCOPE: 2,
     METHOD_DISCIPLINE: 3,
     METHOD_SERVICE: 4,
     METHOD_SEMANTIC: 5,
@@ -81,6 +105,7 @@ _CONFIDENCE = {
     METHOD_MANUAL: 0.9,
     METHOD_REFERENCED: 0.9,
     METHOD_EQUIPMENT: 0.7,
+    METHOD_SCOPE: 0.7,
     METHOD_DISCIPLINE: 0.5,
     METHOD_SERVICE: 0.5,
     METHOD_SEMANTIC: 0.4,
@@ -185,6 +210,132 @@ def _referenced_in_submittal(document_id: str,
         "SELECT text FROM chunks" + where + " AND document_id = ?",
         [*args, document_id]).fetchall()
     return datasheets.referenced_standards(" ".join(r["text"] or "" for r in rows))
+
+
+def citation_evidence(document_id: str, identifier: str,
+                      allowed_document_ids: frozenset[str]) -> tuple[int | None, str | None]:
+    """WHERE the submittal cites `identifier`: (page, the line it is on).
+
+    B5: "named in the submittal" is a reason; the page and the printed line
+    are the EVIDENCE an engineer checks it against. Read from the submittal's
+    own chunks under the caller's grants, with the same detector selection
+    uses, so the evidence is the citation that was matched. (None, None) when
+    no single chunk carries it - never a guessed page.
+    """
+    key = normalise_identifier(identifier)
+    where, args = _scope_clause(allowed_document_ids, "document_id")
+    rows = connect().execute(
+        "SELECT page_start, text FROM chunks" + where + " AND document_id = ?"
+        " ORDER BY page_start, ordinal", [*args, document_id]).fetchall()
+    for row in rows:
+        text = row["text"] or ""
+        if not any(normalise_identifier(n) == key
+                   for n in datasheets.referenced_standards(text)):
+            continue
+        for line in text.splitlines():
+            if any(normalise_identifier(n) == key
+                   for n in datasheets.referenced_standards(line)):
+                return row["page_start"], " ".join(line.split())[:200]
+        return row["page_start"], None
+    return None, None
+
+
+# ------------------------------------------------ B5: the scope decision
+
+def load_taxonomy() -> dict | None:
+    """The owner-approved taxonomy (`settings.applicability_taxonomy_path`),
+    or None when none is approved or it cannot be read. Never a built-in
+    default: the taxonomy is a proposal until the owner approves one."""
+    from .config import settings
+    path = settings.applicability_taxonomy_path
+    # An empty APPLICABILITY_TAXONOMY_PATH= parses as Path("."), a directory:
+    # anything that is not a readable file is "no taxonomy approved".
+    if not path or not Path(path).is_file():
+        return None
+    try:
+        data = json.loads(open(path, encoding="utf-8").read())
+    except (OSError, ValueError):
+        return None
+    lexicon = {str(k).lower(): tuple(v) for k, v in (data.get("lexicon") or {}).items()
+               if isinstance(v, (list, tuple)) and len(v) == 2}
+    if not lexicon:
+        return None
+    return {"lexicon": lexicon, "types": dict(data.get("types") or {})}
+
+
+def store_scope_record(standard_document_id: str, record: dict, *,
+                       prompt_version: str | None = None,
+                       not_applicable_confirmed: bool = False) -> None:
+    """Keep a standard's VERIFIED scope record for the live review to read.
+
+    The caller has already dropped every item whose quote did not verify
+    (scope_records.verify). `not_applicable_confirmed` is True only when the
+    reader's three re-reads agreed on NOT_APPLICABLE."""
+    submittal_review.ensure_schema()
+    conn = connect()
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO standard_scope_records"
+            " (standard_document_id, record_json, prompt_version,"
+            "  not_applicable_confirmed, created_at) VALUES (?,?,?,?,?)",
+            (standard_document_id, json.dumps(record), prompt_version,
+             1 if not_applicable_confirmed else 0, _now()))
+
+
+def scope_record(standard_document_id: str) -> tuple[dict, bool] | None:
+    """(record, not_applicable_confirmed), or None when never read."""
+    row = connect().execute(
+        "SELECT record_json, not_applicable_confirmed FROM standard_scope_records"
+        " WHERE standard_document_id = ?", (standard_document_id,)).fetchone()
+    if row is None:
+        return None
+    try:
+        return json.loads(row["record_json"]), bool(row["not_applicable_confirmed"])
+    except ValueError:
+        return None
+
+
+def scope_profile(profile: dict, taxonomy: dict):
+    """The submittal as `applicability_v2.Profile`, from its classification's
+    equipment type named through the approved lexicon. Unknown stays None -
+    a profile with no type decides nothing but UNKNOWN."""
+    from . import applicability_v2
+    nodes = applicability_v2.nodes_for(profile.get("equipment_type"), taxonomy["lexicon"])
+    type_name = next((name for level, name in sorted(nodes) if level == applicability_v2.TYPE), None)
+    family = cls = None
+    if type_name is not None:
+        parents = taxonomy["types"].get(type_name) or {}
+        family, cls = parents.get("family"), parents.get("class")
+    return applicability_v2.Profile(type=type_name, family=family, cls=cls)
+
+
+def scope_decisions(library: list[dict], profile: dict) -> tuple[dict[str, dict], str | None]:
+    """{standard id: decision} for every library standard with a stored scope
+    record, and why the step did not run (None when it ran).
+
+    A NOT_APPLICABLE the reader did not confirm three times is reported as
+    UNKNOWN: the asymmetric rule of applicability_v2 - a wrong exclusion
+    hides a standard from the engineer, the worst error."""
+    from . import applicability_v2
+    taxonomy = load_taxonomy()
+    if taxonomy is None:
+        return {}, "scope clauses not checked: no equipment taxonomy is approved"
+    p = scope_profile(profile, taxonomy)
+    if p.type is None:
+        return {}, "scope clauses not checked: the submittal's equipment type is unknown"
+    out: dict[str, dict] = {}
+    for entry in library:
+        stored = scope_record(entry["id"])
+        if stored is None:
+            continue
+        record, confirmed = stored
+        decision = applicability_v2.decide(record, p, taxonomy["lexicon"])
+        if decision.get("decision") == applicability_v2.NOT_APPLICABLE and not confirmed:
+            decision = {**decision, "decision": applicability_v2.UNKNOWN,
+                        "basis": "NOT_APPLICABLE not confirmed by three re-reads; "
+                                 + str(decision.get("basis") or "")}
+        out[entry["id"]] = decision
+    return out, None
 
 
 # --------------------------------------------------------------- selection
@@ -424,8 +575,49 @@ def select(
     ]
     selected, missing = _semantic_cannot_cover_a_missing_reference(selected, missing)
 
+    # B5: THE EVIDENCE for every citation - the page and the line it is on.
+    for standard_id, row in selected.items():
+        if row["method"] == METHOD_REFERENCED and row.get("identifier"):
+            page, quote = citation_evidence(
+                submittal_document_id, row["identifier"], allowed_document_ids)
+            row["evidence_page"], row["evidence_quote"] = page, quote
+            if page is not None:
+                row["reason"] = f"{row['reason']} (page {page})"
+
+    # B5: THE SCOPE DECISION (applicability_v2) on every standard that has a
+    # stored, verified scope record - only with an approved taxonomy.
+    decisions, scope_not_run = scope_decisions(library, profile)
+    from . import applicability_v2 as v2
+    for standard_id, decision in decisions.items():
+        verdict = decision.get("decision")
+        evidence = {"evidence_page": decision.get("page"),
+                    "evidence_quote": decision.get("quote"),
+                    "scope_decision": verdict}
+        row = selected.get(standard_id)
+        if verdict == v2.APPLICABLE and (row is None or row["method"] not in INCLUDING_METHODS):
+            selected[standard_id] = {
+                "method": METHOD_SCOPE, "identifier": None, **evidence,
+                "reason": f"its scope clause covers this equipment: "
+                          f"\"{decision.get('quote') or ''}\" (page {decision.get('page')})"}
+        elif verdict == v2.NOT_APPLICABLE and row is not None:
+            if row["method"] == METHOD_REFERENCED:
+                # CITED STANDARDS ARE NEVER EXCLUDED BY A SCOPE READING: the
+                # datasheet says it governs. The disagreement is shown.
+                row["scope_decision"] = verdict
+                row["reason"] = (f"{row['reason']}; its scope clause reads as not "
+                                 f"covering this equipment (\"{decision.get('quote') or ''}\", "
+                                 f"page {decision.get('page')}) - engineer to confirm")
+            else:
+                row.update(evidence)
+                row["excluded_by_scope"] = (
+                    f"its scope clause excludes this equipment: "
+                    f"\"{decision.get('quote') or ''}\" (page {decision.get('page')})")
+        elif row is not None:
+            row["scope_decision"] = verdict
+
     if persist:
-        _persist(submittal_document_id, review_run_id, selected, allowed_document_ids)
+        _persist(submittal_document_id, review_run_id, selected, allowed_document_ids,
+                 scope_not_run=scope_not_run)
         _audit("review.applicability_selected", actor, submittal_document_id,
                detail=f"selected={len(selected)} missing={len(missing)} "
                       f"library={len(library)}")
@@ -433,10 +625,14 @@ def select(
     return {
         "submittal_document_id": submittal_document_id,
         "review_run_id": review_run_id,
+        # Every candidate with its method and reason; `included` says which
+        # ones the review applies (B5: evidence methods only).
         "selected": [
-            {"standard_document_id": sid, **row} for sid, row in sorted(
+            {"standard_document_id": sid, **row, "included": is_included(row)}
+            for sid, row in sorted(
                 selected.items(), key=lambda kv: _PRIORITY[kv[1]["method"]])
         ],
+        "scope_decision_not_run": scope_not_run,
         "missing_references": missing,
         "referenced_total": len(referenced),
         "library_size": len(library),
@@ -566,8 +762,13 @@ def applicability_with_reasons(submittal_document_id: str, *,
     """
     result = select(submittal_document_id,
                     allowed_document_ids=allowed_document_ids, persist=False)
+    # B5: only rows the review APPLIES are "selected"; a candidate the policy
+    # did not include (a discipline match alone, similar wording, a confirmed
+    # scope exclusion) is reported with that reason, never as applicable.
     selected_by_id = {row["standard_document_id"]: row
-                      for row in result["selected"]}
+                      for row in result["selected"] if row["included"]}
+    considered_by_id = {row["standard_document_id"]: row
+                        for row in result["selected"] if not row["included"]}
     profile = _submittal_profile(submittal_document_id)
     library = _library(allowed_document_ids)
     requirement_counts = {
@@ -596,6 +797,20 @@ def applicability_with_reasons(submittal_document_id: str, *,
                        "document_number": entry.get("document_number"),
                        "filename": entry.get("filename"),
                        "status": status, "reason": reason})
+            continue
+
+        considered = considered_by_id.get(std_id)
+        if considered is not None:
+            scoped_out = considered.get("excluded_by_scope")
+            out.append({
+                "standard_document_id": std_id,
+                "document_number": entry.get("document_number"),
+                "filename": entry.get("filename"),
+                "status": STATUS_NOT_APPLICABLE if scoped_out else STATUS_UNKNOWN,
+                "reason": scoped_out or (
+                    f"considered ({considered['method']}): {considered['reason']} - "
+                    + CANDIDATE_ONLY_REASON.get(considered["method"], "not included")),
+            })
             continue
 
         standard_has_profile = any(
@@ -661,7 +876,8 @@ def _audit(action: str, actor: dict | None, resource_id: str | None,
 def record_selection(
     *, review_run_id: str, standard_document_id: str, method: str,
     reason: str, confidence: float | None = None, included: bool = True,
-    exclusion_reason: str | None = None,
+    exclusion_reason: str | None = None, evidence_page: int | None = None,
+    evidence_quote: str | None = None, scope_decision: str | None = None,
 ) -> dict:
     """Write one row of `review_applicable_standards`.
 
@@ -698,6 +914,9 @@ def record_selection(
         "included": 1 if included else 0,
         "exclusion_reason": exclusion_reason,
         "created_at": _now(),
+        "evidence_page": evidence_page,
+        "evidence_quote": evidence_quote,
+        "scope_decision": scope_decision,
     }
     conn = connect()
     with conn:
@@ -711,16 +930,25 @@ def record_selection(
             """INSERT INTO review_applicable_standards
                (id, review_run_id, standard_document_id, selection_reason,
                 selection_method, confidence, included, exclusion_reason,
-                created_at)
+                created_at, evidence_page, evidence_quote, scope_decision)
                VALUES (:id, :review_run_id, :standard_document_id,
                        :selection_reason, :selection_method, :confidence,
-                       :included, :exclusion_reason, :created_at)""", row)
+                       :included, :exclusion_reason, :created_at,
+                       :evidence_page, :evidence_quote, :scope_decision)""", row)
     return row
+
+
+def is_included(row: dict) -> bool:
+    """B5: applied to the review only on EVIDENCE - a citation, an equipment,
+    service or project classification, a scope clause, or an engineer - and
+    never when a confirmed scope reading excludes it."""
+    return row["method"] in INCLUDING_METHODS and not row.get("excluded_by_scope")
 
 
 def _persist(submittal_document_id: str, review_run_id: str | None,
              selected: dict[str, dict],
-             allowed_document_ids: frozenset[str]) -> None:
+             allowed_document_ids: frozenset[str], *,
+             scope_not_run: str | None = None) -> None:
     """Write the selection, and the standards considered and RULED OUT.
 
     Every selectable standard the caller may read is accounted for: the ones
@@ -732,9 +960,20 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
     if not review_run_id:
         return
     for standard_id, row in selected.items():
+        included = is_included(row)
+        exclusion = None
+        if not included:
+            exclusion = row.get("excluded_by_scope") or CANDIDATE_ONLY_REASON.get(
+                row["method"], "not evidence that this standard governs the submittal")
+            if scope_not_run and not row.get("excluded_by_scope"):
+                exclusion = f"{exclusion}; {scope_not_run}"
         record_selection(
             review_run_id=review_run_id, standard_document_id=standard_id,
-            method=row["method"], reason=row["reason"], included=True)
+            method=row["method"], reason=row["reason"], included=included,
+            exclusion_reason=exclusion,
+            evidence_page=row.get("evidence_page"),
+            evidence_quote=row.get("evidence_quote"),
+            scope_decision=row.get("scope_decision"))
     for entry in _library(allowed_document_ids):
         if entry["id"] in selected:
             continue
@@ -744,7 +983,8 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
             reason="considered from the library and not selected",
             included=False,
             exclusion_reason="no citation, equipment, discipline, service or "
-                             "project match with this submittal",
+                             "project match with this submittal"
+                             + (f"; {scope_not_run}" if scope_not_run else ""),
         )
 
 

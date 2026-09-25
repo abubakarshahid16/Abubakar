@@ -414,6 +414,18 @@ export interface ReviewRunStandard {
   confidence: number | null;
   included: boolean;
   exclusion_reason: string | null;
+  /** B5: where the submittal cites it, or the scope clause that decided it.
+   *  Null when there is no such evidence. */
+  evidence_page?: number | null;
+  evidence_quote?: string | null;
+  scope_decision?: string | null;
+}
+
+/** B5: a standard the submittal cites that the library does not hold. */
+export interface ReviewRunMissingReference {
+  identifier: string;
+  /** "MISSING_LOCALLY" */
+  status: string;
 }
 
 /**

@@ -330,6 +330,13 @@ class Settings(BaseSettings):
     #: `validation_state='conflict'`, never used to overwrite it.
     #: Env: GEOMETRY_READER_ENABLED. The owner flips it.
     geometry_reader_enabled: bool = False
+    #: B5: the OWNER-APPROVED equipment taxonomy the scope decision
+    #: (`applicability_v2.decide`) matches scope terms against - a JSON file
+    #: `{"lexicon": {phrase: [level, name]}, "types": {type: {"family": ...,
+    #: "class": ...}}}`. None (the default) means no taxonomy is approved, and
+    #: the live review records that the scope decision was not run rather than
+    #: deciding with an unapproved one. Env: APPLICABILITY_TAXONOMY_PATH.
+    applicability_taxonomy_path: Path | None = None
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow

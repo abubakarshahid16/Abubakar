@@ -1886,8 +1886,14 @@ def review_run_standards(
             "confidence": row.get("confidence"),
             "included": bool(row.get("included", 1)),
             "exclusion_reason": row.get("exclusion_reason"),
+            "evidence_page": row.get("evidence_page"),
+            "evidence_quote": row.get("evidence_quote"),
+            "scope_decision": row.get("scope_decision"),
         })
-    return {"standards": out}
+    outcome = comparison_mod.run_outcome(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
+    return {"standards": out,
+            "missing_references": outcome.get("missing_references") or []}
 
 
 @app.post("/api/reviews/run", response_model=schemas.ReviewRunSummary,
@@ -1937,11 +1943,16 @@ def start_review_run(
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, f"the review failed: {exc}")) from exc
     try:
-        applicability_mod.select(
+        # B5: the selection's own findings reach the code. The standards the
+        # submittal cites and the library lacks were computed here and thrown
+        # away, so a sheet citing only missing standards reached "Approved".
+        selection = applicability_mod.select(
             document_id, allowed_document_ids=scope.allowed_document_ids,
             review_run_id=run_id, persist=True)
         comparison_mod.run_comparison(
-            run_id, allowed_document_ids=scope.allowed_document_ids)
+            run_id, allowed_document_ids=scope.allowed_document_ids,
+            reference_coverage=selection.get("reference_coverage"),
+            missing_references=[m["identifier"] for m in selection["missing_references"]])
     except Exception as exc:  # noqa: BLE001 - recorded on the run, then shown
         with connect() as conn:
             conn.execute(
@@ -3362,8 +3373,51 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
         "recommended_code_reason": (
             run.get("override_reason") if run.get("engineer_final_code")
             else outcome.get("reason")) or "",
+        "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
     }
     return rows, meta, submittal_name, stamp
+
+
+def _crs_standards(review_run_id: str, submittal_id: str,
+                   allowed: frozenset[str]) -> list[dict]:
+    """B5: the CRS's "Applicable standards" sheet - every standard the run
+    considered, under the caller's grants (a standard they may not read is
+    not listed), applied ones first, then the cited standards not held.
+
+    The names come from the scoped rows only, never from an unscoped read of
+    every filename in the database."""
+    rows = submittal_review_mod.list_applicable_standards(
+        review_run_id, allowed_document_ids=allowed, include_excluded=True)
+    ids = [r["standard_document_id"] for r in rows]
+    names = {}
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        names = {r["id"]: r["filename"] for r in connect().execute(
+            f"SELECT id, filename FROM documents WHERE id IN ({marks})", ids)}
+    out = []
+    for row in rows:
+        included = bool(row.get("included", 1))
+        evidence = ""
+        if row.get("evidence_page") is not None:
+            evidence = f"page {row['evidence_page']}"
+            if row.get("evidence_quote"):
+                evidence += f": {row['evidence_quote']}"
+        out.append({
+            "standard": names.get(row["standard_document_id"]) or "",
+            "status": (crs_export_mod.STATUS_APPLIED if included
+                       else crs_export_mod.STATUS_CONSIDERED),
+            "method": row.get("selection_method") or "",
+            "reason": (row.get("selection_reason") or "") + (
+                "" if included else f" - {row.get('exclusion_reason') or ''}"),
+            "evidence": evidence,
+        })
+    for ref in _missing_references(submittal_id, allowed):
+        out.append({"standard": ref, "status": comparison_mod.MISSING_LOCALLY,
+                    "method": "referenced",
+                    "reason": "cited by the submittal and not held locally; "
+                              "its requirements were not checked",
+                    "evidence": ""})
+    return out
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs",
