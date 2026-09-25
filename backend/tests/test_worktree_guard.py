@@ -120,6 +120,42 @@ def test_the_hook_switches_the_live_checkout_straight_back_to_main(tmp_path):
     assert "REFUSED" in run.stderr
 
 
+def test_git_pull_on_main_in_the_live_checkout_is_not_refused(tmp_path):
+    """Owner check: the live checkout's only routine operation is `git pull
+    origin main`. A pull (fetch + fast-forward merge) must still work with the
+    hook installed and must never print REFUSED; neither must a
+    `git checkout main` while already on main."""
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    live = tmp_path / "live"
+    live.mkdir()
+    _init_repo(live, "main")
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=live, check=True)
+    subprocess.run(["git", "push", "-q", "origin", "main"], cwd=live, check=True)
+    env = _install_hook(live)
+    # a second clone pushes a new commit to main
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", str(remote), str(other)], check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=other, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=other, check=True)
+    (other / "new.txt").write_text("y", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=other, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "second"], cwd=other, check=True)
+    subprocess.run(["git", "push", "-q", "origin", "main"], cwd=other, check=True)
+
+    pull = subprocess.run(["git", "pull", "origin", "main"], cwd=live,
+                          capture_output=True, text=True, env=env)
+    assert pull.returncode == 0, pull.stderr
+    assert "REFUSED" not in pull.stdout + pull.stderr
+    assert (live / "new.txt").exists()
+    assert _branch(live) == "main"
+
+    again = subprocess.run(["git", "checkout", "main"], cwd=live,
+                           capture_output=True, text=True, env=env)
+    assert again.returncode == 0
+    assert "REFUSED" not in again.stdout + again.stderr
+
+
 def test_the_hook_leaves_a_linked_worktree_on_its_branch(tmp_path):
     main = tmp_path / "live"
     main.mkdir()

@@ -6091,6 +6091,19 @@ B5_STANDARDS_INVENTORY = (
         keyword="the_hook_switches_the_live_checkout_straight_back_to_main",
         tags=("safety", "live"),
     ),
+    Mutation(
+        id="M533", phase=61,
+        description="flag the live checkout even when it is on main, so a "
+                    "routine checkout/pull of main prints REFUSED (slow, "
+                    "about 12 min: the mutant re-fires the hook on its own "
+                    "switch back to main)",
+        path=REPO / "scripts" / "worktree_guard.py",
+        anchor="    if branch == LIVE_BRANCH:\n        return None\n",
+        replacement="    if branch == 'never-a-branch':\n        return None\n",
+        target="tests/test_worktree_guard.py",
+        keyword="git_pull_on_main_in_the_live_checkout_is_not_refused",
+        tags=("safety", "live"),
+    ),
 )
 
 

@@ -24,7 +24,9 @@ git config core.hooksPath .githooks
 Check it took with `git config --get core.hooksPath` (it must print
 `.githooks`). The hook also needs `gitleaks` on `PATH` or at one of the
 locations it searches; without it the hook blocks the commit rather than
-passing it unscanned.
+passing it unscanned. The same setting enables `.githooks/post-checkout`,
+which keeps the main working tree (the live checkout) on `main`; do branch
+work in a worktree under `.claude/worktrees/`.
 
 ## Branches
 
