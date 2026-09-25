@@ -318,4 +318,49 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="tests/test_b4_quality.py", keyword="worst_case_counts_the_image",
         tags=("budget", "critical"),
     ),
+    # ---- b5-quality 2026-09-25: Message Batches (claude_spend, reader_transport)
+    Mutation(
+        id="M670", phase=62,
+        description="a batch result is charged at the full price (the batch discount is dropped)",
+        path=APP / "claude_spend.py",
+        anchor="            + int(usage.get(\"cache_read_input_tokens\") or 0) * p_read) / 1_000_000\n"
+               "    return full * BATCH_DISCOUNT if batch else full\n",
+        replacement="            + int(usage.get(\"cache_read_input_tokens\") or 0) * p_read) / 1_000_000\n"
+                    "    return full\n",
+        target="tests/test_claude_provider.py",
+        keyword="priced_at_half",
+        tags=("budget",),
+    ),
+    Mutation(
+        id="M671", phase=62,
+        description="a batch is created without checking its worst case against the caps",
+        path=APP / "reasoning_provider.py",
+        anchor="            for step in steps:\n                claude_spend.ensure_affordable(step, worst)\n",
+        replacement="            for step in ():\n                claude_spend.ensure_affordable(step, worst)\n",
+        target="tests/test_claude_provider.py",
+        keyword="refused_before_it_is_created",
+        tags=("safety", "budget"),
+    ),
+    Mutation(
+        id="M672", phase=62,
+        description="the batch calls skip gate 1 (both egress flags)",
+        path=APP / "reader_transport.py",
+        anchor="    \"\"\"One request through the gates; returns the httpx response.\"\"\"\n    if not available():\n",
+        replacement="    \"\"\"One request through the gates; returns the httpx response.\"\"\"\n    if False:\n",
+        target="tests/test_reader_transport.py",
+        keyword="flags_off_no_batch",
+        tags=("privacy", "egress"),
+    ),
+    Mutation(
+        id="M673", phase=62,
+        description="a results_url from the provider's answer is fetched without the https/host gate",
+        path=APP / "reader_transport.py",
+        anchor="    if not url.startswith(\"https://\") or host not in ReaderSettings.from_env().allowed_hosts:\n"
+               "        raise ReaderRefused(f\"reader transport refuses host {host!r}\")\n    sent = ",
+        replacement="    if False:\n"
+                    "        raise ReaderRefused(f\"reader transport refuses host {host!r}\")\n    sent = ",
+        target="tests/test_reader_transport.py",
+        keyword="results_url_from_the_answer",
+        tags=("privacy", "egress"),
+    ),
 )

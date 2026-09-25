@@ -190,3 +190,88 @@ def test_a_model_that_rejects_temperature_is_not_sent_one():
     rp.ClaudeProvider("claude-haiku-4-5-20251001", transport=_transport(seen=seen)).reason(_packet())
     assert "temperature" not in seen[0]["body"]
     assert seen[1]["body"]["temperature"] == 0.0
+
+
+# ------------------------------------------------ Message Batches (half price)
+
+class FakeBatches:
+    """Stands in for `reader_transport`'s three batch calls. No network."""
+
+    def __init__(self, answers, *, status_rounds=1, usage=None, drop=()):
+        self.answers, self.status_rounds, self.drop = answers, status_rounds, set(drop)
+        self.usage = usage or {"input_tokens": 1000, "output_tokens": 100}
+        self.created, self.polls = [], 0
+
+    def batch_create(self, url, *, headers, requests):
+        self.created.append({"url": url, "requests": requests})
+        return {"id": "msgbatch_1", "processing_status": "in_progress"}
+
+    def batch_retrieve(self, url, batch_id, *, headers):
+        self.polls += 1
+        ended = self.polls >= self.status_rounds
+        return {"id": batch_id, "processing_status": "ended" if ended else "in_progress",
+                "results_url": "https://api.anthropic.com/v1/messages/batches/msgbatch_1/results"}
+
+    def batch_results(self, url, *, headers):
+        rows = []
+        for n, req in enumerate(self.created[-1]["requests"]):
+            if req["custom_id"] in self.drop:
+                continue
+            rows.append({"custom_id": req["custom_id"], "result": {"type": "succeeded", "message": {
+                "model": "claude-haiku-4-5-20251001", "stop_reason": "end_turn", "usage": self.usage,
+                "content": [{"type": "text", "text": self.answers[n % len(self.answers)]}]}}})
+        return rows
+
+
+def _no_sleep(_seconds):
+    return None
+
+
+def test_batch_results_are_priced_at_half_and_marked_in_the_ledger():
+    """THE MUTATION TARGET (M670): the batch discount is dropped."""
+    fake = FakeBatches(['{"a": 1}', '{"a": 2}'], status_rounds=2)
+    out = rp.ClaudeProvider("claude-haiku-4-5").reason_batch(
+        [_packet(prompt="one"), _packet(prompt="two")], client=fake, sleep=_no_sleep)
+    assert [r.text for r in out] == ['{"a": 1}', '{"a": 2}'] and fake.polls == 2
+    full = claude_spend.cost_usd("claude-haiku-4-5", fake.usage)
+    ledger = claude_spend.entries()
+    assert [e["cost_usd"] for e in ledger] == [round(full / 2, 6)] * 2
+    assert all(e.get("batch") is True for e in ledger)
+    assert claude_spend.worst_case_usd("claude-haiku-4-5", 3000, 500, batch=True) == pytest.approx(
+        claude_spend.worst_case_usd("claude-haiku-4-5", 3000, 500) / 2)
+
+
+def test_a_batch_that_could_cross_a_cap_is_refused_before_it_is_created(monkeypatch):
+    """THE MUTATION TARGET (M671): the whole batch's worst case is checked
+    before anything leaves."""
+    monkeypatch.setattr(settings, "claude_budget_usd_per_step", 0.0001)
+    fake = FakeBatches(['{"a": 1}'])
+    with pytest.raises(claude_spend.BudgetExceeded):
+        rp.ClaudeProvider("claude-haiku-4-5").reason_batch([_packet()], client=fake, sleep=_no_sleep)
+    assert fake.created == []
+
+
+def test_a_cached_packet_is_not_sent_in_a_batch():
+    first = FakeBatches(['{"a": 1}'])
+    rp.ClaudeProvider("claude-haiku-4-5").reason_batch([_packet(prompt="same")], client=first, sleep=_no_sleep)
+    again = FakeBatches(['{"a": 9}'])
+    out = rp.ClaudeProvider("claude-haiku-4-5").reason_batch([_packet(prompt="same"), _packet(prompt="new")],
+                                                             client=again, sleep=_no_sleep)
+    assert [r["custom_id"] for r in again.created[0]["requests"]] == ["r1"]
+    assert out[0].text == '{"a": 1}' and out[0].cost_usd == 0.0
+
+
+def test_a_request_with_no_result_is_an_error_answer_not_a_missing_one():
+    fake = FakeBatches(['{"a": 1}'], drop={"r1"})
+    out = rp.ClaudeProvider("claude-haiku-4-5").reason_batch(
+        [_packet(prompt="x"), _packet(prompt="y", json_schema={"type": "object"})], client=fake,
+        sleep=_no_sleep)
+    assert out[1].finish_reason == "error" and out[1].text == "" and out[1].schema_errors
+
+
+def test_a_batch_carries_no_key_in_its_bodies_and_the_ledger_no_text():
+    fake = FakeBatches(['{"a": 1}'])
+    rp.ClaudeProvider("claude-haiku-4-5").reason_batch([_packet(prompt="SECRET SENTENCE")], client=fake,
+                                                       sleep=_no_sleep)
+    assert KEY not in json.dumps(fake.created[0]["requests"])
+    assert "SECRET SENTENCE" not in settings.claude_spend_log.read_text(encoding="utf-8")

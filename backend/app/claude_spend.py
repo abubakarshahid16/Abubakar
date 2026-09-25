@@ -38,6 +38,10 @@ PRICES: dict[str, tuple[float, float, float, float]] = {
 }
 #: The price used for a model id not in the table: the dearest listed.
 _UNKNOWN = max(PRICES.values())
+#: Message Batches API: every token at half the list price (same pricing
+#: page, "Batch processing"). Applied to all four rates; the caps and the
+#: ledger are the same as for a single call.
+BATCH_DISCOUNT = 0.5
 
 
 class BudgetExceeded(RuntimeError):
@@ -53,25 +57,28 @@ def price_for(model: str | None) -> tuple[float, float, float, float]:
     return _UNKNOWN
 
 
-def cost_usd(model: str | None, usage: dict | None) -> float:
-    """USD for one call from the API's `usage` block."""
+def cost_usd(model: str | None, usage: dict | None, *, batch: bool = False) -> float:
+    """USD for one call from the API's `usage` block; a Message Batches
+    result (`batch=True`) at half price."""
     usage = usage or {}
     p_in, p_out, p_write, p_read = price_for(model)
-    return (int(usage.get("input_tokens") or 0) * p_in
+    full = (int(usage.get("input_tokens") or 0) * p_in
             + int(usage.get("output_tokens") or 0) * p_out
             + int(usage.get("cache_creation_input_tokens") or 0) * p_write
             + int(usage.get("cache_read_input_tokens") or 0) * p_read) / 1_000_000
+    return full * BATCH_DISCOUNT if batch else full
 
 
 def worst_case_usd(model: str | None, prompt_chars: int, max_tokens: int,
-                   image_tokens: int = 0) -> float:
+                   image_tokens: int = 0, *, batch: bool = False) -> float:
     """The most one call can cost: prompt at ~3 chars per token (generous -
     English runs nearer 4), plus any image's tokens (width x height / 750),
     priced as an uncached cache WRITE (the dearest input rate), plus every
-    allowed output token."""
+    allowed output token. Half for a batch request."""
     p_in, p_out, p_write, _ = price_for(model)
     tokens_in = prompt_chars // 3 + 1 + max(0, int(image_tokens))
-    return (tokens_in * max(p_in, p_write) + max_tokens * p_out) / 1_000_000
+    full = (tokens_in * max(p_in, p_write) + max_tokens * p_out) / 1_000_000
+    return full * BATCH_DISCOUNT if batch else full
 
 
 def _ledger_path() -> Path:
@@ -124,9 +131,10 @@ def ensure_affordable(step: str, worst_case: float, caps: Caps | None = None) ->
 
 
 def record(*, step: str, model: str, usage: dict | None, prompt_sha256: str,
-           wall_time_s: float, finish_reason: str) -> dict:
+           wall_time_s: float, finish_reason: str, batch: bool = False) -> dict:
     """Append one call to the ledger and return the entry. Counts and a
-    digest only - never text, never the key."""
+    digest only - never text, never the key. A batch result is priced at the
+    batch rate and marked `"batch": true`."""
     usage = usage or {}
     entry = {
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -135,10 +143,12 @@ def record(*, step: str, model: str, usage: dict | None, prompt_sha256: str,
         "output_tokens": int(usage.get("output_tokens") or 0),
         "cache_creation_input_tokens": int(usage.get("cache_creation_input_tokens") or 0),
         "cache_read_input_tokens": int(usage.get("cache_read_input_tokens") or 0),
-        "cost_usd": round(cost_usd(model, usage), 6),
+        "cost_usd": round(cost_usd(model, usage, batch=batch), 6),
         "prompt_sha256": prompt_sha256, "wall_time_s": round(wall_time_s, 3),
         "finish_reason": finish_reason,
     }
+    if batch:
+        entry["batch"] = True
     path = _ledger_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
