@@ -65,3 +65,35 @@ p95 2.45 s). Real boilerplate questions (2): named standard → answered from
 it at the right page 2/2; unscoped → flagged ambiguous 1/2 (the other's top
 passage is differently worded, a legitimate clause of another standard).
 Tests `test_b6c_understanding.py` (18); mutations M804–M811 8/8.
+
+**B6C merged: PR #249, merge commit `f00f560`.** CI green (8/8).
+
+## B7 – vision only where text/geometry reading failed (branch `feat/b7-vision-routing`)
+
+Before B7 the vision reader (Claude only, behind `GEOMETRY_READER_ENABLED`)
+was asked about EVERY page. Now `extract_facts` runs:
+
+1. a **plan pass** – rule + geometry readers, no vision, in a transaction that
+   is rolled back – to learn which pages record no fact;
+2. **routing** (`datasheets.vision_route`, deterministic): a page is sent only
+   if it recorded no fact, has a text layer to prove readings against (an
+   image-only page belongs to the OCR tier), and the per-document budget
+   (`VISION_MAX_PAGES_PER_DOCUMENT`, default 10) is not spent; the model is
+   called OUTSIDE any write transaction;
+3. the **real pass** writes rule, geometry and vision facts in one
+   transaction, with the unchanged B4 proof and precedence rules (a vision
+   reading is kept only when the text layer proves it; a rule or geometry fact
+   always wins).
+
+Every page's routing reason is in the result (`vision_routing`) and, for
+unread pages, in the page ledger. With the flag off extraction is one pass,
+exactly as before.
+
+Measured on the 3 real datasheets (model stubbed – nothing left the machine):
+23 pages → **6** routed to vision (−74% model calls); 17 already read by the
+text/geometry readers. Whether vision recovers information on those 6 pages
+needs the Claude lane (owner key + egress flags): **PENDING OWNER VALIDATION**.
+
+Tests `test_b7_vision_routing.py` (10); four B4 vision tests now force routing
+(they test proof/precedence, kept as defence in depth); mutations M812–M817
+6/6; B4 phase 64 30/30 after re-anchoring M649/M650/M652.

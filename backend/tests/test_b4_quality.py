@@ -233,6 +233,16 @@ def _with_vision(monkeypatch, fake):
     monkeypatch.setattr(vision_reader, "provider", lambda: (fake, None))
 
 
+def _force_vision_routing(monkeypatch):
+    """B7 routes only pages the text readers recorded nothing on, so a page
+    that also carries rule facts is never sent to the vision reader. These
+    tests are about what happens TO a vision reading (proof, precedence,
+    units) - kept as defence in depth - so they route the page regardless.
+    Routing itself is tested in test_b7_vision_routing.py."""
+    monkeypatch.setattr(datasheets, "vision_route",
+                        lambda **_k: (True, datasheets.VISION_ROUTED))
+
+
 def test_off_never_asks_the_vision_reader(world, monkeypatch):
     """THE MUTATION TARGET (M649): the flag off is the pre-B4 extraction -
     no image leaves, no vision or noise key in the result."""
@@ -252,6 +262,7 @@ def test_on_records_proved_vision_readings_and_the_rule_reader_wins(world, monke
     never stored; one that disagrees with a rule-reader fact is dropped."""
     doc = _store(world)
     monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    _force_vision_routing(monkeypatch)
     monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", lambda *_a: [])
     fake = VisionFake([
         {"label": "VOLTAGE", "value": "440", "unit": None},
@@ -276,6 +287,7 @@ def test_a_vision_reading_that_disagrees_with_the_rule_reader_is_dropped(world, 
     for a label the rule reader already read is never stored beside it."""
     doc = _store(world, [(50, 100, "SPEED:"), (140, 100, "2950 rpm")], "doc_d")
     monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    _force_vision_routing(monkeypatch)
     monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", lambda *_a: [])
     reading = vision_reader.PageReading(page=1, asked=True, page_kind="datasheet", proposed=1)
     reading.kept.append({"label": "SPEED", "value": "3000", "unit": "rpm", "proof": "p",
@@ -291,6 +303,7 @@ def test_a_vision_reading_of_a_rule_fact_label_is_never_a_second_row(world, monk
     items = [(50, 100, "SPEED:"), (140, 100, "2950 rpm")]
     doc = _store(world, items, "doc_s")
     monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    _force_vision_routing(monkeypatch)
     monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", lambda *_a: [])
     _with_vision(monkeypatch, VisionFake([{"label": "SPEED", "value": "2950", "unit": "rpm"}]))
     result = _extract(doc)
@@ -339,6 +352,7 @@ def test_a_vision_value_keeps_a_unit_the_quantity_reader_cannot_join(world, monk
     doc = _store(world, [(50, 100, "VAPOR PRESSURE bar a"), (220, 100, "0.35"),
                          (50, 140, "DRAIN Size"), (220, 140, "¾")], "doc_u")
     monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    _force_vision_routing(monkeypatch)
     monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", lambda *_a: [])
     _with_vision(monkeypatch, VisionFake([{"label": "VAPOR PRESSURE", "value": "0.35",
                                            "unit": "bar a"},

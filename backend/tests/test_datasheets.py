@@ -668,7 +668,7 @@ def test_175_wired_into_extract_facts_not_just_the_function():
     calls it. The CALL FORM, not the bare name - a comment naming the
     function would satisfy a bare-substring check without ever calling it."""
     import inspect
-    source = inspect.getsource(datasheets.extract_facts)
+    source = inspect.getsource(datasheets._extract_facts)  # B7: the body; extract_facts routes vision
     assert "pairs_from_table_shape(" in source, (
         "extract_facts's ruled-table loop still calls split_label_value "
         "directly - the fix exists but was never wired in")
