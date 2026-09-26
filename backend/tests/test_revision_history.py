@@ -232,3 +232,20 @@ def test_a_parenthetical_obligation_is_still_a_titled_heading():
     blocks = _segment([(3, "A.1 Coating system no. 1 (shall be pre-qualified)\n"
                            "Surface preparation to the specified grade is required.\n")])
     assert blocks[0].section == "A.1 Coating system no. 1 (shall be pre-qualified)"
+
+
+def test_a_change_table_vouches_for_numbers_the_body_prints_bare():
+    """A body that prints "4.2" alone above its sentence leaves a gap in the
+    4.x group the heading detector sees (4.1, 4.3, 4.4), and the gap refuses
+    4.3 and 4.4. The change table names 4.2 - a paragraph of THIS revision -
+    so it may vouch for the numbering, without ever setting a section."""
+    changes = ("Summary of Changes\nParagraph\nChange Type\n1\n4.2\nModification\n"
+               "Clarified the design basis.\n")
+    body = ("4\nDesign\n4.1 General\nThe design shall be prepared by a qualified engineer.\n"
+            "4.2\nDesign loads shall be taken from the governing building code.\n"
+            "4.3 Connections\nConnection details shall allow for erection tolerances.\n"
+            "4.4 Openings\nOpenings in panels shall be reinforced at their perimeter.\n")
+    blocks = _segment([(2, changes), (3, body)])
+    sections = {b.section for b in blocks if b.page_start == 3}
+    assert {"4.3 Connections", "4.4 Openings"} <= sections
+    assert not any(ch.is_revision_history(b.section) for b in blocks if b.page_start == 3)

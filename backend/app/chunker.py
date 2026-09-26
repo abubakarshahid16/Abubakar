@@ -954,6 +954,42 @@ def revision_history_regions(
     return regions
 
 
+#: A dotted paragraph number at the start of a line.
+_LEADING_DOTTED_NUMBER = re.compile(r"^\s*((?:[A-Z]\.)?\d+(?:\.\d+){1,4})(?![\d.]*\d)")
+
+
+def _history_paragraph_numbers(
+    pages: list[tuple[int, str]],
+    running: set[str],
+    history: dict[int, tuple[int, str]],
+) -> list[str]:
+    """The DOTTED paragraph numbers a revision history names - as evidence only.
+
+    A change table's paragraph column lists paragraphs of THIS revision, so it
+    is the document's own statement of which clause numbers exist. The body
+    does not always print a number in a form the heading detector collects:
+    one real standard prints "6.2.2" alone on its line with the requirement
+    beneath, so without this the 6.2 group read 1, 3, 4 ... and the gap
+    refused 6.2.3 to 6.2.7 as headings. The history's numbers may therefore
+    vouch for the hierarchy (`plausible_heading_numbers`), and still never set
+    a section - see revision_history_regions.
+
+    Dotted only. Bare integers are what ran the top-level walk into the teens;
+    they are left out, so the body's own 1, 2, 3 decide its top level.
+    """
+    found: list[str] = []
+    for page_no, raw in pages:
+        if page_no not in history:
+            continue
+        cleaned, _ = strip_running_lines(raw, running)
+        start = history[page_no][0]
+        for line in cleaned.splitlines()[start:]:
+            match = _LEADING_DOTTED_NUMBER.match(line)
+            if match:
+                found.append(match.group(1))
+    return found
+
+
 def _candidate_headings(
     pages: list[tuple[int, str]],
     running: set[str],
@@ -1021,9 +1057,10 @@ def segment_document(
     if numbered_paragraphs:
         candidates = _candidate_headings(pages, running, page_kinds,
                                          numbered_paragraphs=True, history=history)
-    allowed_numbers = plausible_heading_numbers(
-        _heading_number(h) for h in candidates
-    )
+    allowed_numbers = plausible_heading_numbers([
+        *(_heading_number(h) for h in candidates),
+        *_history_paragraph_numbers(pages, running, history),
+    ])
 
     kinds = page_kinds or {}
     for page_no, raw in pages:

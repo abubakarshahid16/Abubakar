@@ -72,4 +72,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="    lo = max(0, min(start - (_QUOTE_CHARS - (stop - start)) // 2, len(line) - _QUOTE_CHARS))\n",
              replacement="    lo = 0\n",
              target=_E, keyword="quoted_around_the_citation", tags=("citation",)),
+    Mutation(id="M911", phase=79, description="history: a change table no longer vouches for the body's numbering",
+             path=APP / "chunker.py", anchor="        *_history_paragraph_numbers(pages, running, history),\n",
+             replacement="",
+             target=_H, keyword="vouches_for_numbers", tags=("citation",)),
 )
