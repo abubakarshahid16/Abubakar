@@ -347,19 +347,23 @@ def test_a_page_with_only_vision_readings_is_not_read_and_says_why(world, monkey
 
 
 def test_a_vision_value_keeps_a_unit_the_quantity_reader_cannot_join(world, monkeypatch):
-    """THE MUTATION TARGET (M653): '0.35' + 'bar a' - measured on a copy, the
-    unit was lost; a number without its unit is a wrong value."""
-    doc = _store(world, [(50, 100, "VAPOR PRESSURE bar a"), (220, 100, "0.35"),
+    """THE MUTATION TARGET (M653): '0.35' + a unit the quantity reader cannot
+    join - measured on a copy, the unit was lost; a number without its unit is
+    a wrong value. The unit was 'bar a' until P1 taught the grammar to join it,
+    which left this test passing with the feature deleted (honesty audit 66);
+    'mm H2O' is still one the reader cannot join."""
+    doc = _store(world, [(50, 100, "VAPOR PRESSURE mm H2O"), (220, 100, "0.35"),
                          (50, 140, "DRAIN Size"), (220, 140, "¾")], "doc_u")
     monkeypatch.setattr(settings, "geometry_reader_enabled", True)
     _force_vision_routing(monkeypatch)
     monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", lambda *_a: [])
     _with_vision(monkeypatch, VisionFake([{"label": "VAPOR PRESSURE", "value": "0.35",
-                                           "unit": "bar a"},
+                                           "unit": "mm H2O"},
                                           {"label": "DRAIN Size", "value": "¾"}]))
     _extract(doc)
     got = {f["field_label"]: f for f in _facts(doc) if f["extraction_method"] == "vision"}
-    assert (got["VAPOR PRESSURE"]["raw_value"], got["VAPOR PRESSURE"]["raw_unit"]) == ("0.35", "bar a")
+    assert datasheets._vision_raw_value({"value": "0.35", "unit": "mm H2O"})[1] == "mm H2O"
+    assert (got["VAPOR PRESSURE"]["raw_value"], got["VAPOR PRESSURE"]["raw_unit"]) == ("0.35", "mm H2O")
     assert got["DRAIN Size"]["field_value"] == "3/4"
 
 
