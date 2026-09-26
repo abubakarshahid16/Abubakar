@@ -33,6 +33,8 @@ export function Composer({
   onPick,
   pickerOpen = false,
   onPickerOpen,
+  web = false,
+  onWeb,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -53,6 +55,9 @@ export function Composer({
   onPick?: (next: PickedDocument[]) => void;
   pickerOpen?: boolean;
   onPickerOpen?: (open: boolean) => void;
+  /** the Web switch for the next question; it only ever OFFERS a search */
+  web?: boolean;
+  onWeb?: (on: boolean) => void;
 }) {
   const [menu, setMenu] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -146,6 +151,23 @@ export function Composer({
               ].join(" ")}
             >
               @ a document{picked.length > 0 ? ` (${picked.length})` : ""}
+            </button>
+          )}
+          {models && (
+            <button
+              type="button"
+              aria-pressed={web}
+              disabled={!models.web_available || !onWeb}
+              title={models.web_available ? "Offer a web search. Nothing is sent until you approve the phrase." : models.web_reason ?? "Web search is off"}
+              onClick={() => onWeb?.(!web)}
+              className={[
+                "rounded-[var(--radius-full)] border px-3 py-1 text-xs motion-safe:transition-colors disabled:opacity-50",
+                web
+                  ? "border-signal-500/70 bg-signal-500/10 text-signal-300"
+                  : "border-ink-600 text-slateish-300 hover:border-signal-500/50 hover:bg-ink-800",
+              ].join(" ")}
+            >
+              {web ? "Web on" : "Web off"}
             </button>
           )}
           {pickerOpen && onPick && onPickerOpen && (

@@ -2482,8 +2482,9 @@ def chat_models(request: Request, scope: access.AccessScope = Depends(access.cur
     if not scope.unrestricted and not scope.user_id:
         raise HTTPException(status_code=401, detail=errors.safe_error(
             errors.UNAUTHENTICATED, "sign in to continue"))
-    from . import chat_model
-    return chat_model.available_models()
+    from . import chat_model, chat_web
+    web_ok, web_why = chat_web.available()
+    return {**chat_model.available_models(), "web_available": web_ok, "web_reason": web_why}
 
 
 @app.post("/api/conversations/{conversation_id}/ask", response_model=schemas.AskResult,
@@ -2523,6 +2524,7 @@ def ask(conversation_id: str, body: schemas.AskRequest,
                 model=body.model,
                 include_unowned_records=scope.is_admin,
                 document_ids=_picked_documents(body, scope),
+                web=body.web,
             )
         finally:
             progress_mod.finish(body.progress_id)
@@ -2571,6 +2573,39 @@ def chat_feedback(conversation_id: str, message_id: str, body: schemas.ChatFeedb
     return _chat_action_errors(lambda: chat_actions.set_feedback(
         conversation_id, message_id, user_key=scope.user_id or "",
         helpful=body.helpful, note=body.note))
+
+
+@app.post("/api/conversations/{conversation_id}/messages/{message_id}/web-search",
+          response_model=schemas.Message,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409,
+                     **schemas.ERRORS_422})
+def chat_web_search(conversation_id: str, message_id: str,
+                    scope: access.AccessScope = Depends(access.current_scope)):
+    """ "Search once": run the one web search a consent turn offered.
+
+    Takes NO text from the client. The phrase is rebuilt from the reader's
+    stored question through the market lane's whitelist (chat_web.search),
+    sent through the market transport, audited like every market query, and
+    answered as a new turn citing the web as the web."""
+    from . import chat_web
+    _require_identity_to_write(scope)
+    _require_owned_conversation(conversation_id, scope)
+    try:
+        result, audit = chat_web.search(conversation_id, message_id,
+                                        allowed_document_ids=scope.allowed_document_ids)
+    except chat_web.NotFound:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no web question with that id in this conversation"))
+    except chat_web.Refused as exc:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc)))
+    _record_market_audit(audit, scope)
+    result["route"] = "web"
+    result.update(chat_mod.chat_presentation.present(result))
+    conn = connect()
+    return chat_mod._insert_message(
+        conn, conversation_id, role="assistant", text=result["answer"],
+        answer_type=result["answer_type"], reason=None, payload=chat_mod._payload(result))
 
 
 @app.post("/api/conversations/{conversation_id}/messages/{message_id}/comment",
@@ -2662,7 +2697,7 @@ async def ask_stream(conversation_id: str, body: schemas.AskRequest, request: Re
                 limit=body.limit, explain_of=body.explain_of,
                 allowed_document_ids=scope.allowed_document_ids, progress_id=turn.id,
                 model=body.model, include_unowned_records=scope.is_admin,
-                document_ids=picked)
+                document_ids=picked, web=body.web)
             final = schemas.AskResult.model_validate(result).model_dump(mode="json")
             if final.get("sources"):
                 turn.emit("sources", {"sources": final["sources"]})

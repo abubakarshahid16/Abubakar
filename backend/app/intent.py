@@ -408,6 +408,13 @@ def _subject_words(text: str) -> list[str]:
     return [w for w in re.findall(r"[a-z0-9][a-z0-9'\-]*", lowered) if w not in _REWRITE_FILLER]
 
 
+#: Words that ask about the public web rather than the reader's documents.
+_WEB_WORDS = re.compile(
+    r"\b(?:online|on\s+the\s+(?:web|internet)|search\s+the\s+(?:web|internet)|google|"
+    r"(?:latest|newest|newer|current)\s+(?:edition|revision|version|issue)|"
+    r"(?:any|recent)\s+news|web\s+search)\b")
+
+
 def route(message: str, *, has_previous_answer: bool = False,
           document_in_scope: bool = False, web_enabled: bool = False) -> dict:
     """{kind, styles, small_talk, compliance, command, text} for one message.
@@ -432,6 +439,12 @@ def route(message: str, *, has_previous_answer: bool = False,
     kind = classify(raw)
     if kind in SMALL_TALK:
         return {**base, "kind": GENERAL, "small_talk": kind}
+    # 2b. The public web, ONLY when the reader switched Web on for this
+    #     question - otherwise these words are answered as they always were.
+    #     A web question gets a consent turn first (chat_web); nothing leaves
+    #     until the reader approves the exact phrase.
+    if web_enabled and _WEB_WORDS.search(raw.lower()):
+        return {**base, "kind": WEB}
     # 3. An action on the previous answer ("write that as a comment").
     if has_previous_answer and _ACTION.search(raw.lower()):
         return {**base, "kind": ACTION}

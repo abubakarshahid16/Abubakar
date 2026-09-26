@@ -587,6 +587,8 @@ _PAYLOAD_KEYS = (
     "answer_kind", "used_line", "sources", "verification", "steps",
     "suggestions", "draft", "provider", "cost_usd", "history_turns",
     "route", "notices", "claims", "claims_removed", "rewrite_of", "records", "cancelled",
+    # Chat redesign PR 6: the web lane's consent and what it sent.
+    "web_phrase", "web_available", "web_searched",
 )
 
 #: Payload keys lifted to the top of a message, so the Chat screen reads one
@@ -612,6 +614,7 @@ def ask(
     model: str | None = None,
     include_unowned_records: bool = False,
     document_ids: frozenset[str] | None = None,
+    web: bool = False,
 ) -> dict:
     """Answer a question inside a conversation and persist both turns.
 
@@ -671,7 +674,8 @@ def ask(
         routed = intent_mod.route(
             question, has_previous_answer=previous is not None,
             document_in_scope=bool(selected_document or conversation["document_id"]
-                                   or document_ids))
+                                   or document_ids),
+            web_enabled=web)
         route_kind = routed["kind"]
         tier = routed.get("tier") or tier
         carried: list[str] = []
@@ -765,6 +769,11 @@ def ask(
             question=original, kind="action",
             extra=("as a short, polite review comment to the contractor: what is missing or "
                    "unclear, and what they should provide"))
+    elif route_kind == intent_mod.WEB:
+        # ASKS, SENDS NOTHING: the consent turn shows the one phrase that
+        # would leave. `chat_web.search` sends it only when the reader says so.
+        from . import chat_web
+        result = chat_web.consent(original, allowed_document_ids=allowed_document_ids)
     else:  # records
         result = chat_answers.records(routed["text"], allowed_document_ids=allowed_document_ids,
                                       include_unowned=include_unowned_records)

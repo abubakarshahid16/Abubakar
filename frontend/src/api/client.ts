@@ -28,6 +28,7 @@ import type {
   DocumentRecord,
   DocumentPage,
   FiledComment,
+  Message,
   WithdrawnComment,
   AuthStatus,
   ExclusionsResponse,
@@ -1117,6 +1118,13 @@ export const api = {
     request<ChatModels>("/chat/models", undefined, hasArrayField("models")),
   /** Stop an answer being written. The server closes the provider call and
    *  stores the turn as stopped, with what the reader had been shown. */
+  /** "Search once": run the one web search a consent turn offered. Sends
+   *  no text - the server rebuilds the phrase from the stored question. */
+  webSearch: (conversationId: string, messageId: string) =>
+    request<Message>(
+      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/web-search`,
+      { method: "POST" },
+    ),
   /** "Was this right?" on one answer. The reader's own; stored locally. */
   chatFeedback: (conversationId: string, messageId: string, helpful: boolean) =>
     request<ChatFeedback>(

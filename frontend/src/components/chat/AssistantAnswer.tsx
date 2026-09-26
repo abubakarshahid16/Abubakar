@@ -22,6 +22,7 @@ import { AnswerCard, viewFromMessage, type UpgradeFailure } from "./AnswerCard";
 import { DraftCommentCard, type FileResult, type UndoResult } from "./DraftCommentCard";
 import { Markdown } from "./Markdown";
 import { ProgressSteps, UsedLine } from "./UsedLine";
+import { WebConsent, WebSources } from "./WebAnswer";
 import type { ChatStep, ChatVerification } from "../../types/api";
 
 const DOCUMENT_TYPES = new Set(["extract", "generated", "insufficient_evidence", "model_unavailable", "metadata"]);
@@ -69,6 +70,7 @@ export function AssistantAnswer({
   onFileComment,
   onUndoComment,
   onOpenReview,
+  onWebSearch,
 }: {
   message: Message;
   question: string | null;
@@ -94,6 +96,8 @@ export function AssistantAnswer({
   onFileComment?: (text: string) => Promise<FileResult>;
   onUndoComment?: (findingId: string) => Promise<UndoResult>;
   onOpenReview?: (reviewRunId: string) => void;
+  /** "Search once" on a web consent turn */
+  onWebSearch?: () => Promise<{ ok: true } | { ok: false; message: string }>;
 }) {
   const view = viewFromMessage(m);
   const type = m.answer_type;
@@ -117,6 +121,15 @@ export function AssistantAnswer({
           onUndo={onUndoComment}
           onOpenReview={onOpenReview}
         />
+      </>
+    );
+  } else if (type === "web_consent") {
+    body = <WebConsent message={m} onSearch={onWebSearch} />;
+  } else if (type === "web") {
+    body = (
+      <>
+        <Markdown text={m.text ?? ""} />
+        <WebSources sources={m.sources ?? []} />
       </>
     );
   } else if (type === "general" || type === "records") {
