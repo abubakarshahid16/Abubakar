@@ -901,6 +901,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("jobs", "claimed_by", "TEXT"),
         ("jobs", "claimed_at", "TEXT"),
         ("jobs", "next_attempt_at", "TEXT"),
+        # B11: who asked, which code and settings produced the output, and
+        # a cancellation the worker honours.
+        ("jobs", "created_by", "TEXT"),
+        ("jobs", "code_version", "TEXT"),
+        ("jobs", "config_version", "TEXT"),
     ):
         add_column_if_missing(conn, _table, _column, _definition)
     conn.execute(

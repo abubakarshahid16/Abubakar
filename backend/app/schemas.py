@@ -318,6 +318,33 @@ class RequirementDecisionRequest(BaseModel):
                           "person's statement, not a machine's guess")
 
 
+class Job(BaseModel):
+    """B11: one background job, as its caller may see it.
+
+    Only jobs on documents the caller may read are ever returned. `pages_*` are
+    null when the stage does not count pages - never 0."""
+
+    id: str
+    document_id: str
+    stage: str
+    state: str
+    priority: int
+    retries: int
+    error_code: str | None = None
+    pages_total: int | None = None
+    pages_done: int | None = None
+    next_attempt_at: str | None = None
+    started_at: str | None = None
+    updated_at: str | None = None
+    created_by: str | None = None
+    code_version: str | None = Field(None, description="the extractor code the output came from")
+    config_version: str | None = Field(None, description="config.config_version() at enqueue")
+
+
+class JobList(BaseModel):
+    jobs: list[Job]
+
+
 class ExtractionJob(BaseModel):
     """A queued or finished background extraction.
 

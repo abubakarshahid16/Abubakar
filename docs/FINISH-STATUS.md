@@ -198,3 +198,29 @@ re-run by the review route (it runs at ingestion); "Approved with Comments"
 is still the code when only MISSING_INFORMATION findings remain (they stay
 MISSING_INFORMATION, never compliant); a real-document review through the
 live route is an owner-laptop gate.
+
+## B11 – reliable background jobs (branch `feat/b11-reliable-jobs`)
+
+Surveyed first (checklist item → evidence). Already present: atomic claim
+(one conditional `UPDATE … RETURNING`), retries with doubling backoff then
+POISONED with the last error kept, failure state, stale-claim recovery for
+ingestion and a startup sweep for extraction jobs.
+
+| Item | Before | Now |
+|---|---|---|
+| Idempotency | check-then-insert in two steps – two concurrent requests queued two jobs; same race for "one running review per submittal" | both decided under `BEGIN IMMEDIATE` (`job_queue.immediate`); proven with a pause injected between check and insert |
+| Cancellation | absent | `POST /api/jobs/{id}/cancel` (admin who can read the document): queued/retrying → `cancelled`, one conditional UPDATE; a running job is refused (409 with its state), never reported cancelled; a cancelled job is never claimed |
+| Bounded concurrency | one thread by construction only | `job_max_running` (default 1) enforced inside the claim; a dead worker's stale claim does not count |
+| Version provenance | none on jobs | `created_by`, `code_version` (extractor source hash), `config_version` recorded at enqueue |
+| Audit | enqueue only | `job.queued`, `job.cancelled`, `job.poisoned`, `job.done` in `audit_events`, inside the transition's transaction |
+| Permissions / progress | no job API | `GET /api/jobs`, `GET /api/jobs/{id}`: only jobs on documents the caller may read; a hidden job is the same 404 as a missing one; filters only narrow; `pages_*` null when not counted |
+
+Tests `test_b11_jobs.py` (10); mutations M853–M864 12/12.
+
+Not done (recorded as limitations, not claimed): a review run and the
+model-assisted datasheet read / recheck still execute inside the request – no
+queue, no progress, no cancel for them; moving them onto the queue changes the
+review API from synchronous to polled and is left for a follow-up.
+`/api/progress/{id}` (Q&A stage names, in memory) stays unauthenticated. The
+review-run startup sweep still fails every `running` run, which is correct
+only for the documented single server process.

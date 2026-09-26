@@ -2032,3 +2032,25 @@ export interface AppliedScope {
   subject_ids: string[];
   documents_in_scope: number;
 }
+
+/** B11: one background job, visible only on documents the caller may read.
+ *  `pages_*` are null when the stage does not count pages - never 0. */
+export type JobState = "queued" | "running" | "retrying" | "poisoned" | "done" | "failed" | "cancelled";
+export interface Job {
+  id: string;
+  document_id: string;
+  stage: string;
+  state: JobState;
+  priority: number;
+  retries: number;
+  error_code: string | null;
+  pages_total: number | null;
+  pages_done: number | null;
+  next_attempt_at: string | null;
+  started_at: string | null;
+  updated_at: string | null;
+  created_by: string | null;
+  code_version: string | null;
+  config_version: string | null;
+}
+export interface JobList { jobs: Job[] }
