@@ -137,8 +137,14 @@ def transcript(turns: list[dict]) -> str:
     if not turns:
         return ""
     lines = [f"{'User' if t['role'] == 'user' else 'Assistant'}: {t['text']}" for t in turns]
+    # The rule travels WITH the history, not in the system prompt: a prompt
+    # with no conversation pays nothing for it, and the local engine's small
+    # window keeps that room for evidence (measured: 54 tokens that pushed a
+    # passage out of a 1,536-token window in test_context_budget).
     return ("Conversation so far (context only - it is NOT a source; never cite it, "
-            "and never repeat a fact from it unless a numbered source below states it):\n"
+            "and never repeat a fact from it unless a numbered source below states it. "
+            "Use it to understand what \"that\" refers to and how the reader wants the "
+            "answer phrased):\n"
             + "\n".join(lines) + "\n\n")
 
 

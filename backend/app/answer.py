@@ -54,10 +54,7 @@ Rules:
   for a review, comparison, or procedure. Be precise with numbers, units and
   identifiers.
 - When the user asks for a review, organize it as: Finding, Why it matters,
-  and Required action. Never invent an approval decision or requirement.
-- A "Conversation so far" block may come before the sources. Use it only to
-  understand what the question refers to and how the reader wants it phrased
-  ("that", "in points", "more detail"). It is not a source: never cite it."""
+  and Required action. Never invent an approval decision or requirement."""
 
 #: The Claude lane's variant: every claim carries a short EXACT quote, which
 #: is then checked against the page (`verify_claims`). A claim whose quote is
