@@ -837,7 +837,11 @@ export type AnswerType =
   /** chat redesign: a workflow-records search ("/records") */
   | "records"
   /** chat redesign: the reader pressed Stop; `answer` is what they were shown */
-  | "cancelled";
+  | "cancelled"
+  /** chat redesign PR 6: a web question, asked first - nothing was sent */
+  | "web_consent"
+  /** chat redesign PR 6: the one web search the reader approved */
+  | "web";
 
 /** Chat redesign (2026-09-26): what kind of answer this is on the Chat screen. */
 export type AnswerKind = "general" | "document" | "web" | "mixed" | "rewrite" | "action" | "records";
@@ -908,6 +912,9 @@ export interface CancelledTurn {
 export interface ChatModels {
   default: "claude" | "local";
   models: ChatModelOption[];
+  /** chat redesign PR 6: whether "Web" may be offered, and why not */
+  web_available?: boolean;
+  web_reason?: string | null;
 }
 
 export interface AnswerPassage {
@@ -1586,6 +1593,13 @@ export interface ScopeAmbiguity {
 }
 
 export interface AnswerResult extends ChatPresentation {
+  /** chat redesign PR 6, web turns only: the whitelisted phrase that would
+   *  be (or was) sent; null means nothing was safe to send */
+  web_phrase?: string | null;
+  /** chat redesign PR 6: the web lane could send at the time of asking */
+  web_available?: boolean;
+  /** chat redesign PR 6: the offered search has run */
+  web_searched?: boolean;
   question: string;
   answer_type: AnswerType;
   /** null whenever answer_type is insufficient_evidence or model_unavailable */
@@ -1744,6 +1758,8 @@ export interface AskRequest {
   model?: "auto" | "claude" | "local" | null;
   /** chat redesign PR 5, "@ a document": answer from these only. Narrows. */
   document_ids?: string[] | null;
+  /** chat redesign PR 6: the Web switch. Only ever OFFERS a search. */
+  web?: boolean;
 }
 
 export interface AskResult extends AnswerResult {

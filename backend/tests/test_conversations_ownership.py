@@ -246,7 +246,7 @@ def test_stopping_an_answer_in_another_users_conversation_stops_nothing(owned_by
 
 
 @pytest.mark.parametrize("caller", NOT_A)
-@pytest.mark.parametrize("action", ["feedback", "comment", "undo"])
+@pytest.mark.parametrize("action", ["feedback", "comment", "undo", "web"])
 def test_acting_on_an_answer_in_another_users_conversation_writes_nothing(owned_by_a, caller, action):
     """Chat redesign PR 5: rating an answer, filing its comment and undoing a
     filing are writes on someone's conversation. Refused as a missing
@@ -261,6 +261,8 @@ def test_acting_on_an_answer_in_another_users_conversation_writes_nothing(owned_
             return client.post(f"{base}/feedback", json={"helpful": False})
         if action == "comment":
             return client.post(f"{base}/comment", json={"text": "a comment"})
+        if action == "web":
+            return client.post(f"{base}/web-search")
         return client.delete(f"{base}/comment/some_finding")
 
     hidden, unknown = call(cid), call(UNKNOWN)
@@ -299,6 +301,8 @@ def test_there_is_no_rename_route_to_leave_unguarded():
         ("POST", "/api/conversations/{conversation_id}/messages/{message_id}/feedback"),
         ("POST", "/api/conversations/{conversation_id}/messages/{message_id}/comment"),
         ("DELETE", "/api/conversations/{conversation_id}/messages/{message_id}/comment/{finding_id}"),
+        # chat redesign PR 6: ownership tested above ("web")
+        ("POST", "/api/conversations/{conversation_id}/messages/{message_id}/web-search"),
     }, f"a conversations route appeared without an ownership test: {paths}"
 
 

@@ -95,6 +95,9 @@ def _answer_passages(result: dict) -> list[dict]:
 def sources(result: dict) -> list[dict]:
     """Numbered source chips. For generated prose the numbers are the [S#]
     the model cited against; for a quotation, the passages quoted."""
+    if result.get("answer_type") == "web":
+        # the web lane numbers its own sources: site, date, link - never a document
+        return list(result.get("sources") or [])
     used = _answer_passages(result)
     if not used:
         return []
@@ -140,7 +143,7 @@ def verification(result: dict) -> dict | None:
 def steps(result: dict) -> list[dict]:
     """What the answer went through, in plain words, as it actually happened."""
     kind = result.get("answer_type")
-    if kind in (None, "guidance"):
+    if kind in (None, "guidance", "web", "web_consent"):
         return []
     if kind == "metadata":
         return [{"label": "Counted from your library", "count": None, "done": True}]
@@ -158,8 +161,8 @@ def steps(result: dict) -> list[dict]:
 
 def answer_kind(result: dict) -> str:
     route = result.get("route")
-    if route in (REWRITE, ACTION, RECORDS):
-        return route
+    if route in (REWRITE, ACTION, RECORDS, WEB) or result.get("answer_type") in ("web", "web_consent"):
+        return WEB if route == WEB or result.get("answer_type") in ("web", "web_consent") else route
     if result.get("answer_type") in ("guidance", "general"):
         return GENERAL
     return DOCUMENT
@@ -179,6 +182,10 @@ def used_line(result: dict) -> str:
         return ""   # small talk needs no header
     if kind == "cancelled":
         return "Stopped" + tail
+    if kind == "web_consent":
+        return "Nothing has been sent"
+    if kind == "web" and result.get("used_line"):
+        return result["used_line"] + tail
     if route == RECORDS:
         n = len(result.get("records") or [])
         return f"Searched your workflow records · {n} found" + tail

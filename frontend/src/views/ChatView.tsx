@@ -120,6 +120,9 @@ export function ChatView({
   // "@ a document": what the next answers come from, for this chat only.
   const [picked, setPicked] = useState<PickedDocument[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The Web switch: off by default, and only offerable when the system
+  // allows it (`models.web_available`). On, it only OFFERS a search.
+  const [webOn, setWebOn] = useState(false);
 
   const [recordsOpen, setRecordsOpen] = useState(false);
   const [recordsKind, setRecordsKind] = useState<"deliverable" | "finding" | "risk" | "stakeholder">("deliverable");
@@ -317,6 +320,7 @@ export function ChatView({
         ...(opts.explainOf ? { explain_of: opts.explainOf } : {}),
         ...(model ? { model } : {}),
         ...(picked.length > 0 ? { document_ids: picked.map((d) => d.id) } : {}),
+        ...(webOn ? { web: true } : {}),
       };
       const controller = new AbortController();
       abort.current = controller;
@@ -382,7 +386,7 @@ export function ChatView({
       }
       listChanged();
     },
-    [current, claude, model, messages, open, select, listChanged, picked],
+    [current, claude, model, messages, open, select, listChanged, picked, webOn],
   );
 
   const stop = useCallback(async () => {
@@ -614,6 +618,8 @@ export function ChatView({
         onPick={setPicked}
         pickerOpen={pickerOpen}
         onPickerOpen={setPickerOpen}
+        web={webOn}
+        onWeb={setWebOn}
         onUpload={onNavigate ? () => onNavigate("documents") : undefined}
       />
       {!claude && isReviewRequest(question) && (
@@ -691,6 +697,18 @@ export function ChatView({
               return r.ok ? { ok: true } : { ok: false, error: r.error };
             } : undefined}
             onOpenReview={onNavigate ? (runId) => onNavigate("review", runId) : undefined}
+            onWebSearch={current ? async () => {
+              const r = await api.webSearch(current, m.id);
+              if (!r.ok) return { ok: false, message: r.error.message };
+              // The server's word on whether the offer is used up: a search
+              // every provider refused stays offerable, so reload, not guess.
+              const conversation = current;
+              const fresh = await api.conversation(conversation);
+              if (owned.current !== conversation) return { ok: true };
+              setMessages(fresh.ok ? fresh.data.messages : (ms) => appendUnseen(ms, [r.data]));
+              listChanged();
+              return { ok: true };
+            } : undefined}
           />
         ),
       )}

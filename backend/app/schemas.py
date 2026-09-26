@@ -1134,6 +1134,10 @@ AnswerType = Literal[
     "records",
     # chat redesign PR 3: the reader pressed Stop; `answer` is what they were shown
     "cancelled",
+    # chat redesign PR 6: a web question, asked first (nothing sent), and
+    # the result of the one search the reader approved
+    "web_consent",
+    "web",
 ]
 
 
@@ -2741,6 +2745,9 @@ class AskRequest(BaseModel):
     model: Literal["auto", "claude", "local"] | None = Field(
         None, description="the engine to answer with. 'local' narrows to the "
         "local engine; 'claude' is honoured only when Claude is configured")
+    web: bool = Field(
+        False, description="the composer's Web switch for this question. It can only "
+        "offer a web search, never send one: a web question gets a consent turn first")
     document_ids: list[str] | None = Field(
         None, max_length=20,
         description="'@ a document': answer from these documents only. Narrows "
@@ -2798,6 +2805,9 @@ class ChatModelOption(BaseModel):
 class ChatModels(BaseModel):
     default: Literal["claude", "local"]
     models: list[ChatModelOption]
+    #: Chat redesign PR 6: whether the composer may offer "Web", and why not.
+    web_available: bool = False
+    web_reason: str | None = None
 
 
 class AskResult(AnswerResult):

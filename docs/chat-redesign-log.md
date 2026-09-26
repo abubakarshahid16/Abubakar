@@ -192,3 +192,26 @@ What you can do now:
 Database: two new tables (`chat_feedback`, `chat_filed_comments`) and one
 new nullable column (`review_findings.origin`), all added automatically on
 start. **Back up the live DB before restarting on this version.**
+
+## PR 6 — web search in chat (off by default)
+
+- A **Web on/off** switch in the chat box. It is greyed out, with the reason,
+  unless the system allows it: `CHAT_WEB_ENABLED=true` **and** the market
+  lane's two egress flags (`MARKET_LIVE_ENABLED`, `MARKET_ALLOW_PUBLIC_EGRESS`)
+  in `backend/.env`. All three are off by default; any one off means nothing
+  is sent.
+- With Web on, a question about the web ("is there a newer edition of ISO
+  12944 online?") gets a **consent card** first: the exact phrase that would
+  be sent, **Search once** and **Cancel**. Nothing leaves before you press
+  Search once.
+- The phrase is built on the server from **your one question only**, through
+  the same whitelist the market screen uses: file names, quoted text and
+  unrecognised words are removed; nothing from your documents or the earlier
+  conversation is ever in it. Pressing the button sends no text at all.
+- Every web query is recorded in the audit log with the phrase that left.
+- The answer lists what the web returned with **site, date and link**, marked
+  **"web · unverified"**, and says your contract baseline is the edition it
+  names whatever a website says. Web results never become a document source
+  or a finding.
+- A search runs once per consent. If every provider failed (rate limit,
+  network), you can try again.

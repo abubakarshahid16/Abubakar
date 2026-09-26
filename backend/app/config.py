@@ -795,6 +795,12 @@ class Settings(BaseSettings):
     #: The local engine's history budget. Its 4096-token window must hold the
     #: EVIDENCE first; memory never pushes a retrieved passage out.
     chat_history_local_token_budget: int = 600
+    #: Chat redesign PR 6: the "Web" switch in the chat composer. OFF BY
+    #: DEFAULT, and on its own it sends nothing: a chat web search also needs
+    #: the market lane's two egress flags (`market_live_enabled`,
+    #: `market_allow_public_egress`) and goes through that lane's whitelist,
+    #: host allowlist, rate limit and audit. FROM `.env` ONLY.
+    chat_web_enabled: bool = False
 
     #: THE ONE HOST ALLOWLIST. Every outbound URL any tier builds is checked
     #: against this and refused if its host is not here. One list, in one
