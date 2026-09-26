@@ -48,7 +48,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         # Re-anchored by B19: the write loop moved inside one transaction, +4.
         # Re-anchored by B3: the reason is kept for the page ledger too, so the
         # mutant now reports the empty page as parsed in BOTH homes.
-        anchor="            if page_written == 0:\n"
+        # Re-anchored 2026-09-26: the outcome counts every reader (entry 68).
+        anchor="            if page_read == 0:\n"
                "                reason = _unparsed_reason(pairs, dropped)\n",
         replacement="            if False:\n"
                     "                reason = _unparsed_reason(pairs, dropped)\n",
@@ -1074,12 +1075,14 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     Mutation(
         id='M595', phase=63,
-        description="B4 wiring: geometry readings alone make a page 'read into fields'",
+        # Reversed 2026-09-26 (owner decision; honesty audit entry 68): a
+        # page whose only facts came from the geometry reader IS read.
+        description="a page only the geometry reader read is left 'no_facts' in the ledger",
         path=APP / 'datasheets.py',
-        anchor='                page_geometry += 1\n',
-        replacement='                page_written += 1\n',
+        anchor='            page_read = page_written + page_geometry + page_vision\n',
+        replacement='            page_read = page_written + page_vision\n',
         target='tests/test_geometry_wiring.py',
-        keyword='alone_do_not_make_a_page_read',
+        keyword='only_the_geometry_reader_read_is_read',
         tags=('honesty', 'critical'),
     ),
     Mutation(
@@ -1326,5 +1329,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor="                if geometry_tables:\n                    rule_facts.setdefault(written_row[\"field_name\"], []).append(written_row)\n                page_written += 1\n                written += 1\n                if blank:\n",
         replacement="                if geometry_on:\n                    rule_facts.setdefault(written_row[\"field_name\"], []).append(written_row)\n                page_written += 1\n                written += 1\n                if blank:\n",
         target="tests/test_b4_schedule_tables.py", keyword="not_written_twice",
+    ),
+    Mutation(
+        id='M1021', phase=63,
+        description="the ledger repeats an older 'no_facts' for a page with current facts",
+        path=APP / 'page_ledger.py',
+        anchor='        elif p in recorded and recorded[p]["facts_status"] != "facts" and fact_counts.get(p):\n',
+        replacement='        elif False:\n',
+        target='tests/test_b3_page_ledger.py',
+        keyword='current_facts_is_read_whatever',
+        tags=('honesty', 'critical'),
     ),
 )

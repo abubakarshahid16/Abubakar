@@ -152,6 +152,14 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
 
         if not is_submittal:
             facts = ("not_applicable", None, None, None, None)
+        elif p in recorded and recorded[p]["facts_status"] != "facts" and fact_counts.get(p):
+            # A page that HAS recorded current facts is a page read into
+            # fields, whatever an older extraction wrote (honesty audit entry
+            # 68: pages with facts from the geometry/vision reader read
+            # "no_facts"). Derived, so the next refresh recomputes it from the
+            # facts rather than keeping this verdict if they are superseded.
+            r = recorded[p]
+            facts = ("facts", fact_counts[p], None, "derived", r["extractor_version"])
         elif p in recorded:
             r = recorded[p]
             facts = (r["facts_status"], r["facts_count"], r["facts_reason"],

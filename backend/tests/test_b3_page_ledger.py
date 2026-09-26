@@ -166,6 +166,34 @@ def test_extraction_records_each_pages_outcome_with_its_reason(tmp_path):
     assert rows[1]["vision_status"] == "not_attempted"
 
 
+def test_a_page_with_current_facts_is_read_whatever_an_older_extraction_recorded(tmp_path):
+    """THE MUTATION TARGET (M1021; honesty audit entry 68): an extraction
+    before the fix recorded "no_facts" for pages the geometry/vision reader
+    had filled with facts. The ledger must not repeat that verdict while the
+    page carries current facts - and must drop back once they are superseded."""
+    doc = _sheet(tmp_path)
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+    conn = db.connect()
+    with conn:   # the verdict the pre-fix extractor wrote for a page with facts
+        page_ledger.record_fact_pages(conn, doc, {1: ("no_facts", 0, "old verdict"),
+                                                  2: ("no_facts", 0, "nothing here")},
+                                      extractor_version="old")
+    page_ledger.refresh(doc, as_submittal=True)
+    rows = _ledger(doc)
+    current = conn.execute("SELECT COUNT(*) FROM submittal_facts WHERE submittal_document_id = ?"
+                           " AND page = 1 AND superseded_at IS NULL", (doc,)).fetchone()[0]
+    assert current >= 3
+    assert (rows[1]["facts_status"], rows[1]["facts_count"]) == ("facts", current)
+    assert rows[2]["facts_status"] == "no_facts", "a page with no fact was promoted too"
+    assert page_ledger.coverage(doc)["pages_not_read_into_fields"] == [2]
+
+    with conn:   # the facts go; the page is no longer shown as read
+        conn.execute("UPDATE submittal_facts SET superseded_at = 'x' WHERE submittal_document_id = ?",
+                     (doc,))
+    page_ledger.refresh(doc, as_submittal=True)
+    assert _ledger(doc)[1]["facts_status"] != "facts"
+
+
 def test_a_page_no_retrievable_chunk_covers_is_accounted_for(tmp_path):
     """Page 3 exists in the file and in no chunk: it must still have a row,
     saying extraction never saw it and why."""

@@ -246,20 +246,32 @@ def test_the_readers_blank_evidence_and_table_cell_are_kept(tmp_path, monkeypatc
     assert (box["source"], box["table_id"], box["row"], box["column"]) == ("table", "p1-t1", 3, 2)
 
 
-def test_geometry_readings_alone_do_not_make_a_page_read_into_fields(tmp_path, on):
-    """THE MUTATION TARGET (M595): a page only the geometry reader read keeps
-    the rule readers' verdict in the page ledger - otherwise every unmatched
-    requirement would become the contractor's MISSING_INFORMATION on the
-    strength of one geometry reading."""
+def test_a_page_only_the_geometry_reader_read_is_read_into_fields(tmp_path, on):
+    """THE MUTATION TARGET (M595, reversed by owner decision 2026-09-26;
+    honesty audit entry 68): a page whose only facts came from the geometry
+    reader HAS recorded facts, so the ledger says it was read into fields.
+    Under B4 it said "no_facts" while its facts sat in submittal_facts."""
     from app import page_ledger
     doc = _store(tmp_path, items=[(50, 220, "BEARING TYPE"), (220, 220, "___BALL___")],
                  doc_id="doc_geo_only")
     result = _extract(doc)
     assert result["geometry_facts"] >= 1
-    assert result["pages_unparsed"] == 1
-    cover = page_ledger.coverage(doc)
-    assert cover["pages_not_read_into_fields"] == [1]
-    assert "geometry-reader reading" in cover["not_read_reasons"]["1"]
+    assert result["pages_unparsed"] == 0
+    row = page_ledger.rows(doc)[0]
+    assert (row["facts_status"], row["facts_count"]) == ("facts", result["geometry_facts"])
+    assert page_ledger.coverage(doc)["pages_not_read_into_fields"] == []
+
+
+def test_a_page_no_reader_read_still_reads_no_facts(tmp_path, on):
+    """The other side: a page with no fact from any reader is still unread -
+    the fix counts recorded facts, it does not mark every page read."""
+    from app import page_ledger
+    doc = _store(tmp_path, items=[(50, 220, "Notes only, nothing to read here")],
+                 doc_id="doc_nothing")
+    result = _extract(doc)
+    assert result["facts"] == 0
+    assert page_ledger.rows(doc)[0]["facts_status"] == "no_facts"
+    assert page_ledger.coverage(doc)["pages_not_read_into_fields"] == [1]
 
 
 def test_a_non_quantity_value_keeps_the_unit_the_reader_split_off(tmp_path, monkeypatch, on):
