@@ -176,3 +176,7 @@ jobs:
         env:
           CONTRAST_OUTPUT: contrast-ci.json
         run: npx playwright test tests/e2e/contrast-root-cause.spec.ts --config=playwright.phase0.config.ts
+
+      - name: Chat end to end in a real browser (mocked API, sample data)
+        working-directory: frontend
+        run: npx playwright test --config=playwright.chat.config.ts
