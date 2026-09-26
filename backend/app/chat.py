@@ -34,6 +34,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import answer as answer_mod
+from . import chat_answers
 from . import chat_model
 from . import chat_presentation
 from . import intent as intent_mod
@@ -569,12 +570,13 @@ _PAYLOAD_KEYS = (
     # has none of them, and renders as it always did.
     "answer_kind", "used_line", "sources", "verification", "steps",
     "suggestions", "draft", "provider", "cost_usd", "history_turns",
+    "route", "notices", "claims", "claims_removed", "rewrite_of", "records",
 )
 
 #: Payload keys lifted to the top of a message, so the Chat screen reads one
 #: shape for a fresh answer and a reopened one.
 _LIFTED = ("answer_kind", "used_line", "sources", "verification", "steps",
-           "suggestions", "draft", "model", "provider", "seconds", "cost_usd")
+           "suggestions", "draft", "notices", "model", "provider", "seconds", "cost_usd")
 
 
 def _payload(result: dict) -> dict:
@@ -592,6 +594,7 @@ def ask(
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
     model: str | None = None,
+    include_unowned_records: bool = False,
 ) -> dict:
     """Answer a question inside a conversation and persist both turns.
 
@@ -605,6 +608,8 @@ def ask(
     document_id = document_id or conversation["document_id"]
     conn = connect()
     understood: dict | None = None
+    route_kind = intent_mod.DOCUMENT
+    routed: dict = {"styles": [], "small_talk": None, "compliance": False, "text": question}
 
     if explain_of is not None:
         target = conn.execute(
@@ -631,21 +636,34 @@ def ask(
             understood = None
     else:
         original = question
-        resolved, carried = resolve_followup(
-            question, prior_user_questions(conversation_id)
-        )
-        # B6C: what the question is about - document scope, clause, ambiguity.
-        # Retrieval input only; never an answer. The resolved query is stored
-        # and shown, as the follow-up rewrite already was.
-        understanding = understanding_mod.understand(
-            resolved,
-            allowed_document_ids=allowed_document_ids,
-            documents=understanding_mod.document_names(allowed_document_ids),
-            conversation_document_id=conversation["document_id"],
-            context=understanding_mod.prior_context(conversation_id),
-        )
-        understood = understanding.to_dict()
-        resolved = understanding.retrieval_query
+        # OWNER ORDER 2026-09-26 (chat redesign, 2c): ROUTED BEFORE ANYTHING
+        # IS SEARCHED. Only a document-kind message reaches retrieval; small
+        # talk, general questions, rewrites, actions and record searches never
+        # do - so none of them can produce a passage, a citation or a finding.
+        previous = last_answer(conversation_id, allowed_document_ids=allowed_document_ids)
+        routed = intent_mod.route(
+            question, has_previous_answer=previous is not None,
+            document_in_scope=bool(selected_document or conversation["document_id"]))
+        route_kind = routed["kind"]
+        tier = routed.get("tier") or tier
+        carried: list[str] = []
+        resolved = question
+        if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER):
+            resolved, carried = resolve_followup(
+                routed["text"], prior_user_questions(conversation_id)
+            )
+            # B6C: what the question is about - document scope, clause,
+            # ambiguity. Retrieval input only; never an answer. The resolved
+            # query is stored and shown, as the follow-up rewrite already was.
+            understanding = understanding_mod.understand(
+                resolved,
+                allowed_document_ids=allowed_document_ids,
+                documents=understanding_mod.document_names(allowed_document_ids),
+                conversation_document_id=conversation["document_id"],
+                context=understanding_mod.prior_context(conversation_id),
+            )
+            understood = understanding.to_dict()
+            resolved = understanding.retrieval_query
         user_message = _insert_message(
             conn,
             conversation_id,
@@ -661,58 +679,74 @@ def ask(
                     (_title_from(original), conversation_id),
                 )
 
-    # SCOPE ONLY NARROWS (CLAUDE.md rule 5). A document the reader selected
-    # wins over a name in the question; a named or referenced document narrows
-    # an unscoped question; several matching documents narrow to those, none
-    # of them chosen.
-    scoped_allowed = allowed_document_ids
-    if understood and not selected_document:
-        if understood.get("document_id") in allowed_document_ids:
-            document_id = understood["document_id"]
-        elif understood.get("scope_ids"):
-            scoped_allowed = allowed_document_ids & frozenset(understood["scope_ids"])
-
-    # MEMORY FOR THE MODEL, PERMISSION-FILTERED FIRST (chat_model.history).
-    # Only a generated answer has a model to show it to; a quotation is
-    # verbatim document text and needs no memory at all.
-    turns: list[dict] = []
-    if tier == "generated":
+    def memory(always: bool = False) -> str:
+        """The permission-filtered conversation for the model (chat_model)."""
+        if not always and tier != "generated":
+            return ""
         local = (model == chat_model.LOCAL) or not chat_model.claude_ready()[0]
         turns = chat_model.history(
             conversation_id, allowed_document_ids=allowed_document_ids,
             before_ordinal=user_message["ordinal"],
             token_budget=(settings.chat_history_local_token_budget if local
                           else settings.chat_history_token_budget))
-    result = answer_mod.answer(
-        resolved, tier=tier, document_id=document_id, limit=limit,
-        allowed_document_ids=scoped_allowed,
-        progress_id=progress_id,
-        history=chat_model.transcript(turns),
-        model=model,
-    )
-    result["history_turns"] = len(turns)
-    if understood is not None:
-        result["understanding"] = understood
-    # B6C: the same text in several documents makes "which document" an
-    # accident of ranking. Reported, never resolved silently - only for a
-    # question that was not scoped to one document.
-    if not document_id:
-        same = understanding_mod.ambiguous_source(result)
-        if same:
-            names = understanding_mod.document_names(frozenset(same))
-            result["scope_ambiguity"] = {
-                "reason": "the same text appears in more than one document; "
-                          "name the document to answer from one of them",
-                "documents": [{"document_id": d, "filename": names.get(d)} for d in same],
-            }
-    # B8: judged again now the scope and ambiguity are known. An accepted
-    # model judgement from answer() is kept while the structure still agrees.
-    from . import answerability
-    rejudged = answerability.assess(resolved, result, allowed_document_ids=scoped_allowed)
-    earlier = result.get("answerability") or {}
-    if not (rejudged["verdict"] == earlier.get("verdict") == answerability.SUPPORTED
-            and (earlier.get("judge") or {}).get("accepted")):
-        result["answerability"] = rejudged
+        memory.turns = len(turns)
+        return chat_model.transcript(turns)
+    memory.turns = 0
+
+    if explain_of is not None or route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER):
+        result, resolved = _document_answer(
+            conversation_id, resolved, understood, tier=tier, document_id=document_id,
+            selected_document=selected_document, limit=limit,
+            allowed_document_ids=allowed_document_ids, progress_id=progress_id,
+            model=model, history=memory())
+        if (route_kind == intent_mod.EITHER
+                and result["answer_type"] == "insufficient_evidence"):
+            # NO DOCUMENT SIGNAL, AND THE DOCUMENTS DO NOT ANSWER IT: general
+            # knowledge, labelled, with a note that the documents were checked.
+            general = chat_answers.general(original, styles=routed["styles"],
+                                           history=memory(always=True), preference=model)
+            if general["answer_type"] == "general":
+                route_kind = intent_mod.GENERAL
+                result = {**general, "notices": [
+                    "Your documents don't cover this, so this answer is general knowledge."]}
+    elif route_kind == intent_mod.GENERAL and routed["small_talk"]:
+        result = chat_answers.small_talk(
+            routed["small_talk"],
+            examples=intent_mod.example_questions(allowed_document_ids=allowed_document_ids))
+        result["question"] = original
+    elif route_kind == intent_mod.GENERAL:
+        result = chat_answers.general(
+            original, styles=routed["styles"], history=memory(always=True), preference=model,
+            input_kind=intent_mod.classify(original))
+    elif route_kind == intent_mod.REWRITE and "check_documents" in routed["styles"]:
+        # "Check against my documents": the previous QUESTION, asked of the
+        # documents - a real retrieval, not a rewrite of an earlier answer.
+        asked = _previous_user_question(conversation_id, before=user_message["ordinal"])
+        route_kind = intent_mod.DOCUMENT
+        result, resolved = _document_answer(
+            conversation_id, asked or original, None, tier="generated", document_id=document_id,
+            selected_document=selected_document, limit=limit,
+            allowed_document_ids=allowed_document_ids, progress_id=progress_id,
+            model=model, history=memory(always=True))
+    elif route_kind == intent_mod.REWRITE:
+        result = chat_answers.rewrite(previous, styles=routed["styles"], history=memory(always=True),
+                                      preference=model, question=original)
+    elif route_kind == intent_mod.ACTION:
+        result = chat_answers.rewrite(
+            previous, styles=routed["styles"], history=memory(always=True), preference=model,
+            question=original, kind="action",
+            extra=("as a short, polite review comment to the contractor: what is missing or "
+                   "unclear, and what they should provide"))
+    else:  # records
+        result = chat_answers.records(routed["text"], allowed_document_ids=allowed_document_ids,
+                                      include_unowned=include_unowned_records)
+
+    result["route"] = route_kind
+    result["history_turns"] = memory.turns
+    if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER) and routed.get("compliance"):
+        # THE CHAT NEVER RECORDS A VERDICT: a compliance question is answered
+        # from the evidence and ends with the engineer notice.
+        result["notices"] = [*(result.get("notices") or []), intent_mod.ENGINEER_NOTICE]
     result.update(chat_presentation.present(result))
 
     assistant_message = _insert_message(
@@ -737,3 +771,70 @@ def ask(
         "resolved_question": resolved,
         "carried_terms": user_message["carried_terms"],
     }
+
+
+def last_answer(conversation_id: str, *, allowed_document_ids: frozenset[str]) -> dict | None:
+    """The most recent assistant turn the caller may still read, with text."""
+    for message in reversed(get_messages(conversation_id, allowed_document_ids=allowed_document_ids)):
+        if message["role"] != "assistant":
+            continue
+        if (message.get("payload") or {}).get("withheld") or not (message.get("text") or "").strip():
+            return None
+        return message
+    return None
+
+
+def _previous_user_question(conversation_id: str, *, before: int) -> str | None:
+    row = connect().execute(
+        """SELECT text FROM messages WHERE conversation_id = ? AND role = 'user'
+           AND ordinal < ? ORDER BY ordinal DESC LIMIT 1""", (conversation_id, before)).fetchone()
+    return row["text"] if row else None
+
+
+def _document_answer(conversation_id: str, resolved: str, understood: dict | None, *, tier: str,
+                     document_id: str | None, selected_document: str | None, limit: int,
+                     allowed_document_ids: frozenset[str], progress_id: str | None,
+                     model: str | None, history: str) -> tuple[dict, str]:
+    """The document pipeline, as it was before the router: scope, retrieve,
+    answer, ambiguity, the B8 re-judgement. Returns (result, resolved)."""
+    # SCOPE ONLY NARROWS (CLAUDE.md rule 5). A document the reader selected
+    # wins over a name in the question; a named or referenced document narrows
+    # an unscoped question; several matching documents narrow to those, none
+    # of them chosen.
+    scoped_allowed = allowed_document_ids
+    if understood and not selected_document:
+        if understood.get("document_id") in allowed_document_ids:
+            document_id = understood["document_id"]
+        elif understood.get("scope_ids"):
+            scoped_allowed = allowed_document_ids & frozenset(understood["scope_ids"])
+
+    result = answer_mod.answer(
+        resolved, tier=tier, document_id=document_id, limit=limit,
+        allowed_document_ids=scoped_allowed,
+        progress_id=progress_id,
+        history=history,
+        model=model,
+    )
+    if understood is not None:
+        result["understanding"] = understood
+    # B6C: the same text in several documents makes "which document" an
+    # accident of ranking. Reported, never resolved silently - only for a
+    # question that was not scoped to one document.
+    if not document_id:
+        same = understanding_mod.ambiguous_source(result)
+        if same:
+            names = understanding_mod.document_names(frozenset(same))
+            result["scope_ambiguity"] = {
+                "reason": "the same text appears in more than one document; "
+                          "name the document to answer from one of them",
+                "documents": [{"document_id": d, "filename": names.get(d)} for d in same],
+            }
+    # B8: judged again now the scope and ambiguity are known. An accepted
+    # model judgement from answer() is kept while the structure still agrees.
+    from . import answerability
+    rejudged = answerability.assess(resolved, result, allowed_document_ids=scoped_allowed)
+    earlier = result.get("answerability") or {}
+    if not (rejudged["verdict"] == earlier.get("verdict") == answerability.SUPPORTED
+            and (earlier.get("judge") or {}).get("accepted")):
+        result["answerability"] = rejudged
+    return result, resolved

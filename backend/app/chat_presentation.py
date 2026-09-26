@@ -118,13 +118,19 @@ def sources(result: dict) -> list[dict]:
             # extract: every quoted passage is the answer; generated: the ones
             # the model actually cited, the rest were supplied and left unused
             "cited": result.get("answer_type") == "extract" or n in cited,
+            # Claude lane: the exact words each verified point stood on
+            "quotes": [c["quote"] for c in (result.get("claims") or []) if c.get("n") == n],
             "rows": [],
         })
     return out
 
 
 def verification(result: dict) -> dict | None:
-    """{verified, total} only where it is literally true - see module doc."""
+    """{verified, total} only where it is literally true - see module doc.
+    Generated prose carries one only when its claims were quote-checked
+    (`answer.verify_claims`, the Claude lane)."""
+    if result.get("verification") is not None:
+        return result["verification"]
     if result.get("answer_type") == "extract":
         n = len(_answer_passages(result))
         return {"verified": n, "total": n, "method": "verbatim quotation"} if n else None
@@ -151,18 +157,37 @@ def steps(result: dict) -> list[dict]:
 
 
 def answer_kind(result: dict) -> str:
-    if result.get("answer_type") == "guidance":
+    route = result.get("route")
+    if route in (REWRITE, ACTION, RECORDS):
+        return route
+    if result.get("answer_type") in ("guidance", "general"):
         return GENERAL
     return DOCUMENT
+
+
+def _engine(result: dict) -> str:
+    return "Claude" if result.get("provider") == "claude" else "Local model"
 
 
 def used_line(result: dict) -> str:
     """The one grey line above the answer: what was used, and how long it took."""
     kind = result.get("answer_type")
+    route = result.get("route")
     took = _seconds(result.get("seconds"))
     tail = f" · {took}" if took else ""
     if kind == "guidance":
-        return "Not from your documents" + tail
+        return ""   # small talk needs no header
+    if route == RECORDS:
+        n = len(result.get("records") or [])
+        return f"Searched your workflow records · {n} found" + tail
+    if route == ACTION and kind in ("general", "generated"):
+        return "Drafted from the previous answer" + tail
+    if route == REWRITE and kind == "generated":
+        return "Rewrote the answer from the same sources" + tail
+    if kind == "general":
+        prefix = ("General knowledge" if route == REWRITE
+                  else "General knowledge, not from your documents")
+        return f"{prefix} · {_engine(result)}" + tail
     if kind == "metadata":
         return "Counted from your library, not from document text" + tail
     used = _answer_passages(result)
@@ -177,6 +202,29 @@ def used_line(result: dict) -> str:
     return "Searched your documents · nothing found that answers this" + tail
 
 
+def suggestions(result: dict) -> list[str]:
+    """Two or three next questions. Plain, honest, never a claim."""
+    kind, route = result.get("answer_type"), result.get("route")
+    if kind == "guidance":
+        return list(result.get("examples") or [])[:3]
+    if route in (REWRITE, ACTION, RECORDS):
+        return []
+    if kind in ("extract", "generated"):
+        return ["Write that as a comment", "What else is missing?", "Explain simply"]
+    if kind == "general":
+        return ["Give me that in points", "Check against my documents"]
+    return []
+
+
+def draft(result: dict) -> dict | None:
+    """An action answer's draft, for the reader to confirm (section 2g).
+    Nothing is written anywhere until they do."""
+    if result.get("route") != ACTION or not result.get("answer"):
+        return None
+    return {"type": "comment", "text": result["answer"], "status": "draft",
+            "source_ids": [s["document_id"] for s in sources(result) if s.get("document_id")]}
+
+
 def present(result: dict) -> dict:
     """The additive fields, ready to merge into the answer and its payload."""
     return {
@@ -185,7 +233,8 @@ def present(result: dict) -> dict:
         "sources": sources(result),
         "verification": verification(result),
         "steps": steps(result),
-        "suggestions": [],
-        "draft": None,
+        "suggestions": suggestions(result),
+        "draft": draft(result),
+        "notices": list(result.get("notices") or []),
         "cost_usd": result.get("cost_usd"),
     }

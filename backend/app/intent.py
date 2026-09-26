@@ -303,3 +303,169 @@ def guidance(kind: str, examples: list[str] | None = None) -> str:
         return reply
     lines = "\n".join(f"  • {q}" for q in examples)
     return f"{reply}\n\nTry one of these:\n{lines}"
+
+
+# =============================================================== the router
+#
+# OWNER ORDER 2026-09-26 (chat redesign, 2c). Every chat message is routed to
+# one of seven answer kinds BEFORE anything is searched. The rules are words,
+# not a model, so a routing decision can be read, tested and argued with.
+#
+# THE ONE ASYMMETRY THAT MATTERS: a question that names a document, a clause,
+# an identifier or the reader's own material goes to the DOCUMENTS and is
+# never answered from general knowledge - if the documents cannot answer it,
+# the reader is told so. Answering "what is the design pressure of our drum"
+# from general knowledge would be a confident wrong answer about their plant.
+# Only a question with NO document signal may be answered as general
+# knowledge, and it is always labelled so.
+
+GENERAL = "general"
+DOCUMENT = "document"
+WEB = "web"
+MIXED = "mixed"
+REWRITE = "rewrite"
+ACTION = "action"
+RECORDS = "records"
+#: A question with neither signal: the documents are tried first, and only a
+#: question they cannot speak to at all is answered from general knowledge.
+EITHER = "either"
+
+#: Small talk: answered naturally, never searched, never a model call.
+SMALL_TALK = ("greeting", "thanks", "acknowledgement", "farewell", "about_the_assistant",
+              "empty", "not_a_question")
+
+#: Rewrite styles, in the words the chips and the reader use.
+STYLES = {
+    "points": r"\b(?:in|as|into)\s+(?:bullet\s+)?points\b|\bbullet(?:ed)?\s*(?:points|list)?\b|\bas\s+a\s+list\b",
+    "paragraph": r"\b(?:in|as)\s+(?:one\s+|a\s+)?paragraph\b",
+    "more_detail": r"\bmore\s+detail(?:ed)?\b|\bin\s+(?:more\s+)?detail\b|\belaborate\b|\bexpand\s+on\b",
+    "shorter": r"\bshorter\b|\bbriefer\b|\bmore\s+concise\b|\bin\s+short\b|\btl;?dr\b|\bsummari[sz]e\s+(?:it|that|this)\b",
+    "simpler": r"\bsimpl(?:er|y|ify)\b|\bplain\s+(?:english|language|words)\b|\blike\s+i'?m\s+not\s+an?\s+engineer\b|\bfor\s+a\s+(?:beginner|non-?engineer|layman)\b",
+    "engineer": r"\bfor\s+an?\s+engineer\b|\bmore\s+technical\b|\btechnical(?:ly)?\s+precise\b",
+    "check_documents": r"\bcheck\s+(?:it\s+|this\s+|that\s+)?against\s+(?:my|our|the)\s+documents?\b",
+    "manager": r"\bfor\s+(?:my|the|a)\s+manager\b",
+}
+_STYLE_RES = {name: re.compile(p) for name, p in STYLES.items()}
+
+#: Words that carry no subject of their own in a rewrite request.
+_REWRITE_FILLER = {
+    "give", "me", "that", "this", "it", "now", "please", "can", "could", "you", "make",
+    "put", "write", "rewrite", "redo", "again", "with", "a", "an", "the", "bit", "little",
+    "and", "but", "in", "as", "into", "one", "more", "some", "too", "also", "then", "ok",
+    "okay", "so", "same", "answer", "version", "just", "do", "say", "explain", "tell",
+    "how", "about", "for", "of", "to", "i", "m", "im", "not", "is", "was", "be", "way",
+}
+
+_ACTION = re.compile(
+    r"\b(?:write|draft|turn|make|put)\s+(?:that|this|it|up)?\s*(?:up\s+)?(?:as|into)?\s*"
+    r"(?:a\s+|an\s+)?(?:review\s+)?comment\b"
+    r"|\bdraft\s+(?:a\s+)?comment\b"
+    r"|\badd\s+(?:that|this|it)\s+to\s+(?:the\s+)?(?:review|comment\s+sheet|crs)\b"
+    r"|\bsummari[sz]e\s+(?:that|this|it)\s+for\s+(?:my|the)\s+manager\b"
+)
+
+#: The reader's own material, or a place in a document.
+_DOCUMENT_WORDS = re.compile(
+    r"\b(?:my|our|this|the|that|these|those|your|uploaded)\s+"
+    r"(?:datasheets?|data\s+sheets?|submittals?|documents?|docs?|drawings?|specs?|specifications?|"
+    r"reports?|files?|pdfs?|vendor\s+documents?|library|standards?)\b"
+    r"|\b(?:clause|page|section|sheet|row|paragraph)\s+[\dA-Z]"
+    r"|\baccording\s+to\b|\bper\s+the\b|\bin\s+the\s+(?:document|spec|standard|datasheet|library)\b"
+    r"|\b(?:datasheet|submittal|standards?\s+library)\b"
+    r"|\bcompany\s+standards?\b"
+    r"|\b(?:compliant|complies|comply|compliance|conform(?:s|ance)?)\b"
+    r"|\bdoes\s+(?:it|this|that)\s+(?:meet|satisfy|pass)\b",
+    re.IGNORECASE,
+)
+
+#: Asked about the world, not the reader's documents.
+_GENERAL_WORDS = re.compile(
+    r"\bin\s+general\b|\bgenerally\b|\bexplain\s+(?:it\s+)?like\b|\blike\s+i'?m\b"
+    r"|\bwhat(?:'s|\s+is)\s+the\s+difference\s+between\b|\bhow\s+does\s+\w+(?:\s+\w+)?\s+work\b"
+    r"|\bwhy\s+(?:does|do|is|are)\b|\bwhat\s+(?:is|are)\s+(?:a|an)\s+\w+"
+    r"|\bexplain\b|\bin\s+simple\s+terms\b|\bhistory\s+of\b",
+    re.IGNORECASE,
+)
+
+#: A compliance question: answered from evidence, and ENDS with the engineer
+#: notice - the chat never records a verdict.
+COMPLIANCE = re.compile(
+    r"\b(?:compliant|complies|comply|compliance|conform(?:s|ance)?|acceptable|approve[ds]?|"
+    r"meet(?:s)?|satisf(?:y|ies)|pass(?:es)?)\b", re.IGNORECASE)
+ENGINEER_NOTICE = "This needs an engineer's judgement - the passages are evidence, not a verdict"
+
+
+def styles_in(text: str) -> list[str]:
+    """Every rewrite style the text asks for, in a stable order."""
+    lowered = (text or "").lower()
+    return [name for name, rx in _STYLE_RES.items() if rx.search(lowered)]
+
+
+def _subject_words(text: str) -> list[str]:
+    lowered = (text or "").lower()
+    for rx in _STYLE_RES.values():
+        lowered = rx.sub(" ", lowered)
+    return [w for w in re.findall(r"[a-z0-9][a-z0-9'\-]*", lowered) if w not in _REWRITE_FILLER]
+
+
+def route(message: str, *, has_previous_answer: bool = False,
+          document_in_scope: bool = False, web_enabled: bool = False) -> dict:
+    """{kind, styles, small_talk, compliance, command, text} for one message.
+
+    `text` is the message with any slash command removed. The order of the
+    checks is the order of precedence, and each one says why it is where it is.
+    """
+    raw = (message or "").strip()
+    command = None
+    if raw.startswith("/"):
+        head, _, rest = raw.partition(" ")
+        command = head[1:].lower()
+        raw = rest.strip()
+    base = {"styles": styles_in(raw), "small_talk": None, "command": command,
+            "compliance": bool(COMPLIANCE.search(raw)), "text": raw}
+    # 1. Explicit commands win: the reader said exactly what they want.
+    if command == "records":
+        return {**base, "kind": RECORDS}
+    if command == "quote":
+        return {**base, "kind": DOCUMENT, "tier": "extract"}
+    # 2. Small talk is answered naturally and never searched.
+    kind = classify(raw)
+    if kind in SMALL_TALK:
+        return {**base, "kind": GENERAL, "small_talk": kind}
+    # 3. An action on the previous answer ("write that as a comment").
+    if has_previous_answer and _ACTION.search(raw.lower()):
+        return {**base, "kind": ACTION}
+    # 4. A rewrite: a style asked for, and no subject of its own - "now in
+    #    points with more detail". "Explain sulfidation simply" has a subject
+    #    and is a new question with a style, not a rewrite.
+    if has_previous_answer and base["styles"] and len(_subject_words(raw)) <= 1:
+        return {**base, "kind": REWRITE}
+    # 5. A request for help with a task is general knowledge, never searched.
+    if kind == ADVICE_REQUEST:
+        return {**base, "kind": GENERAL}
+    # 6. The reader's own material: documents, and never general knowledge.
+    from . import keyword
+    if (document_in_scope or _DOCUMENT_WORDS.search(raw) or keyword.IDENTIFIER.search(raw)
+            or keyword.find_designators(raw)):
+        return {**base, "kind": DOCUMENT}
+    # 7. The world, not the documents.
+    if _GENERAL_WORDS.search(raw):
+        return {**base, "kind": GENERAL}
+    return {**base, "kind": EITHER}
+
+
+def small_talk_reply(kind: str, *, provider_line: str) -> str:
+    """A natural reply to small talk. `provider_line` says honestly who answers."""
+    replies = {
+        "greeting": "Hi! Ask me anything - about your documents, a standard, or engineering in general.",
+        "thanks": "You're welcome. Anything else?",
+        "acknowledgement": "Okay. What would you like to look at next?",
+        "farewell": "Goodbye - your conversation is saved here if you want to pick it up later.",
+        "about_the_assistant": (
+            "I'm the chat in RAG Intelligence. I answer from your documents and show the page each "
+            "point came from, and I can answer general engineering questions too - those are "
+            f"labelled as general knowledge. {provider_line}"),
+        "empty": "Type a question to begin.",
+        "not_a_question": "Could you say a little more about what you'd like to know?",
+    }
+    return replies.get(kind, replies["not_a_question"])

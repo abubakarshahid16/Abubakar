@@ -830,7 +830,77 @@ export type AnswerType =
  *  Nothing was searched, so there is nothing to show as considered. */
   | "guidance"
   /** a non-sensitive aggregate from application metadata, not document text */
-  | "metadata";
+  | "metadata"
+  /** chat redesign (2026-09-26): the model's GENERAL knowledge - never searched,
+   *  never cited, always labelled "not from your documents" */
+  | "general"
+  /** chat redesign: a workflow-records search ("/records") */
+  | "records";
+
+/** Chat redesign (2026-09-26): what kind of answer this is on the Chat screen. */
+export type AnswerKind = "general" | "document" | "web" | "mixed" | "rewrite" | "action" | "records";
+
+/** One numbered source chip under a chat answer. */
+export interface ChatSource {
+  n: number;
+  kind: "document" | "web";
+  document_id: string | null;
+  display_name: string;
+  document_number: string | null;
+  page: number | null;
+  page_end: number | null;
+  clause: string | null;
+  text_source: string | null;
+  ocr_min_conf: number | null;
+  url: string | null;
+  /** false: supplied to the model but not cited by it */
+  cited: boolean;
+  /** the exact words each verified point stood on (Claude lane) */
+  quotes: string[];
+  rows: Record<string, unknown>[];
+}
+
+/** Points found on the page - PRESENT ONLY WHERE LITERALLY TRUE. */
+export interface ChatVerification {
+  verified: number;
+  total: number;
+  method: string | null;
+}
+
+export interface ChatStep {
+  label: string;
+  count: number | null;
+  done: boolean;
+}
+
+/** ADDITIVE: every field optional, so a turn stored before them still renders. */
+export interface ChatPresentation {
+  answer_kind?: AnswerKind | null;
+  /** the one grey line above the answer: what was used, how long it took */
+  used_line?: string | null;
+  sources?: ChatSource[];
+  verification?: ChatVerification | null;
+  steps?: ChatStep[];
+  suggestions?: string[];
+  draft?: Record<string, unknown> | null;
+  notices?: string[];
+  provider?: string | null;
+  cost_usd?: number | null;
+}
+
+export interface ChatModelOption {
+  id: "claude" | "local";
+  label: string;
+  model: string;
+  available: boolean;
+  /** why it is unavailable; never a key */
+  reason: string | null;
+}
+
+export interface ChatModels {
+  default: "claude" | "local";
+  models: ChatModelOption[];
+}
 
 export interface AnswerPassage {
   chunk_id: string;
@@ -1507,7 +1577,7 @@ export interface ScopeAmbiguity {
   documents: { document_id: string; filename: string | null }[];
 }
 
-export interface AnswerResult {
+export interface AnswerResult extends ChatPresentation {
   question: string;
   answer_type: AnswerType;
   /** null whenever answer_type is insufficient_evidence or model_unavailable */
@@ -1594,7 +1664,7 @@ export interface ConversationList {
   conversations: ConversationSummary[];
 }
 
-export interface Message {
+export interface Message extends ChatPresentation {
   id: string;
   conversation_id: string;
   ordinal: number;
@@ -1634,6 +1704,8 @@ export interface AskRequest {
   /** upgrade this assistant message to Tier 2 instead of asking anew. The
    *  reader pressing Explain is not asking a new question. */
   explain_of?: string | null;
+  /** chat redesign: "local" narrows to the local engine; never widens */
+  model?: "auto" | "claude" | "local" | null;
 }
 
 export interface AskResult extends AnswerResult {

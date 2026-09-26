@@ -2520,6 +2520,7 @@ def ask(conversation_id: str, body: schemas.AskRequest,
                 allowed_document_ids=scope.allowed_document_ids,
                 progress_id=body.progress_id,
                 model=body.model,
+                include_unowned_records=scope.is_admin,
             )
         finally:
             progress_mod.finish(body.progress_id)
