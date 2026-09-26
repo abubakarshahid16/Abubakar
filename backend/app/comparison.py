@@ -50,7 +50,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import (claims, conditions, datasheets, match_rules, page_ledger,
-                requirements_3b, schemas, submittal_review)
+                requirements_3b, review, schemas, submittal_review)
 from .config import settings
 from .db import connect
 
@@ -776,6 +776,13 @@ def create_finding(
                        :matched_phrase, :match_method, :equipment_tag,
                        '[]', '[]', 'open', 'pending',
                        :created_at, :updated_at)""", row)
+        # B10: THE HISTORY STARTS AT THE MACHINE. A finding's trail began at
+        # the first human edit, so it could not say the review wrote it. No
+        # actor - no person made it - and pending, never approved.
+        review._event(conn, row["id"], "created_by_review", {
+            "review_run_id": row["review_run_id"],
+            "compliance_status": row["compliance_status"],
+            "approval_status": "pending"}, None, now)
     return {**row, "unresolved_evidence": unresolved,
             "citation_resolves": not unresolved}
 
@@ -2019,12 +2026,18 @@ def reject_pair(requirement: dict, fact: dict, *, rejected_by: str | None,
     now = _now()
     conn = connect()
     with conn:
-        conn.execute(
+        inserted = conn.execute(
             "INSERT OR IGNORE INTO review_pair_rejections"
             " (requirement_key, fact_key, requirement_id, fact_id,"
             "  rejected_by, rejected_at, reason) VALUES (?,?,?,?,?,?,?)",
             (requirement_key(requirement), fact_key(fact, tag_scoped=scoped),
-             requirement.get("id"), fact.get("id"), rejected_by, now, reason))
+             requirement.get("id"), fact.get("id"), rejected_by, now, reason)).rowcount
+        # B10: an engineer's rejection is audited like their code decision -
+        # same transaction, ids only. A repeat (ignored) rejection records nothing.
+        if inserted:
+            _audit(conn, "review.pair_rejected",
+                   {"id": rejected_by, "email": rejected_by} if rejected_by else None,
+                   requirement.get("id"), detail=f"fact={fact.get('id')}")
     return {"requirement_key": requirement_key(requirement),
             "fact_key": fact_key(fact, tag_scoped=scoped),
             "requirement_id": requirement.get("id"), "fact_id": fact.get("id"),
@@ -2208,6 +2221,11 @@ def record_engineer_code(
             " override_reason = ?, decided_by = ?, decided_at = ?,"
             " updated_at = ? WHERE id = ?",
             (code, reason, reviewer, now, now, review_run_id))
+        # B10: IN THE SAME TRANSACTION. A decision whose audit row could not be
+        # written is rolled back with it - an unaudited code is not recorded.
+        _audit(conn, "review.code_recorded", actor, review_run_id,
+               detail=f"recommended={recommended} final={code} "
+                      f"overridden={bool(reason)}")
     outcome = {
         **stored,
         "final_code": code,
@@ -2215,9 +2233,6 @@ def record_engineer_code(
         "override_reason": reason,
         "decided_at": now,
     }
-    _audit("review.code_recorded", actor, review_run_id,
-           detail=f"recommended={recommended} final={code} "
-                  f"overridden={bool(reason)}")
     return outcome
 
 
@@ -2246,19 +2261,18 @@ def list_findings(review_run_id: str, *,
         review_run_id, allowed_document_ids=allowed_document_ids)
 
 
-def _audit(action: str, actor: dict | None, resource_id: str | None,
+def _audit(conn, action: str, actor: dict | None, resource_id: str | None,
            detail: str | None = None) -> None:
-    """Durable record of a review decision. Ids and codes only."""
-    conn = connect()
-    try:
-        with conn:
-            conn.execute(
-                """INSERT INTO audit_events
-                       (at, actor_user_id, actor_username, action,
-                        resource_type, resource_id, outcome, detail)
-                   VALUES (?, ?, ?, ?, 'review', ?, 'ok', ?)""",
-                (_now(), (actor or {}).get("id"),
-                 ((actor or {}).get("email") or "unauthenticated")[:200],
-                 action, resource_id, detail))
-    except Exception:  # noqa: BLE001 - an unwritable audit must not block it
-        pass
+    """Durable record of a review decision. Ids and codes only.
+
+    Written on the CALLER'S connection, inside the caller's transaction, and
+    never swallowed (B10): it used to catch every error and carry on, so a
+    decision could be recorded with no audit row at all."""
+    conn.execute(
+        """INSERT INTO audit_events
+               (at, actor_user_id, actor_username, action,
+                resource_type, resource_id, outcome, detail)
+           VALUES (?, ?, ?, ?, 'review', ?, 'ok', ?)""",
+        (_now(), (actor or {}).get("id"),
+         ((actor or {}).get("email") or "unauthenticated")[:200],
+         action, resource_id, detail))

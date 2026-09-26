@@ -1836,12 +1836,15 @@ class ReviewFindingCreate(BaseModel):
     governing_sources: list[str] = Field(default_factory=list, max_length=100)
     unresolved_evidence: list[str] = Field(default_factory=list, max_length=50)
     response_text: str | None = Field(default=None, max_length=8000)
-    disposition: ReviewDisposition | None = None
+    #: B10: a finding is CREATED unreviewed. Disposition and approval are an
+    #: engineer's later act on the stored finding, recorded against their name
+    #: by the update route - never a value the creator can pre-fill.
+    disposition: None = None
     citation_ids: list[str] = Field(default_factory=list, max_length=50)
     owner_user_id: str | None = None
     due_date: str | None = None
     status: ReviewStatus = "open"
-    approval_status: ApprovalStatus = "pending"
+    approval_status: Literal["pending"] = "pending"
     escalation_level: int = Field(default=0, ge=0, le=5)
 
 
@@ -1855,8 +1858,8 @@ class ReviewFindingUpdate(BaseModel):
     escalation_level: int | None = Field(default=None, ge=0, le=5)
     response_text: str | None = Field(default=None, max_length=8000)
     disposition: ReviewDisposition | None = None
-    approved_by: str | None = None
-    approved_at: str | None = None
+    # B10: no `approved_by` / `approved_at` here. Who approved is the
+    # authenticated caller, set by the route - the same rule as `confirmed_by`.
     #: CONFIRM THE PAIRING. A flag, not a name: `confirmed_by` is the CALLER,
     #: taken from the authenticated scope and never from this body, because a
     #: confirmation that can name someone else is not a confirmation. There is
@@ -2032,6 +2035,7 @@ class CrsPreview(BaseModel):
     #: rather than as a placeholder code.
     recommended_code: str = ""
     recommended_code_reason: str = ""
+    recommended_code_status: str = ""
     recommended_code_label: str
     #: B5: the standards the review applied and why, the ones considered and
     #: not applied, and cited ones not held (MISSING_LOCALLY) - the workbook's

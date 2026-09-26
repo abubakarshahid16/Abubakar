@@ -645,56 +645,31 @@ def completeness(selected: dict, missing: list, submittal_document_id: str, *,
                  allowed_document_ids: frozenset[str]) -> dict:
     """How much of this review could actually be performed.
 
-    TWO THINGS REDUCE IT AND THEY ARE REPORTED SEPARATELY BEFORE BEING
-    COMBINED, because they have different remedies:
+    ONE FORMULA (B10). This module computes only what it alone knows - the
+    share of cited standards held locally - and delegates the extraction half
+    and the combination to `comparison.completeness_for_run`, the formula that
+    decides the review code. It used to carry a second formula (pages with a
+    fact / page count, multiplied), which disagreed with the gate's and, with
+    the page count unknown, reported extraction 1.0 for any sheet with facts.
 
-      * a missing referenced standard - somebody must load the standard;
-      * the submittal's own extraction recall from phase 4 - the datasheet was
-        only partly readable, and on the real pump sheet that was 0.43.
-
-    Multiplied rather than averaged: a review with every standard present but
-    half the datasheet unread is half a review, and so is the reverse. An
-    average would let one good number hide the other.
-
-    None when there is nothing to judge - never 0, which would read as total
-    failure rather than "no basis to compute this". And None, too, when the
-    extraction half was never measured, rather than a score built from the
-    other half alone (B18) - except where that other half is already 0.
+    None when there is nothing to judge - never 0 - and None when the
+    extraction half was never measured (B18), except where the reference half
+    is already 0; both rules now live in that one function.
     """
+    from . import comparison  # local: comparison does not import this module
+
     referenced_total = len(missing) + sum(
         1 for row in selected.values() if row["method"] == METHOD_REFERENCED)
     reference_coverage = (
-        (referenced_total - len(missing)) / referenced_total
+        round((referenced_total - len(missing)) / referenced_total, 3)
         if referenced_total else None)
-
-    facts = datasheets.list_facts(
-        submittal_document_id, allowed_document_ids=allowed_document_ids)
-    pages = {f["page"] for f in facts if f["page"] is not None}
-    extraction = round(len(pages) / max(len(pages), 1), 3) if facts else None
-    row = connect().execute(
-        "SELECT page_count FROM documents WHERE id = ?",
-        (submittal_document_id,)).fetchone()
-    if row and row["page_count"] and facts:
-        extraction = round(len(pages) / row["page_count"], 3)
-
-    # B18: AN UNMEASURED FACTOR IS NOT A FACTOR OF ONE. The two Nones mean
-    # different things. `reference_coverage` is None when the submittal cites
-    # no standard: there is nothing to cover, and leaving it out is right.
-    # `extraction` is None when no fact was ever extracted: the other half of
-    # the review was never MEASURED. Dropping it made "every cited standard
-    # held, datasheet unread" report completeness 1.0. Now that is None -
-    # unless a measured factor is already 0, which no unknown can raise (M-03:
-    # 0 of 15 cited standards held, so 0.0 is determinate and stays).
-    if extraction is None:
-        overall = 0.0 if reference_coverage == 0 else None
-    else:
-        parts = [p for p in (reference_coverage, extraction) if p is not None]
-        overall = round(__import__("math").prod(parts), 3)
+    run = comparison.completeness_for_run(
+        submittal_document_id, allowed_document_ids=allowed_document_ids,
+        reference_coverage=reference_coverage)
     return {
-        "reference_coverage": (round(reference_coverage, 3)
-                               if reference_coverage is not None else None),
-        "extraction_coverage": extraction,
-        "completeness": overall,
+        "reference_coverage": reference_coverage,
+        "extraction_coverage": run["extraction_coverage"],
+        "completeness": run["completeness"],
     }
 
 
@@ -856,21 +831,30 @@ def applicability_with_reasons(submittal_document_id: str, *,
 
 
 def _audit(action: str, actor: dict | None, resource_id: str | None,
-           detail: str | None = None) -> None:
-    """Durable record of a selection decision. Ids and counts only."""
-    conn = connect()
-    try:
-        with conn:
-            conn.execute(
-                """INSERT INTO audit_events
-                       (at, actor_user_id, actor_username, action,
-                        resource_type, resource_id, outcome, detail)
-                   VALUES (?, ?, ?, ?, 'review', ?, 'ok', ?)""",
-                (_now(), (actor or {}).get("id"),
-                 ((actor or {}).get("email") or "unauthenticated")[:200],
-                 action, resource_id, detail))
-    except Exception:  # noqa: BLE001 - an unwritable audit must not block it
-        pass
+           detail: str | None = None, *, conn=None) -> None:
+    """Durable record of a selection decision. Ids and counts only.
+
+    Never swallowed (B10): it used to catch every error, so a decision could
+    stand with no audit row. Given `conn`, it is written inside the caller's
+    transaction and rolls back with it."""
+    if conn is not None:
+        conn.execute(_AUDIT_SQL, _audit_args(action, actor, resource_id, detail))
+        return
+    own = connect()
+    with own:
+        own.execute(_AUDIT_SQL, _audit_args(action, actor, resource_id, detail))
+
+
+_AUDIT_SQL = """INSERT INTO audit_events
+       (at, actor_user_id, actor_username, action,
+        resource_type, resource_id, outcome, detail)
+   VALUES (?, ?, ?, ?, 'review', ?, 'ok', ?)"""
+
+
+def _audit_args(action, actor, resource_id, detail) -> tuple:
+    return (_now(), (actor or {}).get("id"),
+            ((actor or {}).get("email") or "unauthenticated")[:200],
+            action, resource_id, detail)
 
 
 def record_selection(
@@ -878,8 +862,13 @@ def record_selection(
     reason: str, confidence: float | None = None, included: bool = True,
     exclusion_reason: str | None = None, evidence_page: int | None = None,
     evidence_quote: str | None = None, scope_decision: str | None = None,
+    audit: tuple | None = None,
 ) -> dict:
     """Write one row of `review_applicable_standards`.
+
+    `audit` - (action, actor, resource_id, detail) - is written in the SAME
+    transaction as the row, so an engineer's override is never stored
+    unaudited (B10).
 
     NO STANDARD ON THE LIST WITHOUT A REASON AND A METHOD. Both are refused
     when empty rather than defaulted, because "it was retrieved" is not a
@@ -935,6 +924,8 @@ def record_selection(
                        :selection_reason, :selection_method, :confidence,
                        :included, :exclusion_reason, :created_at,
                        :evidence_page, :evidence_quote, :scope_decision)""", row)
+        if audit is not None:
+            _audit(*audit, conn=conn)
     return row
 
 
@@ -1016,9 +1007,9 @@ def override(
     row = record_selection(
         review_run_id=review_run_id, standard_document_id=standard_document_id,
         method=METHOD_MANUAL, reason=reason.strip(), included=include,
-        exclusion_reason=None if include else reason.strip())
-    _audit("review.applicability_override", actor, review_run_id,
-           detail=f"standard={standard_document_id} included={include}")
+        exclusion_reason=None if include else reason.strip(),
+        audit=("review.applicability_override", actor, review_run_id,
+               f"standard={standard_document_id} included={include}"))
     return row
 
 

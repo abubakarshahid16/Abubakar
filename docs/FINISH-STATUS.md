@@ -161,3 +161,40 @@ Added:
 Tests: `test_b9_reopen_permissions.py` (4), one added to
 `test_b6c_understanding.py`, `answerVerdict.test.tsx` (8). Mutations
 M829–M843: backend 8/8, vitest 7/7.
+
+**B9 merged: PR #252, merge commit `b31061c`.** CI green (8/8).
+
+## B10 – submittal review workflow (branch `feat/b10-submittal-review`)
+
+Surveyed the chain (run → applicability → comparison → findings → code → CRS →
+engineer decision) against the B10 list before changing anything. Already
+true, verified in code: "not evaluated / missing" is never compliant
+(COMPLIANT is set in one place, from a numeric verdict; migrations leave the
+column NULL); `recommend_code` never approves with nothing evaluated, with
+unresolved or out-of-scope requirements, or with a cited standard missing; a
+model recheck can only move a finding to NEEDS_ENGINEER_REVIEW; each finding
+stores contractor evidence, requirement, standard/page/clause, rationale,
+status and engineer state.
+
+Fixed:
+
+| Gap | Fix |
+|---|---|
+| Approval could be recorded in anyone's name (`approved_by` from the body) | approver = authenticated caller; anonymous → 401 |
+| A finding could be created already accepted | creation is always `pending`, no disposition |
+| CRS printed the AI's code with no word that no engineer had decided it | "AI recommendation – NOT yet decided by an engineer" or "Decided by the reviewing engineer", in the workbook and the preview |
+| Code-decision audit swallowed its own failure | written in the decision's transaction; a failed audit rolls the decision back |
+| Pair rejection (an engineer act) not audited | `review.pair_rejected` audit row, same transaction, once per pair |
+| Machine-written findings had no history | `created_by_review` event: no actor, pending |
+| Two completeness formulas disagreed (and one reported 1.0 with pages unknown) | one formula: the gate's; the selection delegates |
+
+Honesty audit entries 60, 61. Tests: `test_b10_engineer_decisions.py` (10),
+3 in `test_comparison.py`, 1 vitest. Mutations M844–M852 9/9 (M313/M315
+retired with the code they mutated). Local backend suite 3816 passed, 4
+local-only OCR failures (models absent here; green in CI).
+
+Not changed (recorded as limitations): datasheet classification is not
+re-run by the review route (it runs at ingestion); "Approved with Comments"
+is still the code when only MISSING_INFORMATION findings remain (they stay
+MISSING_INFORMATION, never compliant); a real-document review through the
+live route is an owner-laptop gate.

@@ -2043,6 +2043,16 @@ def update_review_finding(
                 "a confirmation must name the engineer who made it"))
         changes["confirmed_by"] = scope.user_id
         changes["confirmed_at"] = review_mod.now_iso()
+    # B10: AN APPROVAL OR DISPOSITION IS THE CALLER'S OWN, for the same reason.
+    # The name is never read from the body (the schema has no field for it),
+    # and an anonymous caller cannot decide a finding.
+    if changes.get("approval_status") in ("accepted", "rejected") or changes.get("disposition"):
+        if scope.user_id is None:
+            raise HTTPException(status_code=401, detail=errors.safe_error(
+                errors.UNAUTHENTICATED,
+                "an approval must name the engineer who made it"))
+        changes["approved_by"] = scope.user_id
+        changes["approved_at"] = review_mod.now_iso()
     updated = review_mod.update(
         finding_id, changes, actor_user_id=scope.user_id
     )
@@ -3374,6 +3384,12 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
         "recommended_code_reason": (
             run.get("override_reason") if run.get("engineer_final_code")
             else outcome.get("reason")) or "",
+        # B10: WHO DECIDED IT. The AI recommends; only an engineer decides. A
+        # CRS carrying the AI's code must say it is not yet a decision.
+        "recommended_code_status": (
+            crs_export_mod.CODE_DECIDED_BY_ENGINEER if run.get("engineer_final_code")
+            else crs_export_mod.CODE_NOT_YET_DECIDED if outcome.get("recommended_code")
+            else ""),
         "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
     }
     return rows, meta, submittal_name, stamp

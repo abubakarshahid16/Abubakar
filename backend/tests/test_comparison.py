@@ -18,7 +18,7 @@ import uuid
 
 import pytest
 
-from app import applicability, comparison, datasheets, db, standards, submittal_review
+from app import applicability, comparison, datasheets, db, review, standards, submittal_review
 from app.config import settings
 
 
@@ -153,6 +153,25 @@ def test_a_numeric_breach_is_caught_with_both_citations():
     # The rationale is stored SEPARATELY from the comment.
     assert finding["ai_rationale"]
     assert "90" in finding["ai_rationale"] and "95" in finding["ai_rationale"]
+
+
+def test_a_machine_finding_starts_its_history_pending_and_unsigned():
+    """B10: the audit trail says the REVIEW wrote the finding - no person, and
+    pending. It used to start at the first human edit."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL")
+    sc = _chunk("sc", std); fc = _chunk("fc", sub)
+    run = _run(sub)
+    requirement = _requirement(std, sc)
+    fact = _fact(sub, fc)
+    finding = comparison.create_finding(
+        review_run_id=run, submittal_document_id=sub, requirement=requirement,
+        fact=fact, verdict=comparison.compare(requirement, fact))
+    events = review.history(finding["id"])
+    assert [e["event_type"] for e in events] == ["created_by_review"]
+    assert events[0]["actor_user_id"] is None
+    assert events[0]["changes"]["approval_status"] == "pending"
+    assert events[0]["changes"]["review_run_id"] == run
 
 
 def test_a_value_within_the_limit_is_compliant():
@@ -692,12 +711,48 @@ def test_a_measured_zero_stays_zero_whatever_is_unknown():
 
 def test_applicability_completeness_is_none_when_extraction_was_never_measured():
     """The same defect in the other home (CLAUDE.md rule 8): the product of
-    the factors that exist, with the unmeasured one silently dropped."""
-    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=3)
+    the factors that exist, with the unmeasured one silently dropped.
+
+    B10: "never measured" is an UNKNOWN PAGE COUNT, as in the gate's formula,
+    which applicability now delegates to. (No facts on known pages is a
+    measured 0, below.)"""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=0)
     held = {"std": {"method": applicability.METHOD_REFERENCED}}
     result = applicability.completeness(
         held, [], sub, allowed_document_ids=_scope(sub))
     assert result["reference_coverage"] == 1.0
+    assert result["extraction_coverage"] is None
+    assert result["completeness"] is None
+
+
+def test_applicability_and_the_gate_report_one_completeness(monkeypatch):
+    """B10: ONE FORMULA. The selection's completeness and the gate's were two
+    different calculations (pages-with-a-fact x references, against
+    fields-read / nominal fields, weakest link) and printed different numbers
+    for one review. Now the selection delegates; the numbers are identical."""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=2)
+    facts = [{"page": 1, "id": f"f{i}"} for i in range(7)]
+    monkeypatch.setattr(comparison.datasheets, "list_facts", lambda *a, **k: facts)
+    held = {"std": {"method": applicability.METHOD_REFERENCED}}
+    selection = applicability.completeness(
+        held, ["MISSING-1"], sub, allowed_document_ids=_scope(sub))
+    gate = comparison.completeness_for_run(
+        sub, allowed_document_ids=_scope(sub),
+        reference_coverage=selection["reference_coverage"])
+    assert selection["reference_coverage"] == 0.5
+    assert selection["extraction_coverage"] == gate["extraction_coverage"] == 0.1
+    assert selection["completeness"] == gate["completeness"] == 0.1
+
+
+def test_an_unknown_page_count_is_not_full_extraction(monkeypatch):
+    """The old selection formula divided pages-with-a-fact by itself when the
+    page count was unknown - 1.0, for any sheet with one fact."""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=0)
+    monkeypatch.setattr(comparison.datasheets, "list_facts",
+                        lambda *a, **k: [{"page": 1, "id": "f1"}])
+    result = applicability.completeness(
+        {"std": {"method": applicability.METHOD_REFERENCED}}, [], sub,
+        allowed_document_ids=_scope(sub))
     assert result["extraction_coverage"] is None
     assert result["completeness"] is None
 
@@ -711,6 +766,13 @@ def test_applicability_completeness_keeps_m03s_determinate_zero():
     result = applicability.completeness(
         {}, missing, sub, allowed_document_ids=_scope(sub))
     assert result["reference_coverage"] == 0.0
+    # B10: three known pages, no facts - a measured 0, the gate's own reading.
+    assert result["extraction_coverage"] == 0.0
+    assert result["completeness"] == 0.0
+    # and with the page count unknown, the determinate 0 still survives
+    unknown = _doc("sub2", "e.pdf", "CONTRACTOR_SUBMITTAL", pages=0)
+    result = applicability.completeness(
+        {}, missing, unknown, allowed_document_ids=_scope(unknown))
     assert result["extraction_coverage"] is None
     assert result["completeness"] == 0.0
 

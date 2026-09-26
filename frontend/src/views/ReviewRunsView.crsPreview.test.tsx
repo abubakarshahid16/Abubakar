@@ -205,6 +205,15 @@ describe("the CRS preview", () => {
     expect(panel.getByText(/42 of approximately 385 fields/)).toBeInTheDocument();
   });
 
+  it("says when the code is still only the AI's recommendation (B10)", async () => {
+    previewCrs.mockResolvedValue({
+      ok: true,
+      data: sheet({ recommended_code_status: "AI recommendation - NOT yet decided by an engineer." }),
+    });
+    const panel = within(await openThePreview());
+    expect(panel.getByTestId("crs-code-status")).toHaveTextContent(/NOT yet decided by an engineer/);
+  });
+
   it("shows no code line at all when the run has no recommendation", async () => {
     // NULL RENDERS AS NOTHING (CLAUDE.md rule 4), never a placeholder code.
     previewCrs.mockResolvedValue({
