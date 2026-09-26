@@ -93,7 +93,7 @@ export function ChatView({
 }: {
   connection: Connection;
   onRetryConnection: () => void;
-  onNavigate?: (view: "documents" | "review", recordId?: string) => void;
+  onNavigate?: (view: "documents" | "review" | "reports", recordId?: string) => void;
   /** the conversation chosen in the navigation (App owns the choice) */
   conversationId?: string | null;
   onConversationChange?: (id: string | null) => void;
@@ -113,6 +113,7 @@ export function ChatView({
   const [progress, setProgress] = useState<Progress | null>(null);
   const [savingReport, setSavingReport] = useState<string | null>(null);
   const [reportNotice, setReportNotice] = useState<Record<string, string>>({});
+  const [reportSaved, setReportSaved] = useState<Record<string, boolean>>({});
   const [evidence, setEvidence] = useState<{ messageId: string; index: number } | null>(null);
   const [models, setModels] = useState<ChatModels | null>(null);
   const [model, setModel] = useState<ModelChoice | null>(null);
@@ -413,12 +414,8 @@ export function ChatView({
     const r = await reportsApi.generate(messageId);
     setSavingReport(null);
     if (r.ok) {
-      setReportNotice((n) => ({
-        ...n,
-        [messageId]:
-          `Saved as ${r.data.id} — ${r.data.page_count} page` +
-          `${r.data.page_count === 1 ? "" : "s"}. Open it on the Reports screen.`,
-      }));
+      // "Saved to CRS & Reports · Open" - the screen the reader knows it by.
+      setReportSaved((s) => ({ ...s, [messageId]: true }));
       return;
     }
     // The route refuses a message that cites nothing. Saying so is the point.
@@ -669,6 +666,8 @@ export function ChatView({
             }
             savingReport={savingReport === m.id}
             reportNotice={reportNotice[m.id] || null}
+            reportSaved={Boolean(reportSaved[m.id])}
+            onOpenReports={onNavigate ? () => onNavigate("reports") : undefined}
             upgradeFailure={upgradeFailureFor(m.id)}
             onAsk={(t) => void send(t)}
             onRetry={(() => {

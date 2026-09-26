@@ -132,7 +132,8 @@ What you can do now:
   shows no source numbers at all, even if the model wrote one. **Rewrite as:**
   Points / More detail / Shorter / For an engineer / Check against my documents.
 - **Actions**: Copy · Try again · Exact wording (asks `/quote` of the same
-  question) · Save as PDF. Suggested next questions under document answers.
+  question) · Save as report (then "Saved to CRS & Reports · Open"). Suggested
+  next questions under document answers.
 - **"Write that as a comment"** shows a **Draft comment** card marked "Needs an
   engineer", editable, with Copy. It is not added anywhere.
 - **Composer**: Enter sends, Shift+Enter adds a line, the 500-character limit
@@ -145,7 +146,7 @@ What you can do now:
   sidebar's privacy line now says the same.
 
 Moved, not removed: exact quotation (now **Exact wording** and `/quote`),
-Save as report (now **Save as PDF** in the action row), the evidence page
+Save as report (now in the action row; see the note after PR 6), the evidence page
 viewer (**Open page**), OCR labels, verdict and scope notices, removed-citation
 and dropped-evidence notices, two-part answers, "read as a follow-up" terms,
 workflow-record search (**+** menu and `/records`), withheld turns, delete.
@@ -215,3 +216,15 @@ start. **Back up the live DB before restarting on this version.**
   or a finding.
 - A search runs once per consent. If every provider failed (rate limit,
   network), you can try again.
+
+## After PR 6 — two owner decisions, before PR 7
+
+- **Privacy fix:** a document's file name typed with spaces, hyphens,
+  underscores or dots (any mix, with or without the extension, any case) is
+  now removed from every outbound web or market search phrase. The one
+  exception: a file named only after a published standard (e.g.
+  `NORSOK-M-501.pdf`) keeps the standard's public name searchable. Honesty
+  audit entry 67.
+- **"Save as report"** is the answer action's name again (it was "Save as PDF"
+  in PR 4). After saving it says **"Saved to CRS & Reports · Open"**, and Open
+  takes you to that screen.

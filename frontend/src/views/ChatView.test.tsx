@@ -172,6 +172,10 @@ function mockApi(routes: Routes = {}) {
     const body = (() => {
       if (url.includes("/health")) return health;
       if (url.includes("/chat/models") && routes.models) return routes.models;
+      // the CRS & Reports screen's own list, when "Open" takes the reader there
+      if (url.includes("/reports?") || (url.endsWith("/reports") && init?.method !== "POST")) {
+        return { reports: [], suppressed_count: 0, total_matching: 0 };
+      }
       if (url.endsWith("/reports")) {
         return routes.report ?? {
           id: "report_abc",
@@ -650,13 +654,18 @@ describe("citations", () => {
     await openChat();
     await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
 
-    const buttons = await screen.findAllByRole("button", { name: "Save as PDF" });
+    const buttons = await screen.findAllByRole("button", { name: "Save as report" });
     await userEvent.click(buttons.at(-1)!);
 
     await waitFor(() => {
       expect(calls.some((c) => c.url.endsWith("/reports") && c.body && (c.body as { message_id?: string }).message_id === "msg_a2")).toBe(true);
     });
-    expect(await screen.findByText(/Saved as report_abc/i)).toBeInTheDocument();
+    // the screen the reader knows it by, and a way there
+    expect(await screen.findByText(/Saved to CRS & Reports/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    await waitFor(() =>
+      expect(within(nav).getByRole("button", { name: /^CRS & Reports/ })).toHaveAttribute("aria-current", "page"));
   });
 
   it("warns that an extract report does not merge other matched passages into the answer", async () => {
