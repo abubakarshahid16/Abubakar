@@ -501,17 +501,6 @@ def _validate_heading(
     title = raw_title.rstrip(".")
     if not title or len(title) > 90:
         return None
-    # A TITLE NAMES A TOPIC; IT DOES NOT OBLIGE. "4.4 Design loads shall be as
-    # per the building code" fits every other test here - a dotted number, a capital,
-    # under 90 characters - and it is a REQUIREMENT, the first line of a
-    # numbered paragraph. Read as a heading, the sentence became a section
-    # label and was never read as a requirement: measured on one real standard,
-    # seven requirements disappeared this way once a change table stopped
-    # masking it (see revision_history_regions). A parenthetical is a note on
-    # the title, not the title: NORSOK heads a clause "A.1 Coating system no. 1
-    # (shall be pre-qualified)", and that is a heading.
-    if _OBLIGATION.search(_PARENTHETICAL.sub(" ", title)):
-        return None
 
     # An annex clause (A.4) carries a letter prefix; body clauses do not.
     parts = [p for p in number.split(".") if p]
@@ -722,6 +711,27 @@ def _numbered_paragraph(lines: list[str], i: int) -> str | None:
 def _heading_number(heading: str) -> str:
     """The numbering off the front of a validated heading string."""
     return heading.split(" ", 1)[0]
+
+
+def _obliges(heading: str) -> bool:
+    """Whether a heading's "title" is really the first line of a requirement.
+
+    "4.4 Design loads shall be as per the building code" passes every heading
+    test - a dotted number, a capital, under 90 characters - and it is a
+    numbered PARAGRAPH, not a titled clause. As a heading its line was consumed
+    into the section label and never reached the chunk's text, so the
+    requirement it states was never read: measured on one real standard, seven
+    requirements disappeared this way once a change table stopped masking it
+    (see revision_history_regions).
+
+    It is still a clause NUMBER - page classification and the contents test
+    count it as one, and must - so it is decided here, where a heading becomes
+    the section, and nowhere earlier. A parenthetical is a note on a title, not
+    the title: NORSOK heads a clause "A.1 Coating system no. 1 (shall be
+    pre-qualified)", and that is a heading.
+    """
+    title = heading.split(" ", 1)[1] if " " in heading else ""
+    return _OBLIGATION.search(_PARENTHETICAL.sub(" ", title)) is not None
 
 
 def _bare_integer_clauses(numbers: list[str]) -> set[str]:
@@ -1109,6 +1119,17 @@ def segment_document(
                         head, consumed = None, 1
                     else:
                         last_bare_integer = int(number)
+
+            if head and _obliges(head):
+                # A numbered requirement: its number is the clause, as
+                # `_numbered_paragraph` makes it, and its sentence stays in the
+                # text to be read as the requirement it is.
+                flush_prose(section)
+                if not contents_page:
+                    section = _heading_number(head)
+                buf.extend(lines[i:i + consumed])
+                i += consumed
+                continue
 
             if head:
                 flush_prose(section)

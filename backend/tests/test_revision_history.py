@@ -213,11 +213,22 @@ def test_a_change_description_is_never_stored_as_a_requirement(temp_db):
 
 # ------------------------------------------- a numbered requirement is not a title
 
-def test_a_numbered_requirement_sentence_is_not_a_heading():
-    """ "4.4 Design loads shall be as per the building code" passes every other
-    heading test. As a heading it became a section label and was never read
-    as a requirement - seven real requirements were lost that way."""
-    assert ch.looks_like_heading("4.4 Design loads shall be as per the building code") is None
-    assert ch.looks_like_heading("4.4 Design loads") == "4.4 Design loads"
-    # a note in parentheses is not the title's own obligation
-    assert ch.looks_like_heading("A.1 Coating system no. 1 (shall be pre-qualified)")
+def test_a_numbered_requirement_keeps_its_sentence_and_takes_its_number():
+    """ "4.4 Design loads shall be as per the building code" passes every
+    heading test. Taken as a titled heading, its line became the section label
+    and never reached the text - seven real requirements were lost that way.
+    It is a numbered paragraph: the number is the clause, the sentence stays."""
+    page = ("4\nDesign\n4.1 General\nThe design shall be prepared by a qualified engineer.\n"
+            "4.2 Design loads shall be as per the building code for all structures.\n")
+    blocks = _segment([(7, page)])
+    loads = [b for b in blocks if "Design loads shall" in b.text]
+    assert len(loads) == 1 and loads[0].section == "4.2"
+    # still a clause line wherever the chunker counts clauses (page kind)
+    assert ch.looks_like_heading("4.4 Design loads shall be as per the building code")
+    assert ch.count_clause_headings(page) >= 2
+
+
+def test_a_parenthetical_obligation_is_still_a_titled_heading():
+    blocks = _segment([(3, "A.1 Coating system no. 1 (shall be pre-qualified)\n"
+                           "Surface preparation to the specified grade is required.\n")])
+    assert blocks[0].section == "A.1 Coating system no. 1 (shall be pre-qualified)"
