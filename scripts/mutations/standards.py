@@ -155,9 +155,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M46", phase=4,
         description="make queuing extract synchronously, blocking the request",
         path=APP / "standards.py",
-        anchor="    if existing is not None:\n        return existing[\"id\"]",
-        replacement="    if existing is not None:\n        return existing[\"id\"]\n"
-                    "    run_extraction_job(document_id)",
+        # Re-anchored in B11: the check-then-insert now sits under one write
+        # lock, so the synchronous run goes after it, before the return.
+        anchor="    _audit(\"standard.extraction_queued\", actor, document_id, detail=f\"job={job_id}\")\n    return job_id",
+        replacement="    _audit(\"standard.extraction_queued\", actor, document_id, detail=f\"job={job_id}\")\n"
+                    "    run_extraction_job(document_id)\n    return job_id",
         target="tests/test_standards_3b.py",
         keyword="queued_and_drained_by_the_existing_worker",
         tags=("job",),

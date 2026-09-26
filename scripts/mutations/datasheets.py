@@ -722,18 +722,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "datasheets.py",
         # Re-anchored by B4 fix 5: grid_by_page[page] now sits between these
         # two lines, and the guard gained "and not grid_by_page[page]".
-        anchor="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
-               "        # B4 fix 5: column grids, read by word position (see grid_facts).\n"
-               "        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n"
-               "        if geometry_on:\n"
-               "            # B4 (#193 5.5): read, not yet written - see the write loop.\n"
-               "            geometry_by_page[page] = _geometry_rows_from_pdf_page(stored_path, page)\n"
-               "            vision_by_page[page] = _vision_reading(\n"
-               "                stored_path, page, geometry_by_page[page], vision_provider)\n"
-               "        if not found and not grid_by_page[page]:",
-        replacement="        found.extend(_pairs_from_pdf_page(stored_path, page))\n"
-                    "        grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)\n"
-                    "        if True:",
+        # Re-anchored (B4/B7 renamed the geometry flag): the OCR tier's own
+        # guard, so a page with native pairs is ALSO read from OCR and the
+        # low-confidence guess replaces the native facts.
+        anchor="        if not found and not grid_by_page[page]:\n"
+               "            ocr_found = _pairs_from_ocr_fallback(document_id, page)\n",
+        replacement="        if True:\n"
+                    "            ocr_found = _pairs_from_ocr_fallback(document_id, page)\n",
         target=_B175_DATASHEET_TEST,
         keyword="a_page_with_no_native_pairs_falls_back_to_its_ocr_text or "
                 "a_page_with_native_pairs_never_reaches_the_ocr_tier",

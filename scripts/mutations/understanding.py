@@ -29,13 +29,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="        if len(ids) >= 1:\n",
         target=_T, keyword="several_documents",
     ),
-    Mutation(
-        id="M807", phase=69, description="B6C: 'this standard' resolves to a previous document outside the grants",
-        path=_U,
-        anchor="        if context.document_id and context.document_id in allowed_document_ids:\n",
-        replacement="        if context.document_id:\n",
-        target=_T, keyword="outside_the_grants", tags=("access",),
-    ),
+    # M807 RETIRED in B9: `understand` now drops a previous answer's context
+    # whose document is not readable before this line runs (mutated by M843),
+    # so the grant check here can no longer be observed on its own.
     Mutation(
         id="M808", phase=69, description="B6C: 'the next clause' steps backwards",
         path=_U,
