@@ -152,3 +152,50 @@ redesign (section 3), and 2d-2 (web standards).
 - **Not in this PR:** document number and revision consistency across pages.
   It needs per-page title-block reading, which comes with the extraction work.
 - DB migration: **none**.
+
+## Extraction filter audit (part 2)
+
+See `docs/extraction-filter-audit.md` for the per-rule report.
+- A label / unit / value row now reads as "value unit".
+- Material, code and rating designations count as answers.
+- The revision-block, title-block, heading and furniture guards are kept.
+- Honesty audit entry 69.
+- DB migration: **none**.
+
+## 2a + 2b - table and formula rules in code, judged on the output field
+
+- **What the engineer gets.** A range-table rule is now calculated instead of
+  being sent to an engineer. Example: design pressure from the maximum
+  operating pressure, "the greater of 1.1 x MOP and MOP + 170". The finding
+  shows the calculation, for example "required design pressure at least
+  3,300 kPa from operating pressure 3,000 kPa (table row: over 1,800 up to
+  6,900 kPa); the datasheet says 3,200 kPa", and meets or does not meet.
+- **The right field (2b).** The verdict judges the OUTPUT field (design
+  pressure) and names the INPUT used (operating pressure).
+  - Output absent: "design pressure not stated on the datasheet" (missing
+    information).
+  - Input absent: the required value cannot be calculated, so an engineer
+    decides.
+  - The input is never compared against the rule.
+- **Pure arithmetic** (`backend/app/rule_eval.py`):
+  - rows use max or min of linear terms over input ranges;
+  - units convert through the unit table;
+  - gauge against absolute is never compared;
+  - a table that states no basis is read on the datasheet's gauge basis, and
+    the rationale says so;
+  - an input outside every row goes to an engineer;
+  - an unparseable table gives no rule. The requirement stays with an engineer
+    and says "the table on page N could not be read". For a garbled table, the
+    page's ruled table is re-read by the table reader first.
+- **Model-assisted parsing is optional**, behind `RULE_PARSE_MODEL_ENABLED`
+  (default off; it also needs the Claude lane and stays within the USD caps).
+  A model's parse is kept only when every number in it appears verbatim on the
+  clause's page. The arithmetic is always Python.
+- **Stored once, auditable:** `standard_requirements.rule_json` and
+  `rule_source` (`code` or `model_parsed_verified`).
+- Supported now: design pressure from operating pressure, and design
+  temperature from operating temperature. Other rule families stay with an
+  engineer until they are added to `rule_eval.KNOWN_RULES`.
+- DB migration: **YES**. Two additive nullable columns on
+  `standard_requirements`, added automatically at start-up. Back up the laptop
+  DB before updating.

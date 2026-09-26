@@ -979,8 +979,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id='M659', phase=64,
         description='B4 item 2: the unit guard overwrites a blank field\'s own answer',
         path=APP / 'comparison.py',
-        anchor='        if (fact is not None and not fact.get("is_blank")\n',
-        replacement='        if (fact is not None\n',
+        # Re-anchored 2026-09-26 (2a): the guard also skips a rule verdict.
+        anchor='        if (fact is not None and not fact.get("is_blank") and rule_verdict is None\n',
+        replacement='        if (fact is not None and rule_verdict is None\n',
         target='tests/test_b4_quality.py', keyword='blank_field_pairing_is_held',
     ),
 )

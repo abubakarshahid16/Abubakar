@@ -811,6 +811,12 @@ class Settings(BaseSettings):
     #: sends nothing - it also needs the Claude lane (REASONING_PROVIDER=claude,
     #: both STANDARDS_READER_* egress flags and a key), within the USD caps.
     review_ai_check_enabled: bool = False
+    #: Owner order 2a: let Claude turn a table/formula clause the code parser
+    #: cannot read into rule_eval's structured form. Accepted ONLY when every
+    #: number in the parse appears verbatim on the clause's page; the
+    #: arithmetic is always Python. OFF BY DEFAULT; also needs the Claude lane
+    #: and stays within the USD caps (step "rule_parse").
+    rule_parse_model_enabled: bool = False
 
     # ------------------------------------------------- Claude-first chat (tools)
     #
