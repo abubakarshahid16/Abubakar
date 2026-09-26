@@ -214,6 +214,14 @@ def ensure_schema() -> None:
             # it then, and nothing here back-fills a guess.
             ("extractor_version", "TEXT"),
             ("input_hash", "TEXT"),
+            # OWNER ORDER 2a: a table or formula rule, parsed ONCE into the
+            # structured form `rule_eval` evaluates, and HOW it was parsed:
+            # 'code' (rule_eval.parse_rule) or 'model_parsed_verified' (the
+            # model's parse, accepted only because every number in it is on
+            # the clause's page). NULL: not a rule, or not parseable - it
+            # stays with an engineer. Additive; NULL on every existing row.
+            ("rule_json", "TEXT"),
+            ("rule_source", "TEXT"),
         ):
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.

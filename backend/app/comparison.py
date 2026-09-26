@@ -1308,11 +1308,29 @@ def run_comparison(
                 else:
                     model_reason = chosen["reason"]
 
+        # OWNER ORDER 2a + 2b: A TABLE OR FORMULA RULE IS EVALUATED IN CODE,
+        # against its OUTPUT field. "Design pressure from maximum operating
+        # pressure" was paired with the operating pressure (the rule's INPUT)
+        # and sent to an engineer. When the rule parses (rule_eval: code, or
+        # the model's parse verified number by number), the verdict is the
+        # arithmetic on the design pressure, and the input it used is named.
+        rule_verdict = None
+        rule_unread = None
+        if requirement.get("requirement_type") in (requirements_3b.TABLE_ROW,
+                                                    requirements_3b.RELATIVE_LIMIT):
+            from . import rule_eval
+            rule, rule_unread = rule_eval.rule_for(requirement)
+            if rule is not None:
+                rule_verdict, fact = rule_eval.judge(rule, facts)
+                match = {**match, "fact": fact, "matched_phrase": rule["output"],
+                         "method": METHOD_RULE, "reason": None}
         # `facts` is the WHOLE submittal's fact set, not the matched fact. B24
         # needs the material/service/class fields to establish a condition, and
         # those are different rows from the one being compared.
-        verdict = compare(requirement, fact, subject=subject,
-                          submittal_facts=facts)
+        verdict = rule_verdict or compare(requirement, fact, subject=subject,
+                                          submittal_facts=facts)
+        if rule_verdict is None and rule_unread and verdict.get("status") == NEEDS_ENGINEER_REVIEW:
+            verdict = {**verdict, "rationale": f"{verdict.get('rationale') or ''}; {rule_unread}"}
         # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in
         # NEEDS_ENGINEER_REVIEW, but only one of them is the real reason: the
         # number is not a limit. Reporting "unit_mismatch" against a table row
@@ -1322,7 +1340,7 @@ def run_comparison(
         # A BLANK FIELD HAS NO NUMBER AND NO UNIT TO GUARD (B4 item 2: a blank
         # can now be paired by field name); `compare` has already said what
         # it is - left to be provided.
-        if (fact is not None and not fact.get("is_blank")
+        if (fact is not None and not fact.get("is_blank") and rule_verdict is None
                 and requirement.get("requirement_type") != requirements_3b.TABLE_ROW):
             # THE UNIT GUARD. A match says the two are ABOUT the same thing; it
             # says nothing about whether their numbers can be compared. A
@@ -1513,6 +1531,8 @@ UNIT_MISMATCH = "unit_mismatch"
 #: How a match was made. One value today; named so a second method cannot be
 #: added without the finding saying which one produced it.
 METHOD_CONTAINMENT = "containment"
+#: Owner order 2b: the fact was chosen as a parsed rule's OUTPUT field.
+METHOD_RULE = "rule"
 
 
 def _unit_measure(row: dict) -> claims.Measurement:
