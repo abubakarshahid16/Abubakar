@@ -158,7 +158,30 @@ FURNITURE_PAGE_THRESHOLD = 3
 _CATEGORICAL_VALUES = frozenset({
     "yes", "no", "n/a", "na", "not applicable", "not required", "none",
     "applicable", "required",
+    # Filter audit 2026-09-26 (owner order): closed engineering answers a
+    # datasheet prints - radiography extent and flange facing. Still a
+    # CLOSED list: no word here is a name or a place.
+    "full", "spot", "partial", "rf", "rtj", "ff",
 })
+
+#: FILTER AUDIT 2026-09-26 (owner order, synthetic drawing and cover pages): a
+#: real field whose answer is a DESIGNATION - "Shell material: SA-516 GR.70",
+#: "Design code: ASME VIII DIV. 1", "Rating: CL300" - carries no quantity and
+#: no closed word, so the value gate threw it away with the captions. A
+#: designation is not free text: it is a standard's or a material's code, a
+#: family prefix followed by a number. Narrow on purpose - "A. Author",
+#: "Example Bay" and a document number match none of these shapes.
+_DESIGNATION = re.compile(
+    r"^(?:"
+    r"(?:asme\s+)?s?a[\s-]?\d{2,4}[a-z]?\b.*"                      # SA-516 GR.70, A105
+    r"|(?:asme|api|astm|en|iso|bs|pd|nace|ansi)[\s.-]*(?:[a-z]{1,3}[\s.-]*)?(?:\d|[ivx]+\b).*"
+    r"|cl(?:ass)?\s*\d{2,4}|\d{2,4}\s*(?:#|lbs?)"                    # CL300, 300#
+    r")$", re.IGNORECASE)
+
+
+def is_designation_value(value: str | None) -> bool:
+    """A material, code or rating designation - a real answer, not a caption."""
+    return bool(_DESIGNATION.match(" ".join((value or "").split())))
 
 
 #: A date, in the spellings a document actually writes one.
@@ -247,8 +270,9 @@ def states_a_value(value: str | None) -> bool:
     """Does this cell say something a FACT can be made of?
 
     A quantity (one number, or a range - `-3 to 55 C` is a value stated as
-    two), an explicit blank ("By Contractor", "TBA", a drawn rule), or a
-    closed categorical answer. Anything else beside a label is a caption:
+    two), an explicit blank ("By Contractor", "TBA", a drawn rule), a closed
+    categorical answer, or a designation (`is_designation_value`: SA-516,
+    ASME VIII, CL300 - honesty audit 69). Anything else beside a label is a caption:
     "Prepared by: A. Engineer" has the shape of a filled field and states
     nothing about the equipment.
 
@@ -262,7 +286,8 @@ def states_a_value(value: str | None) -> bool:
     if parsed is None and parse_range(value) is not None:
         parsed = "range"
     return not (parsed is None and marker in (None, "empty")
-                and not is_categorical_value(value))
+                and not is_categorical_value(value)
+                and not is_designation_value(value))
 
 
 def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
@@ -1079,7 +1104,17 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
             # Absorbed ONLY when the value is a number and the next cell is a
             # unit `claims` recognises. A word that is not a unit stays what it
             # was, so a genuine two-column form is untouched.
-            if index < len(parts) and _is_numeric_cell(value):
+            # FILTER AUDIT 2026-09-26: THE UNIT BEFORE THE VALUE. A process-
+            # data page prints `| Operating temperature | C | 90 |`; paired
+            # left to right the unit took the value slot, the value gate then
+            # (rightly) refused "C", and the 90 was never paired at all.
+            # Taken ONLY when the would-be value is a bare recognised unit and
+            # the next cell is a number; any other row is untouched.
+            if (_unit_follows(parts, index - 1) and index < len(parts)
+                    and _is_numeric_cell(parts[index]) and not _is_numeric_cell(value)):
+                value = f"{parts[index]} {value}"
+                index += 1
+            elif index < len(parts) and _is_numeric_cell(value):
                 nxt = parts[index]
                 base, _reference = claims.split_reference(nxt)
                 if nxt and len(nxt) <= 14 and claims.is_unit(base or ""):
@@ -2873,8 +2908,8 @@ def _extract_facts(
                     # A LABEL WITH FREE TEXT BESIDE IT IS NOT A FACT. "Prepared by:
                     # A. Engineer" and "Facility: Example Bay" have exactly the shape
                     # of a filled-in field and state nothing about the equipment.
-                    # A quantity, an explicit blank, or a closed categorical answer
-                    # - anything else is a caption.
+                    # A quantity, an explicit blank, a closed categorical answer
+                    # or a designation - anything else is a caption (audit 69).
                     dropped["value gate"] = dropped.get("value gate", 0) + 1
                     continue
                 if checkbox_on_quantity(label, value):
