@@ -37,7 +37,7 @@ export const NAV: NavItem[] = [
   { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
   { id: "standards", label: "Standards Library", hint: "Clauses, requirements, revisions", built: true },
   { id: "analysis", label: "Analysis Hub", hint: "Summary, gaps, advice", built: true },
-  { id: "chat", label: "Document Q&A", hint: "Ask questions with citations", built: true },
+  { id: "chat", label: "Chat", hint: "Ask anything, with sources", built: true },
   { id: "reports", label: "CRS & Reports", hint: "Frozen evidence, as PDF", built: true },
   { id: "deliverables", label: "Deliverables", hint: "WBS, revisions, due dates", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
@@ -238,6 +238,7 @@ export function Shell({
   auth,
   theme,
   onThemeChange,
+  navExtra,
   children,
 }: {
   view: ViewId;
@@ -253,6 +254,9 @@ export function Shell({
   auth?: AuthStatus | null;
   theme: ThemeMode;
   onThemeChange: (theme: ThemeMode) => void;
+  /** Screen-specific navigation under the main list - the Chat screen's
+   *  recent chats. Optional: every other screen has none. */
+  navExtra?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -317,8 +321,9 @@ export function Shell({
           </span>
           <p className="mt-3 border-l-2 border-signal-500/40 ps-2.5 text-xs leading-relaxed text-slateish-400">
             <span className="font-medium text-slateish-300">Private by design.</span>{" "}
-            Your documents stay on this machine, and every answer cites its
-            document and page.
+            Your documents are stored on this machine, and every answer cites
+            its document and page. When Claude is switched on, the passages an
+            answer needs are sent to it.
           </p>
         </div>
 
@@ -375,6 +380,8 @@ export function Shell({
             );
           })}
         </ul>
+
+        {navExtra}
 
         <div className="mt-auto border-t border-ink-700 px-4 py-4">
           {/* Identity sits ABOVE the connection badge on purpose: "who am I"

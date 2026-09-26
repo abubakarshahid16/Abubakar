@@ -58,7 +58,7 @@ describe("shell navigation", () => {
     mockFetch(() => json(healthOnline));
     render(<App />);
 
-    for (const label of ["Documents", "Document Q&A", "Ingestion", "Dashboard"]) {
+    for (const label of ["Documents", "Chat", "Ingestion", "Dashboard"]) {
       expect(screen.getByRole("button", { name: new RegExp(label) })).toBeInTheDocument();
     }
     // All four are built now. Ingestion was the last placeholder; the badge

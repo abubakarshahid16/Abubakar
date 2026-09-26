@@ -1,49 +1,50 @@
 /**
  * Chat.
  *
- * Three things this screen is responsible for, beyond showing text:
+ * Owner order 2026-09-26 (chat redesign): one centred conversation, recent
+ * chats in the left navigation, answers written as they stream in, and a Stop
+ * that stops. Everything the screen promised before still holds, moved rather
+ * than removed:
  *
  *  - A quotation and generated prose are visibly different. Only one of them
  *    is the specification, and the reader must never have to guess which.
- *  - Every answer opens onto its evidence: document, page, clause, the quoted
- *    passage, and the rendered page image.
+ *    General knowledge says it is general knowledge, and cites nothing.
+ *  - Every document answer opens onto its evidence: document, page, clause,
+ *    the quoted words, and the rendered page image ("Open page").
  *  - When a follow-up is resolved, the terms carried in from earlier questions
  *    are shown on the turn. The reader's question is never silently rewritten.
+ *  - A response belongs to the request that asked for it: a late answer is
+ *    never painted under a conversation the reader has moved to.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { api, reports as reportsApi, structuredSearch } from "../api/client";
-import {
-  AnswerCard,
-  sourcesOf,
-  viewFromMessage,
-  type AnswerView,
-  type UpgradeFailure,
-} from "../components/chat/AnswerCard";
+import { api, askStream, reports as reportsApi, structuredSearch, type StreamOutcome } from "../api/client";
+import { sourcesOf, viewFromMessage, type UpgradeFailure } from "../components/chat/AnswerCard";
+import { AssistantAnswer, StreamingAnswer } from "../components/chat/AssistantAnswer";
+import { ChatEmptyHeading, ChatStarters } from "../components/chat/ChatEmptyState";
+import { Composer, type ModelChoice } from "../components/chat/Composer";
 import { EvidencePanel } from "../components/chat/EvidencePanel";
 import { LocalWork } from "../components/chat/LocalWork";
+import { UserMessage } from "../components/chat/UserMessage";
 import type { Connection } from "../components/Shell";
-import type { Progress } from "../types/api";
-import { DisconnectedState, EmptyState, ErrorState, Spinner, ZeroResultsState } from "../components/states";
-import type { ApiError, ConversationSummary, Message } from "../types/api";
+import { ErrorState, ZeroResultsState } from "../components/states";
+import type {
+  AnswerTier,
+  ApiError,
+  AskRequest,
+  ChatModels,
+  ChatStep,
+  ChatVerification,
+  ConversationSummary,
+  Message,
+  Progress,
+  StructuredSearchResult,
+} from "../types/api";
 
-type Load =
-  | { s: "loading" }
-  | { s: "error"; error: ApiError; disconnected: boolean }
-  | { s: "ready" };
-
-function relative(iso: string): string {
-  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
-  return `${Math.floor(seconds / 86400)} d ago`;
-}
-
-// A quotation can only return text that already exists in the documents. A
-// review/critique is a synthesis request and needs the generated explanation
-// path. Keep this as a UI hint (rather than silently changing the selected
-// mode) so the user's response-style choice remains explicit.
+// On the local engine a quotation is the fast, exact default and a written
+// answer is ~50 s away behind "Explain". A review or critique is a synthesis
+// request, so it goes to the written path instead of returning a misleading
+// "not found" - and the reader is told that it did.
 function isReviewRequest(text: string): boolean {
   return /\b(review|critique|criteque|assess|assessment|evaluate|evaluation|audit|commentary|comment on|comments? on)\b/i.test(text);
 }
@@ -51,10 +52,10 @@ function isReviewRequest(text: string): boolean {
 /** Append only the turns the transcript does not already have.
  *
  * `chat.ask` commits the USER turn to the database BEFORE generating the
- * answer, so any reload during those 20-50 seconds already contains it. A
- * blind append then renders the question twice with a single answer beneath
- * it. Keyed by id rather than by position, because the transcript may have
- * been replaced wholesale rather than merely grown.
+ * answer, so any reload during those seconds already contains it. A blind
+ * append then renders the question twice with a single answer beneath it.
+ * Keyed by id rather than by position, because the transcript may have been
+ * replaced wholesale rather than merely grown.
  */
 function appendUnseen(existing: Message[], incoming: Message[]): Message[] {
   const seen = new Set(existing.map((m) => m.id));
@@ -62,138 +63,119 @@ function appendUnseen(existing: Message[], incoming: Message[]): Message[] {
   return fresh.length > 0 ? [...existing, ...fresh] : existing;
 }
 
-function UserTurn({ message }: { message: Message }) {
-  return (
-    <div className="flex flex-col items-end">
-      <p className="max-w-[42rem] rounded-[var(--radius-md)] bg-ink-700 px-3 py-2 text-[15px] text-slateish-100 shadow-[var(--shadow-resting)]">
-        {message.text}
-      </p>
-      {/* `?? []` because carried_terms was added later: a transcript row
-          written before it exists has no such field, and `.length` on
-          undefined kills the whole conversation view for one legacy row.
-          The response-shape guard at the client boundary cannot catch
-          this - the body is well formed, one row inside it is old. */}
-      {(message.carried_terms ?? []).length > 0 && (
-        <p className="mt-1 max-w-[42rem] text-right text-xs text-slateish-500">
-          Read as a follow-up. Also searched for{" "}
-          {message.carried_terms.map((t, i) => (
-            <span key={t}>
-              {i > 0 && ", "}
-              <span className="font-mono text-slateish-400">{t}</span>
-            </span>
-          ))}
-          .
-        </p>
-      )}
-    </div>
-  );
+/** An answer being written, for the conversation it belongs to. */
+interface Pending {
+  conversationId: string;
+  /** what the reader typed; null for an Explain, which asks nothing new */
+  question: string | null;
+  turnId: string | null;
+  steps: ChatStep[];
+  text: string;
+  verification: ChatVerification | null;
+  stopping: boolean;
+  /** the server did not stream: the old progress panel is shown instead */
+  legacy: boolean;
+}
+
+interface SendOptions {
+  tier?: AnswerTier;
+  explainOf?: string;
 }
 
 export function ChatView({
   connection,
-  onRetryConnection,
+  onRetryConnection: _onRetryConnection,
   onNavigate,
+  conversationId = null,
+  onConversationChange,
+  onListChanged,
 }: {
   connection: Connection;
   onRetryConnection: () => void;
   onNavigate?: (view: "documents") => void;
+  /** the conversation chosen in the navigation (App owns the choice) */
+  conversationId?: string | null;
+  onConversationChange?: (id: string | null) => void;
+  /** the recent-chats list may have changed */
+  onListChanged?: () => void;
 }) {
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [load, setLoad] = useState<Load>({ s: "loading" });
-
   const [question, setQuestion] = useState("");
-  const [answerStyle, setAnswerStyle] = useState<"extract" | "generated">("extract");
   const [styleNotice, setStyleNotice] = useState<string | null>(null);
-  const [showConversations, setShowConversations] = useState(true);
-  // WHICH conversation the pending question belongs to, not merely that one is
-  // pending: the spinner must not appear under a transcript the reader moved
-  // to while the answer was still running.
-  const [askingIn, setAskingIn] = useState<string | null>(null);
-  const [explainingId, setExplainingId] = useState<string | null>(null);
+  const [failure, setFailure] = useState<ApiError | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  // The id THIS client chose for the request in flight, and what the backend
-  // says it is doing. `progress` stays null until the first poll returns: the
-  // stage is never guessed from the clock in the meantime.
+  const [explainingId, setExplainingId] = useState<string | null>(null);
   const [progressId, setProgressId] = useState<string | null>(null);
-  // Which message is being turned into a report, and what the last attempt
-  // said. Keyed by message id so a notice appears on the card it belongs to.
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [savingReport, setSavingReport] = useState<string | null>(null);
   const [reportNotice, setReportNotice] = useState<Record<string, string>>({});
-  const [progress, setProgress] = useState<Progress | null>(null);
-  const [failure, setFailure] = useState<ApiError | null>(null);
-  const [structuredEnabled, setStructuredEnabled] = useState(false);
-  const [structuredKind, setStructuredKind] = useState<"deliverable" | "finding" | "risk" | "stakeholder">("deliverable");
-  const [structuredResults, setStructuredResults] = useState<import("../types/api").StructuredSearchResult[]>([]);
-  const [structuredFailure, setStructuredFailure] = useState<ApiError | null>(null);
-  const [hasSearched, setHasSearched] = useState(false);
-
   const [evidence, setEvidence] = useState<{ messageId: string; index: number } | null>(null);
-  const bottom = useRef<HTMLDivElement>(null);
+  const [models, setModels] = useState<ChatModels | null>(null);
+  const [model, setModel] = useState<ModelChoice | null>(null);
+  const [recent, setRecent] = useState<ConversationSummary[]>([]);
 
-  const asking = askingIn !== null;
-  // A question is in flight AND it belongs to the transcript on screen. The
-  // bare `askingIn === current` was true at rest - both null in a fresh chat -
-  // so "Working on this machine · 0s" sat under an empty transcript with
-  // nothing asked, and the empty-state hint beneath it never rendered.
-  const waitingHere = asking && askingIn === current;
-  const searchStructured = useCallback(async () => {
-    const query = question.trim();
-    if (!query) return;
-    setHasSearched(true);
-    setStructuredFailure(null);
-    const result = await structuredSearch(query, structuredEnabled ? structuredKind : undefined);
-    if (result.ok) setStructuredResults(result.data.results);
-    else {
-      setStructuredResults([]);
-      setStructuredFailure(result.error);
-    }
-  }, [question, structuredEnabled, structuredKind]);
+  const [recordsOpen, setRecordsOpen] = useState(false);
+  const [recordsKind, setRecordsKind] = useState<"deliverable" | "finding" | "risk" | "stakeholder">("deliverable");
+  const [recordsResults, setRecordsResults] = useState<StructuredSearchResult[]>([]);
+  const [recordsFailure, setRecordsFailure] = useState<ApiError | null>(null);
+  const [recordsSearched, setRecordsSearched] = useState(false);
+
+  const bottom = useRef<HTMLDivElement>(null);
+  const abort = useRef<AbortController | null>(null);
+  const pendingRef = useRef<Pending | null>(null);
+  pendingRef.current = pending;
 
   // ------------------------------------------------------ request ownership
   //
-  // Every polling loop in this codebase already carries a cancelled flag;
-  // send(), open() and explain() did not. A Tier 2 answer takes 20-50 seconds
-  // and is not streamed, so the window in which the reader gets impatient and
-  // clicks something else is wide - and each of the three applied its result
-  // to whatever transcript was on screen when it resolved.
-  //
   // `owned` is the conversation the screen currently belongs to, held in a ref
-  // so it can be read synchronously after an await. A response whose ticket no
-  // longer matches is DROPPED, not deferred and not reordered: the reader has
-  // moved on, and a late answer under the wrong question is worse than no
-  // answer at all. The server has persisted it either way, so it is still
-  // there when the conversation is reopened.
+  // so it can be read synchronously after an await. A response whose ticket
+  // no longer matches is DROPPED, not deferred and not reordered: the reader
+  // has moved on, and a late answer under the wrong question is worse than no
+  // answer at all. The server has persisted it either way.
   const owned = useRef<string | null>(null);
-
-  // `askingIn` cannot guard the submit on its own: in a fresh chat there is an
-  // await (creating the conversation) BEFORE it is set, and the Ask button is
-  // still enabled across it. A double-click there created two conversations
-  // and spent two Tier 1 answers. A ref is set synchronously, so the second
-  // click sees it.
+  // A ref, not state: in a fresh chat there is an await (creating the
+  // conversation) before anything else is set, and a double-click there
+  // created two conversations and spent two answers.
   const sending = useRef(false);
+  // The id this view chose itself (a new conversation), so the navigation
+  // echoing it back does not reload a transcript that is being written.
+  const chosenHere = useRef<string | null>(null);
 
-  const refreshList = useCallback(async () => {
-    const r = await api.conversations();
-    if (r.ok) setConversations(r.data.conversations);
+  const asking = pending !== null;
+  const waitingHere = pending !== null && pending.conversationId === current;
+
+  // -------------------------------------------------------------- engines
+  useEffect(() => {
+    let cancelled = false;
+    void api.chatModels().then((r) => {
+      if (cancelled || !r.ok) return;
+      setModels(r.data);
+      setModel(r.data.default);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const claude = model === "claude";
+
+  const refreshRecent = useCallback(async () => {
+    const r = await api.conversations(3);
+    if (r.ok) setRecent(r.data.conversations);
   }, []);
 
-  const loadList = useCallback(async () => {
-    setLoad({ s: "loading" });
-    const r = await api.conversations();
-    if (!r.ok) {
-      setLoad({ s: "error", error: r.error, disconnected: r.disconnected });
-      return;
-    }
-    setConversations(r.data.conversations);
-    setLoad({ s: "ready" });
-  }, []);
+  const listChanged = useCallback(() => {
+    onListChanged?.();
+    void refreshRecent();
+  }, [onListChanged, refreshRecent]);
 
   useEffect(() => {
-    void loadList();
-  }, [loadList]);
+    void refreshRecent();
+  }, [refreshRecent]);
 
+  // ------------------------------------------------------------- opening
   const open = useCallback(async (id: string) => {
     owned.current = id;
     setCurrent(id);
@@ -203,62 +185,50 @@ export function ChatView({
     // Two quick clicks between conversations: without this, the SLOWER
     // response wins and paints its transcript under the other name.
     if (owned.current !== id) return;
-    if (r.ok) setMessages(r.data.messages);
-    else setFailure(r.error);
+    if (r.ok) {
+      setMessages(r.data.messages);
+      setTitle(r.data.conversation.title);
+    } else setFailure(r.error);
   }, []);
 
-  const startNew = useCallback(async () => {
-    setFailure(null);
-    // Nothing on screen is owned while the new conversation is being created,
-    // so an in-flight response for the previous one cannot land in it.
+  const reset = useCallback(() => {
     owned.current = null;
-    const r = await api.newConversation();
-    if (!r.ok) {
-      setFailure(r.error);
-      return;
-    }
-    owned.current = r.data.id;
-    setCurrent(r.data.id);
+    setCurrent(null);
+    setTitle(null);
     setMessages([]);
     setEvidence(null);
-    void refreshList();
-  }, [refreshList]);
+    setFailure(null);
+  }, []);
 
-  const remove = useCallback(
-    async (id: string) => {
-      const r = await api.deleteConversation(id);
-      if (!r.ok) {
-        setFailure(r.error);
-        return;
-      }
-      if (current === id) {
-        owned.current = null;
-        setCurrent(null);
-        setMessages([]);
-        setEvidence(null);
-      }
-      void refreshList();
+  // The navigation chose a conversation (or "New chat", which is null).
+  useEffect(() => {
+    if (conversationId === chosenHere.current && conversationId === current) return;
+    if (conversationId === null) {
+      if (current !== null) reset();
+      return;
+    }
+    if (conversationId !== current) void open(conversationId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
+
+  const select = useCallback(
+    (id: string | null) => {
+      chosenHere.current = id;
+      onConversationChange?.(id);
     },
-    [current, refreshList],
+    [onConversationChange],
   );
 
-  // A ticking counter rather than a bare spinner. Tier 2 runs ~50s and is not
-  // streamed; leaving the reader watching an indefinite spinner for that long
-  // is indistinguishable from a hang.
+  // ------------------------------------------------------------- timing
   useEffect(() => {
-    if (!asking && !explainingId) return;
+    if (!asking) return;
     setElapsed(0);
     const started = Date.now();
-    const t = window.setInterval(
-      () => setElapsed(Math.floor((Date.now() - started) / 1000)),
-      1000,
-    );
+    const t = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => window.clearInterval(t);
-  }, [asking, explainingId]);
+  }, [asking]);
 
-  // Poll for the stage the backend has actually reached. The elapsed counter
-  // above is the client's own and keeps counting through a missed poll; this
-  // only ever adds what the work REPORTED.
+  // The old route reports progress by polling; the stream reports it itself.
   useEffect(() => {
     if (!progressId) {
       setProgress(null);
@@ -267,8 +237,6 @@ export function ChatView({
     let cancelled = false;
     const tick = async () => {
       const r = await api.progress(progressId);
-      // A 404 means the entry has expired or does not exist yet. Neither is an
-      // error and neither is a stage, so nothing is shown for it.
       if (!cancelled && r.ok) setProgress(r.data);
     };
     void tick();
@@ -280,205 +248,234 @@ export function ChatView({
   }, [progressId]);
 
   useEffect(() => {
-    // Guarded: scrollIntoView is absent in some environments, and failing to
-    // scroll is not a reason for the whole transcript to stop rendering.
     const el = bottom.current;
     if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "end" });
-  }, [messages.length, asking, explainingId]);
+  }, [messages.length, pending?.text, waitingHere]);
 
-  const send = useCallback(async () => {
-    const text = question.trim();
-    if (!text || asking || sending.current) return;
-    sending.current = true;
-    setFailure(null);
+  // --------------------------------------------------------------- asking
+  const send = useCallback(
+    async (raw: string, opts: SendOptions = {}) => {
+      const text = raw.trim();
+      if ((!text && !opts.explainOf) || pendingRef.current || sending.current) return;
+      sending.current = true;
+      setFailure(null);
 
-    let id = current;
-    if (!id) {
-      const created = await api.newConversation();
-      if (!created.ok) {
-        sending.current = false;
-        setFailure(created.error);
+      let id = current;
+      if (!id) {
+        const created = await api.newConversation();
+        if (!created.ok) {
+          sending.current = false;
+          setFailure(created.error);
+          return;
+        }
+        id = created.data.id;
+        owned.current = id;
+        setCurrent(id);
+        setTitle(created.data.title || null);
+        setMessages([]);
+        select(id);
+      }
+
+      // The tier: a written answer when Claude answers; on the local engine a
+      // quotation, unless the reader asked for a review, which needs writing.
+      let tier: AnswerTier = opts.tier ?? (claude ? "generated" : "extract");
+      if (!opts.tier && !claude && isReviewRequest(text)) {
+        tier = "generated";
+        setStyleNotice(
+          "This review was answered as a grounded written explanation; a quotation only returns verbatim text.",
+        );
+      }
+
+      const conversation = id;
+      const tailAtRequest = messages.length > 0 ? messages[messages.length - 1].id : null;
+      const first: Pending = {
+        conversationId: conversation,
+        question: opts.explainOf ? null : text,
+        turnId: null,
+        steps: [],
+        text: "",
+        verification: null,
+        stopping: false,
+        legacy: false,
+      };
+      setPending(first);
+      if (opts.explainOf) setExplainingId(opts.explainOf);
+      else setQuestion("");
+
+      const update = (fn: (p: Pending) => Pending) =>
+        setPending((p) => (p && p.conversationId === conversation ? fn(p) : p));
+
+      const body: Partial<AskRequest> = {
+        question: text,
+        tier,
+        ...(opts.explainOf ? { explain_of: opts.explainOf } : {}),
+        ...(model ? { model } : {}),
+      };
+      const controller = new AbortController();
+      abort.current = controller;
+      let outcome: StreamOutcome = await askStream(conversation, body, {
+        signal: controller.signal,
+        onEvent: (e) => {
+          if (e.event === "turn") update((p) => ({ ...p, turnId: e.data.turn_id }));
+          else if (e.event === "step")
+            update((p) => ({
+              ...p,
+              steps: [...p.steps.map((s) => ({ ...s, done: true })), e.data],
+            }));
+          else if (e.event === "delta") update((p) => ({ ...p, text: p.text + e.data.text }));
+          else if (e.event === "verification") update((p) => ({ ...p, verification: e.data }));
+        },
+      });
+
+      if (outcome.kind === "unsupported") {
+        // An older backend: ask the plain route and poll its progress.
+        update((p) => ({ ...p, legacy: true }));
+        const ticket = crypto.randomUUID();
+        setProgressId(ticket);
+        const r = await api.ask(conversation, { ...body, progress_id: ticket });
+        setProgressId(null);
+        outcome = r.ok
+          ? { kind: "done", result: r.data }
+          : { kind: "failed", disconnected: r.disconnected, error: r.error };
+      }
+
+      abort.current = null;
+      sending.current = false;
+      setPending((p) => (p && p.conversationId === conversation ? null : p));
+      if (opts.explainOf) setExplainingId((e) => (e === opts.explainOf ? null : e));
+
+      // Dropped: the reader is reading a different conversation now. Both
+      // turns are persisted server-side and appear when this one is reopened.
+      if (owned.current !== conversation) return;
+
+      if (outcome.kind === "failed") {
+        setFailure(outcome.error);
+        if (!opts.explainOf) setQuestion(text); // give the question back
         return;
       }
-      id = created.data.id;
-      owned.current = id;
-      setCurrent(id);
-      setMessages([]);
+      if (outcome.kind === "aborted") {
+        // Stopped before the server answered: whatever it stored is the record.
+        void open(conversation);
+        listChanged();
+        return;
+      }
+      if (outcome.kind !== "done") return;
+      const result = outcome.result;
+      if (result.conversation?.title) setTitle(result.conversation.title);
+      if (opts.explainOf) {
+        // The explanation belongs under the answer it explains only if
+        // nothing else arrived in the meantime.
+        setMessages((m) => {
+          const tail = m.length > 0 ? m[m.length - 1].id : null;
+          if (tail !== tailAtRequest) return m;
+          return appendUnseen(m, [result.assistant_message]);
+        });
+      } else {
+        setMessages((m) => appendUnseen(m, [result.user_message, result.assistant_message]));
+      }
+      listChanged();
+    },
+    [current, claude, model, messages, open, select, listChanged],
+  );
+
+  const stop = useCallback(async () => {
+    const p = pendingRef.current;
+    if (!p || p.stopping) return;
+    setPending((x) => (x ? { ...x, stopping: true } : x));
+    if (p.turnId) {
+      const r = await api.cancelTurn(p.conversationId, p.turnId);
+      // The server finishes the turn as "stopped" and the stream ends with it.
+      // If the route cannot be reached, closing the connection stops it too.
+      if (r.ok) {
+        window.setTimeout(() => {
+          if (pendingRef.current?.turnId === p.turnId) abort.current?.abort();
+        }, 5000);
+        return;
+      }
     }
+    abort.current?.abort();
+  }, []);
 
-    // Reviews and critiques need synthesis. If the user leaves quotation mode
-    // selected, route this request through the grounded explanation path
-    // rather than returning a misleading "not found" card.
-    const reviewRequest = isReviewRequest(text);
-    const requestStyle = reviewRequest ? "generated" : answerStyle;
-    if (reviewRequest && answerStyle === "extract") {
-      setAnswerStyle("generated");
-      setStyleNotice("This review was answered as a grounded written explanation; quotation mode only returns verbatim text.");
-    }
-
-    setAskingIn(id);
-    setQuestion("");
-    const ticket = crypto.randomUUID();
-    setProgressId(ticket);
-    const r = await api.ask(id, { question: text, tier: requestStyle,
-                                  progress_id: ticket });
-    setProgressId(null);
-    sending.current = false;
-    setAskingIn((pending) => (pending === id ? null : pending));
-
-    // Dropped: the reader is reading a different conversation now. Both turns
-    // are persisted server-side and appear when this one is reopened.
-    if (owned.current !== id) return;
-
-    if (!r.ok) {
-      setFailure(r.error);
-      setQuestion(text); // give the question back rather than losing it
+  const saveReport = useCallback(async (messageId: string) => {
+    setSavingReport(messageId);
+    setReportNotice((n) => ({ ...n, [messageId]: "" }));
+    const r = await reportsApi.generate(messageId);
+    setSavingReport(null);
+    if (r.ok) {
+      setReportNotice((n) => ({
+        ...n,
+        [messageId]:
+          `Saved as ${r.data.id} — ${r.data.page_count} page` +
+          `${r.data.page_count === 1 ? "" : "s"}. Open it on the Reports screen.`,
+      }));
       return;
     }
-    setMessages((m) => appendUnseen(m, [r.data.user_message, r.data.assistant_message]));
-    void refreshList();
-  }, [question, asking, current, refreshList, answerStyle]);
+    // The route refuses a message that cites nothing. Saying so is the point.
+    setReportNotice((n) => ({ ...n, [messageId]: r.error.message }));
+  }, []);
 
-  const explain = useCallback(
-    async (messageId: string) => {
-      if (!current || explainingId) return;
-      const conversationId = current;
-      // The turn the explanation was going to be appended beneath. The server
-      // appends it at the end of the conversation, so it reads as "an
-      // explanation of the quoted answer above" only if nothing else has
-      // arrived in the meantime.
-      const tailAtRequest = messages.length > 0 ? messages[messages.length - 1].id : null;
+  const searchRecords = useCallback(async () => {
+    const query = question.trim();
+    if (!query) return;
+    setRecordsSearched(true);
+    setRecordsFailure(null);
+    const result = await structuredSearch(query, recordsKind);
+    if (result.ok) setRecordsResults(result.data.results);
+    else {
+      setRecordsResults([]);
+      setRecordsFailure(result.error);
+    }
+  }, [question, recordsKind]);
 
-      setFailure(null);
-      setExplainingId(messageId);
-      const ticket = crypto.randomUUID();
-      setProgressId(ticket);
-      const r = await api.ask(conversationId, { tier: "generated",
-                                                explain_of: messageId,
-                                                progress_id: ticket });
-      setProgressId(null);
-      setExplainingId((pending) => (pending === messageId ? null : pending));
+  const startNew = useCallback(() => {
+    reset();
+    select(null);
+  }, [reset, select]);
 
-      if (owned.current !== conversationId) return;
-      if (!r.ok) {
-        setFailure(r.error);
-        return;
-      }
-      // The tail is read INSIDE the updater, so it is the live transcript
-      // rather than a copy captured before the await.
-      setMessages((m) => {
-        const tail = m.length > 0 ? m[m.length - 1].id : null;
-        if (tail !== tailAtRequest) return m; // the reader asked something else
-        return appendUnseen(m, [r.data.assistant_message]);
-      });
-      void refreshList();
-    },
-    [current, explainingId, messages, refreshList],
-  );
-
-  const saveReport = useCallback(
-    async (messageId: string) => {
-      setSavingReport(messageId);
-      setReportNotice((n) => ({ ...n, [messageId]: "" }));
-      const r = await reportsApi.generate(messageId);
-      setSavingReport(null);
-      if (r.ok) {
-        setReportNotice((n) => ({
-          ...n,
-          [messageId]:
-            `Saved as ${r.data.id} — ${r.data.page_count} page` +
-            `${r.data.page_count === 1 ? "" : "s"}. Open it on the Reports screen.`,
-        }));
-        return;
-      }
-      // The route refuses a message that cites nothing (NotReportable, 422).
-      // Saying so is the point: a button that silently does nothing is the
-      // defect this replaces.
-      setReportNotice((n) => ({ ...n, [messageId]: r.error.message }));
-    },
-    [],
-  );
-
+  // -------------------------------------------------------- derived views
   const offline = connection.state === "offline";
 
   const evidenceMessage = evidence ? messages.find((m) => m.id === evidence.messageId) : undefined;
   const evidenceSources = evidenceMessage ? sourcesOf(viewFromMessage(evidenceMessage)) : [];
 
-  // The question that produced this answer: the last user turn before it. The
-  // RESOLVED question is used when a follow-up carried terms forward, because
-  // that is what retrieval actually ran and therefore what the span was found
-  // against.
-  const evidenceQuestion = (() => {
-    if (!evidenceMessage) return undefined;
-    const index = messages.findIndex((m) => m.id === evidenceMessage.id);
-    for (let i = index - 1; i >= 0; i -= 1) {
-      if (messages[i].role === "user") {
-        return messages[i].resolved_question ?? messages[i].text ?? undefined;
-      }
-    }
-    return undefined;
-  })();
-
-  /** The question that produced this answer, in the READER'S OWN WORDS: the
-   *  last user turn before it. `resolved_question` is deliberately the
-   *  fallback rather than the preference here — the evidence panel wants what
-   *  retrieval ran, but whether a question ASKS for a comparison is a fact
-   *  about what the reader typed, not about what the resolver made of it. */
-  const questionFor = (messageId: string): string | null => {
+  /** The question an answer came from: the last user turn before it. */
+  const userTurnBefore = (messageId: string): Message | undefined => {
     const index = messages.findIndex((m) => m.id === messageId);
-    for (let i = index - 1; i >= 0; i -= 1) {
-      if (messages[i].role === "user") {
-        return messages[i].text ?? messages[i].resolved_question ?? null;
-      }
-    }
-    return null;
+    for (let i = index - 1; i >= 0; i -= 1) if (messages[i].role === "user") return messages[i];
+    return undefined;
+  };
+  // The evidence panel wants what retrieval RAN (the resolved question); the
+  // comparison notice wants what the reader TYPED.
+  const evidenceQuestion = evidenceMessage
+    ? (() => {
+        const u = userTurnBefore(evidenceMessage.id);
+        return u ? u.resolved_question ?? u.text ?? undefined : undefined;
+      })()
+    : undefined;
+  const questionFor = (messageId: string): string | null => {
+    const u = userTurnBefore(messageId);
+    return u ? u.text ?? u.resolved_question ?? null : null;
   };
 
-  /** A Tier 2 upgrade that produced nothing showable.
-   *
-   *  `chat.ask(explain_of=…)` persists the attempt as its own assistant turn,
-   *  whatever the outcome. When `synthesis`/`answer` refuses the generated
-   *  prose — the model cited no supplied source — that turn comes back as
-   *  `insufficient_evidence`, and the transcript rendered it as a PEER of the
-   *  extract it was an upgrade of. The screen then asserted "here is your
-   *  answer, quoted from page 17" and "The documents do not answer this"
-   *  simultaneously, about the same question. The refusal is correct; its
-   *  SCOPE was not. */
+  /** A refused Tier 2 upgrade is reported on the answer it was an upgrade
+   *  of, never drawn as a peer refusal of the same question. */
   const isFailedUpgrade = (m: Message) =>
     Boolean(m.explains_id) &&
     (m.answer_type === "insufficient_evidence" || m.answer_type === "model_unavailable");
-
   const present = new Set(messages.map((m) => m.id));
-  /** The latest failed upgrade per answer it was an upgrade OF. */
   const failedUpgrades = new Map<string, Message>();
-  /** Every failed upgrade being reported on another card, so it is not also
-   *  drawn as one. Only suppressed when the card it attaches to is actually
-   *  on screen — a failure with nowhere to go is still shown, because a
-   *  vanished attempt is the other half of this defect. */
   const attachedElsewhere = new Set<string>();
   for (const m of messages) {
     if (!isFailedUpgrade(m) || !present.has(m.explains_id!)) continue;
     failedUpgrades.set(m.explains_id!, m);
     attachedElsewhere.add(m.id);
   }
-
-  /** An assistant turn already followed by its explanation must not offer
-   *  Explain again — pressing it twice would spend another ~50 seconds
-   *  reproducing an answer already on screen. A REFUSED upgrade put nothing
-   *  on screen, so it is not one of those: the button stays, now labelled as
-   *  a retry, with the failure reported beneath it. */
   const explainedIds = new Set(
     messages
       .filter((m) => m.answer_type === "generated")
       .map((m) => m.explains_id)
       .filter((x): x is string => Boolean(x)),
   );
-
-  /** The failed upgrade to report on the card for `messageId`, if any.
-   *
-   *  Its passages stay addressed by ITS OWN message id, so opening one puts
-   *  the failed attempt's evidence in the panel rather than silently
-   *  substituting the extract's — the two sets are not the same. */
   const upgradeFailureFor = (messageId: string): UpgradeFailure | null => {
     const f = failedUpgrades.get(messageId);
     if (!f) return null;
@@ -491,233 +488,297 @@ export function ChatView({
     };
   };
 
-  return (
-    <div className="aurora-field flex h-[calc(100vh-9rem)] min-h-0 flex-col gap-4 lg:h-[calc(100vh-3rem)] lg:flex-row">
-      <div aria-hidden className="aurora-a" />
-      <div aria-hidden className="aurora-b" />
-      {/* ------------------------------------------------ recent conversations */}
-      {showConversations && <aside
-        aria-label="Recent conversations"
-        className="surface-card flex max-h-56 min-h-0 w-full shrink-0 flex-col rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 lg:max-h-none lg:w-56 xl:w-64"
-      >
-        <div className="flex items-center justify-between gap-2 border-b border-ink-700 px-3 py-2.5">
-          <h2 className="text-sm font-semibold text-slateish-200">Conversations</h2>
-          <button
-            type="button"
-            onClick={startNew}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
-          >
-            New
-          </button>
-        </div>
+  /** What the conversation is about, from the sources the latest answer used. */
+  const talkingAbout = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const names = Array.from(
+        new Set((messages[i].sources ?? []).filter((s) => s.cited).map((s) => s.display_name)),
+      );
+      if (names.length > 0) return names;
+    }
+    return [] as string[];
+  }, [messages]);
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {load.s === "loading" && <Spinner label="Loading conversations" />}
-          {load.s === "error" &&
-            (load.disconnected ? (
-              <DisconnectedState onRetry={onRetryConnection} />
-            ) : (
-              <ErrorState error={load.error} onRetry={loadList} />
-            ))}
-          {load.s === "ready" && conversations.length === 0 && (
-            <p className="px-2 py-3 text-xs text-slateish-500">
-              No conversations yet. Ask a question below.
-            </p>
+  const explainNote = claude
+    ? "Claude writes it from these passages, usually within half a minute — the quotation above is already the answer."
+    : undefined;
+  const explainingNote = "The explanation is written below as it arrives.";
+
+  const footer = (
+    <p className="mt-2 text-center text-xs text-slateish-500">
+      AI can be wrong. Open a source to check the page it came from.
+      {model === "claude" &&
+        " Claude writes these answers: your question and the passages it needs are sent to it."}
+      {model === "local" && " The local model writes these answers; nothing you type leaves this machine."}
+    </p>
+  );
+
+  const recordsPanel = recordsOpen && (
+    <div className="mt-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-slateish-300">Workflow records</span>
+        <select
+          aria-label="Structured search type"
+          value={recordsKind}
+          onChange={(e) => {
+            setRecordsKind(e.target.value as typeof recordsKind);
+            setRecordsSearched(false);
+            setRecordsFailure(null);
+            setRecordsResults([]);
+          }}
+          className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1 text-xs text-slateish-300"
+        >
+          <option value="deliverable">Deliverables / WBS</option>
+          <option value="finding">Review findings</option>
+          <option value="risk">Risks</option>
+          <option value="stakeholder">Stakeholders</option>
+        </select>
+        <button
+          type="button"
+          onClick={() => void searchRecords()}
+          disabled={!question.trim()}
+          className="rounded-[var(--radius-xs)] border border-signal-500/50 px-2 py-1 text-xs text-signal-300 disabled:opacity-50"
+        >
+          Search records
+        </button>
+        <button
+          type="button"
+          onClick={() => setRecordsOpen(false)}
+          className="ms-auto text-xs text-slateish-500 underline"
+        >
+          Close
+        </button>
+      </div>
+      <p className="mt-1 text-xs text-slateish-500">
+        Searches for the words in the box. You can also type <span className="font-mono">/records</span> and a phrase.
+      </p>
+      {recordsFailure && (
+        <div className="mt-2">
+          <ErrorState error={recordsFailure} />
+        </div>
+      )}
+      {recordsSearched && !recordsFailure && recordsResults.length === 0 && (
+        <ZeroResultsState message={`No matching ${recordsKind} found for '${question.trim()}'.`} />
+      )}
+      {recordsResults.length > 0 && (
+        <div aria-label="Structured search results" className="mt-2 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-signal-400">
+            Workflow records — not page-cited evidence
+          </p>
+          {recordsResults.map((item) => (
+            <div
+              key={`${item.kind}-${item.id}`}
+              className="rounded-[var(--radius-xs)] border border-ink-700 px-2 py-1.5 text-xs text-slateish-300"
+            >
+              <span className="me-2 rounded-full bg-ink-700 px-1.5 py-0.5 text-signal-300">{item.kind}</span>
+              {item.label}
+              {item.wbs_code ? ` · WBS ${item.wbs_code}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const composer = (hero: boolean) => (
+    <>
+      <Composer
+        value={question}
+        onChange={(v) => {
+          setQuestion(v);
+          setRecordsSearched(false);
+          setRecordsFailure(null);
+          setRecordsResults([]);
+        }}
+        onSubmit={() => void send(question)}
+        disabled={offline}
+        busy={asking}
+        hero={hero}
+        placeholder={
+          hero
+            ? "Ask anything, about your documents, a standard, or engineering in general"
+            : "Ask a follow-up"
+        }
+        models={models}
+        model={model}
+        onModelChange={setModel}
+        onRecords={() => setRecordsOpen(true)}
+        onUpload={onNavigate ? () => onNavigate("documents") : undefined}
+      />
+      {!claude && isReviewRequest(question) && (
+        <p role="note" className="mt-2 text-xs text-slateish-400">
+          A review needs a written answer, so this one will be written rather than quoted.
+        </p>
+      )}
+      {styleNotice && (
+        <p role="status" className="mt-2 text-xs text-signal-300">
+          {styleNotice}
+        </p>
+      )}
+      {recordsPanel}
+      {footer}
+    </>
+  );
+
+  const empty = messages.length === 0 && !waitingHere && current === null;
+
+  const thread = (
+    <>
+      {messages.map((m) =>
+        m.role === "user" ? (
+          <UserMessage key={m.id} message={m} onEdit={(t) => setQuestion(t)} />
+        ) : attachedElsewhere.has(m.id) ? null : (
+          <AssistantAnswer
+            key={m.id}
+            message={m}
+            question={questionFor(m.id)}
+            activeSource={evidence?.messageId === m.id ? evidence.index : null}
+            onSelectSource={(i) => setEvidence({ messageId: m.id, index: i })}
+            explainsEarlier={Boolean(m.explains_id)}
+            onExplain={
+              m.answer_type === "extract" && !explainedIds.has(m.id)
+                ? () => void send("", { explainOf: m.id, tier: "generated" })
+                : undefined
+            }
+            explaining={explainingId === m.id}
+            explainSeconds={explainingId === m.id ? elapsed : undefined}
+            explainNote={explainNote}
+            explainingNote={explainingNote}
+            onSaveReport={
+              // Only an ANSWER can be frozen; a refusal has no evidence.
+              m.answer_type === "extract" || m.answer_type === "generated"
+                ? () => void saveReport(m.id)
+                : undefined
+            }
+            savingReport={savingReport === m.id}
+            reportNotice={reportNotice[m.id] || null}
+            upgradeFailure={upgradeFailureFor(m.id)}
+            onAsk={(t) => void send(t)}
+            onRetry={(() => {
+              const u = userTurnBefore(m.id);
+              if (!u?.text || m.explains_id) return undefined;
+              const tier: AnswerTier | undefined = m.answer_type === "extract" ? "extract" : undefined;
+              return () => void send(u.text!, { tier });
+            })()}
+            onExactWording={(() => {
+              const u = userTurnBefore(m.id);
+              const q = u?.resolved_question ?? u?.text;
+              return q ? () => void send(`/quote ${q}`) : undefined;
+            })()}
+            busy={asking}
+          />
+        ),
+      )}
+
+      {waitingHere && pending && (
+        <>
+          {pending.question &&
+            !messages.some((m) => m.role === "user" && m.text === pending.question && m === messages[messages.length - 1]) && (
+              <UserMessage message={{ text: pending.question, carried_terms: [] }} />
+            )}
+          {pending.legacy ? (
+            <LocalWork elapsed={elapsed} progress={progress} />
+          ) : (
+            <StreamingAnswer
+              steps={pending.steps}
+              text={pending.text}
+              verification={pending.verification}
+              onStop={() => void stop()}
+              stopping={pending.stopping}
+              seconds={elapsed}
+            />
           )}
-          <ul className="space-y-1">
-            {conversations.map((c) => (
-              <li key={c.id} className="group relative">
-                <button
-                  type="button"
-                  aria-current={c.id === current ? "true" : undefined}
-                  onClick={() => void open(c.id)}
-                  className={[
-                    "w-full rounded-[var(--radius-sm)] px-2 py-2 pe-7 text-left motion-safe:transition-colors",
-                    c.id === current ? "bg-ink-700" : "hover:bg-ink-800",
-                  ].join(" ")}
-                >
-                  <span className="block truncate text-sm text-slateish-200">{c.title}</span>
-                  <span className="mt-0.5 block text-xs text-slateish-500">
-                    {c.message_count} message{c.message_count === 1 ? "" : "s"} ·{" "}
-                    {relative(c.updated_at)}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Delete conversation ${c.title}`}
-                  onClick={() => void remove(c.id)}
-                  className="absolute end-1 top-1.5 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-xs text-slateish-500 opacity-0 motion-safe:transition-colors hover:bg-ink-600 hover:text-danger-500 focus:opacity-100 group-hover:opacity-100"
-                >
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </aside>}
+        </>
+      )}
 
-      {/* ----------------------------------------------------------- transcript */}
-      <section className="card-3d surface-floating flex min-h-0 min-w-0 flex-1 flex-col rounded-[var(--radius-lg)] border border-ink-700 bg-ink-900">
-        <div className="flex items-center justify-between border-b border-ink-700 px-4 py-3">
-          <div>
-            <h1 className="text-sm font-semibold text-slateish-100">Document review chat</h1>
-            <p className="mt-0.5 text-xs text-slateish-500">Ask, verify the evidence, and continue the review.</p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+    </>
+  );
+
+
+  return (
+    <div className="flex h-[calc(100vh-9rem)] min-h-0 flex-col gap-4 lg:h-[calc(100vh-3rem)] lg:flex-row">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {!empty && (
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-700 pb-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <h1 className="truncate text-sm font-semibold text-slateish-100">{title ?? "New chat"}</h1>
+              {talkingAbout.length > 0 && (
+                <span className="rounded-[var(--radius-full)] border border-ink-600 px-2.5 py-0.5 text-xs text-slateish-400">
+                  Talking about: <span className="text-slateish-200">{talkingAbout[0]}</span>
+                  {talkingAbout.length > 1 && ` + ${talkingAbout.length - 1} more`}
+                </span>
+              )}
+            </div>
             <button
               type="button"
-              onClick={() => setShowConversations((visible) => !visible)}
-              aria-expanded={showConversations}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
+              onClick={startNew}
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 hover:border-signal-500/50 hover:bg-ink-700"
             >
-              {showConversations ? "Hide history" : "Show history"}
+              New chat
             </button>
-            {onNavigate && (
-              <button
-                type="button"
-                onClick={() => onNavigate("documents")}
-                className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
-              >
-                Open documents
-              </button>
+          </header>
+        )}
+
+        {/* THE COMPOSER KEEPS ITS PLACE IN THE TREE. The first question moves
+            it from the middle of the empty screen to the foot of the thread;
+            rendered at the same position both times, it is the same element,
+            so the reader's focus and a failed question's text survive the
+            move instead of landing in a box that was just replaced. */}
+        <div
+          className={
+            empty
+              ? "mx-auto flex w-full max-w-[820px] flex-col justify-end px-2 pt-10 sm:flex-1"
+              : "min-h-0 flex-1 overflow-y-auto"
+          }
+        >
+          {empty ? (
+            <ChatEmptyHeading />
+          ) : (
+            <div className="mx-auto w-full max-w-[780px] space-y-6 px-1 py-6">
+              {messages.length === 0 && !waitingHere && (
+                <p className="text-center text-sm text-slateish-500">Ask your first question below.</p>
+              )}
+              {thread}
+              {failure && <ErrorState error={failure} />}
+              <div ref={bottom} />
+            </div>
+          )}
+        </div>
+        <div
+          className={
+            empty
+              ? "mx-auto w-full max-w-[820px] shrink-0 px-2"
+              : "mx-auto w-full max-w-[780px] shrink-0 pb-2 pt-2"
+          }
+        >
+          {composer(empty)}
+        </div>
+        {empty && (
+          <div className="mx-auto w-full max-w-[820px] px-2 pb-10 sm:flex-1">
+            <ChatStarters
+              onAsk={(t) => void send(t)}
+              recent={recent}
+              onOpen={(id) => {
+                select(id);
+                void open(id);
+              }}
+              disabled={offline || asking}
+            />
+            {failure && (
+              <div className="mt-4">
+                <ErrorState error={failure} />
+              </div>
             )}
           </div>
-        </div>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-6">
-          {messages.length === 0 && !waitingHere && (
-            <EmptyState
-              title="Ask a question about the indexed documents"
-              hint="Choose a written explanation or an exact quotation. Open the sources to check the evidence, then ask a follow-up."
-            />
-          )}
-
-          {messages.map((m) =>
-            m.role === "user" ? (
-              <UserTurn key={m.id} message={m} />
-            ) : attachedElsewhere.has(m.id) ? null : (
-              <div key={m.id} className="w-full max-w-5xl">
-                <AnswerCard
-                  view={viewFromMessage(m) as AnswerView}
-                  activeSource={evidence?.messageId === m.id ? evidence.index : null}
-                  onSelectSource={(i) => setEvidence({ messageId: m.id, index: i })}
-                  explainsEarlier={Boolean(m.explains_id)}
-                  question={questionFor(m.id)}
-                  onExplain={
-                    m.answer_type === "extract" && !explainedIds.has(m.id)
-                      ? () => void explain(m.id)
-                      : undefined
-                  }
-                  onSaveReport={
-                    // Only an ANSWER can be frozen. A refusal has no evidence
-                    // to freeze, and the route would refuse it anyway.
-                    m.answer_type === "extract" || m.answer_type === "generated"
-                      ? () => void saveReport(m.id)
-                      : undefined
-                  }
-                  savingReport={savingReport === m.id}
-                  reportNotice={reportNotice[m.id] || null}
-                  upgradeFailure={upgradeFailureFor(m.id)}
-                  explaining={explainingId === m.id}
-                  explainSeconds={explainingId === m.id ? elapsed : undefined}
-                />
-              </div>
-            ),
-          )}
-
-          {waitingHere && (
-            <LocalWork elapsed={elapsed} progress={progress} />
-          )}
-
-          {failure && (
-            <div className="w-full max-w-5xl">
-              <ErrorState error={failure} />
-            </div>
-          )}
-
-          <div ref={bottom} />
-        </div>
-
-        {/* ------------------------------------------------------------ composer */}
-        <form
-          className="sticky bottom-0 z-20 shrink-0 border-t border-ink-700 bg-ink-900/95 px-4 py-3 shadow-[0_-10px_26px_rgba(0,0,0,0.22)] backdrop-blur-sm"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send();
-          }}
-        >
-          <fieldset className="mb-2 flex flex-wrap items-center gap-2" disabled={asking || offline}>
-            <legend className="me-1 text-xs font-medium uppercase tracking-wide text-slateish-500">Response style</legend>
-            {([
-              ["extract", "Exact quotation"],
-              ["generated", "Written explanation"],
-            ] as const).map(([value, label]) => (
-              <label key={value} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-full)] border border-ink-600 px-3.5 py-1.5 text-sm text-slateish-200 motion-safe:transition-colors hover:border-signal-500/60 hover:bg-ink-800 has-[:checked]:border-signal-500/70 has-[:checked]:bg-signal-500/10 has-[:checked]:text-signal-300">
-                <input type="radio" name="answer-style" value={value} checked={answerStyle === value} onChange={() => { setAnswerStyle(value); setStyleNotice(null); }} />
-                {label}
-              </label>
-            ))}
-          </fieldset>
-          {answerStyle === "extract" && isReviewRequest(question) && (
-            <div
-              role="alert"
-              className="mb-2 rounded-[var(--radius-sm)] border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200"
-            >
-              A critique needs a written explanation. <button
-                type="button"
-                className="font-semibold underline decoration-amber-300/70 underline-offset-2 hover:text-white"
-                onClick={() => setAnswerStyle("generated")}
-              >Use Written explanation</button> above; <strong>Exact quotation</strong> can only return wording already present in the documents.
-            </div>
-          )}
-          {styleNotice && (
-            <div role="status" className="mb-2 rounded-[var(--radius-sm)] border border-signal-500/30 bg-signal-500/10 px-3 py-2 text-xs leading-5 text-signal-300">
-              {styleNotice}
-            </div>
-          )}
-          <div className="flex gap-2">
-            <label htmlFor="chat-question" className="sr-only">
-              Your question
-            </label>
-            <textarea
-              id="chat-question"
-              value={question}
-              onChange={(e) => { setQuestion(e.target.value); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }}
-              disabled={offline}
-              rows={2}
-              placeholder="Ask about a requirement, explain a passage, or continue your review…"
-              className="min-w-0 flex-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 px-3 py-2 text-slateish-100 shadow-[var(--shadow-resting)] motion-safe:transition-shadow placeholder:text-slateish-500 focus:shadow-[var(--shadow-glow)] disabled:opacity-50"
-            />
-            <button
-              type="submit"
-              disabled={asking || offline || !question.trim()}
-              className="rounded-[var(--radius-sm)] bg-signal-500 px-5 py-2 text-sm font-semibold text-ink-950 shadow-[var(--shadow-raised)] motion-safe:transition-transform hover:bg-signal-400 hover:shadow-[var(--shadow-glow)] active:scale-[0.98] disabled:bg-signal-500/20 disabled:text-signal-300 disabled:shadow-none disabled:active:scale-100 disabled:opacity-40"
-            >
-              Ask
-            </button>
-          </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2"><label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={structuredEnabled} onChange={(e) => { setStructuredEnabled(e.target.checked); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }} /> Search workflow records</label><select aria-label="Structured search type" value={structuredKind} onChange={(e) => { setStructuredKind(e.target.value as "deliverable" | "finding" | "risk" | "stakeholder"); setHasSearched(false); setStructuredFailure(null); setStructuredResults([]); }} disabled={!structuredEnabled} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1 text-xs text-slateish-300"><option value="deliverable">Deliverables / WBS</option><option value="finding">Review findings</option><option value="risk">Risks</option><option value="stakeholder">Stakeholders</option></select><button type="button" onClick={() => void searchStructured()} disabled={!structuredEnabled || !question.trim()} className="rounded-[var(--radius-xs)] border border-signal-500/50 px-2 py-1 text-xs text-signal-300 disabled:opacity-50">Search records</button></div>
-          {structuredFailure && <div className="mt-2"><ErrorState error={structuredFailure} /></div>}
-          {hasSearched && !structuredFailure && structuredResults.length === 0 && <ZeroResultsState message={`No matching ${structuredKind} found for '${question.trim()}'.`} />}
-          {structuredResults.length > 0 && <div aria-label="Structured search results" className="mt-2 space-y-2 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3"><p className="text-xs font-semibold uppercase tracking-wide text-signal-400">Workflow records — not page-cited evidence</p>{structuredResults.map((item) => <div key={`${item.kind}-${item.id}`} className="rounded-[var(--radius-xs)] border border-ink-700 px-2 py-1.5 text-xs text-slateish-300"><span className="me-2 rounded-full bg-ink-700 px-1.5 py-0.5 text-signal-300">{item.kind}</span>{item.label}{item.wbs_code ? ` · WBS ${item.wbs_code}` : ""}</div>)}</div>}
-          <p className="mt-1.5 text-xs text-slateish-500">
-            {answerStyle === "extract"
-              ? "Exact wording from your documents, with source references."
-              : "An AI explanation based on retrieved passages, with source references. Generation may take longer; this is not a full-document review."}
-            {" "}Nothing you type leaves this machine.
-          </p>
-        </form>
+        )}
       </section>
 
-      {/* -------------------------------------------------------- evidence panel */}
       {evidence && evidenceSources.length > 0 && (
         <EvidencePanel
           passages={evidenceSources}
           selected={Math.min(evidence.index, evidenceSources.length - 1)}
           onSelect={(i) => setEvidence({ messageId: evidence.messageId, index: i })}
           onClose={() => setEvidence(null)}
-          // The question this answer came from, so the answering sentence can
-          // be boxed on the rendered page. Taken from the user turn that
-          // preceded this assistant turn.
           question={evidenceQuestion}
         />
       )}

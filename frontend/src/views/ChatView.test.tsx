@@ -158,6 +158,7 @@ interface Routes {
   report?: unknown;
   structured?: unknown;
   structuredFailure?: boolean;
+  models?: unknown;
 }
 
 function mockApi(routes: Routes = {}) {
@@ -170,6 +171,7 @@ function mockApi(routes: Routes = {}) {
     }
     const body = (() => {
       if (url.includes("/health")) return health;
+      if (url.includes("/chat/models") && routes.models) return routes.models;
       if (url.endsWith("/reports")) {
         return routes.report ?? {
           id: "report_abc",
@@ -212,7 +214,7 @@ function mockApi(routes: Routes = {}) {
 
 async function openChat() {
   render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /Document Q&A/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Chat/ }));
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -222,7 +224,8 @@ describe("structured workflow search", () => {
     const calls = mockApi({ structured: { results: [{ id: "d1", kind: "deliverable", label: "IFC drawing", wbs_code: "1.2", document_id: null }] } });
     await openChat();
     await userEvent.type(screen.getByLabelText("Your question"), "IFC drawing");
-    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "More options" }));
+    await userEvent.click(screen.getByRole("button", { name: /Search workflow records/ }));
     await userEvent.click(screen.getByRole("button", { name: "Search records" }));
     expect(await screen.findByText("Workflow records — not page-cited evidence")).toBeInTheDocument();
     expect(screen.getByText("IFC drawing")).toBeInTheDocument();
@@ -233,7 +236,8 @@ describe("structured workflow search", () => {
     mockApi({ structuredFailure: true });
     await openChat();
     await userEvent.type(screen.getByLabelText("Your question"), "schedule");
-    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "More options" }));
+    await userEvent.click(screen.getByRole("button", { name: /Search workflow records/ }));
     await userEvent.click(screen.getByRole("button", { name: "Search records" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Structured search is unavailable.");
   });
@@ -242,7 +246,8 @@ describe("structured workflow search", () => {
     mockApi({ structured: { results: [] } });
     await openChat();
     await userEvent.type(screen.getByLabelText("Your question"), "missing");
-    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "More options" }));
+    await userEvent.click(screen.getByRole("button", { name: /Search workflow records/ }));
     await userEvent.click(screen.getByRole("button", { name: "Search records" }));
     expect(await screen.findByText("No matching deliverable found for 'missing'.")).toBeInTheDocument();
   });
@@ -251,15 +256,50 @@ describe("structured workflow search", () => {
 // --------------------------------------------------------------- navigation
 
 describe("chat navigation", () => {
-  it("sends the selected response style to the existing answer pipeline", async () => {
-    const calls = mockApi();
+  it("asks for a written answer when Claude answers, and sends the engine chosen", async () => {
+    // The response-style radios are gone (owner order 2026-09-26): Claude
+    // writes the answer by default, and "Exact wording" asks for a quotation.
+    const calls = mockApi({
+      models: {
+        default: "claude",
+        models: [
+          { id: "claude", label: "Claude", model: "m", available: true, reason: null },
+          { id: "local", label: "Local model", model: "l", available: true, reason: null },
+        ],
+      },
+    });
     await openChat();
-    await userEvent.click(screen.getByRole("radio", { name: "Written explanation" }));
+    await screen.findByRole("combobox", { name: "Model" });
     await userEvent.type(screen.getByLabelText("Your question"), "Explain the coating requirement");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await waitFor(() => expect(calls.find((c) => c.url.endsWith("/ask"))?.body).toMatchObject({
-      question: "Explain the coating requirement", tier: "generated",
+    await waitFor(() => expect(calls.find((c) => c.url.includes("/ask"))?.body).toMatchObject({
+      question: "Explain the coating requirement", tier: "generated", model: "claude",
     }));
+  });
+
+  it("quotes by default on the local engine, where a written answer takes a minute", async () => {
+    const calls = mockApi({
+      models: {
+        default: "local",
+        models: [
+          { id: "claude", label: "Claude", model: "m", available: false, reason: "no API key" },
+          { id: "local", label: "Local model", model: "l", available: true, reason: null },
+        ],
+      },
+    });
+    await openChat();
+    await screen.findByRole("combobox", { name: "Model" });
+    // Claude is listed, but cannot be chosen, and says why not
+    const option = screen.getByRole("option", { name: /Claude/ }) as HTMLOptionElement;
+    expect(option.disabled).toBe(true);
+    expect(option.title).toBe("no API key");
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(calls.find((c) => c.url.includes("/ask"))?.body).toMatchObject({
+      tier: "extract", model: "local",
+    }));
+    // and the footer says honestly where the question goes
+    expect(screen.getByText(/nothing you type leaves this machine/i)).toBeInTheDocument();
   });
 
   it("routes a critique through written explanation even when quotation mode is selected", async () => {
@@ -276,7 +316,7 @@ describe("chat navigation", () => {
     mockApi();
     render(<App />);
     const nav = await screen.findByRole("navigation", { name: "Main" });
-    const chat = within(nav).getByRole("button", { name: /Document Q&A/ });
+    const chat = within(nav).getByRole("button", { name: /^Chat/ });
     expect(within(chat).queryByText("not built")).toBeNull();
   });
 });
@@ -610,7 +650,7 @@ describe("citations", () => {
     await openChat();
     await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
 
-    const buttons = await screen.findAllByRole("button", { name: "Save as report" });
+    const buttons = await screen.findAllByRole("button", { name: "Save as PDF" });
     await userEvent.click(buttons.at(-1)!);
 
     await waitFor(() => {
@@ -1152,33 +1192,15 @@ describe("a response belongs to the request that asked for it", () => {
     conversations: cs.map((c) => ({ ...c, message_count: 2 })),
   });
 
-  it("drops an explanation whose transcript has moved on", async () => {
-    // Reproduced by hand in the UI: press Explain, get impatient, ask
-    // something else. The explanation lands under the new question's refusal,
-    // and AnswerCard labels it "An explanation of the quoted answer above" -
-    // which is then a false statement about the answer directly above it.
+  it("writes one answer at a time: a new question waits while an explanation is written", async () => {
+    // The old screen let the reader ask something else while Explain ran,
+    // and then had to drop the late explanation so it could not land under
+    // the wrong question. The new screen writes one answer at a time and
+    // offers Stop instead, so the explanation lands where it was asked for.
     const q1 = userMessage({ id: "u1", text: "what is the NDFT for coating system no. 1" });
     const a1 = extractMessage({ id: "a1" });
     const api = holdableApi((url, body) => {
-      if (url.endsWith("/ask")) {
-        if (body?.explain_of) return "HOLD";
-        return askResult({
-          answer_type: "insufficient_evidence",
-          answer: null,
-          reason: "The documents do not cover welding preheat.",
-          passage: null,
-          supporting: [],
-          passages: [],
-          user_message: userMessage({ id: "u2", text: "what preheat is required" }),
-          assistant_message: extractMessage({
-            id: "a2",
-            text: null,
-            answer_type: "insufficient_evidence",
-            reason: "The documents do not cover welding preheat.",
-            payload: { passages: [], seconds: 1.2 },
-          }),
-        });
-      }
+      if (url.endsWith("/ask") && body?.explain_of) return "HOLD";
       if (url.includes("/conversations/")) return { conversation: convA, messages: [q1, a1] };
       return listOf(convA);
     });
@@ -1187,12 +1209,11 @@ describe("a response belongs to the request that asked for it", () => {
     await userEvent.click(await screen.findByRole("button", { name: /^Coating systems/ }));
     await userEvent.click(await screen.findByRole("button", { name: /Explain in plain/i }));
 
-    // the reader gets impatient and asks something else
     await userEvent.type(screen.getByLabelText("Your question"), "what preheat is required");
-    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await screen.findByText(/do not cover welding preheat/);
+    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled();
+    // the typed question is kept, not lost, while it waits
+    expect((screen.getByLabelText("Your question") as HTMLTextAreaElement).value).toBe("what preheat is required");
 
-    // ...and only now does the explanation come back
     await api.release(
       0,
       askResult({
@@ -1206,7 +1227,40 @@ describe("a response belongs to the request that asked for it", () => {
         }),
       }),
     );
+    expect(await screen.findByText(/In plain terms/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ask" })).toBeEnabled();
+  });
 
+  it("drops an explanation whose conversation the reader has left", async () => {
+    const q1 = userMessage({ id: "u1", text: "what is the NDFT for coating system no. 1" });
+    const a1 = extractMessage({ id: "a1" });
+    const api = holdableApi((url, body) => {
+      if (url.endsWith("/ask") && body?.explain_of) return "HOLD";
+      if (url.includes("/conversations/conv_b"))
+        return { conversation: convB, messages: [userMessage({ id: "u9", text: "which welding procedure applies" })] };
+      if (url.includes("/conversations/")) return { conversation: convA, messages: [q1, a1] };
+      return listOf(convA, convB);
+    });
+
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^Coating systems/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Explain in plain/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^Welding procedures/ }));
+    await screen.findByText(/which welding procedure applies/);
+
+    await api.release(
+      0,
+      askResult({
+        answer_type: "generated",
+        answer: "In plain terms, the coating must be 280 micrometres thick.",
+        assistant_message: extractMessage({
+          id: "a3",
+          answer_type: "generated",
+          text: "In plain terms, the coating must be 280 micrometres thick.",
+          explains_id: "a1",
+        }),
+      }),
+    );
     expect(screen.queryByText(/In plain terms/)).toBeNull();
   });
 
@@ -1238,7 +1292,9 @@ describe("a response belongs to the request that asked for it", () => {
 
     await api.release(0, askResult({ user_message: q1, assistant_message: extractMessage({ id: "a1" }) }));
 
-    expect(screen.getAllByText(q1.text!)).toHaveLength(1);
+    // Once as a question bubble. (The conversation's title in the header may
+    // read the same; it is a title, not a turn.)
+    expect(screen.getAllByText(q1.text!, { selector: "p" })).toHaveLength(1);
   });
 
   it("keeps the transcript of the conversation the reader ended on", async () => {
@@ -1584,7 +1640,7 @@ describe("visual stability", () => {
     // At rest `askingIn` and `current` are both null; comparing them alone
     // rendered "Working on this machine · 0s" with nothing asked and hid the
     // empty-state hint.
-    expect(await screen.findByText("Ask a question about the indexed documents")).toBeInTheDocument();
+    expect(await screen.findByText("What can I help with?")).toBeInTheDocument();
     expect(screen.queryByText("Working on this machine")).toBeNull();
     expect(screen.queryByText("Searching")).toBeNull();
   });

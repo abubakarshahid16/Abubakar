@@ -103,3 +103,59 @@ No client text, document numbers or standards text in this file.
   stopped call cost. The turn is saved as "Stopped" with only the sentences
   the reader had already seen. Only the turn's owner can stop it.
 - The old non-streaming route still works for older screens and tests.
+
+## PR 4 — the new Chat screen (frontend)
+
+What you can do now:
+
+- **Nav says "Chat"** (hint: "Ask anything, with sources"). The conversations
+  column is gone; **recent chats sit in the left navigation** on the Chat
+  screen, with a search box once there are more than five. **Delete asks
+  first, then offers Undo** for 6 seconds; nothing is deleted until that
+  window closes (leaving the page inside it still deletes).
+- **First screen**: "What can I help with?", one big box, four starter
+  questions and "Continue:" links to your last three chats.
+- **Answers stream**: the real steps ("Searching your documents", "Ranking the
+  closest passages", "Reading the best sources"), the text as it is written,
+  and a **■ Stop** button. Stop tells the server which answer to stop; if the
+  server has not named it yet, the connection is closed, which also stops it.
+  A stopped answer is kept as "Stopped" with what you had seen.
+- **Each answer** has the grey line saying what was used and how long it took,
+  the **"✓ N of N points found on the page"** badge where that is true, and
+  **"How I got this ▾"** with the steps.
+- **Written answers from documents** read as plain text ("Partly." / points /
+  "What I'd do:") with small superscript source numbers. A number opens **one
+  preview card**: document, number, page, clause, the passage with the exact
+  words the answer stood on highlighted, and **Open page** for the page image.
+  "Written by the model — not the document's words" stays on every one.
+- **General knowledge** says "General knowledge, not from your documents" and
+  shows no source numbers at all, even if the model wrote one. **Rewrite as:**
+  Points / More detail / Shorter / For an engineer / Check against my documents.
+- **Actions**: Copy · Try again · Exact wording (asks `/quote` of the same
+  question) · Save as PDF. Suggested next questions under document answers.
+- **"Write that as a comment"** shows a **Draft comment** card marked "Needs an
+  engineer", editable, with Copy. It is not added anywhere.
+- **Composer**: Enter sends, Shift+Enter adds a line, the 500-character limit
+  is counted as you near it and an over-long question cannot be sent; **Model:**
+  Claude / Local model (Claude greyed out, with the reason, when it is not
+  set up). **+** opens workflow-record search and "Add a document".
+- **Honest footer**: "AI can be wrong. Open a source to check the page it came
+  from." plus, with Claude, "your question and the passages it needs are sent
+  to it"; with the local model, "nothing you type leaves this machine". The
+  sidebar's privacy line now says the same.
+
+Moved, not removed: exact quotation (now **Exact wording** and `/quote`),
+Save as report (now **Save as PDF** in the action row), the evidence page
+viewer (**Open page**), OCR labels, verdict and scope notices, removed-citation
+and dropped-evidence notices, two-part answers, "read as a follow-up" terms,
+workflow-record search (**+** menu and `/records`), withheld turns, delete.
+
+Not in this PR (each needs backend work first, so no button is shown for it
+yet): "Was this right? Yes/No" and "Add to comment sheet" (PR 5), "@ a
+document" and "Change" on the Talking-about pill (PR 5, document scope),
+"Web on" (PR 6).
+
+One behaviour change, on purpose: **one answer is written at a time.** While
+an answer (or an Explain) is being written, Ask waits and Stop is offered;
+the old screen let a second question run and then had to drop the late
+answer so it could not land under the wrong question.
