@@ -388,13 +388,67 @@ def _row_to_message(r) -> dict:
     }
 
 
-def get_messages(conversation_id: str) -> list[dict]:
+#: What a reopened assistant turn shows when it cites a document the caller
+#: can no longer read. Fixed text: the notice itself must not name the document.
+WITHHELD_TEXT = (
+    "This answer cited a document you no longer have access to, so it is not shown."
+)
+_ID_LIST_KEYS = frozenset({"scope_ids", "document_ids"})
+
+
+def referenced_document_ids(value) -> set[str]:
+    """Every document id a stored payload refers to, at any depth.
+
+    Walks the whole structure rather than a list of known keys, so a field
+    added to the payload later is covered without anyone remembering this.
+    """
+    found: set[str] = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "document_id" and isinstance(item, str):
+                found.add(item)
+            elif key in _ID_LIST_KEYS and isinstance(item, list):
+                found.update(x for x in item if isinstance(x, str))
+            else:
+                found |= referenced_document_ids(item)
+    elif isinstance(value, list):
+        for item in value:
+            found |= referenced_document_ids(item)
+    return found
+
+
+def _withhold(message: dict) -> dict:
+    return {
+        **message,
+        "text": WITHHELD_TEXT,
+        "payload": {"withheld": True},
+        "reason": "cited document no longer readable",
+        "answer_type": None,
+    }
+
+
+def get_messages(conversation_id: str, *, allowed_document_ids: frozenset[str]) -> list[dict]:
+    """Every turn, filtered by what the caller may read NOW.
+
+    A stored answer is a copy of document text taken when it was asked. A
+    grant revoked since then must still hide it, so an assistant turn citing
+    any document outside `allowed_document_ids` is withheld whole - text and
+    payload - not partially redacted: its prose quotes the passages too.
+    Required and keyword-only, like every other scope parameter.
+    """
     get_conversation(conversation_id)
     rows = connect().execute(
         "SELECT * FROM messages WHERE conversation_id = ? ORDER BY ordinal",
         (conversation_id,),
     ).fetchall()
-    return [_row_to_message(r) for r in rows]
+    messages = []
+    for r in rows:
+        message = _row_to_message(r)
+        if (message["role"] == "assistant"
+                and referenced_document_ids(message["payload"]) - allowed_document_ids):
+            message = _withhold(message)
+        messages.append(message)
+    return messages
 
 
 def prior_user_questions(conversation_id: str, window: int = FOLLOWUP_WINDOW) -> list[str]:

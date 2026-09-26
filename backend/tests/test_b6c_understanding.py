@@ -84,6 +84,15 @@ def test_clause_references_resolve_from_the_previous_evidence(question, clause):
     assert r.document_id == "d2"
 
 
+def test_a_previous_answer_from_a_revoked_document_carries_nothing():
+    """B9: the prior evidence's document is no longer readable - neither its
+    scope nor its clause number may shape the next question."""
+    r = u.understand("and the next clause?", allowed_document_ids=frozenset({"d1"}),
+                     documents=DOCS, context=u.PriorContext(document_id="d2", clause="6.2.3"))
+    assert r.clause is None and r.document_id is None
+    assert "6.2" not in r.retrieval_query
+
+
 def test_an_explicit_clause_is_kept_and_the_question_is_not_rewritten():
     q = "what does clause 7.1 require?"
     r = u.understand(q, allowed_document_ids=ALL, documents=DOCS,

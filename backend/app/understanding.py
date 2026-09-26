@@ -126,6 +126,10 @@ def understand(
 ) -> Understanding:
     """Structured understanding of one question. Deterministic; no model."""
     context = context or PriorContext()
+    # B9: the previous answer's evidence is context only while its document is
+    # still readable. After a revocation even its clause number is not carried.
+    if context.document_id is not None and context.document_id not in allowed_document_ids:
+        context = PriorContext()
     notes: list[str] = []
     query = _WS.sub(" ", question).strip()
     permitted = {d: f for d, f in documents.items() if d in allowed_document_ids}

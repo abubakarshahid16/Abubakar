@@ -136,3 +136,28 @@ The structural gate cannot tell that a topically-right passage does not answer
 VALIDATION** (turn on `ANSWER_JUDGE_ENABLED` with the local model; re-run the
 frozen set; target: the 1 negative and the wrong-top answers downgraded or
 relocated). Tests `test_b8_answerability.py` (21); mutations M818–M828 11/11.
+
+**B8 merged: PR #251, merge commit `57d9d05`.** CI green (8/8). Model judge: PENDING OWNER VALIDATION.
+
+## B9 – chat over the pipeline (branch `feat/b9-chat-over-pipeline`)
+
+Chat stays an interface over B6/B6C/B7/B8 – no separate answering path. What
+already held and was checked, not rebuilt: follow-ups resolve from earlier USER
+questions only (SQL `role = 'user'`); the previous answer contributes only
+which document and clause its evidence came from, never its text; every
+answer is persisted with its passages and replayed through the same card.
+
+Added:
+
+| Item | What |
+|---|---|
+| Verdict visible | the B8 verdict renders above the answer (conflicting / ambiguous / another document / engineer review), with the evidence's page and clause; the passages stay visible |
+| Refusal wording | a refusal now says **"I cannot determine this from the available evidence"** – also when the gate calls an extract insufficient |
+| Scope visible | the B6C scope ("Searched: …"), clause, and same-text-in-several-documents notice are shown, never silent |
+| Replay | verdict, scope and ambiguity survive reopening a conversation (they were stored but not read back into the card) |
+| **Permission gap fixed** | reopening a conversation checked ownership but not grants: an answer citing a document whose grant was revoked afterwards was returned in full. `chat.get_messages` now takes the caller's scope (required) and withholds such a turn whole. Honesty audit entry 59 |
+| Follow-up after revocation | a follow-up no longer carries the scope or clause of a previous answer whose document is no longer readable |
+
+Tests: `test_b9_reopen_permissions.py` (4), one added to
+`test_b6c_understanding.py`, `answerVerdict.test.tsx` (8). Mutations
+M829–M843: backend 8/8, vitest 7/7.

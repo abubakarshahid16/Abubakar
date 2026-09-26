@@ -1,4 +1,4 @@
-import type { AnswerPassage, CorpusFact, EvidenceRemoved, AnswerType, Message } from "../../types/api";
+import type { AnswerPassage, Answerability, CorpusFact, EvidenceRemoved, AnswerType, Message, ScopeAmbiguity, Understanding } from "../../types/api";
 import { PassageLocation } from "./EvidencePanel";
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
@@ -21,6 +21,13 @@ export interface AnswerView {
   corpus?: CorpusFact | null;
   /** Counts of documents in generated prose re-bounded to what was retrieved. */
   counts_bounded?: number;
+  /** B8: the answer-level verdict. */
+  answerability?: Answerability | null;
+  /** B6C: how the question was scoped. */
+  understanding?: Understanding | null;
+  scope_ambiguity?: ScopeAmbiguity | null;
+  /** B9: reopened turn citing a document the reader can no longer read. */
+  withheld?: boolean;
 }
 
 /**
@@ -69,6 +76,10 @@ export function viewFromMessage(m: Message): AnswerView {
     examples: p.examples ?? [],
     corpus: p.corpus ?? null,
     counts_bounded: p.counts_bounded ?? 0,
+    answerability: p.answerability ?? null,
+    understanding: p.understanding ?? null,
+    scope_ambiguity: p.scope_ambiguity ?? null,
+    withheld: p.withheld === true,
   };
 }
 

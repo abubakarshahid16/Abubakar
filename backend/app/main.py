@@ -2371,7 +2371,8 @@ def get_conversation(conversation_id: str, request: Request,
     answer, so reopening it restores the citations rather than bare text."""
     reject_unknown_params(request, set())
     conversation = _require_owned_conversation(conversation_id, scope)
-    return {"conversation": conversation, "messages": chat_mod.get_messages(conversation_id)}
+    return {"conversation": conversation, "messages": chat_mod.get_messages(
+        conversation_id, allowed_document_ids=scope.allowed_document_ids)}
 
 
 @app.delete("/api/conversations/{conversation_id}", response_model=schemas.DeletedConversation,
