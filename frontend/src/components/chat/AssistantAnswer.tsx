@@ -61,6 +61,8 @@ export function AssistantAnswer({
   onSaveReport,
   savingReport,
   reportNotice,
+  reportSaved,
+  onOpenReports,
   upgradeFailure,
   onAsk,
   onRetry,
@@ -85,6 +87,8 @@ export function AssistantAnswer({
   onSaveReport?: () => void;
   savingReport?: boolean;
   reportNotice?: string | null;
+  reportSaved?: boolean;
+  onOpenReports?: () => void;
   upgradeFailure?: UpgradeFailure | null;
   /** send a follow-up in the reader's name */
   onAsk: (text: string) => void;
@@ -181,6 +185,8 @@ export function AssistantAnswer({
           onSaveReport={onSaveReport}
           savingReport={savingReport}
           reportNotice={reportNotice}
+          reportSaved={reportSaved}
+          onOpenReports={onOpenReports}
           disabled={busy}
           feedback={m.feedback ?? null}
           onFeedback={onFeedback}

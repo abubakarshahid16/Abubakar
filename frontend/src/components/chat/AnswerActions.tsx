@@ -1,9 +1,11 @@
 /**
  * What the reader can do with an answer, in one quiet row: Copy, Try again,
- * Exact wording (the document's own words, "/quote"), Save as PDF - then the
+ * Exact wording (the document's own words, "/quote"), Save as report - then the
  * ways to reshape it (Rewrite as:) and the next questions worth asking.
  *
- * Each control is offered only where it does something real. "Save as PDF" is
+ * "Save as report" is the name the reader already knows: it freezes the answer
+ * and its evidence as a PDF on the CRS & Reports screen (owner decision
+ * 2026-09-26). Each control is offered only where it does something real; it is
  * absent on an answer that cites nothing, because the report route refuses
  * one (NotReportable) and a button that fails every time is worse than none.
  */
@@ -30,6 +32,8 @@ export function AnswerActions({
   onSaveReport,
   savingReport,
   reportNotice,
+  reportSaved = false,
+  onOpenReports,
   disabled,
   feedback = null,
   onFeedback,
@@ -40,6 +44,9 @@ export function AnswerActions({
   onSaveReport?: () => void;
   savingReport?: boolean;
   reportNotice?: string | null;
+  /** the answer has been saved to CRS & Reports */
+  reportSaved?: boolean;
+  onOpenReports?: () => void;
   disabled?: boolean;
   /** the reader's own "Was this right?", if they have answered it */
   feedback?: boolean | null;
@@ -88,7 +95,7 @@ export function AnswerActions({
         )}
         {onSaveReport && (
           <button type="button" className={quiet} onClick={onSaveReport} disabled={savingReport}>
-            {savingReport ? "Saving…" : "Save as PDF"}
+            {savingReport ? "Saving…" : "Save as report"}
           </button>
         )}
         {onFeedback && (
@@ -116,6 +123,24 @@ export function AnswerActions({
       {rateFailed && (
         <p className="mt-1 text-xs text-warn-500" role="status">
           That was not saved. Try again.
+        </p>
+      )}
+      {reportSaved && (
+        <p className="mt-1 text-xs text-slateish-300" role="status">
+          <span aria-hidden className="text-signal-400">✓ </span>
+          Saved to CRS &amp; Reports
+          {onOpenReports && (
+            <>
+              {" · "}
+              <button
+                type="button"
+                onClick={onOpenReports}
+                className="min-h-0 text-signal-400 underline decoration-signal-500/40 underline-offset-2 hover:text-signal-300"
+              >
+                Open
+              </button>
+            </>
+          )}
         </p>
       )}
       {reportNotice && (
