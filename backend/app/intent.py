@@ -209,10 +209,35 @@ def _clean_title(section: str) -> str:
     return title
 
 
+#: A section heading so generic it names no real content - "Chapter 3",
+#: "Scope", "General", "Table of Contents". Excluded so an example question
+#: still means something once you read it, not just once you count its words.
+_GENERIC_HEADING = re.compile(
+    r"^\s*(chapter\s+\d+|part\s+\d+|section\s+\d+|scope|general|purpose|"
+    r"introduction|table\s+of\s+contents|contents|foreword|preface|"
+    r"revision\s+history|abbreviations?|definitions?|references?)\s*$",
+    re.IGNORECASE)
+
+#: The one example that names no document, appended after the document-drawn
+#: ones (never counted against `limit`) - a corpus of one obscure standard
+#: should not leave a first-time reader with nothing to click.
+GENERAL_EXAMPLE = "Explain what a hydrotest is"
+
+
+def _document_title(row) -> str:
+    """The document's recorded title, no extension - never the raw filename
+    with '.pdf' in front of a reader who never asked to see one."""
+    title = (row["title"] or "").strip() if "title" in row.keys() else ""
+    if title:
+        return title
+    return row["filename"].rsplit(".", 1)[0]
+
+
 def example_questions(
     limit: int = 3, *, allowed_document_ids: frozenset[str]
 ) -> list[str]:
-    """Questions drawn from the documents this caller may actually read.
+    """Questions drawn from the documents this caller may actually read, plus
+    one general-knowledge example that names no document.
 
     Suggesting "what is the NDFT for coating system no. 1" to someone whose
     corpus is two textbooks would be a worse first impression than suggesting
@@ -220,54 +245,66 @@ def example_questions(
     document that can currently answer, so every one of them works.
 
     `allowed_document_ids` is REQUIRED and keyword-only. Every example embeds
-    a real FILENAME and a real CLAUSE HEADING, and this ran unscoped: typing
-    "hi" - or "thanks" - returned the filenames and section titles of
+    a real document TITLE and a real CLAUSE HEADING, and this ran unscoped:
+    typing "hi" - or "thanks" - returned the filenames and section titles of
     documents the caller has no grant on, inside the answer text, and
     `answer()` persists that text to the conversation transcript. A greeting
     was the cheapest way to enumerate the corpus, and the disclosure outlived
     the request.
 
-    An empty scope offers no examples, which is the same answer an empty
-    corpus gets and the right one: there is nothing this caller can be shown.
-    """
-    if not allowed_document_ids:
-        return []
-    marks = ",".join("?" * len(allowed_document_ids))
-    try:
-        rows = connect().execute(
-            f"""SELECT c.filename, c.section, COUNT(*) AS n
-               FROM chunks c JOIN documents d ON d.id = c.document_id
-               WHERE c.retrievable = 1 AND c.section IS NOT NULL
-                 AND d.status IN ('ready', 'partially_searchable')
-                 AND c.document_id IN ({marks})
-               GROUP BY c.document_id, c.section
-               -- substantial sections first: a clause with more chunks makes a
-               -- better example than a one-line heading. No minimum, or a
-               -- small corpus would offer nothing at all.
-               ORDER BY c.document_id, n DESC""",
-            sorted(allowed_document_ids),
-        ).fetchall()
-    except Exception:  # noqa: BLE001 - a suggestion is never worth an error
-        return []
+    PREFERENCE ORDER (2026-09-27, Fix 1): a contractor submittal or a
+    recently uploaded document first - what the reader is most likely
+    working on right now - then the rest by upload recency. Within a
+    document, its most substantial clause (most chunks) wins.
 
-    seen_files: set[str] = set()
+    An empty scope offers no document examples (still the general one), which
+    is the same answer an empty corpus gets and the right one: there is
+    nothing else this caller can be shown.
+    """
     examples: list[str] = []
-    # One per document first, so the examples show the breadth of the corpus
-    # rather than three questions about the same clause.
-    for pass_no in (1, 2):
-        for r in rows:
+    if allowed_document_ids:
+        marks = ",".join("?" * len(allowed_document_ids))
+        try:
+            rows = connect().execute(
+                f"""SELECT c.document_id, d.filename, cl.title, cl.document_role,
+                          c.section, COUNT(*) AS n
+                   FROM chunks c
+                   JOIN documents d ON d.id = c.document_id
+                   LEFT JOIN document_classification cl ON cl.document_id = c.document_id
+                   WHERE c.retrievable = 1 AND c.section IS NOT NULL
+                     AND d.status IN ('ready', 'partially_searchable')
+                     AND c.document_id IN ({marks})
+                   GROUP BY c.document_id, c.section
+                   -- Submittals and recent uploads first (Fix 1: what the
+                   -- reader is likely working on); within a document, its
+                   -- most substantial clause (most chunks) wins.
+                   ORDER BY (cl.document_role = 'CONTRACTOR_SUBMITTAL') DESC,
+                            d.uploaded_at DESC, c.document_id, n DESC""",
+                sorted(allowed_document_ids),
+            ).fetchall()
+        except Exception:  # noqa: BLE001 - a suggestion is never worth an error
+            rows = []
+
+        seen_docs: set[str] = set()
+        # One per document first, so the examples show the breadth of the
+        # corpus rather than three questions about the same clause.
+        for pass_no in (1, 2):
+            for r in rows:
+                if len(examples) >= limit:
+                    break
+                if pass_no == 1 and r["document_id"] in seen_docs:
+                    continue
+                title = _clean_title(r["section"])
+                if len(title.split()) < 2 or len(title) > 60 or _GENERIC_HEADING.match(title):
+                    continue
+                question = f"What does {_document_title(r)} say about {title}?"
+                if question in examples:
+                    continue
+                examples.append(question)
+                seen_docs.add(r["document_id"])
             if len(examples) >= limit:
-                return examples
-            if pass_no == 1 and r["filename"] in seen_files:
-                continue
-            title = _clean_title(r["section"])
-            if len(title.split()) < 2 or len(title) > 60:
-                continue
-            question = f"What does {r['filename']} say about {title}?"
-            if question in examples:
-                continue
-            examples.append(question)
-            seen_files.add(r["filename"])
+                break
+    examples.append(GENERAL_EXAMPLE)
     return examples
 
 

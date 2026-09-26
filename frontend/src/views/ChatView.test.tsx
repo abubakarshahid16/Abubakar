@@ -945,14 +945,29 @@ describe("inputs that are not document questions", () => {
       text: "Hello. I answer questions about your documents, quoting the source with its page and clause.",
       answer_type: "guidance",
       reason: null,
+      // Fix 1 (2026-09-27): `suggestions` is a TOP-LEVEL, lifted field (the
+      // real backend's `_LIFTED`) - the component reads it directly, not
+      // `payload.suggestions`.
+      suggestions: [
+        "What does NORSOK M-501 say about Coating system no. 1?",
+        "Explain what a hydrotest is",
+      ],
       payload: {
         passages: [],
         cited: [],
         rejected_citations: [],
         input_kind: "greeting",
+        // Fix 1 (2026-09-27): the document's TITLE (never its filename with
+        // ".pdf" in front of a reader), plus one general example - both
+        // rendered as clickable chips from `suggestions`, not `examples`
+        // (an AnswerResult-only field a reopened Message never carries).
         examples: [
-          "What does NORSOKM501Rev5.pdf say about Coating system no. 1?",
-          "What does book1-professionalpractices.pdf say about Self-Driving Vehicles?",
+          "What does NORSOK M-501 say about Coating system no. 1?",
+          "Explain what a hydrotest is",
+        ],
+        suggestions: [
+          "What does NORSOK M-501 say about Coating system no. 1?",
+          "Explain what a hydrotest is",
         ],
         seconds: 0.002,
       },
@@ -998,10 +1013,12 @@ describe("inputs that are not document questions", () => {
     await userEvent.type(screen.getByLabelText("Your question"), "hi");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    expect(await screen.findByText(/Questions your documents can answer/i)).toBeInTheDocument();
+    // Fix 1 (2026-09-27): clickable chips (SuggestionChips), the document's
+    // title (never its filename), plus one general example.
     expect(
-      screen.getByText("What does NORSOKM501Rev5.pdf say about Coating system no. 1?"),
+      await screen.findByRole("button", { name: "What does NORSOK M-501 say about Coating system no. 1?" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Explain what a hydrotest is" })).toBeInTheDocument();
   });
 });
 

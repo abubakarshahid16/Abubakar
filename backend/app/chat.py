@@ -725,7 +725,26 @@ def ask(
         return chat_model.transcript(turns)
     memory.turns = 0
 
-    if explain_of is not None or route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER):
+    # OWNER ORDER 2026-09-27 (Claude-first chat): when Model=Claude and Claude
+    # is available, a DOCUMENT/EITHER/GENERAL turn goes to Claude WITH TOOLS
+    # instead of the router+gate+template pipeline below - Claude decides
+    # itself whether this needs a document search, a page image, or neither.
+    # `explain_of` (the Tier-2 upgrade) and every other route (web-consent,
+    # rewrite, action, records) are untouched. Returns None to mean "use the
+    # pipeline below exactly as it always has" (Model=Local, Claude
+    # unavailable, or the very first call of the loop could not run at all).
+    claude_first_result = None
+    if explain_of is None and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL):
+        from . import chat_claude_first
+        claude_first_result = chat_claude_first.answer(
+            original, history=memory(always=True), allowed_document_ids=retrieval_allowed,
+            web_enabled=web, preference=model)
+
+    if claude_first_result is not None:
+        result = claude_first_result
+        if routed.get("small_talk") and result.get("answer_type") == "general" and not result.get("passages"):
+            result["examples"] = intent_mod.example_questions(allowed_document_ids=retrieval_allowed)
+    elif explain_of is not None or route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER):
         result, resolved = _document_answer(
             conversation_id, resolved, understood, tier=tier, document_id=document_id,
             selected_document=selected_document, limit=limit,
@@ -785,6 +804,14 @@ def ask(
         # from the evidence and ends with the engineer notice.
         result["notices"] = [*(result.get("notices") or []), intent_mod.ENGINEER_NOTICE]
     result.update(chat_presentation.present(result))
+    thought_seconds = result.pop("thought_seconds", None)
+    if thought_seconds is not None:
+        # Baked into the stored `used_line` string itself (never a new
+        # payload/schema field): a reopened turn shows it exactly as given,
+        # with no extra field to keep additive, and none to reject if the
+        # response schema does not know it.
+        shown = f"{thought_seconds:.0f} s" if thought_seconds >= 1 else "under 1 s"
+        result["used_line"] = (result.get("used_line") or "") + f" · Thought for {shown}"
 
     assistant_message = _insert_message(
         conn,

@@ -2,11 +2,13 @@ import type { AnswerView } from "./AnswerCardContent";
 import type { CorpusFact } from "../../types/api";
 
 export function GuidanceAnswer({ view }: { view: AnswerView }) {
+  // The examples are rendered as clickable chips (`SuggestionChips`, driven
+  // by `m.suggestions`) beside this card, not listed here - see
+  // `AssistantAnswer.tsx`. Only the reply's own lead line is shown.
   const [lead, ...rest] = (view.answer ?? "").split("Try one of these:");
   return (
     <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850/60 p-4">
       <p className="text-sm text-slateish-300">{lead.trim()}</p>
-      {view.examples.length > 0 && <><p className="mt-3 text-xs uppercase tracking-wide text-slateish-500">Questions your documents can answer</p><ul className="mt-1.5 space-y-1">{view.examples.map((q) => <li key={q} className="text-sm text-slateish-400"><span aria-hidden className="me-2 text-slateish-500">&bull;</span>{q}</li>)}</ul></>}
       {view.examples.length === 0 && rest.length > 0 && <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-400">{rest.join("")}</p>}
     </div>
   );

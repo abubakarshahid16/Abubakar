@@ -93,6 +93,47 @@ def _claude_stream(monkeypatch, tmp_path, pieces, calls=None):
         settings.claude_reasoning_model, step=step, stream_transport=send))
 
 
+def _claude_stream_tool_use(monkeypatch, tmp_path, final_pieces, calls=None,
+                            tool_name="search_documents", tool_input=None):
+    """Claude-first (2026-09-27): one real tool call, then `final_pieces`
+    streamed citing whatever that real call returned."""
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "reasoning_provider", "claude")
+    monkeypatch.setattr(settings, "anthropic_api_key", KEY)
+    monkeypatch.setattr(settings, "standards_reader_enabled", True)
+    monkeypatch.setattr(settings, "standards_reader_allow_public_egress", True)
+    for name in ("STANDARDS_READER_ENABLED", "STANDARDS_READER_ALLOW_PUBLIC_EGRESS", "ANTHROPIC_API_KEY",
+                 "STANDARDS_READER_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+
+    n = {"calls": 0}
+
+    def send(url, *, headers, body, timeout, cancel=None):
+        if calls is not None:
+            calls.append(body)
+        n["calls"] += 1
+        yield {"type": "message_start", "message": {"model": "claude-sonnet-5", "usage": {}}}
+        if n["calls"] == 1:
+            yield {"type": "content_block_start", "index": 0,
+                  "content_block": {"type": "tool_use", "id": "toolu_1", "name": tool_name}}
+            yield {"type": "content_block_delta", "index": 0,
+                  "delta": {"type": "input_json_delta",
+                           "partial_json": json.dumps(tool_input or {"query": "NDFT coating system 1"})}}
+            yield {"type": "content_block_stop", "index": 0}
+            yield {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {}}
+            return
+        for piece in final_pieces:
+            if cancel is not None and cancel.is_set():
+                return
+            yield {"type": "content_block_delta", "delta": {"type": "text_delta", "text": piece}}
+        yield {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {}}
+
+    real = rp.ClaudeProvider
+    monkeypatch.setattr(rp, "get_provider", lambda role="reasoning", *, step=None: real(
+        settings.claude_reasoning_model, step=step, stream_transport=send))
+
+
 # ------------------------------------------------------------------ order
 
 def test_a_streamed_answer_arrives_in_order_and_done_is_the_answer():
@@ -124,8 +165,11 @@ def test_general_text_streams_as_it_arrives(monkeypatch):
 
 
 def test_on_the_claude_lane_an_unverified_claim_is_never_streamed(monkeypatch, tmp_path):
-    """THE MUTATION TARGET: stream a document sentence only after its quote verifies."""
-    _claude_stream(monkeypatch, tmp_path, [
+    """THE MUTATION TARGET: stream a document sentence only after its quote verifies.
+
+    Claude-first (2026-09-27): the citation is checked against what a REAL
+    search_documents tool call returned, streamed exactly as it arrives."""
+    _claude_stream_tool_use(monkeypatch, tmp_path, [
         "**Partly.** The NDFT is 280 um [S1 \"NDFT nominal dry film ",
         "thickness of 280 um\"]. It needs five coats [S1 \"applied as five coats\"]. ",
         "What I'd do: check the coating plan."])

@@ -30,7 +30,7 @@ from app import reasoning_provider as rp
 from app.config import settings
 from app.main import app
 from tests.test_chat import temp_storage, upload  # noqa: F401 - the fixture is autouse
-from tests.test_chat_pr1_model_lane import _claude_on
+from tests.test_chat_pr1_model_lane import _claude_on, _claude_on_tool_use
 
 
 # ------------------------------------------------------------------ routing
@@ -269,12 +269,16 @@ def test_records_are_searched_as_records_not_documents(monkeypatch):
 # --------------------------------------------------- the Claude lane quotes
 
 def test_on_the_claude_lane_a_claim_whose_quote_is_not_on_the_page_is_removed(monkeypatch, tmp_path):
-    """THE MUTATION TARGET: a document claim is shown only if its quote verifies."""
+    """THE MUTATION TARGET: a document claim is shown only if its quote verifies.
+
+    Claude-first (2026-09-27): Claude calls search_documents for real against
+    the uploaded "spec" document, then answers citing what it found - one
+    true quote and one invented one."""
     seen: list = []
     text = ('**Partly.**\n'
             '- The NDFT is 280 um [S1 "NDFT nominal dry film thickness of 280 um"].\n'
             '- It must be applied in five coats [S1 "applied as five coats"].')
-    _claude_on(monkeypatch, tmp_path, seen, text=text)
+    _claude_on_tool_use(monkeypatch, tmp_path, seen, final_text=text)
     client = TestClient(app)
     upload(client)
     convo = client.post("/api/conversations").json()["id"]
@@ -289,14 +293,15 @@ def test_on_the_claude_lane_a_claim_whose_quote_is_not_on_the_page_is_removed(mo
 
 def test_on_the_claude_lane_an_answer_with_no_verified_claim_is_not_shown(monkeypatch, tmp_path):
     seen: list = []
-    _claude_on(monkeypatch, tmp_path, seen, text='The NDFT is 999 um [S1 "a quote that is nowhere"].')
+    _claude_on_tool_use(monkeypatch, tmp_path, seen,
+                        final_text='The NDFT is 999 um [S1 "a quote that is nowhere"].')
     client = TestClient(app)
     upload(client)
     convo = client.post("/api/conversations").json()["id"]
     body = _ask(client, convo, "what is the NDFT for coating system no. 1", tier="generated")
     assert body["answer_type"] == "insufficient_evidence"
     assert body["answer"] is None
-    assert "could be found on the page" in body["reason"]
+    assert "could be found on the pages read" in body["reason"]
 
 
 def test_an_uncited_figure_is_not_shown_either():
@@ -319,15 +324,22 @@ def test_a_general_answer_is_refused_before_it_crosses_the_budget(monkeypatch, t
 
 
 def test_small_talk_says_honestly_who_answers(monkeypatch, tmp_path):
+    """Local answers with the fixed, honest local template; Claude-first
+    (2026-09-27) lets Claude write its own reply, so honesty is checked in
+    the STRUCTURED fields (provider, used_line) rather than in wording Claude
+    chooses itself - `provider` is never something a model can misreport
+    (`reasoning_provider.Response.provider`, set by which class answered)."""
     monkeypatch.setattr(settings, "reasoning_provider", "ollama")
     client = TestClient(app)
     convo = client.post("/api/conversations").json()["id"]
-    local = _ask(client, convo, "what can you do")["answer"]
-    assert "nothing you type leaves it" in local
-    _claude_on(monkeypatch, tmp_path, [])
-    claude = _ask(client, convo, "what can you do")["answer"]
-    assert "Claude" in claude and "nothing you type leaves" not in claude
-    assert json.dumps(claude).count("sk-ant") == 0
+    local_body = _ask(client, convo, "what can you do")
+    assert "nothing you type leaves it" in local_body["answer"]
+    assert local_body.get("provider") != "claude"
+    _claude_on(monkeypatch, tmp_path, [], text="I answer questions about your documents.")
+    claude_body = _ask(client, convo, "what can you do")
+    assert claude_body["provider"] == "claude"
+    assert "Claude" in claude_body["used_line"]
+    assert json.dumps(claude_body).count("sk-ant") == 0
 
 
 def test_a_withheld_answer_is_never_the_one_rewritten(monkeypatch):

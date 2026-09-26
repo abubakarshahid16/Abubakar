@@ -143,6 +143,13 @@ def verification(result: dict) -> dict | None:
 def steps(result: dict) -> list[dict]:
     """What the answer went through, in plain words, as it actually happened."""
     kind = result.get("answer_type")
+    if result.get("retrieval_mode") == "claude_tools":
+        # Claude-first (2026-09-27): the tool CALLS THEMSELVES are the real
+        # steps ("Read the whole document", "Checked cited standards", ...),
+        # built by `chat_claude_first` as they happen - never the fixed
+        # search/rerank/read narrative below, which assumes a single
+        # retrieval pass this pipeline does not make.
+        return list(result.get("steps") or [])
     if kind in (None, "guidance", "web", "web_consent"):
         return []
     if kind == "metadata":
@@ -215,7 +222,10 @@ def suggestions(result: dict) -> list[str]:
     """Two or three next questions. Plain, honest, never a claim."""
     kind, route = result.get("answer_type"), result.get("route")
     if kind == "guidance":
-        return list(result.get("examples") or [])[:3]
+        # Fix 1 (2026-09-27): up to 3 document examples plus one general one
+        # - `intent.example_questions` never returns more than 4, so this is
+        # not a truncation, just naming the ceiling `examples` already has.
+        return list(result.get("examples") or [])[:4]
     if route in (REWRITE, ACTION, RECORDS):
         return []
     if kind in ("extract", "generated"):

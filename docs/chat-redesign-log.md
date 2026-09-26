@@ -244,3 +244,73 @@ start. **Back up the live DB before restarting on this version.**
   and answers stay in `.cowork/` (git-ignored); the script refuses otherwise.
   **Not run yet** — it needs the live documents and your Claude key, which
   only the laptop has.
+
+## PR 8 — Claude-first: Claude answers with tools, not a router (backend + Fix 1)
+
+- **When Model = Claude and Claude is available, the router+gate+template
+  pipeline is bypassed for a document/either/general turn**
+  (`backend/app/chat_claude_first.py`, wired from `chat.ask`). Every such
+  message goes to Claude with a system prompt and five tools
+  (`search_documents`, `read_document`, `get_datasheet_fields`,
+  `list_cited_standards`, `look_at_page`, plus `web_search` when the Web
+  switch and the market flags are on) instead of one pre-built prompt.
+  Claude decides which tools it needs, in a loop capped at
+  `chat_tool_max_calls` (default 6) - the next call over the cap offers no
+  tools, forcing a final answer rather than looping forever.
+- **Fixes "hi" gets a template and "tell me about this document" refuses**:
+  small talk is now Claude's own natural reply (no tools, no citation);
+  an overview question calls `read_document` for real and is answered from
+  it, never routed through the single-passage search gate that used to
+  refuse it.
+- **Every safety guarantee is reused, not reinvented.** Tool permission
+  scoping (`chat_tools._readable`) is the same intersection-never-union rule
+  as everywhere else; document citations run through the SAME
+  `answer.verify_claims` the old pipeline already used, against the SAME
+  numbered-source format, so an invented quote is stripped and counted
+  exactly as before. The budget check (`claude_spend.ensure_affordable`)
+  runs before every call in the loop because it lives inside
+  `ClaudeProvider.reason`/`.stream`, not in the new code - this module
+  cannot bypass it. Stop cancels the loop within 2 s because every call is
+  streamed (`ClaudeProvider.stream`, never `.reason`) with the same `cancel`
+  event the existing pipeline uses; a document sentence streams through the
+  SAME sentence gate (`chat_stream`), verified as it arrives.
+- **Web stays consent-first even as a tool call**: calling `web_search`
+  never searches - it raises `ConsentRequired`, which ends the turn as the
+  ordinary `chat_web.consent` turn ("Search once?"), so a tool call cannot
+  bypass the sanitiser or the one-shot audit trail.
+- **`look_at_page` (vision)**: renders a page image (reusing
+  `vision_reader.render`) and hands it back inside the tool result, capped
+  at `chat_vision_max_pages_per_answer` (default 4) pages per answer. A fact
+  read from a page that also has extractable text is cited and verified the
+  ordinary way; a fact from a page with NO text layer is labelled
+  "read from image - check the page" instead of being silently dropped.
+- **Extended thinking**: enabled only for a question shaped like it needs
+  real reasoning (comparison, compliance, multi-document, overview -
+  `chat_claude_first._is_complex`), with a configurable budget
+  (`chat_thinking_budget_tokens`, default 2000). Shown as
+  "· Thought for N s" appended to the grey line; thinking tokens are
+  ordinary output tokens to `claude_spend`, so no separate budget plumbing
+  was needed.
+- **`chat_max_output_tokens` raised 1500 → 4000**: a tool-use answer that
+  reads a document and a standard needs more room than a single-passage
+  extract did.
+- **Fix 1 — greeting example chips** (`intent.example_questions`,
+  `AssistantAnswer.tsx`, `AnswerNonDocument.tsx`): now built from the
+  document's TITLE, never its filename with `.pdf` in front of a reader;
+  skips generic headings (Chapter N, Scope, General, Table of Contents,
+  ...); prefers a contractor submittal and recent uploads; capped at 3, plus
+  one fixed general example ("Explain what a hydrotest is") that names no
+  document. Rendered as clickable chips (`SuggestionChips`, reused - no new
+  frontend component), not a static bullet list.
+- **Scope kept deliberately narrow**: only the DOCUMENT/EITHER/GENERAL
+  routes go through Claude-first. Web-consent, rewrite, action and records
+  stay on the existing router path unchanged - Claude already sees recent
+  conversation as context, so "put that in points" naturally still works
+  without needing the REWRITE route's special handling, but that path was
+  not touched or re-tested in this PR to keep it reviewable.
+- **A pre-existing defect found, not fixed here**: `answer.verify_claims`'s
+  sentence splitter (`_SEGMENT`) breaks on ANY ". " it finds, including one
+  INSIDE an open citation bracket - a quote like `"...system no. 1 shall..."`
+  splits mid-quote and neither half verifies. Pre-dates this PR (shared,
+  already-tested code); worked around in this PR's own tests by avoiding
+  such quotes; recorded here rather than silently routed around forever.
