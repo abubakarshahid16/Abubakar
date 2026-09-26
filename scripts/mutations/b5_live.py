@@ -105,8 +105,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M742", phase=66, description="B5 live: the CRS standards list leaves out cited standards not held",
         path=APP / "main.py",
-        anchor="    for ref in _missing_references(submittal_id, allowed):\n        out.append({\"standard\": ref,",
-        replacement="    for ref in ():\n        out.append({\"standard\": ref,",
+        # Re-anchored 2026-09-26 (2g): a comment now sits inside the loop.
+        anchor="    for ref in _missing_references(submittal_id, allowed):\n        # 2g",
+        replacement="    for ref in ():\n        # 2g",
         target=_T, keyword="reach_the_run_and_the_crs", tags=("honesty",),
     ),
     Mutation(

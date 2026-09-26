@@ -84,45 +84,32 @@ describe("selected review run placement", () => {
   });
 });
 
-describe("nominal-estimate reason on a run card", () => {
-  it("renders the existing NOMINAL ESTIMATE sentence exactly once", async () => {
+describe("2g: a run card speaks plain words", () => {
+  it("shows the plain reason and no developer word", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
+      recommended_reason: "Checked 4 datasheet fields. That is not enough of the datasheet to suggest a review code yet.",
+      recommended_details: NOMINAL_REASON,
+    })] } });
     render(<ReviewRunsView />);
 
     const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
     const card = within(runButton);
-    // Positive branch proofs: the card and its recommendation rendered, so
-    // the absence below is an absence FROM something that exists.
     expect(card.getByText("Manual Review Required")).toBeInTheDocument();
-    expect(card.getByText(/The review used a NOMINAL ESTIMATE denominator/))
-      .toBeInTheDocument();
-    expect(card.getAllByText(/NOMINAL ESTIMATE/i)).toHaveLength(1);
-    // THE COMPLETENESS LINE'S OWN WORDS, which `completenessLine` emits as
-    // "4 of approximately 35 fields (a NOMINAL estimate: ...)".
-    //
-    // This asserted `queryByText(/fields read/i)` and was VACUOUS: with
-    // `fields_estimated` set, that line never says "fields read" - it says
-    // "of approximately" - so the assertion held whether or not the branch
-    // rendered. The test below renders the branch, which is what makes this
-    // absence mean something.
-    expect(card.queryByText(/of approximately/i)).toBeNull();
+    expect(card.getByText(/Checked 4 datasheet fields/)).toBeInTheDocument();
+    expect(card.getAllByText(/Checked 4 datasheet fields/)).toHaveLength(1);
+    expect(card.queryByText(/NOMINAL|denominator|MISSING_LOCALLY/i)).toBeNull();
   });
 
-  it("still shows the completeness line when the reason does NOT state the denominator", async () => {
-    // THE POSITIVE CONTROL FOR THE ABSENCE ABOVE. Same component, same
-    // completeness input, one field changed: the denominator is never
-    // dropped, only never repeated. Without this, "the line is absent" could
-    // mean the line does not exist at all.
+  it("still states the fields checked when the reason does not", async () => {
     reviewRuns.mockResolvedValue({
       ok: true,
       data: { runs: [run({ recommended_reason: "Not enough was read to recommend a code." })] },
     });
     render(<ReviewRunsView />);
 
-    const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
-    const card = within(runButton);
-
-    expect(card.getByText(/of approximately 35 fields/i)).toBeInTheDocument();
-    expect(card.getAllByText(/NOMINAL/i)).toHaveLength(1);
+    const card = within(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(card.getByText("Checked 4 datasheet fields.")).toBeInTheDocument();
+    expect(card.queryByText(/NOMINAL/i)).toBeNull();
   });
 });
 
@@ -192,5 +179,48 @@ describe("B5: the standards in scope carry their evidence and the missing ones",
 
     expect(await screen.findByText("No standards were selected for this run.")).toBeInTheDocument();
     expect(within(screen.getByRole("note")).getByText("API 682")).toBeInTheDocument();
+  });
+});
+
+describe("2g: the picker and the panel always name the same document", () => {
+  const docs = [
+    { id: "doc-sub", filename: "drum.pdf", document_role: "CONTRACTOR_SUBMITTAL" },
+    { id: "doc-pump", filename: "pump.pdf", document_role: "CONTRACTOR_SUBMITTAL" },
+    { id: "doc-new", filename: "new.pdf", document_role: "CONTRACTOR_SUBMITTAL" },
+  ];
+
+  beforeEach(() => {
+    documents.mockImplementation(async (params: { document_role?: string[] }) => ({
+      ok: true,
+      data: params?.document_role?.includes("CONTRACTOR_SUBMITTAL") ? docs : [],
+    }));
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [
+      run(),
+      run({ review_run_id: "run-2", submittal_document_id: "doc-pump",
+            submittal_filename: "pump.pdf", created_at: "2026-09-21T00:00:00Z" }),
+    ] } });
+  });
+
+  it("opening a run sets the picker to its submittal", async () => {
+    render(<ReviewRunsView />);
+    await screen.findByRole("option", { name: "pump.pdf" });
+    await userEvent.click(await screen.findByRole("button", { name: /pump\.pdf/i }));
+    expect(await screen.findByRole("heading", { name: "pump.pdf", level: 2 })).toBeInTheDocument();
+    expect(screen.getByLabelText("Submittal")).toHaveValue("doc-pump");
+  });
+
+  it("choosing a submittal opens its latest run, and one with no run closes the panel", async () => {
+    render(<ReviewRunsView />);
+    await screen.findByRole("option", { name: "drum.pdf" });
+    await userEvent.click(await screen.findByRole("button", { name: /pump\.pdf/i }));
+    await screen.findByRole("heading", { name: "pump.pdf", level: 2 });
+
+    await userEvent.selectOptions(screen.getByLabelText("Submittal"), "doc-sub");
+    expect(await screen.findByRole("heading", { name: "drum.pdf", level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "pump.pdf", level: 2 })).toBeNull();
+
+    await userEvent.selectOptions(screen.getByLabelText("Submittal"), "doc-new");
+    expect(screen.queryByRole("heading", { name: "drum.pdf", level: 2 })).toBeNull();
+    expect(screen.getByLabelText("Submittal")).toHaveValue("doc-new");
   });
 });

@@ -61,3 +61,29 @@ redesign (section 3), and 2d-2 (web standards).
     screen.
 - DB migration: **none**. The existing `origin` column is reused, and no new
   table or column is added.
+
+## Item 1 - plain wording (2g), readable pills, picker = panel
+
+- **Plain words.** The recommendation's reason is now what an engineer says,
+  for example "Checked 177 datasheet fields on 5 of 7 pages. 25 standards the
+  datasheet cites are not in your library (the first five named, then "and 20
+  more"), so a review code can't be suggested yet."
+  - The engine's technical sentence (the nominal field estimate, engine
+    identifiers) is kept word for word under **Details** in the code panel.
+  - Runs stored before this change get their plain sentence from the same
+    stored counts, so existing runs read plainly too.
+  - The CRS prints the plain reason. Its "Applicable standards" sheet says
+    "Not in your library - upload required" instead of `MISSING_LOCALLY`.
+  - Reasons that were already plain are unchanged, including the owner's own
+    wording "Manual review: N requirements require other documents".
+- **Pills.** Status pills use theme tokens that meet WCAG AA in both themes.
+  - The yellow "Needs engineer review" pill measures 7.8:1 on the light theme,
+    up from unreadable pale text on white.
+  - A test computes the contrast of every pill from `index.css`.
+  - Not changed here: the review screen's red and green *alert boxes* still
+    use pale text; they are listed as a follow-up.
+- **Picker = panel.** Opening a run sets the submittal picker to that run's
+  document. Choosing a document in the picker opens its latest run, or closes
+  the panel when it has none. The two can no longer show different documents.
+- DB migration: **none** (the technical sentence is stored in the existing
+  run-outcome JSON).

@@ -2181,6 +2181,9 @@ class ReviewRunSummary(BaseModel):
     recommended_code: str | None = None
     #: The recommendation's own words. Never re-worded by a screen.
     recommended_reason: str | None = None
+    #: 2g: the technical sentence behind `recommended_reason` (the nominal
+    #: field estimate, identifiers), shown under "Details". Null when none.
+    recommended_details: str | None = None
     #: Why a failed run failed, verbatim. None on a run that did not fail.
     failure_reason: str | None = None
     #: THE ENGINEER'S DECISION, BESIDE THE MACHINE'S AND NEVER INSTEAD OF IT.

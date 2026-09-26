@@ -203,6 +203,30 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
     () => runs.find((item) => item.review_run_id === selectedRun) ?? null,
     [runs, selectedRun],
   );
+
+  // 2g: THE PICKER AND THE PANEL NAME THE SAME DOCUMENT. They were two pieces
+  // of state: the dropdown kept whatever was last chosen while the panel
+  // showed whichever run was opened, so one document sat above another's
+  // findings. Opening a run now sets the picker to its submittal...
+  useEffect(() => {
+    if (run) setTarget(run.submittal_document_id);
+  }, [run]);
+
+  // ...and choosing a submittal opens its latest run, or closes the panel
+  // when it has none - never leaving another document's run on screen.
+  function pickTarget(documentId: string) {
+    setTarget(documentId);
+    const latest = runs
+      .filter((item) => item.submittal_document_id === documentId)
+      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0];
+    if (latest) {
+      void openRun(latest.review_run_id);
+    } else {
+      setSelectedRun(null);
+      setFindings([]);
+      setPreview(null);
+    }
+  }
   const finding = useMemo(
     () => findings.find((item) => item.id === selectedFinding) ?? null,
     [findings, selectedFinding],
@@ -263,7 +287,7 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
           </label>
           <select
             id="review-target" value={target}
-            onChange={(event) => setTarget(event.target.value)}
+            onChange={(event) => pickTarget(event.target.value)}
             className="min-w-[18rem] rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100"
           >
             <option value="">Choose a contractor submittal…</option>
@@ -447,8 +471,9 @@ function RunCard({ run, selected, onOpen }: {
 }) {
   const completeness = completenessLine(run);
   const pageCoverage = pageCoverageLine(run);
-  const reasonStatesDenominator =
-    (run.recommended_reason ?? "").includes("NOMINAL ESTIMATE");
+  // 2g: the plain reason already opens "Checked N datasheet fields" when
+  // the run was gated for completeness; the line is not printed twice.
+  const reasonStatesCount = (run.recommended_reason ?? "").startsWith("Checked ");
   return (
     <button
       type="button" onClick={onOpen}
@@ -492,13 +517,10 @@ function RunCard({ run, selected, onOpen }: {
           {run.recommended_reason ? <span className="text-slateish-400"> — {run.recommended_reason}</span> : null}
         </p>
       )}
-      {/* ONCE, NOT TWICE. When a run was gated for incompleteness the
-          recommendation's own words already carry the nominal
-          denominator, and printing the completeness line under it said
-          the same sentence again. The line is still shown whenever the
-          reason does NOT state it - the denominator is never dropped,
-          only never repeated. */}
-      {completeness && !reasonStatesDenominator && (
+      {/* ONCE, NOT TWICE: shown whenever the reason does not already say
+          how many fields were checked. The nominal estimate is under
+          "Details" in the code panel, never on the card (2g). */}
+      {completeness && !reasonStatesCount && (
         <p className="mt-1 text-xs text-slateish-500">{completeness}</p>
       )}
       {pageCoverage && (

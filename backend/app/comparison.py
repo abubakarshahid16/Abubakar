@@ -927,7 +927,106 @@ def completeness_for_run(
 
 def recommend_code(findings: list[dict], completeness: dict, *,
                    codes: tuple[str, ...] = DEFAULT_CODES,
-                   missing_references: list[str] | tuple[str, ...] = ()) -> dict:
+                   missing_references: list[str] | tuple[str, ...] = (),
+                   page_coverage: dict | None = None) -> dict:
+    """The recommendation, with `reason` in PLAIN WORDS for the engineer and
+    the technical sentence kept as `details` (owner order 2g, 2026-09-26).
+
+    The screen and the CRS print `reason`; "Details" shows `details`. Both are
+    true - the plain one just leaves out the words only a developer reads
+    ("NOMINAL ESTIMATE", "denominator", "MISSING_LOCALLY").
+    """
+    result = _recommend_code(findings, completeness, codes=codes,
+                             missing_references=missing_references)
+    missing = [m for m in dict.fromkeys(missing_references or ()) if m]
+    return {**result, "details": result["reason"],
+            "reason": plain_reason(result["code"], result["reason"], completeness,
+                                   page_coverage, missing, codes=codes)}
+
+
+def _pages_part(page_coverage: dict | None) -> str:
+    total = (page_coverage or {}).get("pages_total")
+    if not total:
+        return ""
+    read = len((page_coverage or {}).get("fact_pages") or [])
+    return f" on {read} of {total} page{'s' if total != 1 else ''}"
+
+
+#: How many missing standards the plain sentence names; the rest are
+#: counted ("and 20 more") and all are named in Details and on the
+#: CRS "Applicable standards" sheet.
+PLAIN_NAMES_SHOWN = 5
+
+
+def _standards_sentence(missing: list[str], tail: str) -> str:
+    n = len(missing)
+    names = ", ".join(missing[:PLAIN_NAMES_SHOWN]) + (
+        f" and {n - PLAIN_NAMES_SHOWN} more" if n > PLAIN_NAMES_SHOWN else "")
+    return (f"{n} standard{'s' if n != 1 else ''} the datasheet cites "
+            f"{'are' if n != 1 else 'is'} not in your library ({names}), {tail}")
+
+
+def _not_checked(missing: list[str]) -> str:
+    return "so they were not checked." if len(missing) != 1 else "so it was not checked."
+
+
+def plain_reason(code: str, technical: str, completeness: dict | None,
+                 page_coverage: dict | None, missing: list[str], *,
+                 codes: tuple[str, ...] = DEFAULT_CODES) -> str:
+    """The recommendation's reason as an engineer says it.
+
+    Built from the same counts as the technical sentence, never from a
+    different source: the fields read, the pages read out of the page total,
+    and the cited standards not in the library. The estimate of how many
+    fields a sheet holds is NOT a count of this document, so it is not in
+    the plain sentence at all - it stays in `details`, labelled nominal.
+    """
+    completeness = completeness or {}
+    manual = codes[3]
+    gated = ("NOMINAL ESTIMATE" in technical
+             or technical.startswith("the submittal could not be read well enough"))
+    if gated:
+        read = completeness.get("fields_read")
+        head = (f"Checked {read} datasheet field{'s' if read != 1 else ''}"
+                f"{_pages_part(page_coverage)}." if read is not None
+                else "The datasheet could not be read well enough.")
+        if missing:
+            return f"{head} " + _standards_sentence(
+                missing, "so a review code can't be suggested yet.")
+        return f"{head} That is not enough of the datasheet to suggest a review code yet."
+    if code == manual and missing and "not held locally" in technical:
+        if technical.startswith("Manual review: no requirement") or "none was evaluated" in technical:
+            return ("No requirement could be checked against this datasheet. "
+                    + _standards_sentence(missing, _not_checked(missing)))
+        return "Needs an engineer: " + _standards_sentence(missing, _not_checked(missing))
+    if technical.startswith("Manual review: no requirement was evaluated"):
+        return "No requirement could be checked against this datasheet, so a review code can't be suggested yet."
+    if technical.startswith("Manual review: all ") and "none was evaluated" in technical:
+        return "Every requirement read as not applicable, so nothing was checked and no code is suggested."
+    # Every other reason is already plain (the owner's own wording included,
+    # "Manual review: 3 requirements require other documents"): unchanged.
+    return technical
+
+
+def plain_outcome(outcome: dict) -> tuple[str | None, str | None]:
+    """(plain reason, details) for a STORED outcome. A run stored before 2g
+    carries only the technical sentence; its plain one is derived here from
+    the same stored counts, and the stored sentence becomes the details."""
+    reason = outcome.get("reason")
+    if reason is None:
+        return None, None
+    if "details" in outcome:
+        return reason, outcome.get("details")
+    missing = [m.get("identifier") for m in (outcome.get("missing_references") or [])
+               if isinstance(m, dict) and m.get("identifier")]
+    return plain_reason(outcome.get("recommended_code") or "", reason,
+                        outcome.get("completeness"), outcome.get("page_coverage"),
+                        missing), reason
+
+
+def _recommend_code(findings: list[dict], completeness: dict, *,
+                    codes: tuple[str, ...] = DEFAULT_CODES,
+                    missing_references: list[str] | tuple[str, ...] = ()) -> dict:
     """The AI-RECOMMENDED review code. Deterministic policy, never the model.
 
     THE COMPLETENESS GATE COMES FIRST AND OVERRIDES EVERYTHING. A review that
@@ -1319,7 +1418,8 @@ def run_comparison(
         submittal_id, allowed_document_ids=allowed_document_ids,
         reference_coverage=reference_coverage)
     recommendation = recommend_code(findings, coverage,
-                                    missing_references=missing_references or ())
+                                    missing_references=missing_references or (),
+                                    page_coverage=pages_read)
     _store_run_outcome(review_run_id, recommendation, coverage,
                        page_coverage=pages_read,
                        missing_references=missing_references or [])
@@ -2179,6 +2279,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
             ("completed", json.dumps({
                 "recommended_code": recommendation["code"],
                 "reason": recommendation["reason"],
+                # 2g: the technical sentence, for "Details" on the screen.
+                "details": recommendation.get("details"),
                 "completeness": coverage,
                 "page_coverage": page_coverage,
                 # B5: each cited standard not held, with its status, AS OF
