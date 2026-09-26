@@ -909,6 +909,15 @@ def record_selection(
     }
     conn = connect()
     with conn:
+        # P2: AN ENGINEER'S OVERRIDE IS NEVER REPLACED BY THE MACHINE. A later
+        # automatic selection on the same run keeps the manual row as it is.
+        existing = conn.execute(
+            "SELECT selection_method FROM review_applicable_standards"
+            " WHERE review_run_id = ? AND standard_document_id = ?",
+            (review_run_id, standard_document_id)).fetchone()
+        if (existing is not None and existing["selection_method"] == METHOD_MANUAL
+                and method != METHOD_MANUAL):
+            return {**row, "kept_engineer_override": True}
         # The phase 1 relation carries UNIQUE(review_run_id,
         # standard_document_id), so a re-run replaces rather than duplicates.
         conn.execute(

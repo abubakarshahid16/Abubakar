@@ -1870,6 +1870,11 @@ def review_run_standards(
             allowed_document_ids=scope.allowed_document_ids) is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review run with that id"))
+    return _run_standards_payload(review_run_id, scope, include_excluded)
+
+
+def _run_standards_payload(review_run_id: str, scope: access.AccessScope,
+                           include_excluded: bool) -> dict:
     rows = submittal_review_mod.list_applicable_standards(
         review_run_id, allowed_document_ids=scope.allowed_document_ids,
         include_excluded=include_excluded)
@@ -1894,6 +1899,70 @@ def review_run_standards(
         review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
     return {"standards": out,
             "missing_references": outcome.get("missing_references") or []}
+
+
+@app.post("/api/reviews/runs/{review_run_id}/standards/override",
+          response_model=schemas.ReviewRunStandardList,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404,
+                     **schemas.ERRORS_409, **schemas.ERRORS_422})
+def override_review_standard(
+    review_run_id: str,
+    body: schemas.StandardOverrideRequest,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """P2: an engineer adds or removes a standard, with a reason, and the run's
+    findings are recomputed from the new list.
+
+    THE ENGINEER'S OWN ACT: a signed-in caller, named in the audit row (written
+    in the same transaction as the selection). Both documents must be readable
+    - a hidden one is the same 404 as a missing one. REFUSED (409) when the
+    run carries an engineer's final code (that decision was made about these
+    findings; start a new review), while it is still running, or when the
+    caller cannot read every standard the run already uses - recomputing under
+    a narrower view would silently drop another engineer's requirements.
+    Cited standards the library does not hold stay MISSING_LOCALLY: adding a
+    different standard does not make a missing one present.
+    """
+    reject_unknown_params(request, set())
+    _require_identity_to_write(scope)
+    if not scope.user_id:
+        raise HTTPException(status_code=401, detail=errors.safe_error(
+            errors.UNAUTHENTICATED, "an override must name the engineer who made it"))
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids)
+    if run is None or not scope.may_read(body.standard_document_id):
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run or standard with that id"))
+    if run.get("engineer_final_code"):
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER,
+            "this run carries an engineer's final code; start a new review to change its standards"))
+    if (run.get("status") or "") == "running":
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "this review is still running"))
+    in_use = {r["standard_document_id"] for r in connect().execute(
+        "SELECT standard_document_id FROM review_applicable_standards"
+        " WHERE review_run_id = ? AND included = 1", (review_run_id,))}
+    if not in_use <= scope.allowed_document_ids:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER,
+            "you cannot read every standard this review uses, so it cannot be recomputed under your view"))
+    outcome = comparison_mod.run_outcome(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
+    try:
+        applicability_mod.override(
+            review_run_id, body.standard_document_id, include=body.include,
+            reason=body.reason, allowed_document_ids=scope.allowed_document_ids,
+            actor=_actor_from_scope(scope))
+    except applicability_mod.ApplicabilityError as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc))) from exc
+    comparison_mod.run_comparison(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids,
+        reference_coverage=(outcome.get("completeness") or {}).get("reference_coverage"),
+        missing_references=[m["identifier"] for m in outcome.get("missing_references") or []])
+    return _run_standards_payload(review_run_id, scope, include_excluded=True)
 
 
 @app.post("/api/reviews/run", response_model=schemas.ReviewRunSummary,

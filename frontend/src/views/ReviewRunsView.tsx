@@ -24,6 +24,7 @@ import type {
 import { FindingDetail } from "../components/review/FindingDetail";
 import { FindingsTable } from "../components/review/FindingsTable";
 import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
+import { StandardOverrideControl } from "../components/review/StandardOverrideControl";
 import {
   STATUS_ORDER, completenessLine, pageCoverageLine, statusLabel, statusTone,
   whenLabel, withDenominator,
@@ -344,6 +345,18 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
 
           {showStandards && (
             <StandardsInScope standards={standards} missing={missingStandards} />
+          )}
+          {showStandards && run && (
+            <StandardOverrideControl
+              runId={run.review_run_id}
+              decided={Boolean(run.engineer_final_code)}
+              onChanged={(changed, missing) => {
+                setStandards(changed);
+                setMissingStandards(missing);
+                void loadFindings(run.review_run_id);
+                void loadRuns();
+              }}
+            />
           )}
 
           <ReviewCodePanel run={run} onDecided={() => { void loadRuns(); }} />

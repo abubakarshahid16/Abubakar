@@ -352,6 +352,22 @@ export const reviews = {
       undefined,
       hasArrayField("standards"),
     ),
+  /** Which standards a run considered, INCLUDING the ones not applied - the
+   *  engineer's add-a-standard list. */
+  reviewRunStandardsAll: (runId: string) =>
+    request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
+      `/reviews/runs/${encodeURIComponent(runId)}/standards?include_excluded=true`,
+      undefined,
+      hasArrayField("standards"),
+    ),
+  /** P2: an engineer adds or removes one standard, with a reason; the run's
+   *  findings are recomputed. Returns every standard the run considered. */
+  overrideRunStandard: (runId: string, body: { standard_document_id: string; include: boolean; reason: string }) =>
+    request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
+      `/reviews/runs/${encodeURIComponent(runId)}/standards/override`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      hasArrayField("standards"),
+    ),
   /** Start a review. Admin-gated, and refuses while one is already running. */
   startReviewRun: (submittalDocumentId: string) =>
     request<ReviewRunSummary>("/reviews/run", {
