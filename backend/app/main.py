@@ -2473,6 +2473,18 @@ def delete_conversation(conversation_id: str, request: Request, confirm: bool = 
     }
 
 
+@app.get("/api/chat/models", response_model=schemas.ChatModels, responses=schemas.ERRORS_422)
+def chat_models(request: Request, scope: access.AccessScope = Depends(access.current_scope)):
+    """What the composer's Model menu may offer: only engines that can run
+    here, with the reason one cannot (never a key). Signed-in callers only."""
+    reject_unknown_params(request, set())
+    if not scope.unrestricted and not scope.user_id:
+        raise HTTPException(status_code=401, detail=errors.safe_error(
+            errors.UNAUTHENTICATED, "sign in to continue"))
+    from . import chat_model
+    return chat_model.available_models()
+
+
 @app.post("/api/conversations/{conversation_id}/ask", response_model=schemas.AskResult,
           responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def ask(conversation_id: str, body: schemas.AskRequest,
@@ -2507,6 +2519,7 @@ def ask(conversation_id: str, body: schemas.AskRequest,
                 explain_of=body.explain_of,
                 allowed_document_ids=scope.allowed_document_ids,
                 progress_id=body.progress_id,
+                model=body.model,
             )
         finally:
             progress_mod.finish(body.progress_id)

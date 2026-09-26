@@ -8,9 +8,16 @@ Two rules govern this module, and the second one is the important one.
 
 2. A previous ANSWER is never evidence. Retrieval reads documents and nothing
    else. Prior assistant messages are stored for display and replay, and are
-   never fed into search, into the prompt, or into follow-up resolution. If
-   they were, a wrong answer would become the grounds for the next one and the
-   whole citation guarantee would quietly stop meaning anything.
+   never fed into search or into follow-up resolution. If they were, a wrong
+   answer would become the grounds for the next one and the whole citation
+   guarantee would quietly stop meaning anything.
+
+   CHANGED 2026-09-26 (owner order, chat redesign), and only this far: the
+   MODEL now sees the recent conversation, permission-filtered, so "that",
+   "in points" and "more detail" work (`chat_model.history`). It sees it as
+   context labelled "not a source", and a document claim still has to cite a
+   passage retrieved for THIS question - so an earlier answer can shape the
+   wording but never become the evidence. Retrieval is unchanged.
 
 Resolution is deliberately conservative and inspectable. It carries forward
 identifiers and designators - the terms whose absence produces a confidently
@@ -27,10 +34,13 @@ import uuid
 from datetime import datetime, timezone
 
 from . import answer as answer_mod
+from . import chat_model
+from . import chat_presentation
 from . import intent as intent_mod
 from . import keyword
 from . import search as search_mod
 from . import understanding as understanding_mod
+from .config import settings
 from .db import connect
 
 #: How many previous USER questions resolution may look at. Beyond about three
@@ -385,7 +395,15 @@ def _row_to_message(r) -> dict:
         "explains_id": r["explains_id"],
         "payload": json.loads(r["payload"]) if r["payload"] else None,
         "created_at": r["created_at"],
-    }
+    } | _lifted(r["payload"])
+
+
+def _lifted(raw: str | None) -> dict:
+    try:
+        payload = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        payload = {}
+    return {k: payload[k] for k in _LIFTED if isinstance(payload, dict) and k in payload}
 
 
 #: What a reopened assistant turn shows when it cites a document the caller
@@ -419,7 +437,7 @@ def referenced_document_ids(value) -> set[str]:
 
 def _withhold(message: dict) -> dict:
     return {
-        **message,
+        **{k: v for k, v in message.items() if k not in _LIFTED},
         "text": WITHHELD_TEXT,
         "payload": {"withheld": True},
         "reason": "cited document no longer readable",
@@ -546,7 +564,17 @@ _PAYLOAD_KEYS = (
     "understanding", "scope_ambiguity",
     # B8: the answer-level verdict, reopened exactly as it was given.
     "answerability",
+    # Chat redesign (2026-09-26): what the answer says about itself - see
+    # chat_presentation. Additive: a turn stored before these existed simply
+    # has none of them, and renders as it always did.
+    "answer_kind", "used_line", "sources", "verification", "steps",
+    "suggestions", "draft", "provider", "cost_usd", "history_turns",
 )
+
+#: Payload keys lifted to the top of a message, so the Chat screen reads one
+#: shape for a fresh answer and a reopened one.
+_LIFTED = ("answer_kind", "used_line", "sources", "verification", "steps",
+           "suggestions", "draft", "model", "provider", "seconds", "cost_usd")
 
 
 def _payload(result: dict) -> dict:
@@ -563,6 +591,7 @@ def ask(
     *,
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
+    model: str | None = None,
 ) -> dict:
     """Answer a question inside a conversation and persist both turns.
 
@@ -643,11 +672,25 @@ def ask(
         elif understood.get("scope_ids"):
             scoped_allowed = allowed_document_ids & frozenset(understood["scope_ids"])
 
+    # MEMORY FOR THE MODEL, PERMISSION-FILTERED FIRST (chat_model.history).
+    # Only a generated answer has a model to show it to; a quotation is
+    # verbatim document text and needs no memory at all.
+    turns: list[dict] = []
+    if tier == "generated":
+        local = (model == chat_model.LOCAL) or not chat_model.claude_ready()[0]
+        turns = chat_model.history(
+            conversation_id, allowed_document_ids=allowed_document_ids,
+            before_ordinal=user_message["ordinal"],
+            token_budget=(settings.chat_history_local_token_budget if local
+                          else settings.chat_history_token_budget))
     result = answer_mod.answer(
         resolved, tier=tier, document_id=document_id, limit=limit,
         allowed_document_ids=scoped_allowed,
         progress_id=progress_id,
+        history=chat_model.transcript(turns),
+        model=model,
     )
+    result["history_turns"] = len(turns)
     if understood is not None:
         result["understanding"] = understood
     # B6C: the same text in several documents makes "which document" an
@@ -670,6 +713,7 @@ def ask(
     if not (rejudged["verdict"] == earlier.get("verdict") == answerability.SUPPORTED
             and (earlier.get("judge") or {}).get("accepted")):
         result["answerability"] = rejudged
+    result.update(chat_presentation.present(result))
 
     assistant_message = _insert_message(
         conn,

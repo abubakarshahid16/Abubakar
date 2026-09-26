@@ -2527,7 +2527,56 @@ class ScopeAmbiguity(BaseModel):
     documents: list[ScopeDocument]
 
 
-class AnswerResult(BaseModel):
+AnswerKind = Literal["general", "document", "web", "mixed", "rewrite", "action", "records"]
+
+
+class ChatSource(BaseModel):
+    """One numbered source chip under a chat answer (chat redesign, 2f)."""
+    n: int
+    kind: Literal["document", "web"]
+    document_id: str | None = None
+    display_name: str
+    document_number: str | None = None
+    page: int | None = None
+    page_end: int | None = None
+    clause: str | None = None
+    text_source: str | None = None
+    ocr_min_conf: float | None = None
+    url: str | None = None
+    cited: bool = True
+    rows: list[dict] = Field([], description="extracted rows for the preview; the cited one flagged")
+
+
+class ChatVerification(BaseModel):
+    verified: int
+    total: int
+    method: str | None = None
+
+
+class ChatStep(BaseModel):
+    label: str
+    count: int | None = None
+    done: bool = True
+
+
+class ChatPresentation(BaseModel):
+    """What an answer says about itself on the Chat screen. ADDITIVE: every
+    field optional, so a turn stored before these existed still loads."""
+    answer_kind: AnswerKind | None = None
+    used_line: str | None = Field(None, description="the grey line: what was used, how long it took")
+    sources: list[ChatSource] = []
+    verification: ChatVerification | None = Field(
+        None, description="points found on the page - present only where literally true")
+    steps: list[ChatStep] = []
+    suggestions: list[str] = []
+    draft: dict | None = None
+    model: str | None = None
+    provider: str | None = None
+    seconds: float | None = None
+    cost_usd: float | None = None
+
+
+class AnswerResult(ChatPresentation):
     question: str
     answer_type: AnswerType = Field(
         description="extract is a verbatim quotation; generated is model prose. "
@@ -2606,7 +2655,7 @@ class AnswerResult(BaseModel):
 
 MessageRole = Literal["user", "assistant"]
 
-class Message(BaseModel):
+class Message(ChatPresentation):
     id: str
     conversation_id: str
     ordinal: int
@@ -2677,6 +2726,22 @@ class AskRequest(BaseModel):
         "this runs. Optional: without one the work reports nothing and "
         "behaves exactly as before",
     )
+    model: Literal["auto", "claude", "local"] | None = Field(
+        None, description="the engine to answer with. 'local' narrows to the "
+        "local engine; 'claude' is honoured only when Claude is configured")
+
+
+class ChatModelOption(BaseModel):
+    id: Literal["claude", "local"]
+    label: str
+    model: str
+    available: bool
+    reason: str | None = Field(None, description="why it is unavailable; never a key")
+
+
+class ChatModels(BaseModel):
+    default: Literal["claude", "local"]
+    models: list[ChatModelOption]
 
 
 class AskResult(AnswerResult):
