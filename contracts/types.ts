@@ -403,6 +403,8 @@ export interface CrsPreview {
    *  as a placeholder code. */
   recommended_code: string;
   recommended_code_reason: string;
+  /** B10: "Decided by the reviewing engineer." or the not-yet-decided notice; "" when no code. */
+  recommended_code_status?: string;
   recommended_code_label: string;
 }
 
@@ -557,15 +559,14 @@ export interface ReviewFindingCreate {
   governing_sources?: string[];
   unresolved_evidence?: string[];
   response_text?: string | null;
-  disposition?: ReviewDisposition | null;
+  /** B10: a finding is created unreviewed; disposition is an engineer's later act. */
+  disposition?: null;
   citation_ids?: string[];
   owner_user_id?: string | null;
   due_date?: string | null;
   status?: ReviewStatus;
-  approval_status?: ApprovalStatus;
+  approval_status?: "pending";
   escalation_level?: number;
-  approved_by?: string | null;
-  approved_at?: string | null;
 }
 
 export interface ReviewFindingUpdate {
@@ -578,8 +579,7 @@ export interface ReviewFindingUpdate {
   status?: ReviewStatus;
   approval_status?: ApprovalStatus;
   escalation_level?: number;
-  approved_by?: string | null;
-  approved_at?: string | null;
+  /** B10: no approved_by / approved_at - the server records the caller. */
 }
 
 export type DeliverableStatus = "planned" | "in_progress" | "submitted" | "under_review" | "approved" | "rejected" | "superseded";

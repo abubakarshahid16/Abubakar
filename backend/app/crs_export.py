@@ -98,6 +98,11 @@ FIRST_DATA_ROW = COLUMN_HEADER_ROW + 1
 #: Printed beside the code on the summary row. One definition, read by
 #: both renderings, so the workbook and the preview name it identically.
 RECOMMENDED_CODE_LABEL = "Recommended Review Code:"
+#: B10: printed under the code, so a CRS never passes off the AI's
+#: recommendation as an engineer's decision.
+CODE_DECIDED_BY_ENGINEER = "Decided by the reviewing engineer."
+CODE_NOT_YET_DECIDED = ("AI recommendation - NOT yet decided by an engineer. "
+                        "An engineer must record the final code before issue.")
 
 #: The two columns that belong to the contractor. They are carried as empty
 #: strings rather than left out, because the sheet has seven columns whether
@@ -174,6 +179,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
       recommended_code         "" when the caller supplies none
       recommended_code_label   the label the summary row prints
       recommended_code_reason  "" when there is none
+      recommended_code_status  whether an engineer decided the code, "" if none
 
     The response and resolution columns are ALWAYS empty - they belong to the
     contractor, and pre-filling them would put words in their mouth.
@@ -241,6 +247,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         "recommended_code": meta.get("recommended_code") or "",
         "recommended_code_label": RECOMMENDED_CODE_LABEL,
         "recommended_code_reason": meta.get("recommended_code_reason") or "",
+        "recommended_code_status": meta.get("recommended_code_status") or "",
         # B5: WHICH STANDARDS THE REVIEW APPLIED, AND WHY - each with its
         # method, reason and evidence, plus the ones considered and not
         # included and the cited ones not held (MISSING_LOCALLY). Drawn on a
@@ -339,6 +346,10 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         put(row, 3, f"{code}" + (f" - {reason}" if reason else ""),
             bold=True, wrap=True)
         ws.row_dimensions[row].height = max(15, 13 * (len(reason) // 90 + 1))
+        if view["recommended_code_status"]:
+            ws.merge_cells(start_row=row + 1, start_column=3, end_row=row + 1,
+                           end_column=7)
+            put(row + 1, 3, view["recommended_code_status"], wrap=True)
 
     # B5: the applied standards and their reasons, on their own sheet.
     standards_sheet = wb.create_sheet(STANDARDS_SHEET)

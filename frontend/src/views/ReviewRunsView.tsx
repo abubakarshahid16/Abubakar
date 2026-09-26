@@ -534,6 +534,12 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
             : null}
         </p>
       )}
+      {/* B10: whether an engineer decided the code, or it is still the AI's. */}
+      {preview.recommended_code && preview.recommended_code_status && (
+        <p className="text-xs text-warn-500" data-testid="crs-code-status">
+          {preview.recommended_code_status}
+        </p>
+      )}
     </section>
   );
 }
