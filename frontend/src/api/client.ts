@@ -8,6 +8,7 @@
  *    numbers as if they were live
  */
 import type {
+  BackgroundJob,
   DeletedConversation,
   DeletedDocument,
   ApiError,
@@ -368,6 +369,9 @@ export const reviews = {
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
       hasArrayField("standards"),
     ),
+  /** P3: cancel a queued review now, or a running one at its next step. */
+  cancelJob: (jobId: string) =>
+    request<BackgroundJob>(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
   /** Start a review. Admin-gated, and refuses while one is already running. */
   startReviewRun: (submittalDocumentId: string) =>
     request<ReviewRunSummary>("/reviews/run", {

@@ -19,6 +19,7 @@ from . import disciplines as disciplines_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import job_queue as job_queue_mod
+from . import review_jobs as review_jobs_mod
 from . import orphan_guard
 from . import page_ledger as page_ledger_mod
 from . import highlight as highlight_mod
@@ -170,6 +171,7 @@ async def lifespan(app: FastAPI):
     # the time the worker first looks at it.
     try:
         standards_mod.recover_stale_extraction_jobs()
+        review_jobs_mod.recover_stale()
     except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
         pass
     # Drain the upload queue. Without this a document sits at 'queued'
@@ -1651,6 +1653,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
             " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
             " ORDER BY equipment_tag", (run["id"],))
     ]
+    job = review_jobs_mod.job_for_run(run["id"])
     outcome = comparison_mod.run_outcome(
         run["id"], allowed_document_ids=scope.allowed_document_ids) or {}
     document = connect().execute(
@@ -1684,6 +1687,8 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "decided_at": run.get("decided_at"),
         "completeness": outcome.get("completeness"),
         "page_coverage": outcome.get("page_coverage"),
+        # P3: the background job running this review - progress and cancel.
+        "job": job,
     }
 
 
@@ -1990,53 +1995,21 @@ def start_review_run(
     reject_unknown_params(request, set())
     document_id = body.submittal_document_id
     require_document(document_id, scope)
-    existing = [
-        run for run in submittal_review_mod.list_review_runs(
-            allowed_document_ids=scope.allowed_document_ids,
-            submittal_document_id=document_id)
-        if (run.get("status") or "") == "running"
-    ]
-    if existing:
-        raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER,
-            f"a review of this submittal is already running "
-            f"({existing[0]['id']})"))
-
+    # P3: QUEUED, NOT RUN HERE. The run and its job are created together under
+    # one write lock (no second active review of this submittal), and the
+    # worker runs it under THIS caller's grants. The response is the queued
+    # run with its job, so the screen can show progress and offer cancel.
     try:
-        run_id = submittal_review_mod.create_review_run(
-            submittal_document_id=document_id,
-            started_by=scope.user_id,
-            allowed_document_ids=scope.allowed_document_ids)
-    except submittal_review_mod.ReviewAlreadyRunning as exc:
-        raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER,
-            f"a review of this submittal is already running ({exc.args[0]})")) from exc
-    except submittal_review_mod.FactExtractionFailed as exc:
-        # B19: the run exists and is already marked failed with this reason.
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, f"the review failed: {exc}")) from exc
-    try:
-        # B5: the selection's own findings reach the code. The standards the
-        # submittal cites and the library lacks were computed here and thrown
-        # away, so a sheet citing only missing standards reached "Approved".
-        selection = applicability_mod.select(
+        run_id, _job_id = review_jobs_mod.enqueue(
             document_id, allowed_document_ids=scope.allowed_document_ids,
-            review_run_id=run_id, persist=True)
-        comparison_mod.run_comparison(
-            run_id, allowed_document_ids=scope.allowed_document_ids,
-            reference_coverage=selection.get("reference_coverage"),
-            missing_references=[m["identifier"] for m in selection["missing_references"]])
-    except Exception as exc:  # noqa: BLE001 - recorded on the run, then shown
-        with connect() as conn:
-            conn.execute(
-                "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
-                " updated_at = ? WHERE id = ?",
-                (json.dumps({"error": str(exc)}), review_mod.now_iso(), run_id))
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, f"the review failed: {exc}")) from exc
-    return list_review_runs(
+            requested_by=scope.user_id)
+    except review_jobs_mod.ReviewAlreadyActive as exc:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER,
+            f"a review of this submittal is already queued or running ({exc.args[0]})")) from exc
+    return next(r for r in list_review_runs(
         request=request, document_id=document_id, scope=scope,
-    )["runs"][0]
+    )["runs"] if r["review_run_id"] == run_id)
 
 
 @app.get("/api/reviews/findings", response_model=schemas.ReviewFindingList,
@@ -2968,11 +2941,17 @@ def cancel_job(
     if job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids) is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no job with that id"))
-    cancelled, state = job_queue_mod.cancel(job_id, actor_user_id=(actor or {}).get("id"))
+    job = job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
+    if job["stage"] == review_jobs_mod.STAGE:
+        # P3: a running review stops at its next step; the response says it
+        # is still running with cancellation requested - never "cancelled".
+        cancelled, state = review_jobs_mod.cancel(job_id, actor_user_id=(actor or {}).get("id"))
+    else:
+        cancelled, state = job_queue_mod.cancel(job_id, actor_user_id=(actor or {}).get("id"))
     if not cancelled:
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.INVALID_PARAMETER,
-            f"only a queued or retrying job can be cancelled; this one is {state}"))
+            f"this job can no longer be cancelled; it is {state}"))
     return job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
 
 

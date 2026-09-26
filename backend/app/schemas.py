@@ -339,6 +339,12 @@ class Job(BaseModel):
     created_by: str | None = None
     code_version: str | None = Field(None, description="the extractor code the output came from")
     config_version: str | None = Field(None, description="config.config_version() at enqueue")
+    #: P3: set on review jobs.
+    review_run_id: str | None = None
+    progress_done: int | None = None
+    progress_total: int | None = None
+    progress_label: str | None = None
+    cancel_requested: bool = False
 
 
 class JobList(BaseModel):
@@ -2119,6 +2125,15 @@ class ReviewRunStandardList(BaseModel):
     missing_references: list[ReviewRunMissingReference] = []
 
 
+class ReviewJobState(BaseModel):
+    id: str
+    state: str
+    progress_done: int | None = None
+    progress_total: int | None = None
+    progress_label: str | None = None
+    cancel_requested: bool = False
+
+
 class ReviewRunSummary(BaseModel):
     """A review run as the runs list shows it.
 
@@ -2162,6 +2177,10 @@ class ReviewRunSummary(BaseModel):
     # fields, which were not and why. Null for a run made before the ledger
     # existed; null renders as nothing, never as "every page read".
     page_coverage: dict | None = None
+    #: P3: the job running this review: its state, named progress (step N of
+    #: 3) and whether cancellation was requested. Null for a run made before
+    #: reviews were queued.
+    job: ReviewJobState | None = None
 
 
 class PageLedgerRow(BaseModel):

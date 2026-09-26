@@ -320,6 +320,20 @@ class IngestionWorker:
             self.last_error = errors.record_failure(exc, stage="standard_extraction")
             return False
 
+    def _drain_review_jobs(self) -> bool:
+        """Run one queued review, if any. True when one was run."""
+        from . import job_queue, review_jobs
+        try:
+            review_jobs.recover_stale()
+            job_id = review_jobs.claim_next(job_queue.worker_id())
+            if job_id is None:
+                return False
+            review_jobs.run(job_id, job_queue.worker_id())
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.last_error = errors.record_failure(exc, stage="review_run")
+            return False
+
     def _run(self) -> None:
         while not self._stop.is_set():
             self.last_beat = time.time()
@@ -333,6 +347,10 @@ class IngestionWorker:
                     # so standards extraction is drained HERE - only when no
                     # document needs work - rather than from a second thread
                     # that would compete for the same 16 GB.
+                    # P3: A REVIEW BEFORE STANDARDS EXTRACTION - a person is
+                    # waiting on it; extraction is backfill.
+                    if self._drain_review_jobs():
+                        continue
                     if self._drain_standard_extraction():
                         continue
                     self._stop.wait(self.poll_seconds)

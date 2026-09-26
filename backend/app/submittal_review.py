@@ -551,7 +551,7 @@ def create_review_run(
     with job_queue.immediate(conn):
         running = conn.execute(
             "SELECT id FROM review_runs WHERE submittal_document_id = ?"
-            " AND status = 'running' LIMIT 1", (submittal_document_id,)).fetchone()
+            " AND status IN ('queued', 'running') LIMIT 1", (submittal_document_id,)).fetchone()
         if running is not None:
             raise ReviewAlreadyRunning(running["id"])
         conn.execute(
@@ -675,7 +675,11 @@ def fail_orphaned_review_runs() -> int:
     with conn:
         cur = conn.execute(
             "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
-            " updated_at = ? WHERE status = 'running'",
+            " updated_at = ? WHERE status = 'running'"
+            # P3: a run whose review job is still active belongs to the queue,
+            # which re-queues it (`review_jobs.recover_stale`) - not to this.
+            " AND id NOT IN (SELECT review_run_id FROM jobs WHERE review_run_id IS NOT NULL"
+            " AND state IN ('queued', 'running', 'retrying'))",
             (json.dumps({"error": ORPHANED_RUN_REASON}), _now()))
         return cur.rowcount
 
