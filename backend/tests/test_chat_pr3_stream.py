@@ -301,3 +301,21 @@ def test_a_failure_ends_the_stream_with_an_error_not_a_hang(monkeypatch):
     events = _stream(client, convo, "anything")
     assert events[-1][0] == "error"
     assert "SECRET INTERNAL DETAIL" not in json.dumps(events)
+
+
+def test_the_claude_stream_keeps_the_transports_gates(monkeypatch):
+    """The stream is the same lane, not a second one: egress flags off means
+    no request is built; a host off the allowlist is refused before a socket."""
+    from app import reader_api, reader_transport
+
+    monkeypatch.setattr(settings, "standards_reader_enabled", False)
+    for name in ("STANDARDS_READER_ENABLED", "STANDARDS_READER_ALLOW_PUBLIC_EGRESS"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(reader_transport.TransportRefused):
+        next(reader_transport.stream("https://api.anthropic.com/v1/messages",
+                                     headers={}, body={"model": "m"}, timeout=5))
+    monkeypatch.setattr(settings, "standards_reader_enabled", True)
+    monkeypatch.setattr(settings, "standards_reader_allow_public_egress", True)
+    with pytest.raises(reader_api.ReaderRefused):
+        next(reader_transport.stream("https://evil.example.com/v1/messages",
+                                     headers={}, body={"model": "m"}, timeout=5))
