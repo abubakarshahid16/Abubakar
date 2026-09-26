@@ -772,6 +772,30 @@ class Settings(BaseSettings):
     #: the database under the same access rules, never in git.
     claude_cache_dir: Path = BACKEND_DIR / "data" / "claude_cache"
 
+    # ------------------------------------------------------------- the chat
+    #
+    # OWNER ORDER 2026-09-26 (chat redesign). The chat answers through the
+    # reasoning provider above (Claude when configured, else the local engine)
+    # and every Claude call is charged to the step "chat" in the ledger.
+    #: The chat answer's output cap on the Claude lane. Was 250, which cut
+    #: a normal multi-point answer short. A CEILING, not a target. The local
+    #: engine keeps `max_output_tokens`: its 4096-token window has to hold the
+    #: evidence too (`context_budget` subtracts the output cap from it).
+    chat_max_output_tokens: int = 1500
+    #: Low for answers grounded in documents; a little warmer for general
+    #: knowledge, where a fixed phrasing helps nobody. Ignored by models that
+    #: reject `temperature` (claude_models_without_temperature).
+    chat_temperature_document: float = 0.2
+    chat_temperature_general: float = 0.5
+    #: How much of the conversation the model sees: at most this many recent
+    #: turns, within this many (estimated) tokens. Filtered by the caller's
+    #: permissions before either limit is applied.
+    chat_history_turns: int = 10
+    chat_history_token_budget: int = 3000
+    #: The local engine's history budget. Its 4096-token window must hold the
+    #: EVIDENCE first; memory never pushes a retrieved passage out.
+    chat_history_local_token_budget: int = 600
+
     #: THE ONE HOST ALLOWLIST. Every outbound URL any tier builds is checked
     #: against this and refused if its host is not here. One list, in one
     #: place, so "where can this talk to" has a single answer that can be read
@@ -924,6 +948,8 @@ settings = Settings()
 #: different port is not a different answer.
 ANSWER_AFFECTING_SETTINGS = (
     "answer_model", "num_ctx", "max_output_tokens", "temperature",
+    "chat_max_output_tokens", "chat_temperature_document", "chat_temperature_general",
+    "chat_history_turns", "chat_history_token_budget", "chat_history_local_token_budget",
     "chunk_target_tokens", "chunk_overlap_tokens", "chunk_max_tokens",
     "search_candidates", "rerank_candidates", "rerank_max_tokens",
     "generated_context_chars", "answer_context_chars",

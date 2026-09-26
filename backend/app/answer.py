@@ -17,6 +17,7 @@ tell what the document actually says.
 
 from __future__ import annotations
 
+import contextvars
 import re
 
 from . import corpus as corpus_mod
@@ -28,6 +29,9 @@ from . import progress
 from . import lexical
 from . import model_transport
 from . import passages as passages_mod
+from . import chat_model
+from . import claude_spend
+from . import reasoning_provider
 from . import telemetry
 from . import search as search_mod
 from .config import settings
@@ -406,7 +410,16 @@ def _second_passage(
 # ------------------------------------------------------------------ tier 2
 
 
-def _build_prompt(question: str, passages: list[dict]) -> str:
+#: The reader's engine preference for the answer being built ("auto",
+#: "claude" or "local"). A context variable, so `_call_model` keeps the one
+#: signature every test fakes and no caller has to thread it through.
+_PREFERENCE: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "chat_model_preference", default=None)
+
+
+def _build_prompt(question: str, passages: list[dict], history: str = "") -> str:
+    """Sources, then the question - with the conversation, when there is one,
+    BEFORE the sources and labelled as context (`chat_model.transcript`)."""
     blocks = []
     for i, p in enumerate(passages, start=1):
         where = (
@@ -416,34 +429,23 @@ def _build_prompt(question: str, passages: list[dict]) -> str:
         )
         blocks.append(f"[S{i}] ({where})\n{p['text']}")
     sources = "\n\n".join(blocks)
-    return f"{sources}\n\nQuestion: {question}"
+    return f"{history}{sources}\n\nQuestion: {question}"
 
 
 def _call_model(prompt: str, timeout: float = 180.0) -> dict:
-    body = {
-        "model": settings.answer_model,
-        "system": SYSTEM_PROMPT,
-        "prompt": prompt,
-        "stream": False,
-        "think": False,
-        "options": {
-            "temperature": settings.temperature,
-            "num_predict": settings.max_output_tokens,
-            "num_ctx": settings.num_ctx,
-            "num_thread": settings.num_thread,
-            "num_batch": settings.num_batch,
-        },
-        # hold the model resident between turns so the 24s cold load is paid
-        # once rather than on every question
-        "keep_alive": "30m",
-    }
-    # THROUGH THE ONE TRANSPORT, never a URL formatted here. `body["prompt"]`
-    # is `_build_prompt`'s output - retrieved passage text, verbatim - so this
-    # is the largest outbound lane in the system, and it used to be an
-    # unvalidated `.env` string with no host check of any kind.
-    # `model_transport` re-validates the configured model URL immediately
-    # before the socket, so a value assigned after startup cannot get past it.
-    return model_transport.post_json("/api/generate", body, timeout=timeout)
+    """The one generation call - through the chat's model lane.
+
+    THROUGH THE ONE TRANSPORT PER ENGINE, never a URL formatted here:
+    `chat_model.generate` sends the local engine's request through
+    `model_transport` (which re-validates the host before the socket) and a
+    Claude request through `reasoning_provider.ClaudeProvider`, i.e. the
+    approved `reader_transport` with the USD cap checked first. `prompt` is
+    retrieved passage text, verbatim, so this is the largest outbound lane in
+    the system.
+    """
+    return chat_model.generate(SYSTEM_PROMPT, prompt,
+                               temperature=settings.chat_temperature_document,
+                               preference=_PREFERENCE.get(), timeout=timeout)
 
 
 def strip_half_citation(text: str) -> str:
@@ -480,16 +482,27 @@ def answer(
     *,
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
+    history: str = "",
+    model: str | None = None,
 ) -> dict:
     """Answer a question, then judge whether the evidence answers it (B8).
 
     Every answer - extract, generated or refused - carries `answerability`:
     the verdict of `answerability.assess` on the evidence actually shown.
     The reranker score takes no part in it.
+
+    `history` is the conversation block (`chat_model.transcript`) the model
+    sees before the sources - already filtered by the caller's permissions.
+    `model` narrows the engine to the local one ("local"); it cannot widen it.
     """
     from . import answerability
-    result = _answer(question, tier, document_id, limit,
-                     allowed_document_ids=allowed_document_ids, progress_id=progress_id)
+    token = _PREFERENCE.set(model)
+    try:
+        result = _answer(question, tier, document_id, limit,
+                         allowed_document_ids=allowed_document_ids, progress_id=progress_id,
+                         history=history)
+    finally:
+        _PREFERENCE.reset(token)
     verdict = answerability.assess(question, result, allowed_document_ids=allowed_document_ids)
     result["answerability"] = answerability.judge(
         question, result, verdict, answerability.judge_provider())
@@ -504,6 +517,7 @@ def _answer(
     *,
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
+    history: str = "",
 ) -> dict:
     """Answer a question. `tier` is "extract" (default) or "generated".
 
@@ -555,7 +569,7 @@ def _answer(
     result = _answer_from_documents(
         question, tier, document_id, limit,
         allowed_document_ids=allowed_document_ids, progress_id=progress_id,
-        timer=timer)
+        timer=timer, history=history)
     # ONE EXIT, so the database's half of a qualified question reaches every
     # outcome of the retrieval half - extract, generated, a refusal, a model
     # that is down - without a dozen return statements each remembering it.
@@ -573,6 +587,7 @@ def _answer_from_documents(
     allowed_document_ids: frozenset[str],
     progress_id: str | None,
     timer: Timer,
+    history: str = "",
 ) -> dict:
     """Everything `answer` does that reads DOCUMENTS rather than the library."""
     # Classified BEFORE retrieval. A greeting is not a failed question, and
@@ -749,7 +764,7 @@ def _answer_from_documents(
     # passage bodies emptied, plus the system prompt. A long question cannot
     # quietly push the evidence over the line.
     overhead = SYSTEM_PROMPT + _build_prompt(
-        question, [{**p, "text": ""} for p in passages]
+        question, [{**p, "text": ""} for p in passages], history
     )
     passages, evidence_removed = context_budget.fit_passages(passages, overhead)
 
@@ -770,7 +785,7 @@ def _answer_from_documents(
             "seconds": timer.seconds(),
         }
 
-    prompt = _build_prompt(question, passages)
+    prompt = _build_prompt(question, passages, history)
 
     # The long one. Everything before this is seconds; this is tens of seconds,
     # and it is the stage a reader spends almost all of the wait in.
@@ -788,6 +803,28 @@ def _answer_from_documents(
         # status field, which is the shape audit entry 24 exists to warn
         # about. It propagates.
         raise
+    except claude_spend.BudgetExceeded as exc:
+        # REFUSED BEFORE IT LEFT: the worst case of this call could cross an
+        # owner USD cap, so nothing was sent and nothing was spent.
+        return {
+            **base,
+            "answer_type": "model_unavailable",
+            "answer": None,
+            "reason": f"the Claude spending cap would be exceeded, so no answer was generated ({exc})",
+            "passages": passages,
+            "evidence_removed": evidence_removed,
+            "seconds": timer.seconds(),
+        }
+    except reasoning_provider.ProviderRefused as exc:
+        return {
+            **base,
+            "answer_type": "model_unavailable",
+            "answer": None,
+            "reason": f"the answer model would not answer ({str(exc).split(':')[0]})",
+            "passages": passages,
+            "evidence_removed": evidence_removed,
+            "seconds": timer.seconds(),
+        }
     except Exception as exc:  # noqa: BLE001 - the model being down is not a crash
         return {
             **base,
@@ -911,7 +948,10 @@ def _answer_from_documents(
         # why. The reader is already told when the OUTPUT was cut off by the
         # token cap; input truncation was invisible until now.
         "evidence_removed": evidence_removed,
-        "model": settings.answer_model,
+        # WHAT THE ENGINE REPORTED, never what configuration asked for.
+        "model": raw.get("model") or settings.answer_model,
+        "provider": raw.get("provider") or reasoning_provider.OLLAMA,
+        "cost_usd": raw.get("cost_usd"),
         "prompt_tokens": raw.get("prompt_eval_count"),
         "output_tokens": raw.get("eval_count"),
         "seconds": timer.seconds(),

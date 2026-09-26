@@ -362,6 +362,12 @@ def fuzzy_corpus_match(
     # A candidate more than three characters different in length cannot reach
     # the cutoff; skipping them keeps this linear-but-cheap on a large corpus.
     near = [t for t in terms if abs(len(t) - len(lowered)) <= 3]
+    if not near:
+        # No word close enough in length to be a misspelling of this one.
+        # `difflib.get_close_matches` raises on n=0, and it did: a question
+        # whose word had no length-neighbour in the vocabulary crashed the
+        # search instead of simply having no correction.
+        return None
     # B12: `terms` is the WHOLE index's vocabulary - fts5vocab cannot be
     # filtered by document - so every candidate is checked against this
     # caller's scope before it is offered, best first. A closer word that
