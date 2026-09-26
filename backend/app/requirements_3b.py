@@ -624,6 +624,10 @@ def unit_token(candidate: str | None) -> str | None:
     if not text:
         return None
     cleaned = text.rstrip(".,;:")
+    # #193: A BRACKET FOLLOWED BY A DIGIT OPENS THE SAME QUANTITY IN A SECOND
+    # UNIT - "1,800 m2(20,000 ft2)" - so it ends this one. A bracket followed
+    # by a letter is part of the unit ("dB(A)", "L/(m2s)") and is kept.
+    cleaned = re.split(r"\((?=\s*\d)", cleaned, maxsplit=1)[0].rstrip()
     # PDF extraction commonly separates an acoustic weighting suffix from its
     # unit: `dB (A)`. It is still the single recognised unit `dB(A)`, not a dB
     # value followed by unrelated prose. Collapse only this terminal,

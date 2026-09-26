@@ -217,6 +217,16 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     "year": None, "years": None, "tonne": None, "tonnes": None, "te": None,
     "m3": None, "m2": None,
     "psig": "pressure", "barg": "pressure", "mbar": "pressure",
+    # #193, measured on real standards: 20 of 93 matchable limits had their
+    # unit thrown away because these spellings were unknown. Recognised, NOT
+    # converted - an absolute (`psia`) and a gauge (`kPag`) pressure carry a
+    # reference, and converting either to MPa would let 13 psia compare with
+    # 13 psig. The unit guard compares raw spellings, so they never do.
+    "psia": "pressure", "kpag": "pressure", "kpaa": "pressure", "bara": "pressure",
+    # Volumetric flow and application rate (fire water): the only spellings
+    # of their quantities here, so no conversion to invent.
+    "l/s": None, "l/min": None, "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,
+    "kn/m3": None, "lux": None,
     "s": "time", "sec": "time", "secs": "time", "second": "time", "seconds": "time",
     "d": "time", "day": "time", "days": "time",
     "mv": "voltage", "ka": "current",
