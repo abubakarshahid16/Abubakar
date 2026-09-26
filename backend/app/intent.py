@@ -372,7 +372,7 @@ _DOCUMENT_WORDS = re.compile(
     r"|\b(?:clause|page|section|sheet|row|paragraph)\s+[\dA-Z]"
     r"|\baccording\s+to\b|\bper\s+the\b|\bin\s+the\s+(?:document|spec|standard|datasheet|library)\b"
     r"|\b(?:datasheet|submittal|standards?\s+library)\b"
-    r"|\baramco\s+standards?\b"
+    r"|\bcompany\s+standards?\b"
     r"|\b(?:compliant|complies|comply|compliance|conform(?:s|ance)?)\b"
     r"|\bdoes\s+(?:it|this|that)\s+(?:meet|satisfy|pass)\b",
     re.IGNORECASE,

@@ -150,7 +150,7 @@ def rewrite(previous: dict | None, *, styles: list[str], history: str, preferenc
 
 # ------------------------------------------------------------- records
 
-def records(query: str, *, allowed_document_ids: frozenset[str]) -> dict:
+def records(query: str, *, allowed_document_ids: frozenset[str], include_unowned: bool) -> dict:
     """The workflow-records search the old Chat screen offered, now "/records"."""
     from . import structured_search
 
@@ -160,7 +160,10 @@ def records(query: str, *, allowed_document_ids: frozenset[str]) -> dict:
         return {**base, "answer_type": "records", "reason": None, "records": [],
                 "answer": "Type what to look for after /records - for example: /records pump seal",
                 "seconds": timer.seconds()}
-    found = structured_search.search(query, allowed_document_ids=allowed_document_ids)
+    # The same scope the records box used: the caller's documents, plus the
+    # rows with no document only for the admin capability.
+    found = structured_search.search(query, allowed_document_ids=allowed_document_ids,
+                                     include_unowned=include_unowned)
     lines = [f"- **{r.get('title') or r.get('label') or r.get('id')}**"
              + (f" - {r['kind']}" if r.get("kind") else "") for r in found[:10]]
     text = (f"Found {len(found)} workflow record{'' if len(found) == 1 else 's'} for \"{query}\":\n"

@@ -58,3 +58,32 @@ No client text, document numbers or standards text in this file.
 - New `GET /api/chat/models` for the composer's Model menu.
 - Tests: 15 new; 14 new mutations (M912–M925) all detected; 78 existing
   mutations on the touched files all detected.
+- Also fixed (found by the full suite): a search word with no similar-length
+  word in the vocabulary crashed the spelling-correction step; it now simply
+  gets no correction.
+
+## PR 2 — the router, general answers, rewrites (backend only)
+
+- **Every message is routed before anything is searched**: small talk,
+  general knowledge, your documents, "either", a rewrite, an action, or
+  `/records`. `/quote` asks for the exact wording.
+- **"hi" gets a natural reply**; the old "Hello. I answer questions about
+  your documents…" and "I cannot advise you…" cards are gone. The about-me
+  reply says honestly who answers (Claude, or the local model).
+- **General questions are answered from general knowledge**, always labelled
+  "General knowledge, not from your documents", never searched, never with a
+  document citation.
+- **A question about your own material never gets a general answer**: it
+  goes to the documents, and if they cannot answer, you are told so. A
+  question with no signal tries the documents first and falls back to general
+  knowledge only when they are silent — with a note saying so.
+- **"In points", "more detail", "simpler", "for an engineer", "shorter"**
+  re-render the previous answer without searching again; a document answer
+  keeps exactly its sources. "Check against my documents" asks the previous
+  question of the documents.
+- **On the Claude lane every document claim must quote its page**; a claim
+  whose quote is not on the page (or an uncited figure) is removed and
+  counted, and the "✓ N of N points found on the page" badge reports it.
+- **Compliance questions** end with "This needs an engineer's judgement – the
+  passages are evidence, not a verdict". Nothing in chat writes a finding;
+  "write that as a comment" returns a draft only.

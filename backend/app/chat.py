@@ -594,6 +594,7 @@ def ask(
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
     model: str | None = None,
+    include_unowned_records: bool = False,
 ) -> dict:
     """Answer a question inside a conversation and persist both turns.
 
@@ -737,7 +738,8 @@ def ask(
             extra=("as a short, polite review comment to the contractor: what is missing or "
                    "unclear, and what they should provide"))
     else:  # records
-        result = chat_answers.records(routed["text"], allowed_document_ids=allowed_document_ids)
+        result = chat_answers.records(routed["text"], allowed_document_ids=allowed_document_ids,
+                                      include_unowned=include_unowned_records)
 
     result["route"] = route_kind
     result["history_turns"] = memory.turns
