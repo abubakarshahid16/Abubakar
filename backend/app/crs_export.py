@@ -46,6 +46,9 @@ ROW_FILLS = {
     # B3: pages the system has not read into fields - engineer work, pale
     # amber like needs_engineer_review, never grey like "missing".
     "pages_not_readable": PatternFill("solid", fgColor="FFFDF2E9"),
+    # Owner order 2d: an AI engineering check item - pale lavender, a draft
+    # until an engineer confirms it.
+    "ai_engineering_check": PatternFill("solid", fgColor="FFEFE8F7"),
     # Entry 68: an absence on a page only the page reader read - engineer
     # work, the same pale amber.
     "page_reader_only": PatternFill("solid", fgColor="FFFDF2E9"),
@@ -54,6 +57,19 @@ HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
            "Comment By", "Contractor's Response", "Final Resolution"]
 WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0,
           "G": 15.0}
+#: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI
+#: engineering check's unconfirmed items, so the engineer sees them on the
+#: sheet before confirming. No existing column moves or is renamed.
+AI_COLUMN = "AI Review Comments"
+AI_COLUMN_WIDTH = 60.0
+#: The two copies Export CRS offers. INTERNAL (the default) carries the AI
+#: column; ISSUE (to the contractor) drops it and every unconfirmed AI row,
+#: so only confirmed comments leave the building.
+COPY_INTERNAL = "internal"
+COPY_ISSUE = "issue"
+COPIES = (COPY_INTERNAL, COPY_ISSUE)
+#: The file name says which copy it is.
+COPY_FILE_SUFFIX = {COPY_INTERNAL: "internal-review-copy", COPY_ISSUE: "issue-to-contractor"}
 
 def default_company() -> str:
     """Printed on row 1 when the caller names no company.
@@ -199,6 +215,13 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     # on screen quote the same reference for the same comment - and so a
     # re-export of this run quotes it again rather than issuing a new one.
     run_id = meta.get("review_run_id", "")
+    copy = meta.get("copy") or COPY_INTERNAL
+    if copy not in COPIES:
+        raise ValueError(f"unknown CRS copy {copy!r}")
+    if copy == COPY_ISSUE:
+        # ISSUE TO CONTRACTOR: an unconfirmed AI item is a draft, and a draft
+        # never leaves the building - its row goes, not just its column.
+        findings = [f for f in findings if not str(f.get("ai_review_comment") or "").strip()]
 
     rows = []
     seen: set[str] = set()
@@ -234,6 +257,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             # the renderer) so the preview route and the workbook agree on
             # what kind a row is, same as every other field here.
             "row_kind": finding.get("row_kind", ""),
+            "ai_review_comment": (str(finding.get("ai_review_comment") or "")
+                                  if copy == COPY_INTERNAL else ""),
         })
 
     return {
@@ -245,7 +270,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # a plausible-looking transmittal number lies about its own provenance.
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
-        "columns": list(HEADERS),
+        "columns": list(HEADERS) + ([AI_COLUMN] if copy == COPY_INTERNAL else []),
+        "crs_copy": copy,
         "rows": rows,
         "recommended_code": meta.get("recommended_code") or "",
         "recommended_code_label": RECOMMENDED_CODE_LABEL,
@@ -290,6 +316,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
 
     for col, width in WIDTHS.items():
         ws.column_dimensions[col].width = width
+    internal = view["crs_copy"] == COPY_INTERNAL
+    if internal:
+        ws.column_dimensions["H"].width = AI_COLUMN_WIDTH
 
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
         cell = ws.cell(row=row, column=col, value=value)
@@ -324,9 +353,11 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         values = [entry["item_no"], entry["document_name"],
                   entry["page_section"], comment, entry["comment_by"],
                   entry["contractor_response"], entry["final_resolution"]]
+        if internal:
+            values.append(entry["ai_review_comment"])
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i == 4), center=(i == 1))
+            cell = put(row, i, value, wrap=(i in (4, 8)), center=(i == 1))
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill

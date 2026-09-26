@@ -331,6 +331,9 @@ export interface ReviewFinding {
   equipment_tag?: string | null;
   confirmed_by?: string | null;
   confirmed_at?: string | null;
+  /** Where the finding came from when not the comparison: "chat" or
+   *  "ai_engineering_check" (a kind C draft, never a verdict). */
+  origin?: string | null;
   standard_document_id?: string | null;
   standard_clause?: string | null;
   standard_page?: number | null;
@@ -383,6 +386,9 @@ export interface CrsPreviewRow {
   comment_by: string;
   contractor_response: string;
   final_resolution: string;
+  /** Owner order 2f: an unconfirmed AI engineering check item's text, shown
+   *  in the "AI Review Comments" column of the internal copy only. */
+  ai_review_comment?: string;
 }
 
 /**
@@ -406,6 +412,8 @@ export interface CrsPreview {
   /** B10: "Decided by the reviewing engineer." or the not-yet-decided notice; "" when no code. */
   recommended_code_status?: string;
   recommended_code_label: string;
+  /** "internal" (with "AI Review Comments") or "issue" (to the contractor). */
+  crs_copy?: "internal" | "issue";
 }
 
 export interface ReviewRunStandard {

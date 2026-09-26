@@ -1986,6 +1986,11 @@ class ReviewFinding(BaseModel):
     #: from an unexamined one.
     confirmed_by: str | None = None
     confirmed_at: str | None = None
+    #: Where the finding came from when not the comparison: "chat" (an
+    #: engineer's comment filed from Chat) or "ai_engineering_check" (a kind C
+    #: draft - never a verdict, never counted in the review code). NULL for
+    #: every comparison finding.
+    origin: str | None = None
 
 
 class PairRejectionCreate(BaseModel):
@@ -2048,6 +2053,11 @@ class CrsPreviewRow(BaseModel):
     #: caller (this JSON preview, or the .xlsx's own fill colour) can tell the
     #: four kinds of row apart without parsing the comment text.
     row_kind: str = ""
+    #: Owner decision 2026-09-27 (order 2f): an UNCONFIRMED AI engineering
+    #: check item's text, printed in the last column "AI Review Comments" of
+    #: the internal review copy, with `comment` left empty. Empty on every
+    #: other row, and the column is absent from the "Issue to contractor" copy.
+    ai_review_comment: str = ""
 
 
 class CrsStandardRow(BaseModel):
@@ -2074,6 +2084,9 @@ class CrsPreview(BaseModel):
     header: list[CrsHeaderField]
     columns: list[str]
     rows: list[CrsPreviewRow]
+    #: "internal" (default: includes "AI Review Comments") or "issue" (to the
+    #: contractor: that column and every unconfirmed row removed).
+    crs_copy: str = "internal"
     #: Empty when the run has no recommendation, and rendered as nothing
     #: rather than as a placeholder code.
     recommended_code: str = ""

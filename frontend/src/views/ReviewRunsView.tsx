@@ -63,10 +63,10 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
    *  Content-Disposition, so one definition of "what is this file called"
    *  exists rather than two that can disagree.
    */
-  async function exportCrs(runId: string) {
+  async function exportCrs(runId: string, copy: "internal" | "issue" = "internal") {
     setExporting(true);
     setExportError(null);
-    const result = await reviewsApi.exportCrs(runId);
+    const result = await reviewsApi.exportCrs(runId, copy);
     setExporting(false);
     if (!result.ok) {
       setExportError(result.error.message);
@@ -323,7 +323,16 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
               disabled={exporting}
               className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"
             >
-              {exporting ? "Preparing…" : "Export CRS (.xlsx)"}
+              {exporting ? "Preparing…" : "Export CRS - internal review copy"}
+            </button>
+            {/* Owner order 2f: the contractor's copy. No "AI Review Comments"
+                column and no unconfirmed AI item - only confirmed comments. */}
+            <button
+              type="button" onClick={() => void exportCrs(run.review_run_id, "issue")}
+              disabled={exporting}
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"
+            >
+              Export CRS - issue to contractor
             </button>
             {/* THE SAME SHEET, ON SCREEN. It reads from a sibling route that
                 the server builds from the same builder as the file above, so
@@ -572,6 +581,12 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
                   in them would put words in their mouth. */}
               <td className="border border-ink-600 px-2 py-1 align-top" />
               <td className="border border-ink-600 px-2 py-1 align-top" />
+              {/* Owner order 2f: the last column, internal copy only. */}
+              {preview.columns.length > 7 && (
+                <td className="whitespace-pre-line border border-ink-600 px-2 py-1 align-top text-slateish-200">
+                  {row.ai_review_comment}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

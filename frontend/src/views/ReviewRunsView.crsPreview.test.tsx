@@ -280,9 +280,22 @@ describe("the download the preview sits beside", () => {
     render(<ReviewRunsView />);
     await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Export CRS (.xlsx)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Export CRS - internal review copy" }));
 
-    expect(exportCrs).toHaveBeenCalledWith("run-1");
+    expect(exportCrs).toHaveBeenCalledWith("run-1", "internal");
     expect(previewCrs).not.toHaveBeenCalled();
+  });
+
+  it("offers the contractor's copy as its own export (order 2f)", async () => {
+    exportCrs.mockResolvedValue({
+      ok: true,
+      data: { blob: new Blob(["x"]), filename: "CRS_drum_2026-09-20_issue-to-contractor.xlsx" },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Export CRS - issue to contractor" }));
+
+    expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
   });
 });

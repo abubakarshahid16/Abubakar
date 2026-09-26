@@ -801,6 +801,13 @@ class Settings(BaseSettings):
     #: `market_allow_public_egress`) and goes through that lane's whitelist,
     #: host allowlist, rate limit and audit. FROM `.env` ONLY.
     chat_web_enabled: bool = False
+    #: Owner order 2026-09-26 (2d): the AI engineering check - Claude reads the
+    #: datasheet and drafts observations a reviewer would raise, each gated
+    #: (ai_engineering_check.accept) and stored as a pending, unconfirmed draft
+    #: that never counts in the review code. OFF BY DEFAULT; on its own it
+    #: sends nothing - it also needs the Claude lane (REASONING_PROVIDER=claude,
+    #: both STANDARDS_READER_* egress flags and a key), within the USD caps.
+    review_ai_check_enabled: bool = False
 
     #: THE ONE HOST ALLOWLIST. Every outbound URL any tier builds is checked
     #: against this and refused if its host is not here. One list, in one

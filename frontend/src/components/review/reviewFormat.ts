@@ -99,9 +99,16 @@ export const PAGE_READER_ONLY_LABEL = "Value not found by the page reader - engi
  * truths. A NEEDS_ENGINEER_REVIEW finding whose reason is UNREAD_PAGES says
  * so in plain words; every other finding reads as its status does.
  */
+/** Owner order 2d: an AI engineering check item (kind C). A draft - never a
+ *  verdict, never from the standard's text. */
+export const AI_ENGINEERING_CHECK = "ai_engineering_check";
+export const AI_ENGINEERING_CHECK_LABEL =
+  "AI engineering check - not from the standard text - engineer to confirm";
+
 export function findingLabel(finding: {
-  compliance_status?: string | null; ai_rationale?: string | null;
+  compliance_status?: string | null; ai_rationale?: string | null; origin?: string | null;
 }): string {
+  if (finding.origin === AI_ENGINEERING_CHECK) return AI_ENGINEERING_CHECK_LABEL;
   if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"
       && (finding.ai_rationale ?? "").startsWith(UNREAD_PAGES)) {
     return PAGES_NOT_READABLE_LABEL;
