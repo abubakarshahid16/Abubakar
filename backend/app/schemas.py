@@ -1128,6 +1128,10 @@ AnswerType = Literal[
     # the input was never a document question - a greeting, thanks, chitchat
     "guidance",
     "metadata",
+    # chat redesign 2026-09-26: model general knowledge (never cited) and a
+    # workflow-records search
+    "general",
+    "records",
 ]
 
 
@@ -2544,6 +2548,7 @@ class ChatSource(BaseModel):
     ocr_min_conf: float | None = None
     url: str | None = None
     cited: bool = True
+    quotes: list[str] = Field([], description="the exact words each verified point stood on")
     rows: list[dict] = Field([], description="extracted rows for the preview; the cited one flagged")
 
 
@@ -2570,6 +2575,7 @@ class ChatPresentation(BaseModel):
     steps: list[ChatStep] = []
     suggestions: list[str] = []
     draft: dict | None = None
+    notices: list[str] = Field([], description="plain notices above the answer, e.g. the engineer notice")
     model: str | None = None
     provider: str | None = None
     seconds: float | None = None

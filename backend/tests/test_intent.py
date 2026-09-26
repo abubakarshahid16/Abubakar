@@ -179,8 +179,8 @@ def test_the_examples_are_real_questions_from_the_loaded_documents():
     assert body["examples"], "a greeting with no examples is a wasted first impression"
     for example in body["examples"]:
         assert "spec.pdf" in example
-    # and they appear in the reply text too, for a caller that reads only `answer`
-    assert body["examples"][0] in body["answer"]
+    # CHANGED 2026-09-26: offered as suggestion chips, not listed in the reply
+    assert body["suggestions"] == body["examples"][:3]
 
 
 def test_the_examples_are_answerable():
