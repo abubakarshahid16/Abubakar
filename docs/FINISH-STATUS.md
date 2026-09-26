@@ -246,7 +246,7 @@ outside git; only aggregate numbers are recorded here.
 | 4 | Accessibility (axe serious/critical) | green in CI on #251–#254 |
 | 5 | Secret scan (gitleaks) | green in CI on #251–#254 |
 | 6 | Client-data privacy guard | green in CI on #251–#254; local diff scan 0 hits before every commit |
-| 7 | All mutation groups | MUTATION_RESULT |
+| 7 | All mutation groups | first full run of the whole registry (727, in four parallel worktrees): 720 detected; 5 matched nothing after B4/B7/B10/B11 edits (M46, M62, M153, M154, M369) and M820 had the same fault - all six re-anchored and detected; M807 NOT DETECTED because the B9 guard made its line unobservable - retired in favour of M843. **725 of 726 active detected**; M533 (the live-checkout git-hook mutant, ~12 min on the laptop) gave no verdict here: harness timeout / no test output in this container - PENDING OWNER VALIDATION. Honesty audit entry 62 |
 | 8 | Frozen B6 retrieval benchmark (fresh re-ingest, current code) | r@1 / r@5 / MRR 0.653 / 0.903 / 0.755 (frozen 0.583 / 0.875 / 0.706); reworded r@5 0.833 (0.778); own-words r@5 0.972 (0.972); 7 misses (9); p50 / p95 2.17 / 2.37 s. Identical to B6B – no regression. AI-authored set: relative only |
 | 9 | Answerability benchmark (structural gate) | unanswerable 7 of 8 refused, 1 supported; right-top 43 supported / 2 insufficient / 1 another-document / 1 conflicting; wrong-top 22 supported / 3 insufficient – unchanged from B8. Model judge: PENDING OWNER VALIDATION |
 | 10 | One end-to-end submittal review | all 3 datasheets through `POST /api/reviews/run`: 12 of 12 documents ingested; 9 extraction jobs through the queue (1355 requirements); facts read 177 / 64 / 174. **None of the 50 standards the three datasheets cite is among the 9 held**, so each review correctly returned Manual Review Required with 25 / 10 / 15 MISSING_LOCALLY and 0 findings. To exercise findings, the 9 held standards were added by engineer override (an exercise, not an applicability decision): 1355 findings per datasheet – 134 NEEDS_ENGINEER_REVIEW, 1221 NOT_IN_DOCUMENT_SCOPE, 0 COMPLIANT, 0 NON_COMPLIANT (no datasheet value pairs with these standards' requirements – issue #193); every finding pending approval with a `created_by_review` history row |
@@ -268,7 +268,7 @@ outside git; only aggregate numbers are recorded here.
 | B8 | model judge (`ANSWER_JUDGE_ENABLED` with the local model) on the frozen set – target: the 1 negative and the 22 wrong-top answers |
 | B9 | the chat screens in the browser on the laptop; the generated (Tier 2) answers need Ollama |
 | B10 | a review against standards the datasheets actually cite (the full library) – the only way findings get COMPLIANT / NON_COMPLIANT verdicts on real documents; engineer review of those findings |
-| B11 | a real process kill during extraction on the laptop |
+| B11 | a real process kill during extraction on the laptop; mutation M533 (live-checkout hook) |
 | All | every benchmark and gold set here is AI-authored; nothing is engineer-validated |
 | OCR | OCR paths on real scanned pages (the OCR models are not in this container) |
 
