@@ -217,7 +217,11 @@ def test_the_job_api_shows_only_jobs_on_readable_documents():
     hidden = client.get(f"/api/jobs/{theirs_job}", headers=reader)
     missing = client.get("/api/jobs/job_never", headers=reader)
     assert hidden.status_code == missing.status_code == 404
-    assert hidden.json() == missing.json()
+    # The same answer - code and message. Not the whole body: it carries a
+    # timestamp, and comparing it failed whenever the two calls straddled a
+    # second (measured under a parallel run, 2026-09-26).
+    pick = lambda r: (r.json()["detail"]["code"], r.json()["detail"]["message"])
+    assert pick(hidden) == pick(missing)
     # a filter only narrows
     assert client.get(f"/api/jobs?document_id={theirs}", headers=reader).json()["jobs"] == []
 

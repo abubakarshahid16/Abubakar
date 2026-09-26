@@ -298,3 +298,79 @@ outside git; only aggregate numbers are recorded here.
 9. Repository history: commits `85e10b4`, `b2683c1` and `76e3db0` were
    rewritten off their branches but remain reachable on GitHub by SHA; only
    the owner can ask GitHub Support to purge them.
+
+## FINAL FINISH MODE (P1-P5), 2026-09-26
+
+| Priority | Result | PR | Merge SHA |
+|---|---|---|---|
+| P1 #193 pairing | Traced and quantified; 0 true pairs exist on the available corpus; requirement-unit defect fixed (69 -> 87 of 93 limits carry a unit) | #256 | `30dc149` |
+| P2 engineer add/remove standard | API + UI + audit + recompute; decided runs locked; AI cannot replace a manual row | #257 | `0375542` |
+| P3 reviews on the job queue | queued request, requester-scoped worker, named progress, cancel, retry/poison, crash re-queue, provenance, audit | #258 | `0e1a28f` |
+| P4 retrieval | measured: no miss is a long clause or table; reranker is ~97 % of latency; no change justified without a local model | #259 (doc) | `d3d4760` |
+| P5 hardening | progress endpoint owner-only; grant/revoke audited in-transaction; admin/standards audits raise; login/market failures recorded | #259 | `d3d4760` |
+
+### #193 root cause (measured on this corpus)
+
+See `docs/193-pairing-trace-2026-09-26.md`. Per datasheet, of 1355 requirements
+from the 9 available standards: 1220 are statements (no value), 42 are table
+lookups, and all 93 matchable limits govern systems the datasheets do not
+describe (fire water, spacing, structures, process plant) - none of the 50
+standards the datasheets cite is held here. 54 over-generous oracle
+candidates were each judged: 0 true pairs. The matcher's 0 pairings is
+correct with 0 false pairs. The pump sheet is an enquiry form: 132 of 177
+facts are vendor fields left blank (correct MISSING_INFORMATION). One real,
+general defect was found and fixed: 20 of 93 limits had lost a printed unit.
+
+| Pairing metric | before | after |
+|---|---|---|
+| matchable limits with a unit | 69 / 93 | 87 / 93 |
+| true pairs / false pairs (all 3 datasheets) | 0 / 0 | 0 / 0 |
+
+### Final real review (main, 3 real datasheets, 9 real standards, signed in, through the API and the worker)
+
+| | pump | valve | vessel |
+|---|---|---|---|
+| review job | done | done | done |
+| automatic review latency | 17.8 s | 4.9 s | 8.4 s |
+| standards applied automatically | 0 | 0 | 0 |
+| cited standards MISSING_LOCALLY | 25 | 10 | 15 |
+| facts (with a number / blank) | 177 (6 / 132) | 64 (40 / 24) | 174 (45 / 2) |
+| requirements after the engineer adds the 9 held standards | 1355 (93 matchable) | 1355 | 1355 |
+| over-generous candidate pairs (all judged false) | 7 | 23 | 24 |
+| accepted pairs | 0 | 0 | 0 |
+| COMPLIANT / NON_COMPLIANT | 0 / 0 | 0 / 0 | 0 / 0 |
+| NEEDS_ENGINEER_REVIEW / NOT_IN_DOCUMENT_SCOPE | 134 / 1221 | 134 / 1221 | 134 / 1221 |
+| unmatched numeric facts | 6 | 40 | 45 |
+| standard citations on the cited page | 1308 verbatim + 26 re-ordered + 21 glyph = 1355 / 1355 | same | same |
+| recompute after 9 overrides | 31.0 s | 28.9 s | 29.4 s |
+| review code | Manual Review Required | Manual Review Required | Manual Review Required |
+| CRS | rows 27; "AI recommendation - NOT yet decided" -> "Decided by the reviewing engineer" | rows 13; same | rows 17; same |
+| audit | job.queued, job.done, 9 x review.applicability_override, review.code_recorded | same | same |
+
+Peak memory of the whole run (ingest with both models, no LLM): 2.36 GB.
+
+**The real flow does NOT yet produce trustworthy compliant / non-compliant
+verdicts on real documents**, because the standards that govern these
+datasheets are not in this environment. Every stage of the chain runs, is
+audited and is honest (it abstains, names what is missing and waits for the
+engineer), but no real pass/fail has been demonstrated.
+
+### Release readiness
+
+**NOT release-ready.** Code complete for P1-P5 and green in CI; the gate the
+finish-mode prompt sets - "the real flow produces trustworthy verdicts" - is
+unmet and cannot be met here. Required, in order:
+
+1. OWNER: run the review on the laptop against the full library (or supply
+   the standards the three datasheets cite); re-run the #193 trace on it.
+2. ENGINEER: judge the resulting pairings and verdicts (false-pair check).
+3. OWNER-LAPTOP gates already recorded above (B4-B11, E5 query expansion,
+   B8 model judge, OCR, M533).
+
+**Test reliability, found by repeated parallel runs:** `test_b11_jobs` compared
+two 404 bodies whole, including their timestamp, and failed whenever the two
+calls straddled a second - fixed to compare code and message. The intermittent
+`test_corpus_questions::...both_gets_both...` failure (3 local parallel runs
+of ~8) did not reproduce in the last two full runs and never in CI; its root
+cause is not yet found and it stays listed here rather than being called a
+flake.
