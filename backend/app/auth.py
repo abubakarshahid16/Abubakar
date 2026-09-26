@@ -400,8 +400,12 @@ def _audit(action: str, outcome: str, username: str, user_id: str | None = None,
                 (datetime.now(timezone.utc).isoformat(timespec="seconds"),
                  user_id, username[:200], action, outcome, detail),
             )
-    except Exception:  # noqa: BLE001 - an unwritable audit must not block login
-        pass
+    except Exception as exc:  # noqa: BLE001 - an unwritable audit must not block login
+        # P5: NOT SILENT. Login stays available (locking everyone out because
+        # the audit table is unwritable would be worse), but the failure is
+        # recorded where an operator looks rather than discarded.
+        from . import errors
+        errors.record_failure(exc, stage="auth_audit")
 
 
 # ------------------------------------------------------------------ the login

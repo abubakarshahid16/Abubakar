@@ -54,6 +54,8 @@ STAGES = (
 @dataclass
 class _Entry:
     started: float
+    #: P5: who started it. Only the same identity may read it back.
+    owner: str | None = None
     stage: str = "retrieving"
     detail: str | None = None
     #: (stage, seconds since start) for every transition that HAPPENED.
@@ -78,12 +80,12 @@ def _evict(now: float) -> None:
         _entries.pop(oldest, None)
 
 
-def start(request_id: str | None) -> None:
+def start(request_id: str | None, owner: str | None = None) -> None:
     if not request_id:
         return
     now = time.time()
     with _lock:
-        _entries[request_id] = _Entry(started=now, updated=now,
+        _entries[request_id] = _Entry(started=now, updated=now, owner=owner,
                                       history=[("retrieving", 0.0)])
         # AFTER the insert. Evicting first leaves MAX_ENTRIES + 1 in the map,
         # which is not a cap.
@@ -115,11 +117,16 @@ def finish(request_id: str | None) -> None:
     stage(request_id, "done")
 
 
-def read(request_id: str) -> dict | None:
+def read(request_id: str, *, reader: str | None = None,
+         unrestricted: bool = False) -> dict | None:
+    """The entry, or None when it does not exist OR belongs to someone else -
+    the same answer, so an id cannot be probed for another user's activity."""
     now = time.time()
     with _lock:
         entry = _entries.get(request_id)
         if entry is None:
+            return None
+        if not unrestricted and entry.owner != reader:
             return None
         return {
             "stage": entry.stage,

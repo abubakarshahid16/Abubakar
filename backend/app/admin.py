@@ -148,26 +148,31 @@ def _iso(value: str | None) -> str | None:
 
 def _audit(action: str, actor: dict | None, resource_type: str,
            resource_id: str | None, outcome: str = "ok",
-           detail: str | None = None) -> None:
+           detail: str | None = None, *, conn=None) -> None:
     """Durable record of an administrative change.
 
     `detail` carries ids and role names only. Never an email body, a document
     title or a token - the audit table is the one most likely to be exported.
+
+    P5: NEVER SWALLOWED. It used to catch every error so "an unwritable audit
+    must not block the change" - which meant a grant, a revoke or a new user
+    could stand with no record of who did it. Given `conn`, it is written in
+    the change's own transaction and they commit or roll back together;
+    without one, a failure raises instead of passing silently.
     """
-    conn = connect()
-    try:
-        with conn:
-            conn.execute(
-                """INSERT INTO audit_events
-                       (at, actor_user_id, actor_username, action,
-                        resource_type, resource_id, outcome, detail)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (_now(), (actor or {}).get("id"),
-                 ((actor or {}).get("email") or "unauthenticated")[:200],
-                 action, resource_type, resource_id, outcome, detail),
-            )
-    except Exception:  # noqa: BLE001 - an unwritable audit must not block the change
-        pass
+    args = (_now(), (actor or {}).get("id"),
+            ((actor or {}).get("email") or "unauthenticated")[:200],
+            action, resource_type, resource_id, outcome, detail)
+    sql = """INSERT INTO audit_events
+                 (at, actor_user_id, actor_username, action,
+                  resource_type, resource_id, outcome, detail)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
+    if conn is not None:
+        conn.execute(sql, args)
+        return
+    own = connect()
+    with own:
+        own.execute(sql, args)
 
 
 # ------------------------------------------------------------- the guard
@@ -675,8 +680,8 @@ def grant(body: GrantRequest, actor: dict | None) -> dict:
                VALUES (?, ?, 'read', ?, ?)""",
             (body.document_id, role["id"], _now(), (actor or {}).get("id")),
         )
-    _audit("admin_grant", actor, "document", body.document_id,
-           detail=role["name"])
+        _audit("admin_grant", actor, "document", body.document_id,
+               detail=role["name"], conn=conn)
     return {"document_id": body.document_id, "discipline": role["name"],
             "granted": True}
 
@@ -703,8 +708,8 @@ def revoke_grant(body: GrantRequest, actor: dict | None) -> dict:
             "WHERE document_id = ? AND role_id = ? AND permission = 'read'",
             (body.document_id, role["id"]),
         )
-    _audit("admin_revoke", actor, "document", body.document_id,
-           detail=role["name"])
+        _audit("admin_revoke", actor, "document", body.document_id,
+               detail=role["name"], conn=conn)
     return {"document_id": body.document_id, "discipline": role["name"],
             "granted": False}
 
