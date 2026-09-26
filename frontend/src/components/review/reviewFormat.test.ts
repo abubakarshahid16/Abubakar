@@ -135,6 +135,13 @@ describe("B3: a finding on an unread page says so in plain words", () => {
     })).toBe("Pages not yet readable - needs engineer review");
   });
 
+  it("labels a PAGE_READER_ONLY finding as the page reader's miss, for an engineer (entry 68)", () => {
+    expect(findingLabel({
+      compliance_status: "NEEDS_ENGINEER_REVIEW",
+      ai_rationale: "PAGE_READER_ONLY: value not found by the page reader - engineer to check the page 3.",
+    })).toBe("Value not found by the page reader - engineer to check the page");
+  });
+
   it("leaves every other finding reading as its status does", () => {
     expect(findingLabel({ compliance_status: "NEEDS_ENGINEER_REVIEW",
                           ai_rationale: "UNIT_MISMATCH: ..." })).toBe("Needs engineer review");

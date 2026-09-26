@@ -3126,6 +3126,16 @@ def _extract_facts(
                               f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}")
                 unparsed.append({"page": page, "reason": reason})
                 outcomes[page] = ("no_facts", 0, reason)
+            elif page_written == 0:
+                # Read, but only by the page reader: say so, and what the
+                # vision reader did - an absence here is an engineer's to
+                # check (comparison.PAGE_READER_ONLY), never an omission.
+                note = (f"read only by the page reader ({page_geometry} geometry, "
+                        f"{page_vision} vision reading(s)); a value it did not find "
+                        "is for an engineer to check on the page")
+                if geometry_on and vision_routing.get(page) == VISION_ROUTED:
+                    note = f"{note}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}"
+                outcomes[page] = ("facts", page_read, note)
             else:
                 outcomes[page] = ("facts", page_read, None)
             if _plan is not None:

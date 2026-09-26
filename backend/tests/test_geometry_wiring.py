@@ -9,7 +9,7 @@ behind `settings.geometry_reader_enabled`, OFF by default.
   the rule fact it contradicts.
 
 Synthetic PDFs only; no client document is read (CLAUDE.md rule 3).
-Mutation proofs: M586-M589, M591, M595, M596 (scripts/mutations/datasheets.py).
+Mutation proofs: M586-M589, M591, M596, M1022 (scripts/mutations/datasheets.py).
 """
 from __future__ import annotations
 
@@ -247,10 +247,11 @@ def test_the_readers_blank_evidence_and_table_cell_are_kept(tmp_path, monkeypatc
 
 
 def test_a_page_only_the_geometry_reader_read_is_read_into_fields(tmp_path, on):
-    """THE MUTATION TARGET (M595, reversed by owner decision 2026-09-26;
-    honesty audit entry 68): a page whose only facts came from the geometry
-    reader HAS recorded facts, so the ledger says it was read into fields.
-    Under B4 it said "no_facts" while its facts sat in submittal_facts."""
+    """THE MUTATION TARGET (M1022; owner decision 2026-09-26, honesty audit
+    entry 68): a page whose only facts came from the geometry reader HAS
+    recorded facts, so the ledger says it was read into fields. Under B4 it
+    said "no_facts" while its facts sat in submittal_facts. An ABSENCE there
+    is still an engineer's question (M595, test_b3_page_ledger.py)."""
     from app import page_ledger
     doc = _store(tmp_path, items=[(50, 220, "BEARING TYPE"), (220, 220, "___BALL___")],
                  doc_id="doc_geo_only")
