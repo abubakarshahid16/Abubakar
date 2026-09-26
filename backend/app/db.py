@@ -469,6 +469,33 @@ CREATE TABLE IF NOT EXISTS messages (
     UNIQUE (conversation_id, ordinal)
 );
 
+-- Chat redesign PR 5 (owner order 2026-09-26). Both additive; neither holds
+-- document text.
+--
+-- "Was this right?" - one answer per reader per assistant turn, replaced when
+-- they change their mind. Local only: it is never sent anywhere.
+CREATE TABLE IF NOT EXISTS chat_feedback (
+    message_id  TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_key    TEXT NOT NULL,          -- the reader's id, or '' with auth off
+    helpful     INTEGER NOT NULL CHECK(helpful IN (0, 1)),
+    note        TEXT,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (message_id, user_key)
+);
+
+-- "Add to comment sheet": which review finding a drafted comment became. NO
+-- foreign key to review_findings, the report_documents precedent: the link is
+-- the record that the engineer filed it, even if an Undo later withdraws it.
+CREATE TABLE IF NOT EXISTS chat_filed_comments (
+    message_id   TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    finding_id   TEXT NOT NULL,
+    document_id  TEXT NOT NULL,
+    filed_by     TEXT,
+    filed_at     TEXT NOT NULL,
+    withdrawn_at TEXT,
+    PRIMARY KEY (message_id, finding_id)
+);
+
 -- ==================================================== classification
 --
 -- WHAT A DOCUMENT IS. Not who may read it.

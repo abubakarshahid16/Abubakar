@@ -446,7 +446,8 @@ def _withhold(message: dict) -> dict:
     }
 
 
-def get_messages(conversation_id: str, *, allowed_document_ids: frozenset[str]) -> list[dict]:
+def get_messages(conversation_id: str, *, allowed_document_ids: frozenset[str],
+                 user_key: str | None = None) -> list[dict]:
     """Every turn, filtered by what the caller may read NOW.
 
     A stored answer is a copy of document text taken when it was asked. A
@@ -467,6 +468,21 @@ def get_messages(conversation_id: str, *, allowed_document_ids: frozenset[str]) 
                 and referenced_document_ids(message["payload"]) - allowed_document_ids):
             message = _withhold(message)
         messages.append(message)
+    # The caller's own "Was this right?" and any comment filed from an answer
+    # (chat redesign PR 5), so a reopened chat shows them as they were left.
+    # A filing is shown only while its document is readable, like the answer.
+    from . import chat_actions
+    ids = [m["id"] for m in messages if m["role"] == "assistant"]
+    if user_key is not None:
+        mine = chat_actions.feedback_for(ids, user_key=user_key)
+        for m in messages:
+            if m["id"] in mine:
+                m["feedback"] = mine[m["id"]]
+    filed = chat_actions.filed_for(ids)
+    for m in messages:
+        f = filed.get(m["id"])
+        if f and f["document_id"] in allowed_document_ids:
+            m["filed_comment"] = f
     return messages
 
 
@@ -595,6 +611,7 @@ def ask(
     progress_id: str | None = None,
     model: str | None = None,
     include_unowned_records: bool = False,
+    document_ids: frozenset[str] | None = None,
 ) -> dict:
     """Answer a question inside a conversation and persist both turns.
 
@@ -606,6 +623,16 @@ def ask(
     conversation = get_conversation(conversation_id)
     selected_document = document_id
     document_id = document_id or conversation["document_id"]
+    # "@ a document" (chat redesign 2h): the documents the reader picked.
+    # AN INTERSECTION, NEVER A UNION (CLAUDE.md rule 5) - a picked id the
+    # caller may not read is simply not searched. It narrows RETRIEVAL only;
+    # what the model may remember of the conversation is still the caller's
+    # whole permission, so picking a document does not blank the history.
+    retrieval_allowed = (allowed_document_ids & frozenset(document_ids)
+                         if document_ids else allowed_document_ids)
+    if document_ids and document_id not in retrieval_allowed:
+        # the picked documents win over the conversation's older single scope
+        document_id = None
     conn = connect()
     understood: dict | None = None
     route_kind = intent_mod.DOCUMENT
@@ -643,7 +670,8 @@ def ask(
         previous = last_answer(conversation_id, allowed_document_ids=allowed_document_ids)
         routed = intent_mod.route(
             question, has_previous_answer=previous is not None,
-            document_in_scope=bool(selected_document or conversation["document_id"]))
+            document_in_scope=bool(selected_document or conversation["document_id"]
+                                   or document_ids))
         route_kind = routed["kind"]
         tier = routed.get("tier") or tier
         carried: list[str] = []
@@ -657,8 +685,8 @@ def ask(
             # query is stored and shown, as the follow-up rewrite already was.
             understanding = understanding_mod.understand(
                 resolved,
-                allowed_document_ids=allowed_document_ids,
-                documents=understanding_mod.document_names(allowed_document_ids),
+                allowed_document_ids=retrieval_allowed,
+                documents=understanding_mod.document_names(retrieval_allowed),
                 conversation_document_id=conversation["document_id"],
                 context=understanding_mod.prior_context(conversation_id),
             )
@@ -697,7 +725,7 @@ def ask(
         result, resolved = _document_answer(
             conversation_id, resolved, understood, tier=tier, document_id=document_id,
             selected_document=selected_document, limit=limit,
-            allowed_document_ids=allowed_document_ids, progress_id=progress_id,
+            allowed_document_ids=retrieval_allowed, progress_id=progress_id,
             model=model, history=memory())
         if (route_kind == intent_mod.EITHER
                 and result["answer_type"] == "insufficient_evidence"):

@@ -2435,7 +2435,8 @@ def get_conversation(conversation_id: str, request: Request,
     reject_unknown_params(request, set())
     conversation = _require_owned_conversation(conversation_id, scope)
     return {"conversation": conversation, "messages": chat_mod.get_messages(
-        conversation_id, allowed_document_ids=scope.allowed_document_ids)}
+        conversation_id, allowed_document_ids=scope.allowed_document_ids,
+        user_key=scope.user_id or "")}
 
 
 @app.delete("/api/conversations/{conversation_id}", response_model=schemas.DeletedConversation,
@@ -2521,6 +2522,7 @@ def ask(conversation_id: str, body: schemas.AskRequest,
                 progress_id=body.progress_id,
                 model=body.model,
                 include_unowned_records=scope.is_admin,
+                document_ids=_picked_documents(body, scope),
             )
         finally:
             progress_mod.finish(body.progress_id)
@@ -2530,6 +2532,77 @@ def ask(conversation_id: str, body: schemas.AskRequest,
             detail=errors.safe_error(
                 errors.NOT_FOUND, "no answered message with that id in this conversation"),
         )
+
+
+def _picked_documents(body: schemas.AskRequest, scope: access.AccessScope) -> frozenset[str] | None:
+    """The documents picked with "@ a document", each checked readable - a
+    404 for one that is not, the same answer as for one that does not exist.
+    `chat.ask` then intersects them with the caller's permission anyway."""
+    if not body.document_ids:
+        return None
+    for document_id in body.document_ids:
+        require_document(document_id, scope)
+    return frozenset(body.document_ids)
+
+
+def _chat_action_errors(fn):
+    """chat_actions' refusals, as the API states them."""
+    from . import chat_actions
+    try:
+        return fn()
+    except chat_actions.NotFound:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no such answer or comment in this conversation"))
+    except (chat_actions.NothingToFile, chat_actions.UndoClosed) as exc:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc)))
+
+
+@app.post("/api/conversations/{conversation_id}/messages/{message_id}/feedback",
+          response_model=schemas.ChatFeedback,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def chat_feedback(conversation_id: str, message_id: str, body: schemas.ChatFeedbackRequest,
+                  scope: access.AccessScope = Depends(access.current_scope)):
+    """ "Was this right?" on one answer: the caller's own, replaced if they
+    change their mind. Stored on this machine only."""
+    from . import chat_actions
+    _require_identity_to_write(scope)
+    _require_owned_conversation(conversation_id, scope)
+    return _chat_action_errors(lambda: chat_actions.set_feedback(
+        conversation_id, message_id, user_key=scope.user_id or "",
+        helpful=body.helpful, note=body.note))
+
+
+@app.post("/api/conversations/{conversation_id}/messages/{message_id}/comment",
+          response_model=schemas.FiledComment,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409,
+                     **schemas.ERRORS_422})
+def file_chat_comment(conversation_id: str, message_id: str, body: schemas.FileCommentRequest,
+                      scope: access.AccessScope = Depends(access.current_scope)):
+    """ "Add to comment sheet": file a drafted comment, as the caller wrote or
+    kept it, as a finding on the submittal the answer drew on. Only a person
+    pressing the button files anything; the model never does."""
+    from . import chat_actions
+    _require_identity_to_write(scope)
+    _require_owned_conversation(conversation_id, scope)
+    return _chat_action_errors(lambda: chat_actions.file_comment(
+        conversation_id, message_id, text=body.text, user_id=scope.user_id,
+        allowed_document_ids=scope.allowed_document_ids))
+
+
+@app.delete("/api/conversations/{conversation_id}/messages/{message_id}/comment/{finding_id}",
+            response_model=schemas.WithdrawnComment,
+            responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409,
+                       **schemas.ERRORS_422})
+def withdraw_chat_comment(conversation_id: str, message_id: str, finding_id: str,
+                          scope: access.AccessScope = Depends(access.current_scope)):
+    """Undo a filing - by the person who filed it, within minutes, while
+    nobody has changed the finding. After that it is changed on the review."""
+    from . import chat_actions
+    _require_identity_to_write(scope)
+    _require_owned_conversation(conversation_id, scope)
+    return _chat_action_errors(lambda: chat_actions.withdraw_comment(
+        conversation_id, message_id, finding_id, user_id=scope.user_id))
 
 
 #: A pipeline stage, as the streamed step list shows it. "generating" is not
@@ -2570,6 +2643,7 @@ async def ask_stream(conversation_id: str, body: schemas.AskRequest, request: Re
     _require_owned_conversation(conversation_id, scope)
     if body.document_id:
         require_document(body.document_id, scope)
+    picked = _picked_documents(body, scope)
     turn = chat_stream.open_turn(owner=scope.user_id, conversation_id=conversation_id)
 
     def work() -> None:
@@ -2587,7 +2661,8 @@ async def ask_stream(conversation_id: str, body: schemas.AskRequest, request: Re
                 conversation_id, body.question, tier=body.tier, document_id=body.document_id,
                 limit=body.limit, explain_of=body.explain_of,
                 allowed_document_ids=scope.allowed_document_ids, progress_id=turn.id,
-                model=body.model, include_unowned_records=scope.is_admin)
+                model=body.model, include_unowned_records=scope.is_admin,
+                document_ids=picked)
             final = schemas.AskResult.model_validate(result).model_dump(mode="json")
             if final.get("sources"):
                 turn.emit("sources", {"sources": final["sources"]})

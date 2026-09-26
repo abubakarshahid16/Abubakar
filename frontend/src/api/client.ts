@@ -16,6 +16,7 @@ import type {
   AskRequest,
   AskResult,
   CancelledTurn,
+  ChatFeedback,
   ChatModels,
   ChatSource,
   ChatStep,
@@ -26,6 +27,8 @@ import type {
   ConversationList,
   DocumentRecord,
   DocumentPage,
+  FiledComment,
+  WithdrawnComment,
   AuthStatus,
   ExclusionsResponse,
   AnalysisGapsResult,
@@ -1114,6 +1117,24 @@ export const api = {
     request<ChatModels>("/chat/models", undefined, hasArrayField("models")),
   /** Stop an answer being written. The server closes the provider call and
    *  stores the turn as stopped, with what the reader had been shown. */
+  /** "Was this right?" on one answer. The reader's own; stored locally. */
+  chatFeedback: (conversationId: string, messageId: string, helpful: boolean) =>
+    request<ChatFeedback>(
+      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/feedback`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ helpful }) },
+    ),
+  /** "Add to comment sheet": file the text the engineer has in front of them. */
+  fileComment: (conversationId: string, messageId: string, text: string) =>
+    request<FiledComment>(
+      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/comment`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) },
+    ),
+  /** Undo a filing - the filer, within minutes, while nobody has changed it. */
+  withdrawComment: (conversationId: string, messageId: string, findingId: string) =>
+    request<WithdrawnComment>(
+      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/comment/${encodeURIComponent(findingId)}`,
+      { method: "DELETE" },
+    ),
   cancelTurn: (conversationId: string, turnId: string) =>
     request<CancelledTurn>(
       `/conversations/${encodeURIComponent(conversationId)}/ask/${encodeURIComponent(turnId)}/cancel`,

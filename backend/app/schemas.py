@@ -2684,6 +2684,10 @@ class Message(ChatPresentation):
     )
     payload: dict | None = Field(None, description="passages and citations, for replay")
     created_at: str
+    #: Chat redesign PR 5. The CALLER'S OWN "Was this right?" on this answer
+    #: (null: not answered), and the live comment filed from it, if any.
+    feedback: bool | None = None
+    filed_comment: dict | None = None
 
 
 class Conversation(BaseModel):
@@ -2737,6 +2741,45 @@ class AskRequest(BaseModel):
     model: Literal["auto", "claude", "local"] | None = Field(
         None, description="the engine to answer with. 'local' narrows to the "
         "local engine; 'claude' is honoured only when Claude is configured")
+    document_ids: list[str] | None = Field(
+        None, max_length=20,
+        description="'@ a document': answer from these documents only. Narrows "
+        "what the caller may read - never widens it - and each must be readable")
+
+
+class ChatFeedbackRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    helpful: bool
+    note: str | None = Field(None, max_length=500)
+
+
+class ChatFeedback(BaseModel):
+    message_id: str
+    helpful: bool
+    note: str | None = None
+
+
+class FileCommentRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    #: the text the engineer had in front of them, edited or not
+    text: str = Field(min_length=1, max_length=8000)
+
+
+class FiledComment(BaseModel):
+    finding_id: str
+    message_id: str
+    document_id: str
+    document_name: str
+    review_run_id: str | None = Field(
+        None, description="the run whose comment sheet carries it; null when the "
+        "document has no review run yet, and then it is on no sheet")
+    chat_comments_on_sheet: int
+    undo_until: str
+
+
+class WithdrawnComment(BaseModel):
+    finding_id: str
+    withdrawn: bool
 
 
 class CancelledTurn(BaseModel):

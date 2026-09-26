@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { ChatModels } from "../../types/api";
+import { DocumentPicker, type PickedDocument } from "./DocumentPicker";
 
 export const MAX_QUESTION = 500;
 
@@ -28,6 +29,10 @@ export function Composer({
   onModelChange,
   onRecords,
   onUpload,
+  picked = [],
+  onPick,
+  pickerOpen = false,
+  onPickerOpen,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -43,6 +48,11 @@ export function Composer({
   onModelChange: (m: ModelChoice) => void;
   onRecords: () => void;
   onUpload?: () => void;
+  /** "@ a document": the documents the next answers come from */
+  picked?: PickedDocument[];
+  onPick?: (next: PickedDocument[]) => void;
+  pickerOpen?: boolean;
+  onPickerOpen?: (open: boolean) => void;
 }) {
   const [menu, setMenu] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -68,6 +78,28 @@ export function Composer({
         hero ? "px-4 pb-3 pt-4" : "px-3.5 pb-2.5 pt-3",
       ].join(" ")}
     >
+      {picked.length > 0 && (
+        <ul aria-label="Answering from" className="mb-2 flex flex-wrap gap-1.5">
+          {picked.map((d) => (
+            <li
+              key={d.id}
+              className="inline-flex items-center gap-1 rounded-[var(--radius-full)] border border-signal-500/40 bg-signal-500/10 px-2 py-0.5 text-xs text-signal-300"
+            >
+              @{d.name}
+              {onPick && (
+                <button
+                  type="button"
+                  aria-label={`Stop answering from ${d.name}`}
+                  onClick={() => onPick(picked.filter((p) => p.id !== d.id))}
+                  className="min-h-0 px-0.5 text-slateish-400 hover:text-slateish-100"
+                >
+                  ×
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       <label htmlFor="chat-question" className="sr-only">
         Your question
       </label>
@@ -100,6 +132,25 @@ export function Composer({
           >
             +
           </button>
+          {onPick && onPickerOpen && (
+            <button
+              type="button"
+              aria-expanded={pickerOpen}
+              aria-haspopup="dialog"
+              onClick={() => onPickerOpen(!pickerOpen)}
+              className={[
+                "rounded-[var(--radius-full)] border px-3 py-1 text-xs motion-safe:transition-colors",
+                picked.length > 0
+                  ? "border-signal-500/60 text-signal-300"
+                  : "border-ink-600 text-slateish-300 hover:border-signal-500/50 hover:bg-ink-800",
+              ].join(" ")}
+            >
+              @ a document{picked.length > 0 ? ` (${picked.length})` : ""}
+            </button>
+          )}
+          {pickerOpen && onPick && onPickerOpen && (
+            <DocumentPicker picked={picked} onChange={onPick} onClose={() => onPickerOpen(false)} />
+          )}
           {menu && (
             <div
               role="group"

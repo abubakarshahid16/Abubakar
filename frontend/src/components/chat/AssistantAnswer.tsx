@@ -19,7 +19,7 @@ import type { ReactNode } from "react";
 import type { Message } from "../../types/api";
 import { AnswerActions, RewriteChips, SuggestionChips } from "./AnswerActions";
 import { AnswerCard, viewFromMessage, type UpgradeFailure } from "./AnswerCard";
-import { DraftCommentCard } from "./DraftCommentCard";
+import { DraftCommentCard, type FileResult, type UndoResult } from "./DraftCommentCard";
 import { Markdown } from "./Markdown";
 import { ProgressSteps, UsedLine } from "./UsedLine";
 import type { ChatStep, ChatVerification } from "../../types/api";
@@ -65,6 +65,10 @@ export function AssistantAnswer({
   onRetry,
   onExactWording,
   busy,
+  onFeedback,
+  onFileComment,
+  onUndoComment,
+  onOpenReview,
 }: {
   message: Message;
   question: string | null;
@@ -86,6 +90,10 @@ export function AssistantAnswer({
   onExactWording?: () => void;
   /** an answer is being written: follow-ups wait */
   busy?: boolean;
+  onFeedback?: (helpful: boolean) => Promise<boolean>;
+  onFileComment?: (text: string) => Promise<FileResult>;
+  onUndoComment?: (findingId: string) => Promise<UndoResult>;
+  onOpenReview?: (reviewRunId: string) => void;
 }) {
   const view = viewFromMessage(m);
   const type = m.answer_type;
@@ -101,7 +109,14 @@ export function AssistantAnswer({
         <p className="text-[15px] text-slateish-200">
           Here is a draft comment. Edit it as you need; it is not added anywhere until you use it.
         </p>
-        <DraftCommentCard text={draftText} />
+        <DraftCommentCard
+          text={draftText}
+          canFile={Array.isArray(m.draft?.source_ids) && (m.draft!.source_ids as unknown[]).length > 0}
+          alreadyFiled={Boolean(m.filed_comment)}
+          onFile={onFileComment}
+          onUndo={onUndoComment}
+          onOpenReview={onOpenReview}
+        />
       </>
     );
   } else if (type === "general" || type === "records") {
@@ -154,6 +169,8 @@ export function AssistantAnswer({
           savingReport={savingReport}
           reportNotice={reportNotice}
           disabled={busy}
+          feedback={m.feedback ?? null}
+          onFeedback={onFeedback}
         />
       )}
       {!withheld && type === "general" && !draftText && m.answer_kind !== "action" && (

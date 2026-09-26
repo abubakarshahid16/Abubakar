@@ -23,6 +23,7 @@ import { sourcesOf, viewFromMessage, type UpgradeFailure } from "../components/c
 import { AssistantAnswer, StreamingAnswer } from "../components/chat/AssistantAnswer";
 import { ChatEmptyHeading, ChatStarters } from "../components/chat/ChatEmptyState";
 import { Composer, type ModelChoice } from "../components/chat/Composer";
+import type { PickedDocument } from "../components/chat/DocumentPicker";
 import { EvidencePanel } from "../components/chat/EvidencePanel";
 import { LocalWork } from "../components/chat/LocalWork";
 import { UserMessage } from "../components/chat/UserMessage";
@@ -92,7 +93,7 @@ export function ChatView({
 }: {
   connection: Connection;
   onRetryConnection: () => void;
-  onNavigate?: (view: "documents") => void;
+  onNavigate?: (view: "documents" | "review", recordId?: string) => void;
   /** the conversation chosen in the navigation (App owns the choice) */
   conversationId?: string | null;
   onConversationChange?: (id: string | null) => void;
@@ -116,6 +117,9 @@ export function ChatView({
   const [models, setModels] = useState<ChatModels | null>(null);
   const [model, setModel] = useState<ModelChoice | null>(null);
   const [recent, setRecent] = useState<ConversationSummary[]>([]);
+  // "@ a document": what the next answers come from, for this chat only.
+  const [picked, setPicked] = useState<PickedDocument[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const [recordsOpen, setRecordsOpen] = useState(false);
   const [recordsKind, setRecordsKind] = useState<"deliverable" | "finding" | "risk" | "stakeholder">("deliverable");
@@ -181,6 +185,7 @@ export function ChatView({
     setCurrent(id);
     setEvidence(null);
     setFailure(null);
+    setPicked([]);
     const r = await api.conversation(id);
     // Two quick clicks between conversations: without this, the SLOWER
     // response wins and paints its transcript under the other name.
@@ -198,6 +203,7 @@ export function ChatView({
     setMessages([]);
     setEvidence(null);
     setFailure(null);
+    setPicked([]);
   }, []);
 
   // The navigation chose a conversation (or "New chat", which is null).
@@ -310,6 +316,7 @@ export function ChatView({
         tier,
         ...(opts.explainOf ? { explain_of: opts.explainOf } : {}),
         ...(model ? { model } : {}),
+        ...(picked.length > 0 ? { document_ids: picked.map((d) => d.id) } : {}),
       };
       const controller = new AbortController();
       abort.current = controller;
@@ -375,7 +382,7 @@ export function ChatView({
       }
       listChanged();
     },
-    [current, claude, model, messages, open, select, listChanged],
+    [current, claude, model, messages, open, select, listChanged, picked],
   );
 
   const stop = useCallback(async () => {
@@ -603,6 +610,10 @@ export function ChatView({
         model={model}
         onModelChange={setModel}
         onRecords={() => setRecordsOpen(true)}
+        picked={picked}
+        onPick={setPicked}
+        pickerOpen={pickerOpen}
+        onPickerOpen={setPickerOpen}
         onUpload={onNavigate ? () => onNavigate("documents") : undefined}
       />
       {!claude && isReviewRequest(question) && (
@@ -666,6 +677,20 @@ export function ChatView({
               return q ? () => void send(`/quote ${q}`) : undefined;
             })()}
             busy={asking}
+            onFeedback={current ? async (helpful) => {
+              const r = await api.chatFeedback(current, m.id, helpful);
+              if (r.ok) setMessages((ms) => ms.map((x) => (x.id === m.id ? { ...x, feedback: helpful } : x)));
+              return r.ok;
+            } : undefined}
+            onFileComment={current ? async (text) => {
+              const r = await api.fileComment(current, m.id, text);
+              return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error };
+            } : undefined}
+            onUndoComment={current ? async (findingId) => {
+              const r = await api.withdrawComment(current, m.id, findingId);
+              return r.ok ? { ok: true } : { ok: false, error: r.error };
+            } : undefined}
+            onOpenReview={onNavigate ? (runId) => onNavigate("review", runId) : undefined}
           />
         ),
       )}
@@ -702,10 +727,23 @@ export function ChatView({
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-700 pb-3">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               <h1 className="truncate text-sm font-semibold text-slateish-100">{title ?? "New chat"}</h1>
-              {talkingAbout.length > 0 && (
-                <span className="rounded-[var(--radius-full)] border border-ink-600 px-2.5 py-0.5 text-xs text-slateish-400">
-                  Talking about: <span className="text-slateish-200">{talkingAbout[0]}</span>
-                  {talkingAbout.length > 1 && ` + ${talkingAbout.length - 1} more`}
+              {(picked.length > 0 || talkingAbout.length > 0) && (
+                <span className="inline-flex items-center gap-1 rounded-[var(--radius-full)] border border-ink-600 px-2.5 py-0.5 text-xs text-slateish-400">
+                  {/* What the reader CHOSE wins; otherwise what the latest
+                      answer actually drew on. Never a guess. */}
+                  {picked.length > 0 ? "Answering from:" : "Talking about:"}{" "}
+                  <span className="text-slateish-200">
+                    {picked.length > 0 ? picked[0].name : talkingAbout[0]}
+                  </span>
+                  {(picked.length > 0 ? picked.length : talkingAbout.length) > 1 &&
+                    ` + ${(picked.length > 0 ? picked.length : talkingAbout.length) - 1} more`}
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen(true)}
+                    className="ms-1 min-h-0 text-signal-400 underline decoration-signal-500/40 underline-offset-2"
+                  >
+                    Change
+                  </button>
                 </span>
               )}
             </div>
