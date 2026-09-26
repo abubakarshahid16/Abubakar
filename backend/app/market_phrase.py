@@ -200,7 +200,57 @@ def _strip_filenames(text: str, corpus_filenames: Iterable[str]) -> str:
 
     for name in sorted(names, key=len, reverse=True):
         text = re.sub(re.escape(name), " ", text, flags=re.IGNORECASE)
+
+    # THE SAME NAME, TYPED ANY WAY A PERSON TYPES IT. A reader names
+    # `coating-inspection-plan.pdf` as "coating inspection plan", "Coating_
+    # Inspection.Plan" or "coatinginspectionplan": the parts in order, with
+    # spaces, hyphens, underscores or dots - in any mix, or none - between
+    # them, with or without the extension. The exact forms above miss every
+    # one of those, and each is still an inventory disclosure. (Found
+    # 2026-09-26 building chat web search; honesty audit entry 67.)
+    for raw in corpus_filenames or ():
+        pattern = _flexible_name(str(raw or ""))
+        if pattern is not None:
+            text = pattern.sub(" ", text)
     return text
+
+
+#: What may sit between two parts of a file name as a reader types it.
+_NAME_GAP = r"[\s._-]*"
+
+
+def _is_public_standard_name(parts: list[str]) -> bool:
+    """A standards body followed only by designator and series tokens -
+    `NORSOK M 501`, `ISO 12944 5` - and nothing else."""
+    if len(parts) < 2 or parts[0].lower() not in _STANDARD_BODIES:
+        return False
+    return all(p.lower() in _SERIES or re.fullmatch(r"[A-Za-z]{0,3}\d{1,6}[A-Za-z]?", p)
+               for p in parts[1:])
+
+
+def _flexible_name(filename: str) -> re.Pattern[str] | None:
+    """One pattern matching the file name's parts in order, with any mix of
+    separators between them and an optional extension. None for a name with
+    no letters or digits."""
+    name = filename.strip()
+    ext_match = re.search(r"\.([A-Za-z0-9]{1,8})$", name)
+    stem = name[:ext_match.start()] if ext_match else name
+    parts = re.findall(r"[A-Za-z0-9]+", stem)
+    if not parts:
+        return None
+    if _is_public_standard_name(parts):
+        # A FILE NAMED AFTER A PUBLISHED STANDARD - `NORSOK-M-501.pdf` - is
+        # the one exception, and it is the collision
+        # test_the_standard_named_file_leaks_only_the_public_designator
+        # asserts: the standard's name is public (it exists whether or not
+        # this client holds a copy), and removing it would make "is there a
+        # newer edition of NORSOK M-501?" impossible to ask for any standard
+        # in the library. Its exact filename forms are still removed above.
+        return None
+    body = _NAME_GAP.join(re.escape(p) for p in parts)
+    if ext_match:
+        body += f"(?:{_NAME_GAP}{re.escape(ext_match.group(1))})?"
+    return re.compile(body, re.IGNORECASE)
 
 
 def _tokenise(text: str) -> list[str]:
