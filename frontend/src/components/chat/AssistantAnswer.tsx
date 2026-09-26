@@ -198,6 +198,14 @@ export function AssistantAnswer({
       {!withheld && (type === "extract" || type === "generated") && !draftText && (
         <SuggestionChips suggestions={m.suggestions ?? []} onAsk={onAsk} disabled={busy} />
       )}
+      {!withheld && type === "guidance" && (
+        // Fix 1 (2026-09-27): up to 3 document-derived examples plus one
+        // general one, clickable. `suggestions` (not `examples`, which is
+        // an AnswerResult-only field a reopened `Message` never carries) is
+        // properly typed and lifted for every turn (`chat_presentation.
+        // suggestions`, capped at 4 for a guidance turn specifically).
+        <SuggestionChips suggestions={m.suggestions ?? []} onAsk={onAsk} disabled={busy} />
+      )}
     </article>
   );
 }

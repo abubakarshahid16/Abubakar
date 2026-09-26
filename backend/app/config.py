@@ -778,10 +778,13 @@ class Settings(BaseSettings):
     # reasoning provider above (Claude when configured, else the local engine)
     # and every Claude call is charged to the step "chat" in the ledger.
     #: The chat answer's output cap on the Claude lane. Was 250, which cut
-    #: a normal multi-point answer short. A CEILING, not a target. The local
-    #: engine keeps `max_output_tokens`: its 4096-token window has to hold the
-    #: evidence too (`context_budget` subtracts the output cap from it).
-    chat_max_output_tokens: int = 1500
+    #: a normal multi-point answer short; raised to 1500, then to 4000
+    #: (owner order 2026-09-27, Claude-first mode): a tool-use answer that
+    #: reads a document AND a standard needs more room than a single-passage
+    #: extract did. A CEILING, not a target. The local engine keeps
+    #: `max_output_tokens`: its 4096-token window has to hold the evidence
+    #: too (`context_budget` subtracts the output cap from it).
+    chat_max_output_tokens: int = 4000
     #: Low for answers grounded in documents; a little warmer for general
     #: knowledge, where a fixed phrasing helps nobody. Ignored by models that
     #: reject `temperature` (claude_models_without_temperature).
@@ -808,6 +811,26 @@ class Settings(BaseSettings):
     #: sends nothing - it also needs the Claude lane (REASONING_PROVIDER=claude,
     #: both STANDARDS_READER_* egress flags and a key), within the USD caps.
     review_ai_check_enabled: bool = False
+
+    # ------------------------------------------------- Claude-first chat (tools)
+    #
+    # OWNER ORDER 2026-09-27. When Model=Claude and Claude is available, the
+    # chat sends every message to Claude with tools (`chat_tools.py`) instead
+    # of the router+gate+template pipeline above, which stays exactly as-is
+    # as the fallback for Model=Local, Claude unavailable, over budget, or any
+    # error mid-loop (`chat_claude_first.py`).
+    #: A runaway tool loop is a runaway bill: refuse the NEXT tool call once
+    #: this many have run for one answer, and answer with what was learned so
+    #: far rather than looping forever.
+    chat_tool_max_calls: int = 6
+    #: Extended thinking (Claude's own reasoning channel, shown to the reader
+    #: as "Thought for N s"), used only for a question judged complex - a
+    #: comparison, a compliance question, one naming several documents, or an
+    #: overview. Off (0) disables it outright.
+    chat_thinking_budget_tokens: int = 2000
+    #: `look_at_page` (vision): at most this many pages sent as images for one
+    #: answer - a ceiling on cost and time, on top of claude_spend's USD caps.
+    chat_vision_max_pages_per_answer: int = 4
 
     #: THE ONE HOST ALLOWLIST. Every outbound URL any tier builds is checked
     #: against this and refused if its host is not here. One list, in one
@@ -963,6 +986,7 @@ ANSWER_AFFECTING_SETTINGS = (
     "answer_model", "num_ctx", "max_output_tokens", "temperature",
     "chat_max_output_tokens", "chat_temperature_document", "chat_temperature_general",
     "chat_history_turns", "chat_history_token_budget", "chat_history_local_token_budget",
+    "chat_tool_max_calls", "chat_thinking_budget_tokens", "chat_vision_max_pages_per_answer",
     "chunk_target_tokens", "chunk_overlap_tokens", "chunk_max_tokens",
     "search_candidates", "rerank_candidates", "rerank_max_tokens",
     "generated_context_chars", "answer_context_chars",

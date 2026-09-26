@@ -127,6 +127,23 @@ class Packet:
     #: keeps the model's default. Measured 2026-09-25 on a datasheet page:
     #: default effort spent ~6,300 output tokens to write ~1,500 of answer.
     effort: str | None = None
+    #: Chat tool-use loop (2026-09-27): a FULL Anthropic Messages array
+    #: (system/user/assistant/tool_result turns), replacing the single
+    #: `prompt` string. None (the default) keeps every existing caller on the
+    #: one-prompt path unchanged. When set, `.prompt` is ignored by the
+    #: request builder and the response cache is skipped entirely (a
+    #: multi-turn tool conversation is never the same call twice, and hashing
+    #: only `prompt`+`system` would collide two different conversations onto
+    #: one cached answer - see `ClaudeProvider.reason`).
+    messages: tuple[dict, ...] | None = None
+    #: Anthropic tool definitions offered on this call. Empty for every
+    #: existing caller.
+    tools: tuple[dict, ...] = ()
+    #: Extended-thinking budget in tokens; None keeps thinking off (today's
+    #: behaviour). Anthropic requires `max_tokens` (`num_predict`) to exceed
+    #: this, and rejects `temperature` while thinking is on - both handled in
+    #: `ClaudeProvider._request`.
+    thinking_budget: int | None = None
 
     @property
     def sha256(self) -> str:
@@ -166,6 +183,10 @@ class Response:
     #: why not. A caller treats a non-empty tuple exactly like invalid JSON.
     schema_errors: tuple = ()
     cost_usd: float | None = None
+    #: Raw Messages API content blocks (text, tool_use, thinking), in order -
+    #: empty for every text-only caller. The chat tool loop reads `tool_use`
+    #: blocks from here; `.text` above stays the flattened text, unchanged.
+    content_blocks: tuple[dict, ...] = ()
 
     def __post_init__(self) -> None:
         if self.provider not in PROVIDERS:
@@ -404,20 +425,36 @@ class ClaudeProvider:
         cfg = replace(reader_api.ReaderSettings.from_env(), model=self.requested_model,
                       max_tokens=packet.num_predict,
                       timeout_seconds=float(packet.timeout_s or 120.0))
+        # `packet.images` builds the single-content-block request below; in
+        # the chat tool loop (`packet.messages` set) any image already rides
+        # inside `messages`'s own tool_result blocks, and `packet.images` is
+        # only a cost-accounting placeholder (`chat_claude_first.
+        # _images_for_accounting`) - never real image data, so it must never
+        # reach the real image validator here.
+        images = () if packet.messages is not None else packet.images
         try:
             request = reader_api.build_request(
                 prompt, cfg=cfg,
-                images=[(image.media_type, image.data) for image in packet.images])
+                images=[(image.media_type, image.data) for image in images])
         except reader_api.ReaderRefused as exc:
             raise ProviderRefused(f"{self.name}: {exc}") from exc
         body = dict(request["body"])
-        if no_temperature(self.requested_model):
+        if packet.messages is not None:
+            # Chat tool loop: the caller's own turns replace the single user
+            # message `build_request` made from `prompt` above.
+            body["messages"] = list(packet.messages)
+        if packet.tools:
+            body["tools"] = list(packet.tools)
+        if no_temperature(self.requested_model) or packet.thinking_budget:
             # MEASURED 2026-09-25: Sonnet 5 answers 400 "`temperature` is
             # deprecated for this model". Sampling cannot be pinned there, so
             # repeatability rests on the response cache and the code gates.
+            # Anthropic also refuses `temperature` while thinking is enabled.
             body.pop("temperature", None)
         else:
             body["temperature"] = packet.temperature
+        if packet.thinking_budget:
+            body["thinking"] = {"type": "enabled", "budget_tokens": int(packet.thinking_budget)}
         if packet.effort:
             body["output_config"] = {"effort": packet.effort}
         if packet.system:
@@ -443,11 +480,15 @@ class ClaudeProvider:
             cost_usd=0.0)
 
     def _answered(self, payload: dict | None, packet: Packet, key: str, step: str, wall: float,
-                  *, batch: bool = False) -> Response:
+                  *, batch: bool = False, cacheable: bool = True) -> Response:
         """Ledger, cache and Response for one Messages answer."""
         from . import claude_spend, reader_api
 
         text = reader_api.response_text(payload).strip() if payload else ""
+        blocks = tuple((payload or {}).get("content") or []) if isinstance(payload, dict) else ()
+        thinking_text = "".join(
+            str(b.get("thinking") or "") for b in blocks
+            if isinstance(b, dict) and b.get("type") == "thinking")
         usage = payload.get("usage") if isinstance(payload, dict) else None
         reported = str((payload or {}).get("model") or "")
         stop = str((payload or {}).get("stop_reason") or "")
@@ -455,7 +496,7 @@ class ClaudeProvider:
         entry = claude_spend.record(step=step, model=reported or self.requested_model, usage=usage,
                                     prompt_sha256=packet.sha256, wall_time_s=wall, finish_reason=finish,
                                     batch=batch)
-        if finish == "stop":   # a truncated answer is not worth keeping
+        if cacheable and finish == "stop":   # a truncated answer is not worth keeping
             _cache_write(key, {"text": text, "model_tag": reported or self.requested_model,
                                "finish_reason": finish, "tokens_in": (usage or {}).get("input_tokens"),
                                "tokens_out": (usage or {}).get("output_tokens")})
@@ -466,7 +507,7 @@ class ClaudeProvider:
             finish_reason=finish, prompt_sha256=packet.sha256,
             tokens_in=(usage or {}).get("input_tokens"), tokens_out=(usage or {}).get("output_tokens"),
             wall_time_s=round(wall, 3), schema_errors=schema_errors(text, packet.json_schema),
-            cost_usd=entry["cost_usd"],
+            cost_usd=entry["cost_usd"], thinking=thinking_text, content_blocks=blocks,
         )
 
     def reason_batch(self, packets: list[Packet], *, poll_seconds: float = 30.0, max_wait_s: float = 86400.0,
@@ -534,14 +575,24 @@ class ClaudeProvider:
         request, body, prompt = self._request(packet)
         # RESPONSE CACHE (owner rule 2026-09-25): the same (model, prompt
         # version, input) is answered from disk at USD 0, never re-bought.
-        key = cache_key(self.requested_model, packet)
-        hit = self._cached(key, packet, step)
-        if hit is not None:
-            return hit
+        # SKIPPED for a tool-loop turn (`packet.messages` set): the cache key
+        # hashes `prompt`+`system` only, so a multi-turn conversation carried
+        # in `messages` with an empty `prompt` would collide with every other
+        # tool-loop call on the same system prompt - a wrong answer served
+        # from someone else's turn, not just a missed optimisation.
+        cacheable = packet.messages is None
+        key = cache_key(self.requested_model, packet) if cacheable else ""
+        if cacheable:
+            hit = self._cached(key, packet, step)
+            if hit is not None:
+                return hit
+        image_tokens = sum(i.tokens for i in packet.images)
+        prompt_chars = len(packet.system) + len(prompt) + sum(
+            len(json.dumps(m, default=str)) for m in (packet.messages or ()))
+        max_tokens = packet.num_predict + (packet.thinking_budget or 0)
         claude_spend.ensure_affordable(
-            step, claude_spend.worst_case_usd(self.requested_model, len(packet.system) + len(prompt),
-                                              packet.num_predict,
-                                              image_tokens=sum(i.tokens for i in packet.images)))
+            step, claude_spend.worst_case_usd(self.requested_model, prompt_chars,
+                                              max_tokens, image_tokens=image_tokens))
         started = time.time()
         try:
             payload = self._send()(request["url"], headers=request["headers"], body=body,
@@ -552,7 +603,7 @@ class ClaudeProvider:
             # The type and the transport's own message (status + host + error
             # TYPE only - reader_transport never puts headers in it).
             raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc
-        return self._answered(payload, packet, key, step, time.time() - started)
+        return self._answered(payload, packet, key, step, time.time() - started, cacheable=cacheable)
 
 
 def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) -> Response:
@@ -564,9 +615,11 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
 
     step = provider._step or packet.step
     request, body, prompt = provider._request(packet)
+    prompt_chars = len(packet.system) + len(prompt) + sum(
+        len(json.dumps(m, default=str)) for m in (packet.messages or ()))
+    max_tokens = packet.num_predict + (packet.thinking_budget or 0)
     claude_spend.ensure_affordable(
-        step, claude_spend.worst_case_usd(provider.requested_model, len(packet.system) + len(prompt),
-                                          packet.num_predict))
+        step, claude_spend.worst_case_usd(provider.requested_model, prompt_chars, max_tokens))
     send = provider._stream_transport
     if send is None:
         from . import reader_transport
@@ -579,6 +632,12 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
     usage: dict = {}
     model = provider.requested_model
     stop = ""
+    #: Tool-loop streaming (2026-09-27): `content_block_start`/`_delta`/`_stop`
+    #: for a `tool_use` or `thinking` block arrive as separate events; a block
+    #: is assembled here by its index and only finished (`input` parsed from
+    #: the accumulated JSON) at `content_block_stop`.
+    blocks: dict[int, dict] = {}
+    order: list[int] = []
     try:
         for event in send(request["url"], headers=request["headers"], body=body,
                           timeout=request["timeout"], cancel=cancel):
@@ -587,11 +646,42 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
                 message = event.get("message") or {}
                 model = str(message.get("model") or model)
                 usage.update(message.get("usage") or {})
+            elif kind == "content_block_start":
+                idx = event.get("index")
+                block = dict(event.get("content_block") or {})
+                if block.get("type") == "tool_use":
+                    block["_input_json"] = ""
+                blocks[idx] = block
+                if idx not in order:
+                    order.append(idx)
             elif kind == "content_block_delta":
-                piece = str((event.get("delta") or {}).get("text") or "")
-                if piece:
-                    parts.append(piece)
-                    on_text(piece)
+                idx = event.get("index")
+                delta = event.get("delta") or {}
+                dtype = delta.get("type")
+                if dtype == "input_json_delta":
+                    block = blocks.get(idx)
+                    if block is not None:
+                        block["_input_json"] = block.get("_input_json", "") + str(
+                            delta.get("partial_json") or "")
+                elif dtype == "thinking_delta":
+                    block = blocks.get(idx)
+                    if block is not None:
+                        block["thinking"] = block.get("thinking", "") + str(delta.get("thinking") or "")
+                else:
+                    piece = str(delta.get("text") or "")
+                    if piece:
+                        parts.append(piece)
+                        on_text(piece)
+                        block = blocks.get(idx)
+                        if block is not None and block.get("type") == "text":
+                            block["text"] = block.get("text", "") + piece
+            elif kind == "content_block_stop":
+                block = blocks.get(event.get("index"))
+                if block is not None and block.get("type") == "tool_use":
+                    try:
+                        block["input"] = json.loads(block.pop("_input_json", "") or "{}")
+                    except json.JSONDecodeError:
+                        block["input"] = {}
             elif kind == "message_delta":
                 usage.update(event.get("usage") or {})
                 stop = str((event.get("delta") or {}).get("stop_reason") or stop)
@@ -608,12 +698,15 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
     finish = "cancelled" if stopped else _STOP.get(stop, stop or "error")
     entry = claude_spend.record(step=step, model=model, usage=usage, prompt_sha256=packet.sha256,
                                 wall_time_s=time.time() - started, finish_reason=finish)
+    content_blocks = tuple(blocks[i] for i in order if i in blocks)
+    thinking_text = "".join(
+        str(b.get("thinking") or "") for b in content_blocks if b.get("type") == "thinking")
     return Response(
         text=text, provider=provider.name, model_tag=model or f"{provider.requested_model} (unreported)",
         digest=hashlib.sha256(text.encode("utf-8")).hexdigest(), finish_reason=finish,
         prompt_sha256=packet.sha256, tokens_in=usage.get("input_tokens"),
         tokens_out=usage.get("output_tokens"), wall_time_s=round(time.time() - started, 3),
-        cost_usd=entry["cost_usd"])
+        cost_usd=entry["cost_usd"], thinking=thinking_text, content_blocks=content_blocks)
 
 
 def no_temperature(model: str) -> bool:

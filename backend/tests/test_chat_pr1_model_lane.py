@@ -25,6 +25,28 @@ from tests.test_chat import temp_storage, upload  # noqa: F401 - the fixture is 
 KEY = "sk-ant-test-THIS-MUST-NEVER-APPEAR-0123456789"
 
 
+def _stream_events(payload: dict):
+    """One flat Messages payload, as the SSE events `ClaudeProvider.stream`
+    reads (Claude-first: 2026-09-27) - the same fixed answer either entry
+    point is faked with is expressed once here."""
+    yield {"type": "message_start", "message": {"model": payload.get("model"), "usage": {}}}
+    for i, block in enumerate(payload.get("content") or []):
+        cb = {"type": block.get("type")}
+        if block.get("type") == "tool_use":
+            cb["id"], cb["name"] = block.get("id"), block.get("name")
+        yield {"type": "content_block_start", "index": i, "content_block": cb}
+        if block.get("type") == "text":
+            yield {"type": "content_block_delta", "index": i,
+                  "delta": {"type": "text_delta", "text": block.get("text", "")}}
+        elif block.get("type") == "tool_use":
+            yield {"type": "content_block_delta", "index": i,
+                  "delta": {"type": "input_json_delta",
+                           "partial_json": json.dumps(block.get("input") or {})}}
+        yield {"type": "content_block_stop", "index": i}
+    yield {"type": "message_delta", "delta": {"stop_reason": payload.get("stop_reason")},
+          "usage": payload.get("usage") or {}}
+
+
 def _claude_on(monkeypatch, tmp_path, seen,
                text='The NDFT is 280 um [S1 "NDFT nominal dry film thickness of 280 um"].', usage=None):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
@@ -37,18 +59,72 @@ def _claude_on(monkeypatch, tmp_path, seen,
                  "STANDARDS_READER_MODEL"):
         monkeypatch.delenv(name, raising=False)
 
-    def send(url, *, headers, body, timeout):
-        seen.append(body)
+    def payload(body):
         return {"model": "claude-sonnet-5", "stop_reason": "end_turn",
                 "content": [{"type": "text", "text": text}],
                 "usage": usage or {"input_tokens": 1200, "output_tokens": 80}}
 
+    def send(url, *, headers, body, timeout):
+        seen.append(body)
+        return payload(body)
+
+    def stream_send(url, *, headers, body, timeout, cancel=None):
+        seen.append(body)
+        yield from _stream_events(payload(body))
+
     real = rp.ClaudeProvider
 
     def provider(role="reasoning", *, step=None):
-        return real(settings.claude_reasoning_model, transport=send, step=step)
+        return real(settings.claude_reasoning_model, transport=send,
+                   stream_transport=stream_send, step=step)
 
     monkeypatch.setattr(rp, "get_provider", provider)
+
+
+def _claude_on_tool_use(monkeypatch, tmp_path, seen, *, final_text,
+                        tool_name="search_documents", tool_input=None):
+    """Claude-first (2026-09-27): Claude calls ONE tool for real (against
+    whatever the test uploaded), then answers with `final_text` citing
+    whatever that real tool call actually returned."""
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "reasoning_provider", "claude")
+    monkeypatch.setattr(settings, "anthropic_api_key", KEY)
+    monkeypatch.setattr(settings, "standards_reader_enabled", True)
+    monkeypatch.setattr(settings, "standards_reader_allow_public_egress", True)
+    for name in ("STANDARDS_READER_ENABLED", "STANDARDS_READER_ALLOW_PUBLIC_EGRESS", "ANTHROPIC_API_KEY",
+                 "STANDARDS_READER_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+
+    calls = {"n": 0}
+
+    def payload():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"model": "claude-sonnet-5", "stop_reason": "tool_use",
+                    "content": [{"type": "tool_use", "id": "toolu_1", "name": tool_name,
+                                "input": tool_input or {"query": "NDFT coating system 1"}}],
+                    "usage": {"input_tokens": 500, "output_tokens": 40}}
+        return {"model": "claude-sonnet-5", "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": final_text}],
+                "usage": {"input_tokens": 700, "output_tokens": 60}}
+
+    def send(url, *, headers, body, timeout):
+        seen.append(body)
+        return payload()
+
+    def stream_send(url, *, headers, body, timeout, cancel=None):
+        seen.append(body)
+        yield from _stream_events(payload())
+
+    real = rp.ClaudeProvider
+
+    def provider(role="reasoning", *, step=None):
+        return real(settings.claude_reasoning_model, transport=send,
+                   stream_transport=stream_send, step=step)
+
+    monkeypatch.setattr(rp, "get_provider", provider)
+    return calls
 
 
 def _ollama(monkeypatch, seen, text="The thickness is 280 um [S1]."):
@@ -74,7 +150,7 @@ def test_claude_answers_the_chat_when_configured_and_is_charged_to_chat(monkeypa
     body = _ask(client, convo, "what is the NDFT for coating system no. 1")
     assert seen, "Claude was never called"
     assert body["provider"] == "claude" and body["model"] == "claude-sonnet-5"
-    assert seen[0]["max_tokens"] == settings.chat_max_output_tokens == 1500
+    assert seen[0]["max_tokens"] == settings.chat_max_output_tokens == 4000
     ledger = claude_spend.entries()
     assert [e["step"] for e in ledger] == ["chat"]
     assert body["cost_usd"] == pytest.approx(ledger[0]["cost_usd"])
