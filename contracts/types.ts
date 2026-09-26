@@ -2035,12 +2035,12 @@ export interface AppliedScope {
 
 /** B11: one background job, visible only on documents the caller may read.
  *  `pages_*` are null when the stage does not count pages - never 0. */
-export type JobState = "queued" | "running" | "retrying" | "poisoned" | "done" | "failed" | "cancelled";
-export interface Job {
+export type BackgroundJobState = "queued" | "running" | "retrying" | "poisoned" | "done" | "failed" | "cancelled";
+export interface BackgroundJob {
   id: string;
   document_id: string;
   stage: string;
-  state: JobState;
+  state: BackgroundJobState;
   priority: number;
   retries: number;
   error_code: string | null;
@@ -2053,4 +2053,4 @@ export interface Job {
   code_version: string | null;
   config_version: string | null;
 }
-export interface JobList { jobs: Job[] }
+export interface BackgroundJobList { jobs: BackgroundJob[] }
