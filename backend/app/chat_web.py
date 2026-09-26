@@ -115,7 +115,7 @@ def search(conversation_id: str, consent_message_id: str, *,
         raise Refused("this search has already been run")
     ok, why = available()
     if not ok:
-        raise Refused(why or "web search is not available")
+        raise Refused(why or "web search is switched off")
     # REBUILT HERE from the stored question, never taken from the client or
     # from the consent turn's stored copy - the same re-scrub the market
     # route performs, so the only text that can leave is text this server

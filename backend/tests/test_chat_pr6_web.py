@@ -127,10 +127,12 @@ def test_the_phrase_carries_no_filename_no_history_and_no_document_text(lane_on,
     name = db.connect().execute("SELECT filename FROM documents WHERE id = ?", (doc,)).fetchone()[0]
     convo = client.post("/api/conversations").json()["id"]
     _ask(client, convo, "what is the dry film thickness for coating system no. 1")  # history
-    consent = _ask(client, convo, f"is there a newer edition of ISO 12944 online, and of {name}", web=True)
+    stem = name.rsplit(".", 1)[0].lower()
+    # typed WITHOUT its extension, the way a reader names a file in a sentence:
+    # only the caller's filename list can strip it (market_phrase)
+    consent = _ask(client, convo, f"is there a newer edition of ISO 12944 online, and of {stem}", web=True)
     client.post(f"/api/conversations/{convo}/messages/{consent['assistant_message']['id']}/web-search")
     assert sent
-    stem = name.rsplit(".", 1)[0].lower()
     for url in sent:
         low = url.lower()
         assert stem not in low, "a corpus filename left the machine"
