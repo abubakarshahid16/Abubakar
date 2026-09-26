@@ -1,0 +1,46 @@
+# TEMPORARY - owner-approved 2026-09-25. Mirrors the two PUBLIC models
+# (intfloat/multilingual-e5-small, MIT; Xenova/ms-marco-MiniLM-L-6-v2,
+# Apache-2.0) into a pre-release, so a cloud session that cannot reach
+# Hugging Face can stage them. Nothing else is uploaded: no document, no
+# extracted text, no embedding, no log, no evaluation data.
+# A push whose commit message contains "mirror-cleanup" deletes the release
+# and its tag instead. This branch and file are deleted after use.
+name: model-mirror
+on:
+  push:
+    branches: [ci/model-mirror]
+permissions:
+  contents: write
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: models-mirror-tmp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Delete the release and tag (cleanup push)
+        if: contains(github.event.head_commit.message, 'mirror-cleanup')
+        run: gh release delete "$TAG" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+      - name: Fetch ONLY the two Hugging Face models
+        if: ${{ !contains(github.event.head_commit.message, 'mirror-cleanup') }}
+        run: |
+          pip install huggingface_hub
+          python -c "import sys; sys.path.insert(0, 'scripts'); import fetch_models as f; f.fetch(False)"
+          tar czf models-mirror.tar.gz -C backend models/e5-small models/reranker
+          tar tzf models-mirror.tar.gz
+          sha256sum models-mirror.tar.gz | tee models-mirror.sha256
+      - name: Publish the temporary pre-release
+        if: ${{ !contains(github.event.head_commit.message, 'mirror-cleanup') }}
+        run: |
+          gh release delete "$TAG" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create "$TAG" models-mirror.tar.gz models-mirror.sha256 \
+            --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+            --title "TEMPORARY public model mirror (deleted after use)" \
+            --notes "Public models only (multilingual-e5-small MIT, ms-marco-MiniLM-L-6-v2 Apache-2.0). No project or client data. Temporary."
+      - name: Delete this temporary branch (cleanup push)
+        if: contains(github.event.head_commit.message, 'mirror-cleanup')
+        run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/ci/model-mirror"
