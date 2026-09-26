@@ -2425,6 +2425,46 @@ class CorpusFact(BaseModel):
         "answered that part separately")
 
 
+class EvidenceRef(BaseModel):
+    document_id: str | None = None
+    page_start: int | None = None
+    page_end: int | None = None
+    section: str | None = None
+
+
+class Answerability(BaseModel):
+    """B8: does the evidence answer the question - decided by structure the
+    code can check, never by the reranker score; never "high" confidence."""
+    verdict: Literal["supported", "insufficient_evidence", "conflicting_evidence",
+                     "ambiguous_evidence", "requires_another_document",
+                     "requires_engineer_review"]
+    reason: str
+    evidence: list[EvidenceRef] = []
+
+
+class Understanding(BaseModel):
+    """B6C: what the question was understood to be about - retrieval input."""
+    retrieval_query: str
+    document_id: str | None = None
+    scope_reason: str | None = None
+    scope_ids: list[str] | None = None
+    clause: str | None = None
+    clause_reason: str | None = None
+    ambiguous_documents: list[str] = []
+    notes: list[str] = []
+
+
+class ScopeDocument(BaseModel):
+    document_id: str
+    filename: str | None = None
+
+
+class ScopeAmbiguity(BaseModel):
+    """B6C: the answer's text is in more than one document."""
+    reason: str
+    documents: list[ScopeDocument]
+
+
 class AnswerResult(BaseModel):
     question: str
     answer_type: AnswerType = Field(
@@ -2494,10 +2534,15 @@ class AnswerResult(BaseModel):
     output_tokens: int | None = None
     seconds: float
     timings: dict[str, float]
+    understanding: Understanding | None = Field(
+        None, description="B6C: document scope, clause and notes the question was understood with")
+    scope_ambiguity: ScopeAmbiguity | None = Field(
+        None, description="B6C: the answer's own text is in more than one document")
+    answerability: Answerability | None = Field(
+        None, description="B8: whether the evidence answers the question, and why")
 
 
 MessageRole = Literal["user", "assistant"]
-
 
 class Message(BaseModel):
     id: str

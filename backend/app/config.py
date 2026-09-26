@@ -341,6 +341,14 @@ class Settings(BaseSettings):
     #: datasheets.vision_route). A ceiling on cost and time per document, on
     #: top of claude_spend's USD caps. Env: VISION_MAX_PAGES_PER_DOCUMENT.
     vision_max_pages_per_document: int = 10
+    #: B8: after the structural answerability checks, a reasoning model
+    #: (local Ollama, or Claude through reader_transport under the USD caps)
+    #: judges whether the passages ANSWER the question. It may only downgrade
+    #: a "supported" verdict or point to a lower passage, and a "yes" is
+    #: accepted only with a quote verified verbatim in the passage it names.
+    #: OFF by default: it costs a model call per answer. Env:
+    #: ANSWER_JUDGE_ENABLED. The owner flips it.
+    answer_judge_enabled: bool = False
     #: B5: the OWNER-APPROVED equipment taxonomy the scope decision
     #: (`applicability_v2.decide`) matches scope terms against - a JSON file
     #: `{"lexicon": {phrase: [level, name]}, "types": {type: {"family": ...,

@@ -1457,6 +1457,43 @@ export interface CorpusFact {
   qualified: boolean;
 }
 
+/** B8: whether the evidence answers the question. Decided by structure the
+ *  code can check - never by the reranker score, never "high" confidence. */
+export type AnswerabilityVerdict =
+  | "supported" | "insufficient_evidence" | "conflicting_evidence"
+  | "ambiguous_evidence" | "requires_another_document" | "requires_engineer_review";
+
+export interface EvidenceRef {
+  document_id: string | null;
+  page_start: number | null;
+  page_end: number | null;
+  section: string | null;
+}
+
+export interface Answerability {
+  verdict: AnswerabilityVerdict;
+  reason: string;
+  evidence: EvidenceRef[];
+}
+
+/** B6C: what the question was understood to be about (retrieval input only). */
+export interface Understanding {
+  retrieval_query: string;
+  document_id: string | null;
+  scope_reason: string | null;
+  scope_ids: string[] | null;
+  clause: string | null;
+  clause_reason: string | null;
+  ambiguous_documents: string[];
+  notes: string[];
+}
+
+/** B6C: the answer's own text appears in more than one document. */
+export interface ScopeAmbiguity {
+  reason: string;
+  documents: { document_id: string; filename: string | null }[];
+}
+
 export interface AnswerResult {
   question: string;
   answer_type: AnswerType;
@@ -1495,6 +1532,12 @@ export interface AnswerResult {
   coverage: Coverage | null;
   /** guidance only: real questions drawn from the loaded documents */
   examples: string[];
+  /** B6C */
+  understanding?: Understanding | null;
+  /** B6C */
+  scope_ambiguity?: ScopeAmbiguity | null;
+  /** B8 */
+  answerability?: Answerability | null;
   /** The LIBRARY's answer, counted from the database. On a metadata answer it
    *  IS the answer; on any other answer_type the question also asked about
    *  content, and this is the separate database half of a two-part reply. */
