@@ -41,3 +41,6 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
             --title "TEMPORARY public model mirror (deleted after use)" \
             --notes "Public models only (multilingual-e5-small MIT, ms-marco-MiniLM-L-6-v2 Apache-2.0). No project or client data. Temporary."
+      - name: Delete this temporary branch (cleanup push)
+        if: contains(github.event.head_commit.message, 'mirror-cleanup')
+        run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/ci/model-mirror"
