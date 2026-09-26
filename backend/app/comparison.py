@@ -1414,6 +1414,19 @@ def run_comparison(
             model_opinion=opinion, matched_phrase=match["matched_phrase"],
             match_method=match["method"]))
 
+    # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against
+    # itself, pure arithmetic, no standard needed. Written before the code is
+    # recommended, so a design pressure below the operating pressure counts
+    # like any other unmet requirement.
+    from . import datasheet_checks
+    page_texts = {r["page_no"]: r["text"] or "" for r in connect().execute(
+        "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
+    findings.extend(datasheet_checks.store(
+        review_run_id, submittal_id,
+        datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
+                                  page_texts=page_texts),
+        pages_read=pages_read))
+
     coverage = completeness_for_run(
         submittal_id, allowed_document_ids=allowed_document_ids,
         reference_coverage=reference_coverage)

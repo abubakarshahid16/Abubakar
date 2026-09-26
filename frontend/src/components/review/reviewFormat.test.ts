@@ -11,7 +11,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  STATUS_ORDER, completenessLine, estimateDetail, standardsChangeLine, confidenceLabel, findingLabel, matchMethodLabel,
+  STATUS_ORDER, kindLabel, completenessLine, estimateDetail, standardsChangeLine, confidenceLabel, findingLabel, matchMethodLabel,
   orNothing, pageCoverageLine, pageList, statusLabel, statusRank, statusTone,
   withDenominator,
 } from "./reviewFormat";
@@ -246,5 +246,13 @@ describe("2e: why the in-scope count moved", () => {
     expect(standardsChangeLine({ ...base, standards_change: { previous_run_id: "r0", added: [], removed: [] } }))
       .toBe("Same standards in scope as the previous run.");
     expect(standardsChangeLine({ ...base, standards_change: null })).toBe("");
+  });
+});
+
+describe("2c: a datasheet check says what kind of comment it is", () => {
+  it("labels the kinds, and a comparison finding carries none", () => {
+    expect(kindLabel({ origin: "datasheet_check" })).toBe("Datasheet check");
+    expect(kindLabel({ origin: "ai_engineering_check" })).toBe("AI engineering check");
+    expect(kindLabel({ origin: null })).toBe("");
   });
 });

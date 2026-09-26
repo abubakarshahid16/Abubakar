@@ -44,6 +44,9 @@ ROW_KIND_ENGINEER_COMMENT = "engineer_comment"
 #: not on the sheet at all.
 ROW_KIND_AI_ENGINEERING_CHECK = "ai_engineering_check"
 _AI_ORIGIN = "ai_engineering_check"
+#: Owner order 2c: a datasheet self-check (kind B), labelled "Datasheet check".
+ROW_KIND_DATASHEET_CHECK = "datasheet_check"
+_DATASHEET_ORIGIN = "datasheet_check"
 _AI_CONFIRMED_BY = "AI engineering check, confirmed by "
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
@@ -260,7 +263,29 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     ordered += [f for f in findings
                 if f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
                 and not _unread(f) and not _page_reader_only(f)]
+    # Owner order 2c: a datasheet check's missing value is a comment of its
+    # own ("Hydrotest pressure is marked 'TBA'"), not one of the uncounted
+    # absences summarised below.
+    ordered += [f for f in findings
+                if f.get("origin") == _DATASHEET_ORIGIN
+                and f.get("compliance_status") == _MISSING_INFORMATION]
     for f, also in _merge_same_rule(ordered):
+        if f.get("origin") == _DATASHEET_ORIGIN:
+            rows.append({
+                "finding_id": f.get("id") or "",
+                "document_name": submittal_name,
+                "page_section": " / ".join(p for p in (
+                    f"submittal p{f['contractor_page']}" if f.get("contractor_page") else "",
+                    f.get("contractor_section") or "") if p),
+                # "Datasheet check: ..." - the finding's own words, which say
+                # the calculation ("Design pressure 20 barg (page 1) is not at
+                # least operating pressure 23.5 barg (page 1).").
+                "comment": f.get("finding") or "",
+                "comment_by": (f"AI Review, confirmed by {f['confirmed_by']}"
+                               if f.get("confirmed_by") else "AI Review"),
+                "row_kind": ROW_KIND_DATASHEET_CHECK,
+            })
+            continue
         by = "AI Review"
         if f.get("confirmed_by"):
             by = f"AI Review, confirmed by {f['confirmed_by']}"
@@ -331,7 +356,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
 
     missing_info_count = sum(
         1 for f in findings
-        if f.get("compliance_status") == _MISSING_INFORMATION)
+        if f.get("compliance_status") == _MISSING_INFORMATION
+        and f.get("origin") != _DATASHEET_ORIGIN)
     if missing_info_count:
         rows.append({
             "finding_id": "missing-information-summary",

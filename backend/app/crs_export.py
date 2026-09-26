@@ -49,6 +49,8 @@ ROW_FILLS = {
     # Owner order 2d: an AI engineering check item - pale lavender, a draft
     # until an engineer confirms it.
     "ai_engineering_check": PatternFill("solid", fgColor="FFEFE8F7"),
+    # Owner order 2c: a datasheet self-check - the pale amber of review work.
+    "datasheet_check": PatternFill("solid", fgColor="FFFCF3CF"),
     # Entry 68: an absence on a page only the page reader read - engineer
     # work, the same pale amber.
     "page_reader_only": PatternFill("solid", fgColor="FFFDF2E9"),

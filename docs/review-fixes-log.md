@@ -116,3 +116,39 @@ redesign (section 3), and 2d-2 (web standards).
   (missing-information) summary. It is a question for the contractor, not an
   internal note.
 - DB migration: **none**.
+
+## Item 4 - datasheet self-checks (2c, kind B)
+
+- **What the engineer gets.** Every review now checks the datasheet against
+  ITSELF. This needs no standard, so a run with zero standards held still
+  gives "Datasheet check" comments. Each comment cites the datasheet page and
+  field and states the calculation, for example "Design pressure 18 barg
+  (page 1) is not at least operating pressure 20 barg (page 1)."
+- **The rules** are data (`backend/app/reference/datasheet_checks.json`), each
+  with an id and plain-English text:
+  - consistency: design pressure at least operating pressure (DS-C1); design
+    temperature at least operating temperature (DS-C2); test pressure above
+    design pressure (DS-C3); rated flow within the minimum and maximum flow
+    (DS-C4, DS-C5);
+  - mandatory fields per equipment type (vessel, centrifugal pump, pump):
+    present (DS-M1), and not "TBA", "TBD", "later" or "by vendor" (DS-M2);
+  - units: present (DS-U1), and of the field's kind (DS-U2);
+  - a revision block (DS-R1).
+- **Never guessed.**
+  - Values are compared only on one scale: gauge against absolute, or units
+    that do not normalise to one, are skipped.
+  - When two different values sit under one field name, the check is skipped
+    rather than picking one.
+  - An absent mandatory field is qualified like every absence: while a page is
+    unread, or read only by the page reader, it is an engineer's question and
+    not the contractor's omission.
+- **Where they go.**
+  - Failures are findings of the run (`origin = 'datasheet_check'`) and count
+    in the suggested code, by code only.
+  - Passes add no row.
+  - On the CRS each is its own "Datasheet check:" comment, including missing
+    values, and they are not counted in the missing-information summary.
+  - The findings table labels them "Datasheet check".
+- **Not in this PR:** document number and revision consistency across pages.
+  It needs per-page title-block reading, which comes with the extraction work.
+- DB migration: **none**.
