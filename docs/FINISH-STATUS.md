@@ -405,3 +405,14 @@ is not mistaken for no change.
 **Known residuals (not fixed):** a table's row number can still be carried as a
 clause label (one standard, two pages); roman-numeral top-level headings are
 not read as clauses (labels left empty rather than wrong).
+
+**The vessel datasheet against the supplied standard, re-run on the fixed code:**
+job done in 9.2 s; the standard applied automatically, evidence "page 5", the
+printed line naming it; 96 requirements (was 85), all 96 NOT_IN_DOCUMENT_SCOPE -
+each names its own evidence (PMI test records, material certificates), which a
+datasheet is not, so the CRS says so in one row rather than 85 invented
+verdicts; 14 other cited standards MISSING_LOCALLY; recommended code "Manual
+Review Required", marked not yet decided by an engineer. COMPLIANT /
+NON_COMPLIANT: 0 / 0 - still no pass/fail verdict on a real document, because
+this standard's obligations are proved by other documents. **Release status
+unchanged: NOT release-ready.**
