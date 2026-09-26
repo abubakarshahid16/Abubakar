@@ -117,8 +117,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="stop absorbing the unit column, orphaning it as a field "
                     "named after a unit",
         path=APP / "datasheets.py",
-        anchor="            if index < len(parts) and _is_numeric_cell(value):",
-        replacement="            if False:",
+        # Re-anchored 2026-09-26 (filter audit): the branch is now an elif,
+        # after the unit-before-the-value shape.
+        anchor="            elif index < len(parts) and _is_numeric_cell(value):",
+        replacement="            elif False:",
         target="tests/test_datasheet_unit_layouts.py",
         keyword="unit_in_its_own_column",
         tags=("critical",),
