@@ -109,6 +109,11 @@ def strip_running_lines(text: str, running: set[str]) -> tuple[str, int]:
             )[0]:
                 keep.append(line)
                 continue
+            # B6B E4: the same for a numbered paragraph's clause number
+            # ('6.2.1' above its requirement) - dotted, so never a page number.
+            if _numbered_paragraph([ln.strip() for ln in lines], i):
+                keep.append(line)
+                continue
             removed += 1
             continue
         keep.append(line)
@@ -669,6 +674,36 @@ def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
     return None, 1
 
 
+#: A DOTTED clause number (never a bare integer - that is a page number).
+_DOTTED_CLAUSE_ONLY = re.compile(r"^\s*((?:[A-Z]\.)?\d+(?:\.\d+){1,4})\.?\s*$")
+
+
+def _numbered_paragraph(lines: list[str], i: int) -> str | None:
+    """B6B E4: a clause number alone on its line, its REQUIREMENT on the next.
+
+        '6.2.1 '
+        'The unit shall be located so that ... '
+
+    _split_line_heading rejects this on purpose - the next line is a sentence,
+    not a title - so a standard laid out as numbered paragraphs had no clause
+    state at all and every chunk inherited one early heading (measured: one
+    real standard, 25 chunks, 2 clause labels). The number IS the clause a
+    citation must name, so it becomes the section, as the number alone - no
+    title is invented. Dotted numbers only; the document's own plausibility
+    filter still decides whether the number belongs to its hierarchy.
+    """
+    m = _DOTTED_CLAUSE_ONLY.match(lines[i])
+    if not m:
+        return None
+    for j in range(i + 1, min(i + 3, len(lines))):
+        nxt = lines[j].strip()
+        if not nxt:
+            continue
+        # the requirement starts as a sentence: a capital letter and words
+        return m.group(1) if nxt[:1].isupper() and len(nxt.split()) >= 4 else None
+    return None
+
+
 def _heading_number(heading: str) -> str:
     """The numbering off the front of a validated heading string."""
     return heading.split(" ", 1)[0]
@@ -805,6 +840,7 @@ def _candidate_headings(
     pages: list[tuple[int, str]],
     running: set[str],
     page_kinds: dict[int, str] | None,
+    numbered_paragraphs: bool = False,
 ) -> list[str]:
     """Every heading the detector would accept, before plausibility filtering.
 
@@ -826,6 +862,8 @@ def _candidate_headings(
             consumed = 1
             if head is None:
                 head, consumed = _split_line_heading(lines, i)
+            if head is None and numbered_paragraphs:
+                head = _numbered_paragraph(lines, i)
             if head:
                 found.append(head)
             i += consumed
@@ -848,8 +886,19 @@ def segment_document(
 
     # Decided across the whole document, not line by line - see
     # plausible_heading_numbers.
+    candidates = _candidate_headings(pages, running, page_kinds)
+    # B6B E4: NUMBERED-PARAGRAPH ANCHORS ONLY WHERE THE DOCUMENT HAS NO OTHER
+    # STRUCTURE. A standard whose titled headings the detector reads keeps
+    # exactly the chunking it had - measured: switching the anchors on
+    # everywhere split well-structured standards finer and lost recall on
+    # reworded questions. Only a document with fewer detected headings than
+    # half its prose pages is read as numbered paragraphs.
+    prose_pages = sum(1 for p, _ in pages if (page_kinds or {}).get(p, "prose") == "prose")
+    numbered_paragraphs = len(candidates) < max(1, prose_pages // 2)
+    if numbered_paragraphs:
+        candidates = _candidate_headings(pages, running, page_kinds, numbered_paragraphs=True)
     allowed_numbers = plausible_heading_numbers(
-        _heading_number(h) for h in _candidate_headings(pages, running, page_kinds)
+        _heading_number(h) for h in candidates
     )
 
     kinds = page_kinds or {}
@@ -908,6 +957,10 @@ def segment_document(
                 # specifications lay headings out, and it is why every chunk
                 # in such a document had section: null.
                 head, consumed = _split_line_heading(lines, i)
+            if head is None and numbered_paragraphs:
+                # B6B E4: a numbered paragraph - the clause number alone, the
+                # requirement sentence (not a title) beneath it.
+                head = _numbered_paragraph(lines, i)
 
             if head is not None:
                 number = _heading_number(head)

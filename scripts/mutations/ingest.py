@@ -142,4 +142,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         target=_B3_TEST, keyword="nothing_searchable_still_has_its_pages",
         tags=("honesty",),
     ),
+    Mutation(
+        id="M797", phase=68, description="B6B E1: ingestion embeds the body alone - the heading is dropped from the vector",
+        path=APP / "ingest.py",
+        anchor='                [embedder.passage_input(r["section"], r["text"]) for r in window])\n',
+        replacement='                [r["text"] for r in window])\n',
+        target="tests/test_b6b_e1_heading_embedding.py", keyword="heading_aware_vector",
+    ),
 )

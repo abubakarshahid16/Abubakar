@@ -25,7 +25,7 @@ from .db import connect
 from . import keyword
 from . import ocr
 from .extract import extract_document
-from .embedder import Embedder, EmbedderConfig
+from .embedder import PASSAGE_INPUT_VERSION, Embedder, EmbedderConfig
 
 # A worker with no heartbeat for this long has died or hung.
 STALL_AFTER_SECONDS = 120
@@ -583,7 +583,7 @@ class IngestionWorker:
         """
         conn = connect()
         rows = conn.execute(
-            """SELECT c.id, c.text FROM chunks c
+            """SELECT c.id, c.section, c.text FROM chunks c
                LEFT JOIN chunk_vectors v ON v.chunk_id = c.id
                WHERE c.document_id = ? AND c.retrievable = 1 AND v.chunk_id IS NULL
                ORDER BY c.ordinal""",
@@ -602,7 +602,10 @@ class IngestionWorker:
             if self._stop.is_set():
                 break
             window = rows[start:start + batch]
-            vectors = embedder.embed_passages([r["text"] for r in window])
+            # B6B E1: heading + body, never the body cut for the heading -
+            # see Embedder.passage_input. The stored chunk text is untouched.
+            vectors = embedder.embed_passages(
+                [embedder.passage_input(r["section"], r["text"]) for r in window])
             with conn:
                 conn.executemany(
                     """INSERT OR REPLACE INTO chunk_vectors
@@ -610,7 +613,7 @@ class IngestionWorker:
                        VALUES (?, ?, ?, ?, ?, ?)""",
                     [
                         (r["id"], doc_id, int(v.shape[0]), v.astype("float32").tobytes(),
-                         embedder.config.model_file, _now())
+                         f"{embedder.config.model_file}+{PASSAGE_INPUT_VERSION}", _now())
                         for r, v in zip(window, vectors)
                     ],
                 )

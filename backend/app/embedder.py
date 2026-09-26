@@ -33,6 +33,17 @@ QUERY_PREFIX = "query: "
 MODEL_MAX_TOKENS = 512
 EMBEDDING_DIM = 384
 
+#: B6B E1: WHAT A PASSAGE VECTOR IS COMPUTED FROM - the chunk's clause heading,
+#: then its body. The keyword index and the reranker already read "heading +
+#: body" (search.Candidate.searchable_text); the embedder read the body alone,
+#: so the 28% of chunks that are one short line ("Loads from the extreme case
+#: shall also be established.") were embedded without the heading that says
+#: what they are about ("4.7 Anchor Line Loads").
+#: Recorded on every stored vector (chunk_vectors.model) so a vector computed
+#: from the body alone is identifiable. The STORED chunk text - what a
+#: citation quotes - is unchanged; only the model's input is.
+PASSAGE_INPUT_VERSION = "heading-v1"
+
 
 @dataclass(frozen=True)
 class EmbedderConfig:
@@ -156,6 +167,25 @@ class Embedder:
             batch_vectors = self._forward([prefixed[i] for i in idx])
             vectors[idx] = batch_vectors
         return vectors
+
+    def passage_input(self, heading: str | None, body: str) -> str:
+        """The text a chunk is embedded from: its heading, a newline, its body.
+
+        THE BODY IS NEVER CUT FOR THE HEADING. The tokenizer truncates at
+        MODEL_MAX_TOKENS from the END, so a heading that pushed the input over
+        the limit would silently drop the body's last sentences - the evidence.
+        When heading + body would not fit, the body alone is embedded, exactly
+        as before E1. (Measured: 0 of 842 real chunks reach that case - bodies
+        are capped at chunk_max_tokens=480, headings run to about 30 tokens -
+        but the margin is a measurement, not a guarantee.)
+        """
+        heading = (heading or "").strip()
+        if not heading:
+            return body
+        candidate = heading + "\n" + body
+        if self.tokenizer.encode(PASSAGE_PREFIX + candidate).overflowing:
+            return body
+        return candidate
 
     def embed_passages(
         self, texts: list[str], batch_size: int | None = None, bucketed: bool | None = None
