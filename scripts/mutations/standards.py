@@ -81,17 +81,17 @@ MUTATIONS: tuple[Mutation, ...] = (
         # the wrong reason, and indistinguishable from a real detection. The
         # mutation has to reproduce the DEFECT: the action happens and no
         # record of it is written.
+        # Re-anchored in P5: the helper no longer swallows its own failure,
+        # so the try block it used to sit in is gone.
         anchor="    conn = connect()\n"
-               "    try:\n"
-               "        with conn:\n"
-               "            conn.execute(\n"
-               '                """INSERT INTO audit_events',
+               "    with conn:\n"
+               "        conn.execute(\n"
+               '            """INSERT INTO audit_events',
         replacement="    return\n"
                     "    conn = connect()\n"
-                    "    try:\n"
-                    "        with conn:\n"
-                    "            conn.execute(\n"
-                    '                """INSERT INTO audit_events',
+                    "    with conn:\n"
+                    "        conn.execute(\n"
+                    '            """INSERT INTO audit_events',
         target="tests/test_standards_library.py",
         keyword="supersession_is_audited",
         tags=("audit",),
