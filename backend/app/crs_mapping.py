@@ -62,6 +62,11 @@ _REQUIRES_OTHER_DOCUMENT_MARKER = "requires_other_document"
 #: enters the CRS as its own row.
 _UNREAD_PAGES_MARKER = "UNREAD_PAGES"
 ROW_KIND_PAGES_NOT_READABLE = "pages_not_readable"
+#: Honesty audit entry 68: `comparison.PAGE_READER_ONLY` - the value was not
+#: found on a page only the geometry/vision reader read. Engineer work, like
+#: UNREAD_PAGES, so never an individual row to the contractor.
+_PAGE_READER_ONLY_MARKER = "PAGE_READER_ONLY"
+ROW_KIND_PAGE_READER_ONLY = "page_reader_only"
 
 
 def _page_list(pages: list[int]) -> str:
@@ -82,6 +87,11 @@ def _page_list(pages: list[int]) -> str:
 def _unread(finding: dict) -> bool:
     return (finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
             and (finding.get("ai_rationale") or "").startswith(_UNREAD_PAGES_MARKER))
+
+
+def _page_reader_only(finding: dict) -> bool:
+    return (finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
+            and (finding.get("ai_rationale") or "").startswith(_PAGE_READER_ONLY_MARKER))
 
 
 def _citation(finding: dict) -> str:
@@ -152,7 +162,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                if f.get("compliance_status") == "NON_COMPLIANT"]
     ordered += [f for f in findings
                 if f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
-                and not _unread(f)]
+                and not _unread(f) and not _page_reader_only(f)]
     for f in ordered:
         by = "AI Review"
         if f.get("confirmed_by"):
@@ -227,6 +237,22 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "contractor and nothing is missing until that check is done."),
             "comment_by": "AI Review",
             "row_kind": ROW_KIND_PAGES_NOT_READABLE,
+        })
+
+    page_reader_count = sum(1 for f in findings if _page_reader_only(f))
+    if page_reader_count:
+        rows.append({
+            "finding_id": "page-reader-only-summary",
+            "document_name": submittal_name,
+            "page_section": "",
+            "comment": (
+                f"Value not found by the page reader - engineer to check the page. "
+                f"{page_reader_count} requirement{'s' if page_reader_count != 1 else ''} "
+                "had no value on pages read only by the page layout reader, "
+                "which does not find every field on a page. An engineer will "
+                "check those pages; this is not a comment to the contractor."),
+            "comment_by": "AI Review",
+            "row_kind": ROW_KIND_PAGE_READER_ONLY,
         })
 
     missing_info_count = sum(

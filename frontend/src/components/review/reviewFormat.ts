@@ -88,6 +88,12 @@ export const UNREAD_PAGES = "UNREAD_PAGES";
  *  "missing information" reads as honesty, not as a regression. */
 export const PAGES_NOT_READABLE_LABEL = "Pages not yet readable - needs engineer review";
 
+/** Honesty audit entry 68: the value was not found on a page read only by the
+ *  geometry/vision (page) reader - an engineer checks the page; it is never
+ *  the contractor's missing information. */
+export const PAGE_READER_ONLY = "PAGE_READER_ONLY";
+export const PAGE_READER_ONLY_LABEL = "Value not found by the page reader - engineer to check the page";
+
 /**
  * A FINDING's label, not just its status's: one status can carry different
  * truths. A NEEDS_ENGINEER_REVIEW finding whose reason is UNREAD_PAGES says
@@ -99,6 +105,10 @@ export function findingLabel(finding: {
   if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"
       && (finding.ai_rationale ?? "").startsWith(UNREAD_PAGES)) {
     return PAGES_NOT_READABLE_LABEL;
+  }
+  if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"
+      && (finding.ai_rationale ?? "").startsWith(PAGE_READER_ONLY)) {
+    return PAGE_READER_ONLY_LABEL;
   }
   return statusLabel(finding.compliance_status);
 }

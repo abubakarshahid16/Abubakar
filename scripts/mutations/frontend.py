@@ -332,8 +332,8 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "review', so the drop in missing information looks like a "
                     "regression (B3, owner decision 5)",
         path=_REVIEW_UI / "reviewFormat.ts",
-        anchor='  if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"\n',
-        replacement="  if (false\n",
+        anchor="      && (finding.ai_rationale ?? \"\").startsWith(UNREAD_PAGES)) {\n",
+        replacement="      && false) {\n",
         target="src/components/review/reviewFormat.test.ts",
         keyword="UNREAD_PAGES finding",
         tags=("honesty", "ui"),
@@ -703,5 +703,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="src/views/ChatView.test.tsx",
         keyword='offers report generation',
         tags=("chat", "ui"),
+    ),
+    Mutation(
+        id="M1025", phase=63, runner="vitest",
+        description="a page-reader absence reads as a bare 'Needs engineer review' (entry 68)",
+        path=_REVIEW_UI / "reviewFormat.ts",
+        anchor="      && (finding.ai_rationale ?? \"\").startsWith(PAGE_READER_ONLY)) {\n",
+        replacement="      && false) {\n",
+        target="src/components/review/reviewFormat.test.ts",
+        keyword="PAGE_READER_ONLY finding",
+        tags=("honesty", "ui"),
     ),
 )
