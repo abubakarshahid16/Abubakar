@@ -145,3 +145,38 @@ def test_an_unrelated_operational_error_still_raises():
 
     with pytest.raises(sqlite3.OperationalError):
         db.add_column_if_missing(conn, "t", "extra", "NOT A REAL TYPE(")
+
+
+class _SchemaChangedOnce:
+    """A connection whose first ALTER fails as SQLite fails it when another
+    connection changed the schema between prepare and step."""
+
+    def __init__(self, conn, failures: int = 1):
+        self._conn, self.failures = conn, failures
+
+    def execute(self, sql, *args):
+        if sql.startswith("ALTER TABLE") and self.failures:
+            self.failures -= 1
+            raise sqlite3.OperationalError("database schema has changed")
+        return self._conn.execute(sql, *args)
+
+
+def test_a_schema_changed_answer_is_retried_not_raised(fresh_db):
+    """THE MUTATION TARGET (M1055). Seen once in CI (2026-09-26): the race's
+    loser can be told "database schema has changed" rather than "duplicate
+    column". It re-reads and retries; the column ends up there."""
+    db.init_db()
+    conn = db.connect()
+    conn.execute("CREATE TABLE t_race (id TEXT)")
+    assert db.add_column_if_missing(_SchemaChangedOnce(conn), "t_race", "extra", "TEXT") is True
+    assert "extra" in db.columns_of(conn, "t_race")
+
+
+def test_a_schema_that_never_settles_still_fails_loudly(fresh_db):
+    """Bounded: a schema that keeps changing is an error, never a silent pass."""
+    db.init_db()
+    conn = db.connect()
+    conn.execute("CREATE TABLE t_race2 (id TEXT)")
+    with pytest.raises(sqlite3.OperationalError, match="kept changing"):
+        db.add_column_if_missing(_SchemaChangedOnce(conn, failures=99), "t_race2", "extra", "TEXT")
+    assert "extra" not in db.columns_of(conn, "t_race2")
