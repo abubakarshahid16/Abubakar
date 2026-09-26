@@ -11,7 +11,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  STATUS_ORDER, completenessLine, estimateDetail, confidenceLabel, findingLabel, matchMethodLabel,
+  STATUS_ORDER, completenessLine, estimateDetail, standardsChangeLine, confidenceLabel, findingLabel, matchMethodLabel,
   orNothing, pageCoverageLine, pageList, statusLabel, statusRank, statusTone,
   withDenominator,
 } from "./reviewFormat";
@@ -232,5 +232,19 @@ describe("B3: which pages were read into fields", () => {
   it("compresses page runs the way the findings do", () => {
     expect(pageList([7, 1, 2, 3])).toBe("1-3, 7");
     expect(pageList([5])).toBe("5");
+  });
+});
+
+describe("2e: why the in-scope count moved", () => {
+  const base = { completeness: null } as unknown as ReviewRunSummary;
+  it("names what was added and removed since the previous run", () => {
+    expect(standardsChangeLine({ ...base, standards_change: {
+      previous_run_id: "r0", added: ["STD-C.pdf"], removed: ["STD-A.pdf", "STD-B.pdf"] } }))
+      .toBe("Since the previous run: 2 standards removed (STD-A.pdf, STD-B.pdf); 1 standard added (STD-C.pdf).");
+  });
+  it("says nothing changed, and nothing at all for a first run", () => {
+    expect(standardsChangeLine({ ...base, standards_change: { previous_run_id: "r0", added: [], removed: [] } }))
+      .toBe("Same standards in scope as the previous run.");
+    expect(standardsChangeLine({ ...base, standards_change: null })).toBe("");
   });
 });

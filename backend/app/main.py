@@ -1632,6 +1632,35 @@ def _missing_references(submittal_id: str, allowed: frozenset[str]) -> list[str]
     return sorted(missing, key=applicability_mod.normalise_identifier)
 
 
+def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
+    """Owner order 2e: WHY THE IN-SCOPE COUNT MOVED BETWEEN RUNS.
+
+    The applicability decision is stored per run (`review_applicable_standards`),
+    so the change is a diff against the previous run of the same submittal:
+    which standards were added and which removed, by name, under the caller's
+    grants. None when there is no earlier run to compare with.
+    """
+    previous = connect().execute(
+        "SELECT id FROM review_runs WHERE submittal_document_id = ? AND id != ?"
+        " AND created_at < ? ORDER BY created_at DESC LIMIT 1",
+        (run["submittal_document_id"], run["id"], run.get("created_at") or "")).fetchone()
+    if previous is None:
+        return None
+
+    def in_scope(run_id: str) -> dict[str, str]:
+        return {r["standard_document_id"]: r["filename"] or r["standard_document_id"]
+                for r in connect().execute(
+                    "SELECT a.standard_document_id, d.filename FROM review_applicable_standards a"
+                    " LEFT JOIN documents d ON d.id = a.standard_document_id"
+                    " WHERE a.review_run_id = ? AND a.included = 1", (run_id,))
+                if scope.may_read(r["standard_document_id"])}
+
+    now, before = in_scope(run["id"]), in_scope(previous["id"])
+    return {"previous_run_id": previous["id"],
+            "added": sorted(now[k] for k in now.keys() - before.keys()),
+            "removed": sorted(before[k] for k in before.keys() - now.keys())}
+
+
 def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     """One review run as every screen shows it.
 
@@ -1701,6 +1730,8 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "page_coverage": outcome.get("page_coverage"),
         # P3: the background job running this review - progress and cancel.
         "job": job,
+        # 2e: which standards came into or left scope since the previous run.
+        "standards_change": _standards_change(run, scope),
     }
 
 
@@ -3731,9 +3762,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # so the CRS names the same pages the findings were decided on.
     unread = ((outcome.get("page_coverage") or {})
               .get("pages_not_read_into_fields") or [])
-    rows = crs_mapping_mod.build_crs_rows(
-        findings, _missing_references(submittal_id, allowed), submittal_name,
-        unread_pages=unread)
+    missing = _missing_references(submittal_id, allowed)
+    rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
+                                          unread_pages=unread)
     stamp = _now_date()
     meta = {
         "document_title": submittal_name,
@@ -3760,6 +3791,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
         "copy": copy,
+        # 2f: the engineer's internal notes, on their own sheet.
+        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread),
     }
     return rows, meta, submittal_name, stamp
 

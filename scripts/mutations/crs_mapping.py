@@ -14,10 +14,11 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "findings exports a CRS that names none of them "
                     "(issue #165 criterion 4)",
         path=APP / "crs_mapping.py",
-        anchor="    if other_doc_count:",
-        replacement="    if False:",
+        # Re-anchored 2026-09-26 (order 2f): a Review note per standard now.
+        anchor="    for name in sorted(by_standard):\n",
+        replacement="    for name in ():\n",
         target="tests/test_crs_mapping.py",
-        keyword="requires_other_document_gets_one_summary_row_not_individual_ones",
+        keyword="review_note_by_standard",
         tags=("honesty", "critical"),
     ),
     Mutation(
@@ -52,10 +53,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the CRS says nothing about the requirements it could not "
                     "check, reading as if none existed (B3)",
         path=APP / "crs_mapping.py",
-        anchor="    if unread_count:\n",
+        # Re-anchored 2026-09-26 (order 2f): a Review note now.
+        anchor="    if unread:\n",
         replacement="    if False:\n",
         target="tests/test_b3_crs_unread_pages.py",
-        keyword="one_plain_summary_row",
+        keyword="one_review_note_not_74",
         tags=("honesty",),
     ),
 )

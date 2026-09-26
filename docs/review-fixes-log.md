@@ -87,3 +87,32 @@ redesign (section 3), and 2d-2 (web standards).
   the panel when it has none. The two can no longer show different documents.
 - DB migration: **none** (the technical sentence is stored in the existing
   run-outcome JSON).
+
+## Item 2 - CRS "Review notes" sheet (2f) and grouping (2e)
+
+- **The contractor's column holds only comments.** These internal notes are no
+  longer printed in COMPANY Comments as "AI Review":
+  - requirements that need another document;
+  - pages not yet readable;
+  - values the page reader did not find;
+  - cited standards that are not in the library.
+
+  They are now a **"Review notes"** sheet, in the internal review copy only.
+  The copy issued to the contractor has no such sheet. The CRS preview shows
+  them in a collapsed "Review notes - internal" table.
+- **Grouped, not listed.** Requirements that need another document form one
+  note per standard with a count ("12 of this run's requirements from
+  <standard> name their own evidence..."), not hundreds of rows.
+- **The same rule is one comment.** When two standards carry identical
+  requirement text, decided the same way against the same datasheet value and
+  page, the CRS prints one row that cites every standard ("The same
+  requirement is in: ..."). Rules that are merely similar are not merged.
+- **Why the count moved.** Each run now says which standards came into or left
+  scope since the previous run of the same submittal, for example "Since the
+  previous run: 4 standards removed (...); 1 added (...)". The comparison is
+  made from each run's stored applicability decision, under the caller's
+  access (a standard they cannot read is not named).
+- Kept on the CRS sheet: the one-row "not answered by any field read"
+  (missing-information) summary. It is a question for the contractor, not an
+  internal note.
+- DB migration: **none**.
