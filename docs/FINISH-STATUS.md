@@ -97,3 +97,42 @@ needs the Claude lane (owner key + egress flags): **PENDING OWNER VALIDATION**.
 Tests `test_b7_vision_routing.py` (10); four B4 vision tests now force routing
 (they test proof/precedence, kept as defence in depth); mutations M812–M817
 6/6; B4 phase 64 30/30 after re-anchoring M649/M650/M652.
+
+**B7 merged: PR #250, merge commit `80695c3`.** CI green (8/8). Real vision recovery: PENDING OWNER VALIDATION (needs the Claude lane).
+
+## B8 – answer-level safety gate (branch `feat/b8-answerability-gate`)
+
+Every answer (extract, generated, refused; direct API and chat) carries
+`answerability`: a verdict decided by structure the code can check – **never
+the reranker score** – with the passages it rests on, never "high"
+confidence. Order: insufficient_evidence → requires_engineer_review
+(compliance judgements: chat never decides) → conflicting_evidence (two
+documents, same unit, different values – including search's dropped
+near-copies, which used to make a real disagreement vanish) →
+ambiguous_evidence (B6C) → requires_another_document (the matching clause
+only defers to a standard not held, states no value itself, and the question
+did not name it) → supported.
+
+Optional model judge (`ANSWER_JUDGE_ENABLED`, off by default; local Ollama or
+Claude via the approved transport and USD caps): runs only on `supported`;
+may downgrade or point to a lower passage, never upgrade a refusal; a "yes" is
+accepted only with a quote verified verbatim in the passage it names; any
+other output is rejected and the structural verdict stands.
+
+Also fixed: the HTTP response model silently dropped B6C `understanding` /
+`scope_ambiguity` and would have dropped `answerability` – now declared in
+`schemas.AnswerResult` and `contracts/types.ts`.
+
+Measured on the frozen real set (AI-labelled; relative only), structural gate:
+
+| | verdicts |
+|---|---|
+| unanswerable (8) | 7 insufficient_evidence, **1 supported** |
+| answerable, right top passage (47) | 43 supported, 2 insufficient, 1 requires_another_document (a yes/no clause – known imprecision), 1 conflicting (two standards give different distances – coarse check) |
+| answerable, wrong top passage (25) | 22 supported, 3 insufficient |
+
+The structural gate cannot tell that a topically-right passage does not answer
+– that is the model judge's job, and it needs a model: **PENDING OWNER
+VALIDATION** (turn on `ANSWER_JUDGE_ENABLED` with the local model; re-run the
+frozen set; target: the 1 negative and the wrong-top answers downgraded or
+relocated). Tests `test_b8_answerability.py` (21); mutations M818–M828 11/11.

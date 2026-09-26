@@ -481,6 +481,30 @@ def answer(
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
 ) -> dict:
+    """Answer a question, then judge whether the evidence answers it (B8).
+
+    Every answer - extract, generated or refused - carries `answerability`:
+    the verdict of `answerability.assess` on the evidence actually shown.
+    The reranker score takes no part in it.
+    """
+    from . import answerability
+    result = _answer(question, tier, document_id, limit,
+                     allowed_document_ids=allowed_document_ids, progress_id=progress_id)
+    verdict = answerability.assess(question, result, allowed_document_ids=allowed_document_ids)
+    result["answerability"] = answerability.judge(
+        question, result, verdict, answerability.judge_provider())
+    return result
+
+
+def _answer(
+    question: str,
+    tier: str = "extract",
+    document_id: str | None = None,
+    limit: int = 3,
+    *,
+    allowed_document_ids: frozenset[str],
+    progress_id: str | None = None,
+) -> dict:
     """Answer a question. `tier` is "extract" (default) or "generated".
 
     `allowed_document_ids` is REQUIRED and keyword-only. It is threaded down to
@@ -592,7 +616,8 @@ def _answer_from_documents(
         # B6C: candidates dropped as near-copies of a kept one - the kept
         # chunk and the document the copy came from. Report-only.
         "near_duplicates": [
-            {"document_id": e["document_id"], "duplicate_of": e["duplicate_of"]}
+            {"chunk_id": e["chunk_id"], "document_id": e["document_id"],
+             "duplicate_of": e["duplicate_of"]}
             for e in results.get("shortlist_excluded") or []
             if e.get("reason") == "near_duplicate" and e.get("duplicate_of")
         ],

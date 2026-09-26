@@ -490,6 +490,8 @@ _PAYLOAD_KEYS = (
     # B6C: what the question was understood to be about, and any document
     # ambiguity - reopened without them, a scoped answer would look unscoped.
     "understanding", "scope_ambiguity",
+    # B8: the answer-level verdict, reopened exactly as it was given.
+    "answerability",
 )
 
 
@@ -606,6 +608,14 @@ def ask(
                           "name the document to answer from one of them",
                 "documents": [{"document_id": d, "filename": names.get(d)} for d in same],
             }
+    # B8: judged again now the scope and ambiguity are known. An accepted
+    # model judgement from answer() is kept while the structure still agrees.
+    from . import answerability
+    rejudged = answerability.assess(resolved, result, allowed_document_ids=scoped_allowed)
+    earlier = result.get("answerability") or {}
+    if not (rejudged["verdict"] == earlier.get("verdict") == answerability.SUPPORTED
+            and (earlier.get("judge") or {}).get("accepted")):
+        result["answerability"] = rejudged
 
     assistant_message = _insert_message(
         conn,
