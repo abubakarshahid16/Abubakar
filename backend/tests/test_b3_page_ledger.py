@@ -291,10 +291,13 @@ def test_no_value_on_a_page_read_only_by_the_page_reader_is_for_an_engineer(tmp_
     assert finding["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert finding["ai_rationale"].startswith(
         "PAGE_READER_ONLY: value not found by the page reader - engineer to check the page 1")
-    rows = TestClient(app).get(f"/api/reviews/runs/{run}/crs/preview").json()["rows"]
-    assert not [r for r in rows if "PAGE_READER_ONLY" in (r.get("comment") or "")], \
-        "a page-reader absence reached the CRS as its own row"
-    assert len([r for r in rows if "Value not found by the page reader" in r["comment"]]) == 1
+    view = TestClient(app).get(f"/api/reviews/runs/{run}/crs/preview").json()
+    assert not [r for r in view["rows"] if "PAGE_READER_ONLY" in (r.get("comment") or "")
+                or "page reader" in (r.get("comment") or "")], \
+        "a page-reader absence reached the contractor's comment column"
+    # 2f: one internal Review note instead.
+    assert [n["count"] for n in view["review_notes"]
+            if n["note"].startswith("Value not found by the page reader")] == [1]
 
 
 def test_a_page_the_text_reader_also_read_keeps_missing_information(tmp_path):
@@ -456,7 +459,7 @@ def test_the_route_hides_a_document_outside_the_callers_scope(tmp_path, monkeypa
 
 def test_the_crs_names_the_unread_pages_the_run_stored(tmp_path):
     """End to end: a real review, then the real CRS preview route. The
-    unread-page findings are one plain row naming the page the run recorded."""
+    unread-page findings are one Review note naming the page the run recorded."""
     sub = _sheet(tmp_path)
     run, scope = _review(sub)
     comparison.run_comparison(run, allowed_document_ids=scope)
@@ -464,9 +467,10 @@ def test_the_crs_names_the_unread_pages_the_run_stored(tmp_path):
     body = TestClient(app).get(f"/api/reviews/runs/{run}/crs/preview").json()
 
     rows = body.get("rows") or body.get("findings") or []
-    summary = [r for r in rows if "Pages not yet readable" in (r.get("comment") or "")]
-    assert len(summary) == 1, rows
-    assert "page 2 of this submittal" in summary[0]["comment"]
+    # 2f: an internal Review note, never a row in the contractor's column.
+    [note] = [n for n in body["review_notes"] if n["note"].startswith("Pages not yet readable")]
+    assert "page 2 of this submittal" in note["detail"]
+    assert not [r for r in rows if "not yet read" in (r.get("comment") or "")]
     assert not [r for r in rows if (r.get("comment") or "").startswith("Requirement:")
                 and "UNREAD_PAGES" in (r.get("comment") or "")], \
         "an unread-page finding reached the CRS as its own row"

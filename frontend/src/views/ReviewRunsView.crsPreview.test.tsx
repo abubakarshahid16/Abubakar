@@ -299,3 +299,18 @@ describe("the download the preview sits beside", () => {
     expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
   });
 });
+
+describe("2f: the engineer's internal notes are their own table, not comments", () => {
+  it("shows the Review notes collapsed under the sheet, never in a comment row", async () => {
+    previewCrs.mockResolvedValue({ ok: true, data: sheet({ review_notes: [
+      { note: "Requires another document", standard: "STD-A.pdf", count: 12,
+        detail: "12 of this run's requirements from STD-A.pdf name their own evidence." },
+    ] }) });
+    const panel = within(await openThePreview());
+    const notes = panel.getByText(/Review notes - internal \(1\)/).closest("details")!;
+    expect(within(notes).getByText("Requires another document")).toBeInTheDocument();
+    expect(within(notes).getByText("12")).toBeInTheDocument();
+    const table = panel.getAllByRole("table")[0];
+    expect(within(table).queryByText(/name their own evidence/)).toBeNull();
+  });
+});

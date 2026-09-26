@@ -399,6 +399,14 @@ export interface CrsPreviewRow {
  * engineer reads on screen is what the client receives - a preview that could
  * disagree with the delivered file would be worse than no preview at all.
  */
+/** Owner order 2f: one of the engineer's internal notes - never a contractor comment. */
+export interface CrsReviewNote {
+  note: string;
+  standard: string;
+  count: number | null;
+  detail: string;
+}
+
 export interface CrsPreview {
   title: string;
   subtitle: string;
@@ -414,6 +422,8 @@ export interface CrsPreview {
   recommended_code_label: string;
   /** "internal" (with "AI Review Comments") or "issue" (to the contractor). */
   crs_copy?: "internal" | "issue";
+  /** 2f: the "Review notes" sheet; empty in the contractor's copy. */
+  review_notes?: CrsReviewNote[];
 }
 
 export interface ReviewRunStandard {
@@ -474,6 +484,9 @@ export interface ReviewRunSummary {
   /** 2g: the technical sentence behind the plain reason, shown under
    *  "Details" (the nominal field estimate, engine identifiers). */
   recommended_details?: string | null;
+  /** 2e: standards added to / removed from scope since the previous run of
+   *  the same submittal; null when there is no earlier run. */
+  standards_change?: { previous_run_id: string; added: string[]; removed: string[] } | null;
   /** Why a failed run failed, verbatim. Null on a run that did not fail. */
   failure_reason?: string | null;
   /** The engineer's final code, beside the AI's and never instead of it. */

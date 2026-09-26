@@ -239,3 +239,18 @@ export function whenLabel(value: string | null | undefined): string {
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString();
 }
+
+/** 2e: why the in-scope count moved - "Since the previous run: 4 standards
+ *  removed (A, B, ...); 1 added (C)". Nothing when there is no earlier run
+ *  or nothing changed. */
+export function standardsChangeLine(run: ReviewRunSummary): string {
+  const change = run.standards_change;
+  if (!change) return "";
+  const part = (names: string[], verb: string) => names.length
+    ? `${names.length} standard${names.length === 1 ? "" : "s"} ${verb} (${names.join(", ")})`
+    : "";
+  const parts = [part(change.removed, "removed"), part(change.added, "added")].filter(Boolean);
+  return parts.length
+    ? `Since the previous run: ${parts.join("; ")}.`
+    : "Same standards in scope as the previous run.";
+}

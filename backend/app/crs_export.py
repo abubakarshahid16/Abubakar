@@ -86,6 +86,10 @@ SUBTITLE = "COMMENT RESOLUTION SHEET"
 #: B5: the sheet listing the standards the review applied, and why.
 STANDARDS_SHEET = "Applicable standards"
 STANDARDS_COLUMNS = ("Standard", "Status", "Method", "Reason", "Evidence")
+#: Owner order 2f: the engineer's internal notes, on their own sheet - never
+#: in COMPANY Comments, and not in the copy issued to the contractor.
+REVIEW_NOTES_SHEET = "Review notes"
+REVIEW_NOTES_COLUMNS = ("Note", "Standard", "Count", "Detail")
 #: The status words that sheet prints.
 STATUS_APPLIED = "Applied"
 STATUS_CONSIDERED = "Considered, not applied"
@@ -292,6 +296,11 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
              "reason": str(s.get("reason") or ""),
              "evidence": str(s.get("evidence") or "")}
             for s in (meta.get("applicable_standards") or [])],
+        # 2f: internal notes, internal copy only.
+        "review_notes": ([
+            {"note": str(n.get("note") or ""), "standard": str(n.get("standard") or ""),
+             "count": n.get("count"), "detail": str(n.get("detail") or "")}
+            for n in (meta.get("review_notes") or [])] if copy == COPY_INTERNAL else []),
     }
 
 
@@ -400,6 +409,18 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                 Alignment(wrap_text=True, vertical="top")
     for col, width in zip("ABCDE", (38, 22, 16, 70, 60)):
         standards_sheet.column_dimensions[col].width = width
+
+    # 2f: the engineer's internal notes - internal copy only.
+    if internal:
+        notes_sheet = wb.create_sheet(REVIEW_NOTES_SHEET)
+        for col, header in enumerate(REVIEW_NOTES_COLUMNS, start=1):
+            notes_sheet.cell(row=1, column=col, value=header).font = Font(bold=True)
+        for r, entry in enumerate(view["review_notes"], start=2):
+            for col, key in enumerate(("note", "standard", "count", "detail"), start=1):
+                notes_sheet.cell(row=r, column=col, value=entry[key]).alignment = \
+                    Alignment(wrap_text=True, vertical="top")
+        for col, width in zip("ABCD", (44, 30, 8, 90)):
+            notes_sheet.column_dimensions[col].width = width
 
     buffer = BytesIO()
     wb.save(buffer)

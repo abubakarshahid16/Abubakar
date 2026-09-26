@@ -263,8 +263,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "an empty sheet reading 'nothing to report'",
         path=APP / "main.py",
         # Re-anchored by B3: the call gained `unread_pages=` on the next line.
-        anchor="        findings, _missing_references(submittal_id, allowed), submittal_name,\n",
-        replacement="        findings, [], submittal_name,\n",
+        # Re-anchored 2026-09-26 (order 2f): the gaps are Review notes now.
+        anchor='        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread),\n',
+        replacement='        "review_notes": crs_mapping_mod.build_review_notes(findings, [], unread),\n',
         target="tests/test_crs_endpoint.py",
         keyword="no_includable_findings_still_exports_its_gap_rows",
         tags=("honesty", "critical"),

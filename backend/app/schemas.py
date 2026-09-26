@@ -2068,6 +2068,16 @@ class CrsStandardRow(BaseModel):
     evidence: str = ""
 
 
+class CrsReviewNote(BaseModel):
+    """Owner order 2f: one of the engineer's internal notes (the "Review
+    notes" sheet) - never a contractor comment."""
+
+    note: str
+    standard: str = ""
+    count: int | None = None
+    detail: str = ""
+
+
 class CrsPreview(BaseModel):
     """The Comment Resolution Sheet as a browser can render it.
 
@@ -2087,6 +2097,8 @@ class CrsPreview(BaseModel):
     #: "internal" (default: includes "AI Review Comments") or "issue" (to the
     #: contractor: that column and every unconfirmed row removed).
     crs_copy: str = "internal"
+    #: 2f: the engineer's internal notes; empty in the contractor's copy.
+    review_notes: list[CrsReviewNote] = []
     #: Empty when the run has no recommendation, and rendered as nothing
     #: rather than as a placeholder code.
     recommended_code: str = ""
@@ -2184,6 +2196,9 @@ class ReviewRunSummary(BaseModel):
     #: 2g: the technical sentence behind `recommended_reason` (the nominal
     #: field estimate, identifiers), shown under "Details". Null when none.
     recommended_details: str | None = None
+    #: 2e: {previous_run_id, added: [names], removed: [names]} against the
+    #: previous run of the same submittal; null when there is none.
+    standards_change: dict | None = None
     #: Why a failed run failed, verbatim. None on a run that did not fail.
     failure_reason: str | None = None
     #: THE ENGINEER'S DECISION, BESIDE THE MACHINE'S AND NEVER INSTEAD OF IT.

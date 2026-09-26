@@ -27,7 +27,7 @@ import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
 import { StandardOverrideControl } from "../components/review/StandardOverrideControl";
 import {
   STATUS_ORDER, completenessLine, pageCoverageLine, statusLabel, statusTone,
-  whenLabel, withDenominator,
+  standardsChangeLine, whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
 
 type Phase =
@@ -528,6 +528,11 @@ function RunCard({ run, selected, onOpen }: {
           {pageCoverage}
         </p>
       )}
+      {standardsChangeLine(run) && (
+        <p className="mt-1 text-xs text-slateish-400" data-testid="standards-change">
+          {standardsChangeLine(run)}
+        </p>
+      )}
     </button>
   );
 }
@@ -613,6 +618,35 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
           ))}
         </tbody>
       </table>
+
+      {/* Owner order 2f: the engineer's internal notes, on their own sheet -
+          never in COMPANY Comments, and not in the contractor's copy. */}
+      {(preview.review_notes ?? []).length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-slateish-200">
+            Review notes - internal ({(preview.review_notes ?? []).length})
+          </summary>
+          <table className="mt-2 w-full border-collapse">
+            <thead>
+              <tr>
+                {["Note", "Standard", "Count", "Detail"].map((h) => (
+                  <th key={h} scope="col" className="border border-ink-600 bg-ink-800 px-2 py-1 text-left font-semibold text-slateish-200">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(preview.review_notes ?? []).map((n, i) => (
+                <tr key={i}>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-200">{n.note}</td>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{n.standard}</td>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{n.count ?? ""}</td>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{n.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
 
       {/* NULL RENDERS AS NOTHING. A run with no recommendation shows no line
           at all rather than an empty or placeholder code. */}

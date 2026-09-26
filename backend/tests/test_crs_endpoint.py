@@ -115,6 +115,15 @@ def _sheet(response):
     return load_workbook(io.BytesIO(response.content)).active
 
 
+def _notes(response) -> str:
+    """Owner order 2f: the "Review notes" sheet, as one text - where a cited
+    standard not held is now recorded (never in COMPANY Comments)."""
+    assert response.status_code == 200, response.text
+    book = load_workbook(io.BytesIO(response.content))
+    return "\n".join(str(c.value) for row in book["Review notes"].iter_rows() for c in row
+                     if c.value is not None)
+
+
 def _cells(ws, column: int) -> list:
     # FIRST_DATA_ROW, never a literal 9: the table moves down the sheet every
     # time a header field is added, and a hardcoded row would quietly read
@@ -256,21 +265,21 @@ def test_a_run_with_no_includable_findings_still_exports_its_gap_rows():
             "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,"
             "page_end,text,token_count,content_hash)"
             " VALUES ('c1',?,'drum.pdf',0,1,1,?,10,'h1')",
-            (doc, "This vessel shall comply with 32-SAMSS-004 throughout."))
+            (doc, "This vessel shall comply with API 998 throughout."))
 
-    ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
+    response = _client(doc).get(f"/api/reviews/runs/{run_id}/crs")
+    ws = _sheet(response)
 
-    sections = _cells(ws, 3)
-    assert "References" in sections, "no gap row was written"
-    gap_row = FIRST_DATA_ROW + sections.index("References")
-    gap = ws.cell(row=gap_row, column=4).value
-    assert "32-SAMSS-004" in gap
-    assert "not in the standards library" in gap
+    # 2f: the gap is an internal Review note, not a comment to the contractor.
+    notes = _notes(response)
+    assert "API 998" in notes, "no gap note was written"
+    assert "Standard not in your library - upload required" in notes
+    assert "API 998" not in "\n".join(str(v) for v in _cells(ws, 4) if v)
 
 
 def test_a_cited_standard_keeps_the_spelling_the_submittal_used():
     """MATCHED ON A NORMALISED KEY, PRINTED AS WRITTEN. The first export
-    rendered "32SAMSS004", because the matching key had the punctuation
+    rendered "API998", because the matching key had the punctuation
     stripped out of it - and a contractor reading that has to guess."""
     doc = _submittal()
     run_id = _run(doc)
@@ -279,12 +288,10 @@ def test_a_cited_standard_keeps_the_spelling_the_submittal_used():
             "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,"
             "page_end,text,token_count,content_hash)"
             " VALUES ('c1',?,'drum.pdf',0,1,1,?,10,'h1')",
-            (doc, "Per 32-SAMSS-004 and ASME B16.5 the flanges shall..."))
+            (doc, "Per API 998 and ASME B16.5 the flanges shall..."))
 
-    ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
-
-    text = "\n".join(str(v) for v in _cells(ws, 4))
-    assert "32-SAMSS-004" in text and "32SAMSS004" not in text
+    text = _notes(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
+    assert "API 998" in text and "API998" not in text
     assert "ASME B16.5" in text
 
 
@@ -395,19 +402,17 @@ def _cites(doc_id: str, text: str) -> None:
 
 
 def test_a_cited_standard_the_library_holds_gets_no_gap_row():
-    """THE DEFECT. SAES-L-132 is held; 32-SAMSS-004 is not. Only the second
+    """THE DEFECT. API 997 is held; API 998 is not. Only the second
     may appear, because the first would tell a contractor a governing
     standard was missing when it was not."""
     doc = _submittal()
-    held = _standard("doc_l132", "SAES-L-132.pdf")
+    held = _standard("doc_l132", "API 997.pdf")
     run_id = _run(doc)
-    _cites(doc, "Design per SAES-L-132 and 32-SAMSS-004.")
+    _cites(doc, "Design per API 997 and API 998.")
 
-    ws = _sheet(_client(doc, held).get(f"/api/reviews/runs/{run_id}/crs"))
-
-    gaps = "\n".join(str(v) for v in _cells(ws, 4) if v)
-    assert "32-SAMSS-004" in gaps
-    assert "SAES-L-132" not in gaps, "a held standard was reported missing"
+    gaps = _notes(_client(doc, held).get(f"/api/reviews/runs/{run_id}/crs"))
+    assert "API 998" in gaps
+    assert "API 997" not in gaps, "a held standard was reported missing"
 
 
 def test_a_held_standard_the_caller_cannot_read_is_missing_to_them():
@@ -415,13 +420,11 @@ def test_a_held_standard_the_caller_cannot_read_is_missing_to_them():
     library this caller may read - a standard they hold no grant for was not
     reviewed against, and the row saying so is true."""
     doc = _submittal()
-    _standard("doc_l132", "SAES-L-132.pdf")
+    _standard("doc_l132", "API 997.pdf")
     run_id = _run(doc)
-    _cites(doc, "Design per SAES-L-132.")
+    _cites(doc, "Design per API 997.")
 
-    ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
-
-    assert "SAES-L-132" in "\n".join(str(v) for v in _cells(ws, 4) if v)
+    assert "API 997" in _notes(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
 
 
 # ============================================== the in-app preview of the CRS
