@@ -70,11 +70,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         # honesty-audit entries 10 and 12, and this is the third time the
         # same shortcut has been reached for, so the reasoning lives here at
         # the mutation rather than only in the audit file.
-        anchor='    """Durable record of a selection decision. Ids and counts only."""\n'
-               '    conn = connect()',
-        replacement='    """Durable record of a selection decision. Ids and counts only."""\n'
-                    '    return\n'
-                    '    conn = connect()',
+        # Re-anchored in B10: the override's audit row is now written inside
+        # `record_selection`'s transaction.
+        anchor="        if audit is not None:\n            _audit(*audit, conn=conn)\n",
+        replacement="        if audit is not None:\n            pass\n",
         target="tests/test_applicability.py",
         keyword="override_writes_an_audit_row",
         tags=("audit",),

@@ -91,8 +91,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="accept an anonymous confirmation, which records nothing "
                     "and answers 200",
         path=APP / "main.py",
-        anchor="        if scope.user_id is None:",
-        replacement="        if False:",
+        # B10 added a second `if scope.user_id is None:` (approvals); the
+        # confirmation's own comment line keeps this anchor unique.
+        anchor="        if scope.user_id is None:\n            # AN ANONYMOUS CONFIRMATION",
+        replacement="        if False:\n            # AN ANONYMOUS CONFIRMATION",
         target="tests/test_model_matching.py",
         keyword="confirmation_with_no_identity",
         tags=("honesty",),

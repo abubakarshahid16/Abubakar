@@ -226,3 +226,75 @@ review API from synchronous to polled and is left for a follow-up.
 `/api/progress/{id}` (Q&A stage names, in memory) stays unauthenticated. The
 review-run startup sweep still fails every `running` run, which is correct
 only for the documented single server process.
+
+**B11 merged: PR #254, merge commit `9ff9f3a`.** CI green (8/8) after one fix: a
+duplicate `JobState` type in `contracts/types.ts` broke `tsc -b` and stopped the
+dev server rendering (so the accessibility job never saw the app connect) –
+reproduced locally with Playwright, fixed by renaming the new types, re-run green.
+
+## Final acceptance (the 16-item list), 2026-09-26
+
+Cloud container: 4 vCPU, 15 GB RAM, no GPU, no Ollama, no OCR models. Real
+documents: the owner's 9 standards and 3 datasheets, in a scratch database
+outside git; only aggregate numbers are recorded here.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Backend suite | local 3825 passed, 30 skipped, 18 xfailed; 4 OCR tests fail locally only (OCR models absent here) – green in CI on every merge |
+| 2 | Frontend suite | local 727 of 729; the 2 failures are local-only (fail identically on main; pass in CI) – green in CI |
+| 3 | TypeScript / lint / build | `tsc -b` clean; `vite build` succeeds; oxlint 0 errors, 75 warnings (pre-existing) |
+| 4 | Accessibility (axe serious/critical) | green in CI on #251–#254 |
+| 5 | Secret scan (gitleaks) | green in CI on #251–#254 |
+| 6 | Client-data privacy guard | green in CI on #251–#254; local diff scan 0 hits before every commit |
+| 7 | All mutation groups | MUTATION_RESULT |
+| 8 | Frozen B6 retrieval benchmark (fresh re-ingest, current code) | r@1 / r@5 / MRR 0.653 / 0.903 / 0.755 (frozen 0.583 / 0.875 / 0.706); reworded r@5 0.833 (0.778); own-words r@5 0.972 (0.972); 7 misses (9); p50 / p95 2.17 / 2.37 s. Identical to B6B – no regression. AI-authored set: relative only |
+| 9 | Answerability benchmark (structural gate) | unanswerable 7 of 8 refused, 1 supported; right-top 43 supported / 2 insufficient / 1 another-document / 1 conflicting; wrong-top 22 supported / 3 insufficient – unchanged from B8. Model judge: PENDING OWNER VALIDATION |
+| 10 | One end-to-end submittal review | all 3 datasheets through `POST /api/reviews/run`: 12 of 12 documents ingested; 9 extraction jobs through the queue (1355 requirements); facts read 177 / 64 / 174. **None of the 50 standards the three datasheets cite is among the 9 held**, so each review correctly returned Manual Review Required with 25 / 10 / 15 MISSING_LOCALLY and 0 findings. To exercise findings, the 9 held standards were added by engineer override (an exercise, not an applicability decision): 1355 findings per datasheet – 134 NEEDS_ENGINEER_REVIEW, 1221 NOT_IN_DOCUMENT_SCOPE, 0 COMPLIANT, 0 NON_COMPLIANT (no datasheet value pairs with these standards' requirements – issue #193); every finding pending approval with a `created_by_review` history row |
+| 11 | CRS | generated for every run (.xlsx HTTP 200, preview rows 25 / 10 / 15 missing-reference rows; 27 / 13 / 17 after override); prints "AI recommendation – NOT yet decided by an engineer" until the engineer records the code, then "Decided by the reviewing engineer"; one `review.code_recorded` audit row per decision |
+| 12 | Citations checked | all 1355 standard citations (one run) against the cited page: 1308 verbatim, 26 same words re-ordered (table rows), 21 the same table value whose degree glyph the two extractors read differently (checked by eye). 0 wrong pages. Contractor citations: none to check (no pairings) |
+| 13 | Permission isolation | a user granted one datasheet sees 1 document, 1 job; another document's job and another submittal's runs are 404 (same as missing) |
+| 14 | Restart / job recovery | a claimed extraction abandoned by a "dead" worker was reclaimed by the startup sweep, re-run to done, 0 duplicate active jobs; a review left running is marked failed at startup (1 of 1) |
+| 15 | Latency / RAM (this container) | ingest 8–32 s per standard, 4–11 s per datasheet (real e5 + reranker models); standards extraction 9 in 9.0 s; review route 0.1–14.2 s; comparison over 1355 requirements 8.5–8.8 s; retrieval p95 2.37 s; review-process peak RSS 188 MB (no local LLM loaded) |
+| 16 | What cannot be verified here | listed below |
+
+### Still pending – owner laptop / engineer (cannot be verified in the cloud)
+
+| Stage | Gate |
+|---|---|
+| B4 | live re-extract of the datasheets and one live review on the laptop |
+| B5 | `scripts/b5_on_copy.py` all PASS on the laptop, then one live review; an owner-approved equipment taxonomy |
+| B6 / B6B | retrieval latency on the target laptop; E5 (query expansion) needs Ollama |
+| B7 | real vision recovery through the Claude lane (key + both egress flags) |
+| B8 | model judge (`ANSWER_JUDGE_ENABLED` with the local model) on the frozen set – target: the 1 negative and the 22 wrong-top answers |
+| B9 | the chat screens in the browser on the laptop; the generated (Tier 2) answers need Ollama |
+| B10 | a review against standards the datasheets actually cite (the full library) – the only way findings get COMPLIANT / NON_COMPLIANT verdicts on real documents; engineer review of those findings |
+| B11 | a real process kill during extraction on the laptop |
+| All | every benchmark and gold set here is AI-authored; nothing is engineer-validated |
+| OCR | OCR paths on real scanned pages (the OCR models are not in this container) |
+
+### Known limitations (stated, not fixed)
+
+1. On the real datasheets, no contractor value pairs with a requirement of the
+   9 standards available (issue #193): the real-document reviews produced
+   engineer-review and out-of-scope findings only. Compliance verdicts on real
+   documents are unproven here.
+2. There is no HTTP route for the engineer's applicability override
+   (`applicability.override` exists and is audited, but no screen or API can
+   call it) - an engineer cannot add or remove a standard from a run.
+3. A review run and the model-assisted datasheet read / recheck run inside the
+   request: no queue, progress or cancellation for them (B11 covers ingestion
+   and standards extraction).
+4. The structural answer gate cannot tell that a topically-right passage does
+   not answer: 22 of 25 wrong-top answers and 1 of 8 unanswerable questions
+   are still "supported" until the model judge is validated.
+5. Retrieval: 7 of 72 benchmark questions miss the top 5.
+6. "Approved with Comments" is the code when only MISSING_INFORMATION findings
+   remain (they stay MISSING_INFORMATION, never compliant).
+7. Audit failures are no longer swallowed for review decisions and job
+   transitions; the admin and standards audit helpers still swallow them
+   (their documented policy).
+8. `/api/progress/{id}` (in-memory Q&A stage names) is unauthenticated; the
+   review-run startup sweep assumes the documented single server process.
+9. Repository history: commits `85e10b4`, `b2683c1` and `76e3db0` were
+   rewritten off their branches but remain reachable on GitHub by SHA; only
+   the owner can ask GitHub Support to purge them.
