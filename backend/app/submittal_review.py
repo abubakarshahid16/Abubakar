@@ -541,10 +541,19 @@ def create_review_run(
         [*args, submittal_document_id]).fetchone()
     if readable is None:
         raise ValueError("no submittal with that id")
+    from . import job_queue
     run_id = str(uuid.uuid4())
     now = _now()
     conn = connect()
-    with conn:
+    # B11: ONE RUNNING REVIEW PER SUBMITTAL, decided under the write lock. The
+    # route's own check ran before this insert in a separate read, so two
+    # clicks together could both pass it and start two reviews.
+    with job_queue.immediate(conn):
+        running = conn.execute(
+            "SELECT id FROM review_runs WHERE submittal_document_id = ?"
+            " AND status = 'running' LIMIT 1", (submittal_document_id,)).fetchone()
+        if running is not None:
+            raise ReviewAlreadyRunning(running["id"])
         conn.execute(
             "INSERT INTO review_runs (id, submittal_document_id, template_id,"
             " status, started_by, started_at, created_at, updated_at)"
@@ -553,6 +562,10 @@ def create_review_run(
              now, now))
     _extract_facts_if_none(run_id, submittal_document_id, allowed_document_ids)
     return run_id
+
+
+class ReviewAlreadyRunning(RuntimeError):
+    """A review of this submittal is already running; `args[0]` is its id."""
 
 
 class FactExtractionFailed(RuntimeError):

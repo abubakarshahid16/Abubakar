@@ -1938,6 +1938,10 @@ def start_review_run(
             submittal_document_id=document_id,
             started_by=scope.user_id,
             allowed_document_ids=scope.allowed_document_ids)
+    except submittal_review_mod.ReviewAlreadyRunning as exc:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER,
+            f"a review of this submittal is already running ({exc.args[0]})")) from exc
     except submittal_review_mod.FactExtractionFailed as exc:
         # B19: the run exists and is already marked failed with this reason.
         raise HTTPException(status_code=422, detail=errors.safe_error(
@@ -2849,6 +2853,58 @@ def queue_standard_extraction(
     job_id = standards_mod.enqueue_extraction(
         document_id, actor=actor, priority=job_queue_mod.PRIORITY_INTERACTIVE)
     return {"job_id": job_id, "document_id": document_id, "state": "queued"}
+
+
+@app.get("/api/jobs", response_model=schemas.JobList,
+         responses={**schemas.ERRORS_422})
+def list_jobs(
+    request: Request,
+    document_id: str | None = Query(None),
+    state: str | None = Query(None),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """B11: background jobs on documents the caller may read."""
+    reject_unknown_params(request, {"document_id", "state"})
+    return {"jobs": job_queue_mod.list_jobs(
+        allowed_document_ids=scope.allowed_document_ids,
+        document_id=document_id, state=state)}
+
+
+@app.get("/api/jobs/{job_id}", response_model=schemas.Job,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def get_job(job_id: str, request: Request,
+            scope: access.AccessScope = Depends(access.current_scope)):
+    """B11: one job - 404 when absent or on a document the caller cannot read."""
+    reject_unknown_params(request, set())
+    job = job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
+    if job is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no job with that id"))
+    return job
+
+
+@app.post("/api/jobs/{job_id}/cancel", response_model=schemas.Job,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_409, **schemas.ERRORS_422})
+def cancel_job(
+    job_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """B11: withdraw a job that has not started. The same administrators who may
+    queue work may withdraw it, and only on documents they can read. A running
+    or finished job is refused with 409 and its state - never reported as
+    cancelled when it was not."""
+    reject_unknown_params(request, set())
+    if job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no job with that id"))
+    cancelled, state = job_queue_mod.cancel(job_id, actor_user_id=(actor or {}).get("id"))
+    if not cancelled:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER,
+            f"only a queued or retrying job can be cancelled; this one is {state}"))
+    return job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
 
 
 @app.get("/api/standards/{document_id}/extraction-state",

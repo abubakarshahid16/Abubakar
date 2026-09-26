@@ -26,6 +26,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from .config import settings
@@ -40,6 +41,12 @@ RETRYING = "retrying"
 #: pre-#177 'failed', which is left exactly as an earlier build wrote it - a
 #: historical failure is not reinterpreted as retryable or as poisoned.
 POISONED = "poisoned"
+#: B11: withdrawn before it ran. Terminal; nothing claims it.
+CANCELLED = "cancelled"
+#: States a person may still cancel. A RUNNING job is not among them: the
+#: work is already writing rows, and stopping it half way would leave a
+#: partial result labelled as nothing. Refused, and said so.
+CANCELLABLE = (QUEUED, RETRYING)
 
 #: WHERE PRIORITY COMES FROM. Higher runs first; ties run oldest-first.
 #:
@@ -109,7 +116,108 @@ def fail(conn: sqlite3.Connection, job_id: str, *, code: str, message: str) -> s
         "UPDATE jobs SET state = ?, next_attempt_at = NULL,"
         " error_code = ?, error_message = ?, updated_at = ? WHERE id = ?",
         (POISONED, code, message, now_iso(), job_id))
+    audit(conn, "job.poisoned", job_id, detail=f"error={code}")
     return POISONED
+
+
+@contextmanager
+def immediate(conn: sqlite3.Connection):
+    """A write transaction that takes SQLite's write lock at BEGIN (B11).
+
+    CHECK-THEN-INSERT IS ONLY ATOMIC UNDER THIS. A deferred transaction reads
+    under a shared lock, so two requests can both see "no pending job" and both
+    insert one. BEGIN IMMEDIATE makes the second wait until the first commits,
+    and it then reads the first one's job."""
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+    except BaseException:
+        conn.rollback()
+        raise
+    conn.commit()
+
+
+def audit(conn: sqlite3.Connection, action: str, job_id: str, *,
+          actor_user_id: str | None = None, detail: str | None = None) -> None:
+    """B11: a job lifecycle event in `audit_events`, IN THE CALLER'S
+    TRANSACTION - never swallowed, so a transition cannot happen unrecorded.
+    Ids and states only."""
+    conn.execute(
+        """INSERT INTO audit_events
+               (at, actor_user_id, actor_username, action,
+                resource_type, resource_id, outcome, detail)
+           VALUES (?, ?, ?, ?, 'job', ?, 'ok', ?)""",
+        (now_iso(), actor_user_id, (actor_user_id or "system")[:200],
+         action, job_id, detail))
+
+
+def cancel(job_id: str, *, actor_user_id: str | None) -> tuple[bool, str | None]:
+    """Cancel a job that has not started. Returns (cancelled NOW, state):
+    (True, 'cancelled'), or (False, its current state) when it could not be -
+    including one already cancelled, which this call did not do - or
+    (False, None) when there is no such job.
+
+    ONE CONDITIONAL UPDATE, like a claim: a worker that claims the job in the
+    same instant wins or loses cleanly - never both run and cancelled."""
+    from .db import connect
+    conn = connect()
+    with conn:
+        row = conn.execute(
+            f"""UPDATE jobs SET state = ?, next_attempt_at = NULL, updated_at = ?
+                WHERE id = ? AND state IN ({','.join('?' * len(CANCELLABLE))})
+                RETURNING id""",
+            (CANCELLED, now_iso(), job_id, *CANCELLABLE)).fetchone()
+        if row is not None:
+            audit(conn, "job.cancelled", job_id, actor_user_id=actor_user_id)
+            return True, CANCELLED
+        current = conn.execute("SELECT state FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    return False, (current["state"] if current else None)
+
+
+_JOB_COLUMNS = ("id, document_id, stage, state, priority, retries, error_code,"
+                " pages_total, pages_done, next_attempt_at, started_at, updated_at,"
+                " created_by, code_version, config_version")
+
+
+def list_jobs(*, allowed_document_ids: frozenset[str], document_id: str | None = None,
+              state: str | None = None, limit: int = 100) -> list[dict]:
+    """B11: jobs on documents the caller may read. Scope first, filters after:
+    a filter can only narrow it (CLAUDE.md rule 5)."""
+    from .db import connect
+    ids = sorted(allowed_document_ids if document_id is None
+                 else allowed_document_ids & {document_id})
+    if not ids:
+        return []
+    where = [f"document_id IN ({','.join('?' * len(ids))})"]
+    args: list = list(ids)
+    if state:
+        where.append("state = ?")
+        args.append(state)
+    rows = connect().execute(
+        f"SELECT {_JOB_COLUMNS} FROM jobs WHERE {' AND '.join(where)}"
+        " ORDER BY updated_at DESC LIMIT ?", (*args, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_job(job_id: str, *, allowed_document_ids: frozenset[str]) -> dict | None:
+    """One job, or None when it does not exist OR its document is not readable -
+    the same answer, so a job id cannot be used to learn a document exists."""
+    from .db import connect
+    row = connect().execute(
+        f"SELECT {_JOB_COLUMNS} FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if row is None or row["document_id"] not in allowed_document_ids:
+        return None
+    return dict(row)
+
+
+def under_limit_sql(stage_param: str = ":stage") -> str:
+    """B11: the concurrency bound, as a clause for a claiming UPDATE. Counts
+    only LIVE running claims, so a row left 'running' by a dead process does
+    not block the queue until the startup sweep reclaims it."""
+    return (f"(SELECT COUNT(*) FROM jobs WHERE stage = {stage_param}"
+            " AND state = 'running' AND claimed_at >= :stale) < :limit")
 
 
 def queue_counts(pending_documents_sql: str, pending_args: tuple) -> dict:

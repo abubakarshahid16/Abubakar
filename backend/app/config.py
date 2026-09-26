@@ -431,6 +431,10 @@ class Settings(BaseSettings):
     #: First retry delay in seconds; each later retry doubles it (60, 120,
     #: 240 s by default). See `job_queue.backoff_seconds`.
     job_retry_base_seconds: float = 60.0
+    #: B11: at most this many background jobs of one stage run at once. A claim
+    #: past the limit gets nothing. 1 matches the one worker thread today; the
+    #: limit is what keeps it true if a second worker is ever started.
+    job_max_running: int = 1
 
     # ------------------------------------------------------- watched folder
     #: The drop folder. EMPTY IS THE DEFAULT AND EMPTY MEANS OFF - there is no
