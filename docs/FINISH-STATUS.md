@@ -40,3 +40,28 @@ E4b fixes the one standard with broken clause tracking: 25 chunks / 2 clause lab
 Remaining 7 misses by root cause: identical boilerplate across standards (1, own words) – needs document scoping (B6C); long multi-clause chunk (1); benchmark label incomplete (1 – the top hit is a correct answer on another page); ambiguous question (1); vocabulary / rewording (2 – query expansion, E5); missing parent-heading context (1 – ancestry, E2, measured harmful).
 
 Tests: `test_b6b_e1_heading_embedding.py` (4), `test_b6b_e4_numbered_paragraphs.py` (5); mutations M797–M803, 7/7.
+
+**B6B merged: PR #248, merge commit `0cef6cd`.** CI green (8/8).
+
+## B6C – question understanding (branch `feat/b6c-question-understanding`)
+
+`app/understanding.py`: a deterministic, structured step between follow-up
+resolution and retrieval. Retrieval input only – it never produces an answer
+and never reads a prior answer's text (only which document / clause the
+previous turn's evidence came from).
+
+| Behaviour | How | Test |
+|---|---|---|
+| Document named by its designation scopes the search | designation read from the caller's own filenames, separator-insensitive | yes |
+| Scope only narrows | named / referenced documents intersected with the permitted set | yes (M805, M807) |
+| A name matching several documents | search those, choose none, report | yes (M806) |
+| "this standard / that document" | the previous answer's document, else the conversation's; nothing to refer to → reported, not guessed | yes |
+| "this requirement / the next / previous clause" | from the previous evidence's clause number; appended to the retrieval query | yes (M808) |
+| Same text in several documents | search dedup now records which kept chunk a dropped copy repeats; the answer's source is reported as ambiguous | yes (M809, M811) |
+| Fallback | anything not understood leaves the question exactly as typed | yes |
+
+Measured: frozen B6 retrieval unchanged (0.653 / 0.903 / 0.755, same misses,
+p95 2.45 s). Real boilerplate questions (2): named standard → answered from
+it at the right page 2/2; unscoped → flagged ambiguous 1/2 (the other's top
+passage is differently worded, a legitimate clause of another standard).
+Tests `test_b6c_understanding.py` (18); mutations M804–M811 8/8.

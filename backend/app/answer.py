@@ -589,6 +589,13 @@ def _answer_from_documents(
         "reranked": results["reranked"],
         "timings": dict(results["timings"]),
         "candidates_considered": results["total"],
+        # B6C: candidates dropped as near-copies of a kept one - the kept
+        # chunk and the document the copy came from. Report-only.
+        "near_duplicates": [
+            {"document_id": e["document_id"], "duplicate_of": e["duplicate_of"]}
+            for e in results.get("shortlist_excluded") or []
+            if e.get("reason") == "near_duplicate" and e.get("duplicate_of")
+        ],
     }
 
     # Two independent gates, lexical first because it is cheaper and more

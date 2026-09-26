@@ -552,7 +552,10 @@ def test_a_near_duplicate_is_recorded_rather_than_vanishing():
 
     assert [x.chunk_id for x in kept] == ["a"]
     assert dropped == [
-        {"chunk_id": "b", "document_id": "d", "rrf": 0.01, "reason": "near_duplicate"}
+        # B6C: and WHICH kept chunk it repeats, so a copy in another document
+        # can be reported as an ambiguous source
+        {"chunk_id": "b", "document_id": "d", "rrf": 0.01, "reason": "near_duplicate",
+         "duplicate_of": "a"}
     ]
 
 
