@@ -471,6 +471,9 @@ export interface ReviewRunSummary {
   recommended_code: string | null;
   /** The recommendation's own words, including the nominal-estimate note. */
   recommended_reason: string | null;
+  /** 2g: the technical sentence behind the plain reason, shown under
+   *  "Details" (the nominal field estimate, engine identifiers). */
+  recommended_details?: string | null;
   /** Why a failed run failed, verbatim. Null on a run that did not fail. */
   failure_reason?: string | null;
   /** The engineer's final code, beside the AI's and never instead of it. */

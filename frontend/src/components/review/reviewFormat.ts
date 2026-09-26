@@ -64,10 +64,12 @@ export const STATUS_LABEL: Record<ComplianceStatus, string> = {
  * scanning a table reads red as "this failed" long before they read the word.
  */
 export const STATUS_TONE: Record<ComplianceStatus, string> = {
-  NON_COMPLIANT: "border-rose-500/40 bg-rose-500/10 text-rose-200",
-  NEEDS_ENGINEER_REVIEW: "border-amber-500/40 bg-amber-500/10 text-amber-200",
-  CONDITIONAL: "border-sky-500/40 bg-sky-500/10 text-sky-200",
-  COMPLIANT: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
+  // 2g: theme tokens (index.css), AA in BOTH themes. The pale "-200" text
+  // they replace was unreadable on the light theme's white card.
+  NON_COMPLIANT: "border-pill-fail-border bg-pill-fail-bg text-pill-fail-fg",
+  NEEDS_ENGINEER_REVIEW: "border-pill-review-border bg-pill-review-bg text-pill-review-fg",
+  CONDITIONAL: "border-pill-cond-border bg-pill-cond-bg text-pill-cond-fg",
+  COMPLIANT: "border-pill-pass-border bg-pill-pass-bg text-pill-pass-fg",
   NOT_APPLICABLE: "border-ink-600 bg-ink-800 text-slateish-300",
   MISSING_INFORMATION: "border-ink-600 bg-ink-800 text-slateish-300",
   // Neutral like missing, but DASHED and dimmer so the two never read alike:
@@ -176,24 +178,24 @@ export function matchMethodTone(method: string | null | undefined): string {
 }
 
 /**
- * The completeness line, WITH the word "nominal" when the denominator is one.
- *
- * `comparison._insufficient_reason` spells this out and the screen must not
- * quietly drop it: "42 of 385" reads like somebody counted the sheet, and
- * nobody did - 385 is pages times a nominal 35 fields per page.
+ * The completeness line in plain words (owner order 2g): what was COUNTED -
+ * the fields read. The estimate of how many a sheet holds is not a count of
+ * this document, so it is never in this line; `estimateDetail` states it,
+ * labelled nominal, under "Details".
  */
 export function completenessLine(run: ReviewRunSummary): string {
-  const block = run.completeness;
-  if (!block) return "";
-  const read = block.fields_read;
-  const estimated = block.fields_estimated;
+  const read = run.completeness?.fields_read;
   if (read === undefined || read === null) return "";
-  if (estimated === undefined || estimated === null) {
-    return `${read.toLocaleString()} fields read`;
-  }
-  return `${read.toLocaleString()} of approximately ${estimated.toLocaleString()} fields`
-    + ` (a NOMINAL estimate: ${block.pages ?? "?"} pages x 35 fields per page,`
-    + ` not a count of this document)`;
+  return `Checked ${read.toLocaleString()} datasheet field${read === 1 ? "" : "s"}.`;
+}
+
+/** The nominal estimate behind the completeness gate, for "Details" only. */
+export function estimateDetail(run: ReviewRunSummary): string {
+  const block = run.completeness;
+  if (!block || block.fields_estimated === undefined || block.fields_estimated === null) return "";
+  return `${(block.fields_read ?? 0).toLocaleString()} of approximately `
+    + `${block.fields_estimated.toLocaleString()} fields (a NOMINAL estimate: `
+    + `${block.pages ?? "?"} pages x 35 fields per page, not a count of this document).`;
 }
 
 /** `[1, 2, 3, 7]` -> `1-3, 7`, the same shape the backend writes in findings. */

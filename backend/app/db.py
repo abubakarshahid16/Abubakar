@@ -758,20 +758,37 @@ def add_column_if_missing(conn: sqlite3.Connection, table: str, column: str,
     every caller believed it present - a worse failure than the crash, because
     it is silent.
     """
-    existing = columns_of(conn, table)
-    if not existing or column in existing:
-        # No such table - whoever creates it owns its shape - or the column is
-        # already there and there is nothing to do.
-        return False
-    try:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-    except sqlite3.OperationalError as exc:
-        if "duplicate column" not in str(exc).lower():
-            raise
-        if column not in columns_of(conn, table):
-            raise
-        return False
-    return True
+    # THE SAME RACE, ARRIVING A MOMENT EARLIER. When the other connection's
+    # ALTER lands between this statement's prepare and its step, SQLite
+    # answers "database schema has changed" instead of "duplicate column"
+    # (seen once in CI, 2026-09-26, test_migration_race). The answer is the
+    # same: re-read the columns and, if ours is still missing, try again - a
+    # bounded number of times, and never swallowed without the re-read.
+    for _attempt in range(_SCHEMA_CHANGED_RETRIES):
+        existing = columns_of(conn, table)
+        if not existing or column in existing:
+            # No such table - whoever creates it owns its shape - or the
+            # column is already there and there is nothing to do.
+            return False
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if "schema has changed" in message:
+                continue
+            if "duplicate column" not in message:
+                raise
+            if column not in columns_of(conn, table):
+                raise
+            return False
+        return True
+    raise sqlite3.OperationalError(
+        f"database schema kept changing while adding {table}.{column}")
+
+
+#: How many times a migration re-reads and retries after SQLite reports that
+#: another connection changed the schema underneath it.
+_SCHEMA_CHANGED_RETRIES = 5
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

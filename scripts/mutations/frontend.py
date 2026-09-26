@@ -205,10 +205,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="restore the duplicate nominal-estimate completeness line "
                     "when the recommendation already states it",
         path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-        anchor="      {completeness && !reasonStatesDenominator && (",
+        # Re-anchored 2026-09-26 (2g): the reason now states the COUNT in
+        # plain words ("Checked N datasheet fields"), and the line is not
+        # printed a second time.
+        anchor="      {completeness && !reasonStatesCount && (",
         replacement="      {completeness && (",
         target="src/views/ReviewRunsView.test.tsx",
-        keyword="exactly once",
+        keyword="shows the plain reason and no developer word",
         tags=("honesty", "ui"),
     ),
     # ---- from B34_STANDARD_IDS --------------------------------------------

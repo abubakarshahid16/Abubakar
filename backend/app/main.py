@@ -1682,7 +1682,11 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "findings_total": findings_total,
         "by_status": by_status,
         "recommended_code": outcome.get("recommended_code"),
-        "recommended_reason": outcome.get("reason"),
+        # 2g: plain words for the engineer; the technical sentence under
+        # "Details". A run stored before 2g gets its plain sentence derived
+        # from the same stored counts.
+        "recommended_reason": comparison_mod.plain_outcome(outcome)[0],
+        "recommended_details": comparison_mod.plain_outcome(outcome)[1],
         "failure_reason": outcome.get("error"),
         # THE ENGINEER'S DECISION BESIDE THE MACHINE'S, never instead of it.
         "engineer_final_code": run.get("engineer_final_code"),
@@ -3746,7 +3750,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
                             or outcome.get("recommended_code") or "",
         "recommended_code_reason": (
             run.get("override_reason") if run.get("engineer_final_code")
-            else outcome.get("reason")) or "",
+            else comparison_mod.plain_outcome(outcome)[0]) or "",
         # B10: WHO DECIDED IT. The AI recommends; only an engineer decides. A
         # CRS carrying the AI's code must say it is not yet a decision.
         "recommended_code_status": (
@@ -3794,7 +3798,8 @@ def _crs_standards(review_run_id: str, submittal_id: str,
             "evidence": evidence,
         })
     for ref in _missing_references(submittal_id, allowed):
-        out.append({"standard": ref, "status": comparison_mod.MISSING_LOCALLY,
+        # 2g: plain words on the sheet the engineer and client read.
+        out.append({"standard": ref, "status": crs_export_mod.STATUS_NOT_IN_LIBRARY,
                     "method": "referenced",
                     "reason": "cited by the submittal and not held locally; "
                               "its requirements were not checked",

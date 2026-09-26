@@ -16,7 +16,7 @@ import { useState } from "react";
 import { reviews as reviewsApi } from "../../api/client";
 import type { ReviewRunSummary } from "../../types/api";
 import { REVIEW_CODES } from "../../types/api";
-import { whenLabel } from "./reviewFormat";
+import { estimateDetail, whenLabel } from "./reviewFormat";
 
 export interface ReviewCodePanelProps {
   run: ReviewRunSummary;
@@ -74,11 +74,20 @@ export function ReviewCodePanel({ run, onDecided }: ReviewCodePanelProps) {
           <p className="mt-1 font-semibold text-slateish-100">
             {run.recommended_code ?? "—"}
           </p>
-          {/* VERBATIM. The recommendation's own sentence, including the
-              nominal-estimate note, because that sentence is the evidence
-              for the code beside it. */}
+          {/* 2g: the reason in plain words; the engine's own sentence - the
+              nominal estimate, identifiers - kept verbatim under Details,
+              because it is the evidence for the code beside it. */}
           {run.recommended_reason && (
-            <p className="mt-1 text-xs text-slateish-400">{run.recommended_reason}</p>
+            <p className="mt-1 text-xs text-slateish-300">{run.recommended_reason}</p>
+          )}
+          {(run.recommended_details || estimateDetail(run)) && (
+            <details className="mt-2 text-xs text-slateish-400">
+              <summary className="cursor-pointer text-slateish-300">Details</summary>
+              {run.recommended_details && run.recommended_details !== run.recommended_reason && (
+                <p className="mt-1">{run.recommended_details}</p>
+              )}
+              {estimateDetail(run) && <p className="mt-1">{estimateDetail(run)}</p>}
+            </details>
           )}
         </div>
 

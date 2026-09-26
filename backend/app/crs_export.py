@@ -89,6 +89,9 @@ STANDARDS_COLUMNS = ("Standard", "Status", "Method", "Reason", "Evidence")
 #: The status words that sheet prints.
 STATUS_APPLIED = "Applied"
 STATUS_CONSIDERED = "Considered, not applied"
+#: 2g: a cited standard the library does not hold (MISSING_LOCALLY in the
+#: engine's vocabulary), in the words a reader uses.
+STATUS_NOT_IN_LIBRARY = "Not in your library - upload required"
 
 #: Rows 3-7 of the header block: the label exactly as the template prints it,
 #: and the meta key it takes its value from. Declared once and read by both

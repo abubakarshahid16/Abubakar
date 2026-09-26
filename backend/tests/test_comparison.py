@@ -466,8 +466,12 @@ def test_low_completeness_forces_manual_review_even_with_zero_breaches():
     assert result["code"] == comparison.CODE_MANUAL
     assert result["code"] not in (comparison.CODE_APPROVED,
                                   comparison.CODE_APPROVED_WITH_COMMENTS)
-    # REPORTED WITH ITS DENOMINATOR.
-    assert "9" in result["reason"] and "250" in result["reason"]
+    # REPORTED WITH ITS DENOMINATOR - in Details, labelled nominal (2g): the
+    # plain sentence states only what was counted.
+    assert "9" in result["details"] and "250" in result["details"]
+    assert "NOMINAL ESTIMATE" in result["details"]
+    assert result["reason"] == ("Checked 9 datasheet fields. That is not enough of "
+                                "the datasheet to suggest a review code yet.")
 
 
 def test_completeness_is_the_weakest_link_not_the_average():

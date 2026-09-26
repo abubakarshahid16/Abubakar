@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 /**
  * The honesty rules, as assertions.
  *
@@ -9,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  STATUS_ORDER, completenessLine, confidenceLabel, findingLabel, matchMethodLabel,
+  STATUS_ORDER, completenessLine, estimateDetail, confidenceLabel, findingLabel, matchMethodLabel,
   orNothing, pageCoverageLine, pageList, statusLabel, statusRank, statusTone,
   withDenominator,
 } from "./reviewFormat";
@@ -63,8 +65,47 @@ describe("missing information is not a failure", () => {
     // The rose palette is the breach colour. A reader scanning a table reads
     // the colour long before the word, and 1,578 rose rows would read as
     // 1,578 accusations against a vendor who was never asked.
-    expect(statusTone("MISSING_INFORMATION")).not.toContain("rose");
-    expect(statusTone("NON_COMPLIANT")).toContain("rose");
+    // The breach colour is the "fail" pill token (2g; was Tailwind rose).
+    expect(statusTone("MISSING_INFORMATION")).not.toContain("pill-fail");
+    expect(statusTone("NON_COMPLIANT")).toContain("pill-fail");
+  });
+});
+
+describe("2g: status pills are readable in both themes (WCAG AA)", () => {
+  const css = readFileSync(resolve(__dirname, "../../index.css"), "utf8");
+  function block(selector: string): string {
+    const start = css.indexOf(selector);
+    return css.slice(start, css.indexOf("}", start));
+  }
+  function token(text: string, name: string): string {
+    const m = new RegExp(`--color-${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(text);
+    if (!m) throw new Error(`no ${name}`);
+    return m[1];
+  }
+  function luminance(hex: string): number {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+  function ratio(a: string, b: string): number {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  const themes = { default: block("@theme {"), dark: block(':root[data-theme="dark"] {'),
+                   light: block(':root[data-theme="light"] {') };
+
+  it.each(Object.entries(themes))("%s theme: every status pill's text is at least 4.5:1 on its fill", (_n, text) => {
+    for (const kind of ["review", "fail", "pass", "cond"]) {
+      expect(ratio(token(text, `pill-${kind}-fg`), token(text, `pill-${kind}-bg`)),
+             `${kind}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("the coloured statuses use the pill tokens, not a fixed pale palette", () => {
+    for (const status of ["NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "CONDITIONAL", "COMPLIANT"]) {
+      expect(statusTone(status)).toMatch(/text-pill-\w+-fg/);
+      expect(statusTone(status)).not.toMatch(/-200\b/);
+    }
   });
 });
 
@@ -109,13 +150,17 @@ describe("a guess and a rule do not read alike", () => {
   });
 });
 
-describe("a nominal denominator says it is nominal", () => {
+describe("a nominal denominator says it is nominal - under Details only (2g)", () => {
   const run = {
     completeness: { fields_read: 48, fields_estimated: 385, pages: 11 },
   } as ReviewRunSummary;
 
-  it("says NOMINAL and says it is not a count of this document", () => {
-    const line = completenessLine(run);
+  it("the line states only what was counted, in plain words", () => {
+    expect(completenessLine(run)).toBe("Checked 48 datasheet fields.");
+  });
+
+  it("the detail says NOMINAL and says it is not a count of this document", () => {
+    const line = estimateDetail(run);
     expect(line).toContain("48");
     expect(line).toContain("385");
     expect(line).toContain("NOMINAL");
