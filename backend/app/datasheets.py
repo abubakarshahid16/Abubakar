@@ -3040,7 +3040,7 @@ def _extract_facts(
                     continue
                 geometry_written += 1
                 geometry_conflicts += 1 if same_label else 0
-                # NOT `page_written`: see the ledger note below.
+                # Counted as the page read: see the ledger note below.
                 page_geometry += 1
                 written += 1
                 if geometry_row["is_blank"]:
@@ -3108,30 +3108,36 @@ def _extract_facts(
                 vision_written += 1
                 page_vision += 1
                 written += 1
-            if page_written == 0:
+            # A PAGE WITH RECORDED CURRENT FACTS IS A PAGE READ INTO FIELDS,
+            # whichever reader wrote them (owner decision 2026-09-26; honesty
+            # audit entry 68). B4 counted only the rule readers, so a page
+            # the geometry or vision reader had filled with recorded facts
+            # still read "no_facts" in the ledger - a claim the stored facts
+            # contradicted. Consequence, accepted by the owner: a requirement
+            # unmatched on such a page is now qualified as on a read page
+            # (comparison.qualify_by_pages), not sent to an engineer as unread.
+            page_read = page_written + page_geometry + page_vision
+            if page_read == 0:
                 reason = _unparsed_reason(pairs, dropped)
-                if page_geometry:
-                    # B4: A GEOMETRY READING DOES NOT MAKE A PAGE "READ INTO
-                    # FIELDS". The ledger's word decides whether an unmatched
-                    # requirement is the contractor's MISSING_INFORMATION or
-                    # an engineer's question (comparison.qualify_by_pages).
-                    # Measured on a copy (2026-09-25, PSV sheet): ONE geometry reading on an otherwise
-                    # unread page turned 79 engineer-review findings into
-                    # contractor omissions. The page keeps the rule readers'
-                    # verdict until the owner decides otherwise.
-                    reason = (f"{reason}; {page_geometry} geometry-reader reading(s) "
-                              "recorded, not counted as the page read into fields")
                 if geometry_on:
-                    # B4 item 1: what the vision reader did with this page -
-                    # the same ledger rule as the geometry reader (a reading
-                    # is recorded; it does not make the page "read").
+                    # B4 item 1: what the vision reader did with this page.
                     reason = (f"{reason}; vision {vision_routing.get(page, 'not decided')}"
                               if vision_routing.get(page) != VISION_ROUTED else
                               f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}")
                 unparsed.append({"page": page, "reason": reason})
                 outcomes[page] = ("no_facts", 0, reason)
+            elif page_written == 0:
+                # Read, but only by the page reader: say so, and what the
+                # vision reader did - an absence here is an engineer's to
+                # check (comparison.PAGE_READER_ONLY), never an omission.
+                note = (f"read only by the page reader ({page_geometry} geometry, "
+                        f"{page_vision} vision reading(s)); a value it did not find "
+                        "is for an engineer to check on the page")
+                if geometry_on and vision_routing.get(page) == VISION_ROUTED:
+                    note = f"{note}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}"
+                outcomes[page] = ("facts", page_read, note)
             else:
-                outcomes[page] = ("facts", page_written, None)
+                outcomes[page] = ("facts", page_read, None)
             if _plan is not None:
                 _plan[page] = (page_written, page_geometry)
         if _plan is not None:

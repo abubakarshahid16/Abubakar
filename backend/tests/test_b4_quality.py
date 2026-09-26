@@ -329,10 +329,11 @@ def test_the_noise_filter_runs_with_the_flag_off_too(world, monkeypatch):
     assert "DESIGN PRESSURE:" in off and "DESIGN PRESSURE:" in on
 
 
-def test_a_page_with_only_vision_readings_is_not_read_and_says_why(world, monkeypatch):
-    """THE MUTATION TARGET (M652): the ledger keeps the geometry rule - a
-    vision reading is recorded, it does not make the page read - and the
-    reason names what the vision reader did, in the model's word."""
+def test_a_page_with_only_vision_readings_is_read_by_the_page_reader_and_says_why(world, monkeypatch):
+    """THE MUTATION TARGET (M652): a page the vision reader alone read IS read
+    (owner decision 2026-09-26, honesty audit entry 68), but it is a page
+    read only by the page reader - an absence there goes to an engineer - and
+    the ledger says what the vision reader did, in the model's word."""
     from app import page_ledger
     doc = _store(world, [(50, 100, "VOLTAGE"), (220, 100, "440")], "doc_v")
     monkeypatch.setattr(settings, "geometry_reader_enabled", True)
@@ -340,9 +341,10 @@ def test_a_page_with_only_vision_readings_is_not_read_and_says_why(world, monkey
     _with_vision(monkeypatch, VisionFake([{"label": "VOLTAGE", "value": "440"}], kind="table"))
     _extract(doc)
     cover = page_ledger.coverage(doc)
-    assert 1 in cover["pages_not_read_into_fields"]
-    reason = cover["not_read_reasons"][1] if 1 in cover["not_read_reasons"] \
-        else cover["not_read_reasons"]["1"]
+    assert cover["pages_not_read_into_fields"] == []
+    assert cover["pages_read_only_by_page_reader"] == [1]
+    reason = page_ledger.rows(doc)[0]["facts_reason"]
+    assert "read only by the page reader" in reason
     assert "vision reader: page kind 'table'" in reason and "1 recorded" in reason
 
 

@@ -64,10 +64,12 @@ export const STATUS_LABEL: Record<ComplianceStatus, string> = {
  * scanning a table reads red as "this failed" long before they read the word.
  */
 export const STATUS_TONE: Record<ComplianceStatus, string> = {
-  NON_COMPLIANT: "border-rose-500/40 bg-rose-500/10 text-rose-200",
-  NEEDS_ENGINEER_REVIEW: "border-amber-500/40 bg-amber-500/10 text-amber-200",
-  CONDITIONAL: "border-sky-500/40 bg-sky-500/10 text-sky-200",
-  COMPLIANT: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
+  // 2g: theme tokens (index.css), AA in BOTH themes. The pale "-200" text
+  // they replace was unreadable on the light theme's white card.
+  NON_COMPLIANT: "border-pill-fail-border bg-pill-fail-bg text-pill-fail-fg",
+  NEEDS_ENGINEER_REVIEW: "border-pill-review-border bg-pill-review-bg text-pill-review-fg",
+  CONDITIONAL: "border-pill-cond-border bg-pill-cond-bg text-pill-cond-fg",
+  COMPLIANT: "border-pill-pass-border bg-pill-pass-bg text-pill-pass-fg",
   NOT_APPLICABLE: "border-ink-600 bg-ink-800 text-slateish-300",
   MISSING_INFORMATION: "border-ink-600 bg-ink-800 text-slateish-300",
   // Neutral like missing, but DASHED and dimmer so the two never read alike:
@@ -88,17 +90,34 @@ export const UNREAD_PAGES = "UNREAD_PAGES";
  *  "missing information" reads as honesty, not as a regression. */
 export const PAGES_NOT_READABLE_LABEL = "Pages not yet readable - needs engineer review";
 
+/** Honesty audit entry 68: the value was not found on a page read only by the
+ *  geometry/vision (page) reader - an engineer checks the page; it is never
+ *  the contractor's missing information. */
+export const PAGE_READER_ONLY = "PAGE_READER_ONLY";
+export const PAGE_READER_ONLY_LABEL = "Value not found by the page reader - engineer to check the page";
+
 /**
  * A FINDING's label, not just its status's: one status can carry different
  * truths. A NEEDS_ENGINEER_REVIEW finding whose reason is UNREAD_PAGES says
  * so in plain words; every other finding reads as its status does.
  */
+/** Owner order 2d: an AI engineering check item (kind C). A draft - never a
+ *  verdict, never from the standard's text. */
+export const AI_ENGINEERING_CHECK = "ai_engineering_check";
+export const AI_ENGINEERING_CHECK_LABEL =
+  "AI engineering check - not from the standard text - engineer to confirm";
+
 export function findingLabel(finding: {
-  compliance_status?: string | null; ai_rationale?: string | null;
+  compliance_status?: string | null; ai_rationale?: string | null; origin?: string | null;
 }): string {
+  if (finding.origin === AI_ENGINEERING_CHECK) return AI_ENGINEERING_CHECK_LABEL;
   if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"
       && (finding.ai_rationale ?? "").startsWith(UNREAD_PAGES)) {
     return PAGES_NOT_READABLE_LABEL;
+  }
+  if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"
+      && (finding.ai_rationale ?? "").startsWith(PAGE_READER_ONLY)) {
+    return PAGE_READER_ONLY_LABEL;
   }
   return statusLabel(finding.compliance_status);
 }
@@ -159,24 +178,24 @@ export function matchMethodTone(method: string | null | undefined): string {
 }
 
 /**
- * The completeness line, WITH the word "nominal" when the denominator is one.
- *
- * `comparison._insufficient_reason` spells this out and the screen must not
- * quietly drop it: "42 of 385" reads like somebody counted the sheet, and
- * nobody did - 385 is pages times a nominal 35 fields per page.
+ * The completeness line in plain words (owner order 2g): what was COUNTED -
+ * the fields read. The estimate of how many a sheet holds is not a count of
+ * this document, so it is never in this line; `estimateDetail` states it,
+ * labelled nominal, under "Details".
  */
 export function completenessLine(run: ReviewRunSummary): string {
-  const block = run.completeness;
-  if (!block) return "";
-  const read = block.fields_read;
-  const estimated = block.fields_estimated;
+  const read = run.completeness?.fields_read;
   if (read === undefined || read === null) return "";
-  if (estimated === undefined || estimated === null) {
-    return `${read.toLocaleString()} fields read`;
-  }
-  return `${read.toLocaleString()} of approximately ${estimated.toLocaleString()} fields`
-    + ` (a NOMINAL estimate: ${block.pages ?? "?"} pages x 35 fields per page,`
-    + ` not a count of this document)`;
+  return `Checked ${read.toLocaleString()} datasheet field${read === 1 ? "" : "s"}.`;
+}
+
+/** The nominal estimate behind the completeness gate, for "Details" only. */
+export function estimateDetail(run: ReviewRunSummary): string {
+  const block = run.completeness;
+  if (!block || block.fields_estimated === undefined || block.fields_estimated === null) return "";
+  return `${(block.fields_read ?? 0).toLocaleString()} of approximately `
+    + `${block.fields_estimated.toLocaleString()} fields (a NOMINAL estimate: `
+    + `${block.pages ?? "?"} pages x 35 fields per page, not a count of this document).`;
 }
 
 /** `[1, 2, 3, 7]` -> `1-3, 7`, the same shape the backend writes in findings. */
@@ -219,4 +238,27 @@ export function whenLabel(value: string | null | undefined): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString();
+}
+
+/** 2e: why the in-scope count moved - "Since the previous run: 4 standards
+ *  removed (A, B, ...); 1 added (C)". Nothing when there is no earlier run
+ *  or nothing changed. */
+export function standardsChangeLine(run: ReviewRunSummary): string {
+  const change = run.standards_change;
+  if (!change) return "";
+  const part = (names: string[], verb: string) => names.length
+    ? `${names.length} standard${names.length === 1 ? "" : "s"} ${verb} (${names.join(", ")})`
+    : "";
+  const parts = [part(change.removed, "removed"), part(change.added, "added")].filter(Boolean);
+  return parts.length
+    ? `Since the previous run: ${parts.join("; ")}.`
+    : "Same standards in scope as the previous run.";
+}
+
+/** Owner order section 1: which KIND of comment a finding is. "" for a
+ *  comparison against a standard (kind A), which carries its own citation. */
+export function kindLabel(finding: { origin?: string | null }): string {
+  if (finding.origin === "datasheet_check") return "Datasheet check";
+  if (finding.origin === AI_ENGINEERING_CHECK) return "AI engineering check";
+  return "";
 }

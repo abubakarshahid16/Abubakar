@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 /**
  * The honesty rules, as assertions.
  *
@@ -9,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  STATUS_ORDER, completenessLine, confidenceLabel, findingLabel, matchMethodLabel,
+  STATUS_ORDER, kindLabel, completenessLine, estimateDetail, standardsChangeLine, confidenceLabel, findingLabel, matchMethodLabel,
   orNothing, pageCoverageLine, pageList, statusLabel, statusRank, statusTone,
   withDenominator,
 } from "./reviewFormat";
@@ -63,8 +65,47 @@ describe("missing information is not a failure", () => {
     // The rose palette is the breach colour. A reader scanning a table reads
     // the colour long before the word, and 1,578 rose rows would read as
     // 1,578 accusations against a vendor who was never asked.
-    expect(statusTone("MISSING_INFORMATION")).not.toContain("rose");
-    expect(statusTone("NON_COMPLIANT")).toContain("rose");
+    // The breach colour is the "fail" pill token (2g; was Tailwind rose).
+    expect(statusTone("MISSING_INFORMATION")).not.toContain("pill-fail");
+    expect(statusTone("NON_COMPLIANT")).toContain("pill-fail");
+  });
+});
+
+describe("2g: status pills are readable in both themes (WCAG AA)", () => {
+  const css = readFileSync(resolve(__dirname, "../../index.css"), "utf8");
+  function block(selector: string): string {
+    const start = css.indexOf(selector);
+    return css.slice(start, css.indexOf("}", start));
+  }
+  function token(text: string, name: string): string {
+    const m = new RegExp(`--color-${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(text);
+    if (!m) throw new Error(`no ${name}`);
+    return m[1];
+  }
+  function luminance(hex: string): number {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+  function ratio(a: string, b: string): number {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  const themes = { default: block("@theme {"), dark: block(':root[data-theme="dark"] {'),
+                   light: block(':root[data-theme="light"] {') };
+
+  it.each(Object.entries(themes))("%s theme: every status pill's text is at least 4.5:1 on its fill", (_n, text) => {
+    for (const kind of ["review", "fail", "pass", "cond"]) {
+      expect(ratio(token(text, `pill-${kind}-fg`), token(text, `pill-${kind}-bg`)),
+             `${kind}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("the coloured statuses use the pill tokens, not a fixed pale palette", () => {
+    for (const status of ["NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "CONDITIONAL", "COMPLIANT"]) {
+      expect(statusTone(status)).toMatch(/text-pill-\w+-fg/);
+      expect(statusTone(status)).not.toMatch(/-200\b/);
+    }
   });
 });
 
@@ -109,13 +150,17 @@ describe("a guess and a rule do not read alike", () => {
   });
 });
 
-describe("a nominal denominator says it is nominal", () => {
+describe("a nominal denominator says it is nominal - under Details only (2g)", () => {
   const run = {
     completeness: { fields_read: 48, fields_estimated: 385, pages: 11 },
   } as ReviewRunSummary;
 
-  it("says NOMINAL and says it is not a count of this document", () => {
-    const line = completenessLine(run);
+  it("the line states only what was counted, in plain words", () => {
+    expect(completenessLine(run)).toBe("Checked 48 datasheet fields.");
+  });
+
+  it("the detail says NOMINAL and says it is not a count of this document", () => {
+    const line = estimateDetail(run);
     expect(line).toContain("48");
     expect(line).toContain("385");
     expect(line).toContain("NOMINAL");
@@ -133,6 +178,19 @@ describe("B3: a finding on an unread page says so in plain words", () => {
       compliance_status: "NEEDS_ENGINEER_REVIEW",
       ai_rationale: "UNREAD_PAGES: no value for this requirement was found ...",
     })).toBe("Pages not yet readable - needs engineer review");
+  });
+
+  it("labels a PAGE_READER_ONLY finding as the page reader's miss, for an engineer (entry 68)", () => {
+    expect(findingLabel({
+      compliance_status: "NEEDS_ENGINEER_REVIEW",
+      ai_rationale: "PAGE_READER_ONLY: value not found by the page reader - engineer to check the page 3.",
+    })).toBe("Value not found by the page reader - engineer to check the page");
+  });
+
+  it("labels an AI engineering check item as a draft, not a verdict (order 2d)", () => {
+    expect(findingLabel({ compliance_status: null, ai_rationale: null,
+                          origin: "ai_engineering_check" }))
+      .toBe("AI engineering check - not from the standard text - engineer to confirm");
   });
 
   it("leaves every other finding reading as its status does", () => {
@@ -174,5 +232,27 @@ describe("B3: which pages were read into fields", () => {
   it("compresses page runs the way the findings do", () => {
     expect(pageList([7, 1, 2, 3])).toBe("1-3, 7");
     expect(pageList([5])).toBe("5");
+  });
+});
+
+describe("2e: why the in-scope count moved", () => {
+  const base = { completeness: null } as unknown as ReviewRunSummary;
+  it("names what was added and removed since the previous run", () => {
+    expect(standardsChangeLine({ ...base, standards_change: {
+      previous_run_id: "r0", added: ["STD-C.pdf"], removed: ["STD-A.pdf", "STD-B.pdf"] } }))
+      .toBe("Since the previous run: 2 standards removed (STD-A.pdf, STD-B.pdf); 1 standard added (STD-C.pdf).");
+  });
+  it("says nothing changed, and nothing at all for a first run", () => {
+    expect(standardsChangeLine({ ...base, standards_change: { previous_run_id: "r0", added: [], removed: [] } }))
+      .toBe("Same standards in scope as the previous run.");
+    expect(standardsChangeLine({ ...base, standards_change: null })).toBe("");
+  });
+});
+
+describe("2c: a datasheet check says what kind of comment it is", () => {
+  it("labels the kinds, and a comparison finding carries none", () => {
+    expect(kindLabel({ origin: "datasheet_check" })).toBe("Datasheet check");
+    expect(kindLabel({ origin: "ai_engineering_check" })).toBe("AI engineering check");
+    expect(kindLabel({ origin: null })).toBe("");
   });
 });

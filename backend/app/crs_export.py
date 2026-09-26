@@ -46,11 +46,32 @@ ROW_FILLS = {
     # B3: pages the system has not read into fields - engineer work, pale
     # amber like needs_engineer_review, never grey like "missing".
     "pages_not_readable": PatternFill("solid", fgColor="FFFDF2E9"),
+    # Owner order 2d: an AI engineering check item - pale lavender, a draft
+    # until an engineer confirms it.
+    "ai_engineering_check": PatternFill("solid", fgColor="FFEFE8F7"),
+    # Owner order 2c: a datasheet self-check - the pale amber of review work.
+    "datasheet_check": PatternFill("solid", fgColor="FFFCF3CF"),
+    # Entry 68: an absence on a page only the page reader read - engineer
+    # work, the same pale amber.
+    "page_reader_only": PatternFill("solid", fgColor="FFFDF2E9"),
 }
 HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
            "Comment By", "Contractor's Response", "Final Resolution"]
 WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0,
           "G": 15.0}
+#: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI
+#: engineering check's unconfirmed items, so the engineer sees them on the
+#: sheet before confirming. No existing column moves or is renamed.
+AI_COLUMN = "AI Review Comments"
+AI_COLUMN_WIDTH = 60.0
+#: The two copies Export CRS offers. INTERNAL (the default) carries the AI
+#: column; ISSUE (to the contractor) drops it and every unconfirmed AI row,
+#: so only confirmed comments leave the building.
+COPY_INTERNAL = "internal"
+COPY_ISSUE = "issue"
+COPIES = (COPY_INTERNAL, COPY_ISSUE)
+#: The file name says which copy it is.
+COPY_FILE_SUFFIX = {COPY_INTERNAL: "internal-review-copy", COPY_ISSUE: "issue-to-contractor"}
 
 def default_company() -> str:
     """Printed on row 1 when the caller names no company.
@@ -67,9 +88,16 @@ SUBTITLE = "COMMENT RESOLUTION SHEET"
 #: B5: the sheet listing the standards the review applied, and why.
 STANDARDS_SHEET = "Applicable standards"
 STANDARDS_COLUMNS = ("Standard", "Status", "Method", "Reason", "Evidence")
+#: Owner order 2f: the engineer's internal notes, on their own sheet - never
+#: in COMPANY Comments, and not in the copy issued to the contractor.
+REVIEW_NOTES_SHEET = "Review notes"
+REVIEW_NOTES_COLUMNS = ("Note", "Standard", "Count", "Detail")
 #: The status words that sheet prints.
 STATUS_APPLIED = "Applied"
 STATUS_CONSIDERED = "Considered, not applied"
+#: 2g: a cited standard the library does not hold (MISSING_LOCALLY in the
+#: engine's vocabulary), in the words a reader uses.
+STATUS_NOT_IN_LIBRARY = "Not in your library - upload required"
 
 #: Rows 3-7 of the header block: the label exactly as the template prints it,
 #: and the meta key it takes its value from. Declared once and read by both
@@ -196,6 +224,13 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     # on screen quote the same reference for the same comment - and so a
     # re-export of this run quotes it again rather than issuing a new one.
     run_id = meta.get("review_run_id", "")
+    copy = meta.get("copy") or COPY_INTERNAL
+    if copy not in COPIES:
+        raise ValueError(f"unknown CRS copy {copy!r}")
+    if copy == COPY_ISSUE:
+        # ISSUE TO CONTRACTOR: an unconfirmed AI item is a draft, and a draft
+        # never leaves the building - its row goes, not just its column.
+        findings = [f for f in findings if not str(f.get("ai_review_comment") or "").strip()]
 
     rows = []
     seen: set[str] = set()
@@ -231,6 +266,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             # the renderer) so the preview route and the workbook agree on
             # what kind a row is, same as every other field here.
             "row_kind": finding.get("row_kind", ""),
+            "ai_review_comment": (str(finding.get("ai_review_comment") or "")
+                                  if copy == COPY_INTERNAL else ""),
         })
 
     return {
@@ -242,7 +279,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # a plausible-looking transmittal number lies about its own provenance.
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
-        "columns": list(HEADERS),
+        "columns": list(HEADERS) + ([AI_COLUMN] if copy == COPY_INTERNAL else []),
+        "crs_copy": copy,
         "rows": rows,
         "recommended_code": meta.get("recommended_code") or "",
         "recommended_code_label": RECOMMENDED_CODE_LABEL,
@@ -260,6 +298,11 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
              "reason": str(s.get("reason") or ""),
              "evidence": str(s.get("evidence") or "")}
             for s in (meta.get("applicable_standards") or [])],
+        # 2f: internal notes, internal copy only.
+        "review_notes": ([
+            {"note": str(n.get("note") or ""), "standard": str(n.get("standard") or ""),
+             "count": n.get("count"), "detail": str(n.get("detail") or "")}
+            for n in (meta.get("review_notes") or [])] if copy == COPY_INTERNAL else []),
     }
 
 
@@ -287,6 +330,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
 
     for col, width in WIDTHS.items():
         ws.column_dimensions[col].width = width
+    internal = view["crs_copy"] == COPY_INTERNAL
+    if internal:
+        ws.column_dimensions["H"].width = AI_COLUMN_WIDTH
 
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
         cell = ws.cell(row=row, column=col, value=value)
@@ -321,9 +367,11 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         values = [entry["item_no"], entry["document_name"],
                   entry["page_section"], comment, entry["comment_by"],
                   entry["contractor_response"], entry["final_resolution"]]
+        if internal:
+            values.append(entry["ai_review_comment"])
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i == 4), center=(i == 1))
+            cell = put(row, i, value, wrap=(i in (4, 8)), center=(i == 1))
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill
@@ -363,6 +411,18 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                 Alignment(wrap_text=True, vertical="top")
     for col, width in zip("ABCDE", (38, 22, 16, 70, 60)):
         standards_sheet.column_dimensions[col].width = width
+
+    # 2f: the engineer's internal notes - internal copy only.
+    if internal:
+        notes_sheet = wb.create_sheet(REVIEW_NOTES_SHEET)
+        for col, header in enumerate(REVIEW_NOTES_COLUMNS, start=1):
+            notes_sheet.cell(row=1, column=col, value=header).font = Font(bold=True)
+        for r, entry in enumerate(view["review_notes"], start=2):
+            for col, key in enumerate(("note", "standard", "count", "detail"), start=1):
+                notes_sheet.cell(row=r, column=col, value=entry[key]).alignment = \
+                    Alignment(wrap_text=True, vertical="top")
+        for col, width in zip("ABCD", (44, 30, 8, 90)):
+            notes_sheet.column_dimensions[col].width = width
 
     buffer = BytesIO()
     wb.save(buffer)

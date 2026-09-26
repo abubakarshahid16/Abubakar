@@ -331,6 +331,9 @@ export interface ReviewFinding {
   equipment_tag?: string | null;
   confirmed_by?: string | null;
   confirmed_at?: string | null;
+  /** Where the finding came from when not the comparison: "chat" or
+   *  "ai_engineering_check" (a kind C draft, never a verdict). */
+  origin?: string | null;
   standard_document_id?: string | null;
   standard_clause?: string | null;
   standard_page?: number | null;
@@ -383,6 +386,9 @@ export interface CrsPreviewRow {
   comment_by: string;
   contractor_response: string;
   final_resolution: string;
+  /** Owner order 2f: an unconfirmed AI engineering check item's text, shown
+   *  in the "AI Review Comments" column of the internal copy only. */
+  ai_review_comment?: string;
 }
 
 /**
@@ -393,6 +399,14 @@ export interface CrsPreviewRow {
  * engineer reads on screen is what the client receives - a preview that could
  * disagree with the delivered file would be worse than no preview at all.
  */
+/** Owner order 2f: one of the engineer's internal notes - never a contractor comment. */
+export interface CrsReviewNote {
+  note: string;
+  standard: string;
+  count: number | null;
+  detail: string;
+}
+
 export interface CrsPreview {
   title: string;
   subtitle: string;
@@ -406,6 +420,10 @@ export interface CrsPreview {
   /** B10: "Decided by the reviewing engineer." or the not-yet-decided notice; "" when no code. */
   recommended_code_status?: string;
   recommended_code_label: string;
+  /** "internal" (with "AI Review Comments") or "issue" (to the contractor). */
+  crs_copy?: "internal" | "issue";
+  /** 2f: the "Review notes" sheet; empty in the contractor's copy. */
+  review_notes?: CrsReviewNote[];
 }
 
 export interface ReviewRunStandard {
@@ -463,6 +481,12 @@ export interface ReviewRunSummary {
   recommended_code: string | null;
   /** The recommendation's own words, including the nominal-estimate note. */
   recommended_reason: string | null;
+  /** 2g: the technical sentence behind the plain reason, shown under
+   *  "Details" (the nominal field estimate, engine identifiers). */
+  recommended_details?: string | null;
+  /** 2e: standards added to / removed from scope since the previous run of
+   *  the same submittal; null when there is no earlier run. */
+  standards_change?: { previous_run_id: string; added: string[]; removed: string[] } | null;
   /** Why a failed run failed, verbatim. Null on a run that did not fail. */
   failure_reason?: string | null;
   /** The engineer's final code, beside the AI's and never instead of it. */

@@ -280,9 +280,37 @@ describe("the download the preview sits beside", () => {
     render(<ReviewRunsView />);
     await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Export CRS (.xlsx)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Export CRS - internal review copy" }));
 
-    expect(exportCrs).toHaveBeenCalledWith("run-1");
+    expect(exportCrs).toHaveBeenCalledWith("run-1", "internal");
     expect(previewCrs).not.toHaveBeenCalled();
+  });
+
+  it("offers the contractor's copy as its own export (order 2f)", async () => {
+    exportCrs.mockResolvedValue({
+      ok: true,
+      data: { blob: new Blob(["x"]), filename: "CRS_drum_2026-09-20_issue-to-contractor.xlsx" },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Export CRS - issue to contractor" }));
+
+    expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
+  });
+});
+
+describe("2f: the engineer's internal notes are their own table, not comments", () => {
+  it("shows the Review notes collapsed under the sheet, never in a comment row", async () => {
+    previewCrs.mockResolvedValue({ ok: true, data: sheet({ review_notes: [
+      { note: "Requires another document", standard: "STD-A.pdf", count: 12,
+        detail: "12 of this run's requirements from STD-A.pdf name their own evidence." },
+    ] }) });
+    const panel = within(await openThePreview());
+    const notes = panel.getByText(/Review notes - internal \(1\)/).closest("details")!;
+    expect(within(notes).getByText("Requires another document")).toBeInTheDocument();
+    expect(within(notes).getByText("12")).toBeInTheDocument();
+    const table = panel.getAllByRole("table")[0];
+    expect(within(table).queryByText(/name their own evidence/)).toBeNull();
   });
 });

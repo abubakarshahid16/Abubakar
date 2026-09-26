@@ -37,6 +37,17 @@ ROW_KIND_MISSING_REFERENCE = "missing_reference"
 #: (`chat_actions.file_comment`, `origin = 'chat'`). Their words and their
 #: name - never "AI Review", because the model did not decide to send it.
 ROW_KIND_ENGINEER_COMMENT = "engineer_comment"
+#: Owner order 2d/2f: an AI engineering check item (kind C,
+#: `origin = 'ai_engineering_check'`). Unconfirmed, its text rides in the
+#: "AI Review Comments" column with COMPANY Comments empty; confirmed by an
+#: engineer, it moves to COMPANY Comments under their name. Rejected, it is
+#: not on the sheet at all.
+ROW_KIND_AI_ENGINEERING_CHECK = "ai_engineering_check"
+_AI_ORIGIN = "ai_engineering_check"
+#: Owner order 2c: a datasheet self-check (kind B), labelled "Datasheet check".
+ROW_KIND_DATASHEET_CHECK = "datasheet_check"
+_DATASHEET_ORIGIN = "datasheet_check"
+_AI_CONFIRMED_BY = "AI engineering check, confirmed by "
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
 #: literal, not imported from `comparison`, because this module stays pure
@@ -62,6 +73,11 @@ _REQUIRES_OTHER_DOCUMENT_MARKER = "requires_other_document"
 #: enters the CRS as its own row.
 _UNREAD_PAGES_MARKER = "UNREAD_PAGES"
 ROW_KIND_PAGES_NOT_READABLE = "pages_not_readable"
+#: Honesty audit entry 68: `comparison.PAGE_READER_ONLY` - the value was not
+#: found on a page only the geometry/vision reader read. Engineer work, like
+#: UNREAD_PAGES, so never an individual row to the contractor.
+_PAGE_READER_ONLY_MARKER = "PAGE_READER_ONLY"
+ROW_KIND_PAGE_READER_ONLY = "page_reader_only"
 
 
 def _page_list(pages: list[int]) -> str:
@@ -82,6 +98,19 @@ def _page_list(pages: list[int]) -> str:
 def _unread(finding: dict) -> bool:
     return (finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
             and (finding.get("ai_rationale") or "").startswith(_UNREAD_PAGES_MARKER))
+
+
+def _page_reader_only(finding: dict) -> bool:
+    return (finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
+            and (finding.get("ai_rationale") or "").startswith(_PAGE_READER_ONLY_MARKER))
+
+
+def _ai_relates_to(finding: dict) -> str:
+    """The standard NAME an AI item relates to, as `ai_engineering_check`
+    stored it on the rationale ("... Relates to: <name>.")."""
+    text = finding.get("ai_rationale") or ""
+    name = text.split("Relates to: ", 1)[1].rstrip(".") if "Relates to: " in text else ""
+    return "" if name == "no standard named" else name
 
 
 def _citation(finding: dict) -> str:
@@ -119,6 +148,87 @@ def _comment_text(finding: dict) -> str:
     return "\n".join(lines)
 
 
+def _fold(text) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
+def _merge_same_rule(ordered: list[dict]) -> list[tuple[dict, list[dict]]]:
+    """Owner order 2e: THE SAME RULE FROM SEVERAL STANDARDS IS ONE COMMENT.
+
+    Two standards carrying the same requirement text, decided the same way
+    against the same datasheet value, printed twice was the design-pressure
+    rule the owner saw repeated. One row now, citing every standard. Only
+    IDENTICAL requirement text (whitespace and case folded) against the same
+    submitted value and page, with the same status, is merged - a similar
+    rule is a different rule until a person says otherwise.
+    """
+    groups: dict[tuple, list[dict]] = {}
+    order: list[tuple] = []
+    for f in ordered:
+        text = _fold(f.get("requirement_source_text"))
+        key = ((f.get("compliance_status"), text, _fold(f.get("contractor_evidence_text")),
+                f.get("contractor_page")) if text else ("__unique__", f.get("id") or id(f)))
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(f)
+    return [(groups[k][0], groups[k][1:]) for k in order]
+
+
+#: The "Review notes" sheet (owner order 2f): the engineer's internal list.
+NOTE_MISSING_STANDARD = "Standard not in your library - upload required"
+NOTE_UNREAD_PAGES = "Pages not yet readable - engineer to check"
+NOTE_PAGE_READER = "Value not found by the page reader - engineer to check the page"
+NOTE_OTHER_DOCUMENT = "Requires another document"
+
+
+def build_review_notes(findings: list[dict], missing_references: list[str],
+                       unread_pages: list[int] | None = None) -> list[dict]:
+    """The engineer's internal notes for one run - never a contractor comment.
+
+    One row per cited standard not held; one row for the pages not read into
+    fields; one for values the page reader did not find; and the requirements
+    that name their own evidence (a certificate, procedure, drawing) GROUPED
+    BY STANDARD with a count each, not one row per requirement (2e). Every
+    count states its boundary: "of this run's requirements from <standard>".
+    """
+    notes: list[dict] = []
+    for ref in missing_references:
+        notes.append({"note": NOTE_MISSING_STANDARD, "standard": ref, "count": None,
+                      "detail": (f"Cited by this submittal and not in the standards "
+                                 f"library; its requirements were not checked.")})
+    unread = [f for f in findings if _unread(f)]
+    if unread:
+        pages = _page_list(unread_pages or [])
+        notes.append({"note": NOTE_UNREAD_PAGES, "standard": "", "count": len(unread),
+                      "detail": (f"{len(unread)} requirement{'s' if len(unread) != 1 else ''} "
+                                 "could not be checked because "
+                                 + (f"page{'s' if len(unread_pages or []) != 1 else ''} {pages}"
+                                    if pages else "some pages")
+                                 + " of this submittal are not yet read into fields; the "
+                                 "values may be there.")})
+    reader = [f for f in findings if _page_reader_only(f)]
+    if reader:
+        notes.append({"note": NOTE_PAGE_READER, "standard": "", "count": len(reader),
+                      "detail": (f"{len(reader)} requirement{'s' if len(reader) != 1 else ''} "
+                                 "had no value on pages read only by the page layout "
+                                 "reader, which does not find every field on a page.")})
+    by_standard: dict[str, int] = {}
+    for f in findings:
+        if (f.get("compliance_status") == _NOT_IN_DOCUMENT_SCOPE
+                and _REQUIRES_OTHER_DOCUMENT_MARKER in (f.get("ai_rationale") or "")):
+            name = str(f.get("standard_name") or f.get("standard_document_id") or "")
+            by_standard[name] = by_standard.get(name, 0) + 1
+    for name in sorted(by_standard):
+        n = by_standard[name]
+        notes.append({"note": NOTE_OTHER_DOCUMENT, "standard": name, "count": n,
+                      "detail": (f"{n} of this run's requirements from {name or 'this standard'} "
+                                 "name their own evidence - a certificate, procedure, "
+                                 "drawing or other document - which is not this "
+                                 "datasheet. Check each against the document it names.")})
+    return notes
+
+
 def build_crs_rows(findings: list[dict], missing_references: list[str],
                    submittal_name: str,
                    unread_pages: list[int] | None = None) -> list[dict]:
@@ -152,8 +262,30 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                if f.get("compliance_status") == "NON_COMPLIANT"]
     ordered += [f for f in findings
                 if f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
-                and not _unread(f)]
-    for f in ordered:
+                and not _unread(f) and not _page_reader_only(f)]
+    # Owner order 2c: a datasheet check's missing value is a comment of its
+    # own ("Hydrotest pressure is marked 'TBA'"), not one of the uncounted
+    # absences summarised below.
+    ordered += [f for f in findings
+                if f.get("origin") == _DATASHEET_ORIGIN
+                and f.get("compliance_status") == _MISSING_INFORMATION]
+    for f, also in _merge_same_rule(ordered):
+        if f.get("origin") == _DATASHEET_ORIGIN:
+            rows.append({
+                "finding_id": f.get("id") or "",
+                "document_name": submittal_name,
+                "page_section": " / ".join(p for p in (
+                    f"submittal p{f['contractor_page']}" if f.get("contractor_page") else "",
+                    f.get("contractor_section") or "") if p),
+                # "Datasheet check: ..." - the finding's own words, which say
+                # the calculation ("Design pressure 20 barg (page 1) is not at
+                # least operating pressure 23.5 barg (page 1).").
+                "comment": f.get("finding") or "",
+                "comment_by": (f"AI Review, confirmed by {f['confirmed_by']}"
+                               if f.get("confirmed_by") else "AI Review"),
+                "row_kind": ROW_KIND_DATASHEET_CHECK,
+            })
+            continue
         by = "AI Review"
         if f.get("confirmed_by"):
             by = f"AI Review, confirmed by {f['confirmed_by']}"
@@ -167,8 +299,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             # back, and the sheet shows the short reference derived from it.
             "finding_id": f.get("id") or "",
             "document_name": submittal_name,
-            "page_section": _citation(f),
-            "comment": _comment_text(f),
+            "page_section": "; ".join([_citation(f), *(_citation(o) for o in also)]),
+            "comment": _comment_text(f) + (
+                "\nThe same requirement is in: " + "; ".join(_citation(o) for o in also)
+                if also else ""),
             "comment_by": by,
             "row_kind": row_kind,
         })
@@ -188,50 +322,42 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "row_kind": ROW_KIND_ENGINEER_COMMENT,
         })
 
-    other_doc_count = sum(
-        1 for f in findings
-        if f.get("compliance_status") == _NOT_IN_DOCUMENT_SCOPE
-        and _REQUIRES_OTHER_DOCUMENT_MARKER in (f.get("ai_rationale") or ""))
-    if other_doc_count:
+    # Owner order 2d/2f: AI engineering check items. Never a verdict - a
+    # question for the contractor once an engineer has confirmed it, and
+    # until then a draft in its own column that COMPANY Comments never holds.
+    for f in findings:
+        if f.get("origin") != _AI_ORIGIN or f.get("approval_status") == "rejected":
+            continue
+        text = " ".join(p for p in (f.get("finding"), f.get("required_action")) if p)
+        relates = _ai_relates_to(f)
+        if relates:
+            text += f" (Relates to {relates}.)"
+        where = " / ".join(p for p in (
+            f"submittal p{f['contractor_page']}" if f.get("contractor_page") else "",
+            f.get("contractor_section") or "") if p)
+        confirmed = bool(f.get("confirmed_by"))
         rows.append({
-            "finding_id": "requires-other-document-summary",
+            "finding_id": f.get("id") or "",
             "document_name": submittal_name,
-            "page_section": "",
-            "comment": (
-                f"{other_doc_count} requirement"
-                f"{'s' if other_doc_count != 1 else ''} reviewed against this "
-                "submittal name their own evidence - a certificate, drawing "
-                "or other document type - which is not this datasheet. They "
-                "are not itemized here; each has to be checked against the "
-                "document it actually names."),
-            "comment_by": "AI Review",
-            "row_kind": ROW_KIND_REQUIRES_OTHER_DOCUMENT,
+            "page_section": where,
+            "comment": text if confirmed else "",
+            "comment_by": (f"{_AI_CONFIRMED_BY}{f.get('confirmed_by_name') or f['confirmed_by']}"
+                           if confirmed else ""),
+            "ai_review_comment": "" if confirmed else text,
+            "row_kind": ROW_KIND_AI_ENGINEERING_CHECK,
         })
 
-    unread_count = sum(1 for f in findings if _unread(f))
-    if unread_count:
-        pages = _page_list(unread_pages or [])
-        where = (f"page{'s' if len(unread_pages or []) != 1 else ''} {pages} of "
-                 "this submittal" if pages else "some pages of this submittal")
-        rows.append({
-            "finding_id": "pages-not-readable-summary",
-            "document_name": submittal_name,
-            "page_section": f"Pages {pages}" if pages else "",
-            "comment": (
-                f"Pages not yet readable - needs engineer review. "
-                f"{unread_count} requirement{'s' if unread_count != 1 else ''} "
-                f"could not be checked because {where} "
-                f"{'are' if len(unread_pages or []) != 1 else 'is'} not yet read "
-                "into fields by the system, so the values may be there. An "
-                "engineer will check those pages; this is not a comment to the "
-                "contractor and nothing is missing until that check is done."),
-            "comment_by": "AI Review",
-            "row_kind": ROW_KIND_PAGES_NOT_READABLE,
-        })
+    # OWNER ORDER 2f: THE INTERNAL NOTES LEFT THIS SHEET. Requirements that
+    # need another document, pages not yet read, values the page reader did
+    # not find, and cited standards not in the library are the ENGINEER'S
+    # to-do list - they were printed in the contractor's COMPANY Comments
+    # column as "AI Review". They are now the "Review notes" sheet
+    # (`build_review_notes`), which the contractor's copy does not carry.
 
     missing_info_count = sum(
         1 for f in findings
-        if f.get("compliance_status") == _MISSING_INFORMATION)
+        if f.get("compliance_status") == _MISSING_INFORMATION
+        and f.get("origin") != _DATASHEET_ORIGIN)
     if missing_info_count:
         rows.append({
             "finding_id": "missing-information-summary",
@@ -245,31 +371,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 f"{'s' if missing_info_count != 1 else ''} reviewed against "
                 "this submittal were not answered by any field read from it. "
                 "This is an absence, not a breach - the vendor has not been "
-                "asked yet - and is not itemized here for the same reason the "
-                "count above is not."),
+                "asked yet - and is not itemized here: a row each would bury "
+                "the comments above."),
             "comment_by": "AI Review",
             "row_kind": ROW_KIND_MISSING_INFORMATION,
         })
 
-    for ref in missing_references:
-        rows.append({
-            # A gap row has no finding behind it, so its identity is the
-            # standard it names - stable for as long as that standard is
-            # still cited and still missing.
-            "finding_id": f"missing-reference:{ref}",
-            "document_name": submittal_name,
-            "page_section": "References",
-            # "NOT IN THE STANDARDS LIBRARY", not "not available". The
-            # second reads as a claim that a CAPABILITY is missing, and
-            # test_copy_matches_reality bans it for exactly that reason; the
-            # first says the narrower thing that is actually true - this one
-            # document was not loaded. It also tells the reader what would fix
-            # it, which "not available" does not.
-            "comment": (f"Referenced standard {ref} is cited by this "
-                        "submittal but is not in the standards library for "
-                        "this review. Requirements governed by it were not "
-                        "evaluated."),
-            "comment_by": "AI Review",
-            "row_kind": ROW_KIND_MISSING_REFERENCE,
-        })
     return rows

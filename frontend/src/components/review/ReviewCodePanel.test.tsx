@@ -24,6 +24,8 @@ function run(over: Partial<ReviewRunSummary> = {}): ReviewRunSummary {
     findings_total: 1580, by_status: {},
     recommended_code: "Manual Review Required",
     recommended_reason:
+      "Checked 48 datasheet fields. That is not enough of the datasheet to suggest a review code yet.",
+    recommended_details:
       "the review examined 48 fields; the denominator is a NOMINAL ESTIMATE "
       + "of 385, and that is not enough of the submittal to recommend a code",
     completeness: null,
@@ -43,7 +45,10 @@ describe("both codes, never one", () => {
     // Scoped to the card: the code is also an <option> in the select below.
     const card = screen.getByText(/Recommended by the system/).parentElement!;
     expect(within(card).getByText("Manual Review Required")).toBeInTheDocument();
-    expect(within(card).getByText(/NOMINAL ESTIMATE/)).toBeInTheDocument();
+    expect(within(card).getByText(/Checked 48 datasheet fields/)).toBeInTheDocument();
+    // 2g: the engine's own sentence, verbatim, under Details - not in the headline.
+    const details = within(card).getByText("Details").closest("details")!;
+    expect(within(details).getByText(/NOMINAL ESTIMATE/)).toBeInTheDocument();
   });
 
   it("keeps the recommendation on screen after a decision is recorded", () => {

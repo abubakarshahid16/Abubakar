@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 
 import type { ReviewFinding } from "../../types/api";
 import {
-  confidenceLabel, findingLabel, matchMethodLabel, matchMethodTone, orNothing,
+  confidenceLabel, findingLabel, kindLabel, matchMethodLabel, matchMethodTone, orNothing,
   statusLabel, statusRank, statusTone, withDenominator,
 } from "./reviewFormat";
 
@@ -263,6 +263,9 @@ function FindingRow({ finding, name, selected, onSelect }: {
         <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${statusTone(finding.compliance_status)}`}>
           {findingLabel(finding)}
         </span>
+        {kindLabel(finding) && kindLabel(finding) !== "AI engineering check" && (
+          <span className="mt-1 block text-xs text-slateish-300">{kindLabel(finding)}</span>
+        )}
         {finding.confirmed_by && (
           <span className="mt-1 block text-xs text-emerald-300">
             confirmed by {finding.confirmed_by}

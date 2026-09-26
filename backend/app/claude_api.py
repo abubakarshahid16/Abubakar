@@ -287,3 +287,42 @@ def claude_crs_draft(
         "rejected": drafted.get("rejected", 0),
         "counts": drafted.get("counts", {}),
     }, exhausted, model_call)
+
+
+class AiCheckResult(BaseModel):
+    """What the AI engineering check did: counts and reasons, never text."""
+
+    review_run_id: str
+    ran: bool
+    reason: str | None = None
+    proposed: int = 0
+    kept: int = 0
+    rejected: dict = {}
+    cost_usd: float | None = None
+
+
+@router.post("/api/reviews/runs/{review_run_id}/ai-check", response_model=AiCheckResult)
+def review_ai_check(
+    review_run_id: str, request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Owner order 2d: run the AI engineering check for a run again. Drafts
+    only - pending, unconfirmed, never counted in the review code. 409 when
+    the flag or the Claude lane is off; nothing is sent then."""
+    from . import ai_engineering_check, claude_spend
+    from . import reasoning_provider as rp
+    from .main import _missing_references
+    reject_unknown_params(request, set())
+    _require_identity_to_write(scope)
+    run = _run_or_404(review_run_id, scope)
+    ok, why = ai_engineering_check.available()
+    if not ok:
+        raise HTTPException(status_code=409, detail=errors.safe_error(MODEL_DISABLED, why))
+    try:
+        result = ai_engineering_check.run_check(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids,
+            cited=_missing_references(run["submittal_document_id"], scope.allowed_document_ids))
+    except (claude_spend.BudgetExceeded, rp.ProviderRefused) as exc:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            MODEL_DISABLED, f"the AI engineering check did not run: {type(exc).__name__}")) from None
+    return {"review_run_id": review_run_id, **result}

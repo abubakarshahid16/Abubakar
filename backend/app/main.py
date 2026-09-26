@@ -1,6 +1,7 @@
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -1631,6 +1632,35 @@ def _missing_references(submittal_id: str, allowed: frozenset[str]) -> list[str]
     return sorted(missing, key=applicability_mod.normalise_identifier)
 
 
+def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
+    """Owner order 2e: WHY THE IN-SCOPE COUNT MOVED BETWEEN RUNS.
+
+    The applicability decision is stored per run (`review_applicable_standards`),
+    so the change is a diff against the previous run of the same submittal:
+    which standards were added and which removed, by name, under the caller's
+    grants. None when there is no earlier run to compare with.
+    """
+    previous = connect().execute(
+        "SELECT id FROM review_runs WHERE submittal_document_id = ? AND id != ?"
+        " AND created_at < ? ORDER BY created_at DESC LIMIT 1",
+        (run["submittal_document_id"], run["id"], run.get("created_at") or "")).fetchone()
+    if previous is None:
+        return None
+
+    def in_scope(run_id: str) -> dict[str, str]:
+        return {r["standard_document_id"]: r["filename"] or r["standard_document_id"]
+                for r in connect().execute(
+                    "SELECT a.standard_document_id, d.filename FROM review_applicable_standards a"
+                    " LEFT JOIN documents d ON d.id = a.standard_document_id"
+                    " WHERE a.review_run_id = ? AND a.included = 1", (run_id,))
+                if scope.may_read(r["standard_document_id"])}
+
+    now, before = in_scope(run["id"]), in_scope(previous["id"])
+    return {"previous_run_id": previous["id"],
+            "added": sorted(now[k] for k in now.keys() - before.keys()),
+            "removed": sorted(before[k] for k in before.keys() - now.keys())}
+
+
 def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     """One review run as every screen shows it.
 
@@ -1681,7 +1711,11 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "findings_total": findings_total,
         "by_status": by_status,
         "recommended_code": outcome.get("recommended_code"),
-        "recommended_reason": outcome.get("reason"),
+        # 2g: plain words for the engineer; the technical sentence under
+        # "Details". A run stored before 2g gets its plain sentence derived
+        # from the same stored counts.
+        "recommended_reason": comparison_mod.plain_outcome(outcome)[0],
+        "recommended_details": comparison_mod.plain_outcome(outcome)[1],
         "failure_reason": outcome.get("error"),
         # THE ENGINEER'S DECISION BESIDE THE MACHINE'S, never instead of it.
         "engineer_final_code": run.get("engineer_final_code"),
@@ -1696,6 +1730,8 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "page_coverage": outcome.get("page_coverage"),
         # P3: the background job running this review - progress and cancel.
         "job": job,
+        # 2e: which standards came into or left scope since the previous run.
+        "standards_change": _standards_change(run, scope),
     }
 
 
@@ -3644,7 +3680,7 @@ def admin_db_rows(
 # be worse than no preview at all.
 
 
-def _crs_content(review_run_id: str, scope: access.AccessScope
+def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "internal"
                  ) -> tuple[list[dict], dict, str, str]:
     """One run's CRS rows and meta, with the scope question asked once.
 
@@ -3708,6 +3744,17 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
     }
     for finding in findings:
         finding["standard_name"] = names.get(finding.get("standard_document_id"))
+    # Owner order 2d/2f: a confirmed AI engineering check item is printed
+    # "confirmed by <name>" - the engineer's display name, never their id.
+    confirmers = {f["confirmed_by"] for f in findings
+                  if f.get("origin") == "ai_engineering_check" and f.get("confirmed_by")}
+    if confirmers:
+        marks = ",".join("?" for _ in confirmers)
+        people = {r["id"]: r["display_name"] for r in connect().execute(
+            f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(confirmers))}
+        for finding in findings:
+            if finding.get("confirmed_by") in people:
+                finding["confirmed_by_name"] = people[finding["confirmed_by"]]
 
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=allowed) or {}
@@ -3715,9 +3762,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
     # so the CRS names the same pages the findings were decided on.
     unread = ((outcome.get("page_coverage") or {})
               .get("pages_not_read_into_fields") or [])
-    rows = crs_mapping_mod.build_crs_rows(
-        findings, _missing_references(submittal_id, allowed), submittal_name,
-        unread_pages=unread)
+    missing = _missing_references(submittal_id, allowed)
+    rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
+                                          unread_pages=unread)
     stamp = _now_date()
     meta = {
         "document_title": submittal_name,
@@ -3734,7 +3781,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
                             or outcome.get("recommended_code") or "",
         "recommended_code_reason": (
             run.get("override_reason") if run.get("engineer_final_code")
-            else outcome.get("reason")) or "",
+            else comparison_mod.plain_outcome(outcome)[0]) or "",
         # B10: WHO DECIDED IT. The AI recommends; only an engineer decides. A
         # CRS carrying the AI's code must say it is not yet a decision.
         "recommended_code_status": (
@@ -3742,6 +3789,10 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
             else crs_export_mod.CODE_NOT_YET_DECIDED if outcome.get("recommended_code")
             else ""),
         "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
+        # "internal" (with "AI Review Comments") or "issue" (to the contractor).
+        "copy": copy,
+        # 2f: the engineer's internal notes, on their own sheet.
+        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread),
     }
     return rows, meta, submittal_name, stamp
 
@@ -3780,7 +3831,8 @@ def _crs_standards(review_run_id: str, submittal_id: str,
             "evidence": evidence,
         })
     for ref in _missing_references(submittal_id, allowed):
-        out.append({"standard": ref, "status": comparison_mod.MISSING_LOCALLY,
+        # 2g: plain words on the sheet the engineer and client read.
+        out.append({"standard": ref, "status": crs_export_mod.STATUS_NOT_IN_LIBRARY,
                     "method": "referenced",
                     "reason": "cited by the submittal and not held locally; "
                               "its requirements were not checked",
@@ -3803,6 +3855,7 @@ def _crs_standards(review_run_id: str, submittal_id: str,
 def export_review_crs(
     review_run_id: str,
     request: Request,
+    copy: Literal["internal", "issue"] = "internal",
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The run's findings as a Comment Resolution Sheet (.xlsx).
@@ -3820,13 +3873,15 @@ def export_review_crs(
     template, and the meta - including the deliberately BLANK transmittal
     numbers - is documented where it is built.
     """
-    reject_unknown_params(request, set())
-    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope)
+    reject_unknown_params(request, {"copy"})
+    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope, copy)
     workbook = crs_export_mod.build_crs(rows, meta)
 
     safe = "".join(
         ch for ch in Path(submittal_name).stem if ch.isalnum() or ch in "-_")
-    filename = f"CRS_{safe or 'submittal'}_{stamp}.xlsx"
+    # Owner order 2f: the file name says which copy it is.
+    filename = (f"CRS_{safe or 'submittal'}_{stamp}_"
+                f"{crs_export_mod.COPY_FILE_SUFFIX[copy]}.xlsx")
     return Response(
         content=workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3840,6 +3895,7 @@ def export_review_crs(
 def preview_review_crs(
     review_run_id: str,
     request: Request,
+    copy: Literal["internal", "issue"] = "internal",
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The same Comment Resolution Sheet, as JSON a browser can render.
@@ -3860,6 +3916,6 @@ def preview_review_crs(
     belong to the contractor; the sheet has seven columns whether or not
     anyone has answered yet, and a reader has to see the space they will fill.
     """
-    reject_unknown_params(request, set())
-    rows, meta, _submittal_name, _stamp = _crs_content(review_run_id, scope)
+    reject_unknown_params(request, {"copy"})
+    rows, meta, _submittal_name, _stamp = _crs_content(review_run_id, scope, copy)
     return crs_export_mod.build_crs_view(rows, meta)

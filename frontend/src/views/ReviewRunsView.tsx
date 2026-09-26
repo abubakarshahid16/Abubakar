@@ -27,7 +27,7 @@ import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
 import { StandardOverrideControl } from "../components/review/StandardOverrideControl";
 import {
   STATUS_ORDER, completenessLine, pageCoverageLine, statusLabel, statusTone,
-  whenLabel, withDenominator,
+  standardsChangeLine, whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
 
 type Phase =
@@ -63,10 +63,10 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
    *  Content-Disposition, so one definition of "what is this file called"
    *  exists rather than two that can disagree.
    */
-  async function exportCrs(runId: string) {
+  async function exportCrs(runId: string, copy: "internal" | "issue" = "internal") {
     setExporting(true);
     setExportError(null);
-    const result = await reviewsApi.exportCrs(runId);
+    const result = await reviewsApi.exportCrs(runId, copy);
     setExporting(false);
     if (!result.ok) {
       setExportError(result.error.message);
@@ -203,6 +203,30 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
     () => runs.find((item) => item.review_run_id === selectedRun) ?? null,
     [runs, selectedRun],
   );
+
+  // 2g: THE PICKER AND THE PANEL NAME THE SAME DOCUMENT. They were two pieces
+  // of state: the dropdown kept whatever was last chosen while the panel
+  // showed whichever run was opened, so one document sat above another's
+  // findings. Opening a run now sets the picker to its submittal...
+  useEffect(() => {
+    if (run) setTarget(run.submittal_document_id);
+  }, [run]);
+
+  // ...and choosing a submittal opens its latest run, or closes the panel
+  // when it has none - never leaving another document's run on screen.
+  function pickTarget(documentId: string) {
+    setTarget(documentId);
+    const latest = runs
+      .filter((item) => item.submittal_document_id === documentId)
+      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0];
+    if (latest) {
+      void openRun(latest.review_run_id);
+    } else {
+      setSelectedRun(null);
+      setFindings([]);
+      setPreview(null);
+    }
+  }
   const finding = useMemo(
     () => findings.find((item) => item.id === selectedFinding) ?? null,
     [findings, selectedFinding],
@@ -263,7 +287,7 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
           </label>
           <select
             id="review-target" value={target}
-            onChange={(event) => setTarget(event.target.value)}
+            onChange={(event) => pickTarget(event.target.value)}
             className="min-w-[18rem] rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100"
           >
             <option value="">Choose a contractor submittal…</option>
@@ -323,7 +347,16 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
               disabled={exporting}
               className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"
             >
-              {exporting ? "Preparing…" : "Export CRS (.xlsx)"}
+              {exporting ? "Preparing…" : "Export CRS - internal review copy"}
+            </button>
+            {/* Owner order 2f: the contractor's copy. No "AI Review Comments"
+                column and no unconfirmed AI item - only confirmed comments. */}
+            <button
+              type="button" onClick={() => void exportCrs(run.review_run_id, "issue")}
+              disabled={exporting}
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"
+            >
+              Export CRS - issue to contractor
             </button>
             {/* THE SAME SHEET, ON SCREEN. It reads from a sibling route that
                 the server builds from the same builder as the file above, so
@@ -438,8 +471,9 @@ function RunCard({ run, selected, onOpen }: {
 }) {
   const completeness = completenessLine(run);
   const pageCoverage = pageCoverageLine(run);
-  const reasonStatesDenominator =
-    (run.recommended_reason ?? "").includes("NOMINAL ESTIMATE");
+  // 2g: the plain reason already opens "Checked N datasheet fields" when
+  // the run was gated for completeness; the line is not printed twice.
+  const reasonStatesCount = (run.recommended_reason ?? "").startsWith("Checked ");
   return (
     <button
       type="button" onClick={onOpen}
@@ -483,18 +517,20 @@ function RunCard({ run, selected, onOpen }: {
           {run.recommended_reason ? <span className="text-slateish-400"> — {run.recommended_reason}</span> : null}
         </p>
       )}
-      {/* ONCE, NOT TWICE. When a run was gated for incompleteness the
-          recommendation's own words already carry the nominal
-          denominator, and printing the completeness line under it said
-          the same sentence again. The line is still shown whenever the
-          reason does NOT state it - the denominator is never dropped,
-          only never repeated. */}
-      {completeness && !reasonStatesDenominator && (
+      {/* ONCE, NOT TWICE: shown whenever the reason does not already say
+          how many fields were checked. The nominal estimate is under
+          "Details" in the code panel, never on the card (2g). */}
+      {completeness && !reasonStatesCount && (
         <p className="mt-1 text-xs text-slateish-500">{completeness}</p>
       )}
       {pageCoverage && (
         <p className="mt-1 text-xs text-slateish-500" data-testid="page-coverage">
           {pageCoverage}
+        </p>
+      )}
+      {standardsChangeLine(run) && (
+        <p className="mt-1 text-xs text-slateish-400" data-testid="standards-change">
+          {standardsChangeLine(run)}
         </p>
       )}
     </button>
@@ -572,10 +608,45 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
                   in them would put words in their mouth. */}
               <td className="border border-ink-600 px-2 py-1 align-top" />
               <td className="border border-ink-600 px-2 py-1 align-top" />
+              {/* Owner order 2f: the last column, internal copy only. */}
+              {preview.columns.length > 7 && (
+                <td className="whitespace-pre-line border border-ink-600 px-2 py-1 align-top text-slateish-200">
+                  {row.ai_review_comment}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
       </table>
+
+      {/* Owner order 2f: the engineer's internal notes, on their own sheet -
+          never in COMPANY Comments, and not in the contractor's copy. */}
+      {(preview.review_notes ?? []).length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-slateish-200">
+            Review notes - internal ({(preview.review_notes ?? []).length})
+          </summary>
+          <table className="mt-2 w-full border-collapse">
+            <thead>
+              <tr>
+                {["Note", "Standard", "Count", "Detail"].map((h) => (
+                  <th key={h} scope="col" className="border border-ink-600 bg-ink-800 px-2 py-1 text-left font-semibold text-slateish-200">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(preview.review_notes ?? []).map((n, i) => (
+                <tr key={i}>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-200">{n.note}</td>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{n.standard}</td>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{n.count ?? ""}</td>
+                  <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">{n.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
 
       {/* NULL RENDERS AS NOTHING. A run with no recommendation shows no line
           at all rather than an empty or placeholder code. */}

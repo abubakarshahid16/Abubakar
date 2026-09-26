@@ -274,7 +274,8 @@ def _f(status):
 def test_nothing_evaluated_is_never_approved():
     result = comparison.recommend_code([], SUFFICIENT)
     assert result["code"] == comparison.CODE_MANUAL
-    assert "no requirement was evaluated" in result["reason"]
+    assert "no requirement was evaluated" in result["details"]
+    assert result["reason"].startswith("No requirement could be checked against this datasheet")
 
 
 def test_only_not_applicable_findings_are_never_approved():
@@ -286,7 +287,10 @@ def test_a_cited_standard_not_held_blocks_approval():
     result = comparison.recommend_code([_f(comparison.COMPLIANT)], SUFFICIENT,
                                        missing_references=["API 682"])
     assert result["code"] == comparison.CODE_MANUAL
-    assert comparison.MISSING_LOCALLY in result["reason"] and "API 682" in result["reason"]
+    assert comparison.MISSING_LOCALLY in result["details"] and "API 682" in result["details"]
+    # 2g: the plain sentence names the standard and uses no engine word.
+    assert result["reason"] == ("Needs an engineer: 1 standard the datasheet cites is not "
+                                "in your library (API 682), so it was not checked.")
     assert result["missing_locally"] == 1
 
 
@@ -383,7 +387,8 @@ def test_a_missing_standard_is_named_when_it_is_why_completeness_is_low(monkeypa
     _client, run_id, std = _review(monkeypatch, tmp_path, "API 610 and API 682")
     outcome = comparison.run_outcome(run_id, allowed_document_ids=frozenset({std, "sub"}))
     assert outcome["recommended_code"] == comparison.CODE_MANUAL
-    assert comparison.MISSING_LOCALLY in outcome["reason"] and "API 682" in outcome["reason"]
+    assert comparison.MISSING_LOCALLY in outcome["details"] and "API 682" in outcome["details"]
+    assert "API 682" in outcome["reason"] and comparison.MISSING_LOCALLY not in outcome["reason"]
 
 
 def test_the_live_route_never_approves_with_a_cited_standard_missing(monkeypatch, tmp_path):
@@ -400,7 +405,7 @@ def test_the_live_route_never_approves_with_a_cited_standard_missing(monkeypatch
     assert [f["compliance_status"] for f in findings] == [comparison.COMPLIANT]
     assert outcome["completeness"]["sufficient"] is True
     assert outcome["recommended_code"] == comparison.CODE_MANUAL
-    assert outcome["reason"].startswith("Manual review: 1 standard(s) the submittal cites")
+    assert outcome["details"].startswith("Manual review: 1 standard(s) the submittal cites")
     assert "API 682" in outcome["reason"]
     assert outcome["missing_references"] == [
         {"identifier": "API 682", "status": comparison.MISSING_LOCALLY}]
@@ -429,13 +434,13 @@ def test_the_standards_and_reasons_reach_the_run_and_the_crs(monkeypatch, tmp_pa
     by_name = {s["standard"]: s for s in preview["applicable_standards"]}
     assert by_name["API-610.pdf"]["status"] == "Applied"
     assert "named in the submittal as API 610" in by_name["API-610.pdf"]["reason"]
-    assert by_name["API 682"]["status"] == comparison.MISSING_LOCALLY
+    assert by_name["API 682"]["status"] == "Not in your library - upload required"
 
     workbook = load_workbook(io.BytesIO(client.get(f"/api/reviews/runs/{run_id}/crs").content))
     sheet = workbook[STANDARDS_SHEET]
     printed = [[c.value for c in r] for r in sheet.iter_rows(min_row=2)]
     assert ["API-610.pdf", "Applied"] == printed[0][:2]
-    assert ["API 682", comparison.MISSING_LOCALLY] == printed[1][:2]
+    assert ["API 682", "Not in your library - upload required"] == printed[1][:2]
     assert workbook.worksheets[0].title == "CRS"        # the client's sheet stays first
 
 
