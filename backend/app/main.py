@@ -940,16 +940,22 @@ def revoke_user_tokens(user_id: str,
 
 
 @app.get("/api/progress/{progress_id}", response_model=schemas.Progress,
-         responses={**schemas.ERRORS_404})
-def read_progress(progress_id: str):
+         responses={**schemas.ERRORS_401, **schemas.ERRORS_404})
+def read_progress(progress_id: str,
+                  scope: access.AccessScope = Depends(access.current_scope)):
     """What the machine is doing, as reported by the work itself.
 
-    Unauthenticated, and carries no document content - a stage name, a count
-    and a clock. The id is chosen by the client; guessing one reveals only
-    that somebody is asking a question, which /api/health already reveals
-    through `busy`.
+    P5: AUTHENTICATED, AND ONLY TO THE ONE WHO ASKED. It carries no document
+    content, but it did say to anyone at all what another user was doing and
+    when; now an entry is read back only by the identity that started it (a
+    stranger gets the same 404 as an unknown id), and with sign-in required
+    an anonymous caller gets 401 - the same rule as every other route.
     """
-    state = progress_mod.read(progress_id)
+    if not scope.unrestricted and not scope.user_id:
+        raise HTTPException(status_code=401, detail=errors.safe_error(
+            errors.UNAUTHENTICATED, "sign in to continue"))
+    state = progress_mod.read(progress_id, reader=scope.user_id,
+                              unrestricted=scope.unrestricted)
     if state is None:
         raise HTTPException(
             status_code=404,
@@ -1323,8 +1329,9 @@ def _record_market_audit(rows, scope: access.AccessScope) -> None:
                      row["resource_type"], row["resource_id"], row["outcome"],
                      row["detail"]),
                 )
-    except Exception:  # noqa: BLE001 - an unwritable audit must not fail the request
-        pass
+    except Exception as exc:  # noqa: BLE001 - an unwritable audit must not fail the request
+        # P5: NOT SILENT - the query already left; the missing record is logged.
+        errors.record_failure(exc, stage="market_audit")
 
 
 @app.get("/api/market/preview", response_model=schemas.MarketPreview)
@@ -2487,7 +2494,7 @@ def ask(conversation_id: str, body: schemas.AskRequest,
     # It classifies as "empty" and gets the guidance reply, like any other
     # input that was never a document question.
     try:
-        progress_mod.start(body.progress_id)
+        progress_mod.start(body.progress_id, owner=scope.user_id)
         # `finally`, so an answer that raises still closes its record rather
         # than leaving a client polling a stage that will never advance.
         try:

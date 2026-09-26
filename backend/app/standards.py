@@ -335,23 +335,22 @@ def _audit(action: str, actor: dict | None, resource_id: str | None,
     `detail` carries IDS AND CLAUSE NUMBERS ONLY. Never requirement text, never
     a document title - the audit table is the one most likely to be exported.
 
-    An unwritable audit must not block the change it describes, so the failure
-    is swallowed, exactly as the admin helper does.
+    P5: NO LONGER SWALLOWED. It used to be "an unwritable audit must not block
+    the change it describes", which let a supersession or an engineer's
+    requirement decision stand with no record of who made it. A failure now
+    raises; the caller's request fails loudly instead of succeeding silently.
     """
     conn = connect()
-    try:
-        with conn:
-            conn.execute(
-                """INSERT INTO audit_events
-                       (at, actor_user_id, actor_username, action,
-                        resource_type, resource_id, outcome, detail)
-                   VALUES (?, ?, ?, ?, 'standard', ?, ?, ?)""",
-                (_now(), (actor or {}).get("id"),
-                 ((actor or {}).get("email") or "unauthenticated")[:200],
-                 action, resource_id, outcome, detail),
-            )
-    except Exception:  # noqa: BLE001 - an unwritable audit must not block the change
-        pass
+    with conn:
+        conn.execute(
+            """INSERT INTO audit_events
+                   (at, actor_user_id, actor_username, action,
+                    resource_type, resource_id, outcome, detail)
+               VALUES (?, ?, ?, ?, 'standard', ?, ?, ?)""",
+            (_now(), (actor or {}).get("id"),
+             ((actor or {}).get("email") or "unauthenticated")[:200],
+             action, resource_id, outcome, detail),
+        )
 
 
 def _scope_clause(allowed_document_ids: frozenset[str], column: str) -> tuple[str, list[str]]:
