@@ -142,6 +142,12 @@ describe("B3: a finding on an unread page says so in plain words", () => {
     })).toBe("Value not found by the page reader - engineer to check the page");
   });
 
+  it("labels an AI engineering check item as a draft, not a verdict (order 2d)", () => {
+    expect(findingLabel({ compliance_status: null, ai_rationale: null,
+                          origin: "ai_engineering_check" }))
+      .toBe("AI engineering check - not from the standard text - engineer to confirm");
+  });
+
   it("leaves every other finding reading as its status does", () => {
     expect(findingLabel({ compliance_status: "NEEDS_ENGINEER_REVIEW",
                           ai_rationale: "UNIT_MISMATCH: ..." })).toBe("Needs engineer review");

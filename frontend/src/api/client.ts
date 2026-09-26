@@ -428,8 +428,11 @@ export const reviews = {
    *  filename is the SERVER's: one definition of what the file is called. */
   exportCrs: async (
     runId: string,
+    copy: "internal" | "issue" = "internal",
   ): Promise<Result<{ blob: Blob; filename: string }>> => {
-    const path = `/reviews/runs/${encodeURIComponent(runId)}/crs`;
+    // Owner order 2f: "internal" keeps the AI Review Comments column;
+    // "issue" is the contractor's copy, with every unconfirmed AI item removed.
+    const path = `/reviews/runs/${encodeURIComponent(runId)}/crs?copy=${copy}`;
     let response: Response;
     try {
       const headers = new Headers();

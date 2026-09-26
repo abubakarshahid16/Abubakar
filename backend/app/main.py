@@ -1,6 +1,7 @@
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -3644,7 +3645,7 @@ def admin_db_rows(
 # be worse than no preview at all.
 
 
-def _crs_content(review_run_id: str, scope: access.AccessScope
+def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "internal"
                  ) -> tuple[list[dict], dict, str, str]:
     """One run's CRS rows and meta, with the scope question asked once.
 
@@ -3708,6 +3709,17 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
     }
     for finding in findings:
         finding["standard_name"] = names.get(finding.get("standard_document_id"))
+    # Owner order 2d/2f: a confirmed AI engineering check item is printed
+    # "confirmed by <name>" - the engineer's display name, never their id.
+    confirmers = {f["confirmed_by"] for f in findings
+                  if f.get("origin") == "ai_engineering_check" and f.get("confirmed_by")}
+    if confirmers:
+        marks = ",".join("?" for _ in confirmers)
+        people = {r["id"]: r["display_name"] for r in connect().execute(
+            f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(confirmers))}
+        for finding in findings:
+            if finding.get("confirmed_by") in people:
+                finding["confirmed_by_name"] = people[finding["confirmed_by"]]
 
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=allowed) or {}
@@ -3742,6 +3754,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
             else crs_export_mod.CODE_NOT_YET_DECIDED if outcome.get("recommended_code")
             else ""),
         "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
+        # "internal" (with "AI Review Comments") or "issue" (to the contractor).
+        "copy": copy,
     }
     return rows, meta, submittal_name, stamp
 
@@ -3803,6 +3817,7 @@ def _crs_standards(review_run_id: str, submittal_id: str,
 def export_review_crs(
     review_run_id: str,
     request: Request,
+    copy: Literal["internal", "issue"] = "internal",
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The run's findings as a Comment Resolution Sheet (.xlsx).
@@ -3820,13 +3835,15 @@ def export_review_crs(
     template, and the meta - including the deliberately BLANK transmittal
     numbers - is documented where it is built.
     """
-    reject_unknown_params(request, set())
-    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope)
+    reject_unknown_params(request, {"copy"})
+    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope, copy)
     workbook = crs_export_mod.build_crs(rows, meta)
 
     safe = "".join(
         ch for ch in Path(submittal_name).stem if ch.isalnum() or ch in "-_")
-    filename = f"CRS_{safe or 'submittal'}_{stamp}.xlsx"
+    # Owner order 2f: the file name says which copy it is.
+    filename = (f"CRS_{safe or 'submittal'}_{stamp}_"
+                f"{crs_export_mod.COPY_FILE_SUFFIX[copy]}.xlsx")
     return Response(
         content=workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3840,6 +3857,7 @@ def export_review_crs(
 def preview_review_crs(
     review_run_id: str,
     request: Request,
+    copy: Literal["internal", "issue"] = "internal",
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The same Comment Resolution Sheet, as JSON a browser can render.
@@ -3860,6 +3878,6 @@ def preview_review_crs(
     belong to the contractor; the sheet has seven columns whether or not
     anyone has answered yet, and a reader has to see the space they will fill.
     """
-    reject_unknown_params(request, set())
-    rows, meta, _submittal_name, _stamp = _crs_content(review_run_id, scope)
+    reject_unknown_params(request, {"copy"})
+    rows, meta, _submittal_name, _stamp = _crs_content(review_run_id, scope, copy)
     return crs_export_mod.build_crs_view(rows, meta)

@@ -511,8 +511,14 @@ def test_the_preview_carries_the_seven_columns_the_template_defines():
 
     body = _preview(_client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview"))
 
-    assert body["columns"] == HEADERS
-    assert body["columns"][5:] == ["Contractor's Response", "Final Resolution"]
+    # The template's seven, in order; the internal review copy (the default)
+    # adds "AI Review Comments" LAST (owner decision 2026-09-27), and the
+    # copy issued to the contractor is the template exactly.
+    assert body["columns"] == [*HEADERS, "AI Review Comments"]
+    assert body["columns"][5:7] == ["Contractor's Response", "Final Resolution"]
+    issued = _preview(_client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview",
+                                       params={"copy": "issue"}))
+    assert issued["columns"] == HEADERS
 
 
 def test_the_contractor_columns_come_back_empty_rather_than_missing():
@@ -575,7 +581,7 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
 
     # The column headers, directly under the header block.
     assert [_cell(ws, COLUMN_HEADER_ROW, c)
-            for c in range(1, 8)] == body["columns"]
+            for c in range(1, 9)] == body["columns"]
 
     # Every data row, from row 9, across all seven columns.
     assert len(body["rows"]) >= 3, "the fixture produced too few rows to prove"
@@ -585,6 +591,7 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
             row["item_no"], row["document_name"], row["page_section"],
             row["comment"], row["comment_by"], row["contractor_response"],
             row["final_resolution"]], f"row {row['item_no']} disagrees"
+        assert _cell(ws, r, 8) == row["ai_review_comment"]
     # And no eighth row hiding in the workbook that the preview never showed.
     assert _cell(ws, COLUMN_HEADER_ROW + len(body["rows"]) + 1, 1) == ""
 
@@ -782,7 +789,13 @@ def test_the_additions_left_the_template_at_seven_columns():
     run_id = _run(doc)
     _finding(doc, run_id, "NON_COMPLIANT")
 
-    ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
+    # The copy ISSUED to the contractor is the template's seven columns; the
+    # internal review copy adds only "AI Review Comments", last (owner
+    # decision 2026-09-27), and moves no other column.
+    ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs", params={"copy": "issue"}))
+    internal = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
+    assert [internal.cell(row=COLUMN_HEADER_ROW, column=c).value
+            for c in range(1, 9)] == [*HEADERS, "AI Review Comments"]
 
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
             for c in range(1, 8)] == HEADERS

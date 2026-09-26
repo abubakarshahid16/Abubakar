@@ -37,6 +37,14 @@ ROW_KIND_MISSING_REFERENCE = "missing_reference"
 #: (`chat_actions.file_comment`, `origin = 'chat'`). Their words and their
 #: name - never "AI Review", because the model did not decide to send it.
 ROW_KIND_ENGINEER_COMMENT = "engineer_comment"
+#: Owner order 2d/2f: an AI engineering check item (kind C,
+#: `origin = 'ai_engineering_check'`). Unconfirmed, its text rides in the
+#: "AI Review Comments" column with COMPANY Comments empty; confirmed by an
+#: engineer, it moves to COMPANY Comments under their name. Rejected, it is
+#: not on the sheet at all.
+ROW_KIND_AI_ENGINEERING_CHECK = "ai_engineering_check"
+_AI_ORIGIN = "ai_engineering_check"
+_AI_CONFIRMED_BY = "AI engineering check, confirmed by "
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
 #: literal, not imported from `comparison`, because this module stays pure
@@ -92,6 +100,14 @@ def _unread(finding: dict) -> bool:
 def _page_reader_only(finding: dict) -> bool:
     return (finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
             and (finding.get("ai_rationale") or "").startswith(_PAGE_READER_ONLY_MARKER))
+
+
+def _ai_relates_to(finding: dict) -> str:
+    """The standard NAME an AI item relates to, as `ai_engineering_check`
+    stored it on the rationale ("... Relates to: <name>.")."""
+    text = finding.get("ai_rationale") or ""
+    name = text.split("Relates to: ", 1)[1].rstrip(".") if "Relates to: " in text else ""
+    return "" if name == "no standard named" else name
 
 
 def _citation(finding: dict) -> str:
@@ -196,6 +212,31 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "comment": f.get("finding") or "",
             "comment_by": f"{f.get('confirmed_by') or 'Engineer'} (filed from chat)",
             "row_kind": ROW_KIND_ENGINEER_COMMENT,
+        })
+
+    # Owner order 2d/2f: AI engineering check items. Never a verdict - a
+    # question for the contractor once an engineer has confirmed it, and
+    # until then a draft in its own column that COMPANY Comments never holds.
+    for f in findings:
+        if f.get("origin") != _AI_ORIGIN or f.get("approval_status") == "rejected":
+            continue
+        text = " ".join(p for p in (f.get("finding"), f.get("required_action")) if p)
+        relates = _ai_relates_to(f)
+        if relates:
+            text += f" (Relates to {relates}.)"
+        where = " / ".join(p for p in (
+            f"submittal p{f['contractor_page']}" if f.get("contractor_page") else "",
+            f.get("contractor_section") or "") if p)
+        confirmed = bool(f.get("confirmed_by"))
+        rows.append({
+            "finding_id": f.get("id") or "",
+            "document_name": submittal_name,
+            "page_section": where,
+            "comment": text if confirmed else "",
+            "comment_by": (f"{_AI_CONFIRMED_BY}{f.get('confirmed_by_name') or f['confirmed_by']}"
+                           if confirmed else ""),
+            "ai_review_comment": "" if confirmed else text,
+            "row_kind": ROW_KIND_AI_ENGINEERING_CHECK,
         })
 
     other_doc_count = sum(

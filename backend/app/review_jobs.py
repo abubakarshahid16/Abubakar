@@ -138,6 +138,21 @@ def _step(conn, job_id: str, index: int) -> None:
                      (index, STEPS[index], _now(), _now(), job_id))
 
 
+def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
+    """Owner order 2d: the AI engineering check, AFTER the comparison decided
+    the code, only with its flag on. Drafts only; a failure here (budget,
+    Claude refused, a bad answer) never fails the review - it is logged by
+    kind, never with text."""
+    from . import ai_engineering_check
+    if not settings.review_ai_check_enabled:
+        return
+    try:
+        ai_engineering_check.run_check(run_id, allowed_document_ids=scope, cited=missing)
+    except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
+        import logging
+        logging.getLogger(__name__).warning("AI engineering check skipped: %s", type(exc).__name__)
+
+
 def run(job_id: str, worker_id: str) -> str:
     """Run one claimed review job to its end. Returns the job's final state."""
     from . import applicability, comparison, errors, submittal_review
@@ -161,6 +176,7 @@ def run(job_id: str, worker_id: str) -> str:
             run_id, allowed_document_ids=scope,
             reference_coverage=selection.get("reference_coverage"),
             missing_references=[m["identifier"] for m in selection["missing_references"]])
+        _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
     except _Cancelled:
         with conn:
             conn.execute("DELETE FROM review_findings WHERE review_run_id = ?"
