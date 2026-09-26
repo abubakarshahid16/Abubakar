@@ -270,7 +270,7 @@ def available() -> tuple[bool, str]:
     from . import reasoning_provider
     ok, why = reasoning_provider.claude_available()
     if not ok:
-        return False, f"Claude is not available ({why})"
+        return False, f"the Claude lane is off ({why})"
     return True, "claude"
 
 
