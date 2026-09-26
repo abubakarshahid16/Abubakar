@@ -68,4 +68,16 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="    if not url.startswith(\"https://\") or host not in allowed:\n        raise ReaderRefused(f\"reader transport refuses host {host!r}; allowed {allowed!r}\")\n\n    sent_headers = {\"User-Agent\": USER_AGENT, \"Accept\": \"text/event-stream\"}",
              replacement="    sent_headers = {\"User-Agent\": USER_AGENT, \"Accept\": \"text/event-stream\"}",
              target=_T, keyword="keeps_the_transports_gates", tags=("privacy", "critical")),
+    Mutation(id="M954", phase=82, description="stream: the streamed ask skips the ownership check",
+             path=APP / "main.py",
+             anchor="    from . import chat_stream\n\n    _require_owned_conversation(conversation_id, scope)\n    if body.document_id:\n",
+             replacement="    from . import chat_stream\n\n    if body.document_id:\n",
+             target="tests/test_conversations_ownership.py",
+             keyword="streamed_ask_inside_another_users", tags=("access", "critical")),
+    # The cancel route is NOT mutated here. It refuses a caller three times
+    # over - the conversation must be theirs, the turn must be theirs
+    # (`chat_stream.find`, mutated above at unit level) and the turn must
+    # belong to that conversation - so removing any ONE of them changes
+    # nothing a caller can observe: an equivalent mutation, not a test gap.
+    # test_stopping_an_answer_in_another_users_... pins the route as a whole.
 )

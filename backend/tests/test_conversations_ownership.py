@@ -211,6 +211,40 @@ def test_ask_inside_another_users_conversation_writes_nothing(owned_by_a, caller
     assert connect().execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 2
 
 
+@pytest.mark.parametrize("caller", NOT_A)
+def test_a_streamed_ask_inside_another_users_conversation_writes_nothing(owned_by_a, caller):
+    """The streamed ask (chat redesign 2e) is refused exactly like the plain
+    one: before a turn is opened, before a stream starts, as a missing id."""
+    client, cid = owned_by_a
+    before = _snapshot(cid)
+    _as(caller)
+    hidden = client.post(f"/api/conversations/{cid}/ask/stream",
+                         json={"question": "coating thickness"})
+    unknown = client.post(f"/api/conversations/{UNKNOWN}/ask/stream",
+                          json={"question": "coating thickness"})
+    _assert_same_as_unknown(hidden, unknown)
+    _assert_nothing_of_a_leaked(hidden, cid)
+    assert _snapshot(cid) == before, "a turn was written into another user's conversation"
+    assert connect().execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("caller", NOT_A)
+def test_stopping_an_answer_in_another_users_conversation_stops_nothing(owned_by_a, caller):
+    """Stop is a write on someone's answer. A's answer in flight is not
+    cancelled by anyone else, and the refusal is the same as for a missing
+    conversation - it confirms neither the conversation nor the turn."""
+    from app import chat_stream
+
+    client, cid = owned_by_a
+    turn = chat_stream.open_turn(owner="user_a", conversation_id=cid)
+    _as(caller)
+    hidden = client.post(f"/api/conversations/{cid}/ask/{turn.id}/cancel")
+    unknown = client.post(f"/api/conversations/{UNKNOWN}/ask/{turn.id}/cancel")
+    _assert_same_as_unknown(hidden, unknown)
+    _assert_nothing_of_a_leaked(hidden, cid)
+    assert not turn.cancel.is_set(), "another caller stopped A's answer"
+
+
 # ------------------------------------------------------------------- rename
 
 
@@ -227,6 +261,9 @@ def test_there_is_no_rename_route_to_leave_unguarded():
         ("GET", "/api/conversations/{conversation_id}"),
         ("DELETE", "/api/conversations/{conversation_id}"),
         ("POST", "/api/conversations/{conversation_id}/ask"),
+        # chat redesign 2e: ownership tested just above
+        ("POST", "/api/conversations/{conversation_id}/ask/stream"),
+        ("POST", "/api/conversations/{conversation_id}/ask/{turn_id}/cancel"),
     }, f"a conversations route appeared without an ownership test: {paths}"
 
 
