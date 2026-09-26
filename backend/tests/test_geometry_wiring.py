@@ -40,6 +40,9 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "geo.sqlite")
     monkeypatch.setattr(settings, "geometry_reader_enabled", False)
+    # "OFF" below means every geometry path off - the table path alone is
+    # on by default since 2026-09-25 (test_b4_schedule_tables.py).
+    monkeypatch.setattr(settings, "geometry_table_reader_enabled", False)
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()

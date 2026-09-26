@@ -69,12 +69,14 @@ def cost_usd(model: str | None, usage: dict | None, *, batch: bool = False) -> f
     return full * BATCH_DISCOUNT if batch else full
 
 
-def worst_case_usd(model: str | None, prompt_chars: int, max_tokens: int, *, batch: bool = False) -> float:
+def worst_case_usd(model: str | None, prompt_chars: int, max_tokens: int,
+                   image_tokens: int = 0, *, batch: bool = False) -> float:
     """The most one call can cost: prompt at ~3 chars per token (generous -
-    English runs nearer 4), priced as an uncached cache WRITE (the dearest
-    input rate), plus every allowed output token. Half for a batch request."""
+    English runs nearer 4), plus any image's tokens (width x height / 750),
+    priced as an uncached cache WRITE (the dearest input rate), plus every
+    allowed output token. Half for a batch request."""
     p_in, p_out, p_write, _ = price_for(model)
-    tokens_in = prompt_chars // 3 + 1
+    tokens_in = prompt_chars // 3 + 1 + max(0, int(image_tokens))
     full = (tokens_in * max(p_in, p_write) + max_tokens * p_out) / 1_000_000
     return full * BATCH_DISCOUNT if batch else full
 

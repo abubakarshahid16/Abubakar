@@ -291,6 +291,33 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="duplicate_id_across_two_modules",
         tags=("harness",),
     ),
+    Mutation(
+        id="M640", phase=64,
+        description="B4 vision: page images are dropped from the request (text only)",
+        path=APP / "reader_api.py",
+        anchor='        content = [*blocks, {"type": "text", "text": prompt}]\n',
+        replacement="        content = prompt\n",
+        target="tests/test_b4_quality.py", keyword="images_ride_in_the_one_request_builder",
+        tags=("egress",),
+    ),
+    Mutation(
+        id="M641", phase=64,
+        description="B4 vision: any media type, or an empty image, is sent",
+        path=APP / "reader_api.py",
+        anchor="            if media_type not in IMAGE_MEDIA_TYPES or not isinstance(data, str) or not data:\n",
+        replacement="            if False:\n",
+        target="tests/test_b4_quality.py", keyword="image_request_keeps_every_gate",
+        tags=("egress", "critical"),
+    ),
+    Mutation(
+        id="M644", phase=64,
+        description="B4 vision: the budget check ignores image tokens",
+        path=APP / "claude_spend.py",
+        anchor="    tokens_in = prompt_chars // 3 + 1 + max(0, int(image_tokens))\n",
+        replacement="    tokens_in = prompt_chars // 3 + 1\n",
+        target="tests/test_b4_quality.py", keyword="worst_case_counts_the_image",
+        tags=("budget", "critical"),
+    ),
     # ---- b5-quality 2026-09-25: Message Batches (claude_spend, reader_transport)
     Mutation(
         id="M670", phase=62,

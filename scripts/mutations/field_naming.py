@@ -36,4 +36,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword='does_not_name_the_field',
         tags=('honesty', 'critical'),
     ),
+    Mutation(
+        id='M654', phase=64,
+        description='B4 item 2: a fact is no longer its own name (no code identity mapping)',
+        path=APP / 'field_naming.py',
+        anchor='            named = next((n for n in own_names(f) if n in received), None)\n',
+        replacement='            named = None\n',
+        target='tests/test_b4_quality.py', keyword='blank_fields_are_named',
+    ),
 )

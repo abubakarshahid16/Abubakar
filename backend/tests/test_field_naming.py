@@ -102,7 +102,7 @@ def test_names_are_asked_once_per_dictionary():
     field_naming.name_items(field_naming.LABEL, [("x", "SPEED")], DICTIONARY, provider)
     field_naming.name_items(field_naming.LABEL, [("x", "SPEED")], DICTIONARY, provider)
     assert len(provider.packets) == 1
-    assert provider.packets[0].step == field_naming.NAMING_STEP == "b4-naming"
+    assert provider.packets[0].step == field_naming.NAMING_STEP == "b4-naming2"
     assert "FIELD DICTIONARY" in provider.packets[0].system
 
 

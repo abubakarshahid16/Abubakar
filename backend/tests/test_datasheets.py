@@ -217,7 +217,11 @@ def test_a_value_is_never_promoted_into_a_field_label(tmp_path):
     sheet that produced field labels like `0.01cP By Contractor` and
     `23.5 / 11.03 barg`, and 375 phantom blank fields with them.
     """
-    rows = [("Design pressure", "23.5 barg"), ("340 psig", "0.892")]
+    # "340 psig" alone is now ALSO refused by row_noise's number-keyed rule
+    # (it runs on the default path since 2026-09-25), which masked the label
+    # guard under mutation (M56). A decimal first cell - "0.01 cP" - has no
+    # such shape, so only `is_field_label` stops it becoming a field name.
+    rows = [("Design pressure", "23.5 barg"), ("340 psig", "0.892"), ("0.01 cP", "0.892")]
     doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", rows))
     datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
     found = datasheets.list_facts(doc, allowed_document_ids=_scope(doc))
