@@ -805,6 +805,17 @@ def is_blank_value(value: str | None) -> tuple[bool, str | None]:
     return False, None
 
 
+def referenced_standard_spans(text: str) -> list[tuple[str, int, int]]:
+    """Every standard named in `text`: (spelling, start, end), in order found.
+
+    The detector `referenced_standards` de-duplicates; this keeps WHERE each
+    citation is, so evidence can quote the text around the one that matched.
+    One pattern for both - a second copy would drift.
+    """
+    return [(" ".join(match.group(1).split()), match.start(1), match.end(1))
+            for match in _REFERENCED_STANDARD.finditer(text or "")]
+
+
 def referenced_standards(text: str) -> list[str]:
     """Standards named in the datasheet text, de-duplicated, in order found.
 
@@ -813,8 +824,7 @@ def referenced_standards(text: str) -> list[str]:
     and a citation is quoted rather than canonicalised.
     """
     seen: dict[str, str] = {}
-    for match in _REFERENCED_STANDARD.finditer(text or ""):
-        raw = " ".join(match.group(1).split())
+    for raw, _, _ in referenced_standard_spans(text):
         # PUNCTUATION IS NOT IDENTITY. The key dropped spaces only, so
         # "ASME Sec VIII Div.1" and "ASME Sec.VIII Div.1" - the same code,
         # written twice in one document - were two references, and the second

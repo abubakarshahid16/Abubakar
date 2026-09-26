@@ -214,30 +214,94 @@ def _referenced_in_submittal(document_id: str,
 
 def citation_evidence(document_id: str, identifier: str,
                       allowed_document_ids: frozenset[str]) -> tuple[int | None, str | None]:
-    """WHERE the submittal cites `identifier`: (page, the line it is on).
+    """WHERE the submittal cites `identifier`: (page, the printed line).
 
     B5: "named in the submittal" is a reason; the page and the printed line
-    are the EVIDENCE an engineer checks it against. Read from the submittal's
-    own chunks under the caller's grants, with the same detector selection
-    uses, so the evidence is the citation that was matched. (None, None) when
-    no single chunk carries it - never a guessed page.
+    are the EVIDENCE an engineer checks it against. The chunks decide WHETHER
+    the caller may see a citation - read under the caller's grants, with the
+    same detector selection uses - and the PAGE's own text decides where it is.
+
+    THE DEFECT THIS REPLACED. It returned the chunk's `page_start` and the
+    chunk's first "line". A prose chunk joins its sentences with spaces, so
+    its first line is the whole chunk: on a real datasheet the citation of a
+    standard sat at character 735 of a 741-character chunk spanning pages 4
+    and 5, and the evidence published was "page 4" and 200 characters of the
+    page header - a quote that did not contain the standard it was evidence
+    for, on the wrong page. Now the page is the one whose text carries the
+    citation, and the quote is the printed line it is on (with the line above
+    when the line is only a label's value, as a datasheet cell usually is).
+
+    (None, None) when no chunk carries it. When the page text is unavailable
+    the chunk's own line is quoted, with its page only if the chunk lies on ONE
+    page - a chunk spanning pages gives (None, quote), never a guessed page.
     """
     key = normalise_identifier(identifier)
     where, args = _scope_clause(allowed_document_ids, "document_id")
     rows = connect().execute(
-        "SELECT page_start, text FROM chunks" + where + " AND document_id = ?"
+        "SELECT page_start, page_end, text FROM chunks" + where + " AND document_id = ?"
         " ORDER BY page_start, ordinal", [*args, document_id]).fetchall()
     for row in rows:
-        text = row["text"] or ""
-        if not any(normalise_identifier(n) == key
-                   for n in datasheets.referenced_standards(text)):
+        quote = _printed_line(row["text"] or "", key)
+        if quote is None:
             continue
-        for line in text.splitlines():
-            if any(normalise_identifier(n) == key
-                   for n in datasheets.referenced_standards(line)):
-                return row["page_start"], " ".join(line.split())[:200]
-        return row["page_start"], None
+        first, last = row["page_start"], row["page_end"] or row["page_start"]
+        for page in range(first, last + 1):
+            on_page = _printed_line(_page_text(document_id, page), key)
+            if on_page is not None:
+                return page, on_page
+        return (first if first == last else None), quote
     return None, None
+
+
+def _page_text(document_id: str, page: int) -> str:
+    found = connect().execute(
+        "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",
+        (document_id, page)).fetchone()
+    return (found["text"] if found else "") or ""
+
+
+#: A printed line shorter than this many words is a value, not a statement -
+#: "API 610" alone in a datasheet cell - so its label on the line above is
+#: quoted with it.
+_SHORT_LINE_WORDS = 6
+
+
+#: The longest quote published as evidence.
+_QUOTE_CHARS = 200
+
+
+def _printed_line(text: str, key: str) -> str | None:
+    """The line of `text` citing the standard whose key is `key`, or None.
+
+    A line longer than a quote is cut to the words AROUND the citation, never
+    to its first characters - a quote that does not contain what it is
+    evidence of is not evidence.
+    """
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    for index, line in enumerate(lines):
+        for raw, start, stop in datasheets.referenced_standard_spans(line):
+            if normalise_identifier(raw) != key:
+                continue
+            if len(line.split()) < _SHORT_LINE_WORDS and index > 0:
+                shift = len(lines[index - 1]) + 1
+                line, start, stop = f"{lines[index - 1]} {line}", start + shift, stop + shift
+            return _around(line, start, stop)
+    return None
+
+
+def _around(line: str, start: int, stop: int) -> str:
+    """At most `_QUOTE_CHARS` of `line`, centred on `line[start:stop]`, on word edges."""
+    if len(line) <= _QUOTE_CHARS:
+        return line
+    lo = max(0, min(start - (_QUOTE_CHARS - (stop - start)) // 2, len(line) - _QUOTE_CHARS))
+    hi = lo + _QUOTE_CHARS
+    if lo > 0:
+        lo = line.find(" ", lo, start) + 1 or lo
+    if hi < len(line):
+        cut = line.rfind(" ", stop, hi)
+        hi = cut if cut != -1 else hi
+    return line[lo:hi].strip()
 
 
 # ------------------------------------------------ B5: the scope decision
