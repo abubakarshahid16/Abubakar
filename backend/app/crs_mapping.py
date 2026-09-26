@@ -33,6 +33,10 @@ ROW_KIND_NEEDS_ENGINEER_REVIEW = "needs_engineer_review"
 ROW_KIND_MISSING_INFORMATION = "missing_information"
 ROW_KIND_REQUIRES_OTHER_DOCUMENT = "requires_other_document"
 ROW_KIND_MISSING_REFERENCE = "missing_reference"
+#: Chat redesign PR 5: a comment an ENGINEER filed from the Chat screen
+#: (`chat_actions.file_comment`, `origin = 'chat'`). Their words and their
+#: name - never "AI Review", because the model did not decide to send it.
+ROW_KIND_ENGINEER_COMMENT = "engineer_comment"
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
 #: literal, not imported from `comparison`, because this module stays pure
@@ -132,7 +136,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     its own count, honouring CLAUDE.md rule 4 (every count states its
     boundary) the same way the missing-reference rows already do.
 
-    Order: NON_COMPLIANT, then NEEDS_ENGINEER_REVIEW, then the summaries,
+    Order: NON_COMPLIANT, then NEEDS_ENGINEER_REVIEW, then comments engineers
+    filed from chat (their words, their name), then the summaries,
     then the standards gaps.
 
     B3: a NEEDS_ENGINEER_REVIEW finding whose reason is UNREAD_PAGES is not an
@@ -166,6 +171,21 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "comment": _comment_text(f),
             "comment_by": by,
             "row_kind": row_kind,
+        })
+
+    # An engineer's own comments, filed from chat, after the review's rows and
+    # before its summaries: they are individual comments to the contractor,
+    # like the rows above, but the engineer's rather than the machine's.
+    for f in findings:
+        if f.get("origin") != "chat":
+            continue
+        rows.append({
+            "finding_id": f.get("id") or "",
+            "document_name": submittal_name,
+            "page_section": "",
+            "comment": f.get("finding") or "",
+            "comment_by": f"{f.get('confirmed_by') or 'Engineer'} (filed from chat)",
+            "row_kind": ROW_KIND_ENGINEER_COMMENT,
         })
 
     other_doc_count = sum(

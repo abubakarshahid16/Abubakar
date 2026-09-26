@@ -159,3 +159,36 @@ One behaviour change, on purpose: **one answer is written at a time.** While
 an answer (or an Explain) is being written, Ask waits and Stop is offered;
 the old screen let a second question run and then had to drop the late
 answer so it could not land under the wrong question.
+
+## PR 5 — Was this right?, Add to comment sheet, @ a document
+
+What you can do now:
+
+- **Was this right? Yes / No** under every answer. It is your own (other
+  readers never see it), you can change your mind, and it is stored on this
+  machine only. If it could not be saved, the screen says so and puts the
+  button back.
+- **Add to comment sheet** on a drafted comment ("Write that as a comment").
+  What is filed is the text in front of you, edited or not. It becomes a
+  finding on the **submittal** the answer drew on (a standard is never
+  chosen when the submittal is there), in that submittal's latest review
+  run, and it prints on that run's comment sheet as **your row, "filed from
+  chat"** — never "AI Review". It is recorded as confirmed by you, so
+  re-running the review does not erase it.
+  - If the document has no review run yet, the comment is kept in its
+    findings and the screen says it is on no comment sheet until a review is
+    run.
+  - A draft that names no document you can read shows no button, and says
+    why.
+- **Undo** for 5 minutes, only for the person who filed it, and only while
+  nobody has changed the finding. After that, change it on the review. A
+  withdrawal removes it from the sheet; the record that it was filed and
+  withdrawn stays.
+- **@ a document**: pick one or more documents; the next answers come only
+  from those (the header shows "Answering from: …" with **Change**). This
+  can only narrow what you may already read. Nothing picked means all your
+  documents.
+
+Database: two new tables (`chat_feedback`, `chat_filed_comments`) and one
+new nullable column (`review_findings.origin`), all added automatically on
+start. **Back up the live DB before restarting on this version.**

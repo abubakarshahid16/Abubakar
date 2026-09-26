@@ -1694,6 +1694,34 @@ export interface Message extends ChatPresentation {
    *  text and payload were replaced when the conversation was reopened. */
   payload: (Partial<AnswerResult> & { withheld?: boolean }) | null;
   created_at: string;
+  /** chat redesign PR 5: the caller's own "Was this right?" (absent: not answered) */
+  feedback?: boolean | null;
+  /** chat redesign PR 5: the live comment filed from this answer, if any */
+  filed_comment?: { finding_id: string; document_id: string; filed_at: string } | null;
+}
+
+/** "Was this right?" as stored. */
+export interface ChatFeedback {
+  message_id: string;
+  helpful: boolean;
+  note: string | null;
+}
+
+/** "Add to comment sheet": where the engineer's comment went. */
+export interface FiledComment {
+  finding_id: string;
+  message_id: string;
+  document_id: string;
+  document_name: string;
+  /** null: the document has no review run yet, so it is on no sheet */
+  review_run_id: string | null;
+  chat_comments_on_sheet: number;
+  undo_until: string;
+}
+
+export interface WithdrawnComment {
+  finding_id: string;
+  withdrawn: boolean;
 }
 
 export interface ConversationDetail {
@@ -1714,6 +1742,8 @@ export interface AskRequest {
   explain_of?: string | null;
   /** chat redesign: "local" narrows to the local engine; never widens */
   model?: "auto" | "claude" | "local" | null;
+  /** chat redesign PR 5, "@ a document": answer from these only. Narrows. */
+  document_ids?: string[] | null;
 }
 
 export interface AskResult extends AnswerResult {

@@ -32,9 +32,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="revoked_grant_withholds or before_revocation"),
     Mutation(id="M835", phase=72, description="B9: the route stops passing the caller's scope",
              path=APP / "main.py",
-             anchor="        conversation_id, allowed_document_ids=scope.allowed_document_ids)}\n",
+             anchor="        conversation_id, allowed_document_ids=scope.allowed_document_ids,\n        user_key=scope.user_id or \"\")}\n",
              replacement=("        conversation_id, allowed_document_ids=frozenset(\n"
-                          "            r[0] for r in connect().execute('SELECT id FROM documents')))}\n"),
+                          "            r[0] for r in connect().execute('SELECT id FROM documents')),\n"
+                          "        user_key=scope.user_id or \"\")}\n"),
              target=_T, keyword="revoked_grant_withholds", tags=("privacy",)),
     Mutation(id="M836", phase=72, runner="vitest", description="B9: the verdict warning is never rendered",
              path=_CHAT / "AnswerCardView.tsx",

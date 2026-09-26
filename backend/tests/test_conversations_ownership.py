@@ -245,6 +245,37 @@ def test_stopping_an_answer_in_another_users_conversation_stops_nothing(owned_by
     assert not turn.cancel.is_set(), "another caller stopped A's answer"
 
 
+@pytest.mark.parametrize("caller", NOT_A)
+@pytest.mark.parametrize("action", ["feedback", "comment", "undo"])
+def test_acting_on_an_answer_in_another_users_conversation_writes_nothing(owned_by_a, caller, action):
+    """Chat redesign PR 5: rating an answer, filing its comment and undoing a
+    filing are writes on someone's conversation. Refused as a missing
+    conversation, before anything is read or written."""
+    client, cid = owned_by_a
+    before = _snapshot(cid)
+    _as(caller)
+
+    def call(conversation_id):
+        base = f"/api/conversations/{conversation_id}/messages/msg_a2"
+        if action == "feedback":
+            return client.post(f"{base}/feedback", json={"helpful": False})
+        if action == "comment":
+            return client.post(f"{base}/comment", json={"text": "a comment"})
+        return client.delete(f"{base}/comment/some_finding")
+
+    hidden, unknown = call(cid), call(UNKNOWN)
+    if caller is None:
+        # no identity at all: refused before the conversation is looked up
+        assert hidden.status_code == unknown.status_code == 401
+    else:
+        _assert_same_as_unknown(hidden, unknown)
+    _assert_nothing_of_a_leaked(hidden, cid)
+    assert _snapshot(cid) == before
+    conn = connect()
+    assert conn.execute("SELECT COUNT(*) FROM chat_feedback").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM chat_filed_comments").fetchone()[0] == 0
+
+
 # ------------------------------------------------------------------- rename
 
 
@@ -264,6 +295,10 @@ def test_there_is_no_rename_route_to_leave_unguarded():
         # chat redesign 2e: ownership tested just above
         ("POST", "/api/conversations/{conversation_id}/ask/stream"),
         ("POST", "/api/conversations/{conversation_id}/ask/{turn_id}/cancel"),
+        # chat redesign PR 5: ownership tested just above
+        ("POST", "/api/conversations/{conversation_id}/messages/{message_id}/feedback"),
+        ("POST", "/api/conversations/{conversation_id}/messages/{message_id}/comment"),
+        ("DELETE", "/api/conversations/{conversation_id}/messages/{message_id}/comment/{finding_id}"),
     }, f"a conversations route appeared without an ownership test: {paths}"
 
 

@@ -167,6 +167,11 @@ def ensure_schema() -> None:
             "equipment_tag": "TEXT",
             "confirmed_by": "TEXT",
             "confirmed_at": "TEXT",
+            # WHERE THE FINDING CAME FROM when it was not the comparison:
+            # 'chat' is an engineer's comment filed from the Chat screen
+            # (chat_actions.file_comment). NULL for everything else, so every
+            # existing row reads exactly as before.
+            "origin": "TEXT",
         }.items():
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.

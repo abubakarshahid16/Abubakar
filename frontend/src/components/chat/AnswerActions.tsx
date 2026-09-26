@@ -31,6 +31,8 @@ export function AnswerActions({
   savingReport,
   reportNotice,
   disabled,
+  feedback = null,
+  onFeedback,
 }: {
   text: string | null;
   onRetry?: () => void;
@@ -39,8 +41,24 @@ export function AnswerActions({
   savingReport?: boolean;
   reportNotice?: string | null;
   disabled?: boolean;
+  /** the reader's own "Was this right?", if they have answered it */
+  feedback?: boolean | null;
+  onFeedback?: (helpful: boolean) => Promise<boolean>;
 }) {
   const [copied, setCopied] = useState<"ok" | "failed" | null>(null);
+  const [rated, setRated] = useState<boolean | null>(feedback);
+  const [rateFailed, setRateFailed] = useState(false);
+  const rate = async (helpful: boolean) => {
+    if (!onFeedback) return;
+    const before = rated;
+    setRated(helpful);
+    setRateFailed(false);
+    // Shown as chosen at once; put back if the server did not keep it.
+    if (!(await onFeedback(helpful))) {
+      setRated(before);
+      setRateFailed(true);
+    }
+  };
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(plainText(text ?? ""));
@@ -73,7 +91,33 @@ export function AnswerActions({
             {savingReport ? "Saving…" : "Save as PDF"}
           </button>
         )}
+        {onFeedback && (
+          <span className="ms-auto flex items-center gap-1 text-xs text-slateish-500" role="group" aria-label="Was this right?">
+            Was this right?
+            {([true, false] as const).map((v) => (
+              <button
+                key={String(v)}
+                type="button"
+                aria-pressed={rated === v}
+                onClick={() => void rate(v)}
+                className={[
+                  "rounded-[var(--radius-sm)] border px-2 py-0.5 text-xs motion-safe:transition-colors",
+                  rated === v
+                    ? "border-signal-500/60 bg-signal-500/10 text-signal-300"
+                    : "border-ink-600 text-slateish-300 hover:bg-ink-800",
+                ].join(" ")}
+              >
+                {v ? "Yes" : "No"}
+              </button>
+            ))}
+          </span>
+        )}
       </div>
+      {rateFailed && (
+        <p className="mt-1 text-xs text-warn-500" role="status">
+          That was not saved. Try again.
+        </p>
+      )}
       {reportNotice && (
         <p className="mt-1 text-xs text-warn-500" role="status">
           {reportNotice}
