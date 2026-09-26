@@ -48,7 +48,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         # Re-anchored by B19: the write loop moved inside one transaction, +4.
         # Re-anchored by B3: the reason is kept for the page ledger too, so the
         # mutant now reports the empty page as parsed in BOTH homes.
-        anchor="            if page_written == 0:\n"
+        # Re-anchored 2026-09-26: the outcome counts every reader (entry 68).
+        anchor="            if page_read == 0:\n"
                "                reason = _unparsed_reason(pairs, dropped)\n",
         replacement="            if False:\n"
                     "                reason = _unparsed_reason(pairs, dropped)\n",
@@ -1074,12 +1075,15 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     Mutation(
         id='M595', phase=63,
-        description="B4 wiring: geometry readings alone make a page 'read into fields'",
-        path=APP / 'datasheets.py',
-        anchor='                page_geometry += 1\n',
-        replacement='                page_written += 1\n',
-        target='tests/test_geometry_wiring.py',
-        keyword='alone_do_not_make_a_page_read',
+        # Intent restored 2026-09-26 (owner; honesty audit entry 68): the
+        # ledger now says a geometry/vision-read page IS read, but an absence
+        # there stays an engineer's question, never MISSING_INFORMATION.
+        description="an absence on a page read only by the page reader becomes the contractor's omission",
+        path=APP / 'comparison.py',
+        anchor='    if page_reader_only:\n',
+        replacement='    if False:\n',
+        target='tests/test_b3_page_ledger.py',
+        keyword='read_only_by_the_page_reader_is_for_an_engineer',
         tags=('honesty', 'critical'),
     ),
     Mutation(
@@ -1129,9 +1133,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         description='B4 vision: the ledger no longer says what the vision reader did',
         path=APP / 'datasheets.py',
         # re-anchored for B7: the note for a ROUTED page
-        anchor='                              f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}")\n',
-        replacement='                              f"{reason}")\n',
-        target='tests/test_b4_quality.py', keyword='only_vision_readings_is_not_read',
+        # re-anchored 2026-09-26 (entry 68): a vision-read page is read, and
+        # its note now rides on the "facts" outcome.
+        anchor='                    note = f"{note}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}"\n',
+        replacement='                    pass\n',
+        target='tests/test_b4_quality.py', keyword='only_vision_readings_is_read_by',
         tags=('honesty',),
     ),
     Mutation(
@@ -1326,5 +1332,45 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor="                if geometry_tables:\n                    rule_facts.setdefault(written_row[\"field_name\"], []).append(written_row)\n                page_written += 1\n                written += 1\n                if blank:\n",
         replacement="                if geometry_on:\n                    rule_facts.setdefault(written_row[\"field_name\"], []).append(written_row)\n                page_written += 1\n                written += 1\n                if blank:\n",
         target="tests/test_b4_schedule_tables.py", keyword="not_written_twice",
+    ),
+    Mutation(
+        id='M1021', phase=63,
+        description="the ledger repeats an older 'no_facts' for a page with current facts",
+        path=APP / 'page_ledger.py',
+        anchor='        elif p in recorded and recorded[p]["facts_status"] != "facts" and fact_counts.get(p):\n',
+        replacement='        elif False:\n',
+        target='tests/test_b3_page_ledger.py',
+        keyword='current_facts_is_read_whatever',
+        tags=('honesty', 'critical'),
+    ),
+    Mutation(
+        id='M1022', phase=63,
+        description="a page only the geometry reader read is left 'no_facts' in the ledger",
+        path=APP / 'datasheets.py',
+        anchor='            page_read = page_written + page_geometry + page_vision\n',
+        replacement='            page_read = page_written + page_vision\n',
+        target='tests/test_geometry_wiring.py',
+        keyword='only_the_geometry_reader_read_is_read',
+        tags=('honesty',),
+    ),
+    Mutation(
+        id='M1023', phase=63,
+        description="a page-reader absence reaches the contractor as its own CRS row",
+        path=APP / 'crs_mapping.py',
+        anchor='                and not _unread(f) and not _page_reader_only(f)]\n',
+        replacement='                and not _unread(f)]\n',
+        target='tests/test_b3_page_ledger.py',
+        keyword='read_only_by_the_page_reader_is_for_an_engineer',
+        tags=('honesty', 'crs'),
+    ),
+    Mutation(
+        id='M1024', phase=63,
+        description="a page the text reader also read is treated as read only by the page reader",
+        path=APP / 'page_ledger.py',
+        anchor='            if methods.get(p) and not (methods[p] & TEXT_READER_METHODS)]\n',
+        replacement='            if methods.get(p)]\n',
+        target='tests/test_b3_page_ledger.py',
+        keyword='text_reader_also_read_keeps_missing',
+        tags=('honesty',),
     ),
 )

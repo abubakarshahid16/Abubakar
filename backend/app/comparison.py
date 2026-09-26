@@ -803,6 +803,8 @@ def _required_action(status: str) -> str:
 #: B3. The reason code on a finding whose value could not be looked for on
 #: every page: the review may not call it the contractor's omission.
 UNREAD_PAGES = "UNREAD_PAGES"
+#: Entry 68: an absence on a page read only by the geometry/vision reader.
+PAGE_READER_ONLY = "PAGE_READER_ONLY"
 
 
 def qualify_by_pages(verdict: dict, pages: dict) -> dict:
@@ -812,8 +814,11 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
     pages/sections/fields searched", and "not retrieved" never means "not
     present". So:
 
-    - every page read into fields: still MISSING_INFORMATION, and the
-      rationale names the pages searched;
+    - every page read into fields BY THE RULE/TEXT READER: still
+      MISSING_INFORMATION, and the rationale names the pages searched;
+    - a page read only by the geometry/vision reader: NEEDS_ENGINEER_REVIEW
+      (PAGE_READER_ONLY) - the page is read, but that reader is not known to
+      find every field on it;
     - any page NOT read into fields (no fields parsed, unreadable, never
       reached, extraction never ran), or no page accounted for at all:
       NEEDS_ENGINEER_REVIEW. The value may sit on the unread page, so the
@@ -836,6 +841,17 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
             "were not read into fields, so the value may be there. An engineer "
             "must check those pages before this becomes a comment to the "
             "contractor")}
+    page_reader_only = pages.get("pages_read_only_by_page_reader") or []
+    if page_reader_only:
+        # Owner decision 2026-09-26 (honesty audit entry 68): these pages are
+        # READ - the ledger says so - but only by the geometry/vision reader,
+        # which is not known to find every field on a page. An absence there
+        # is an engineer's question, never the contractor's omission.
+        return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
+            f"{PAGE_READER_ONLY}: value not found by the page reader - engineer "
+            f"to check the page{'s' if len(page_reader_only) != 1 else ''} "
+            f"{page_ledger.page_list(page_reader_only)}. No value for this "
+            f"requirement was found in the fields read from {where} of {total}")}
     return {**verdict, "rationale": (
         f"{verdict.get('rationale') or ''}; fields were read from every page "
         f"({where} of {total})")}

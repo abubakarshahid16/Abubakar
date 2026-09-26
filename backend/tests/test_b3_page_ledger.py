@@ -166,6 +166,34 @@ def test_extraction_records_each_pages_outcome_with_its_reason(tmp_path):
     assert rows[1]["vision_status"] == "not_attempted"
 
 
+def test_a_page_with_current_facts_is_read_whatever_an_older_extraction_recorded(tmp_path):
+    """THE MUTATION TARGET (M1021; honesty audit entry 68): an extraction
+    before the fix recorded "no_facts" for pages the geometry/vision reader
+    had filled with facts. The ledger must not repeat that verdict while the
+    page carries current facts - and must drop back once they are superseded."""
+    doc = _sheet(tmp_path)
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+    conn = db.connect()
+    with conn:   # the verdict the pre-fix extractor wrote for a page with facts
+        page_ledger.record_fact_pages(conn, doc, {1: ("no_facts", 0, "old verdict"),
+                                                  2: ("no_facts", 0, "nothing here")},
+                                      extractor_version="old")
+    page_ledger.refresh(doc, as_submittal=True)
+    rows = _ledger(doc)
+    current = conn.execute("SELECT COUNT(*) FROM submittal_facts WHERE submittal_document_id = ?"
+                           " AND page = 1 AND superseded_at IS NULL", (doc,)).fetchone()[0]
+    assert current >= 3
+    assert (rows[1]["facts_status"], rows[1]["facts_count"]) == ("facts", current)
+    assert rows[2]["facts_status"] == "no_facts", "a page with no fact was promoted too"
+    assert page_ledger.coverage(doc)["pages_not_read_into_fields"] == [2]
+
+    with conn:   # the facts go; the page is no longer shown as read
+        conn.execute("UPDATE submittal_facts SET superseded_at = 'x' WHERE submittal_document_id = ?",
+                     (doc,))
+    page_ledger.refresh(doc, as_submittal=True)
+    assert _ledger(doc)[1]["facts_status"] != "facts"
+
+
 def test_a_page_no_retrievable_chunk_covers_is_accounted_for(tmp_path):
     """Page 3 exists in the file and in no chunk: it must still have a row,
     saying extraction never saw it and why."""
@@ -233,6 +261,58 @@ def test_no_value_when_every_page_was_read_stays_missing_and_names_the_pages(tmp
     finding = _finding(run)
     assert finding["compliance_status"] == comparison.MISSING_INFORMATION
     assert "fields were read from every page (page 1 of 1)" in finding["ai_rationale"]
+
+
+def _read_only_by(sub: str, method: str) -> None:
+    """Every current fact of the sheet as if `method` had read it, then the
+    ledger rebuilt - the state a page read only by that reader leaves."""
+    datasheets.extract_facts(sub, allowed_document_ids=frozenset({sub}))
+    with db.connect() as conn:
+        conn.execute("UPDATE submittal_facts SET extraction_method = ?"
+                     " WHERE submittal_document_id = ?", (method, sub))
+    page_ledger.refresh(sub, as_submittal=True)
+
+
+@pytest.mark.parametrize("method", ["geometry", "vision"])
+def test_no_value_on_a_page_read_only_by_the_page_reader_is_for_an_engineer(tmp_path, method):
+    """THE MUTATION TARGET (M595, its intent restored; honesty audit entry 68):
+    the page reads as READ in the ledger, but an absence on a page only the
+    geometry/vision reader read is NEEDS_ENGINEER_REVIEW with the owner's
+    reason - never the contractor's MISSING_INFORMATION - and it never
+    reaches the contractor as its own CRS row."""
+    sub = _sheet(tmp_path, notes_page=False)
+    _read_only_by(sub, method)
+    assert _ledger(sub)[1]["facts_status"] == "facts", "the ledger must still say the page was read"
+    run, scope = _review(sub)
+
+    comparison.run_comparison(run, allowed_document_ids=scope)
+
+    finding = _finding(run)
+    assert finding["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert finding["ai_rationale"].startswith(
+        "PAGE_READER_ONLY: value not found by the page reader - engineer to check the page 1")
+    rows = TestClient(app).get(f"/api/reviews/runs/{run}/crs/preview").json()["rows"]
+    assert not [r for r in rows if "PAGE_READER_ONLY" in (r.get("comment") or "")], \
+        "a page-reader absence reached the CRS as its own row"
+    assert len([r for r in rows if "Value not found by the page reader" in r["comment"]]) == 1
+
+
+def test_a_page_the_text_reader_also_read_keeps_missing_information(tmp_path):
+    """The other side of the split: one rule/text-reader fact on the page and
+    an absence there is the contractor's omission, as before."""
+    sub = _sheet(tmp_path, notes_page=False)
+    datasheets.extract_facts(sub, allowed_document_ids=frozenset({sub}))
+    with db.connect() as conn:   # all but one fact came from the page reader
+        conn.execute("UPDATE submittal_facts SET extraction_method = 'geometry'"
+                     " WHERE submittal_document_id = ? AND id != (SELECT MIN(id)"
+                     " FROM submittal_facts WHERE submittal_document_id = ?)", (sub, sub))
+    page_ledger.refresh(sub, as_submittal=True)
+    assert page_ledger.coverage(sub)["pages_read_only_by_page_reader"] == []
+    run, scope = _review(sub)
+
+    comparison.run_comparison(run, allowed_document_ids=scope)
+
+    assert _finding(run)["compliance_status"] == comparison.MISSING_INFORMATION
 
 
 def test_no_page_accounted_for_is_never_an_omission():

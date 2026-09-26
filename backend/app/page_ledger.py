@@ -29,6 +29,13 @@ SUBMITTAL_ROLE = "CONTRACTOR_SUBMITTAL"
 #: of these states was NOT searched for values, so a review may not say the
 #: contractor omitted a value it could hold.
 NOT_READ_INTO_FIELDS = frozenset({"no_facts", "unreadable", "not_reached", "not_run"})
+#: The rule/text readers' extraction methods. A page whose current facts all
+#: came from any OTHER reader (geometry, vision, model) is read - the ledger
+#: says "facts" - but an ABSENCE there is not the contractor's omission: the
+#: page reader is not known to read every field on a page, so a value it did
+#: not find may still be printed there (owner decision 2026-09-26; honesty
+#: audit entry 68). An allow-list, so a new reader defaults to the cautious side.
+TEXT_READER_METHODS = frozenset({"extracted", "ocr_fallback", "grid"})
 
 VISION_REASON = "no vision tier is enabled (issue #180: measured, gate not passed)"
 
@@ -152,6 +159,14 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
 
         if not is_submittal:
             facts = ("not_applicable", None, None, None, None)
+        elif p in recorded and recorded[p]["facts_status"] != "facts" and fact_counts.get(p):
+            # A page that HAS recorded current facts is a page read into
+            # fields, whatever an older extraction wrote (honesty audit entry
+            # 68: pages with facts from the geometry/vision reader read
+            # "no_facts"). Derived, so the next refresh recomputes it from the
+            # facts rather than keeping this verdict if they are superseded.
+            r = recorded[p]
+            facts = ("facts", fact_counts[p], None, "derived", r["extractor_version"])
         elif p in recorded:
             r = recorded[p]
             facts = (r["facts_status"], r["facts_count"], r["facts_reason"],
@@ -233,11 +248,13 @@ def coverage(document_id: str) -> dict:
     ledger = rows(document_id)
     if not ledger:
         return {"pages_total": None, "fact_pages": [], "pages_not_read_into_fields": [],
+                "pages_read_only_by_page_reader": [],
                 "not_read_reasons": {}, "index": {}, "ocr": {}, "native": {},
                 "facts_source": None}
     count = lambda key: {  # noqa: E731
         v: sum(1 for r in ledger if r[key] == v) for v in sorted({r[key] for r in ledger})}
     not_read = [r for r in ledger if r["facts_status"] in NOT_READ_INTO_FIELDS]
+    fact_pages = [r["page_no"] for r in ledger if r["facts_status"] == "facts"]
     sources = {r["facts_recorded_by"] for r in ledger if r["facts_recorded_by"]}
     return {
         "pages_total": len(ledger),
@@ -245,12 +262,31 @@ def coverage(document_id: str) -> dict:
         "ocr": count("ocr_status"),
         "index": count("index_status"),
         "facts": count("facts_status"),
-        "fact_pages": [r["page_no"] for r in ledger if r["facts_status"] == "facts"],
+        "fact_pages": fact_pages,
+        "pages_read_only_by_page_reader": _page_reader_only(document_id, fact_pages),
         "pages_not_read_into_fields": [r["page_no"] for r in not_read],
         "not_read_reasons": {str(r["page_no"]): r["facts_reason"] for r in not_read},
         "facts_source": (sources.pop() if len(sources) == 1
                          else "mixed" if sources else None),
     }
+
+
+def _page_reader_only(document_id: str, fact_pages: list[int]) -> list[int]:
+    """The read pages whose current facts include none from a rule/text
+    reader - read only by the geometry, vision or model reader."""
+    if not fact_pages:
+        return []
+    try:
+        methods: dict[int, set[str]] = {}
+        for r in connect().execute(
+                "SELECT page, extraction_method FROM submittal_facts"
+                " WHERE submittal_document_id = ? AND superseded_at IS NULL",
+                (document_id,)):
+            methods.setdefault(r["page"], set()).add(r["extraction_method"] or "")
+    except Exception:  # noqa: BLE001 - no submittal tables yet
+        return []
+    return [p for p in fact_pages
+            if methods.get(p) and not (methods[p] & TEXT_READER_METHODS)]
 
 
 def page_list(pages: list[int]) -> str:

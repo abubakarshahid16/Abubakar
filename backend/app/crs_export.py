@@ -46,6 +46,9 @@ ROW_FILLS = {
     # B3: pages the system has not read into fields - engineer work, pale
     # amber like needs_engineer_review, never grey like "missing".
     "pages_not_readable": PatternFill("solid", fgColor="FFFDF2E9"),
+    # Entry 68: an absence on a page only the page reader read - engineer
+    # work, the same pale amber.
+    "page_reader_only": PatternFill("solid", fgColor="FFFDF2E9"),
 }
 HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
            "Comment By", "Contractor's Response", "Final Resolution"]

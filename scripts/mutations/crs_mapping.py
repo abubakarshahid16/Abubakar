@@ -40,9 +40,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="every unread-page finding enters the CRS as its own "
                     "contractor comment again (B3)",
         path=APP / "crs_mapping.py",
-        anchor='                if f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"\n'
-               "                and not _unread(f)]\n",
-        replacement='                if f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"]\n',
+        # Re-anchored 2026-09-26: the line also excludes PAGE_READER_ONLY (M1023).
+        anchor="                and not _unread(f) and not _page_reader_only(f)]\n",
+        replacement="                and not _page_reader_only(f)]\n",
         target="tests/test_b3_crs_unread_pages.py",
         keyword="one_plain_summary_row",
         tags=("honesty", "critical"),
