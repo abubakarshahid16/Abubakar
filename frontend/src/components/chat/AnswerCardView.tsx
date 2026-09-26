@@ -5,6 +5,7 @@ import { ComparisonScopeNotice as ComparisonScopeNoticeView } from "./Comparison
 import { type AnswerView, type UpgradeFailure, asksForComparison, documentsAnsweredFrom, sourcesOf, asSentence, formatDuration, Chip, ChipMark, CitedProse, Label, ReportAction, UpgradeFailureNotice } from "./AnswerCardContent";
 import { CorpusPart, CountsBoundedNote, GuidanceAnswer, MetadataAnswer } from "./AnswerNonDocument";
 import { InsufficientAnswer } from "./AnswerInsufficient";
+import { ScopeNotice, VerdictNotice, WithheldNotice } from "./AnswerVerdict";
 import type { AnswerPassage } from "../../types/api";
 
 function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
@@ -32,11 +33,28 @@ function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
  */
 export function AnswerCard(props: Parameters<typeof AnswerCardBody>[0]) {
   const { view } = props;
+  if (view.withheld) return <WithheldNotice text={view.answer} />;
   const twoPart = view.corpus != null && view.answer_type !== "metadata";
   const bounded = (view.counts_bounded ?? 0) > 0;
-  if (!twoPart && !bounded) return <AnswerCardBody {...props} />;
+  const verdict = view.answerability;
+  const notices = (
+    <>
+      {/* A refusal card already says it cannot determine this; saying it twice is noise. */}
+      {verdict && view.answer_type !== "insufficient_evidence" && <VerdictNotice verdict={verdict.verdict} reason={verdict.reason} evidence={verdict.evidence} />}
+      <ScopeNotice understanding={view.understanding} ambiguity={view.scope_ambiguity} />
+    </>
+  );
+  if (!twoPart && !bounded) {
+    return (
+      <div className="space-y-3">
+        {notices}
+        <AnswerCardBody {...props} />
+      </div>
+    );
+  }
   return (
     <div className="space-y-3">
+      {notices}
       {twoPart && view.corpus && <CorpusPart fact={view.corpus} />}
       {twoPart && (
         <p className="text-xs uppercase tracking-wide text-slateish-500">

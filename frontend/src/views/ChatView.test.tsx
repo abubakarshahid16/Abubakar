@@ -709,7 +709,7 @@ describe("explain", () => {
     await userEvent.type(screen.getByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    await screen.findByText(/The documents do not answer this/i);
+    await screen.findByText(/I cannot determine this from the available evidence/i);
     expect(screen.queryByRole("button", { name: /Explain in plain/i })).toBeNull();
   });
 });
@@ -738,7 +738,7 @@ describe("insufficient evidence", () => {
     await userEvent.type(screen.getByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    expect(await screen.findByText(/The documents do not answer this/i)).toBeInTheDocument();
+    expect(await screen.findByText(/I cannot determine this from the available evidence/i)).toBeInTheDocument();
     expect(screen.getByText(/Nothing was made up to fill the gap/i)).toBeInTheDocument();
     // what was considered is still offered, so the reader can judge
     expect(screen.getByText(/What was considered/i)).toBeInTheDocument();
@@ -777,7 +777,7 @@ describe("insufficient evidence", () => {
     expect(
       await screen.findByText(/The local answer model is not running/i),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
   });
 });
 
@@ -928,7 +928,7 @@ describe("inputs that are not document questions", () => {
 
     expect(await screen.findByText(/I answer questions about your documents/i)).toBeInTheDocument();
     // never a refusal, and never evidence for a search that did not happen
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
     expect(screen.queryByText(/What was considered/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /Show source/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Explain in plain/i })).toBeNull();
@@ -1416,7 +1416,7 @@ describe("a refused plain-language upgrade", () => {
   it("still reads as a page-level refusal when it is not an upgrade of anything", async () => {
     await openTranscript(userMessage(), refusedUpgrade({ explains_id: null }));
 
-    expect(await screen.findByText(/The documents do not answer this/i)).toBeInTheDocument();
+    expect(await screen.findByText(/I cannot determine this from the available evidence/i)).toBeInTheDocument();
     expect(screen.getByText(/Nothing was made up to fill the gap/i)).toBeInTheDocument();
   });
 
@@ -1429,7 +1429,7 @@ describe("a refused plain-language upgrade", () => {
 
     // THE ASSERTION THAT WOULD HAVE CAUGHT IT. Both of these were on screen
     // together, stacked, each contradicting the other.
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
     expect(screen.queryByText(/Nothing was made up to fill the gap/i)).toBeNull();
     expect(screen.queryByText(/What was considered, so you can judge/i)).toBeNull();
   });
@@ -1517,7 +1517,7 @@ describe("a refused plain-language upgrade", () => {
     // of this defect: an attempt that silently looks like it never ran.
     await openTranscript(userMessage(), refusedUpgrade({ explains_id: "msg_gone" }));
 
-    expect(await screen.findByText(/The documents do not answer this/i)).toBeInTheDocument();
+    expect(await screen.findByText(/I cannot determine this from the available evidence/i)).toBeInTheDocument();
   });
 
   it("scopes the failure when it arrives live, from pressing the button", async () => {
@@ -1548,7 +1548,7 @@ describe("a refused plain-language upgrade", () => {
       await screen.findByText(/The plain-language version could not be produced/i),
     ).toBeInTheDocument();
     expect(screen.getByText(A1.text)).toBeInTheDocument();
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
   });
 
   // Rule: "backend offline" and "that request failed" must never look the
@@ -1572,7 +1572,7 @@ describe("a refused plain-language upgrade", () => {
 
     // not the refusal wording, and not the page-level one either
     expect(screen.queryByText(/cited no supplied source/i)).toBeNull();
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
     expect(screen.getByText(A1.text)).toBeInTheDocument();
   });
 });

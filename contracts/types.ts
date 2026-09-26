@@ -1599,7 +1599,9 @@ export interface Message {
   /** assistant rows: the extract answer this Tier 2 answer explains */
   explains_id: string | null;
   /** assistant rows: passages and citations, so reopening restores the panel */
-  payload: Partial<AnswerResult> | null;
+  /** `withheld`: B9 - the turn cited a document the caller can no longer read;
+   *  text and payload were replaced when the conversation was reopened. */
+  payload: (Partial<AnswerResult> & { withheld?: boolean }) | null;
   created_at: string;
 }
 

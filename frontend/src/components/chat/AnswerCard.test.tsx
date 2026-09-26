@@ -94,7 +94,7 @@ describe("a failed upgrade is scoped to the control that started it", () => {
     ).toBeInTheDocument();
     // The page-level refusal is a claim about the QUESTION. This card is
     // simultaneously showing a quoted answer to that question.
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
     expect(screen.queryByText(/Nothing was made up to fill the gap/i)).toBeNull();
   });
 
