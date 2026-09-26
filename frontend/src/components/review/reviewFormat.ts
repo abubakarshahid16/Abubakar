@@ -254,3 +254,11 @@ export function standardsChangeLine(run: ReviewRunSummary): string {
     ? `Since the previous run: ${parts.join("; ")}.`
     : "Same standards in scope as the previous run.";
 }
+
+/** Owner order section 1: which KIND of comment a finding is. "" for a
+ *  comparison against a standard (kind A), which carries its own citation. */
+export function kindLabel(finding: { origin?: string | null }): string {
+  if (finding.origin === "datasheet_check") return "Datasheet check";
+  if (finding.origin === AI_ENGINEERING_CHECK) return "AI engineering check";
+  return "";
+}
