@@ -16,6 +16,8 @@ vi.mock("../api/client", () => ({
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
     list: (...args: unknown[]) => list(...args),
     reviewRunStandards: (...args: unknown[]) => reviewRunStandards(...args),
+    reviewRunStandardsAll: (...args: unknown[]) => reviewRunStandards(...args),
+    overrideRunStandard: vi.fn(),
     startReviewRun: vi.fn(),
     exportCrs: vi.fn(),
     decideCode: vi.fn(),

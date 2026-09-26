@@ -2099,6 +2099,18 @@ class ReviewRunMissingReference(BaseModel):
     status: str
 
 
+class StandardOverrideRequest(BaseModel):
+    """P2: an engineer adds or removes one standard on a review run.
+
+    The REASON is required and kept: an override with no reason is
+    indistinguishable from a mistake six months later."""
+
+    model_config = ConfigDict(extra="forbid")
+    standard_document_id: str
+    include: bool
+    reason: str = Field(min_length=3, max_length=2000)
+
+
 class ReviewRunStandardList(BaseModel):
     standards: list[ReviewRunStandard]
     #: B5: standards the submittal CITES that the library does not hold, each
