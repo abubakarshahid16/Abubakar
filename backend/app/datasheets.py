@@ -2188,6 +2188,55 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int) -> list[
         return []
 
 
+#: B7: a page with NO word on its own text layer (a scanned image) cannot
+#: have a vision reading proved against it (vision_reader keeps only what the
+#: text layer confirms), so it belongs to the OCR tier, not vision.
+VISION_MIN_TEXT_WORDS = 1
+
+VISION_ROUTED = "routed: no text-based reader found a field on this page"
+VISION_NOT_NEEDED = "not needed: a text-based reader found fields on this page"
+VISION_NO_TEXT_LAYER = "not routed: no text layer to prove a reading against (OCR tier)"
+VISION_BUDGET = "not routed: the per-document vision page budget is spent"
+
+
+def vision_route(*, facts_on_page: int, geometry_on_page: int, text_words: int,
+                 routed_so_far: int, budget: int) -> tuple[bool, str]:
+    """B7: should this page be sent to the vision reader, and why.
+
+    VISION IS FOR WHAT THE TEXT READERS COULD NOT READ - not a second pass
+    over every page. A page on which the rule readers or the geometry reader
+    RECORDED a fact is theirs; sending it to the model too costs money and
+    time and can only add a weaker duplicate. Decided on the page's OUTCOME,
+    not on whether pairs were found: on real datasheets every unread page
+    had pairs, all rejected by the value gate. A page
+    with no text layer cannot have a vision reading PROVED (the reader keeps
+    only readings the text layer confirms), so it is the OCR tier's. The rest,
+    within the per-document budget, is routed. Deterministic; the reason is
+    recorded for every page either way.
+    """
+    if facts_on_page or geometry_on_page:
+        return False, VISION_NOT_NEEDED
+    if text_words < VISION_MIN_TEXT_WORDS:
+        return False, VISION_NO_TEXT_LAYER
+    if routed_so_far >= budget:
+        return False, VISION_BUDGET
+    return True, VISION_ROUTED
+
+
+def _text_layer_words(stored_path: str | None, page_no: int) -> int:
+    """Words on the page's native text layer (0 when it cannot be opened)."""
+    if not stored_path:
+        return 0
+    try:
+        import pymupdf
+        with pymupdf.open(stored_path) as doc:
+            if not (1 <= page_no <= doc.page_count):
+                return 0
+            return len(doc[page_no - 1].get_text("words"))
+    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        return 0
+
+
 def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[dict],
                     provider):
     """`vision_reader.read_page` for one page, or None when the page cannot
@@ -2440,9 +2489,67 @@ def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
             f"fact ({counts or 'no reason recorded'})")
 
 
+class _PlanOnly(Exception):
+    """B7: raised inside the plan pass's transaction so it rolls back."""
+
+
 def extract_facts(
     document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, replace: bool = True,
+) -> dict:
+    """Read one datasheet into facts (see `_extract_facts` for the readers).
+
+    B7 - VISION ONLY WHERE THE TEXT READERS FAILED. With the full geometry
+    flag on, extraction runs in three steps:
+
+      1. a PLAN pass - the rule and geometry readers, no vision, in a
+         transaction that is rolled back - learns which pages yield no fact;
+      2. those pages (with a text layer to prove readings against, within the
+         per-document budget) are read by the vision reader, OUTSIDE any
+         transaction, so no write lock is held during a model call;
+      3. the real pass writes rule, geometry and vision facts in one
+         transaction, with the unchanged precedence rules.
+
+    Every page's routing reason is recorded (`vision_routing`, and the page
+    ledger for pages that stay unread). With the flag off this is exactly
+    one pass, as before.
+    """
+    if not settings.geometry_reader_enabled:
+        return _extract_facts(document_id, allowed_document_ids=allowed_document_ids,
+                              review_run_id=review_run_id, replace=replace)
+    from . import vision_reader
+    provider, unavailable = vision_reader.provider()
+    plan: dict = {}
+    try:
+        # returns only when there was nothing to read (no chunks): no plan
+        return _extract_facts(document_id, allowed_document_ids=allowed_document_ids,
+                              review_run_id=review_run_id, replace=replace,
+                              _vision={"unavailable": unavailable}, _plan=plan)
+    except _PlanOnly:
+        pass
+    stored_path = plan.pop("__stored_path__", None)
+    geometry = plan.pop("__geometry__", {})
+    routing: dict[int, str] = {}
+    readings: dict[int, object] = {}
+    for page in sorted(plan):
+        facts_here, geometry_here = plan[page]
+        routed, why = vision_route(
+            facts_on_page=facts_here, geometry_on_page=geometry_here,
+            text_words=_text_layer_words(stored_path, page) if not (facts_here or geometry_here) else 0,
+            routed_so_far=len(readings), budget=settings.vision_max_pages_per_document)
+        routing[page] = why
+        if routed:
+            readings[page] = _vision_reading(stored_path, page, geometry.get(page, []), provider)
+    return _extract_facts(document_id, allowed_document_ids=allowed_document_ids,
+                          review_run_id=review_run_id, replace=replace,
+                          _vision={"readings": readings, "routing": routing,
+                                   "unavailable": unavailable})
+
+
+def _extract_facts(
+    document_id: str, *, allowed_document_ids: frozenset[str],
+    review_run_id: str | None = None, replace: bool = True,
+    _vision: dict | None = None, _plan: dict | None = None,
 ) -> dict:
     """Read one datasheet into facts, by whichever path its pages support.
 
@@ -2570,11 +2677,14 @@ def extract_facts(
     # B4 item 1: THE VISION READER, same flag, and only where Claude may be
     # used (it is the only provider that reads an image). Unavailable is a
     # recorded reason, never a silent skip.
-    vision_by_page: dict[int, object] = {}
-    vision_provider, vision_unavailable = None, None
+    # B7: readings, routing and unavailability are decided by extract_facts'
+    # plan pass (see there) and handed in - this body never calls the model.
+    vision_by_page: dict[int, object] = dict((_vision or {}).get("readings") or {})
+    #: B7: why each page was or was not sent to the vision reader.
+    vision_routing: dict[int, str] = dict((_vision or {}).get("routing") or {})
+    vision_unavailable = (_vision or {}).get("unavailable")
     if geometry_on:
         from . import vision_reader
-        vision_provider, vision_unavailable = vision_reader.provider()
     for page in sorted(by_page):
         found: list[tuple[str, str]] = []
         for shape in tables.parse_page_tables(stored_path, page):
@@ -2592,9 +2702,6 @@ def extract_facts(
             rows = _geometry_rows_from_pdf_page(stored_path, page)
             geometry_by_page[page] = (
                 rows if geometry_on else [r for r in rows if r["source"] == "table"])
-        if geometry_on:
-            vision_by_page[page] = _vision_reading(
-                stored_path, page, geometry_by_page[page], vision_provider)
         if not found and not grid_by_page[page]:
             ocr_found = _pairs_from_ocr_fallback(document_id, page)
             if ocr_found:
@@ -3008,11 +3115,21 @@ def extract_facts(
                     # B4 item 1: what the vision reader did with this page -
                     # the same ledger rule as the geometry reader (a reading
                     # is recorded; it does not make the page "read").
-                    reason = f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}"
+                    reason = (f"{reason}; vision {vision_routing.get(page, 'not decided')}"
+                              if vision_routing.get(page) != VISION_ROUTED else
+                              f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}")
                 unparsed.append({"page": page, "reason": reason})
                 outcomes[page] = ("no_facts", 0, reason)
             else:
                 outcomes[page] = ("facts", page_written, None)
+            if _plan is not None:
+                _plan[page] = (page_written, page_geometry)
+        if _plan is not None:
+            # B7 plan pass: what each page yields WITHOUT the vision reader.
+            # Raised inside the transaction, so nothing it wrote survives.
+            _plan["__stored_path__"] = stored_path
+            _plan["__geometry__"] = geometry_by_page
+            raise _PlanOnly()
         # B3: THE PER-PAGE OUTCOME IS KEPT, in the same transaction as the
         # facts it describes. It used to be returned and discarded, so nothing
         # downstream could tell a page with no values from a page never read.
@@ -3026,6 +3143,7 @@ def extract_facts(
                         "geometry_conflicts": geometry_conflicts,
                         "vision_facts": vision_written,
                         "vision_pages_asked": vision_pages_asked,
+                        "vision_routing": {p: vision_routing[p] for p in sorted(vision_routing)},
                         "vision_dropped": dict(sorted(vision_dropped.items())),
                         "vision_proposals_dropped": dict(sorted(_sum_drops(vision_by_page).items())),
                         "vision_unavailable": vision_unavailable,

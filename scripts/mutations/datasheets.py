@@ -1101,12 +1101,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         id='M649', phase=64,
         description='B4 vision: the vision provider is asked with the flag off',
         path=APP / 'datasheets.py',
-        anchor=('    if geometry_on:\n'
-                '        from . import vision_reader\n'
-                '        vision_provider, vision_unavailable = vision_reader.provider()\n'),
-        replacement=('    if True:\n'
-                     '        from . import vision_reader\n'
-                     '        vision_provider, vision_unavailable = vision_reader.provider()\n'),
+        # re-anchored for B7: the provider is now asked in extract_facts'
+        # wrapper, only past the flag check
+        anchor=('    if not settings.geometry_reader_enabled:\n'
+                '        return _extract_facts(document_id, allowed_document_ids=allowed_document_ids,\n'),
+        replacement=('    if False:\n'
+                     '        return _extract_facts(document_id, allowed_document_ids=allowed_document_ids,\n'),
         target='tests/test_b4_quality.py', keyword='off_never_asks_the_vision_reader',
         tags=('egress', 'critical'),
     ),
@@ -1114,8 +1114,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id='M650', phase=64,
         description='B4 vision: proved vision readings are never written',
         path=APP / 'datasheets.py',
-        anchor='            vision_by_page[page] = _vision_reading(\n',
-        replacement='            vision_by_page[page] = None and _vision_reading(\n',
+        # re-anchored for B7: readings are taken in the wrapper, routed pages only
+        anchor='            readings[page] = _vision_reading(stored_path, page, geometry.get(page, []), provider)\n',
+        replacement='            readings[page] = None and _vision_reading(stored_path, page, geometry.get(page, []), provider)\n',
         target='tests/test_b4_quality.py', keyword='records_proved_vision_readings',
     ),
     Mutation(
@@ -1132,8 +1133,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id='M652', phase=64,
         description='B4 vision: the ledger no longer says what the vision reader did',
         path=APP / 'datasheets.py',
-        anchor='                    reason = f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}"\n',
-        replacement='                    pass\n',
+        # re-anchored for B7: the note for a ROUTED page
+        anchor='                              f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}")\n',
+        replacement='                              f"{reason}")\n',
         target='tests/test_b4_quality.py', keyword='only_vision_readings_is_not_read',
         tags=('honesty',),
     ),

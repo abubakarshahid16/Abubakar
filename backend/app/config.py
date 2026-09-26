@@ -336,6 +336,11 @@ class Settings(BaseSettings):
     #: field naming covers blank fields too.
     #: Env: GEOMETRY_READER_ENABLED. The owner flips it.
     geometry_reader_enabled: bool = False
+    #: B7: at most this many pages of one datasheet are sent to the vision
+    #: reader, and only pages no text-based reader could read (see
+    #: datasheets.vision_route). A ceiling on cost and time per document, on
+    #: top of claude_spend's USD caps. Env: VISION_MAX_PAGES_PER_DOCUMENT.
+    vision_max_pages_per_document: int = 10
     #: B5: the OWNER-APPROVED equipment taxonomy the scope decision
     #: (`applicability_v2.decide`) matches scope terms against - a JSON file
     #: `{"lexicon": {phrase: [level, name]}, "types": {type: {"family": ...,
