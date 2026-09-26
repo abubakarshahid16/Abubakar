@@ -199,6 +199,8 @@ is still the code when only MISSING_INFORMATION findings remain (they stay
 MISSING_INFORMATION, never compliant); a real-document review through the
 live route is an owner-laptop gate.
 
+**B10 merged: PR #253, merge commit `7a8f620`.** CI green (8/8). Real-document review through the live route: PENDING OWNER VALIDATION.
+
 ## B11 – reliable background jobs (branch `feat/b11-reliable-jobs`)
 
 Surveyed first (checklist item → evidence). Already present: atomic claim
