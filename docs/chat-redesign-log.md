@@ -228,3 +228,19 @@ start. **Back up the live DB before restarting on this version.**
 - **"Save as report"** is the answer action's name again (it was "Save as PDF"
   in PR 4). After saving it says **"Saved to CRS & Reports · Open"**, and Open
   takes you to that screen.
+
+## PR 7 — browser test and the benchmark kit
+
+- **End-to-end test in a real browser** (`frontend/tests/e2e/chat-redesign.spec.ts`,
+  `playwright.chat.config.ts`): a question streaming in with its points-found
+  badge and source preview; Stop; a general answer and a rewrite; a draft
+  comment filed and undone; a web question cancelled with nothing sent;
+  deleting a recent chat and undoing it. The API is mocked with sample data,
+  so it needs no backend, model or document, and it now runs in CI.
+- **Benchmark kit** (`scripts/chat_benchmark.py`, guide in
+  `docs/chat-benchmark-guide.md`): runs your 30 questions through this chat
+  on the laptop and writes `.cowork/CHAT-BENCHMARK-2026-09.md` with columns
+  to paste ChatGPT's and Claude.ai's answers and score all three. Questions
+  and answers stay in `.cowork/` (git-ignored); the script refuses otherwise.
+  **Not run yet** — it needs the live documents and your Claude key, which
+  only the laptop has.
