@@ -143,6 +143,77 @@ def post_json(path: str, body: dict, *, timeout: float) -> Any:
         return response.json()
 
 
+class _Abort:
+    """Stop a request in flight - including one still waiting for its first byte.
+
+    STOP MUST STOP WITHIN SECONDS, EVEN BEFORE THE FIRST TOKEN. A local model
+    can spend tens of seconds evaluating the prompt before it sends a byte, a
+    check between chunks never runs in that time, and closing the client from
+    another thread does NOT interrupt a read that is already blocked (measured:
+    the call ran on). What does is shutting the socket itself down, so the
+    connection is captured as it opens (httpx's documented `trace` extension)
+    and a watcher shuts it down when `cancel` is set. The engine sees the
+    connection drop and stops.
+    """
+
+    def __init__(self, client: httpx.Client, cancel) -> None:
+        import threading as _threading
+
+        self.client, self.cancel = client, cancel
+        self.stream = None
+        self.finished = _threading.Event()
+        if cancel is not None:
+            _threading.Thread(target=self._watch, daemon=True).start()
+
+    def trace(self, name: str, info: dict) -> None:
+        if name == "connection.connect_tcp.complete":
+            self.stream = info.get("return_value")
+
+    def _watch(self) -> None:
+        import socket as _socket
+
+        while not self.finished.is_set():
+            if self.cancel.wait(0.1):
+                sock = self.stream.get_extra_info("socket") if self.stream is not None else None
+                if sock is not None:
+                    try:
+                        sock.shutdown(_socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                self.client.close()
+                return
+
+
+def stream_json(path: str, body: dict, *, timeout: float, cancel=None):
+    """POST with `stream: true` and yield each decoded NDJSON line.
+
+    The same gates as `post_json` - `endpoint()` re-validates the host - and
+    the same client settings. `cancel` (a threading.Event) closes the
+    connection mid-stream; the generator then simply ends.
+    """
+    import json as _json
+
+    url = endpoint(path)
+    client = httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False)
+    abort = _Abort(client, cancel)
+    try:
+        with client.stream("POST", url, json={**body, "stream": True},
+                           extensions={"trace": abort.trace}) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if cancel is not None and cancel.is_set():
+                    return
+                if line.strip():
+                    yield _json.loads(line)
+    except (httpx.TransportError, RuntimeError):
+        if cancel is not None and cancel.is_set():
+            return        # the abort above, not a failure
+        raise
+    finally:
+        abort.finished.set()
+        client.close()
+
+
 def get_json(path: str, *, timeout: float, required: bool = True) -> Any | None:
     """GET an answer-model API path.
 

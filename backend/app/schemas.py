@@ -1132,6 +1132,8 @@ AnswerType = Literal[
     # workflow-records search
     "general",
     "records",
+    # chat redesign PR 3: the reader pressed Stop; `answer` is what they were shown
+    "cancelled",
 ]
 
 
@@ -2735,6 +2737,11 @@ class AskRequest(BaseModel):
     model: Literal["auto", "claude", "local"] | None = Field(
         None, description="the engine to answer with. 'local' narrows to the "
         "local engine; 'claude' is honoured only when Claude is configured")
+
+
+class CancelledTurn(BaseModel):
+    turn_id: str
+    cancelled: bool
 
 
 class ChatModelOption(BaseModel):

@@ -170,6 +170,113 @@ def transport():
     return _send
 
 
+def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: float, cancel=None):
+    """The Messages API as a stream: yield each server-sent event's data.
+
+    THE SAME THREE GATES AS `transport()`'s callable, in the same order, and
+    the same audit line (sent once the stream ends, with `cancelled` when the
+    reader stopped it). No second path to the socket: this is the same file,
+    the same host check, the same client settings. `cancel` (a
+    threading.Event) closes the connection - the provider stops generating
+    and bills only what it produced.
+    """
+    import threading
+
+    if not available():
+        raise TransportRefused(
+            "standards reader egress is disabled; both "
+            "STANDARDS_READER_ENABLED and STANDARDS_READER_ALLOW_PUBLIC_EGRESS "
+            "must be true")
+    allowed = ReaderSettings.from_env().allowed_hosts
+    host = model_host_of(url)
+    if not url.startswith("https://") or host not in allowed:
+        raise ReaderRefused(f"reader transport refuses host {host!r}; allowed {allowed!r}")
+
+    sent_headers = {"User-Agent": USER_AGENT, "Accept": "text/event-stream"}
+    sent_headers.update(dict(headers or {}))
+    payload = json.dumps({**dict(body), "stream": True}, ensure_ascii=False).encode("utf-8")
+    counts = {"input_tokens": None, "output_tokens": None}
+    received = 0
+    cancelled = False
+    finished = threading.Event()
+    client = httpx.Client(timeout=httpx.Timeout(timeout), follow_redirects=False,
+                          cookies=None, trust_env=False)
+    opened: dict = {}
+
+    def _trace(name: str, info: dict) -> None:
+        # The TCP connection as it opens, so Stop can shut its socket down
+        # even while the request still waits for its first byte - closing the
+        # client from another thread does not interrupt a blocked read.
+        if name == "connection.connect_tcp.complete":
+            opened["stream"] = info.get("return_value")
+
+    def _watch() -> None:
+        import socket as _socket
+
+        while not finished.is_set():
+            if cancel.wait(0.1):
+                sock = opened["stream"].get_extra_info("socket") if opened.get("stream") else None
+                if sock is not None:
+                    try:
+                        sock.shutdown(_socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                client.close()
+                return
+
+    if cancel is not None:
+        threading.Thread(target=_watch, daemon=True).start()
+    status = 0
+    try:
+        with client.stream("POST", url, headers=sent_headers, content=payload,
+                           extensions={"trace": _trace}) as response:
+            status = response.status_code
+            if status >= 400:
+                kind = ""
+                try:
+                    err = json.loads(response.read()).get("error", {})
+                    kind = str(err.get("type") or "") if isinstance(err, dict) else ""
+                except ValueError:
+                    pass
+                raise httpx.HTTPStatusError(
+                    f"{status} from {host}" + (f" ({kind})" if kind else ""),
+                    request=response.request, response=response)
+            for line in response.iter_lines():
+                if cancel is not None and cancel.is_set():
+                    cancelled = True
+                    return
+                received += len(line)
+                if received > MAX_RESPONSE_BYTES:
+                    raise TransportRefused(
+                        f"stream from {host} passed the {MAX_RESPONSE_BYTES} byte limit")
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    event = json.loads(line[5:].strip())
+                except ValueError:
+                    continue
+                if event.get("type") == "message_start":
+                    usage = (event.get("message") or {}).get("usage") or {}
+                    counts["input_tokens"] = usage.get("input_tokens")
+                elif event.get("type") == "message_delta":
+                    counts["output_tokens"] = (event.get("usage") or {}).get("output_tokens")
+                yield event
+    except (httpx.TransportError, RuntimeError):
+        if cancel is not None and cancel.is_set():
+            cancelled = True
+            return
+        raise
+    finally:
+        finished.set()
+        client.close()
+        log.warning(
+            "standards reader: streamed %d bytes to %s model=%s status=%d "
+            "in=%s out=%s digest=%s%s",
+            len(payload), host, body.get("model"), status,
+            counts["input_tokens"], counts["output_tokens"], _digest(body),
+            " cancelled" if cancelled else "")
+
+
 def list_models() -> list[str]:
     """The model ids this key may use (GET /v1/models), through the same gates
     as `transport()`: both flags, https, allowed host. Ids only - nothing else

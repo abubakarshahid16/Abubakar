@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from . import admin_explorer as explorer_mod
 from . import chat as chat_mod
@@ -2530,6 +2530,122 @@ def ask(conversation_id: str, body: schemas.AskRequest,
             detail=errors.safe_error(
                 errors.NOT_FOUND, "no answered message with that id in this conversation"),
         )
+
+
+#: A pipeline stage, as the streamed step list shows it. "generating" is not
+#: here: the model call announces itself (chat_model), because a general
+#: answer never passes through the document pipeline's stages.
+_STEP_LABELS = {
+    "retrieving": "Searching your documents",
+    "reranking": "Ranking the closest passages",
+    "reading": "Reading the best sources",
+}
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@app.post("/api/conversations/{conversation_id}/ask/stream", response_class=StreamingResponse,
+          responses={200: {"content": {"text/event-stream": {}},
+                           "description": "turn, step, delta, sources, verification, notice, "
+                                          "then done (the full answer) or error"},
+                     **schemas.ERRORS_404, **schemas.ERRORS_422})
+async def ask_stream(conversation_id: str, body: schemas.AskRequest, request: Request,
+                     scope: access.AccessScope = Depends(access.current_scope)):
+    """`ask`, streamed as Server-Sent Events (owner order 2026-09-26, 2e).
+
+    THE SAME ANSWER as the non-streaming route - `chat.ask` builds it - with
+    its progress, its text and its Stop visible while it is written. Events:
+    `turn` {turn_id}, `step` {label, count, done}, `delta` {text} (a document
+    sentence only once its quote verified - chat_stream), `sources`,
+    `verification`, `notice` {text}, then `done` (the full AskResult) or
+    `error`. A reader who closes the page stops the provider call too.
+    """
+    import asyncio
+    import threading
+
+    from . import chat_stream
+
+    _require_owned_conversation(conversation_id, scope)
+    if body.document_id:
+        require_document(body.document_id, scope)
+    turn = chat_stream.open_turn(owner=scope.user_id, conversation_id=conversation_id)
+
+    def work() -> None:
+        token = chat_stream.bind(turn)
+        progress_mod.start(turn.id, owner=scope.user_id)
+
+        def on_stage(name, detail):
+            if name in _STEP_LABELS:
+                count = int(detail.split()[0]) if detail and detail.split()[0].isdigit() else None
+                turn.emit("step", {"label": _STEP_LABELS[name], "count": count, "done": False})
+
+        progress_mod.listen(turn.id, on_stage)
+        try:
+            result = chat_mod.ask(
+                conversation_id, body.question, tier=body.tier, document_id=body.document_id,
+                limit=body.limit, explain_of=body.explain_of,
+                allowed_document_ids=scope.allowed_document_ids, progress_id=turn.id,
+                model=body.model, include_unowned_records=scope.is_admin)
+            final = schemas.AskResult.model_validate(result).model_dump(mode="json")
+            if final.get("sources"):
+                turn.emit("sources", {"sources": final["sources"]})
+            if final.get("verification"):
+                turn.emit("verification", final["verification"])
+            for notice in final.get("notices") or []:
+                turn.emit("notice", {"text": notice})
+            turn.emit("done", final)
+        except chat_mod.MessageNotFound:
+            turn.emit("error", errors.safe_error(
+                errors.NOT_FOUND, "no answered message with that id in this conversation"))
+        except Exception as exc:  # noqa: BLE001 - reported on the stream, never a hung client
+            errors.record_failure(exc, stage="chat_stream")
+            turn.emit("error", errors.safe_error(errors.INTERNAL, "the answer could not be completed"))
+        finally:
+            progress_mod.unlisten(turn.id)
+            progress_mod.finish(turn.id)
+            chat_stream.unbind(token)
+            turn.close()
+
+    threading.Thread(target=work, daemon=True, name=f"chat-{turn.id}").start()
+
+    async def events():
+        yield _sse("turn", {"turn_id": turn.id})
+        while True:
+            if await request.is_disconnected():
+                turn.cancel.set()
+            try:
+                item = turn.events.get_nowait()
+            except Exception:  # queue.Empty
+                await asyncio.sleep(0.05)
+                continue
+            if item is None:
+                return
+            yield _sse(*item)
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/conversations/{conversation_id}/ask/{turn_id}/cancel",
+          response_model=schemas.CancelledTurn,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def cancel_turn(conversation_id: str, turn_id: str, request: Request,
+                scope: access.AccessScope = Depends(access.current_scope)):
+    """Stop a streamed answer. The provider call is closed, the ledger records
+    what it cost, and the turn is stored as cancelled with what the reader was
+    shown. Only the turn's owner may stop it; any other turn id is 404."""
+    from . import chat_stream
+
+    reject_unknown_params(request, set())
+    _require_owned_conversation(conversation_id, scope)
+    turn = chat_stream.find(turn_id, owner=scope.user_id, unrestricted=scope.unrestricted)
+    if turn is None or turn.conversation_id != conversation_id:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no answer being written with that id"))
+    turn.cancel.set()
+    return {"turn_id": turn_id, "cancelled": True}
 
 
 # ------------------------------------------------------------------ pages

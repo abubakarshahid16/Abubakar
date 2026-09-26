@@ -73,6 +73,7 @@ def _base(question: str, input_kind: str) -> dict:
 
 
 def _generate(system: str, prompt: str, temperature: float, preference: str | None) -> dict:
+    answer_mod._prepare_stream(None, general=True)
     return chat_model.generate(system, prompt, temperature=temperature, preference=preference)
 
 
@@ -89,10 +90,12 @@ def general(question: str, *, styles: list[str], history: str, preference: str |
         raw = _generate(GENERAL_SYSTEM, prompt, settings.chat_temperature_general, preference)
     except Exception as exc:  # noqa: BLE001 - reported as unavailable, never a crash
         return _failed(base, exc, timer)
+    if raw.get("cancelled"):
+        return answer_mod.stopped(base, raw, timer)
     text = answer_mod.strip_half_citation((raw.get("response") or "").strip())
     # A general answer may not carry a document citation, whatever the model
     # wrote: "[S1]" here would point at no source at all.
-    text = answer_mod._CITATION.sub("", text).strip()
+    text = answer_mod.drop_citations(text)
     if not text:
         return {**base, "answer_type": "model_unavailable", "answer": None,
                 "reason": "the model returned no answer", "seconds": timer.seconds()}
@@ -133,7 +136,9 @@ def rewrite(previous: dict | None, *, styles: list[str], history: str, preferenc
             raw = _generate(GENERAL_SYSTEM, prompt, settings.chat_temperature_general, preference)
         except Exception as exc:  # noqa: BLE001
             return _failed(base, exc, timer)
-        text = answer_mod._CITATION.sub("", (raw.get("response") or "").strip()).strip()
+        if raw.get("cancelled"):
+            return answer_mod.stopped(base, raw, timer)
+        text = answer_mod.drop_citations(raw.get("response") or "")
         return {**base, "answer_type": "general", "answer": text or None, "reason": None,
                 "rewrite_of": previous["id"], "model": raw.get("model"),
                 "provider": raw.get("provider"), "cost_usd": raw.get("cost_usd"),

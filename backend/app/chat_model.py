@@ -165,6 +165,10 @@ def generate(system: str, prompt: str, *, temperature: float, preference: str | 
     would not answer, and lets `model_transport.ModelHostRefused` through.
     """
     engine = provider(preference)
+    from . import chat_stream
+    turn = chat_stream.current()
+    if turn is not None:
+        return _streamed(engine, turn, system, prompt, temperature=temperature, timeout=timeout)
     if isinstance(engine, rp.ClaudeProvider):
         response = engine.reason(rp.Packet(
             prompt=prompt, system=system, num_ctx=settings.num_ctx,
@@ -199,3 +203,34 @@ def generate(system: str, prompt: str, *, temperature: float, preference: str | 
     }
     raw = model_transport.post_json("/api/generate", body, timeout=timeout)
     return {**raw, "provider": rp.OLLAMA, "cost_usd": None}
+
+
+def _streamed(engine, turn, system: str, prompt: str, *, temperature: float, timeout: float) -> dict:
+    """The same call, streamed into `turn` (chat_stream) - text through its
+    sentence gate, Stop through its cancel Event. Nothing is sent at all when
+    the reader stopped before the model was reached."""
+    claude = isinstance(engine, rp.ClaudeProvider)
+    if turn.cancel.is_set():
+        return {"response": "", "done_reason": "cancelled", "model": None, "cancelled": True,
+                "provider": rp.CLAUDE if claude else rp.OLLAMA, "cost_usd": None}
+    packet = rp.Packet(
+        prompt=prompt, system=system, num_ctx=settings.num_ctx,
+        num_predict=settings.chat_max_output_tokens if claude else settings.max_output_tokens,
+        temperature=temperature, step=CHAT_STEP, prompt_version="chat-v1", timeout_s=timeout,
+        options={} if claude else {"num_thread": settings.num_thread, "num_batch": settings.num_batch})
+    turn.emit("step", {"label": "Writing the answer", "count": None, "done": False})
+    response = engine.stream(packet, turn.text, turn.cancel)
+    if response.finish_reason == "cancelled":
+        turn.discard()    # an unfinished sentence was never checked - never shown
+    else:
+        turn.flush()
+    return {
+        "response": response.text,
+        "done_reason": response.finish_reason,
+        "model": response.model_tag,
+        "prompt_eval_count": response.tokens_in,
+        "eval_count": response.tokens_out,
+        "provider": rp.CLAUDE if claude else rp.OLLAMA,
+        "cost_usd": response.cost_usd,
+        "cancelled": response.finish_reason == "cancelled",
+    }
