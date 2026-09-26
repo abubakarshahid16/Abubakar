@@ -198,6 +198,20 @@ def test_fusion_keeps_both_sides_and_ranks_agreement_first(bench):
         assert top["keyword_rank"] is not None and top["dense_rank"] is not None, query
 
 
+def test_fusion_counts_both_sides_equally_and_rewards_agreement():
+    """The RRF arithmetic itself (no model): rank 1 on either side weighs the
+    same, and a chunk BOTH sides found at rank 3 beats either side's rank 1.
+    The end-to-end fusion tests above cannot see a dense side that silently
+    contributes nothing - its chunks still enter the pool, just unscored."""
+    kw = [{"chunk_id": "a"}, {"chunk_id": "b"}, {"chunk_id": "both"}]
+    dense = [{"chunk_id": "d"}, {"chunk_id": "e"}, {"chunk_id": "both"}]
+    fused = search.rrf_fuse(kw, dense)
+    assert fused["a"]["rrf"] == fused["d"]["rrf"] > 0
+    assert fused["b"]["rrf"] == fused["e"]["rrf"]
+    assert fused["both"]["rrf"] > fused["a"]["rrf"]
+    assert fused["both"]["keyword_rank"] == 3 and fused["both"]["dense_rank"] == 3
+
+
 def test_fusion_brings_a_dense_only_answer_into_the_hybrid_results(bench):
     found = 0
     for query, kind, expected in POSITIVES:
