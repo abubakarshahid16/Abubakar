@@ -96,13 +96,43 @@ def is_word(token: str) -> bool:
     return any(ch in _VOWELS for ch in core)
 
 
+#: A plain number as written in a requirement: "50", "2.5", "4140", "1/2", "10%".
+_MEASURE = re.compile(r"^[-+]?\d+(?:[.,/]\d+)*%?$")
+
+
+def _is_measure(token: str) -> bool:
+    return bool(_MEASURE.match(token.strip(_EDGE_PUNCT)))
+
+
 def longest_clause(text: str) -> int:
-    """Longest run of consecutive real words."""
+    """Longest run of consecutive real words.
+
+    A number followed by a lower-case word - a unit or the rest of the
+    sentence - neither breaks the run nor counts in it. Requirement text is
+    full of them - "a surface profile of 50 to 75 micrometres", "the shaft
+    AISI 4140 for all pumps" - and breaking the run at each one made the
+    densest requirement clauses read as debris: B6 measured 3 of 15 synthetic
+    specification clauses dropped from retrieval that way (quality gate and
+    front-matter classifier alike). A number followed by another number, by
+    a capitalised label ("2 Set pressure": a table's row number - the chunker
+    joins a table's cells into one line), or by nothing still breaks the run,
+    so table rows are not read as one sentence and number walls stay out.
+    """
+    tokens = text.split()
     best = run = 0
-    for token in text.split():
+    for i, token in enumerate(tokens):
         if is_word(token):
             run += 1
             best = max(best, run)
+        elif (
+            _is_measure(token)
+            and i + 1 < len(tokens)
+            and is_word(tokens[i + 1])
+            and tokens[i + 1][0].islower()
+        ):
+            # A measurement inside a sentence keeps the run going (after a
+            # non-word the run is already 0, so the left side needs no check).
+            continue
         else:
             run = 0
     return best

@@ -108,8 +108,10 @@ import getpass
 import hashlib
 import json
 import sqlite3
+import statistics
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -135,6 +137,18 @@ CUTOFFS = (5, 10)
 TOLERANCE = 1e-9
 
 HEADER = "owner-reviewed, internally measured, NOT engineer-verified"
+
+#: B6 / ADR-0022: questions the corpus should NOT answer. Generic engineering
+#: topics outside a submittal-review library, never client text. A healthy
+#: pipeline flags these low-confidence and scores them below the answered
+#: cases; `--negatives FILE` (one query per line) replaces the list.
+NEGATIVES = (
+    "helicopter deck lighting levels",
+    "cathodic protection anode spacing",
+    "cable tray support spacing",
+    "HVAC duct insulation thickness",
+    "fire alarm panel battery autonomy",
+)
 
 
 def git_commit() -> str:
@@ -256,18 +270,19 @@ def run_cases(conn, cases: list[dict], docs: dict[str, str]) -> tuple[list, list
             })
             continue
 
+        started = time.perf_counter()
         result = search_mod.search(
             case["query"], limit=LIMIT,
             allowed_document_ids=allowed, rerank=True, dense=True,
         )
+        latency = time.perf_counter() - started
         hits = result.get("hits") or []
-        rank = None
-        for i, hit in enumerate(hits, start=1):
-            if hit.get("document_id") == doc_id and covers(
-                hit.get("page_start"), hit.get("page_end"), case["page"]
-            ):
-                rank = i
-                break
+        # B6: EVERY rank that covers the target, for precision@k; the first
+        # one is the rank recall and MRR have always used.
+        correct = [i for i, hit in enumerate(hits, start=1)
+                   if hit.get("document_id") == doc_id
+                   and covers(hit.get("page_start"), hit.get("page_end"), case["page"])]
+        rank = correct[0] if correct else None
 
         scored.append({
             "n": case["n"],
@@ -278,6 +293,9 @@ def run_cases(conn, cases: list[dict], docs: dict[str, str]) -> tuple[list, list
             # Recorded for the reader only; nothing is scored on it.
             "gold_clause": case["clause"],
             "first_correct_rank": rank,
+            "correct_ranks": correct,
+            "top_rerank_score": hits[0].get("rerank_score") if hits else None,
+            "latency_s": round(latency, 4),
             "hits_returned": len(hits),
             # TRAP 1: `total` is the surviving pool, not what came back.
             "pool_total": result.get("total"),
@@ -301,7 +319,58 @@ def metrics(scored: list[dict]) -> dict:
         sum(1.0 / c["first_correct_rank"] for c in scored
             if c["first_correct_rank"] is not None) / n
     ) if n else 0.0
+    # B6 / ADR-0022: precision@k = correct hits in the first k over k, averaged
+    # over resolved cases. With one target page per case it cannot exceed the
+    # share of the first k that a single page's chunks can fill - read it
+    # beside recall, never alone. None rather than 0 when nothing was scored.
+    for k in CUTOFFS:
+        out[f"precision@{k}"] = (sum(
+            sum(1 for r in c.get("correct_ranks") or [] if r <= k) / k
+            for c in scored) / n) if n else None
+    out.update(latency_summary([c["latency_s"] for c in scored if "latency_s" in c]))
     return out
+
+
+def latency_summary(latencies: list[float]) -> dict:
+    """p50 / p95 in milliseconds, or None each when nothing was timed."""
+    if not latencies:
+        return {"latency_p50_ms": None, "latency_p95_ms": None}
+    ordered = sorted(latencies)
+    p95 = ordered[min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))]
+    return {"latency_p50_ms": round(statistics.median(ordered) * 1000, 1),
+            "latency_p95_ms": round(p95 * 1000, 1)}
+
+
+def run_negatives(queries: list[str]) -> list[dict]:
+    """Each negative query's outcome: flagged low-confidence or empty, and the
+    best score it still got. Nothing here is a target, so nothing is 'found'."""
+    allowed = search_mod.every_document_id()
+    out = []
+    for query in queries:
+        started = time.perf_counter()
+        result = search_mod.search(query, limit=LIMIT, allowed_document_ids=allowed,
+                                   rerank=True, dense=True)
+        hits = result.get("hits") or []
+        out.append({"query": query, "latency_s": round(time.perf_counter() - started, 4),
+                    "flagged": bool(result.get("low_confidence")) or not hits,
+                    "top_rerank_score": hits[0].get("rerank_score") if hits else None})
+    return out
+
+
+def negative_metrics(negatives: list[dict], scored: list[dict]) -> dict:
+    """How the negatives separate from the answered cases. `separated` is True
+    when every negative's best score is below every answered case's top score
+    - None when either side has no scores to compare."""
+    neg = [n["top_rerank_score"] for n in negatives if n["top_rerank_score"] is not None]
+    pos = [c["top_rerank_score"] for c in scored
+           if c.get("first_correct_rank") == 1 and c.get("top_rerank_score") is not None]
+    return {
+        "negative_queries": len(negatives),
+        "negatives_flagged": sum(1 for n in negatives if n["flagged"]),
+        "negative_best_score": max(neg) if neg else None,
+        "answered_worst_top_score": min(pos) if pos else None,
+        "separated": (max(neg) < min(pos)) if neg and pos else None,
+    }
 
 
 def previous_run(out_dir: Path, explicit: Path | None) -> dict | None:
@@ -361,14 +430,26 @@ def main() -> int:
         help="compare against this exact earlier result file instead of the "
              "newest one in .cowork/eval (for testing the regression gate)",
     )
+    ap.add_argument(
+        "--gold", type=Path, default=None,
+        help="a different labelled case set (same columns). Its runs carry its "
+             "own sha256 and are never compared against the R1 tripwire's")
+    ap.add_argument(
+        "--negatives", type=Path, default=None,
+        help="negative queries, one per line (default: a built-in generic list)")
     args = ap.parse_args()
 
+    gold = args.gold or GOLD
     commit = git_commit()
-    gold_sha = sha256_of(GOLD)
-    cases = load_cases(GOLD)
+    gold_sha = sha256_of(gold)
+    cases = load_cases(gold)
+    negatives_in = (
+        [line.strip() for line in args.negatives.read_text(encoding="utf-8").splitlines()
+         if line.strip()] if args.negatives else list(NEGATIVES))
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / f"retrieval-{commit}.json"
+    out_path = OUT_DIR / (f"retrieval-{commit}.json" if gold == GOLD
+                          else f"retrieval-{gold.stem}-{commit}.json")
 
     # DIAGNOSTICS RUN ON A COPY. `search` reads through `db.connect()`, which
     # opens a read-WRITE handle and is refused on a live database outside the
@@ -380,6 +461,7 @@ def main() -> int:
     try:
         docs = filename_index(conn)
         scored, unresolved = run_cases(conn, cases, docs)
+        negatives = run_negatives(negatives_in)
     finally:
         conn.close()
 
@@ -393,7 +475,7 @@ def main() -> int:
         "generated_by": getpass.getuser(),
         "generated_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
         "git_commit": commit,
-        "gold_csv": GOLD.name,
+        "gold_csv": gold.name,
         "gold_sha256": gold_sha,
         "settings": {
             "limit": LIMIT,
@@ -410,6 +492,8 @@ def main() -> int:
         "unresolved_count": len(unresolved),
         "unresolved": unresolved,
         "metrics": metrics(scored),
+        "negatives": negative_metrics(negatives, scored),
+        "negative_cases": negatives,
         "miss_causes": dict(sorted(miss_causes.items())),
         "cases": scored,
     }
@@ -430,6 +514,14 @@ def main() -> int:
     for k in CUTOFFS:
         print(f"recall@{k}: {m[f'recall@{k}']:.4f}")
     print(f"MRR:       {m['mrr']:.4f}")
+    for k in CUTOFFS:
+        value = m.get(f"precision@{k}")
+        print(f"precision@{k}: {'-' if value is None else f'{value:.4f}'}")
+    print(f"latency p50/p95: {m['latency_p50_ms']} / {m['latency_p95_ms']} ms")
+    neg = payload["negatives"]
+    print(f"negatives: {neg['negatives_flagged']} of {neg['negative_queries']} flagged "
+          f"low-confidence; best negative score {neg['negative_best_score']}, worst "
+          f"answered top score {neg['answered_worst_top_score']}, separated: {neg['separated']}")
     print("miss causes: " + (json.dumps(payload["miss_causes"]) or "{}"))
     print(f"written: {out_path}")
     for line in lines:
