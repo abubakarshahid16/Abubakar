@@ -88,7 +88,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     Mutation(
         id="M740", phase=66, description="B5 live: the review route drops the selection's missing standards",
-        path=APP / "main.py",
+        # P3: the review now runs in the worker, so the hand-off lives there.
+        path=APP / "review_jobs.py",
         anchor='            missing_references=[m["identifier"] for m in selection["missing_references"]])\n',
         replacement="            missing_references=[])\n",
         target=_T, keyword="never_approves_with_a_cited or reach_the_run_and_the_crs",
