@@ -366,3 +366,11 @@ unmet and cannot be met here. Required, in order:
 2. ENGINEER: judge the resulting pairings and verdicts (false-pair check).
 3. OWNER-LAPTOP gates already recorded above (B4-B11, E5 query expansion,
    B8 model judge, OCR, M533).
+
+**Test reliability, found by repeated parallel runs:** `test_b11_jobs` compared
+two 404 bodies whole, including their timestamp, and failed whenever the two
+calls straddled a second - fixed to compare code and message. The intermittent
+`test_corpus_questions::...both_gets_both...` failure (3 local parallel runs
+of ~8) did not reproduce in the last two full runs and never in CI; its root
+cause is not yet found and it stays listed here rather than being called a
+flake.
