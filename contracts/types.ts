@@ -436,7 +436,20 @@ export interface ReviewRunMissingReference {
  * `by_status` is a map of status to count and `findings_total` is what they
  * are out of. Both travel together so no screen has to invent a denominator.
  */
+/** P3: the background job running a review. Progress is named steps, never a
+ *  percentage; `cancel_requested` means it will stop at its next step. */
+export interface ReviewJobState {
+  id: string;
+  state: string;
+  progress_done: number | null;
+  progress_total: number | null;
+  progress_label: string | null;
+  cancel_requested: boolean;
+}
+
 export interface ReviewRunSummary {
+  /** P3: null for a run made before reviews were queued. */
+  job?: ReviewJobState | null;
   review_run_id: string;
   submittal_document_id: string;
   submittal_filename: string | null;

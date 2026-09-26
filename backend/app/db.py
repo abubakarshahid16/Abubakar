@@ -906,6 +906,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("jobs", "created_by", "TEXT"),
         ("jobs", "code_version", "TEXT"),
         ("jobs", "config_version", "TEXT"),
+        # P3: a review run as a job - its run, named progress, cooperative cancel.
+        ("jobs", "review_run_id", "TEXT"),
+        ("jobs", "progress_done", "INTEGER"),
+        ("jobs", "progress_total", "INTEGER"),
+        ("jobs", "progress_label", "TEXT"),
+        ("jobs", "cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
     ):
         add_column_if_missing(conn, _table, _column, _definition)
     conn.execute(

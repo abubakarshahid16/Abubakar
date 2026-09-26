@@ -364,6 +364,11 @@ def _review(monkeypatch, tmp_path, cites, extra=frozenset()):
     response = client.post("/api/reviews/run", json={"submittal_document_id": sub})
     assert response.status_code == 200, response.text
     run_id = response.json()["review_run_id"]
+    # P3: the route queues; the worker runs it. Drained here exactly as the
+    # worker would.
+    from app import job_queue, review_jobs
+    job_id = review_jobs.claim_next(job_queue.worker_id())
+    assert review_jobs.run(job_id, job_queue.worker_id()) == "done"
     return client, run_id, std
 
 

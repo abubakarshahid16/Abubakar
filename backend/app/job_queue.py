@@ -178,7 +178,8 @@ def cancel(job_id: str, *, actor_user_id: str | None) -> tuple[bool, str | None]
 
 _JOB_COLUMNS = ("id, document_id, stage, state, priority, retries, error_code,"
                 " pages_total, pages_done, next_attempt_at, started_at, updated_at,"
-                " created_by, code_version, config_version")
+                " created_by, code_version, config_version, review_run_id,"
+                " progress_done, progress_total, progress_label, cancel_requested")
 
 
 def list_jobs(*, allowed_document_ids: frozenset[str], document_id: str | None = None,
