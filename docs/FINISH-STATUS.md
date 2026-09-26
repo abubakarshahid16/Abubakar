@@ -374,3 +374,34 @@ calls straddled a second - fixed to compare code and message. The intermittent
 of ~8) did not reproduce in the last two full runs and never in CI; its root
 cause is not yet found and it stays listed here rather than being called a
 flake.
+
+## Follow-up: a cited standard supplied, and what its review exposed (2026-09-26)
+
+The owner supplied one standard that the vessel datasheet cites (a
+positive-material-identification standard). Reviewing that datasheet against
+it exposed three defects in what this file had reported, recorded as honesty
+audit entries 63-66 and fixed on branch `claude/quirky-albattani-yza361`.
+
+| Finding | Before | After |
+|---|---|---|
+| Automatic selection on real documents | never exercised - the script left document roles unset, so the library was empty (audit 63) | the cited standard is applied automatically, "named in the submittal", with its page |
+| Clause labels right, 10 real standards (independent check: nearest clause number printed above the requirement in the PDF) | 1,133 / 1,440 (79%); 209 wrong | 1,497 / 1,692 (88%); 74 wrong |
+| Requirements read | 1,440 | 1,692 (+252 numbered "shall" paragraphs that had been consumed as section titles; 4 revision-history rows no longer stored; 0 real requirements lost) |
+| Revision-history tables (all 10 standards) | read as clause headings - e.g. a Scope labelled 14.1.5 | filed under their own title; set no clause; their dotted numbers only vouch for the body's numbering |
+| Citation evidence (datasheet side) | chunk's first page and first 200 characters - the quote did not contain the standard (audit 65) | the page whose text carries it, and the printed line with its label |
+| Mutations on the touched files | M52 anchor stale; M653 vacuous since P1 (audit 66) | 208 / 208 detected (15 new, M897-M911) |
+
+**Retrieval, measured fresh on the frozen B6 benchmark (9 standards, both runs
+on this machine; `main` reproduced its recorded numbers exactly):** r@1 0.653
+-> 0.694, MRR 0.755 -> 0.753, r@5 0.903 -> 0.847 (7 -> 11 misses, all reworded
+questions). Of the four new misses, two now rank another standard's correct
+passage first (the same NFPA code; the same "latest issue" boilerplate that
+every standard prints) - the benchmark accepts one page only - and two are
+genuine borderline losses (the correct passage was 4th and 5th on `main`). Not
+tuned further: tuning chunking to these 72 questions is what the rules forbid.
+Accepted as a measured trade for the requirement gains above; stated here so it
+is not mistaken for no change.
+
+**Known residuals (not fixed):** a table's row number can still be carried as a
+clause label (one standard, two pages); roman-numeral top-level headings are
+not read as clauses (labels left empty rather than wrong).
