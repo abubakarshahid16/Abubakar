@@ -495,6 +495,7 @@ def deduplicate(
     """
     kept: list[Candidate] = []
     kept_tokens: list[set[str]] = []
+    kept_ids: list[str] = []
     for c in sorted(candidates, key=lambda x: -x.score):
         # two annex tables can share almost all their body text and differ
         # only by heading, so dedup must see the heading too
@@ -504,18 +505,23 @@ def deduplicate(
                 dropped.append(_eviction(c.chunk_id, c.document_id, c.rrf,
                                          "empty_after_tokenisation"))
             continue
-        duplicate = False
-        for existing in kept_tokens:
+        duplicate_of = None
+        for existing, existing_id in zip(kept_tokens, kept_ids, strict=True):
             shorter = min(len(tokens), len(existing)) or 1
             if len(tokens & existing) / shorter >= DUPLICATE_OVERLAP:
-                duplicate = True
+                duplicate_of = existing_id
                 break
-        if duplicate and dropped is not None:
-            dropped.append(_eviction(c.chunk_id, c.document_id, c.rrf,
-                                     "near_duplicate"))
-        if not duplicate:
+        if duplicate_of is not None and dropped is not None:
+            # B6C: WHICH kept chunk it repeats - report-only. The same text
+            # in another DOCUMENT means "which document" is ambiguous, and
+            # question understanding must be able to say so.
+            dropped.append({**_eviction(c.chunk_id, c.document_id, c.rrf,
+                                        "near_duplicate"),
+                            "duplicate_of": duplicate_of})
+        if duplicate_of is None:
             kept.append(c)
             kept_tokens.append(tokens)
+            kept_ids.append(c.chunk_id)
     return kept
 
 

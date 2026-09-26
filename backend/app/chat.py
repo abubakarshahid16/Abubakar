@@ -30,6 +30,7 @@ from . import answer as answer_mod
 from . import intent as intent_mod
 from . import keyword
 from . import search as search_mod
+from . import understanding as understanding_mod
 from .db import connect
 
 #: How many previous USER questions resolution may look at. Beyond about three
@@ -486,6 +487,9 @@ _PAYLOAD_KEYS = (
     # count would lose the note that says it was; without `truncated`, a cut-off
     # answer would reopen looking complete.
     "corpus", "counts_bounded", "truncated",
+    # B6C: what the question was understood to be about, and any document
+    # ambiguity - reopened without them, a scoped answer would look unscoped.
+    "understanding", "scope_ambiguity",
 )
 
 
@@ -512,8 +516,10 @@ def ask(
     already-resolved question is reused rather than resolved a second time.
     """
     conversation = get_conversation(conversation_id)
+    selected_document = document_id
     document_id = document_id or conversation["document_id"]
     conn = connect()
+    understood: dict | None = None
 
     if explain_of is not None:
         target = conn.execute(
@@ -533,11 +539,28 @@ def ask(
         user_message = _row_to_message(asked)
         resolved = asked["resolved_question"] or asked["text"]
         original = asked["text"]
+        # the scope the original answer was retrieved under, reused
+        try:
+            understood = (json.loads(target["payload"] or "{}") or {}).get("understanding")
+        except (TypeError, ValueError):
+            understood = None
     else:
         original = question
         resolved, carried = resolve_followup(
             question, prior_user_questions(conversation_id)
         )
+        # B6C: what the question is about - document scope, clause, ambiguity.
+        # Retrieval input only; never an answer. The resolved query is stored
+        # and shown, as the follow-up rewrite already was.
+        understanding = understanding_mod.understand(
+            resolved,
+            allowed_document_ids=allowed_document_ids,
+            documents=understanding_mod.document_names(allowed_document_ids),
+            conversation_document_id=conversation["document_id"],
+            context=understanding_mod.prior_context(conversation_id),
+        )
+        understood = understanding.to_dict()
+        resolved = understanding.retrieval_query
         user_message = _insert_message(
             conn,
             conversation_id,
@@ -553,11 +576,36 @@ def ask(
                     (_title_from(original), conversation_id),
                 )
 
+    # SCOPE ONLY NARROWS (CLAUDE.md rule 5). A document the reader selected
+    # wins over a name in the question; a named or referenced document narrows
+    # an unscoped question; several matching documents narrow to those, none
+    # of them chosen.
+    scoped_allowed = allowed_document_ids
+    if understood and not selected_document:
+        if understood.get("document_id") in allowed_document_ids:
+            document_id = understood["document_id"]
+        elif understood.get("scope_ids"):
+            scoped_allowed = allowed_document_ids & frozenset(understood["scope_ids"])
+
     result = answer_mod.answer(
         resolved, tier=tier, document_id=document_id, limit=limit,
-        allowed_document_ids=allowed_document_ids,
+        allowed_document_ids=scoped_allowed,
         progress_id=progress_id,
     )
+    if understood is not None:
+        result["understanding"] = understood
+    # B6C: the same text in several documents makes "which document" an
+    # accident of ranking. Reported, never resolved silently - only for a
+    # question that was not scoped to one document.
+    if not document_id:
+        same = understanding_mod.ambiguous_source(result)
+        if same:
+            names = understanding_mod.document_names(frozenset(same))
+            result["scope_ambiguity"] = {
+                "reason": "the same text appears in more than one document; "
+                          "name the document to answer from one of them",
+                "documents": [{"document_id": d, "filename": names.get(d)} for d in same],
+            }
 
     assistant_message = _insert_message(
         conn,
