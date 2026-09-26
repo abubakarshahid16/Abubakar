@@ -7,7 +7,7 @@ export type AppRoute =
 const titles: Record<ViewId, string> = {
   dashboard: "Dashboard",
   documents: "Documents",
-  chat: "Document Q&A",
+  chat: "Chat",
   analysis: "Analysis Hub",
   reports: "CRS & Reports",
   deliverables: "Deliverables and timeline",

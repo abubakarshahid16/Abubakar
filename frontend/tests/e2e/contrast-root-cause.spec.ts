@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const views = ["Dashboard", "Documents", "Document Q&A", "Analysis", "CRS & Reports", "Deliverables", "Ingestion", "Administration"] as const;
+const views = ["Dashboard", "Documents", "Chat", "Analysis", "CRS & Reports", "Deliverables", "Ingestion", "Administration"] as const;
 const themes = ["light", "dark"] as const;
 const outputPath = path.resolve("..", "docs", "ui-redesign", process.env.CONTRAST_OUTPUT ?? "contrast-root-cause.json");
 

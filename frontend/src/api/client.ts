@@ -7,6 +7,7 @@
  *    must say "the backend is not running" rather than spin or show stale
  *    numbers as if they were live
  */
+import { SseParser } from "./sse";
 import type {
   BackgroundJob,
   DeletedConversation,
@@ -14,6 +15,11 @@ import type {
   ApiError,
   AskRequest,
   AskResult,
+  CancelledTurn,
+  ChatModels,
+  ChatSource,
+  ChatStep,
+  ChatVerification,
   ChunkPage,
   Conversation,
   ConversationDetail,
@@ -834,6 +840,44 @@ export const auth = {
     }),
 };
 
+/** A response that is not ok, as the Result every screen already renders.
+ *  Shared by `request()` and the answer stream, so a 401 on either clears
+ *  the token and tells the app exactly once, the same way. */
+async function failureOf(response: Response): Promise<Result<never>> {
+  // A gateway status means nothing served the request - the backend is not
+  // reachable, which is the same condition as a network failure and must
+  // read as one. Reported as an API error it produced an amber "backend is
+  // not running" banner and a red "HTTP 502" card on screen together.
+  if (GATEWAY_STATUSES.has(response.status)) {
+    return disconnected("Nothing answered on the API port.");
+  }
+
+  // The token is no good - expired, revoked, or the account deactivated.
+  // Clear it and tell the app once. No auto-retry and no refresh flow:
+  // there is no refresh token by design, and a silent retry against a
+  // revoked session is a loop that hides the reason from the reader.
+  if (response.status === 401) {
+    token = null;
+    onUnauthenticated?.();
+  }
+
+  let error: ApiError = {
+    code: "internal",
+    // Never a bare status code on a client-facing screen. A reader cannot
+    // act on "HTTP 500" and should not have to.
+    message: humanMessage(response.status),
+  };
+  try {
+    const body = await response.json();
+    // FastAPI wraps HTTPException detail; both shapes are handled
+    const raw = body?.detail ?? body;
+    if (raw && typeof raw === "object" && "code" in raw) error = raw as ApiError;
+  } catch {
+    /* keep the fallback */
+  }
+  return { ok: false, disconnected: false, error };
+}
+
 async function request<T>(
   path: string,
   init?: RequestInit,
@@ -851,40 +895,7 @@ async function request<T>(
     return disconnected(e instanceof Error ? e.message : "Network request failed.");
   }
 
-  if (!response.ok) {
-    // A gateway status means nothing served the request - the backend is not
-    // reachable, which is the same condition as a network failure and must
-    // read as one. Reported as an API error it produced an amber "backend is
-    // not running" banner and a red "HTTP 502" card on screen together.
-    if (GATEWAY_STATUSES.has(response.status)) {
-      return disconnected("Nothing answered on the API port.");
-    }
-
-    // The token is no good - expired, revoked, or the account deactivated.
-    // Clear it and tell the app once. No auto-retry and no refresh flow:
-    // there is no refresh token by design, and a silent retry against a
-    // revoked session is a loop that hides the reason from the reader.
-    if (response.status === 401) {
-      token = null;
-      onUnauthenticated?.();
-    }
-
-    let error: ApiError = {
-      code: "internal",
-      // Never a bare status code on a client-facing screen. A reader cannot
-      // act on "HTTP 500" and should not have to.
-      message: humanMessage(response.status),
-    };
-    try {
-      const body = await response.json();
-      // FastAPI wraps HTTPException detail; both shapes are handled
-      const raw = body?.detail ?? body;
-      if (raw && typeof raw === "object" && "code" in raw) error = raw as ApiError;
-    } catch {
-      /* keep the fallback */
-    }
-    return { ok: false, disconnected: false, error };
-  }
+  if (!response.ok) return failureOf(response);
 
   const body = await response.json();
   if (expect && !expect(body)) {
@@ -1097,7 +1108,137 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question: "", tier: "extract", ...body }),
     }),
+  /** Which engines can answer a chat question, and which one answers by
+   *  default. Says WHY one is unavailable; never carries a key. */
+  chatModels: () =>
+    request<ChatModels>("/chat/models", undefined, hasArrayField("models")),
+  /** Stop an answer being written. The server closes the provider call and
+   *  stores the turn as stopped, with what the reader had been shown. */
+  cancelTurn: (conversationId: string, turnId: string) =>
+    request<CancelledTurn>(
+      `/conversations/${encodeURIComponent(conversationId)}/ask/${encodeURIComponent(turnId)}/cancel`,
+      { method: "POST" },
+    ),
 };
+
+/** One event of a streamed answer, as `askStream` hands it to the screen. */
+export type StreamEvent =
+  | { event: "turn"; data: { turn_id: string } }
+  | { event: "step"; data: ChatStep }
+  | { event: "delta"; data: { text: string } }
+  | { event: "sources"; data: { sources: ChatSource[] } }
+  | { event: "verification"; data: ChatVerification }
+  | { event: "notice"; data: { text: string } };
+
+export type StreamOutcome =
+  | { kind: "done"; result: AskResult }
+  | { kind: "failed"; disconnected: boolean; error: ApiError }
+  /** The reader aborted the request before the answer finished. */
+  | { kind: "aborted" }
+  /** The server answered without streaming (an older backend): the caller
+   *  asks through `api.ask` instead. Nothing was answered by this request. */
+  | { kind: "unsupported" };
+
+function offlineError(e: unknown, fallback: string): ApiError {
+  const r = disconnected(e instanceof Error ? e.message : fallback);
+  return r.ok ? { code: "internal", message: fallback } : r.error;
+}
+
+const STREAM_EVENTS = new Set(["turn", "step", "delta", "sources", "verification", "notice"]);
+
+/**
+ * `ask`, streamed: progress steps, the text as it is written, then the same
+ * complete answer the non-streaming route returns (the `done` event).
+ *
+ * A POST read with `fetch`, not an EventSource: the route needs the question
+ * in a body and the token in a header, and EventSource can send neither.
+ * Aborting `signal` closes the connection, which the server reads as Stop.
+ */
+export async function askStream(
+  conversationId: string,
+  body: Partial<AskRequest>,
+  { signal, onEvent }: { signal?: AbortSignal; onEvent: (e: StreamEvent) => void },
+): Promise<StreamOutcome> {
+  let response: Response;
+  try {
+    const headers = new Headers({ "Content-Type": "application/json", Accept: "text/event-stream" });
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    response = await fetch(`${BASE}/conversations/${encodeURIComponent(conversationId)}/ask/stream`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ question: "", tier: "generated", ...body }),
+      signal,
+    });
+  } catch (e) {
+    if (signal?.aborted) return { kind: "aborted" };
+    return { kind: "failed", disconnected: true, error: offlineError(e, "Network request failed.") };
+  }
+  if (!response.ok) {
+    // 404/405 from a backend that has no stream route at all. A 404 that
+    // names a missing CONVERSATION carries a code and is a real failure.
+    if (response.status === 405) return { kind: "unsupported" };
+    if (response.status === 404) {
+      const body = await response.clone().json().catch(() => null);
+      const raw = body?.detail ?? body;
+      if (!(raw && typeof raw === "object" && "code" in raw)) return { kind: "unsupported" };
+    }
+    const failed = await failureOf(response);
+    if (!failed.ok) return { kind: "failed", disconnected: failed.disconnected, error: failed.error };
+  }
+  if (!(response.headers.get("Content-Type") ?? "").includes("text/event-stream")) {
+    return { kind: "unsupported" };
+  }
+
+  const parser = new SseParser();
+  const handle = (events: ReturnType<SseParser["push"]>): StreamOutcome | null => {
+    for (const e of events) {
+      if (e.event === "done") return { kind: "done", result: e.data as AskResult };
+      if (e.event === "error") {
+        const raw = e.data as ApiError | null;
+        return {
+          kind: "failed",
+          disconnected: false,
+          error: raw && typeof raw === "object" && "code" in raw
+            ? raw
+            : { code: "internal", message: "The answer could not be completed." },
+        };
+      }
+      if (STREAM_EVENTS.has(e.event)) onEvent(e as StreamEvent);
+    }
+    return null;
+  };
+
+  try {
+    if (!response.body) {
+      const text = await response.text();
+      const whole = handle([...parser.push(text), ...parser.push("\n\n")]);
+      if (whole) return whole;
+    } else {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const outcome = handle(parser.push(decoder.decode(value, { stream: true })));
+        if (outcome) {
+          void reader.cancel().catch(() => undefined);
+          return outcome;
+        }
+      }
+      const tail = handle(parser.push(decoder.decode() + "\n\n"));
+      if (tail) return tail;
+    }
+  } catch (e) {
+    if (signal?.aborted) return { kind: "aborted" };
+    return { kind: "failed", disconnected: true, error: offlineError(e, "The connection closed.") };
+  }
+  if (signal?.aborted) return { kind: "aborted" };
+  return {
+    kind: "failed",
+    disconnected: false,
+    error: { code: "internal", message: "The answer stopped before it finished. Try again." },
+  };
+}
 
 export const management = {
   summary: () => request<ManagementSummary>("/management/summary"),

@@ -899,6 +899,12 @@ export interface ChatModelOption {
   reason: string | null;
 }
 
+/** `POST /api/conversations/{id}/ask/{turn_id}/cancel`. */
+export interface CancelledTurn {
+  turn_id: string;
+  cancelled: boolean;
+}
+
 export interface ChatModels {
   default: "claude" | "local";
   models: ChatModelOption[];

@@ -6,7 +6,8 @@ import { type AnswerView, type UpgradeFailure, asksForComparison, documentsAnswe
 import { CorpusPart, CountsBoundedNote, GuidanceAnswer, MetadataAnswer } from "./AnswerNonDocument";
 import { InsufficientAnswer } from "./AnswerInsufficient";
 import { ScopeNotice, VerdictNotice, WithheldNotice } from "./AnswerVerdict";
-import type { AnswerPassage } from "../../types/api";
+import type { AnswerPassage, ChatSource } from "../../types/api";
+import { GeneratedAnswer } from "./GeneratedAnswer";
 
 function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
   return passage.score == null ? null : (
@@ -80,6 +81,11 @@ function AnswerCardBody({
   explainsEarlier,
   upgradeFailure,
   question,
+  plain,
+  reportable,
+  presentationSources,
+  explainNote,
+  explainingNote,
 }: {
   view: AnswerView;
   onSelectSource: (i: number) => void;
@@ -101,6 +107,16 @@ function AnswerCardBody({
   /** The reader's question, as they typed it. Used for one thing only: to say
    *  so when a question that asks across documents is answered from one. */
   question?: string | null;
+  /** The Chat screen's layout (2026-09 redesign): a written answer as plain
+   *  text with superscript sources, and saving moved to the action row. */
+  plain?: boolean;
+  /** Saving is offered elsewhere (the action row), so the warning about what
+   *  an extract report freezes still belongs on the card. */
+  reportable?: boolean;
+  presentationSources?: ChatSource[];
+  /** What pressing Explain costs, for the engine that will answer it. */
+  explainNote?: string;
+  explainingNote?: string;
 }) {
   const sources = sourcesOf(view);
   // Counted from this answer's own evidence. The notice renders only at
@@ -284,7 +300,7 @@ ollama serve
           </div>
         )}
 
-        {onSaveReport && view.supporting.length > 0 && (
+        {(onSaveReport || reportable) && view.supporting.length > 0 && (
           <p className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
             This report will freeze the quoted passage above as the answer.
             Other matched passages stay in the evidence section, but they are
@@ -310,8 +326,8 @@ ollama serve
                 </button>
                 <p className="mt-1.5 text-xs text-slateish-500">
                   {explaining
-                    ? "Generation is not streamed. It typically finishes around 50 seconds on this machine."
-                    : "Runs the local model over these passages. Takes about 50 seconds on this hardware — the quotation above is already the answer."}
+                    ? (explainingNote ?? "Generation is not streamed. It typically finishes around 50 seconds on this machine.")
+                    : (explainNote ?? "Runs the local model over these passages. Takes about 50 seconds on this hardware — the quotation above is already the answer.")}
                 </p>
               </>
             )}
@@ -328,6 +344,17 @@ ollama serve
   }
 
   // ------------------------------------------------------ tier 2: generated
+  if (plain) {
+    return (
+      <GeneratedAnswer
+        view={view}
+        sources={presentationSources}
+        onOpenPage={onSelectSource}
+        explainsEarlier={explainsEarlier}
+        question={question}
+      />
+    );
+  }
   return (
     <div className="surface-card accent-edge rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">

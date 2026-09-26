@@ -12,6 +12,7 @@ import { DisconnectedState } from "./components/states";
 import { CommandPalette } from "./components/CommandPalette";
 import { AdminScreen } from "./views/AdminScreen";
 import { ChatView } from "./views/ChatView";
+import { RecentChats } from "./components/chat/RecentChats";
 import { DashboardView } from "./views/DashboardView";
 import { StandardsView } from "./views/StandardsView";
 import { DocumentsView } from "./views/DocumentsView";
@@ -89,6 +90,12 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     document.title = route.kind === "forbidden" ? "Access denied · RAG Intelligence System" : titleForView(route.view);
   }, [route]);
   const { connection, recheck } = useConnection();
+  // The conversation open on the Chat screen, held here because two places
+  // choose it: the chat itself (a new conversation) and the recent-chats list
+  // in the navigation.
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [chatVersion, setChatVersion] = useState(0);
+  const bumpChats = useCallback(() => setChatVersion((v) => v + 1), []);
   const [session, setSession] = useState<Session>({ s: "checking" });
 
   // The bearer token, mirrored here ONLY so the admin screen can be handed one.
@@ -252,6 +259,19 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
       auth={authStatus}
       theme={theme}
       onThemeChange={setTheme}
+      navExtra={
+        // Recent chats live in the navigation, on the Chat screen only: the
+        // conversation list used to take a column of the chat itself.
+        view === "chat" && route.kind !== "forbidden" && connection.state !== "offline" ? (
+          <RecentChats
+            currentId={chatId}
+            version={chatVersion}
+            onOpen={setChatId}
+            onNew={() => setChatId(null)}
+            onDeleted={(id) => setChatId((c) => (c === id ? null : c))}
+          />
+        ) : undefined
+      }
       identity={
         // Nothing is claimed while the backend is unreachable. "Authentication
         // disabled" is a statement about the deployment, and it must not be
@@ -276,7 +296,14 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           the banner, which keeps the one-error-at-a-time rule above. */}
       {view === "chat" && route.kind !== "forbidden" && (
         <div className="contents" hidden={connection.state === "offline"}>
-          <ChatView connection={connection} onRetryConnection={recheck} onNavigate={onNavigate} />
+          <ChatView
+            connection={connection}
+            onRetryConnection={recheck}
+            onNavigate={onNavigate}
+            conversationId={chatId}
+            onConversationChange={setChatId}
+            onListChanged={bumpChats}
+          />
         </div>
       )}
       {connection.state === "offline" ? (
