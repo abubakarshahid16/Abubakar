@@ -1576,3 +1576,62 @@ describe("a refused plain-language upgrade", () => {
     expect(screen.getByText(A1.text)).toBeInTheDocument();
   });
 });
+
+describe("visual stability", () => {
+  it("shows no work-in-progress panel before anything is asked", async () => {
+    mockApi();
+    await openChat();
+    // At rest `askingIn` and `current` are both null; comparing them alone
+    // rendered "Working on this machine · 0s" with nothing asked and hid the
+    // empty-state hint.
+    expect(await screen.findByText("Ask a question about the indexed documents")).toBeInTheDocument();
+    expect(screen.queryByText("Working on this machine")).toBeNull();
+    expect(screen.queryByText("Searching")).toBeNull();
+  });
+
+  it("keeps the previous answer on screen while the next question is answered", async () => {
+    mockApi();
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT for coating system no. 1");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect((await screen.findAllByText(/280 um/)).length).toBeGreaterThan(0);
+
+    // The second answer never arrives within the test: the screen is observed
+    // mid-request, which is when a reset would show.
+    const base = globalThis.fetch;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      return url.endsWith("/ask") ? new Promise<Response>(() => {}) : base(input, init);
+    });
+    await userEvent.type(screen.getByLabelText("Your question"), "and coating system no. 4?");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    // The stage list is the in-flight panel; its heading depends on progress.
+    expect(await screen.findByText("Searching")).toBeInTheDocument();
+    expect(screen.getAllByText(/280 um/).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the transcript through a backend outage instead of rebuilding the screen", async () => {
+    mockApi();
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT for coating system no. 1");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect((await screen.findAllByText(/280 um/)).length).toBeGreaterThan(0);
+
+    const base = globalThis.fetch;
+    let down = true;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      down ? Promise.reject(new TypeError("Failed to fetch")) : base(input, init));
+    // A real outage: the poll fails AND its confirming re-check fails.
+    expect(await screen.findByText(/The backend is not running/i, undefined, { timeout: 9000 })).toBeInTheDocument();
+    // Hidden, not shown beside the banner: one connection error at a time.
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    for (const el of screen.getAllByText(/280 um/)) expect(el).not.toBeVisible();
+
+    down = false;
+    await userEvent.click(screen.getByRole("button", { name: /Retry connection/i }));
+    await waitFor(() => expect(screen.queryByText(/The backend is not running/i)).toBeNull());
+    // Unmounting the chat for the outage threw the transcript away; the
+    // conversation had to be found and reopened by hand.
+    expect(screen.getAllByText(/280 um/).length).toBeGreaterThan(0);
+  }, 15000);
+});

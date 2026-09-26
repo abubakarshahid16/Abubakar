@@ -269,6 +269,16 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           card, so an amber "backend is not running" and a red "HTTP 502"
           appeared together. The shell owns this condition; the view is not
           rendered at all while it holds. */}
+      {/* The chat is the one view that holds state the server cannot hand
+          back on a reload: the transcript on screen and a request in flight.
+          Unmounting it for an outage threw both away and replayed its entrance
+          animation on recovery, so it stays mounted - HIDDEN, not shown beside
+          the banner, which keeps the one-error-at-a-time rule above. */}
+      {view === "chat" && route.kind !== "forbidden" && (
+        <div className="contents" hidden={connection.state === "offline"}>
+          <ChatView connection={connection} onRetryConnection={recheck} onNavigate={onNavigate} />
+        </div>
+      )}
       {connection.state === "offline" ? (
         <DisconnectedState onRetry={recheck} />
       ) : route.kind === "forbidden" ? (
@@ -284,9 +294,6 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           <CommandPalette onNavigate={onNavigate} auth={authStatus} connection={connection} />
           {view === "documents" && (
             <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin} />
-          )}
-          {view === "chat" && (
-            <ChatView connection={connection} onRetryConnection={recheck} onNavigate={onNavigate} />
           )}
           {view === "ingestion" && (
             <IngestionView connection={connection} onRetryConnection={recheck} />

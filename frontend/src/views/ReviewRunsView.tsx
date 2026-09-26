@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import type {
-  CrsPreview, DocumentRecord, ReviewFinding, ReviewRunStandard,
+  CrsPreview, DocumentRecord, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard,
   ReviewRunSummary,
 } from "../types/api";
 import { FindingDetail } from "../components/review/FindingDetail";
@@ -41,6 +41,7 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [findings, setFindings] = useState<ReviewFinding[]>([]);
   const [standards, setStandards] = useState<ReviewRunStandard[] | null>(null);
+  const [missingStandards, setMissingStandards] = useState<ReviewRunMissingReference[]>([]);
   const [showStandards, setShowStandards] = useState(false);
   const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
   const [launch, setLaunch] = useState<{ kind: "idle" } | { kind: "running" } | { kind: "error"; message: string }>({ kind: "idle" });
@@ -173,6 +174,7 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
       reviewsApi.reviewRunStandards(runId),
     ]);
     setStandards(listed.ok ? listed.data.standards : []);
+    setMissingStandards(listed.ok ? listed.data.missing_references ?? [] : []);
   }, [loadFindings]);
 
   // THE FINDINGS ARE WHY THE READER CLICKED. With a dozen runs listed the
@@ -341,7 +343,7 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
           {preview && <CrsPreviewSheet preview={preview} />}
 
           {showStandards && (
-            <StandardsInScope standards={standards} />
+            <StandardsInScope standards={standards} missing={missingStandards} />
           )}
 
           <ReviewCodePanel run={run} onDecided={() => { void loadRuns(); }} />
@@ -536,16 +538,36 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
   );
 }
 
-function StandardsInScope({ standards }: { standards: ReviewRunStandard[] | null }) {
+function StandardsInScope({ standards, missing }: {
+  standards: ReviewRunStandard[] | null; missing: ReviewRunMissingReference[];
+}) {
   if (standards === null) return <p className="text-sm text-slateish-400">Loading standards…</p>;
+  // B5: a cited standard the library does not hold was NOT checked. Shown
+  // whether or not anything else was selected, so "no standards" never
+  // hides "the ones it cites are missing".
+  const notHeld = missing.length > 0 && (
+    <div role="note" className="rounded-[var(--radius-md)] border border-warn-500/40 bg-warn-500/10 p-3 text-sm">
+      <p className="font-medium text-warn-500">
+        Cited by the submittal but not held locally - not checked ({missing.length})
+      </p>
+      <ul className="mt-1 list-disc ps-5 text-xs text-slateish-300">
+        {missing.map((m) => <li key={m.identifier}>{m.identifier}</li>)}
+      </ul>
+    </div>
+  );
   if (standards.length === 0) {
     return (
-      <p className="text-sm text-slateish-400">
-        No standards were selected for this run.
-      </p>
+      <div className="space-y-2">
+        {notHeld}
+        <p className="text-sm text-slateish-400">
+          No standards were selected for this run.
+        </p>
+      </div>
     );
   }
   return (
+    <div className="space-y-2">
+    {notHeld}
     <ul className="space-y-2 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
       {standards.map((item) => (
         <li key={item.standard_document_id} className="text-sm">
@@ -557,9 +579,17 @@ function StandardsInScope({ standards }: { standards: ReviewRunStandard[] | null
               that it is not a citation; re-wording it here would turn
               "something was retrieved" into "this standard applies". */}
           <p className="mt-0.5 text-xs text-slateish-400">{item.selection_reason}</p>
+          {/* B5: THE EVIDENCE, verbatim from the document - the line the
+              submittal cites it on, or the scope clause that decided it. */}
+          {item.evidence_quote && (
+            <p className="mt-0.5 text-xs text-slateish-500">
+              Evidence{item.evidence_page != null ? `, page ${item.evidence_page}` : ""}: “{item.evidence_quote}”
+            </p>
+          )}
         </li>
       ))}
     </ul>
+    </div>
   );
 }
 

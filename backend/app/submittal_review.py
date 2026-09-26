@@ -486,6 +486,30 @@ def ensure_schema() -> None:
                 UNIQUE(review_run_id, standard_document_id)
             )"""
         )
+        # B5 (live wiring, 2026-09-25): THE EVIDENCE FOR A SELECTION, not
+        # only its reason. Where the submittal cites the standard (page and
+        # the line it is cited on), or the scope clause that decided it; and
+        # the scope decision itself (applicability_v2) when one was made.
+        # NULL when there is no such evidence - never a placeholder.
+        for _column, _type in (("evidence_page", "INTEGER"),
+                               ("evidence_quote", "TEXT"),
+                               ("scope_decision", "TEXT")):
+            add_column_if_missing(conn, "review_applicable_standards", _column, _type)
+        # B5: a standard's SCOPE RECORD (scope_records.py), stored once so the
+        # live review can use it without calling a model. Written only by an
+        # explicit reading step; the review route only reads it.
+        # `not_applicable_confirmed` is 1 only when the reader's three
+        # re-reads agreed (scope_records.decide_with_confirmation) - without
+        # it a NOT_APPLICABLE is treated as UNKNOWN and excludes nothing.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS standard_scope_records (
+                standard_document_id TEXT PRIMARY KEY
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                record_json TEXT NOT NULL,
+                prompt_version TEXT,
+                not_applicable_confirmed INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )""")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_review_applicable_standards_run "
             "ON review_applicable_standards(review_run_id, included, created_at DESC)")

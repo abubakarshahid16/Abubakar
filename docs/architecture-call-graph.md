@@ -152,12 +152,12 @@ grant-table query). Applied as a mask before top-k in keyword and dense search, 
 | Native / OCR / table-layout / selective vision | Native + OCR + rule-based table parsing; vision DEAD | B4, B7 |
 | Cited facts, clauses, metadata | Yes, deterministic; metadata classifier from #176 | B4, B5 |
 | Structure-preserving chunks, embeddings, keyword index | Yes | B6 |
-| Classification → standards and edition applicability | Deterministic rules + FTS keyword; no edition model | B5 |
+| Classification → standards and edition applicability | Live since 2026-09-25: applied only on evidence (cited, equipment/service/project classification, or a verified scope clause via `applicability_v2` with an owner-approved taxonomy); discipline-only and similarity-only are considered, not applied; cited-but-not-held is `MISSING_LOCALLY` and blocks approval. No edition model | B5 |
 | Requirement inventory | Yes (all rows of applicable standards) | B5 |
 | Evidence retrieval for review | Containment on field names; no retrieval per requirement | B6, B8 |
 | Bounded AI reasoning + independent validation | OFF / DEAD (`match_enabled=False`, seam unused, `quotes.py` unused) | B8 |
 | Findings, coverage report, CRS, engineer approval | Findings + CRS + engineer code: yes; coverage report: no single definition | B10 |
-| Conversation: permitted history, cited answer | Yes, questions-only history, no query rewrite stored | B9, B9A |
+| Conversation: permitted history, cited answer | Yes, questions-only history, no query rewrite stored. Recorded requirements: `chat-requirements-b6c-b9.md` | B6C, B9, B9A |
 
 Primary-source research behind these choices is in ADR-0019 (layout/tables: Docling,
 DocLayNet), ADR-0020 (visually rich retrieval: ColPali), ADR-0021 (structured requirements:

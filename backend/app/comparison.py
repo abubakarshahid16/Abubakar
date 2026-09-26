@@ -69,6 +69,10 @@ NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
 #: Client-facing label (frontend): "Requires another document - not
 #: answerable from this submittal type".
 NOT_IN_DOCUMENT_SCOPE = "NOT_IN_DOCUMENT_SCOPE"
+#: B5 / NORTH-STAR 2.4: a standard the submittal CITES that is not held
+#: locally. Its requirements cannot be read, so nothing about it was checked;
+#: the run is never approved while one is outstanding.
+MISSING_LOCALLY = "MISSING_LOCALLY"
 
 #: Machine-readable detail on a `NOT_IN_DOCUMENT_SCOPE` verdict: this specific
 #: requirement names its own evidence (issue #163, criterion 4) - "submit a
@@ -899,7 +903,8 @@ def completeness_for_run(
 
 
 def recommend_code(findings: list[dict], completeness: dict, *,
-                   codes: tuple[str, ...] = DEFAULT_CODES) -> dict:
+                   codes: tuple[str, ...] = DEFAULT_CODES,
+                   missing_references: list[str] | tuple[str, ...] = ()) -> dict:
     """The AI-RECOMMENDED review code. Deterministic policy, never the model.
 
     THE COMPLETENESS GATE COMES FIRST AND OVERRIDES EVERYTHING. A review that
@@ -922,13 +927,38 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     # contractor omission, never a failure - and never an approval either.
     out_of_scope = [s for s in statuses if s == NOT_IN_DOCUMENT_SCOPE]
 
+    missing_locally = [m for m in dict.fromkeys(missing_references or ()) if m]
     if not completeness.get("sufficient"):
+        reason = _insufficient_reason(completeness)
+        if missing_locally:
+            # A missing cited standard is one CAUSE of low completeness; say
+            # which, so the reader knows what to load (B5).
+            reason += (f"; {len(missing_locally)} cited standard(s) are not held "
+                       f"locally ({MISSING_LOCALLY}): {', '.join(missing_locally)}")
         return {
             "code": manual,
-            "reason": _insufficient_reason(completeness),
+            "reason": reason,
             "blocking": len(blocking), "unresolved": len(unresolved),
             "missing_information": len(missing),
             "not_in_document_scope": len(out_of_scope),
+            "missing_locally": len(missing_locally),
+        }
+    # B5: NOTHING EVALUATED IS NOTHING APPROVED. With no finding - or only
+    # findings that a requirement does not apply - the tail of this function
+    # read "every evaluated requirement is met" over zero requirements.
+    evaluated = [s for s in statuses if s != NOT_APPLICABLE]
+    if not evaluated:
+        why = ("no requirement was evaluated against this submittal"
+               if not statuses else
+               f"all {len(statuses)} requirement(s) read as not applicable; "
+               "none was evaluated")
+        if missing_locally:
+            why += (f"; {len(missing_locally)} cited standard(s) are not held "
+                    f"locally ({MISSING_LOCALLY}): {', '.join(missing_locally)}")
+        return {
+            "code": manual, "reason": f"Manual review: {why}",
+            "blocking": 0, "unresolved": 0, "missing_information": 0,
+            "not_in_document_scope": 0, "missing_locally": len(missing_locally),
         }
     if unresolved:
         return {
@@ -938,6 +968,7 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             "blocking": len(blocking), "unresolved": len(unresolved),
             "missing_information": len(missing),
             "not_in_document_scope": len(out_of_scope),
+            "missing_locally": len(missing_locally),
         }
     if blocking:
         return {
@@ -946,6 +977,19 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             "blocking": len(blocking), "unresolved": 0,
             "missing_information": len(missing),
             "not_in_document_scope": len(out_of_scope),
+            "missing_locally": len(missing_locally),
+        }
+    if missing_locally:
+        # B5: A CITED STANDARD THAT IS NOT HELD WAS NEVER CHECKED. Nothing
+        # below this line may approve - not with comments, not outright.
+        return {
+            "code": manual,
+            "reason": (f"Manual review: {len(missing_locally)} standard(s) the "
+                       f"submittal cites are not held locally ({MISSING_LOCALLY}) "
+                       f"and were not checked: {', '.join(missing_locally)}"),
+            "blocking": 0, "unresolved": 0, "missing_information": len(missing),
+            "not_in_document_scope": len(out_of_scope),
+            "missing_locally": len(missing_locally),
         }
     if missing:
         return {
@@ -956,6 +1000,7 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                       "provide; no requirement was found unmet",
             "blocking": 0, "unresolved": 0, "missing_information": len(missing),
             "not_in_document_scope": len(out_of_scope),
+            "missing_locally": 0,
         }
     if out_of_scope:
         return {
@@ -974,12 +1019,13 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                        " other documents"),
             "blocking": 0, "unresolved": 0, "missing_information": 0,
             "not_in_document_scope": len(out_of_scope),
+            "missing_locally": 0,
         }
     return {
         "code": approved,
         "reason": "every evaluated requirement is met",
         "blocking": 0, "unresolved": 0, "missing_information": 0,
-        "not_in_document_scope": 0,
+        "not_in_document_scope": 0, "missing_locally": 0,
     }
 
 
@@ -1006,6 +1052,7 @@ def run_comparison(
     review_run_id: str, *, allowed_document_ids: frozenset[str],
     subject: str | None = None, reference_coverage: float | None = None,
     model_opinions: dict | None = None, replace: bool = True,
+    missing_references: list[str] | None = None,
 ) -> dict:
     """Evaluate every applicable requirement against the submittal's facts.
 
@@ -1248,9 +1295,11 @@ def run_comparison(
     coverage = completeness_for_run(
         submittal_id, allowed_document_ids=allowed_document_ids,
         reference_coverage=reference_coverage)
-    recommendation = recommend_code(findings, coverage)
+    recommendation = recommend_code(findings, coverage,
+                                    missing_references=missing_references or ())
     _store_run_outcome(review_run_id, recommendation, coverage,
-                       page_coverage=pages_read)
+                       page_coverage=pages_read,
+                       missing_references=missing_references or [])
 
     return {
         "review_run_id": review_run_id,
@@ -2081,7 +2130,8 @@ def _match_fact(requirement: dict, by_field: dict) -> dict | None:
 
 
 def _store_run_outcome(review_run_id: str, recommendation: dict,
-                       coverage: dict, *, page_coverage: dict | None = None) -> None:
+                       coverage: dict, *, page_coverage: dict | None = None,
+                       missing_references: list[str] | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -2102,6 +2152,11 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 "reason": recommendation["reason"],
                 "completeness": coverage,
                 "page_coverage": page_coverage,
+                # B5: each cited standard not held, with its status, AS OF
+                # THIS RUN - the run keeps saying what it could not check.
+                "missing_references": [
+                    {"identifier": ref, "status": MISSING_LOCALLY}
+                    for ref in (missing_references or [])],
             }), _now(), review_run_id))
 
 

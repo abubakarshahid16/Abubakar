@@ -349,4 +349,25 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="not a bare status",
         tags=("honesty", "ui"),
     ),
+    # ---- B5 live wiring, 2026-09-25
+    Mutation(
+        id="M746", phase=66, runner="vitest",
+        description="B5 live: the review screen drops the selection's evidence line",
+        path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
+        anchor="          {item.evidence_quote && (\n",
+        replacement="          {false && (\n",
+        target="src/views/ReviewRunsView.test.tsx",
+        keyword="citation line",
+        tags=("honesty", "ui"),
+    ),
+    Mutation(
+        id="M747", phase=66, runner="vitest",
+        description="B5 live: the review screen hides cited standards not held",
+        path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
+        anchor="  const notHeld = missing.length > 0 && (\n",
+        replacement="  const notHeld = false && (\n",
+        target="src/views/ReviewRunsView.test.tsx",
+        keyword="missing",
+        tags=("honesty", "ui"),
+    ),
 )

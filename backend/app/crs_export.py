@@ -64,6 +64,12 @@ def default_company() -> str:
 
 #: Row 2, and not a caller's to change: this IS what the document is.
 SUBTITLE = "COMMENT RESOLUTION SHEET"
+#: B5: the sheet listing the standards the review applied, and why.
+STANDARDS_SHEET = "Applicable standards"
+STANDARDS_COLUMNS = ("Standard", "Status", "Method", "Reason", "Evidence")
+#: The status words that sheet prints.
+STATUS_APPLIED = "Applied"
+STATUS_CONSIDERED = "Considered, not applied"
 
 #: Rows 3-7 of the header block: the label exactly as the template prints it,
 #: and the meta key it takes its value from. Declared once and read by both
@@ -235,6 +241,18 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         "recommended_code": meta.get("recommended_code") or "",
         "recommended_code_label": RECOMMENDED_CODE_LABEL,
         "recommended_code_reason": meta.get("recommended_code_reason") or "",
+        # B5: WHICH STANDARDS THE REVIEW APPLIED, AND WHY - each with its
+        # method, reason and evidence, plus the ones considered and not
+        # included and the cited ones not held (MISSING_LOCALLY). Drawn on a
+        # sheet of its own so the client's seven-column comment sheet is
+        # unchanged.
+        "applicable_standards": [
+            {"standard": str(s.get("standard") or ""),
+             "status": str(s.get("status") or ""),
+             "method": str(s.get("method") or ""),
+             "reason": str(s.get("reason") or ""),
+             "evidence": str(s.get("evidence") or "")}
+            for s in (meta.get("applicable_standards") or [])],
     }
 
 
@@ -321,6 +339,19 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         put(row, 3, f"{code}" + (f" - {reason}" if reason else ""),
             bold=True, wrap=True)
         ws.row_dimensions[row].height = max(15, 13 * (len(reason) // 90 + 1))
+
+    # B5: the applied standards and their reasons, on their own sheet.
+    standards_sheet = wb.create_sheet(STANDARDS_SHEET)
+    for col, header in enumerate(STANDARDS_COLUMNS, start=1):
+        cell = standards_sheet.cell(row=1, column=col, value=header)
+        cell.font = Font(bold=True)
+    for r, entry in enumerate(view["applicable_standards"], start=2):
+        for col, key in enumerate(("standard", "status", "method", "reason", "evidence"),
+                                  start=1):
+            standards_sheet.cell(row=r, column=col, value=entry[key]).alignment = \
+                Alignment(wrap_text=True, vertical="top")
+    for col, width in zip("ABCDE", (38, 22, 16, 70, 60)):
+        standards_sheet.column_dimensions[col].width = width
 
     buffer = BytesIO()
     wb.save(buffer)

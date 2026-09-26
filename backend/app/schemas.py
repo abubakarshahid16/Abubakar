@@ -2004,6 +2004,14 @@ class CrsPreviewRow(BaseModel):
     row_kind: str = ""
 
 
+class CrsStandardRow(BaseModel):
+    standard: str
+    status: str
+    method: str = ""
+    reason: str = ""
+    evidence: str = ""
+
+
 class CrsPreview(BaseModel):
     """The Comment Resolution Sheet as a browser can render it.
 
@@ -2025,6 +2033,10 @@ class CrsPreview(BaseModel):
     recommended_code: str = ""
     recommended_code_reason: str = ""
     recommended_code_label: str
+    #: B5: the standards the review applied and why, the ones considered and
+    #: not applied, and cited ones not held (MISSING_LOCALLY) - the workbook's
+    #: "Applicable standards" sheet.
+    applicable_standards: list[CrsStandardRow] = []
 
 
 class ReviewRunStandard(BaseModel):
@@ -2043,10 +2055,25 @@ class ReviewRunStandard(BaseModel):
     confidence: float | None = None
     included: bool = True
     exclusion_reason: str | None = None
+    #: B5: the evidence behind the selection - where the submittal cites the
+    #: standard, or the scope clause that decided it. None when there is none.
+    evidence_page: int | None = None
+    evidence_quote: str | None = None
+    #: applicability_v2's decision on a stored scope record, or None.
+    scope_decision: str | None = None
+
+
+class ReviewRunMissingReference(BaseModel):
+    identifier: str
+    status: str
 
 
 class ReviewRunStandardList(BaseModel):
     standards: list[ReviewRunStandard]
+    #: B5: standards the submittal CITES that the library does not hold, each
+    #: `MISSING_LOCALLY`, as stored on the run. Empty when none, or when the
+    #: run predates this field.
+    missing_references: list[ReviewRunMissingReference] = []
 
 
 class ReviewRunSummary(BaseModel):

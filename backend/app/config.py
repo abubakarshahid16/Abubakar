@@ -336,6 +336,13 @@ class Settings(BaseSettings):
     #: field naming covers blank fields too.
     #: Env: GEOMETRY_READER_ENABLED. The owner flips it.
     geometry_reader_enabled: bool = False
+    #: B5: the OWNER-APPROVED equipment taxonomy the scope decision
+    #: (`applicability_v2.decide`) matches scope terms against - a JSON file
+    #: `{"lexicon": {phrase: [level, name]}, "types": {type: {"family": ...,
+    #: "class": ...}}}`. None (the default) means no taxonomy is approved, and
+    #: the live review records that the scope decision was not run rather than
+    #: deciding with an unapproved one. Env: APPLICABILITY_TAXONOMY_PATH.
+    applicability_taxonomy_path: Path | None = None
     #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
     #: grid read cell by cell under its column heading ("N1 Size 4", "N1
     #: Flange Rating CL-150"). A schedule is one row per item across many
