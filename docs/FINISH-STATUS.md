@@ -251,7 +251,7 @@ outside git; only aggregate numbers are recorded here.
 | 9 | Answerability benchmark (structural gate) | unanswerable 7 of 8 refused, 1 supported; right-top 43 supported / 2 insufficient / 1 another-document / 1 conflicting; wrong-top 22 supported / 3 insufficient – unchanged from B8. Model judge: PENDING OWNER VALIDATION |
 | 10 | One end-to-end submittal review | all 3 datasheets through `POST /api/reviews/run`: 12 of 12 documents ingested; 9 extraction jobs through the queue (1355 requirements); facts read 177 / 64 / 174. **None of the 50 standards the three datasheets cite is among the 9 held**, so each review correctly returned Manual Review Required with 25 / 10 / 15 MISSING_LOCALLY and 0 findings. To exercise findings, the 9 held standards were added by engineer override (an exercise, not an applicability decision): 1355 findings per datasheet – 134 NEEDS_ENGINEER_REVIEW, 1221 NOT_IN_DOCUMENT_SCOPE, 0 COMPLIANT, 0 NON_COMPLIANT (no datasheet value pairs with these standards' requirements – issue #193); every finding pending approval with a `created_by_review` history row |
 | 11 | CRS | generated for every run (.xlsx HTTP 200, preview rows 25 / 10 / 15 missing-reference rows; 27 / 13 / 17 after override); prints "AI recommendation – NOT yet decided by an engineer" until the engineer records the code, then "Decided by the reviewing engineer"; one `review.code_recorded` audit row per decision |
-| 12 | Citations checked | all 1355 standard citations (one run) against the cited page: 1308 verbatim, 26 same words re-ordered (table rows), 21 the same table value whose degree glyph the two extractors read differently (checked by eye). 0 wrong pages. Contractor citations: none to check (no pairings) |
+| 12 | Citations checked | all 1355 standard citations (one run) against the cited page: 1308 verbatim, 26 same words re-ordered (table rows), 21 the same table value whose degree glyph the two extractors read differently (checked by eye). 0 wrong pages. **Page only - the clause label was not checked; it was wrong on 21% of requirements (honesty audit 64, fixed in the follow-up below).** Contractor citations: none to check (no pairings) |
 | 13 | Permission isolation | a user granted one datasheet sees 1 document, 1 job; another document's job and another submittal's runs are 404 (same as missing) |
 | 14 | Restart / job recovery | a claimed extraction abandoned by a "dead" worker was reclaimed by the startup sweep, re-run to done, 0 duplicate active jobs; a review left running is marked failed at startup (1 of 1) |
 | 15 | Latency / RAM (this container) | ingest 8–32 s per standard, 4–11 s per datasheet (real e5 + reranker models); standards extraction 9 in 9.0 s; review route 0.1–14.2 s; comparison over 1355 requirements 8.5–8.8 s; retrieval p95 2.37 s; review-process peak RSS 188 MB (no local LLM loaded) |
@@ -332,7 +332,7 @@ general defect was found and fixed: 20 of 93 limits had lost a printed unit.
 |---|---|---|---|
 | review job | done | done | done |
 | automatic review latency | 17.8 s | 4.9 s | 8.4 s |
-| standards applied automatically | 0 | 0 | 0 |
+| standards applied automatically | 0 | 0 | 0 (**not a real result: the script never set document roles, so the library was empty - honesty audit 63; re-run in the follow-up below**) |
 | cited standards MISSING_LOCALLY | 25 | 10 | 15 |
 | facts (with a number / blank) | 177 (6 / 132) | 64 (40 / 24) | 174 (45 / 2) |
 | requirements after the engineer adds the 9 held standards | 1355 (93 matchable) | 1355 | 1355 |
@@ -341,7 +341,7 @@ general defect was found and fixed: 20 of 93 limits had lost a printed unit.
 | COMPLIANT / NON_COMPLIANT | 0 / 0 | 0 / 0 | 0 / 0 |
 | NEEDS_ENGINEER_REVIEW / NOT_IN_DOCUMENT_SCOPE | 134 / 1221 | 134 / 1221 | 134 / 1221 |
 | unmatched numeric facts | 6 | 40 | 45 |
-| standard citations on the cited page | 1308 verbatim + 26 re-ordered + 21 glyph = 1355 / 1355 | same | same |
+| standard citations on the cited page | 1308 verbatim + 26 re-ordered + 21 glyph = 1355 / 1355 (page only; clause labels not checked - audit 64) | same | same |
 | recompute after 9 overrides | 31.0 s | 28.9 s | 29.4 s |
 | review code | Manual Review Required | Manual Review Required | Manual Review Required |
 | CRS | rows 27; "AI recommendation - NOT yet decided" -> "Decided by the reviewing engineer" | rows 13; same | rows 17; same |
@@ -374,3 +374,45 @@ calls straddled a second - fixed to compare code and message. The intermittent
 of ~8) did not reproduce in the last two full runs and never in CI; its root
 cause is not yet found and it stays listed here rather than being called a
 flake.
+
+## Follow-up: a cited standard supplied, and what its review exposed (2026-09-26)
+
+The owner supplied one standard that the vessel datasheet cites (a
+positive-material-identification standard). Reviewing that datasheet against
+it exposed three defects in what this file had reported, recorded as honesty
+audit entries 63-66 and fixed on branch `claude/quirky-albattani-yza361`.
+
+| Finding | Before | After |
+|---|---|---|
+| Automatic selection on real documents | never exercised - the script left document roles unset, so the library was empty (audit 63) | the cited standard is applied automatically, "named in the submittal", with its page |
+| Clause labels right, 10 real standards (independent check: nearest clause number printed above the requirement in the PDF) | 1,133 / 1,440 (79%); 209 wrong | 1,497 / 1,692 (88%); 74 wrong |
+| Requirements read | 1,440 | 1,692 (+252 numbered "shall" paragraphs that had been consumed as section titles; 4 revision-history rows no longer stored; 0 real requirements lost) |
+| Revision-history tables (all 10 standards) | read as clause headings - e.g. a Scope labelled 14.1.5 | filed under their own title; set no clause; their dotted numbers only vouch for the body's numbering |
+| Citation evidence (datasheet side) | chunk's first page and first 200 characters - the quote did not contain the standard (audit 65) | the page whose text carries it, and the printed line with its label |
+| Mutations on the touched files | M52 anchor stale; M653 vacuous since P1 (audit 66) | 208 / 208 detected (15 new, M897-M911) |
+
+**Retrieval, measured fresh on the frozen B6 benchmark (9 standards, both runs
+on this machine; `main` reproduced its recorded numbers exactly):** r@1 0.653
+-> 0.694, MRR 0.755 -> 0.753, r@5 0.903 -> 0.847 (7 -> 11 misses, all reworded
+questions). Of the four new misses, two now rank another standard's correct
+passage first (the same NFPA code; the same "latest issue" boilerplate that
+every standard prints) - the benchmark accepts one page only - and two are
+genuine borderline losses (the correct passage was 4th and 5th on `main`). Not
+tuned further: tuning chunking to these 72 questions is what the rules forbid.
+Accepted as a measured trade for the requirement gains above; stated here so it
+is not mistaken for no change.
+
+**Known residuals (not fixed):** a table's row number can still be carried as a
+clause label (one standard, two pages); roman-numeral top-level headings are
+not read as clauses (labels left empty rather than wrong).
+
+**The vessel datasheet against the supplied standard, re-run on the fixed code:**
+job done in 9.2 s; the standard applied automatically, evidence "page 5", the
+printed line naming it; 96 requirements (was 85), all 96 NOT_IN_DOCUMENT_SCOPE -
+each names its own evidence (PMI test records, material certificates), which a
+datasheet is not, so the CRS says so in one row rather than 85 invented
+verdicts; 14 other cited standards MISSING_LOCALLY; recommended code "Manual
+Review Required", marked not yet decided by an engineer. COMPLIANT /
+NON_COMPLIANT: 0 / 0 - still no pass/fail verdict on a real document, because
+this standard's obligations are proved by other documents. **Release status
+unchanged: NOT release-ready.**

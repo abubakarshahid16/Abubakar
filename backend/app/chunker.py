@@ -128,6 +128,10 @@ _HEADING = re.compile(
     r"((?:[A-Z]\.)?\d+(?:\.\d+){0,3})\s+([A-Z][^\n]{2,70})\s*$"
 )
 _CHAPTER_PREFIX = re.compile(r"^\s*(?:CHAPTER|Chapter|SECTION|Section)\s+")
+#: The obligation word of a specification. "shall" only: "must" and "should"
+#: head real sections in the textbooks this chunker also reads.
+_OBLIGATION = re.compile(r"\bshall\b", re.IGNORECASE)
+_PARENTHETICAL = re.compile(r"\([^()]*\)")
 _ALLCAPS_HEADING = re.compile(r"^\s*([A-Z][A-Z \-&/]{6,60})\s*$")
 _TABLE_CAPTION = re.compile(r"^\s*(?:TABLE|Table|FIGURE|Figure)\s+\d+")
 _SENTENCE_END = re.compile(r"(?<=[.!?;:])\s+")
@@ -709,6 +713,27 @@ def _heading_number(heading: str) -> str:
     return heading.split(" ", 1)[0]
 
 
+def _obliges(heading: str) -> bool:
+    """Whether a heading's "title" is really the first line of a requirement.
+
+    "4.4 Design loads shall be as per the building code" passes every heading
+    test - a dotted number, a capital, under 90 characters - and it is a
+    numbered PARAGRAPH, not a titled clause. As a heading its line was consumed
+    into the section label and never reached the chunk's text, so the
+    requirement it states was never read: measured on one real standard, seven
+    requirements disappeared this way once a change table stopped masking it
+    (see revision_history_regions).
+
+    It is still a clause NUMBER - page classification and the contents test
+    count it as one, and must - so it is decided here, where a heading becomes
+    the section, and nowhere earlier. A parenthetical is a note on a title, not
+    the title: NORSOK heads a clause "A.1 Coating system no. 1 (shall be
+    pre-qualified)", and that is a heading.
+    """
+    title = heading.split(" ", 1)[1] if " " in heading else ""
+    return _OBLIGATION.search(_PARENTHETICAL.sub(" ", title)) is not None
+
+
 def _bare_integer_clauses(numbers: list[str]) -> set[str]:
     """Which bare integers, in document order, behave like clause numbering.
 
@@ -836,11 +861,141 @@ def is_contents_page(lines: list[str]) -> bool:
     return longest_clause(rest) < MIN_CLAUSE_WORDS
 
 
+#: THE TITLE OF A REVISION-HISTORY SECTION. Standards bodies print one of a
+#: handful of names above the record of what changed between revisions - a
+#: "Summary of Changes" table at the front, a dated "Document History" or
+#: "Revision Summary" at the back. The vocabulary is that of document control,
+#: not of any one standard, and the title must be the WHOLE line: "refer to
+#: summary of changes" in a sentence is prose, not a section.
+_REVISION_HISTORY_TITLE = re.compile(
+    r"^\s*(?:summary\s+of\s+changes|revision\s+summary|revision\s+history"
+    r"|document\s+history|record\s+of\s+revisions?|history\s+of\s+revisions?"
+    r"|change\s+history|amendment\s+record)\s*:?\s*$",
+    re.IGNORECASE,
+)
+
+#: How many lines under the title form the table's header row, and how far
+#: into a following page that header has to reappear for the table to be
+#: read as continuing there.
+_HISTORY_HEADER_LINES = 2
+_HISTORY_HEADER_WINDOW = 6
+
+
+def is_revision_history(section: str | None) -> bool:
+    """Whether a chunk's section is a revision-history record, not a clause.
+
+    ONE HOME FOR THE QUESTION: the chunker files a history under its own title,
+    and every consumer that must not treat that text as normative - the
+    requirement extractor first - asks here rather than matching titles again.
+    """
+    return bool(section) and _REVISION_HISTORY_TITLE.match(section) is not None
+
+
+def _history_key(line: str) -> str:
+    return _WS.sub(" ", line).strip().casefold()
+
+
+def revision_history_regions(
+    pages: list[tuple[int, str]],
+    running: set[str],
+    page_kinds: dict[int, str] | None = None,
+) -> dict[int, tuple[int, str]]:
+    """Where each page's revision-history record starts: {page: (line, title)}.
+
+    THE DEFECT THIS FIXES. A standard's "Summary of Changes" is a table of
+    (row, paragraph, change type, description): "14 / 5.1.4 / Deletion / No CSD
+    recommendation is required ...". Its paragraph column is a column of clause
+    NUMBERS, so the heading detector read every row as a clause heading. The
+    rows ran the top-level numbering into the teens, the body's real "1 Scope",
+    "2 Conflicts and Deviations", "3 References" then looked like a numbering
+    restart and were refused, and the last row's "14.1.5 Editorial" stayed in
+    force: requirements from the Scope were published as clause 14.1.5 - a
+    citation to a clause the standard does not have. Its descriptions became
+    requirements too ("is required" reads as an obligation), stating as a rule
+    what is only a note about the previous revision.
+
+    A REGION, BOUNDED BY PAGE LAYOUT, NOT BY NUMBERING. It opens at a line that
+    is exactly a revision-history title and runs to the end of that page. It
+    continues onto the next page only while that page REPEATS THE TABLE'S HEADER
+    ROW (the first lines under the title) near its top - a multi-page change
+    table reprints its column heads; a body page and a dated history do not.
+    Numbering cannot bound it: some standards print no clause numbers in the
+    text at all, and the change table itself starts at "1".
+
+    Known limit, deliberately accepted: body text on the SAME page, after a
+    history, is read as history. Ending mid-page would need the numbering this
+    region exists to distrust; every standard measured starts its body on a new
+    page, and a history at the back is followed by a page break or nothing.
+    """
+    kinds = page_kinds or {}
+    regions: dict[int, tuple[int, str]] = {}
+    active: tuple[str, list[str]] | None = None
+    for page_no, raw in pages:
+        if kinds.get(page_no, "prose") != "prose":
+            active = None
+            continue
+        cleaned, _ = strip_running_lines(raw, running)
+        lines = cleaned.splitlines()
+        keys = [_history_key(line) for line in lines]
+        if active is not None:
+            title, header = active
+            top = [k for k in keys if k][:_HISTORY_HEADER_WINDOW]
+            if len(header) == _HISTORY_HEADER_LINES and all(h in top for h in header):
+                regions[page_no] = (0, title)
+                continue
+        active = None
+        for index, line in enumerate(lines):
+            if _REVISION_HISTORY_TITLE.match(line):
+                title = _WS.sub(" ", line).strip().rstrip(":").strip()
+                header = [k for k in keys[index + 1:] if k][:_HISTORY_HEADER_LINES]
+                regions[page_no] = (index, title)
+                active = (title, header)
+                break
+    return regions
+
+
+#: A dotted paragraph number at the start of a line.
+_LEADING_DOTTED_NUMBER = re.compile(r"^\s*((?:[A-Z]\.)?\d+(?:\.\d+){1,4})(?![\d.]*\d)")
+
+
+def _history_paragraph_numbers(
+    pages: list[tuple[int, str]],
+    running: set[str],
+    history: dict[int, tuple[int, str]],
+) -> list[str]:
+    """The DOTTED paragraph numbers a revision history names - as evidence only.
+
+    A change table's paragraph column lists paragraphs of THIS revision, so it
+    is the document's own statement of which clause numbers exist. The body
+    does not always print a number in a form the heading detector collects:
+    one real standard prints "6.2.2" alone on its line with the requirement
+    beneath, so without this the 6.2 group read 1, 3, 4 ... and the gap
+    refused 6.2.3 to 6.2.7 as headings. The history's numbers may therefore
+    vouch for the hierarchy (`plausible_heading_numbers`), and still never set
+    a section - see revision_history_regions.
+
+    Dotted only. Bare integers are what ran the top-level walk into the teens;
+    they are left out, so the body's own 1, 2, 3 decide its top level.
+    """
+    found: list[str] = []
+    for page_no, raw in pages:
+        if page_no not in history:
+            continue
+        cleaned, _ = strip_running_lines(raw, running)
+        start = history[page_no][0]
+        for line in cleaned.splitlines()[start:]:
+            match = _LEADING_DOTTED_NUMBER.match(line)
+            if match:
+                found.append(match.group(1))
+    return found
+
+
 def _candidate_headings(
     pages: list[tuple[int, str]],
     running: set[str],
     page_kinds: dict[int, str] | None,
     numbered_paragraphs: bool = False,
+    history: dict[int, tuple[int, str]] | None = None,
 ) -> list[str]:
     """Every heading the detector would accept, before plausibility filtering.
 
@@ -856,8 +1011,11 @@ def _candidate_headings(
         lines = cleaned.splitlines()
         if is_contents_page(lines):
             continue  # a contents page never sets heading state
+        # A revision history's paragraph column is not the document's
+        # numbering - see revision_history_regions.
+        end = (history or {}).get(page_no, (len(lines), None))[0]
         i = 0
-        while i < len(lines):
+        while i < end:
             head = looks_like_heading(lines[i])
             consumed = 1
             if head is None:
@@ -886,7 +1044,8 @@ def segment_document(
 
     # Decided across the whole document, not line by line - see
     # plausible_heading_numbers.
-    candidates = _candidate_headings(pages, running, page_kinds)
+    history = revision_history_regions(pages, running, page_kinds)
+    candidates = _candidate_headings(pages, running, page_kinds, history=history)
     # B6B E4: NUMBERED-PARAGRAPH ANCHORS ONLY WHERE THE DOCUMENT HAS NO OTHER
     # STRUCTURE. A standard whose titled headings the detector reads keeps
     # exactly the chunking it had - measured: switching the anchors on
@@ -896,10 +1055,12 @@ def segment_document(
     prose_pages = sum(1 for p, _ in pages if (page_kinds or {}).get(p, "prose") == "prose")
     numbered_paragraphs = len(candidates) < max(1, prose_pages // 2)
     if numbered_paragraphs:
-        candidates = _candidate_headings(pages, running, page_kinds, numbered_paragraphs=True)
-    allowed_numbers = plausible_heading_numbers(
-        _heading_number(h) for h in candidates
-    )
+        candidates = _candidate_headings(pages, running, page_kinds,
+                                         numbered_paragraphs=True, history=history)
+    allowed_numbers = plausible_heading_numbers([
+        *(_heading_number(h) for h in candidates),
+        *_history_paragraph_numbers(pages, running, history),
+    ])
 
     kinds = page_kinds or {}
     for page_no, raw in pages:
@@ -925,6 +1086,10 @@ def segment_document(
 
         buf: list[str] = []
         i = 0
+        # Where this page's revision history starts, if it has one. Its lines
+        # are filed under the history's own title, set no heading state and
+        # move no numbering - the section in force before it resumes after it.
+        history_start, history_title = history.get(page_no, (len(lines), None))
 
         # `page_no` is a default argument ON PURPOSE, and it is not redundant:
         # it makes the closure capture this page's VALUE instead of the loop
@@ -948,6 +1113,13 @@ def segment_document(
 
         while i < len(lines):
             line = lines[i]
+
+            if i >= history_start:
+                flush_prose(section)
+                body = "\n".join(lines[i:]).strip()
+                if body:
+                    blocks.append(Block("prose", body, page_no, page_no, history_title))
+                break
 
             head = looks_like_heading(line)
             consumed = 1
@@ -984,6 +1156,17 @@ def segment_document(
                         head, consumed = None, 1
                     else:
                         last_bare_integer = int(number)
+
+            if head and _obliges(head):
+                # A numbered requirement: its number is the clause, as
+                # `_numbered_paragraph` makes it, and its sentence stays in the
+                # text to be read as the requirement it is.
+                flush_prose(section)
+                if not contents_page:
+                    section = _heading_number(head)
+                buf.extend(lines[i:i + consumed])
+                i += consumed
+                continue
 
             if head:
                 flush_prose(section)

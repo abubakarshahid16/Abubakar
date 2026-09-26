@@ -46,7 +46,7 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import claims, classification, orphan_guard, provenance, requirements_3b
+from . import chunker, claims, classification, orphan_guard, provenance, requirements_3b
 from . import submittal_review
 from . import tables as tables_mod
 from .db import connect
@@ -695,6 +695,12 @@ def extract_requirements(
             "SELECT clause, requirement_text FROM standard_requirements"
             " WHERE standard_document_id = ?", (document_id,)))
     for chunk in chunks:
+        if chunker.is_revision_history(chunk["section"]):
+            # A record of what changed between revisions states no obligation:
+            # "No CSD recommendation is required to conduct retroactive PMI
+            # testing" in a Summary of Changes describes a deleted paragraph,
+            # and read as a requirement it said the opposite of the standard.
+            continue
         clause = clause_number(chunk["section"])
         # The running footer is removed BEFORE splitting. After the split it is
         # already inside a sentence, having joined the tail of one page to the
