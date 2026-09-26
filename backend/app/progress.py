@@ -65,6 +65,19 @@ class _Entry:
 
 _lock = threading.Lock()
 _entries: dict[str, _Entry] = {}
+#: A streamed chat turn listens to its own request's stages (chat_stream).
+_listeners: dict[str, object] = {}
+
+
+def listen(request_id: str, fn) -> None:
+    """Call `fn(stage, detail)` on every stage this request reaches."""
+    with _lock:
+        _listeners[request_id] = fn
+
+
+def unlisten(request_id: str) -> None:
+    with _lock:
+        _listeners.pop(request_id, None)
 
 
 def _evict(now: float) -> None:
@@ -111,6 +124,12 @@ def stage(request_id: str | None, name: str, detail: str | None = None) -> None:
         entry.detail = detail
         entry.updated = now
         entry.history.append((name, round(now - entry.started, 3)))
+        listener = _listeners.get(request_id)
+    if listener is not None:
+        try:
+            listener(name, detail)
+        except Exception:  # noqa: BLE001 - a listener never fails the answer it describes
+            pass
 
 
 def finish(request_id: str | None) -> None:

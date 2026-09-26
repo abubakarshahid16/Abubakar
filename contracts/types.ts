@@ -835,7 +835,9 @@ export type AnswerType =
    *  never cited, always labelled "not from your documents" */
   | "general"
   /** chat redesign: a workflow-records search ("/records") */
-  | "records";
+  | "records"
+  /** chat redesign: the reader pressed Stop; `answer` is what they were shown */
+  | "cancelled";
 
 /** Chat redesign (2026-09-26): what kind of answer this is on the Chat screen. */
 export type AnswerKind = "general" | "document" | "web" | "mixed" | "rewrite" | "action" | "records";

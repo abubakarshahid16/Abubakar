@@ -522,6 +522,7 @@ def generate_from_passages(instruction: str, passages: list[dict], *, history: s
     token = _PREFERENCE.set(preference)
     try:
         prompt = _build_prompt(instruction, passages, history)
+        _prepare_stream(passages, general=False)
         try:
             raw = _call_model(prompt)
         except model_transport.ModelHostRefused:
@@ -534,8 +535,31 @@ def generate_from_passages(instruction: str, passages: list[dict], *, history: s
         _PREFERENCE.reset(token)
 
 
+def _prepare_stream(passages: list[dict] | None, *, general: bool) -> None:
+    """Tell a streamed turn what the coming text may cite and whether its
+    sentences must pass the quote check before the reader sees them."""
+    from . import chat_stream
+    turn = chat_stream.current()
+    if turn is not None:
+        turn.prepare(passages=passages, verify=(not general) and claude_lane(), general=general)
+
+
+def stopped(base: dict, raw: dict, timer: Timer) -> dict:
+    """The reader pressed Stop. What they were shown - sentences that already
+    passed the gate, nothing else - is kept as the partial answer."""
+    from . import chat_stream
+    turn = chat_stream.current()
+    partial = " ".join(turn.shown).strip() if turn is not None else ""
+    return {**base, "answer_type": "cancelled", "answer": partial or None,
+            "reason": "stopped by the reader", "cancelled": True,
+            "model": raw.get("model"), "provider": raw.get("provider"),
+            "cost_usd": raw.get("cost_usd"), "seconds": timer.seconds()}
+
+
 def _finish_generated(raw: dict, passages: list[dict], *, base: dict, timer: Timer) -> dict:
     """Citation checks for generated prose over `passages` (rewrite path)."""
+    if raw.get("cancelled"):
+        return stopped(base, raw, timer)
     text = (raw.get("response") or "").strip()
     truncated = raw.get("done_reason") == "length"
     if truncated:
@@ -576,6 +600,13 @@ def strip_half_citation(text: str) -> str:
     that did survive.
     """
     return _HALF_CITATION.sub("", text).rstrip()
+
+
+def drop_citations(text: str) -> str:
+    """Every [S#] removed, and the space it leaves before punctuation closed:
+    "the wall [S1]." becomes "the wall.", not "the wall .". For text that may
+    cite nothing (a general answer)."""
+    return re.sub(r"[ \t]+([.,;:!?])", r"\1", _CITATION.sub("", text)).strip()
 
 
 def validate_citations(text: str, passage_count: int) -> tuple[list[int], list[int]]:
@@ -908,6 +939,7 @@ def _answer_from_documents(
                    f"{len(passages)} source{'' if len(passages) == 1 else 's'}")
 
     t = Timer()
+    _prepare_stream(passages, general=False)
     try:
         raw = _call_model(prompt)
     except model_transport.ModelHostRefused:
@@ -952,6 +984,10 @@ def _answer_from_documents(
         }
     generation_ms = round(t.elapsed * 1000, 2)
 
+    if raw.get("cancelled"):
+        return stopped({**base, "passages": passages, "evidence_removed": evidence_removed,
+                        "timings": {**base["timings"], "generation_ms": generation_ms}},
+                       raw, timer)
     text = (raw.get("response") or "").strip()
     # Ollama reports why generation stopped. "length" means the cap ended it,
     # not the model - the difference between an answer that finished and one

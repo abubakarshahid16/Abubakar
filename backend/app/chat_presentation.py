@@ -177,6 +177,8 @@ def used_line(result: dict) -> str:
     tail = f" · {took}" if took else ""
     if kind == "guidance":
         return ""   # small talk needs no header
+    if kind == "cancelled":
+        return "Stopped" + tail
     if route == RECORDS:
         n = len(result.get("records") or [])
         return f"Searched your workflow records · {n} found" + tail

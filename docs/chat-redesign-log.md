@@ -87,3 +87,19 @@ No client text, document numbers or standards text in this file.
 - **Compliance questions** end with "This needs an engineer's judgement – the
   passages are evidence, not a verdict". Nothing in chat writes a finding;
   "write that as a comment" returns a draft only.
+
+## PR 3 — streaming, progress steps, Stop (backend only)
+
+- New `POST /api/conversations/{id}/ask/stream` (Server-Sent Events): the
+  reader sees the **real steps** ("Searching your documents", "Ranking the
+  closest passages", "Reading the best sources", "Writing the answer"), the
+  **text as it is written**, then the complete answer — the same one the
+  normal route gives.
+- On the Claude lane a **document sentence is shown only after its quote is
+  found on the page**; an invented claim never appears, not even briefly.
+- **Stop really stops**: `POST /api/conversations/{id}/ask/{turn_id}/cancel`
+  (or closing the page) shuts the connection to the model within 2 seconds —
+  even while it is still reading the prompt. The Claude ledger records what a
+  stopped call cost. The turn is saved as "Stopped" with only the sentences
+  the reader had already seen. Only the turn's owner can stop it.
+- The old non-streaming route still works for older screens and tests.

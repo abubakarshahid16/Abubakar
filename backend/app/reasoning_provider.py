@@ -209,6 +209,11 @@ class OllamaProvider:
         #: packet; model_transport requires the caller to choose.
         self.timeout = timeout
 
+    def stream(self, packet: Packet, on_text, cancel=None) -> Response:
+        """`reason`, streamed: `on_text(piece)` as text arrives; `cancel`
+        (threading.Event) stops the engine and closes the connection."""
+        return _ollama_stream(self, packet, on_text, cancel)
+
     def reason(self, packet: Packet) -> Response:
         if packet.images:
             # The local engine is not a vision reader here; an image packet is
@@ -261,6 +266,37 @@ class OllamaProvider:
             thinking=str(raw.get("thinking") or ""),
             schema_errors=schema_errors(text, packet.json_schema),
         )
+
+
+def _ollama_stream(provider: "OllamaProvider", packet: Packet, on_text, cancel) -> Response:
+    """The local engine, streamed through `model_transport.stream_json`."""
+    options: dict[str, object] = {"temperature": packet.temperature, "num_ctx": packet.num_ctx,
+                                  "num_predict": packet.num_predict, **packet.options}
+    body = {"model": provider.requested_model,
+            "prompt": (packet.system + "\n\n" + packet.prompt) if packet.system else packet.prompt,
+            "think": packet.think, "options": options}
+    started = time.time()
+    parts: list[str] = []
+    last: dict = {}
+    try:
+        for chunk in model_transport.stream_json("/api/generate", body, timeout=provider.timeout,
+                                                 cancel=cancel):
+            piece = str(chunk.get("response") or "")
+            if piece:
+                parts.append(piece)
+                on_text(piece)
+            last = chunk
+    except Exception as exc:
+        raise ProviderRefused(f"{provider.name}: {type(exc).__name__}: {exc}") from exc
+    text = "".join(parts).strip()
+    stopped = cancel is not None and cancel.is_set()
+    return Response(
+        text=text, provider=provider.name,
+        model_tag=str(last.get("model") or "") or f"{provider.requested_model} (unreported)",
+        digest=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        finish_reason="cancelled" if stopped else str(last.get("done_reason") or ""),
+        prompt_sha256=packet.sha256, tokens_in=last.get("prompt_eval_count"),
+        tokens_out=last.get("eval_count"), wall_time_s=round(time.time() - started, 3))
 
 
 # ------------------------------------------------------------ JSON schema gate
@@ -331,10 +367,19 @@ class ClaudeProvider:
 
     name = CLAUDE
 
-    def __init__(self, model: str | None = None, *, transport=None, step: str | None = None) -> None:
+    def __init__(self, model: str | None = None, *, transport=None, step: str | None = None,
+                 stream_transport=None) -> None:
         self.requested_model = model or settings.claude_reasoning_model
         self._transport = transport
         self._step = step
+        #: `reader_transport.stream`, or a test's fake with the same shape.
+        self._stream_transport = stream_transport
+
+    def stream(self, packet: Packet, on_text, cancel=None) -> Response:
+        """`reason`, streamed. `on_text(piece)` as text arrives; `cancel`
+        (threading.Event) closes the connection and the call is recorded as
+        cancelled - with what it cost."""
+        return _claude_stream(self, packet, on_text, cancel)
 
     def _send(self):
         if self._transport is None:
@@ -508,6 +553,67 @@ class ClaudeProvider:
             # TYPE only - reader_transport never puts headers in it).
             raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc
         return self._answered(payload, packet, key, step, time.time() - started)
+
+
+def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) -> Response:
+    """The Messages API, streamed through `reader_transport.stream` - the
+    same gates, the same spend check BEFORE the call, and a ledger line
+    AFTER it whether it finished or was stopped (a stopped call still cost
+    what it produced). Never cached: a stream is a conversation turn."""
+    from . import claude_spend
+
+    step = provider._step or packet.step
+    request, body, prompt = provider._request(packet)
+    claude_spend.ensure_affordable(
+        step, claude_spend.worst_case_usd(provider.requested_model, len(packet.system) + len(prompt),
+                                          packet.num_predict))
+    send = provider._stream_transport
+    if send is None:
+        from . import reader_transport
+        if not reader_transport.available():
+            raise ProviderRefused("claude: egress is disabled (STANDARDS_READER_ENABLED / "
+                                  "STANDARDS_READER_ALLOW_PUBLIC_EGRESS)")
+        send = reader_transport.stream
+    started = time.time()
+    parts: list[str] = []
+    usage: dict = {}
+    model = provider.requested_model
+    stop = ""
+    try:
+        for event in send(request["url"], headers=request["headers"], body=body,
+                          timeout=request["timeout"], cancel=cancel):
+            kind = event.get("type")
+            if kind == "message_start":
+                message = event.get("message") or {}
+                model = str(message.get("model") or model)
+                usage.update(message.get("usage") or {})
+            elif kind == "content_block_delta":
+                piece = str((event.get("delta") or {}).get("text") or "")
+                if piece:
+                    parts.append(piece)
+                    on_text(piece)
+            elif kind == "message_delta":
+                usage.update(event.get("usage") or {})
+                stop = str((event.get("delta") or {}).get("stop_reason") or stop)
+    except ProviderRefused:
+        raise
+    except Exception as exc:
+        raise ProviderRefused(f"{provider.name}: {type(exc).__name__}: {exc}") from exc
+    text = "".join(parts).strip()
+    stopped = cancel is not None and cancel.is_set()
+    if stopped and not usage.get("output_tokens"):
+        # Stopped before the provider reported its count: charge a generous
+        # estimate of what was produced, so the ledger errs towards spent.
+        usage["output_tokens"] = len(text) // 3 + 1
+    finish = "cancelled" if stopped else _STOP.get(stop, stop or "error")
+    entry = claude_spend.record(step=step, model=model, usage=usage, prompt_sha256=packet.sha256,
+                                wall_time_s=time.time() - started, finish_reason=finish)
+    return Response(
+        text=text, provider=provider.name, model_tag=model or f"{provider.requested_model} (unreported)",
+        digest=hashlib.sha256(text.encode("utf-8")).hexdigest(), finish_reason=finish,
+        prompt_sha256=packet.sha256, tokens_in=usage.get("input_tokens"),
+        tokens_out=usage.get("output_tokens"), wall_time_s=round(time.time() - started, 3),
+        cost_usd=entry["cost_usd"])
 
 
 def no_temperature(model: str) -> bool:

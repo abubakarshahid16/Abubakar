@@ -19,7 +19,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="falls_back_to_labelled_general", tags=("chat",)),
     Mutation(id="M928", phase=81, description="general: a model's [S#] marker survives into a general answer",
              path=APP / "chat_answers.py",
-             anchor="    text = answer_mod._CITATION.sub(\"\", text).strip()\n",
+             anchor="    text = answer_mod.drop_citations(text)\n",
              replacement="",
              target=_T, keyword="never_carries_a_document_citation", tags=("honesty", "critical")),
     Mutation(id="M929", phase=81, description="claims: any quote is accepted without checking the page",

@@ -570,7 +570,7 @@ _PAYLOAD_KEYS = (
     # has none of them, and renders as it always did.
     "answer_kind", "used_line", "sources", "verification", "steps",
     "suggestions", "draft", "provider", "cost_usd", "history_turns",
-    "route", "notices", "claims", "claims_removed", "rewrite_of", "records",
+    "route", "notices", "claims", "claims_removed", "rewrite_of", "records", "cancelled",
 )
 
 #: Payload keys lifted to the top of a message, so the Chat screen reads one
@@ -801,6 +801,10 @@ def _document_answer(conversation_id: str, resolved: str, understood: dict | Non
     # wins over a name in the question; a named or referenced document narrows
     # an unscoped question; several matching documents narrow to those, none
     # of them chosen.
+    # The first step a streamed reader sees, and only for a real search:
+    # `progress.start` records it silently, so it is announced here.
+    from . import progress
+    progress.stage(progress_id, "retrieving")
     scoped_allowed = allowed_document_ids
     if understood and not selected_document:
         if understood.get("document_id") in allowed_document_ids:
