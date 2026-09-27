@@ -25,6 +25,7 @@ import re
 import socket
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -276,19 +277,31 @@ def test_swallows_the_refusal():
 """
 
 
-def test_a_test_that_swallows_the_refusal_is_still_failed_by_name(tmp_path):
+def test_a_test_that_swallows_the_refusal_is_still_failed_by_name():
     """The guard raises an OSError, as an offline machine would, and code that
     catches OSError and falls back would hide the attempt. conftest's autouse
     fixture must fail that test anyway. Run as its own pytest session with the
-    real conftest loaded as a plugin."""
-    probe = tmp_path / "test_probe.py"
-    probe.write_text(PROBE, encoding="utf-8")
-    out = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-         "-p", "tests.conftest", "-c", str(BACKEND_DIR / "pytest.ini"),
-         "--rootdir", str(BACKEND_DIR), str(probe)],
-        cwd=BACKEND_DIR, capture_output=True, text=True, timeout=300,
-    )
-    assert out.returncode == 1, out.stdout[-3000:]
-    assert "tried to leave the machine" in out.stdout
-    assert "203.0.113.9" in out.stdout
+    real conftest loaded as a plugin.
+
+    The probe file is written under a temp directory created INSIDE
+    `BACKEND_DIR`, not under pytest's own `tmp_path`. On Windows, `tmp_path`
+    sits under the system temp root, which is usually a different drive
+    letter than the repo. Handing this subprocess a probe path and a
+    `--rootdir` on two different drives makes pytest's own rootdir/args
+    resolution walk up from the shallower path towards its drive root - which
+    can reach a protected legacy junction (`C:\\Documents and Settings`) and
+    raise `PermissionError` before collection even starts. Keeping the probe
+    on the same drive as `BACKEND_DIR` avoids that walk entirely, on any OS.
+    """
+    with tempfile.TemporaryDirectory(dir=BACKEND_DIR) as probe_dir:
+        probe = Path(probe_dir) / "test_probe.py"
+        probe.write_text(PROBE, encoding="utf-8")
+        out = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+             "-p", "tests.conftest", "-c", str(BACKEND_DIR / "pytest.ini"),
+             "--rootdir", str(BACKEND_DIR), str(probe)],
+            cwd=BACKEND_DIR, capture_output=True, text=True, timeout=300,
+        )
+        assert out.returncode == 1, out.stdout[-3000:]
+        assert "tried to leave the machine" in out.stdout
+        assert "203.0.113.9" in out.stdout
