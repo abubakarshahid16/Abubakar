@@ -22,8 +22,15 @@ WHAT IT IS NOT, ENFORCED IN CODE:
     exactly as a held standard's own clause would be; when it does not parse
     as a rule, the item is a question for the engineer, never a guess from
     prose.
-  * NEVER COMPARED ACROSS EDITIONS. A cited edition that does not match the
-    web page's own date is `edition_differs` and is never compared.
+  * NEVER COMPARED ACROSS EDITIONS. The edition the submittal cites is read
+    LOCALLY from the submittal's own text (`cited_edition`, never sent
+    anywhere) and set against the web page's own date. When they differ
+    (`edition_differs`) the item is stored as "edition differs - not
+    compared", naming both, and `compare` is never called for it. An
+    UNKNOWN is not a match either: when either side has no year (the
+    citation names none, or the page gives no date) the item is stored as
+    "edition not confirmed - not compared". Only a confirmed same year is
+    compared. Every one of the three is the same pending, unconfirmed draft.
   * NEVER COUNTED. Stored as a pending, unconfirmed draft
     (`origin = 'web_standard_check'`), exactly like the AI engineering check
     (kind C) - `comparison.recommend_code` never sees it, and it is shown on
@@ -172,12 +179,82 @@ _YEAR = re.compile(r"(19|20)\d{2}")
 
 def edition_differs(cited_edition: str | None, web_date: str | None) -> bool:
     """A cited edition/year that does not match the web page's own date -
-    'edition differs' beats a wrong verdict read from the wrong edition."""
+    'edition differs' beats a wrong verdict read from the wrong edition.
+
+    True ONLY when a difference is PROVEN: both sides carry a year and the
+    years differ. False when either side is missing or has no year - which
+    means "not proven different", NEVER "the same". A caller must not read
+    False as a match; `edition_confirmed_same` is that question, and
+    `run_check` asks both.
+    """
     if not cited_edition or not web_date:
         return False
     cited = _YEAR.search(cited_edition)
     web = _YEAR.search(web_date)
     return bool(cited and web and cited.group() != web.group())
+
+
+def edition_confirmed_same(cited_edition: str | None, web_date: str | None) -> bool:
+    """Both sides carry a year and it is the same year. The ONLY case that
+    may be compared - an unknown on either side is not a match."""
+    cited = _YEAR.search(cited_edition or "")
+    web = _YEAR.search(web_date or "")
+    return bool(cited and web and cited.group() == web.group())
+
+
+#: What may follow a citation to state its edition: an optional separator,
+#: an optional "11th edition" / "Ed." / "Rev." word, then a year - or the
+#: edition word alone. Read from the text right after the citation, on the
+#: same line, and nowhere else.
+_EDITION_TAIL = re.compile(
+    r"^[ \t]*(?:[-:/,(][ \t]*)?"
+    r"(?P<edition>"
+    r"(?:(?:\d{1,2}(?:st|nd|rd|th)[ \t]+)?(?:edition|ed\.?|rev(?:ision)?\.?)[ \t]*[,(]?[ \t]*)?"
+    r"(?:19|20)\d{2}\b"
+    r"|\d{1,2}(?:st|nd|rd|th)[ \t]+(?:edition\b|ed\.))",
+    re.IGNORECASE,
+)
+
+
+def cited_edition(submittal_text: str, identifier: str) -> str | None:
+    """The edition the submittal ITSELF gives for this citation, in its own
+    spelling ("2010", "11th edition (2010)", "11th edition") - or None.
+
+    Read locally, from the submittal's own text; this value is never put in
+    a search query and never leaves the machine. None when no citation of
+    this identifier states an edition, AND when two citations of it state
+    DIFFERENT years: the submittal is then ambiguous about which edition
+    governs, and picking one would be a guess.
+    """
+    from . import applicability, datasheets
+    key = applicability.normalise_identifier(identifier)
+    if not key:
+        return None
+    text = submittal_text or ""
+    found: list[str] = []
+    for raw, _start, end in datasheets.referenced_standard_spans(text):
+        if applicability.normalise_identifier(raw) != key:
+            continue
+        match = _EDITION_TAIL.match(text[end:end + 40].split("\n", 1)[0])
+        if match:
+            edition = match.group("edition").strip().rstrip(",(").strip()
+            if edition.count("(") > edition.count(")"):
+                edition += ")"
+            found.append(edition)
+    years = {y.group() for y in (_YEAR.search(e) for e in found) if y}
+    if len(years) > 1:
+        return None
+    with_year = [e for e in found if _YEAR.search(e)]
+    return (with_year or found or [None])[0]
+
+
+def _submittal_text(submittal_document_id: str) -> str:
+    """The submittal's own chunk text - the same source `_missing_references`
+    reads its citations from, so the edition is read beside the citation
+    that made it missing. Local only."""
+    return " ".join(
+        row["text"] or "" for row in connect().execute(
+            "SELECT text FROM chunks WHERE document_id = ?", (submittal_document_id,)))
 
 
 def compare(requirement: dict, facts: list[dict], *,
@@ -206,8 +283,16 @@ def run_check(
     review_run_id: str, *, allowed_document_ids: frozenset[str],
     missing_identifiers: list[str], fetch_search=None, fetch_text=None,
 ) -> dict:
-    """Ask once per public identifier, verify, compare, store the kept ones
-    as pending kind D drafts. Company identifiers are never attempted.
+    """Ask once per public identifier, verify, check the edition, compare,
+    store the kept ones as pending kind D drafts. Company identifiers are
+    never attempted.
+
+    Counts, all for THIS run only: `checked` identifiers attempted; `kept`
+    drafts stored (a verified quote); of those, `compared` (edition
+    confirmed the same), `edition_differs` (both years known and different
+    - never compared) and `edition_unconfirmed` (a year missing on either
+    side - never compared). compared + edition_differs + edition_unconfirmed
+    == kept.
 
     Earlier UNCONFIRMED items of this run are replaced; a confirmed one is
     an engineer's decision and is never deleted (same rule as kind C).
@@ -215,42 +300,69 @@ def run_check(
     from . import review as review_mod
     from . import submittal_review
 
+    empty = {"checked": 0, "kept": 0, "compared": 0,
+             "edition_differs": 0, "edition_unconfirmed": 0}
     ok, why = available()
     if not ok:
-        return {"ran": False, "reason": why, "checked": 0, "kept": 0}
+        return {"ran": False, "reason": why, **empty}
     run = submittal_review.get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
     if run is None:
-        return {"ran": False, "reason": "no review run with that id", "checked": 0, "kept": 0}
+        return {"ran": False, "reason": "no review run with that id", **empty}
     submittal = run["submittal_document_id"]
     facts = submittal_review.list_submittal_facts(
         allowed_document_ids=allowed_document_ids, review_run_id=review_run_id)
+    submittal_text = _submittal_text(submittal)
     conn = connect()
     with conn:
         conn.execute("DELETE FROM review_findings WHERE review_run_id = ? AND origin = ?"
                      " AND confirmed_by IS NULL", (review_run_id, ORIGIN))
-    checked = kept = 0
+    counts = dict(empty)
     for identifier in missing_identifiers:
         # A COMPANY IDENTIFIER IS NEVER ATTEMPTED - not searched, not fetched,
         # not sent anywhere. This is the gate, not a filter on the results.
         if not is_public_identifier(identifier):
             continue
-        checked += 1
+        counts["checked"] += 1
         requirement = build_requirement(
             identifier, fetch_search=fetch_search, fetch_text=fetch_text)
         if requirement is None:
             continue
-        # No field is named for a generic missing-standard lookup, so this
-        # is always a question for the engineer - never a guessed verdict
-        # from a field this module invented (see `compare`'s docstring).
-        verdict, fact = compare(requirement, facts)
+        label = LABEL_TEMPLATE.format(name=identifier)
+        cited = cited_edition(submittal_text, identifier)
+        web_date = requirement["date"]
+        fact = None
+        # NEVER COMPARED ACROSS EDITIONS - and an unknown is not a match.
+        # Only a confirmed same year reaches `compare`.
+        if edition_differs(cited, web_date):
+            counts["edition_differs"] += 1
+            finding_text = (f"Edition differs - not compared. The submittal cites "
+                            f"{identifier} {cited}; the public web source is dated "
+                            f"{web_date}. {label}")
+            action = (f"Obtain {identifier} {cited} (the edition the submittal cites) "
+                      f"and check against it - the web source is a different edition.")
+        elif not edition_confirmed_same(cited, web_date):
+            counts["edition_unconfirmed"] += 1
+            finding_text = (f"Edition not confirmed - not compared. The submittal cites "
+                            f"{identifier} {cited or '(no edition stated)'}; the public "
+                            f"web source is dated {web_date or '(no date given)'}. {label}")
+            action = (f"Confirm which edition of {identifier} governs before relying "
+                      f"on the web source - engineer to check.")
+        else:
+            counts["compared"] += 1
+            # No field is named for a generic missing-standard lookup, so this
+            # is always a question for the engineer - never a guessed verdict
+            # from a field this module invented (see `compare`'s docstring).
+            verdict, fact = compare(requirement, facts)
+            finding_text = label
+            action = verdict.get("detail") or "Engineer to confirm."
         finding = review_mod.create({
             "document_id": submittal,
             "category": "technical_query",
             "severity": "minor",
             "confidence": CONFIDENCE,
             "requirement": f"Requirement named for {identifier}",
-            "finding": LABEL_TEMPLATE.format(name=identifier),
-            "required_action": verdict.get("detail") or "Engineer to confirm.",
+            "finding": finding_text,
+            "required_action": action,
             "status": "open",
             "approval_status": "pending",
         }, created_by=None)
@@ -261,10 +373,10 @@ def run_check(
                    WHERE id = ?""",
                 (review_run_id, ORIGIN,
                  (fact or {}).get("page"), (fact or {}).get("field_value"),
-                 f"{LABEL_TEMPLATE.format(name=identifier)}. "
+                 f"{finding_text}. "
                  f"Source: {requirement['title']} "
-                 f"({requirement['date'] or 'date not given'}), {requirement['url']}. "
+                 f"({web_date or 'date not given'}), {requirement['url']}. "
                  f"Quote: “{requirement['quote']}”",
                  finding["id"]))
-        kept += 1
-    return {"ran": True, "reason": None, "checked": checked, "kept": kept}
+        counts["kept"] += 1
+    return {"ran": True, "reason": None, **counts}

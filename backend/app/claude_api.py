@@ -336,7 +336,13 @@ class WebCheckResult(BaseModel):
     ran: bool
     reason: str | None = None
     checked: int = 0
+    #: Drafts stored for this run. Of those: `compared` (edition confirmed
+    #: the same), `edition_differs` and `edition_unconfirmed` (never
+    #: compared - see `web_standards` "NEVER COMPARED ACROSS EDITIONS").
     kept: int = 0
+    compared: int = 0
+    edition_differs: int = 0
+    edition_unconfirmed: int = 0
 
 
 @router.post("/api/reviews/runs/{review_run_id}/web-check", response_model=WebCheckResult)

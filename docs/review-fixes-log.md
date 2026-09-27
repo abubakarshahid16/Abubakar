@@ -260,8 +260,16 @@ Also fixed a pre-existing mutation-id collision on `main` between
   when the caller names which datasheet field it concerns; the generic
   missing-standard lookup this PR wires in never guesses one, so its items
   are always "engineer to confirm", never a pass/fail invented from prose.
-- **Never compared across editions.** A cited edition that does not match
-  the web page's own date is "edition differs" and is never compared.
+- **Never compared across editions.** The edition the submittal cites is
+  read locally from the submittal's own text beside the citation
+  (`web_standards.cited_edition`, never sent). A cited year that differs
+  from the web page's own date is stored as "Edition differs - not
+  compared", naming both; a year missing on either side is stored as
+  "Edition not confirmed - not compared". Only a confirmed same year
+  reaches `compare`. (Corrected 2026-09-27: as first shipped,
+  `edition_differs` existed and was unit-tested but the check path never
+  called it, so this line was not true. Now tested through `run_check`,
+  M1138/M1139.)
 - **Never counted.** Stored as a pending, unconfirmed draft
   (`origin = 'web_standard_check'`, kind D) exactly like the AI engineering
   check (kind C) - never seen by `comparison.recommend_code`, shown on the
