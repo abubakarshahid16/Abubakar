@@ -342,3 +342,32 @@ def test_the_module_imports_no_http_library():
     source = pathlib.Path(cd.__file__).read_text()
     for name in ("httpx", "requests", "urllib", "aiohttp", "socket"):
         assert f"import {name}" not in source and f"from {name}" not in source
+
+
+# ------------------------------------ a limit stops the run (M1165)
+
+def test_read_datasheet_keeps_the_pages_read_before_a_usd_limit():
+    """Page 1's two calls were made and paid for; the limit refuses page 3's
+    first. Page 1's accepted facts are kept, and the stop is reported."""
+    from app import claude_spend
+    texts = {1: PAGE, 2: "   ", 3: PAGE}
+    doc = _ingest_page(pathlib.Path(settings.data_dir) / "d.pdf")
+    good = _fake(*THREE)
+    n = {"n": 0}
+
+    def call(prompt):
+        if n["n"] >= 2:
+            raise claude_spend.BudgetExceeded("cap")
+        n["n"] += 1
+        return good(prompt)
+    out = cd.read_datasheet(doc, allowed_document_ids=_scope(doc), model_call=call,
+                            page_text_of=texts.__getitem__, pages=[1, 2, 3])
+    assert len(out["accepted"]) == 3 and {f["page"] for f in out["accepted"]} == {1}
+    assert out["stopped"] == {"reason": "usd_cap_reached", "done": 2, "left": 1}
+
+
+def test_read_datasheet_that_finishes_is_not_stopped():
+    doc = _ingest_page(pathlib.Path(settings.data_dir) / "d.pdf")
+    out = cd.read_datasheet(doc, allowed_document_ids=_scope(doc), model_call=_fake(*THREE),
+                            page_text_of={1: PAGE}.__getitem__, pages=[1])
+    assert out["stopped"] is None

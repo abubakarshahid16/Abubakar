@@ -40,6 +40,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
+from . import claude_spend
 from .db import connect
 
 ENV_MAX_CALLS = "STANDARDS_READER_MAX_CALLS_PER_RUN"
@@ -56,8 +57,10 @@ PRICE_PER_MILLION = {
 }
 
 
-class BudgetExhausted(RuntimeError):
+class BudgetExhausted(claude_spend.StopRun):
     """The run's call cap was reached. The calls before it stand."""
+
+    count_key = BUDGET_EXHAUSTED
 
     def __init__(self, max_calls: int):
         super().__init__(f"model call cap of {max_calls} reached for this run")

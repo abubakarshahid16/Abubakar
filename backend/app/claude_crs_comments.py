@@ -66,6 +66,7 @@ import json
 from enum import Enum
 
 from . import comparison, crs_mapping
+from .claude_spend import StopRun
 from .crs_export import row_reference
 from .reader_api import _NUMBER, _contains, _fold, _fold_numbers
 
@@ -436,7 +437,10 @@ def draft_run(review_run_id: str, model_call, *,
     result, whose rows print the reference but not the finding id.
 
     Returns `{"review_run_id", "drafts": {finding_id: draft}, "drafted",
-    "rejected", "counts": {reason: n}, "skipped"}`.
+    "rejected", "counts": {reason: n}, "skipped", "stopped"}`. `stopped` is
+    None, or - when a limit (`claude_spend.StopRun`: call cap or USD cap)
+    refused a call - the limit and how many findings were left: the drafts
+    finished before it are kept, because they were paid for.
     """
     if findings is None:
         findings = comparison.list_findings(
@@ -448,13 +452,18 @@ def draft_run(review_run_id: str, model_call, *,
     drafts: dict = {}
     rejected: list[str] = []
     skipped = 0
-    for finding in findings:
+    stopped = None
+    for done, finding in enumerate(findings):
         fid = str(finding.get("id") or finding.get("finding_id") or "")
         row = by_id.get(fid)
         if row is None:
             skipped += 1
             continue
-        draft = draft_comment(finding, row, model_call, second_call)
+        try:
+            draft = draft_comment(finding, row, model_call, second_call)
+        except StopRun as exc:
+            stopped = {"reason": exc.count_key, "done": done, "left": len(findings) - done}
+            break
         draft["row_ref"] = row_reference(review_run_id, row)
         drafts[fid] = draft
         if not draft["accepted"]:
@@ -466,6 +475,7 @@ def draft_run(review_run_id: str, model_call, *,
         "rejected": len(rejected),
         "counts": rejection_counts(rejected),
         "skipped": skipped,
+        "stopped": stopped,
     }
 
 

@@ -54,8 +54,18 @@ _UNKNOWN = max(PRICES.values())
 BATCH_DISCOUNT = 0.5
 
 
-class BudgetExceeded(RuntimeError):
+class StopRun(RuntimeError):
+    """A limit stopped a run before its next call. The calls before it were
+    made and paid for, so a loop over items may catch this, keep what it
+    finished and report itself stopped under `count_key`."""
+
+    count_key = "stopped"
+
+
+class BudgetExceeded(StopRun):
     """The next call could cross a USD cap, so it was not made."""
+
+    count_key = "usd_cap_reached"
 
 
 def price_for(model: str | None) -> tuple[float, float, float, float]:
@@ -141,10 +151,13 @@ def ensure_affordable(step: str, worst_case: float, caps: Caps | None = None) ->
 
 
 def record(*, step: str, model: str, usage: dict | None, prompt_sha256: str,
-           wall_time_s: float, finish_reason: str, batch: bool = False) -> dict:
+           wall_time_s: float, finish_reason: str, batch: bool = False,
+           estimated_usd: float | None = None) -> dict:
     """Append one call to the ledger and return the entry. Counts and a
     digest only - never text, never the key. A batch result is priced at the
-    batch rate and marked `"batch": true`."""
+    batch rate and marked `"batch": true`. `estimated_usd` is for a call
+    whose real usage is unknown (it may have been billed but its answer was
+    lost): that figure is charged and the entry is marked `"estimated": true`."""
     usage = usage or {}
     entry = {
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -159,6 +172,9 @@ def record(*, step: str, model: str, usage: dict | None, prompt_sha256: str,
     }
     if batch:
         entry["batch"] = True
+    if estimated_usd is not None:
+        entry["cost_usd"] = round(float(estimated_usd), 6)
+        entry["estimated"] = True
     path = _ledger_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
@@ -166,7 +182,7 @@ def record(*, step: str, model: str, usage: dict | None, prompt_sha256: str,
     return entry
 
 
-def metered(send, step: str):
+def metered(send, step: str, *, unbilled=None):
     """Wrap a Messages transport `send(url, *, headers, body, timeout) -> dict`
     so that every call through it is checked against the caps BEFORE it
     leaves and written to the ledger AFTER it returns.
@@ -175,22 +191,37 @@ def metered(send, step: str):
     body itself: the model it names, every character of `messages` and
     `system` as serialised (image data included, which errs toward refusing),
     and its `max_tokens`. A refusal raises `BudgetExceeded` and `send` is never
-    called. A call that raises is not recorded: the request failed and the API
-    bills no tokens for it. The ledger line carries counts and a digest of the
-    body, never its text. `.usage` of the wrapped transport is carried over so
-    a caller can still read the per-run token counts off the result."""
+    called. The ledger line carries counts and a digest of the body, never its
+    text. `.usage` of the wrapped transport is carried over so a caller can
+    still read the per-run token counts off the result.
+
+    A CALL THAT RAISES MAY STILL HAVE BEEN BILLED - a read timeout after the
+    API did the work, an answer refused locally for its size. So a failure is
+    charged at that same worst case, marked `"estimated": true`, unless
+    `unbilled(exc)` says the API provably did no billable work (refused before
+    sending, never connected, a 4xx rejection). With no `unbilled` given,
+    every failure is charged: the cap errs toward counting too much, never too
+    little. The exception is re-raised either way."""
     def _metered(url, *, headers, body, timeout):
         model = str(body.get("model") or "")
         prompt_chars = (len(json.dumps(body.get("messages") or [], ensure_ascii=False, default=str))
                         + len(json.dumps(body.get("system") or "", ensure_ascii=False, default=str)))
-        ensure_affordable(step, worst_case_usd(model, prompt_chars, int(body.get("max_tokens") or 0)))
+        worst = worst_case_usd(model, prompt_chars, int(body.get("max_tokens") or 0))
+        ensure_affordable(step, worst)
+        digest = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False,
+                                           default=str).encode("utf-8")).hexdigest()
         started = time.time()
-        payload = send(url, headers=headers, body=body, timeout=timeout)
+        try:
+            payload = send(url, headers=headers, body=body, timeout=timeout)
+        except Exception as exc:
+            if unbilled is None or not unbilled(exc):
+                record(step=step, model=model, usage=None, prompt_sha256=digest,
+                       wall_time_s=time.time() - started,
+                       finish_reason=f"failed:{type(exc).__name__}", estimated_usd=worst)
+            raise
         answer = payload if isinstance(payload, dict) else {}
         record(step=step, model=str(answer.get("model") or model), usage=answer.get("usage"),
-               prompt_sha256=hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False,
-                                                       default=str).encode("utf-8")).hexdigest(),
-               wall_time_s=time.time() - started,
+               prompt_sha256=digest, wall_time_s=time.time() - started,
                finish_reason=str(answer.get("stop_reason") or "error"))
         return payload
     _metered.usage = getattr(send, "usage", None)

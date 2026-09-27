@@ -44,10 +44,17 @@ can reach the transport without them:
      The transport is wrapped in `claude_spend.metered(transport, step)`:
      each call's worst case is checked BEFORE it leaves, and each call is
      written to the one `claude_spend` ledger AFTER it returns, so the total
-     cap sees these routes' spend. A refusal is a 409 `model_disabled`; the
-     refused call is never sent. Each route is its own step (`STEPS`).
-  2. The per-run call cap in `claude_budget` (default 200 calls), which
-     stops a run early and reports it as incomplete.
+     cap sees these routes' spend - including a failed call that may have
+     been billed, charged at its worst case. Each route is its own step
+     (`STEPS`). A refusal of the run's FIRST call is a 409 `model_disabled`
+     with nothing sent; a refusal mid-run stops the run like the call cap.
+  2. The per-run call cap in `claude_budget` (default 200 calls).
+
+A RUN STOPPED BY EITHER LIMIT KEEPS WHAT IT FINISHED. The modules catch
+`claude_spend.StopRun` in their loops and return the items done before it -
+they were paid for, and a re-run would pay again - and the route stores
+those and answers `complete: false` with `budget_exhausted` (call cap) or
+`usd_cap_reached` (USD cap) in `counts`.
 
 WRITES NEED AN IDENTITY, the same rule every other write in `main.py` follows;
 the draft route is a read and needs only read access to the run.
@@ -120,7 +127,8 @@ def _model_call_or_409(step: str):
             "the standards reader is off: set STANDARDS_READER_ENABLED and "
             "STANDARDS_READER_ALLOW_PUBLIC_EGRESS in backend/.env"))
     budget = claude_budget.Budget(
-        reader_api.model_call_via(claude_spend.metered(transport, step)))
+        reader_api.model_call_via(claude_spend.metered(
+            transport, step, unbilled=reader_transport_mod.unbilled)))
     budget.step = step
     return budget, transport
 
@@ -135,43 +143,53 @@ def _usage(transport) -> dict:
             ("calls", "input_tokens", "output_tokens") if hasattr(usage, key)}
 
 
-def _capped(model_call, run, transport=None) -> tuple[dict, bool]:
-    """Run `run(model_call)`; when the call cap is hit, return what it managed
-    plus `True`. The modules return per-item results as they go only through
-    their own aggregation, so a cap hit mid-run gives back an empty shape
-    marked exhausted - the earlier calls were still made and still paid for,
-    and `spend_total` says so.
+def _capped(model_call, run, transport=None) -> tuple[dict, str | None]:
+    """Run `run(model_call)`. Returns (result, stop) where `stop` is None for
+    a complete run, or the `count_key` of the limit that stopped it:
+    `budget_exhausted` (the call cap) or `usd_cap_reached` (a USD cap).
 
-    When a USD cap refuses the next call (`claude_spend.BudgetExceeded`), the
-    route answers 409 `model_disabled`: that call was never sent. Calls made
-    before it are already in the `claude_spend` ledger (written per call) and
-    their tokens are added to the running total here before the 409. The
-    message names the step and dollar figures only - never document text."""
+    A looping module catches `claude_spend.StopRun` itself and returns the
+    items it finished with `stopped` set; those are kept, because they were
+    paid for. A limit raised out of `run` (a module with one item, or a test)
+    gives back an empty shape marked stopped - the earlier calls were still
+    made and paid for, and `spend_total` says so.
+
+    ONE EXCEPTION: when a USD cap refuses the run's very FIRST call, nothing
+    was sent and nothing was done, so the route answers 409 `model_disabled`
+    like the flags-off case. The message names the step and dollar figures
+    only - never document text."""
     try:
-        return run(model_call), False
-    except claude_budget.BudgetExhausted:
-        return {}, True
-    except claude_spend.BudgetExceeded as exc:
+        result = run(model_call)
+    except claude_spend.StopRun as exc:
+        result, stop, why = {}, exc.count_key, str(exc)
+    else:
+        stopped = result.get("stopped") if isinstance(result, dict) else None
+        stop, why = (stopped or {}).get("reason"), ""
+    if stop == claude_spend.BudgetExceeded.count_key and _calls_before_refusal(model_call) == 0:
         if transport is not None:
             claude_budget.record(_usage(transport))
         raise HTTPException(status_code=409, detail=errors.safe_error(
             MODEL_DISABLED,
-            f"the Claude USD budget refused the next call, which was not sent "
-            f"({_calls_before_refusal(model_call)} calls made before it): {exc}")) from None
+            "the Claude USD budget refused the first call of this run, which was "
+            f"not sent{': ' + why if why else ''}"))
+    return result, stop
 
 
 def _calls_before_refusal(model_call) -> int:
-    """`Budget` counts a call before handing it on, so the call the USD check
-    refused is in `calls`; it was never sent."""
+    """Calls actually sent before a USD refusal. `Budget` counts a call
+    before handing it on, so the refused call is in `calls`; it was never
+    sent."""
     return max(0, int(getattr(model_call, "calls", 0) or 0) - 1)
 
 
-def _settle(transport, result: dict, exhausted: bool, model_call) -> dict:
+def _settle(transport, result: dict, exhausted: bool | str | None, model_call) -> dict:
     """The lines every route ends with: usage, running total, cap status."""
     usage = _usage(transport)
     counts = dict(result.get("counts") or {})
     if exhausted:
-        counts[claude_budget.BUDGET_EXHAUSTED] = 1
+        # `exhausted` is the stopping limit's count key from `_capped`; a bare
+        # True (older callers) means the call cap.
+        counts[exhausted if isinstance(exhausted, str) else claude_budget.BUDGET_EXHAUSTED] = 1
     return {
         **result,
         "counts": counts,

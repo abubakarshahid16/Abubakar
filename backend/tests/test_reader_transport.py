@@ -291,3 +291,32 @@ def test_a_batch_id_that_is_not_an_identifier_is_refused(batch_lane):
     with pytest.raises(reader_transport.TransportRefused):
         reader_transport.batch_retrieve(URL, "../../elsewhere", headers=HEADERS)
     assert FakeBatchClient.seen == []
+
+
+# ------------------------------------------------- billed or not (M1167)
+
+def test_an_oversized_answer_is_marked_as_sent(lane_open):
+    """The request happened and may have been billed; `unbilled` must not
+    excuse it from the USD ledger."""
+    FakeClient.response = FakeResponse(content=b"x" * (reader_transport.MAX_RESPONSE_BYTES + 1))
+    send = reader_transport.transport()
+    with pytest.raises(reader_transport.TransportRefused) as caught:
+        send(URL, headers=HEADERS, body=BODY, timeout=5.0)
+    assert caught.value.sent is True
+    assert reader_transport.unbilled(caught.value) is False
+
+
+def test_unbilled_is_true_only_for_provably_unbilled_failures():
+    request = httpx.Request("POST", URL)
+
+    def status(code):
+        return httpx.HTTPStatusError(str(code), request=request,
+                                     response=httpx.Response(code, request=request))
+    assert reader_transport.unbilled(ReaderRefused("host"))
+    assert reader_transport.unbilled(reader_transport.TransportRefused("off"))
+    assert reader_transport.unbilled(httpx.ConnectError("no route"))
+    assert reader_transport.unbilled(status(400)) and reader_transport.unbilled(status(429))
+    assert not reader_transport.unbilled(status(500))
+    assert not reader_transport.unbilled(httpx.ReadTimeout("slow"))
+    assert not reader_transport.unbilled(reader_transport.TransportRefused("big", sent=True))
+    assert not reader_transport.unbilled(RuntimeError("anything else"))

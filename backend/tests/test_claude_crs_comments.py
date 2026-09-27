@@ -396,3 +396,36 @@ def test_module_imports_no_http_library():
             imported.add(node.module.split(".")[0])
     assert not imported & {"httpx", "requests", "urllib", "urllib3",
                            "aiohttp", "socket", "http"}, imported
+
+
+# ------------------------------------ a limit stops the run (M1164)
+
+def _limited(model_call, allowed: int, exc):
+    """`model_call` for `allowed` calls, then the limit `exc` refuses."""
+    n = {"n": 0}
+
+    def call(prompt):
+        if n["n"] >= allowed:
+            raise exc
+        n["n"] += 1
+        return model_call(prompt)
+    return call
+
+
+@pytest.mark.parametrize("reason", ["usd", "calls"])
+def test_draft_run_keeps_the_drafts_finished_before_a_limit(reason):
+    """The NC finding's two calls were made and paid for; the limit refuses
+    the NER finding's first call. The paid draft is kept, not thrown away."""
+    from app import claude_budget, claude_spend
+    exc = claude_spend.BudgetExceeded("cap") if reason == "usd" else claude_budget.BudgetExhausted(2)
+    model = _limited(fake(answer(GOOD_NC, GOOD_NC_ACTION)), 2, exc)
+    out = draft_run("run-1", model, allowed_document_ids=frozenset({"sub"}),
+                    findings=[NC, OK, NER], submittal_name="sheet.pdf")
+    assert set(out["drafts"]) == {"f-nc-1"} and out["drafted"] == 1
+    assert out["stopped"] == {"reason": exc.count_key, "done": 2, "left": 1}
+
+
+def test_draft_run_that_finishes_is_not_stopped():
+    out = draft_run("run-1", fake(answer(GOOD_NC, GOOD_NC_ACTION)), findings=[NC],
+                    allowed_document_ids=frozenset({"sub"}), submittal_name="sheet.pdf")
+    assert out["stopped"] is None

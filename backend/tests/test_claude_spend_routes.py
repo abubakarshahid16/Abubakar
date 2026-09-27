@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app import (access, claude_api, claude_crs_comments, claude_datasheet, claude_recheck,
-                 claude_selection, claude_spend, crs_export, db, submittal_review)
+from app import (access, claude_api, claude_budget, claude_crs_comments, claude_datasheet,
+                 claude_recheck, claude_selection, claude_spend, crs_export, db, reader_transport,
+                 submittal_review)
 from app.config import settings
 from app.main import app
 
@@ -45,7 +47,7 @@ def _env(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-def _fake_transport(monkeypatch, usage=None):
+def _fake_transport(monkeypatch, usage=None, text="{}"):
     """Install a fake `reader_transport.transport()`; return the list of
     bodies it was asked to send."""
     sent: list[dict] = []
@@ -54,7 +56,7 @@ def _fake_transport(monkeypatch, usage=None):
         sent.append(body)
         send.usage["calls"] += 1
         return {"model": "claude-sonnet-4-5", "stop_reason": "end_turn",
-                "content": [{"type": "text", "text": "{}"}],
+                "content": [{"type": "text", "text": text}],
                 "usage": usage or {"input_tokens": 1000, "output_tokens": 100}}
     send.usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
     monkeypatch.setattr(claude_api.reader_transport_mod, "transport", lambda: send)
@@ -190,6 +192,113 @@ def test_the_409_helper_is_what_the_routes_raise(monkeypatch):
         claude_api._capped(model_call, lambda call: call(DOC_TEXT), transport)
     assert caught.value.status_code == 409
     assert caught.value.detail["code"] == claude_api.MODEL_DISABLED
-    assert "0 calls made before it" in caught.value.detail["message"]
+    assert "first call" in caught.value.detail["message"]
     assert DOC_TEXT not in json.dumps(caught.value.detail)
     assert sent == []
+
+
+
+# ------------------------------------- a limit mid-run keeps what was paid for
+
+FINDINGS = [{"id": f"f{i}", "compliance_status": "COMPLIANT", "requirement": "x",
+             "requirement_source_text": "x", "standard_clause": "1", "matched_phrase": "x",
+             "contractor_evidence_text": "x", "value": None, "unit": None, "ai_rationale": "",
+             "unresolved_evidence": [], "confirmed_by": None} for i in (1, 2, 3)]
+
+
+def _real_recheck_over_three_findings(monkeypatch):
+    """The real `recheck_run` loop (two calls per finding), over three
+    injected findings, behind the real route."""
+    real = claude_recheck.recheck_run
+    monkeypatch.setattr(claude_api, "_run_or_404", lambda rid, scope: {"id": rid})
+    monkeypatch.setattr(claude_recheck, "recheck_run",
+                        lambda rid, call, *, allowed_document_ids: real(
+                            rid, call, allowed_document_ids=allowed_document_ids,
+                            findings=FINDINGS))
+    stored = []
+    monkeypatch.setattr(claude_recheck, "store_recheck",
+                        lambda fid, per: stored.append(fid) or {"stored": True})
+    return stored
+
+
+def test_a_usd_limit_mid_run_returns_the_paid_results_marked_incomplete(monkeypatch):
+    """USD 3 per call against a USD 5 step cap: calls 1 and 2 (finding f1)
+    fit, call 3 is refused before it leaves. f1 is stored, not discarded."""
+    sent = _fake_transport(monkeypatch, usage={"input_tokens": 1_000_000, "output_tokens": 0},
+                           text=json.dumps({"agree": True, "quote": "x", "reason": ""}))
+    stored = _real_recheck_over_three_findings(monkeypatch)
+    response = TestClient(app).post("/api/reviews/runs/run-x/claude/recheck")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["complete"] is False
+    assert body["counts"][claude_spend.BudgetExceeded.count_key] == 1
+    assert claude_budget.BUDGET_EXHAUSTED not in body["counts"]
+    assert list(body["findings"]) == ["f1"] and stored == ["f1"]
+    assert len(sent) == 2 and body["calls_this_run"] == 3   # the third was counted, never sent
+    assert body["usd_spent"]["step_usd"] == pytest.approx(6.0)
+
+
+def test_a_usd_limit_on_the_first_call_of_a_real_loop_is_still_a_409(monkeypatch):
+    sent = _fake_transport(monkeypatch)
+    stored = _real_recheck_over_three_findings(monkeypatch)
+    _seed_ledger(claude_api.STEP_RECHECK, 4.9999)
+    response = TestClient(app).post("/api/reviews/runs/run-x/claude/recheck")
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == claude_api.MODEL_DISABLED
+    assert sent == [] and stored == []
+
+
+# --------------------------------------- a failed call may still have cost
+
+def _failing_transport(monkeypatch, exc):
+    def send(url, *, headers, body, timeout):
+        raise exc
+    send.usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+    monkeypatch.setattr(claude_api.reader_transport_mod, "transport", lambda: send)
+
+
+def _status_error(status):
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    return httpx.HTTPStatusError(f"{status}", request=request,
+                                 response=httpx.Response(status, request=request))
+
+
+@pytest.mark.parametrize("exc", [
+    httpx.ReadTimeout("read timed out"),
+    reader_transport.TransportRefused("too large", sent=True),
+    _status_error(529),
+], ids=["read-timeout", "oversized-answer", "5xx"])
+def test_a_failure_that_may_have_been_billed_is_charged_its_worst_case(exc, monkeypatch):
+    _fake_transport(monkeypatch)
+    _failing_transport(monkeypatch, exc)
+    model_call, _t = claude_api._model_call_or_409(claude_api.STEP_READ_DATASHEET)
+    with pytest.raises(type(exc)):
+        model_call(DOC_TEXT)
+    [entry] = claude_spend.entries()
+    assert entry["estimated"] is True and entry["step"] == claude_api.STEP_READ_DATASHEET
+    assert entry["cost_usd"] > 0
+    assert entry["finish_reason"] == f"failed:{type(exc).__name__}"
+    assert DOC_TEXT not in claude_spend._ledger_path().read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("exc", [
+    _status_error(400),
+    reader_transport.TransportRefused("egress off"),
+    httpx.ConnectError("no route"),
+], ids=["4xx", "refused-before-send", "never-connected"])
+def test_a_failure_that_was_provably_not_billed_is_not_charged(exc, monkeypatch):
+    _failing_transport(monkeypatch, exc)
+    model_call, _t = claude_api._model_call_or_409(claude_api.STEP_READ_DATASHEET)
+    with pytest.raises(type(exc)):
+        model_call(DOC_TEXT)
+    assert claude_spend.entries() == []
+
+
+def test_with_no_unbilled_rule_every_failure_is_charged():
+    def send(url, *, headers, body, timeout):
+        raise _status_error(400)
+    metered = claude_spend.metered(send, "some-step")
+    with pytest.raises(httpx.HTTPStatusError):
+        metered("u", headers={}, body={"model": "claude-sonnet-4-5", "max_tokens": 10,
+                                       "messages": []}, timeout=1)
+    assert [e["estimated"] for e in claude_spend.entries()] == [True]
