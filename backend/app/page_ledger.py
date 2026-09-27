@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from .config import settings
 from .db import connect
 
 SUBMITTAL_ROLE = "CONTRACTOR_SUBMITTAL"
@@ -37,7 +38,17 @@ NOT_READ_INTO_FIELDS = frozenset({"no_facts", "unreadable", "not_reached", "not_
 #: audit entry 68). An allow-list, so a new reader defaults to the cautious side.
 TEXT_READER_METHODS = frozenset({"extracted", "ocr_fallback", "grid"})
 
-VISION_REASON = "no vision tier is enabled (issue #180: measured, gate not passed)"
+#: THE FALLBACK ONLY - used when this page's real vision routing decision
+#: was never recorded (`vision_recorded_by IS NULL`): the geometry/vision
+#: reader is off, or this document has not been (re-)extracted since the
+#: 2026-09-27 fix that started recording it. Before that fix `refresh`
+#: printed this SAME text for every page of every document regardless of
+#: what actually happened - the vision reader (B7, `datasheets.vision_route`)
+#: has existed since before this constant's name was written, and no page
+#: had ever recorded a REAL routing decision here (honesty audit).
+VISION_NOT_RECORDED_OFF = "the geometry/vision reader is off (settings.geometry_reader_enabled)"
+VISION_NOT_RECORDED_STALE = ("vision routing has not been recorded for this page yet; "
+                             "re-run extraction (\"Read unread pages\") to record it")
 
 
 def _now() -> str:
@@ -111,6 +122,14 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
     recorded = {r["page_no"]: r for r in conn.execute(
         "SELECT page_no, facts_status, facts_count, facts_reason, extractor_version"
         " FROM page_ledger WHERE document_id = ? AND facts_recorded_by = 'extraction'",
+        (document_id,))}
+    # THE REAL, PER-PAGE `vision_route` DECISION - see `record_fact_pages`'s
+    # `vision` argument. Read back BEFORE the DELETE below, exactly like
+    # `recorded` (facts) above, so a refresh preserves what extraction found
+    # rather than overwriting it with a placeholder.
+    recorded_vision = {r["page_no"]: r for r in conn.execute(
+        "SELECT page_no, vision_status, vision_reason FROM page_ledger"
+        " WHERE document_id = ? AND vision_recorded_by = 'extraction'",
         (document_id,))}
     fact_counts: dict[int, int] = {}
     if is_submittal:
@@ -186,11 +205,20 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
                      "reason was not recorded (read before the page ledger existed)",
                      "derived", None)
 
+        if p in recorded_vision:
+            vision_status = recorded_vision[p]["vision_status"]
+            vision_reason = recorded_vision[p]["vision_reason"]
+        elif not settings.geometry_reader_enabled:
+            vision_status, vision_reason = "not_attempted", VISION_NOT_RECORDED_OFF
+        else:
+            vision_status, vision_reason = "not_attempted", VISION_NOT_RECORDED_STALE
+
+        vision_recorded_by = "extraction" if p in recorded_vision else None
         rows.append((document_id, p, doc["sha256"], native_status, native_chars,
                      ocr_status, o["engine"] if o else None,
                      o["mean_conf"] if o else None, o["seconds"] if o else None,
-                     index_status, index_reason, "not_attempted", VISION_REASON,
-                     *facts, now))
+                     index_status, index_reason, vision_status, vision_reason,
+                     vision_recorded_by, *facts, now))
 
     with conn:
         conn.execute("DELETE FROM page_ledger WHERE document_id = ?", (document_id,))
@@ -199,20 +227,29 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
                    (document_id, page_no, file_sha256, native_status, native_chars,
                     ocr_status, ocr_engine, ocr_mean_conf, ocr_seconds,
                     index_status, index_reason, vision_status, vision_reason,
+                    vision_recorded_by,
                     facts_status, facts_count, facts_reason, facts_recorded_by,
                     extractor_version, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
     return len(rows)
 
 
 def record_fact_pages(conn, document_id: str, outcomes: dict[int, tuple],
-                      *, extractor_version: str | None) -> None:
+                      *, extractor_version: str | None,
+                      vision: dict[int, tuple[str, str]] | None = None) -> None:
     """Fact extraction's own per-page outcome, written in ITS transaction.
 
     `outcomes` maps page -> (status, count, reason). Every earlier recorded
     outcome of the document is cleared first: a page this extraction did not
     see must not keep the verdict of one that did. `refresh` fills the other
     columns afterwards.
+
+    `vision` (2026-09-27) maps page -> (vision_status, vision_reason) - the
+    REAL `datasheets.vision_route` decision for a page, when the geometry/
+    vision reader ran at all. Cleared and recorded the same way as `outcomes`,
+    on its own `vision_recorded_by` marker so `refresh` can tell "this page's
+    vision routing was actually decided this run" from "nothing has ever
+    recorded one" and stop reporting the latter as if it were the former.
     """
     now = _now()
     conn.execute(
@@ -232,6 +269,22 @@ def record_fact_pages(conn, document_id: str, outcomes: dict[int, tuple],
                    extractor_version = excluded.extractor_version,
                    updated_at = excluded.updated_at""",
             (document_id, page, status, count, reason, extractor_version, now))
+    if vision is not None:
+        conn.execute(
+            "UPDATE page_ledger SET vision_recorded_by = NULL WHERE document_id = ?",
+            (document_id,))
+        for page, (vision_status, vision_reason) in sorted(vision.items()):
+            conn.execute(
+                """INSERT INTO page_ledger
+                       (document_id, page_no, vision_status, vision_reason,
+                        vision_recorded_by, updated_at)
+                   VALUES (?,?,?,?,'extraction',?)
+                   ON CONFLICT(document_id, page_no) DO UPDATE SET
+                       vision_status = excluded.vision_status,
+                       vision_reason = excluded.vision_reason,
+                       vision_recorded_by = 'extraction',
+                       updated_at = excluded.updated_at""",
+                (document_id, page, vision_status, vision_reason, now))
 
 
 def rows(document_id: str) -> list[dict]:

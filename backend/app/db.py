@@ -200,11 +200,17 @@ CREATE TABLE IF NOT EXISTS page_ledger (
     -- 'retrievable' | 'excluded' | 'not_retrievable' | 'no_chunk' | 'not_chunked'
     index_status    TEXT    NOT NULL DEFAULT 'unknown',
     index_reason    TEXT,
-    -- No layout/table-reconstruction stage and no vision tier exist yet; the
-    -- columns say so rather than being left out (B4, #180).
+    -- No layout/table-reconstruction stage exists yet (B4, #180). The vision
+    -- tier DOES now exist (B7, `datasheets.vision_route`) - `vision_status`/
+    -- `vision_reason` hold its REAL per-page decision when `vision_recorded_by
+    -- = 'extraction'` (2026-09-27); otherwise `page_ledger.refresh` fills an
+    -- honest fallback (the reader is off, or this page has not been read
+    -- since the fix that started recording it) rather than the placeholder
+    -- every page used to get regardless of what actually happened.
     layout_status   TEXT    NOT NULL DEFAULT 'no_layout_stage',
     vision_status   TEXT    NOT NULL DEFAULT 'not_attempted',
     vision_reason   TEXT,
+    vision_recorded_by TEXT,
     -- 'not_applicable' | 'facts' | 'no_facts' | 'unreadable' | 'not_reached' | 'not_run'
     facts_status    TEXT    NOT NULL DEFAULT 'unknown',
     facts_count     INTEGER,
@@ -956,6 +962,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("jobs", "progress_total", "INTEGER"),
         ("jobs", "progress_label", "TEXT"),
         ("jobs", "cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
+        # 2026-09-27, page-reading fix: which pages' vision_status/vision_reason
+        # are a REAL `vision_route` decision (`= 'extraction'`) rather than
+        # `page_ledger.refresh`'s honest fallback. A database from before this
+        # column lacks it, so every existing row reads as "not recorded" -
+        # correct, since none of them ever held a real decision either.
+        ("page_ledger", "vision_recorded_by", "TEXT"),
     ):
         add_column_if_missing(conn, _table, _column, _definition)
     conn.execute(

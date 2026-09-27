@@ -50,4 +50,48 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="                              if False else\n",
         target=_T, keyword="ledger_says_why",
     ),
+
+    # -------------------------------------------------------- 2026-09-27 fix
+    # `page_ledger.vision_status`/`vision_reason` used to be overwritten with
+    # the SAME placeholder for every page, always, regardless of what
+    # `vision_route` actually decided - the routing above was computed and
+    # then thrown away before it reached the ledger's own two columns.
+    Mutation(
+        id="M1123", phase=94,
+        description="B7: the real per-page vision decision is never computed for the ledger",
+        path=_D,
+        anchor="            if geometry_on:\n                why = vision_routing.get(page)\n",
+        replacement="            if False:\n                why = vision_routing.get(page)\n",
+        target=_T, keyword="real_per_page_vision_decision or reader_off_the_ledger",
+        tags=("honesty", "critical")),
+    Mutation(
+        id="M1124", phase=94,
+        description="B7: a routed page whose provider is unavailable is recorded as attempted anyway",
+        path=_D,
+        anchor="                elif why == VISION_ROUTED and vision_unavailable:\n",
+        replacement="                elif False:\n",
+        target=_T, keyword="provider_could_not_reach",
+        tags=("honesty", "critical")),
+    Mutation(
+        id="M1125", phase=94,
+        description="the page ledger ignores the recorded vision decision and always falls back",
+        path=APP / "page_ledger.py",
+        anchor='    recorded_vision = {r["page_no"]: r for r in conn.execute(\n',
+        replacement="    recorded_vision = {}  # noqa: disabled\n    _unused = (\n",
+        target="tests/test_b7_vision_routing.py",
+        keyword="real_per_page_vision_decision or provider_could_not_reach",
+        tags=("honesty", "critical")),
+    Mutation(
+        id="M1126", phase=94,
+        description="a recorded vision decision is never marked 'extraction', so it never survives a refresh",
+        path=APP / "page_ledger.py",
+        anchor="                       vision_status = excluded.vision_status,\n"
+               "                       vision_reason = excluded.vision_reason,\n"
+               "                       vision_recorded_by = 'extraction',\n",
+        replacement="                       vision_status = excluded.vision_status,\n"
+                    "                       vision_reason = excluded.vision_reason,\n"
+                    "                       vision_recorded_by = NULL,\n",
+        target="tests/test_b7_vision_routing.py",
+        keyword="real_per_page_vision_decision",
+        tags=("honesty",)),
 )
