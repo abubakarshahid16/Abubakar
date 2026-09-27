@@ -14,7 +14,7 @@ from __future__ import annotations
 import pymupdf
 import pytest
 
-from app import datasheets, db, page_ledger
+from app import datasheets, db, page_ledger, vision_reader
 from app.config import settings
 from tests.test_b4_quality import NOW, VisionFake, _facts, _with_vision, world  # noqa: F401
 
@@ -136,3 +136,61 @@ def test_the_page_budget_bounds_the_calls(vision_on, monkeypatch):
     result = datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     assert fake.calls == 1
     assert result["vision_routing"] == {1: datasheets.VISION_ROUTED, 2: datasheets.VISION_BUDGET}
+
+
+# --------------------------------------------------------- 2026-09-27 fix
+# `page_ledger.refresh` used to write "not_attempted" / "no vision tier is
+# enabled (issue #180: measured, gate not passed)" for EVERY page of EVERY
+# document, unconditionally - even a page `vision_route` had just routed
+# and the vision reader had just read a value from. The real per-page
+# decision computed above (`result["vision_routing"]`) never reached the
+# ledger's OWN `vision_status`/`vision_reason` columns. These tests are
+# about those two columns specifically - every test above them proves the
+# routing decision and the resulting facts; none of them read
+# `vision_status`/`vision_reason` off the ledger row, which is exactly how
+# the placeholder went unnoticed.
+
+def test_the_ledger_records_the_real_per_page_vision_decision(vision_on, monkeypatch):
+    """Page 1: not needed (a rule fact already there). Page 2: routed AND
+    read - `vision_status` says so, not the pre-B7 placeholder. Page 3: no
+    text layer, routed to OCR instead."""
+    doc = _store_pages(vision_on, [READABLE, UNREAD, None])
+    _with_vision(monkeypatch, VisionFake([{"label": "VOLTAGE", "value": "440"}]))
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+
+    ledger = {r["page_no"]: r for r in page_ledger.rows(doc)}
+    assert (ledger[1]["vision_status"], ledger[1]["vision_reason"]) == (
+        "not_attempted", datasheets.VISION_NOT_NEEDED)
+    assert (ledger[2]["vision_status"], ledger[2]["vision_reason"]) == (
+        "attempted", datasheets.VISION_ROUTED)
+    assert (ledger[3]["vision_status"], ledger[3]["vision_reason"]) == (
+        "not_attempted", datasheets.VISION_NO_TEXT_LAYER)
+    assert all(r["vision_recorded_by"] == "extraction" for r in ledger.values())
+
+
+def test_a_routed_page_the_provider_could_not_reach_says_so_not_attempted(vision_on, monkeypatch):
+    """`vision_route` says ROUTED, but the provider itself is unavailable
+    (no key, flag off, budget refused): the page is honestly "not_attempted",
+    with BOTH facts in the reason - it would have been sent, and why it was
+    not - never silently collapsed to one or the other."""
+    doc = _store_pages(vision_on, [UNREAD])
+    monkeypatch.setattr(vision_reader, "provider", lambda: (None, "no key configured"))
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+
+    [row] = page_ledger.rows(doc)
+    assert row["vision_status"] == "not_attempted"
+    assert datasheets.VISION_ROUTED in row["vision_reason"]
+    assert "no key configured" in row["vision_reason"]
+
+
+def test_with_the_reader_off_the_ledger_says_so_honestly(world):  # noqa: F811
+    """With `geometry_reader_enabled` off (this module's default, `world`),
+    B7 never runs at all - the ledger must say THAT, not claim a decision
+    was made and not made up the old, unrelated "issue #180" sentence."""
+    doc = _store_pages(world, [READABLE])
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+
+    [row] = page_ledger.rows(doc)
+    assert row["vision_status"] == "not_attempted"
+    assert row["vision_reason"] == page_ledger.VISION_NOT_RECORDED_OFF
+    assert row["vision_recorded_by"] is None

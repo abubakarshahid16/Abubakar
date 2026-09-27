@@ -128,14 +128,29 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
     if not by_tag:
         by_tag[None] = {}
     out: list[dict] = []
-    mandatory = rules["mandatory"].get(equipment_type or "", [])
+    # GENERIC_FALLBACK (2026-09-27): `equipment_type` is unknown/unconfirmed
+    # on almost every submittal today (nothing wrote it before B9, and B9's
+    # classifier itself only matches a document whose own text names its
+    # equipment - many still will not). Before this fallback that meant
+    # `mandatory` was silently `[]`: every one of these checks ran and found
+    # nothing to say, on every such document, forever. A generic minimum
+    # (design and test conditions any datasheet states) now runs instead -
+    # never zero checks for the mere fact that the type is not yet known.
+    # An equipment_type the mandatory table has no entry for (a value this
+    # file's author never anticipated) gets the same generic list, for the
+    # same reason: a name that fails to look up is not evidence the sheet
+    # needs no checking.
+    mandatory = rules["mandatory"].get(equipment_type) if equipment_type else None
+    if mandatory is None:
+        mandatory = rules["mandatory"].get("_generic", [])
+    equipment_phrase = f"a {equipment_type}" if equipment_type else "any datasheet"
     for tag, roles in by_tag.items():
         # ---- mandatory fields: present, and not a placeholder
         for role in mandatory:
             found = roles.get(role, [])
             if not found:
                 out.append(_result("DS-M1", MISSING_INFORMATION,
-                                   f"{_pretty(role)} is a mandatory field for a {equipment_type}.",
+                                   f"{_pretty(role)} is a mandatory field for {equipment_phrase}.",
                                    f"{_pretty(role)} was not found in the fields read from the datasheet.",
                                    None, role, tag))
                 continue
@@ -143,7 +158,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                 shown = _fold(fact.get("field_value") or fact.get("blank_marker"))
                 if shown in placeholders or _fold(fact.get("blank_marker")) in placeholders:
                     out.append(_result("DS-M2", MISSING_INFORMATION,
-                                       f"{_pretty(role)} is a mandatory field for a {equipment_type}.",
+                                       f"{_pretty(role)} is a mandatory field for {equipment_phrase}.",
                                        f"{_label(fact, role)} is marked '{_shown(fact) or fact.get('blank_marker')}' "
                                        f"on page {fact.get('page')}; the contractor is to provide the value.",
                                        fact, role, tag))

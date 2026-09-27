@@ -90,4 +90,46 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='    names = [*cited, *held, item.get("relates_to") or ""]\n',
              target=_T, keyword="refuses_with_a_named_reason and number_not_on_page",
              tags=("honesty",)),
+
+    # ---------------------------------------------------------- 2026-09-27
+    # Every historical `review_ai_check` call hit the 4000-token output cap
+    # (finish_reason == "length") and was thrown away whole - zero rows ever
+    # stored. M1118-M1121: a truncated reply keeps its complete items, a
+    # capped retry covers what is missing, the same gate applies to a
+    # retry's items too, and the outcome is always recorded on the run.
+    Mutation(id="M1118", phase=94,
+             description="a truncated reply's complete items are thrown away, not kept",
+             path=APP / "ai_engineering_check.py",
+             anchor="            items = parse_partial(response.text)\n",
+             replacement="            items = []\n",
+             target=_T, keyword="parse_partial or truncated_reply_is_completed or retry_is_capped",
+             tags=("honesty", "critical")),
+    Mutation(id="M1119", phase=94,
+             description="a truncated reply is never retried, even once",
+             path=APP / "ai_engineering_check.py",
+             anchor="            covered = _covered_lines(all_kept)\n            continue  # eligible for the retry, if one is left\n",
+             replacement="            covered = _covered_lines(all_kept)\n            break\n",
+             target=_T, keyword="truncated_reply_is_completed or retry_is_capped",
+             tags=("critical",)),
+    Mutation(id="M1120", phase=94,
+             description="the retry cap is not enforced - MAX_CALLS grows without bound",
+             path=APP / "ai_engineering_check.py",
+             anchor="MAX_CALLS = 2",
+             replacement="MAX_CALLS = 99",
+             target=_T, keyword="retry_is_capped",
+             tags=("critical",)),
+    Mutation(id="M1121", phase=94,
+             description="an item recovered from a retry skips the acceptance gate",
+             path=APP / "ai_engineering_check.py",
+             anchor="    for item in items[:MAX_ITEMS]:\n        gate = accept(item, pages, held, cited)\n        if gate[\"accepted\"]:\n            all_kept.append(item)\n        else:\n            rejected[gate[\"reason\"]] = rejected.get(gate[\"reason\"], 0) + 1\n",
+             replacement="    all_kept.extend(items[:MAX_ITEMS])\n",
+             target=_T, keyword="accept_still_gates_items_recovered_from_a_retry",
+             tags=("honesty", "critical")),
+    Mutation(id="M1122", phase=94,
+             description="an incomplete AI check is never recorded on the run - silent again",
+             path=APP / "ai_engineering_check.py",
+             anchor="    status[\"plain\"] = _plain_status(status)\n    _store_status(review_run_id, status)\n",
+             replacement="    status[\"plain\"] = _plain_status(status)\n",
+             target=_T, keyword="retry_is_capped or truncated_reply_is_completed",
+             tags=("honesty", "critical")),
 )

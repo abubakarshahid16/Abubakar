@@ -652,6 +652,16 @@ def test_an_excluded_standards_requirements_produce_no_findings_at_all():
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Noise level",
         raw_value="95 dB(A)", page=1)
+    # 2026-09-27 Fix 3: with no equipment_type, datasheet_checks' generic
+    # fallback now checks for these two universal fields (was silently
+    # skipped before) - present here so this test isolates the STANDARDS-
+    # comparison logic it is actually about, not that separate mechanism.
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design pressure",
+        raw_value="23.5 barg", page=1)
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design temperature",
+        raw_value="80 C", page=1)
 
     result = comparison.run_comparison(run, allowed_document_ids=_scope(std, sub))
 
@@ -945,6 +955,15 @@ def test_a_full_run_writes_findings_into_the_phase_1_columns():
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Noise level",
         raw_value="95 dB(A)", page=1)
+    # 2026-09-27 Fix 3: present so the generic datasheet-check fallback (no
+    # equipment_type here) adds no extra finding - this test is about the
+    # standards-comparison finding alone, checked below by `.fetchone()`.
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design pressure",
+        raw_value="23.5 barg", page=1)
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design temperature",
+        raw_value="80 C", page=1)
     with db.connect() as conn:
         conn.execute("""INSERT INTO review_applicable_standards
             (id,review_run_id,standard_document_id,selection_reason,
@@ -981,6 +1000,15 @@ def test_re_running_a_comparison_does_not_double_the_findings():
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Noise level",
         raw_value="95 dB(A)", page=1)
+    # 2026-09-27 Fix 3: present so the generic fallback (no equipment_type
+    # here) adds no extra finding - this test is about RE-RUNNING, not
+    # about how many findings a run produces the first time.
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design pressure",
+        raw_value="23.5 barg", page=1)
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design temperature",
+        raw_value="80 C", page=1)
     with db.connect() as conn:
         conn.execute("""INSERT INTO review_applicable_standards
             (id,review_run_id,standard_document_id,selection_reason,

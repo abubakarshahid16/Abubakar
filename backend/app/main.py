@@ -11,6 +11,7 @@ from . import admin_explorer as explorer_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import chunker as chunk_mod
+from . import ai_engineering_check as ai_engineering_check_mod
 from . import applicability as applicability_mod
 from . import comparison as comparison_mod
 from . import crs_export as crs_export_mod
@@ -1732,6 +1733,13 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "job": job,
         # 2e: which standards came into or left scope since the previous run.
         "standards_change": _standards_change(run, scope),
+        # 2026-09-27: the AI engineering check's own outcome for this run -
+        # null when it never ran (off, or the Claude lane is off), and NEVER
+        # silent when it did: a truncated or budget-refused reply is a fact
+        # on the run, with the plain-English boundary sentence a reviewer
+        # reads directly (`ai_engineering_check._plain_status`).
+        "ai_check_status": ai_engineering_check_mod.ai_check_status(
+            run["id"], allowed_document_ids=scope.allowed_document_ids),
     }
 
 

@@ -56,6 +56,35 @@ class Fake:
                            schema_errors=rp.schema_errors(text, packet.json_schema), cost_usd=0.0)
 
 
+class SeqFake:
+    """A provider answering a fixed TEXT + finish_reason per call, in order -
+    for exercising the truncation/retry path, where each call in a run must
+    answer something different from the last. Records every packet sent, so
+    a test can inspect what the retry prompt actually asked for."""
+
+    def __init__(self, replies):
+        #: [(text, finish_reason), ...], one per expected call.
+        self.replies = list(replies)
+        self.packets = []
+
+    def reason(self, packet):
+        self.packets.append(packet)
+        text, finish_reason = self.replies[len(self.packets) - 1]
+        return rp.Response(text=text, provider=rp.CLAUDE, model_tag="fake", digest="d",
+                           finish_reason=finish_reason, prompt_sha256=packet.sha256,
+                           schema_errors=rp.schema_errors(text, packet.json_schema), cost_usd=0.01)
+
+
+def _cut_off_after(items: list[dict]) -> str:
+    """A reply that is valid JSON up to and including `items`, then cut off
+    mid-way through one more object - exactly what `finish_reason: "length"`
+    looks like on the wire."""
+    body = '{"items": [' + ", ".join(json.dumps(i) for i in items)
+    if items:
+        body += ", "
+    return body + '{"topic": "Cut off mid-object, never closes"'
+
+
 @pytest.fixture(autouse=True)
 def _resolver():
     yield
@@ -185,6 +214,114 @@ def test_a_budget_refusal_never_fails_the_review(world, monkeypatch):
                         lambda *a, **k: Fake(raises=claude_spend.BudgetExceeded("cap")))
     review_jobs._ai_check(run, scope, [])
     assert _ai_rows(run) == []
+
+
+# ------------------------------------------------------- truncation & retry
+# 2026-09-27: the live spend ledger showed every one of the 10 historical
+# `review_ai_check` calls hitting output_tokens == 4000 with
+# finish_reason == "length", and `review_findings.origin = 'ai_engineering_check'`
+# has zero rows ever - the check was throwing the whole reply away, silently,
+# on every single run.
+
+ITEM_A = {**GOOD, "topic": "First observation",
+          "observation": "The hydrotest pressure is not stated beside 23.5 barg (first).",
+          "action": "Contractor to confirm the hydrotest pressure (first)."}
+ITEM_B = {**GOOD, "topic": "Second observation",
+          "observation": "No corrosion allowance is stated near 23.5 barg (second).",
+          "action": "Contractor to state the corrosion allowance (second)."}
+ITEM_C_BAD = {**GOOD, "topic": "Third observation",
+              "observation": "The design pressure of 23.5 barg complies with the service."}
+
+
+def test_parse_partial_keeps_only_complete_items_before_the_cut_off(world):
+    text = _cut_off_after([ITEM_A, ITEM_B])
+    assert aic.parse_partial(text) == [ITEM_A, ITEM_B]
+    assert aic.parse_partial(_cut_off_after([])) == []
+    assert aic.parse_partial('{"items": []}') == []
+    assert aic.parse_partial("not json at all") == []
+
+
+def test_a_truncated_reply_is_completed_by_one_capped_retry(world, monkeypatch):
+    """M-new: the first call is cut off after ITEM_A; the retry, told what
+    is already covered, supplies ITEM_B and finishes cleanly. Both are kept,
+    two calls were made, and the run's own status says it is complete."""
+    _sub, run, scope = world
+    fake = SeqFake([
+        (_cut_off_after([ITEM_A]), "length"),
+        (json.dumps({"items": [ITEM_B]}), "stop"),
+    ])
+
+    result = aic.run_check(run, allowed_document_ids=scope, cited=["API 610"], provider=fake)
+
+    assert result["calls_made"] == 2
+    assert result["complete"] is True
+    assert result["kept"] == 2
+    topics = {row["requirement"] for row in _ai_rows(run)}
+    assert topics == {"First observation", "Second observation"}, \
+        "both the recovered first item and the retry's item are stored"
+    # THE RETRY WAS TOLD WHAT WAS ALREADY COVERED, so it does not repeat work.
+    assert len(fake.packets) == 2
+    assert "ALREADY RAISED" in fake.packets[1].prompt
+    assert "First observation" in fake.packets[1].prompt
+    status = aic.ai_check_status(run, allowed_document_ids=scope)
+    assert status["complete"] is True and status["calls_made"] == 2
+    assert status["kept_items"] == 2
+
+
+def test_retry_is_capped_and_still_incomplete_is_recorded_and_visible(world):
+    """M-new: BOTH calls are cut off. `MAX_CALLS` stops a third attempt, and
+    the run's status says plainly that it is incomplete - never silence."""
+    _sub, run, scope = world
+    fake = SeqFake([
+        (_cut_off_after([ITEM_A]), "length"),
+        (_cut_off_after([ITEM_B]), "length"),
+    ])
+
+    result = aic.run_check(run, allowed_document_ids=scope, cited=[], provider=fake)
+
+    assert result["calls_made"] == aic.MAX_CALLS == 2
+    assert result["complete"] is False
+    assert result["kept"] == 2, "the complete item from EACH call is still kept, not discarded"
+    assert "cut off" in result["reason"]
+    status = aic.ai_check_status(run, allowed_document_ids=scope)
+    assert status["complete"] is False
+    assert status["kept_items"] == 2 and status["calls_made"] == 2
+    assert "2" in status["plain"] and "cut off" in status["plain"]
+
+
+def test_retry_only_triggers_on_truncation_not_on_other_malformed_replies(world):
+    """M-new: a reply that finished normally (`finish_reason: "stop"`) but is
+    not valid JSON is genuinely malformed, not truncated - retrying the same
+    prompt is not expected to fix it, so this must NOT retry. `SeqFake` has
+    only one reply queued; a second call would raise IndexError and fail the
+    test, proving no retry was attempted."""
+    _sub, run, scope = world
+    fake = SeqFake([("this is not json at all", "stop")])
+
+    result = aic.run_check(run, allowed_document_ids=scope, cited=[], provider=fake)
+
+    assert result["calls_made"] == 1
+    assert result["complete"] is False
+    assert result["reason"] == aic.Reason.MALFORMED.value
+    assert result["rejected"] == {aic.Reason.MALFORMED.value: 1}
+
+
+def test_accept_still_gates_items_recovered_from_a_retry(world):
+    """M-new: an item recovered from the retry call goes through the SAME
+    gate as a first-call item - a pass/fail word from the retry is rejected,
+    never stored, just like one from the first call."""
+    _sub, run, scope = world
+    fake = SeqFake([
+        (_cut_off_after([ITEM_A]), "length"),
+        (json.dumps({"items": [ITEM_C_BAD]}), "stop"),
+    ])
+
+    result = aic.run_check(run, allowed_document_ids=scope, cited=[], provider=fake)
+
+    assert result["kept"] == 1
+    assert result["rejected"] == {"pass_fail_word": 1}
+    [row] = _ai_rows(run)
+    assert row["contractor_evidence_text"] == "23.5 barg"
 
 
 def test_the_route_is_409_when_off_and_404_outside_scope(world, monkeypatch):

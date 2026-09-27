@@ -41,8 +41,10 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from enum import Enum
 
+from . import claude_spend
 from .config import settings
 from .db import connect
 from .reader_api import _NUMBER, _contains, _fold, _fold_numbers
@@ -71,9 +73,20 @@ CONFIDENCES = ("low", "medium")
 #: worst case is what the spend check prices.
 MAX_PAGE_CHARS = 6000
 MAX_PROMPT_CHARS = 60000
-MAX_ITEMS = 25
+#: 2026-09-27: lowered from 25. Fewer items requested per call means a
+#: complete answer fits inside the output cap far more often; the retry below
+#: covers what a first call still cannot fit.
+MAX_ITEMS = 12
 MAX_TEXT_CHARS = 600
+#: Kept as the fallback default only; every call site reads
+#: `settings.review_ai_check_max_output_tokens`, which is what changed
+#: 2026-09-27 (raised from this same 4000 - the ledger showed every one of
+#: the 10 historical calls hitting exactly this cap and being thrown away).
 MAX_OUTPUT_TOKENS = 4000
+#: At most this many Claude calls per run: one first attempt and one retry
+#: for whatever a truncated first reply left uncovered. Never more - a run
+#: that keeps retrying is a budget leak, not a more complete answer.
+MAX_CALLS = 2
 
 #: "clause 6.2.3", "para. 5", "section 7.1", "§ 4.2", "paragraph 3.1".
 _CLAUSE_REF = re.compile(
@@ -128,7 +141,10 @@ quote a standard's text and do NOT cite a clause number unless you are given it.
 raise questions; an engineer decides.
 5. "action" is what the contractor should do, one sentence ("Contractor to confirm ...").
 6. confidence is "low" or "medium". Never "high".
-7. At most """ + str(MAX_ITEMS) + """ items. Plain, formal English."""
+7. At most """ + str(MAX_ITEMS) + """ items.
+8. BE COMPACT. "observation" and "action" are each ONE short sentence (aim for \
+under 120 characters). No repeated boilerplate between items - state the point \
+once and stop. Plain, formal English, no markdown."""
 
 
 # ---------------------------------------------------------------- inputs
@@ -158,9 +174,14 @@ def datasheet_fields(submittal_id: str) -> list[dict]:
 
 
 def build_prompt(fields: list[dict], pages: dict[int, str], cited: list[str],
-                 held: dict[str, list[str]]) -> str:
+                 held: dict[str, list[str]], *, covered: list[str] | None = None) -> str:
     """The user prompt. `cited` = standard names the datasheet cites; `held` =
-    held standard name -> clauses a requirement was read from."""
+    held standard name -> clauses a requirement was read from.
+
+    `covered` (the retry call only) names what a first, truncated reply
+    already raised, one line per kept item, so the retry asks for what is
+    still missing instead of repeating work the first call already paid for.
+    """
     lines = ["STANDARDS THE DATASHEET CITES (names only):"]
     lines += [f"- {name}" for name in cited] or ["- (none)"]
     lines.append("\nHELD STANDARDS AND THE CLAUSES YOU MAY CITE:")
@@ -169,6 +190,10 @@ def build_prompt(fields: list[dict], pages: dict[int, str], cited: list[str],
     lines.append("\nFIELDS READ FROM THE DATASHEET (page | field | value | unit):")
     lines += [f"p{f['page']} | {f['field']} | {f['value'] or ''} | {f['unit'] or ''}"
               for f in fields] or ["(none)"]
+    if covered:
+        lines.append("\nALREADY RAISED - a previous, cut-off reply covered these. Do NOT repeat "
+                      "them; raise ONLY new observations not already on this list:")
+        lines += [f"- {line}" for line in covered]
     lines.append("\nDATASHEET PAGES:")
     for page, text in pages.items():
         lines.append(f"--- page {page} ---\n{text[:MAX_PAGE_CHARS]}")
@@ -261,6 +286,75 @@ def parse(text: str) -> list | None:
     return items if isinstance(items, list) else None
 
 
+def parse_partial(text: str) -> list[dict]:
+    """The complete items inside a TRUNCATED `{"items": [...]}` reply.
+
+    A reply cut off mid-answer (`finish_reason == "length"`) is not valid
+    JSON, so `parse` returns None and, before this, the whole reply was
+    thrown away - proposed 0, kept 0, on every one of the 10 historical
+    calls. This walks the `items` array by hand, one balanced `{...}` object
+    at a time, and stops at the FIRST one that never closes. It never repairs
+    or guesses a partial object - an item that was cut off mid-object is
+    simply not returned, exactly as if it had never been proposed.
+    """
+    body = (text or "").strip()
+    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)$", body, re.DOTALL)
+    if fence:
+        body = fence.group(1)
+    key = body.find('"items"')
+    if key == -1:
+        return []
+    start = body.find("[", key)
+    if start == -1:
+        return []
+    items: list[dict] = []
+    i, n = start + 1, len(body)
+    while i < n:
+        while i < n and body[i] in " \t\r\n,":
+            i += 1
+        if i >= n or body[i] == "]":
+            break
+        if body[i] != "{":
+            break  # not the start of an object - stop rather than guess
+        obj_start = i
+        depth = 0
+        in_string = False
+        escape = False
+        j = i
+        closed = False
+        while j < n:
+            ch = body[j]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+            else:
+                if ch == '"':
+                    in_string = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        j += 1
+                        closed = True
+                        break
+            j += 1
+        if not closed:
+            break  # the object never closed - the cut-off point
+        try:
+            obj = json.loads(body[obj_start:j])
+        except (json.JSONDecodeError, TypeError, ValueError):
+            break
+        if isinstance(obj, dict):
+            items.append(obj)
+        i = j
+    return items
+
+
 # ------------------------------------------------------------- the run
 
 def available() -> tuple[bool, str]:
@@ -290,14 +384,105 @@ def _held_standards(review_run_id: str) -> dict[str, list[str]]:
     return held
 
 
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _covered_lines(kept: list[dict]) -> list[str]:
+    """One line per item already kept, for the retry prompt's "already
+    raised" section - so the retry fills gaps instead of repeating work."""
+    return [f"p{item.get('page')} {item.get('field')}: {item.get('topic')}" for item in kept]
+
+
+def _call(provider, packet) -> tuple[object | None, str | None]:
+    """One call to the provider: `(response, None)`, or `(None, plain reason)`
+    when the call could not be made at all - a budget refusal or a transport
+    failure. Never raised further here: a call this run could not afford or
+    reach is a RESULT of the run, to be recorded on it, not a crash of the
+    review the run belongs to (review_jobs._ai_check already treats an
+    unexpected exception this way; this makes the expected ones visible
+    too, on the run itself, rather than only a log line naming an exception
+    type)."""
+    from . import reasoning_provider as rp
+    try:
+        return provider.reason(packet), None
+    except claude_spend.BudgetExceeded as exc:
+        return None, f"a budget cap stopped the call ({exc})"
+    except rp.ProviderRefused as exc:
+        return None, f"the model call failed ({exc})"
+
+
+def _gate_items(items: list, pages: dict[int, str], held: dict[str, list[str]],
+                cited: list[str], all_kept: list[dict], rejected: dict[str, int]) -> None:
+    """THE ONE PLACE any call's items are gated - a first call's and a
+    retry's alike. There is exactly one call to `accept()` in this module's
+    run loop so a retry-sourced item can never take a path that skips it."""
+    for item in items[:MAX_ITEMS]:
+        gate = accept(item, pages, held, cited)
+        if gate["accepted"]:
+            all_kept.append(item)
+        else:
+            rejected[gate["reason"]] = rejected.get(gate["reason"], 0) + 1
+
+
+def _plain_status(status: dict) -> str:
+    """The boundary sentence a reviewer sees - every count states what it is
+    out of (CLAUDE.md rule 4): never a bare number, never "compliant" and
+    never a guess dressed as a result."""
+    calls = status["calls_made"]
+    call_word = "call" if calls == 1 else "calls"
+    if status["complete"]:
+        return (f"AI engineering check complete: {status['kept_items']} of "
+                f"{status['proposed_items']} proposed item(s) kept, over {calls} {call_word}.")
+    return (f"AI engineering check incomplete - {status['reason']}. "
+            f"{status['kept_items']} item(s) kept so far (at most {status['requested_items']} "
+            f"requested per call, {calls} {call_word} made).")
+
+
+def _store_status(review_run_id: str, status: dict) -> None:
+    conn = connect()
+    with conn:
+        conn.execute("UPDATE review_runs SET ai_check_status = ?, updated_at = ? WHERE id = ?",
+                     (json.dumps(status), _now(), review_run_id))
+
+
+def ai_check_status(review_run_id: str, *, allowed_document_ids: frozenset[str]) -> dict | None:
+    """This run's own AI-check outcome, under the caller's grants - the same
+    read shape as `comparison.run_outcome`. None when the run does not exist,
+    the caller may not read it, or the check never stored one (never ran)."""
+    from . import submittal_review
+    run = submittal_review.get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
+    if run is None:
+        return None
+    raw = run.get("ai_check_status")
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
               cited: list[str], provider=None) -> dict:
-    """Ask once, gate every item, store the kept ones as pending drafts.
+    """Ask Claude for engineering observations, gate every item, store the
+    kept ones as pending drafts.
+
+    A reply cut off by the output cap is not thrown away: the complete items
+    before the cut-off point are parsed and kept (`parse_partial`), and ONE
+    retry asks only for what is still missing (`covered`) - capped at
+    `MAX_CALLS` total calls, so this can never loop or blow the step budget.
+    The SAME gate (`accept`) gates every item from every call; nothing
+    retry-sourced skips it.
 
     Earlier UNCONFIRMED items of this run are replaced; a confirmed one is an
-    engineer's decision and is never deleted. Returns counts, never text.
+    engineer's decision and is never deleted. Returns counts, never text -
+    and ALWAYS records this run's `ai_check_status` (read back by
+    `ai_check_status`), so a truncated, retried or refused check is a fact a
+    reviewer can see, never silence that reads as "nothing to raise".
     """
     from . import review as review_mod
+    from . import reasoning_provider as rp
     from . import submittal_review
 
     ok, why = available() if provider is None else (True, "injected")
@@ -312,30 +497,71 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     held = _held_standards(review_run_id)
     fields = datasheet_fields(submittal)
     if provider is None:
-        from . import reasoning_provider as rp
         provider = rp.get_provider("reasoning", step=STEP)
-    from . import reasoning_provider as rp
-    response = provider.reason(rp.Packet(
-        prompt=build_prompt(fields, pages, cited, held), system=SYSTEM,
-        num_ctx=settings.num_ctx, num_predict=MAX_OUTPUT_TOKENS, json_schema=SCHEMA,
-        step=STEP, prompt_version=PROMPT_VERSION, timeout_s=240))
-    items = None if response.schema_errors else parse(response.text)
-    if items is None:
-        return {"ran": True, "reason": Reason.MALFORMED.value, "proposed": 0, "kept": 0,
-                "rejected": {Reason.MALFORMED.value: 1}, "cost_usd": response.cost_usd}
+    max_output_tokens = settings.review_ai_check_max_output_tokens
+
+    all_kept: list[dict] = []
     rejected: dict[str, int] = {}
-    kept = []
-    for item in items[:MAX_ITEMS]:
-        gate = accept(item, pages, held, cited)
-        if gate["accepted"]:
-            kept.append(item)
-        else:
-            rejected[gate["reason"]] = rejected.get(gate["reason"], 0) + 1
+    proposed_total = 0
+    cost_total = 0.0
+    calls_made = 0
+    complete = False
+    reason: str | None = None
+    covered: list[str] = []
+
+    for call_index in range(MAX_CALLS):
+        prompt = build_prompt(fields, pages, cited, held,
+                              covered=covered if call_index else None)
+        response, call_failed = _call(provider, rp.Packet(
+            prompt=prompt, system=SYSTEM, num_ctx=settings.num_ctx,
+            num_predict=max_output_tokens, json_schema=SCHEMA,
+            step=STEP, prompt_version=PROMPT_VERSION, timeout_s=240))
+        calls_made += 1
+        if call_failed is not None:
+            reason = call_failed
+            break
+        cost_total += response.cost_usd or 0.0
+        items = None if response.schema_errors else parse(response.text)
+        if items is None and response.truncated:
+            # Cut off by the output cap: keep every complete item before the
+            # cut-off point rather than discarding the whole reply.
+            items = parse_partial(response.text)
+            proposed_total += len(items)
+            _gate_items(items, pages, held, cited, all_kept, rejected)
+            reason = "the reply was cut off by the output limit before it finished"
+            covered = _covered_lines(all_kept)
+            continue  # eligible for the retry, if one is left
+        if items is None:
+            # Malformed for a reason OTHER than truncation: a retry of the
+            # same prompt is not expected to fix it, so this is the answer.
+            reason = Reason.MALFORMED.value
+            rejected[Reason.MALFORMED.value] = rejected.get(Reason.MALFORMED.value, 0) + 1
+            break
+        proposed_total += len(items)
+        _gate_items(items, pages, held, cited, all_kept, rejected)
+        complete = True
+        reason = None
+        break
+
+    status = {
+        "ran": True,
+        "complete": complete,
+        "calls_made": calls_made,
+        "requested_items": MAX_ITEMS,
+        "proposed_items": proposed_total,
+        "kept_items": len(all_kept),
+        "rejected": dict(rejected),
+        "reason": reason,
+        "cost_usd": round(cost_total, 6),
+    }
+    status["plain"] = _plain_status(status)
+    _store_status(review_run_id, status)
+
     conn = connect()
     with conn:
         conn.execute("DELETE FROM review_findings WHERE review_run_id = ? AND origin = ?"
                      " AND confirmed_by IS NULL", (review_run_id, ORIGIN))
-    for item in kept:
+    for item in all_kept:
         verified = _held_clause(item, held)
         finding = review_mod.create({
             "document_id": submittal,
@@ -359,8 +585,9 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
                  verified[1] if verified else None,
                  f"{LABEL}. Relates to: {str(item.get('relates_to') or '').strip() or 'no standard named'}.",
                  finding["id"]))
-    return {"ran": True, "reason": None, "proposed": len(items), "kept": len(kept),
-            "rejected": rejected, "cost_usd": response.cost_usd}
+    return {"ran": True, "reason": reason, "proposed": proposed_total, "kept": len(all_kept),
+            "rejected": rejected, "cost_usd": round(cost_total, 6), "complete": complete,
+            "calls_made": calls_made}
 
 
 def relates_to(finding: dict) -> str:

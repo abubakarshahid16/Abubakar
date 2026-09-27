@@ -2694,6 +2694,11 @@ def _extract_facts(
     seen: set[tuple] = set()
     unparsed: list[dict] = []
     outcomes: dict[int, tuple] = {}
+    # 2026-09-27, page-reading fix: `vision_route`'s real per-page decision
+    # (was it routed to the vision reader, and why) - kept so the page ledger
+    # can say so, instead of `page_ledger.refresh` overwriting every page
+    # with the same pre-B7 placeholder regardless of what actually happened.
+    vision_outcomes: dict[int, tuple[str, str]] = {}
     corpus_text: list[str] = []
 
     # EVERY PAGE IS PAIRED BEFORE ANY FACT IS WRITTEN, because the furniture
@@ -3173,6 +3178,27 @@ def _extract_facts(
                 outcomes[page] = ("facts", page_read, note)
             else:
                 outcomes[page] = ("facts", page_read, None)
+            # 2026-09-27: THE REAL vision_route DECISION, PER PAGE - not the
+            # placeholder `page_ledger` used to write for every page
+            # regardless (honesty audit: "vision_status: not_attempted" on
+            # every page of every document, forever, even a page vision_route
+            # had just routed and read). `why` is one of vision_route's own
+            # reason constants (VISION_ROUTED/VISION_NOT_NEEDED/
+            # VISION_NO_TEXT_LAYER/VISION_BUDGET); only VISION_ROUTED means
+            # the reader was actually asked.
+            if geometry_on:
+                why = vision_routing.get(page)
+                if why is None:
+                    vision_outcomes[page] = (
+                        "not_attempted",
+                        "vision routing was not decided for this page (no plan-pass result)")
+                elif why == VISION_ROUTED and vision_unavailable:
+                    vision_outcomes[page] = (
+                        "not_attempted", f"{why}, but the vision reader is unavailable ({vision_unavailable})")
+                elif why == VISION_ROUTED:
+                    vision_outcomes[page] = ("attempted", why)
+                else:
+                    vision_outcomes[page] = ("not_attempted", why)
             if _plan is not None:
                 _plan[page] = (page_written, page_geometry)
         if _plan is not None:
@@ -3185,7 +3211,8 @@ def _extract_facts(
         # facts it describes. It used to be returned and discarded, so nothing
         # downstream could tell a page with no values from a page never read.
         page_ledger.record_fact_pages(conn, document_id, outcomes,
-                                      extractor_version=extractor_version)
+                                      extractor_version=extractor_version,
+                                      vision=vision_outcomes)
 
     page_ledger.refresh(document_id, as_submittal=True)
     pages_read = len(by_page)

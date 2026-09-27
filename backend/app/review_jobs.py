@@ -147,7 +147,15 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     if not settings.review_ai_check_enabled:
         return
     try:
-        ai_engineering_check.run_check(run_id, allowed_document_ids=scope, cited=missing)
+        result = ai_engineering_check.run_check(run_id, allowed_document_ids=scope, cited=missing)
+        # `run_check` already stores `ai_check_status` on the run itself - the
+        # reviewer's view of this. This is only the operator's log line, by
+        # kind and never with text, same as the except below.
+        if result.get("ran") and not result.get("complete", True):
+            import logging
+            logging.getLogger(__name__).info(
+                "AI engineering check incomplete for run %s: %s calls, reason=%s",
+                run_id, result.get("calls_made"), result.get("reason"))
     except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
         import logging
         logging.getLogger(__name__).warning("AI engineering check skipped: %s", type(exc).__name__)
