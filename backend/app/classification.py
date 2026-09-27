@@ -393,6 +393,14 @@ _EQUIPMENT_TYPE_PATTERNS: tuple[tuple[str, "re.Pattern[str]", float], ...] = (
     ("Pressure Vessel", re.compile(r"pressure\s+vessels?", re.I), 0.8),
 )
 
+#: Every `equipment_type` value the classifier above can write - the label
+#: vocabulary other modules must be able to resolve (datasheet_checks looks
+#: each one up in its mandatory-fields table; a test enumerates this tuple so
+#: a new label that falls through to the generic list fails loudly instead
+#: of silently checking less).
+EQUIPMENT_TYPE_LABELS: tuple[str, ...] = tuple(
+    label for label, _pattern, _confidence in _EQUIPMENT_TYPE_PATTERNS)
+
 
 @dataclass(frozen=True)
 class EquipmentTypeEvidence:

@@ -115,6 +115,49 @@ def _result(rule_id: str, status: str, text: str, detail: str, fact: dict | None
             "equipment_tag": tag, "fact_id": (fact or {}).get("id"), "role": role}
 
 
+GENERIC = "_generic"
+
+
+def mandatory_list_key(equipment_type: str | None, rules: dict) -> str:
+    """Which entry of the `mandatory` table an `equipment_type` is checked
+    against. Never None: `GENERIC` when nothing more specific applies.
+
+    1. The table's own key, compared case- and space-insensitively (an
+       engineer confirming "pressure vessel" means "Pressure Vessel").
+    2. Otherwise the EQUIPMENT FAMILY, through the one canonical label ->
+       family mapping the project already has
+       (`match_rules.sheet_kind_from_equipment_type`, which the review's
+       rule 2 uses for the same labels): "Centrifugal Compressor" and
+       "Reciprocating Compressor" are the family "compressor", checked
+       against the table entry of that same family. When several entries
+       share the family, the one named by the bare family word wins
+       ("Pump" over "Centrifugal Pump"); with no bare entry the family must
+       name exactly one entry, or it decides nothing.
+    3. Otherwise `GENERIC` - an unknown or unanticipated type still gets the
+       generic minimum (see GENERIC_FALLBACK in `evaluate`), never nothing.
+
+    Before this, the lookup was verbatim: two labels the classifier emits
+    ("Centrifugal Compressor", "Reciprocating Compressor") missed the
+    "Compressor" key and silently fell to the 2-field generic list.
+    """
+    from .match_rules import sheet_kind_from_equipment_type
+    if not equipment_type:
+        return GENERIC
+    table = [key for key in rules["mandatory"] if key != GENERIC]
+    folded = _fold(equipment_type)
+    exact = next((key for key in table if _fold(key) == folded), None)
+    if exact is not None:
+        return exact
+    family = sheet_kind_from_equipment_type(equipment_type)
+    if family is None:
+        return GENERIC
+    same = [key for key in table if sheet_kind_from_equipment_type(key) == family]
+    bare = [key for key in same if _fold(key) == family]
+    if bare:
+        return bare[0]
+    return same[0] if len(same) == 1 else GENERIC
+
+
 def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[int, str],
              rules: dict | None = None) -> list[dict]:
     """Every check's result for one datasheet. Pure."""
@@ -136,13 +179,13 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
     # nothing to say, on every such document, forever. A generic minimum
     # (design and test conditions any datasheet states) now runs instead -
     # never zero checks for the mere fact that the type is not yet known.
-    # An equipment_type the mandatory table has no entry for (a value this
-    # file's author never anticipated) gets the same generic list, for the
-    # same reason: a name that fails to look up is not evidence the sheet
-    # needs no checking.
-    mandatory = rules["mandatory"].get(equipment_type) if equipment_type else None
-    if mandatory is None:
-        mandatory = rules["mandatory"].get("_generic", [])
+    # An equipment_type the mandatory table has no entry for, directly or
+    # through its equipment family (a value this file's author never
+    # anticipated - see `mandatory_list_key`), gets the same generic list,
+    # for the same reason: a name that fails to look up is not evidence the
+    # sheet needs no checking. A label the CLASSIFIER emits must never land
+    # here - tests/test_datasheet_checks.py enumerates them all.
+    mandatory = rules["mandatory"].get(mandatory_list_key(equipment_type, rules), [])
     equipment_phrase = f"a {equipment_type}" if equipment_type else "any datasheet"
     for tag, roles in by_tag.items():
         # ---- mandatory fields: present, and not a placeholder

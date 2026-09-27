@@ -140,6 +140,76 @@ def test_the_generic_fallback_also_applies_to_an_unrecognised_equipment_type():
     assert "for a Some New Skid Package" in ds_m["DS-M1"]["text"]
 
 
+def _missing_roles(equipment_type):
+    """The roles `evaluate` reports as missing mandatory fields on a sheet
+    with NO facts at all - i.e. exactly the mandatory list it applied."""
+    results = dc.evaluate([], equipment_type=equipment_type, page_texts=PAGES)
+    return [r["role"] for r in results if r["rule_id"] == "DS-M1"]
+
+
+#: Classifier labels that are DELIBERATELY checked against the generic list,
+#: each with the reason. Empty today: every label has its own entry. A label
+#: may only be added here on purpose - never to make the test below pass.
+DELIBERATELY_GENERIC: dict[str, str] = {}
+
+
+def test_every_label_the_classifier_can_emit_gets_its_own_mandatory_list():
+    """The drift guard (M1138). `classification.EQUIPMENT_TYPE_LABELS` is
+    every value the equipment-type classifier writes; each must resolve to a
+    specific entry of `datasheet_checks.json`'s mandatory table, and
+    `evaluate` must actually apply that entry. Before this, the classifier
+    emitted "Centrifugal Compressor" / "Reciprocating Compressor", the table
+    only had "Compressor", and the verbatim lookup silently fell to the
+    2-field generic list - with every test still green."""
+    from app import classification
+    rules = dc.load_rules()
+    labels = classification.EQUIPMENT_TYPE_LABELS
+    assert {"Centrifugal Compressor", "Reciprocating Compressor"} <= set(labels)
+    for label in labels:
+        key = dc.mandatory_list_key(label, rules)
+        if label in DELIBERATELY_GENERIC:
+            assert key == dc.GENERIC, label
+            continue
+        assert key != dc.GENERIC, f"{label!r} falls through to the generic mandatory list"
+        assert _missing_roles(label) == rules["mandatory"][key], label
+
+
+def test_a_compressor_sheet_is_checked_against_the_compressor_list_and_says_so_honestly():
+    """The confirmed defect, end to end through `evaluate`: rated flow is
+    mandatory for a compressor, not in the generic list - so a centrifugal or
+    reciprocating compressor sheet missing it must be told so, and the
+    comment names the equipment the classifier actually named."""
+    rules = dc.load_rules()
+    for label in ("Centrifugal Compressor", "Reciprocating Compressor"):
+        assert _missing_roles(label) == rules["mandatory"]["Compressor"]
+        texts = [r["text"] for r in dc.evaluate([], equipment_type=label, page_texts=PAGES)
+                 if r["rule_id"] == "DS-M1"]
+        assert f"Rated flow is a mandatory field for a {label}." in texts
+
+
+def test_family_resolution_never_widens_an_unknown_type_beyond_the_generic_list():
+    """Resolving by family is not a licence to guess: a type whose family the
+    table has no entry for, or that names no family at all, still gets the
+    generic minimum; an exact key keeps its own list; case is ignored."""
+    rules = dc.load_rules()
+    assert dc.mandatory_list_key("Electric Motor", rules) == dc.GENERIC   # family 'motor', no entry
+    assert dc.mandatory_list_key("Some New Skid Package", rules) == dc.GENERIC
+    assert dc.mandatory_list_key(None, rules) == dc.GENERIC
+    assert dc.mandatory_list_key("Pressure Safety Valve", rules) == "Pressure Safety Valve"
+    assert dc.mandatory_list_key("pressure vessel", rules) == "Pressure Vessel"
+    assert dc.mandatory_list_key("Centrifugal Pump", rules) == "Centrifugal Pump"
+
+
+def test_every_specific_mandatory_entry_is_a_label_the_classifier_can_emit():
+    """The other direction of drift: a mandatory entry no classifier label
+    reaches is dead data that only an engineer's hand-typed value could ever
+    use - the exact shape of the 2026-09-27 'Compressor' entry."""
+    from app import classification
+    rules = dc.load_rules()
+    specific = {key for key in rules["mandatory"] if key != dc.GENERIC}
+    assert specific <= set(classification.EQUIPMENT_TYPE_LABELS)
+
+
 def test_a_value_without_its_unit_or_in_the_wrong_kind_of_unit():
     """M1061, M1062."""
     results = run(full_vessel(**{
