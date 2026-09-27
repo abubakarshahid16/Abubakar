@@ -294,12 +294,25 @@ def states_a_value(value: str | None) -> bool:
     counts only these as answers - a title block's stray fragment (`OF` from
     "SHEET 3 OF 11") is not an answer, and counting it as one made a title-
     block row look like an answered field.
+
+    A marker only counts as that EXPLICIT blank when it is an unambiguous
+    phrase ("By Contractor", "TBA", "to be advised" - `names_a_marker`) or a
+    drawn placeholder rule ("_______"). `blank_markers.classify` also
+    recognises bare residue - a lone "*", "-", "?", or a "[Note - 3]"
+    reference - as blank for the geometry reader's purposes, but that residue
+    names nothing conclusive on its own (a lone "*" is the enquiry-sheet
+    convention for "vendor to advise" only WITH its legend as evidence, and a
+    note reference points elsewhere on the sheet); treating it here as a
+    recorded blank fact was the B4 pump-layout regression (a note reference
+    and a bare star both wrongly became answers).
     """
     _blank, marker = is_blank_value(value)
     parsed, _unit, _measure = measure_value(value or "")
     if parsed is None and parse_range(value) is not None:
         parsed = "range"
-    return not (parsed is None and marker in (None, "empty")
+    ambiguous_residue = (marker not in (None, "empty", "placeholder")
+                         and not blank_markers.names_a_marker(value))
+    return not (parsed is None and (marker in (None, "empty") or ambiguous_residue)
                 and not is_categorical_value(value)
                 and not is_designation_value(value))
 

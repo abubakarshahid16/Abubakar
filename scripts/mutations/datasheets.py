@@ -1417,4 +1417,22 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="test_two_tag_columns_carry_the_tag_and_the_unit_column_is_never_a_fact",
         tags=("honesty", "critical"),
     ),
+    Mutation(
+        id="M1316", phase=96,
+        description="ambiguous blank-marker residue (a bare '*', '-', '?' or a "
+                    "'[Note - 3]' reference) is read as an explicit blank fact "
+                    "again, the same way an unambiguous 'By Contractor'/'TBA' "
+                    "marker is - B4 pump-layout regression from unifying blank "
+                    "marker detection",
+        path=APP / "datasheets.py",
+        anchor=(
+            "    ambiguous_residue = (marker not in (None, \"empty\", \"placeholder\")\n"
+            "                         and not blank_markers.names_a_marker(value))\n"
+            "    return not (parsed is None and (marker in (None, \"empty\") or ambiguous_residue)\n"
+        ),
+        replacement="    return not (parsed is None and marker in (None, \"empty\")\n",
+        target="tests/test_b4_pump_layouts.py",
+        keyword="test_a_note_reference_is_not_a_value",
+        tags=("honesty", "critical"),
+    ),
 )
