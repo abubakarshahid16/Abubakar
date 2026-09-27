@@ -241,3 +241,114 @@ def test_the_model_is_not_asked_when_its_flag_is_off(monkeypatch):
         def reason(self, packet):
             raise AssertionError("the model was asked with the flag off")
     assert rule_eval.rule_for(_req(), provider=Explode())[0] is None
+
+
+# ------------------------------------------- conflict is not absence (fix)
+
+def _fact(name, value, page, raw=None, unit="kPa", **extra):
+    return {"id": f"f-{name}-{value}-{page}", "field_name": name, "field_label": name.title(),
+            "field_value": value, "raw_value": raw if raw is not None else value.split()[0],
+            "raw_unit": unit, "page": page, **extra}
+
+
+def test_two_different_output_values_are_a_conflict_not_not_stated():
+    """The datasheet states design pressure twice, differently: an engineer
+    reconciles it. Never "not stated", never judged against the rule."""
+    facts = [_fact("maximum operating pressure", "3000 kPa", 1),
+             _fact("design pressure", "3300 kPa", 1),
+             _fact("design pressure", "3100 kPa", 2)]
+    verdict, fact = rule_eval.judge(_rule(), facts)
+    assert verdict["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert "not stated" not in verdict["rationale"]
+    assert "conflicting values for design pressure" in verdict["rationale"]
+    assert "'3300 kPa' (page 1)" in verdict["rationale"]
+    assert "'3100 kPa' (page 2)" in verdict["rationale"]
+    assert fact is not None and fact["page"] in (1, 2), "the finding cites a real row"
+
+
+def test_two_different_input_values_are_a_conflict_not_not_stated():
+    facts = [_fact("maximum operating pressure", "3000 kPa", 1),
+             _fact("maximum operating pressure", "2000 kPa", 3),
+             _fact("design pressure", "3300 kPa", 1)]
+    verdict, _fact_judged = rule_eval.judge(_rule(), facts)
+    assert verdict["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert "is not stated" not in verdict["rationale"]
+    assert "conflicting values" in verdict["rationale"]
+    assert "'3000 kPa' (page 1)" in verdict["rationale"] and "'2000 kPa' (page 3)" in verdict["rationale"]
+
+
+def test_absent_output_still_says_not_stated_and_repeated_same_value_still_judges():
+    absent = [_fact("maximum operating pressure", "3000 kPa", 1)]
+    verdict, fact = rule_eval.judge(_rule(), absent)
+    assert verdict["status"] == "MISSING_INFORMATION" and fact is None
+    assert "design pressure not stated on the datasheet" in verdict["rationale"]
+    # The same value on two pages is ONE consistent value, judged normally.
+    same = [_fact("maximum operating pressure", "3000 kPa", 1),
+            _fact("design pressure", "3300 kPa", 1),
+            _fact("design pressure", "3300  kPa", 2)]
+    verdict, fact = rule_eval.judge(_rule(), same)
+    assert verdict["status"] == "COMPLIANT" and fact["page"] == 1
+
+
+def test_a_conflicting_output_end_to_end_is_never_missing_or_compliant(tmp_path, monkeypatch):
+    """Through run_comparison: one of the two values would pass the rule, the
+    other would not - the finding must say the sheet disagrees with itself."""
+    f = _world(tmp_path, monkeypatch, [("Maximum operating pressure", "3000 kPa"),
+                                       ("Design pressure", "3300 kPa"),
+                                       ("Design pressure", "3100 kPa")])
+    assert f["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
+    assert "not stated" not in f["ai_rationale"]
+    assert "conflicting values for design pressure" in f["ai_rationale"]
+    assert "'3300 kPa'" in f["ai_rationale"] and "'3100 kPa'" in f["ai_rationale"]
+
+
+# ------------------------- review follow-up: tags, formatting, synonyms
+
+def test_two_tags_with_different_values_are_two_pumps_not_a_conflict():
+    facts = [_fact("maximum operating pressure", "3000 kPa", 1, equipment_tag="P-101A"),
+             _fact("design pressure", "3300 kPa", 1, equipment_tag="P-101A"),
+             _fact("maximum operating pressure", "1000 kPa", 1, equipment_tag="P-101B"),
+             _fact("design pressure", "1170 kPa", 1, equipment_tag="P-101B")]
+    verdict, _f = rule_eval.judge(_rule(), facts)
+    assert verdict["status"] == "COMPLIANT", verdict["rationale"]
+    assert "conflicting" not in verdict["rationale"]
+    assert "P-101A: COMPLIANT" in verdict["rationale"] and "P-101B: COMPLIANT" in verdict["rationale"]
+
+
+def test_one_tag_failing_makes_the_multi_tag_verdict_non_compliant():
+    facts = [_fact("maximum operating pressure", "3000 kPa", 1, equipment_tag="P-101A"),
+             _fact("design pressure", "3300 kPa", 1, equipment_tag="P-101A"),
+             _fact("maximum operating pressure", "3000 kPa", 2, equipment_tag="P-101B"),
+             _fact("design pressure", "3200 kPa", 2, equipment_tag="P-101B")]
+    verdict, fact = rule_eval.judge(_rule(), facts)
+    assert verdict["status"] == "NON_COMPLIANT" and fact["equipment_tag"] == "P-101B"
+
+
+def test_same_tag_genuinely_different_numbers_is_a_conflict():
+    facts = [_fact("maximum operating pressure", "3000 kPa", 1, equipment_tag="P-101A"),
+             _fact("design pressure", "3300 kPa", 1, equipment_tag="P-101A"),
+             _fact("design pressure", "3100 kPa", 2, equipment_tag="P-101A"),
+             _fact("maximum operating pressure", "3000 kPa", 1, equipment_tag="P-101B"),
+             _fact("design pressure", "3300 kPa", 1, equipment_tag="P-101B")]
+    verdict, _f = rule_eval.judge(_rule(), facts)
+    assert verdict["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert "P-101A: NEEDS_ENGINEER_REVIEW" in verdict["rationale"]
+    assert "conflicting values for design pressure" in verdict["rationale"]
+
+
+def test_thousands_separator_is_the_same_value_not_a_conflict():
+    facts = [_fact("maximum operating pressure", "3000 kPa", 1),
+             _fact("design pressure", "3,300 kPa", 1, raw="3,300"),
+             _fact("design pressure", "3300 kPa", 2, raw="3300")]
+    verdict, _f = rule_eval.judge(_rule(), facts)
+    assert verdict["status"] == "COMPLIANT", verdict["rationale"]
+
+
+def test_the_most_specific_input_name_wins_over_the_generic_one():
+    """A normal operating pressure beside the maximum one is two quantities."""
+    facts = [_fact("operating pressure", "2000 kPa", 1),
+             _fact("maximum operating pressure", "3000 kPa", 1),
+             _fact("design pressure", "3300 kPa", 1)]
+    verdict, _f = rule_eval.judge(_rule(), facts)
+    assert verdict["status"] == "COMPLIANT", verdict["rationale"]
+    assert "operating pressure 3,000 kPa" in verdict["rationale"]
