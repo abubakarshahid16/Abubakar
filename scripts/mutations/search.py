@@ -45,11 +45,16 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement='                c.rerank_score = -by_id.get(c.chunk_id, float("inf")) + c.boost\n',
         target=_T, keyword="cross_encoder or recall",
     ),
+    # Re-anchored 2026-09-27: the dense scope filter moved out of search.py
+    # into the vector store (sqlite-vec default). The b6 grants test scopes to
+    # all-but-one document - the widened-k path, whose ONLY filter is this
+    # check on the way out. M1265-M1268 cover the other paths and the numpy
+    # fallback's mask.
     Mutation(
-        id="M795", phase=67, description="B6: dense permission mask removed - every chunk is in scope",
-        path=_S,
-        anchor="        [owner.get(cid) in allowed_document_ids for cid in ids], dtype=bool\n",
-        replacement="        [True for cid in ids], dtype=bool\n",
+        id="M795", phase=67, description="B6: dense permission filter removed - every chunk is in scope",
+        path=APP / "vector_store.py",
+        anchor="    ranked = sorted((r for r in rows if r[1] in scope), key=lambda r: (r[2], r[0]))\n",
+        replacement="    ranked = sorted((r for r in rows), key=lambda r: (r[2], r[0]))\n",
         target=_T, keyword="grants or mask", tags=("access",),
     ),
     Mutation(

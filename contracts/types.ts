@@ -1938,6 +1938,27 @@ export interface ModelStatus {
   ollama_error: string | null;
 }
 
+/** The dense-search backend (backend/app/vector_store.py). Both backends are
+ *  EXACT: which one runs changes latency, never which passages rank. */
+export interface VectorStoreStatus {
+  /** VECTOR_BACKEND as configured: auto | sqlite_vec | numpy */
+  requested: string;
+  active: "sqlite_vec" | "numpy";
+  /** why the exact numpy fallback is active; null when sqlite-vec is */
+  fallback_reason: string | null;
+  sqlite_vec_version: string | null;
+  exact: boolean;
+  /** model file + passage input format a vector must carry to be searched */
+  embedding_tag: string;
+  /** the last run-time failure of the sqlite-vec index (answered from numpy) */
+  last_error: string | null;
+  /** corpus-wide counts: null (withheld) without the admin capability */
+  current_vectors: number | null;
+  /** vectors from another model or input format - not searched until
+   *  re-embedded */
+  stale_vectors: number | null;
+}
+
 export interface DocumentFailure {
   id: string;
   filename: string;
@@ -1998,6 +2019,9 @@ export interface Metrics {
    *  false. */
   system?: SystemMetrics | null;
   models: ModelStatus;
+  /** Which dense-search backend is active, and why when it is the fallback.
+   *  Absent from an older backend. */
+  vector_store?: VectorStoreStatus | null;
   worker: WorkerStatus;
   warnings: MetricWarning[];
 }
