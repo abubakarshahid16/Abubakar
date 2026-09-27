@@ -220,8 +220,15 @@ def _searchable_text(hit: dict) -> str:
 #: How many ranked candidates the lexical gate may examine. Bounded rather than
 #: unlimited: a candidate far down the list that happens to share a term is not
 #: evidence the question is answerable, and the reranked head is where a real
-#: answer lives. Matches the number of passages a Tier 2 prompt can carry.
-GATE_CANDIDATES = 5
+#: answer lives.
+#:
+#: NOT A CONSTANT OF ITS OWN any more: it is `settings.answer_top_k`, the one
+#: top-k the answer path, the chat default and the retrieval benchmark share.
+#: It said 5 here while the chat searched with limit 3, so the gate only ever
+#: saw 3 hits and the documented "rank 4 held the answer" case could not be
+#: reached from the chat (retrieval audit R5).
+def gate_candidates() -> int:
+    return max(1, int(settings.answer_top_k))
 
 
 def _assess_candidates(
@@ -243,7 +250,7 @@ def _assess_candidates(
         return empty, 0
 
     best, best_index = None, 0
-    for i, hit in enumerate(hits[:GATE_CANDIDATES]):
+    for i, hit in enumerate(hits[:gate_candidates()]):
         verdict = lexical.assess(
             question, _searchable_text(hit), document_id,
             allowed_document_ids=allowed_document_ids)
@@ -514,6 +521,186 @@ def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict
                    "method": "quote found on the page"}, claims, total - verified
 
 
+#: A markdown list marker at the start of a line ("- ", "* ", "1. ", "2) ").
+#: Its digits number the list; they are not a figure the answer claims. Only a
+#: marker FOLLOWED BY WHITESPACE, so "3.0 mm/s" at the start of a line is
+#: still a figure.
+_LIST_MARKER = re.compile(r"^\s*(?:[-*+>#]+|\d{1,2}[.)])(?:\s+|$)")
+
+#: Shown above an answer that lost sentences to the figure check.
+NUMBERS_NOTICE = ("{n} sentence{s} removed: a figure in {it} was not in the passage "
+                  "{it2} cited.")
+
+#: An ordinary rounding is not a wrong figure. A passage stating "17.24 barg"
+#: and an answer saying "17.2 barg" differ by ~0.2% - normal significant-figure
+#: rounding, not an invented number, and treating it as unsupported silently
+#: dropped an accurate sentence. 1% comfortably covers rounding to 2-3
+#: significant figures on the units this project sees (mm/s, barg, mm) while
+#: staying far below the gap a genuinely different figure has: 0.28 mm vs 280
+#: um is a ~1,000,000% mismatch, and this is checked on already-normalised
+#: numbers, so it never masks a units confusion.
+ROUNDING_RELATIVE_TOLERANCE = 0.01
+
+
+def _is_rounding_of(value: str, spans: set[str]) -> bool:
+    """True when `value` (a `synthesis._normalise_number` output) is within
+    ROUNDING_RELATIVE_TOLERANCE of some number in `spans` - an ordinary
+    rounding, never a different figure. A non-numeric token (a clause number
+    like "5.3.2", left un-normalised by `_normalise_number` on purpose) never
+    matches here: it either exact-matches upstream or is a genuine miss.
+    """
+    try:
+        claimed_value = float(value)
+    except ValueError:
+        return False
+    for span in spans:
+        try:
+            span_value = float(span)
+        except ValueError:
+            continue
+        scale = max(abs(claimed_value), abs(span_value), 1e-9)
+        if abs(claimed_value - span_value) <= ROUNDING_RELATIVE_TOLERANCE * scale:
+            return True
+    return False
+
+
+def _first_unsupported_value(segment: str, spans: set[str]) -> str | None:
+    """The first measurement in `segment` that is neither an exact match in
+    `spans` (`synthesis.first_unsupported_value`'s check, untouched) nor an
+    ordinary rounding of one (`_is_rounding_of`) - so the value reported to
+    the reader is a genuinely unsupported one, never a rounded match that
+    only a later token in the sentence turned out to be missing."""
+    from . import synthesis
+
+    held = synthesis.strip_reference_numerals(_CITATION.sub("", segment))
+    for token in synthesis._NUMBER_TOKEN.findall(held):
+        normalised = synthesis._normalise_number(token)
+        if normalised not in spans and not _is_rounding_of(normalised, spans):
+            return token
+    return None
+
+
+def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
+    """Remove every sentence stating a figure its cited passage does not contain.
+
+    THE LOCAL LANE'S CLAIM CHECK. `validate_citations` only proves an [S#]
+    points at a supplied passage; a figure the 4B model invented beside a
+    valid [S1] was shown as the document's (retrieval audit R9). This reuses
+    the synthesis lane's number guard unchanged - `synthesis.claimed_numbers`
+    (reference numerals such as clause, table, page and standard numbers are
+    names, not measurements, B34) against `synthesis._numbers` of the cited
+    spans - so "0.28 mm [S1]" over a page saying "280 um" is caught the same
+    way here as in a summary. An exact miss is then given one more chance:
+    `_is_rounding_of` lets it through when it is an ordinary rounding of a
+    number that IS in the spans (within ROUNDING_RELATIVE_TOLERANCE), so
+    "17.2" is not stripped from a page that says "17.24" - correct, not
+    invented. The synthesis-side exact/thousands-separator normalisation
+    itself is untouched.
+
+    A sentence citing passages is held to THOSE passages. An uncited sentence
+    (the local format allows "Yes." and bullets under one citation) is held to
+    the evidence as a whole: a figure that is in none of the supplied passages
+    is not shown. A sentence with no figure is untouched. Returns the clean
+    text and one record per removed sentence ({value, cited}); the sentence
+    itself is never logged.
+    """
+    from . import synthesis
+
+    every = synthesis._numbers(" ".join(p.get("text") or "" for p in passages))
+    kept_lines: list[str] = []
+    removed: list[dict] = []
+    for line in text.splitlines():
+        # The list marker is taken off the LINE before it is split into
+        # sentences: "1. The limit..." would otherwise split at "1." and the
+        # marker would be read as the figure 1.
+        marker = _LIST_MARKER.match(line)
+        prefix = marker.group(0) if marker else ""
+        kept: list[str] = []
+        for segment in _SEGMENT.split(line[len(prefix):]):
+            claimed = synthesis.claimed_numbers(segment)
+            # A count of documents ("12 distinct standards", "1 standard and
+            # 2 procedures") is not a measurement the cited passage must
+            # contain - it is a meta-count of what retrieval returned, and
+            # its own honesty (naming "retrieved", not the library) is
+            # enforced separately by corpus.bound_counts right after this
+            # function returns. Holding it to the passage text here stripped
+            # the whole sentence before bound_counts ever saw it - the
+            # regression the round-2 review caught in test_corpus_questions.
+            if claimed:
+                count_matches = [m.group(0) for m in corpus_mod.DOC_COUNT_CLAIM.finditer(segment)]
+                if count_matches:
+                    claimed = claimed - synthesis._numbers(" ".join(count_matches))
+            if claimed:
+                cited = sorted({int(n) for n in _CITATION.findall(segment)
+                                if 1 <= int(n) <= len(passages)})
+                spans = (synthesis._numbers(" ".join(
+                    passages[n - 1].get("text") or "" for n in cited)) if cited else every)
+                # Exact match (incl. thousands separators, via `spans`/`claimed`
+                # themselves) is unchanged. A claimed number missing from
+                # `spans` is unsupported UNLESS it is an ordinary rounding of
+                # one that is there (_is_rounding_of) - "17.2" for a passage
+                # saying "17.24" is accurate, not invented.
+                unsupported = {v for v in claimed - spans if not _is_rounding_of(v, spans)}
+                if unsupported:
+                    value = (_first_unsupported_value(segment, spans)
+                             or sorted(unsupported)[0])
+                    removed.append({"value": value, "cited": cited})
+                    continue
+            kept.append(segment)
+        if kept:
+            kept_lines.append(prefix + " ".join(kept))
+        elif not line.strip():
+            kept_lines.append("")
+    clean = re.sub(r"\n{3,}", "\n\n", "\n".join(kept_lines)).strip()
+    return clean, removed
+
+
+def _numbers_notice(removed: list[dict]) -> list[str]:
+    if not removed:
+        return []
+    n = len(removed)
+    return [NUMBERS_NOTICE.format(n=n, s="" if n == 1 else "s",
+                                  it="it" if n == 1 else "them",
+                                  it2="it" if n == 1 else "they")]
+
+
+def context_budget_for_lane() -> dict:
+    """How a Tier 2 prompt is packed, by the engine that will read it.
+
+    The local 4B model: `generated_context_passages` sources of
+    `generated_context_chars`, inside its num_ctx (`context_budget`). Claude:
+    `claude_context_*` - it was packed exactly like the local model, which its
+    context window never required. The Claude figures are a cost ceiling, and
+    every call is still priced against the owner's USD caps by `claude_spend`
+    before it leaves (see config for the stated cost of the defaults).
+    """
+    if claude_lane():
+        return {"lane": "claude", "passages": settings.claude_context_passages,
+                "chars": settings.claude_context_chars,
+                "tokens": settings.claude_context_tokens,
+                "system": SYSTEM_PROMPT_VERIFIED}
+    return {"lane": "local", "passages": settings.generated_context_passages,
+            "chars": settings.generated_context_chars,
+            "tokens": context_budget.evidence_budget(),
+            "system": SYSTEM_PROMPT}
+
+
+def with_gating_passage(hits: list[dict], gate_index: int, n: int) -> list[dict]:
+    """The first `n` hits, always including the one that passed the gate.
+
+    Tier 2 used to send hits[:limit] whatever the gate decided, so when the
+    gate passed at rank 4 the model was never shown the passage that made
+    the question answerable. The gating passage takes the last slot; rank
+    order is otherwise kept, so [S1] is still the best-ranked source.
+    """
+    chosen = list(hits[:max(1, n)])
+    if 0 <= gate_index < len(hits):
+        lead = hits[gate_index]
+        if all(h["chunk_id"] != lead["chunk_id"] for h in chosen):
+            chosen = chosen[:-1] + [lead]
+    return chosen
+
+
 def generate_from_passages(instruction: str, passages: list[dict], *, history: str,
                            preference: str | None, timer: Timer, base: dict) -> dict:
     """Generated prose over GIVEN passages - the rewrite path. The same
@@ -566,11 +753,17 @@ def _finish_generated(raw: dict, passages: list[dict], *, base: dict, timer: Tim
         text = strip_half_citation(text)
     verification = claims = None
     removed = 0
+    numbers_removed: list[dict] = []
     if claude_lane():
         text, verification, claims, removed = verify_claims(text, passages)
     valid, invented = validate_citations(text, len(passages))
     if invented:
         text = _CITATION.sub(lambda m: "" if int(m.group(1)) in invented else m.group(0), text).strip()
+    if not claude_lane() and INSUFFICIENT not in text.upper():
+        # The local lane's claim check - the same one a fresh answer gets.
+        text, numbers_removed = ground_numbers(text, passages)
+        removed += len(numbers_removed)
+        valid, _ = validate_citations(text, len(passages))
     if not text or INSUFFICIENT in text.upper() or not valid:
         return {**base, "answer_type": "insufficient_evidence", "answer": None,
                 "reason": ("none of the rewritten points could be found on the page"
@@ -578,10 +771,13 @@ def _finish_generated(raw: dict, passages: list[dict], *, base: dict, timer: Tim
                            "the rewritten answer cited no supplied source"),
                 "rejected_citations": invented, "truncated": truncated,
                 "verification": verification, "claims_removed": removed,
+                "numbers_unsupported": [r["value"] for r in numbers_removed],
                 "seconds": timer.seconds()}
     return {**base, "answer_type": "generated", "answer": text, "reason": None,
             "cited": valid, "rejected_citations": invented, "truncated": truncated,
             "verification": verification, "claims": claims, "claims_removed": removed,
+            "numbers_unsupported": [r["value"] for r in numbers_removed],
+            "notices": [*(base.get("notices") or []), *_numbers_notice(numbers_removed)],
             "model": raw.get("model") or settings.answer_model,
             "provider": raw.get("provider") or reasoning_provider.OLLAMA,
             "cost_usd": raw.get("cost_usd"), "seconds": timer.seconds()}
@@ -624,12 +820,13 @@ def answer(
     question: str,
     tier: str = "extract",
     document_id: str | None = None,
-    limit: int = 3,
+    limit: int | None = None,
     *,
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
     history: str = "",
     model: str | None = None,
+    soft_identifiers: tuple[str, ...] | list[str] = (),
 ) -> dict:
     """Answer a question, then judge whether the evidence answers it (B8).
 
@@ -640,13 +837,18 @@ def answer(
     `history` is the conversation block (`chat_model.transcript`) the model
     sees before the sources - already filtered by the caller's permissions.
     `model` narrows the engine to the local one ("local"); it cannot widen it.
+    `limit` defaults to `settings.answer_top_k`, the one top-k (see
+    gate_candidates). `soft_identifiers` are follow-up identifiers carried from
+    earlier turns: they steer retrieval and are never required (search.search).
     """
     from . import answerability
+    if limit is None:
+        limit = gate_candidates()
     token = _PREFERENCE.set(model)
     try:
         result = _answer(question, tier, document_id, limit,
                          allowed_document_ids=allowed_document_ids, progress_id=progress_id,
-                         history=history)
+                         history=history, soft_identifiers=tuple(soft_identifiers))
     finally:
         _PREFERENCE.reset(token)
     verdict = answerability.assess(question, result, allowed_document_ids=allowed_document_ids)
@@ -659,11 +861,12 @@ def _answer(
     question: str,
     tier: str = "extract",
     document_id: str | None = None,
-    limit: int = 3,
+    limit: int | None = None,
     *,
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
     history: str = "",
+    soft_identifiers: tuple[str, ...] = (),
 ) -> dict:
     """Answer a question. `tier` is "extract" (default) or "generated".
 
@@ -672,6 +875,8 @@ def _answer(
     for why a call site with no scope has to say so out loud.
     """
     timer = Timer()
+    if limit is None:
+        limit = gate_candidates()
 
     # A QUESTION ABOUT THE LIBRARY IS ANSWERED BY THE LIBRARY. "How many
     # standards do you have" was sent to retrieval, the model saw three
@@ -715,7 +920,7 @@ def _answer(
     result = _answer_from_documents(
         question, tier, document_id, limit,
         allowed_document_ids=allowed_document_ids, progress_id=progress_id,
-        timer=timer, history=history)
+        timer=timer, history=history, soft_identifiers=soft_identifiers)
     # ONE EXIT, so the database's half of a qualified question reaches every
     # outcome of the retrieval half - extract, generated, a refusal, a model
     # that is down - without a dozen return statements each remembering it.
@@ -734,6 +939,7 @@ def _answer_from_documents(
     progress_id: str | None,
     timer: Timer,
     history: str = "",
+    soft_identifiers: tuple[str, ...] = (),
 ) -> dict:
     """Everything `answer` does that reads DOCUMENTS rather than the library."""
     # Classified BEFORE retrieval. A greeting is not a failed question, and
@@ -758,10 +964,14 @@ def _answer_from_documents(
             "seconds": timer.seconds(),
         }
 
+    # AT LEAST THE ONE TOP-K. The gate examines gate_candidates() hits, so
+    # retrieval must return that many however few the caller will display -
+    # `max(limit, 3)` here is what capped the chat at 3 while the gate claimed 5.
     results = search_mod.search(
-        question, limit=max(limit, 3), document_id=document_id,
+        question, limit=max(limit, gate_candidates()), document_id=document_id,
         allowed_document_ids=allowed_document_ids,
         progress_id=progress_id,
+        soft_identifiers=soft_identifiers,
     )
     hits = results["hits"]
     # Recorded from real questions actually asked, so the dashboard's latency
@@ -806,8 +1016,13 @@ def _answer_from_documents(
     # It still refuses when NO candidate covers the question, which is what the
     # refusal record rests on. Every gold question had its answer at rank 1, so
     # the harness structurally could not see this.
+    # A carried-forward identifier is context, not the reader's subject: the
+    # gate must not refuse "X does not appear in the documents" over a term
+    # the reader did not type this turn. Everything else still gates.
+    gate_question = (search_mod.without_terms(question, soft_identifiers)
+                     if soft_identifiers else question) or question
     lexical_verdict, gate_index = _assess_candidates(
-        question, hits, document_id, allowed_document_ids)
+        gate_question, hits, document_id, allowed_document_ids)
     base["lexical"] = {
         k: lexical_verdict[k]
         for k in ("coverage", "terms", "covered", "absent_from_corpus")
@@ -838,7 +1053,7 @@ def _answer_from_documents(
         primary = _passage_payload(lead, question)
         answers = [primary]
         second = _second_passage(
-            question, hits, lead, document_id, allowed_document_ids)
+            gate_question, hits, lead, document_id, allowed_document_ids)
         if second is not None:
             answers.append(_passage_payload(second, question))
         used = {p["chunk_id"] for p in answers}
@@ -882,7 +1097,9 @@ def _answer_from_documents(
     # push the prompt over the practical context budget (or make generation
     # appear to hang). Keep the normal multi-source behaviour for prose.
     decimal_lookup = bool(re.search(r"(?<![\w.])\d+\.\d+(?![\w.])", question))
-    passage_limit = limit
+    # PER PROVIDER: the local 4B model and Claude were packed identically.
+    budget = context_budget_for_lane()
+    passage_limit = max(1, min(limit, budget["passages"]))
     if decimal_lookup:
         # Retrieval promotes the page containing the requested decimal. If
         # that lead passage contains the row key, it is sufficient evidence
@@ -892,10 +1109,10 @@ def _answer_from_documents(
         lead_text = hits[0].get("text", "") if hits else ""
         passage_limit = 1 if re.search(
             r"(?<![\w.])" + re.escape(target) + r"(?![\w.])", lead_text
-        ) else min(limit, 2)
+        ) else min(passage_limit, 2)
     passages = [
-        _passage_payload(h, question, budget=settings.generated_context_chars)
-        for h in hits[:passage_limit]
+        _passage_payload(h, question, budget=budget["chars"])
+        for h in with_gating_passage(hits, gate_index, passage_limit)
     ]
 
     # The character budget above is a stand-in for a token budget, and the
@@ -909,10 +1126,11 @@ def _answer_from_documents(
     # The overhead is measured rather than assumed: the same prompt with the
     # passage bodies emptied, plus the system prompt. A long question cannot
     # quietly push the evidence over the line.
-    overhead = SYSTEM_PROMPT + _build_prompt(
+    overhead = budget["system"] + _build_prompt(
         question, [{**p, "text": ""} for p in passages], history
     )
-    passages, evidence_removed = context_budget.fit_passages(passages, overhead)
+    passages, evidence_removed = context_budget.fit_passages(
+        passages, overhead, budget=budget["tokens"])
 
     if not passages:
         # Nothing survived the budget. Answering from no evidence at all would
@@ -1036,6 +1254,31 @@ def _answer_from_documents(
             lambda m: "" if int(m.group(1)) in invented else m.group(0), text
         ).strip()
 
+    # THE LOCAL LANE'S CLAIM CHECK. Citation numbers alone were all it had: a
+    # figure the model invented beside a valid [S1] was shown. Every sentence
+    # stating a figure its cited passage does not contain is removed and
+    # counted (ground_numbers). The Claude lane's quote check above is
+    # stricter and already covers this.
+    numbers_removed: list[dict] = []
+    if not claude_lane():
+        text, numbers_removed = ground_numbers(text, passages)
+        claims_removed += len(numbers_removed)
+        valid, _ = validate_citations(text, len(passages))
+        if not text:
+            return {
+                **base,
+                "answer_type": "insufficient_evidence",
+                "answer": None,
+                "reason": "every figure in the generated answer was missing from "
+                          "the passage it cited, so none of it was shown",
+                "passages": passages,
+                "claims_removed": claims_removed,
+                "numbers_unsupported": [r["value"] for r in numbers_removed],
+                "evidence_removed": evidence_removed,
+                "seconds": timer.seconds(),
+                "timings": {**base["timings"], "generation_ms": generation_ms},
+            }
+
     if not valid:
         if decimal_lookup and passages:
             # A table lookup already has an authoritative verbatim answer in
@@ -1116,6 +1359,10 @@ def _answer_from_documents(
         "verification": verification,
         "claims": claims,
         "claims_removed": claims_removed,
+        # Local lane: the figures whose sentences were removed because the
+        # cited passage does not contain them (values only, never sentences).
+        "numbers_unsupported": [r["value"] for r in numbers_removed],
+        "notices": _numbers_notice(numbers_removed),
         # How many sentences had a count of documents re-bounded to the
         # passages retrieved. Reported so a screen can say so, and a test can.
         "counts_bounded": counts_bounded,
