@@ -179,32 +179,38 @@ export function WorkerPanel({
         </div>
       )}
 
-      {slow && ((worker?.seconds_since_progress ?? 0)) > SLOW_DOCUMENT_SECONDS && (
+      {slow && worker != null && worker.seconds_since_progress > SLOW_DOCUMENT_SECONDS && (
         <p role="status" className="mt-3 text-sm text-warn-500">
-          No progress recorded for {formatAge((worker?.seconds_since_progress ?? 0))} while working on{" "}
+          No progress recorded for {formatAge(worker.seconds_since_progress)} while working on{" "}
           <span className="font-medium">{currentName}</span>. A long document can run for
           minutes between updates &mdash; the document&rsquo;s own card below shows how far it
           has actually got.
         </p>
       )}
 
+      {/* Only when the worker detail has actually arrived. Without it these
+          four figures are unknown, and `?? 0` rendered them as "pending 0",
+          "since progress 0s", "completed 0" - an empty, healthy queue that
+          nobody measured (CLAUDE.md rule 4: null renders as nothing). */}
+      {worker != null && (
       <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat
           label="pending"
-          value={String((worker?.pending_count ?? 0))}
-          tone={(worker?.pending_count ?? 0) > 0 ? "text-warn-500" : undefined}
+          value={String(worker.pending_count)}
+          tone={worker.pending_count > 0 ? "text-warn-500" : undefined}
         />
-        <Stat label="oldest waiting" value={formatAge((worker?.oldest_pending_age_seconds ?? null))} />
-        <Stat label="since progress" value={formatAge((worker?.seconds_since_progress ?? 0))} />
+        <Stat label="oldest waiting" value={formatAge(worker.oldest_pending_age_seconds)} />
+        <Stat label="since progress" value={formatAge(worker.seconds_since_progress)} />
         {/* The count is per WORKER LIFETIME, not per corpus. Unqualified it
             read "4" beside a list of 8 documents on the same screen. The
             Ingestion view already carried this caption; it belongs wherever
             the number does. */}
         <Stat
           label="completed since the worker started"
-          value={String(worker?.documents_completed ?? 0)}
+          value={String(worker.documents_completed)}
         />
       </dl>
+      )}
 
       <p className="mt-3 text-xs text-slateish-400">
         {currentName ? (
