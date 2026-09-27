@@ -18,8 +18,16 @@ Three things about this module are architectural rather than tuning:
 
   * **Only pages that need it are recognised.** `idx_pages_ocr` exists for
     exactly this. A 500-page document with 12 scanned pages is 12 seconds of
-    work, not 8 minutes. A page that already has extractable text is never
-    recognised, and a page already recognised is never recognised again.
+    work, not 8 minutes. Which pages "need it" is `route_page`: no usable text
+    layer, OR a page that is mostly raster image with only a thin text layer
+    on it (a scan carrying a digital header, footer or stamp - audit F6). A
+    normal text page is never recognised, and a page already recognised is
+    never recognised again. The reason is recorded per page (`pages.ocr_route`).
+
+  * **One page failing is one page failing** (audit F7). A page the
+    recogniser cannot process is stored with its error and empty text, so it
+    is consumed, shown as `ocr_failed`, and the rest of the document goes on
+    to be embedded. It used to stay pending forever and fail the document.
 
   * **Recognised text goes to `page_ocr`, which extraction cannot reach.**
     `pages` is written with INSERT OR REPLACE, so a re-extraction - which
@@ -34,8 +42,10 @@ contiguous high-water mark a restart can trust, exactly as extraction does.
 from __future__ import annotations
 
 import concurrent.futures as cf
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 
 from .config import settings
 from .db import connect
@@ -53,6 +63,195 @@ def _now() -> str:
 
 def model_signature() -> str:
     return f"{settings.ocr_det_model}+{settings.ocr_rec_model}"
+
+
+# ---------------------------------------------------------------- routing
+
+#: Bumped whenever `route_decision` changes what it decides. Stored on every
+#: page (`pages.ocr_route_version`); a page with an older or NULL version was
+#: decided by an earlier rule and `scripts/reroute_ocr.py` re-decides it from
+#: the stored PDF without re-extracting its text.
+#:   1 - implicit, never stored: "fewer than 100 usable characters".
+#:   2 - image coverage and text density (audit F6).
+OCR_ROUTE_VERSION = "2"
+
+#: One square inch in PDF user space (72 pt x 72 pt).
+_SQ_INCH = 72.0 * 72.0
+
+#: Above this many rectangles the exact union is skipped for a capped sum:
+#: a page tiled into thousands of image strips is image-covered either way.
+_UNION_EXACT_MAX = 400
+
+
+@dataclass(frozen=True)
+class Route:
+    """One page's routing decision and the measurements behind it.
+
+    `reason` is what the ledger shows: a code, then numbers. Never page text.
+    """
+    needs_ocr: bool
+    code: str            # 'no_text_layer' | 'image_dominant' | 'text_layer'
+    reason: str
+
+
+def _union_area(rects: list[tuple[float, float, float, float]]) -> float:
+    """Area covered by the union of axis-aligned rectangles.
+
+    Coordinate compression over x, merged y-intervals per slab. Overlapping
+    images (a scan laid over a background, strip-tiled scans) must not count
+    twice, or a half-covered page would read as fully covered.
+    """
+    rects = [r for r in rects if r[2] > r[0] and r[3] > r[1]]
+    if not rects:
+        return 0.0
+    if len(rects) > _UNION_EXACT_MAX:
+        return sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in rects)
+    xs = sorted({r[0] for r in rects} | {r[2] for r in rects})
+    area = 0.0
+    for left, right in zip(xs, xs[1:]):
+        spans = sorted((y0, y1) for x0, y0, x1, y1 in rects if x0 <= left and x1 >= right)
+        covered, cur0, cur1 = 0.0, None, None
+        for y0, y1 in spans:
+            if cur1 is None or y0 > cur1:
+                if cur1 is not None:
+                    covered += cur1 - cur0
+                cur0, cur1 = y0, y1
+            else:
+                cur1 = max(cur1, y1)
+        if cur1 is not None:
+            covered += cur1 - cur0
+        area += covered * (right - left)
+    return area
+
+
+def _clip(rect, bounds) -> tuple[float, float, float, float]:
+    x0, y0, x1, y1 = rect
+    bx0, by0, bx1, by1 = bounds
+    return (max(x0, bx0), max(y0, by0), min(x1, bx1), min(y1, by1))
+
+
+def route_decision(chars: int, page_area: float, image_area: float,
+                   text_area: float | None) -> Route:
+    """The routing rule, pure, on measurements in PDF points.
+
+    `text_area` may be None when the images do not cover enough of the page
+    for it to matter - it is only measured when it can change the answer.
+    """
+    s = settings
+    if chars < s.ocr_min_usable_chars:
+        return Route(True, "no_text_layer",
+                     f"no_text_layer: text layer has {chars} characters "
+                     f"(under {s.ocr_min_usable_chars})")
+    if page_area <= 0:
+        return Route(False, "text_layer",
+                     f"text_layer: {chars} characters; page has no area")
+    coverage = min(1.0, image_area / page_area)
+    density = chars / (page_area / _SQ_INCH)
+    if coverage < s.ocr_image_coverage_min:
+        return Route(False, "text_layer",
+                     f"text_layer: {chars} characters ({density:.1f}/sq in); "
+                     f"images cover {coverage:.0%} of the page")
+    ratio = (text_area or 0.0) / image_area if image_area > 0 else 0.0
+    thin = density < s.ocr_max_text_density or ratio < s.ocr_max_text_to_image_area
+    measured = (f"images cover {coverage:.0%} of the page; text layer {chars} "
+                f"characters ({density:.1f}/sq in), text blocks {ratio:.0%} of "
+                "image area")
+    if thin:
+        return Route(True, "image_dominant", f"image_dominant: {measured}")
+    return Route(False, "text_layer", f"text_layer: dense text over image - {measured}")
+
+
+def route_page(page, text: str) -> Route:
+    """Decide whether this PyMuPDF page goes to recognition.
+
+    `text` is the page's normalised text layer, as `pages.text` stores it.
+    Cheap on the common path: a text page with no large image costs one
+    `get_image_info` call; text blocks are measured only when images cover
+    enough of the page for them to matter.
+    """
+    chars = len(text.strip())
+    # Unrotated page space: both get_image_info and get_text report there.
+    base = page.rect * page.derotation_matrix
+    bounds = (min(base.x0, base.x1), min(base.y0, base.y1),
+              max(base.x0, base.x1), max(base.y0, base.y1))
+    page_area = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1])
+    if chars < settings.ocr_min_usable_chars:
+        return route_decision(chars, page_area, 0.0, None)
+    try:
+        images = [_clip(tuple(i["bbox"]), bounds)
+                  for i in page.get_image_info(hashes=False, xrefs=False)]
+    except Exception:  # noqa: BLE001 - a malformed image stream is not a scan
+        images = []
+    image_area = _union_area(images)
+    text_area = None
+    if page_area > 0 and image_area / page_area >= settings.ocr_image_coverage_min:
+        blocks = [_clip(tuple(b[:4]), bounds) for b in page.get_text("blocks")
+                  if len(b) > 6 and b[6] == 0 and str(b[4]).strip()]
+        text_area = _union_area(blocks)
+    return route_decision(chars, page_area, image_area, text_area)
+
+
+# ------------------------------------------------------------------ merge
+
+_NON_ALNUM = re.compile(r"[^0-9a-z]+")
+
+#: An OCR line this similar to a text-layer line is the same line misread.
+_DUP_RATIO = 0.85
+
+
+def _norm(line: str) -> str:
+    return _NON_ALNUM.sub(" ", line.casefold()).strip()
+
+
+def merge_page_text(native: list[tuple[float, float, str]],
+                    recognised: list[tuple[float, float, str]]) -> tuple[str, int]:
+    """Merge a page's text layer with what recognition read from its image.
+
+    Both lists are (y, x, line) in the SAME image coordinates. The text layer
+    is kept whole - it is exact where OCR is a guess - and a recognised line
+    is added only when the text layer does not already say it: its words
+    appear there in order, or it is a near-identical misreading of one of its
+    lines. Lines are then laid out top to bottom, left to right, so a digital
+    header stays above the scanned body and a footer or stamp below it.
+
+    Returns (merged text, number of recognised lines added). Zero added means
+    recognition contributed nothing new on this page.
+    """
+    native_norms = [n for n in (_norm(t) for _, _, t in native) if n]
+    haystack = f" {' '.join(native_norms)} "
+    added: list[tuple[float, float, str]] = []
+    for y, x, line in recognised:
+        n = _norm(line)
+        if not n:
+            continue
+        if f" {n} " in haystack:
+            continue
+        if any(SequenceMatcher(None, n, m).ratio() >= _DUP_RATIO for m in native_norms):
+            continue
+        added.append((y, x, line))
+    items = [(y, x, t) for y, x, t in native if t.strip()] + added
+    items.sort(key=lambda it: (round(it[0] / 6.0), it[1]))
+    return "\n".join(t for _, _, t in items), len(added)
+
+
+def _native_lines(stored_path: str, page_no: int, scale: float) -> list[tuple[float, float, str]]:
+    """The page's text-layer lines as (y, x, text) in rendered-image pixels."""
+    import pymupdf
+
+    out: list[tuple[float, float, str]] = []
+    with pymupdf.open(stored_path) as doc:
+        page = doc.load_page(page_no - 1)
+        m = page.rotation_matrix * pymupdf.Matrix(scale, scale)
+        for block in page.get_text("dict").get("blocks", []):
+            if block.get("type") != 0:
+                continue
+            for line in block.get("lines", []):
+                text = "".join(sp.get("text", "") for sp in line.get("spans", []))
+                if not text.strip():
+                    continue
+                r = pymupdf.Rect(line["bbox"]) * m
+                out.append((min(r.y0, r.y1), min(r.x0, r.x1), text))
+    return out
 
 
 # --------------------------------------------------------------- alphabet
@@ -160,12 +359,27 @@ def _build_engine():
     })
 
 
+def _box_origin(box) -> tuple[float, float]:
+    """(y, x) of a recogniser box: its top-left over the four corners."""
+    try:
+        return (float(min(pt[1] for pt in box)), float(min(pt[0] for pt in box)))
+    except Exception:  # noqa: BLE001 - a box of unexpected shape sorts first
+        return (0.0, 0.0)
+
+
 def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[tuple]:
     """Recognise the given 1-based pages. Runs in a WORKER PROCESS.
 
     Returns plain tuples so the payload pickles cheaply, the same contract
     extract_batch uses. The engine is built per worker call rather than held:
     the whole point of the subprocess is that its footprint is reclaimed.
+
+    A page that also has a text layer (routed as `image_dominant`) is MERGED:
+    the text layer is kept and only what it does not already say is added
+    from recognition (`merge_page_text`). When recognition adds nothing, the
+    stored text is empty, so the page keeps its text layer and is not claimed
+    as recognised. A page that raises is returned with its error, never
+    dropped: one bad page must not kill a batch or hold the document.
     """
     from .pageimage import render_page
 
@@ -174,6 +388,7 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
     ocr = _build_engine()
     out: list[tuple] = []
     doc = {"sha256": sha256, "stored_path": stored_path}
+    scale = settings.ocr_dpi / 72.0
     for pno in page_nos:
         t0 = time.perf_counter()
         try:
@@ -181,13 +396,24 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
             res = ocr(str(image))
             texts = list(res.txts) if res.txts else []
             scores = [float(s) for s in res.scores] if res.scores is not None else []
+            boxes = getattr(res, "boxes", None)
+            boxes = list(boxes) if boxes is not None else []
+            native = _native_lines(stored_path, pno, scale)
         except Exception as exc:  # noqa: BLE001 - one bad page must not kill a batch
-            out.append((pno, "", None, None, 0, time.perf_counter() - t0, 0, "",
-                        f"{type(exc).__name__}: {exc}"))
+            out.append((pno, "", None, None, 0, round(time.perf_counter() - t0, 3), 0, "",
+                        f"{type(exc).__name__}: {exc}"[:500]))
             continue
+        if any(t.strip() for _, _, t in native):
+            origins = [_box_origin(boxes[i]) if i < len(boxes) else (float("inf"), float(i))
+                       for i in range(len(texts))]
+            merged, added = merge_page_text(
+                native, [(y, x, t) for (y, x), t in zip(origins, texts)])
+            raw = merged if added else ""
+        else:
+            raw = "\n".join(texts)
         # Through normalise_text, exactly as extraction does, so symbol-font
         # control characters cannot reach chunking.
-        text = normalise_text("\n".join(texts))
+        text = normalise_text(raw)
         viol, sample = alphabet_violations(text, settings.ocr_expected_script)
         out.append((
             pno, text,
@@ -220,25 +446,39 @@ def pending_pages(doc_id: str) -> list[int]:
 
 
 def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
-                  rows: list[tuple], model: str) -> int:
-    """Persist one batch and advance the checkpoint atomically."""
+                  rows: list[tuple], model: str) -> dict:
+    """Persist one batch and advance the checkpoint atomically.
+
+    A page whose recognition raised is stored too - empty text, `error` set -
+    so it is CONSUMED: `pending_pages` no longer returns it, the ledger shows
+    it as `ocr_failed` with the reason, and the rest of the document goes on
+    to embedding (audit F7). Skipping it left the page pending forever, and
+    the ingest loop failed the whole document on the churn guard.
+
+    Returns this batch's own counts: rows stored, pages that produced text,
+    pages that failed.
+    """
     conn = connect()
     now = _now()
     payload = []
+    with_text = failed = 0
     for (pno, text, mean_c, min_c, boxes, secs, viol, sample, err) in rows:
         if err is not None:
-            continue
+            failed += 1
+            text, mean_c, min_c, boxes, viol, sample = "", None, None, 0, 0, ""
+        elif text.strip():
+            with_text += 1
         payload.append((doc_id, pno, text, len(text.strip()), ENGINE, model,
                         settings.ocr_dpi, mean_c, min_c, boxes, viol, sample,
-                        secs, now, batch_no))
+                        secs or 0.0, now, batch_no, err))
     with conn:
         if payload:
             conn.executemany(
                 """INSERT OR REPLACE INTO page_ocr
                    (document_id, page_no, text, char_count, engine, model, dpi,
                     mean_conf, min_conf, box_count, alphabet_violations,
-                    alphabet_sample, seconds, recognised_at, batch_no)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    alphabet_sample, seconds, recognised_at, batch_no, error)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 payload,
             )
         # Only pages that actually produced text count as recognised. A blank
@@ -254,7 +494,21 @@ def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
             conn.execute(
                 "UPDATE jobs SET last_completed_batch = ?, updated_at = ? WHERE id = ?",
                 (batch_no, now, job_id))
-    return len(payload)
+    return {"stored": len(payload) - failed, "with_text": with_text, "failed": failed}
+
+
+def retry_failed(doc_id: str) -> int:
+    """Make this document's FAILED pages pending again. Returns how many.
+
+    A failed page is consumed so it cannot block the document; this is the
+    deliberate way back, for after the cause (a missing model file, a
+    corrupt render cache) is fixed. Successful and blank pages are kept.
+    """
+    conn = connect()
+    with conn:
+        return conn.execute(
+            "DELETE FROM page_ocr WHERE document_id = ? AND error IS NOT NULL",
+            (doc_id,)).rowcount
 
 
 def round_size(recognised_so_far: int) -> int:
@@ -291,14 +545,14 @@ def recognise_document(doc_id: str, progress=None, max_pages: int | None = None)
     if not todo:
         return {"document_id": doc_id, "filename": doc["filename"],
                 "pages_pending": 0, "pages_recognised": 0, "pages_with_text": 0,
-                "pages_remaining": 0,
+                "pages_remaining": 0, "pages_failed": 0,
                 "alphabet_violations": 0, "seconds": 0.0, "batches": 0,
                 "model": model_signature()}
 
     size = settings.ocr_batch_size
     batches = [todo[i:i + size] for i in range(0, len(todo), size)]
     model = model_signature()
-    recognised = 0
+    recognised = with_text = failed = 0
 
     with cf.ProcessPoolExecutor(max_workers=settings.ocr_processes) as pool:
         inflight: dict[int, cf.Future] = {}
@@ -310,23 +564,27 @@ def recognise_document(doc_id: str, progress=None, max_pages: int | None = None)
                     recognise_batch, doc["stored_path"], doc["sha256"], pages)
             nxt = min(inflight)
             rows = inflight.pop(nxt).result()
-            recognised += _commit_batch(doc_id, None, nxt, rows, model)
+            counts = _commit_batch(doc_id, None, nxt, rows, model)
+            recognised += counts["stored"]
+            with_text += counts["with_text"]
+            failed += counts["failed"]
             if progress:
                 progress(recognised, len(todo))
 
     remaining = len(pending_pages(doc_id))
     stats = conn.execute(
-        """SELECT COUNT(*) n,
-                  COALESCE(SUM(CASE WHEN char_count > 0 THEN 1 ELSE 0 END),0) with_text,
-                  COALESCE(SUM(alphabet_violations),0) viol
-           FROM page_ocr WHERE document_id = ?""",
+        "SELECT COALESCE(SUM(alphabet_violations),0) viol FROM page_ocr WHERE document_id = ?",
         (doc_id,),
     ).fetchone()
     return {
         "document_id": doc_id, "filename": doc["filename"],
         "pages_pending": len(todo), "pages_recognised": recognised,
         "pages_remaining": remaining,
-        "pages_with_text": stats["with_text"],
+        # THIS ROUND's pages that produced text, not the document's running
+        # total: the ingest loop re-chunks when this is non-zero, and a
+        # cumulative count re-chunked after every round that added nothing.
+        "pages_with_text": with_text,
+        "pages_failed": failed,
         "alphabet_violations": stats["viol"],
         "seconds": timer.seconds(), "batches": len(batches),
         "model": model,

@@ -69,6 +69,13 @@ CREATE TABLE IF NOT EXISTS pages (
     -- rows plus the indices of the `text` lines they cover. NULL = none found
     -- or extracted before the table reader existed.
     tables_json   TEXT,
+    -- Why this page was or was not routed to recognition (`ocr.route_page`,
+    -- audit F6): a code and the measurements, never page text. NULL on a page
+    -- decided before routing was recorded - `ocr_route_version` NULL or older
+    -- than `ocr.OCR_ROUTE_VERSION` marks the decision stale, and
+    -- `scripts/reroute_ocr.py` re-decides it without re-extracting.
+    ocr_route     TEXT,
+    ocr_route_version TEXT,
     PRIMARY KEY (document_id, page_no)
 );
 
@@ -104,6 +111,10 @@ CREATE TABLE IF NOT EXISTS page_ocr (
     seconds       REAL    NOT NULL,
     recognised_at TEXT    NOT NULL,
     batch_no      INTEGER NOT NULL,
+    -- Set when recognition FAILED on this page (audit F7): the row still
+    -- exists, with empty text, so the page counts as consumed and one bad
+    -- page cannot hold the whole document out of search. NULL on success.
+    error         TEXT,
     PRIMARY KEY (document_id, page_no)
 );
 
@@ -198,6 +209,8 @@ CREATE TABLE IF NOT EXISTS page_ledger (
     native_chars    INTEGER,
     -- 'not_required' | 'pending' | 'done'
     ocr_status      TEXT    NOT NULL DEFAULT 'unknown',
+    -- the routing reason (pages.ocr_route) or, when recognition failed, why
+    ocr_reason      TEXT,
     ocr_engine      TEXT,
     ocr_mean_conf   REAL,
     ocr_seconds     REAL,
@@ -873,6 +886,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_page_ocr_document ON page_ocr(document_id)"
     )
+    # OCR routing reason and per-page recognition failure (audit F6/F7).
+    # Nullable, no back-fill: a page routed before this build has no recorded
+    # reason, and NULL `ocr_route_version` is exactly what marks it stale.
+    if pg and "ocr_route" not in pg:
+        add_column_if_missing(conn, "pages", "ocr_route", "TEXT")
+    if pg and "ocr_route_version" not in pg:
+        add_column_if_missing(conn, "pages", "ocr_route_version", "TEXT")
+    add_column_if_missing(conn, "page_ocr", "error", "TEXT")
+    add_column_if_missing(conn, "page_ledger", "ocr_reason", "TEXT")
     # --------------------------------------------- AI submittal review, phase 1
     # The submittal-review vocabulary on an existing classification row. Every
     # column is nullable with no default, so an existing row keeps every value

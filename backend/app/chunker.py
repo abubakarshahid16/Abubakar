@@ -2472,9 +2472,9 @@ def chunk_document(doc_id: str, force: bool = False,
     # "ran and failed". Conflating those is the defect the old single rule had.
     ocr_results = {
         r["page_no"]: {"box_count": r["box_count"], "char_count": r["char_count"],
-                       "error": None}
+                       "error": r["error"]}
         for r in conn.execute(
-            "SELECT page_no, box_count, char_count FROM page_ocr WHERE document_id = ?",
+            "SELECT page_no, box_count, char_count, error FROM page_ocr WHERE document_id = ?",
             (doc_id,),
         )
     }

@@ -137,8 +137,11 @@ class Document(BaseModel):
     embedded_count: int
     status: DocStatus
     needs_ocr_pages: int = Field(
-        description="pages with no usable extractable text - candidates for "
-        "recognition. Not the same as recognised_pages: some are simply blank"
+        description="pages routed to recognition (`ocr.route_page`): no usable "
+        "text layer, or mostly scanned image with only a thin text layer (a "
+        "digital header or stamp over a scan). Not the same as recognised_pages: "
+        "some are blank, some failed, and on a page that also has a text layer "
+        "recognition may add nothing new"
     )
     recognised_pages: int = Field(
         0,
@@ -2289,6 +2292,8 @@ class PageLedgerRow(BaseModel):
     native_status: str
     native_chars: int | None = None
     ocr_status: str
+    #: why the page was / was not routed to recognition, or why it failed
+    ocr_reason: str | None = None
     ocr_engine: str | None = None
     ocr_mean_conf: float | None = None
     index_status: str
