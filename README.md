@@ -32,7 +32,7 @@ This is **not** an air-gapped system. It is a **locally-inferencing** system on 
 ```text
 PDF ──▶ stream + SHA-256 ──▶ page batches ──▶ PyMuPDF text ──▶ structure-aware chunks
                                      │                                    │
-                                     │                                    ├──▶ ONNX int8 E5 ──▶ SQLite BLOBs (brute-force)
+                                     │                                    ├──▶ ONNX int8 E5 ──▶ SQLite BLOBs ──▶ sqlite-vec (exact)
                                      │                                    └──▶ SQLite FTS5
                                      ▼
                               resumable checkpoint
@@ -56,7 +56,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 | PDF extraction | PyMuPDF (processes, never threads) |
 | Chunking | Custom structure-aware, 400-token target / 60-token overlap |
 | Embeddings | `intfloat/multilingual-e5-small`, local ONNX int8, 384-D normalized |
-| Vector search | Vectors as BLOBs in SQLite (`chunk_vectors`), memory-mapped into one numpy matrix (`vectorcache.py`), brute-force cosine |
+| Vector search | Vectors as BLOBs in SQLite (`chunk_vectors`, the source of truth), searched through `vector_store.py`: the sqlite-vec `vec0` extension (exact KNN, cosine, in-process, no server) in a derived index file `data/vector_index.sqlite`, with the memory-mapped numpy matrix (`vectorcache.py`) as the automatic exact fallback. The active backend is on System Health |
 | Keyword search | SQLite FTS5 |
 | Fusion | Reciprocal Rank Fusion |
 | Reranking | Small local CPU cross-encoder — **mandatory**, not optional |
@@ -80,7 +80,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 Deliberately excluded from the prototype to protect the deadline:
 
 - ~~**OCR**~~ — **no longer cut.** Scanned pages are recognised offline (RapidOCR / PP-OCRv6, in a subprocess), and recognised text is labelled as such rather than presented as a quotation. Coverage across the corpus rose 94.0% → 96.3%. See `docs/adr/ADR-0005` and `ADR-0006`.
-- **ANN index** — brute-force vector search is faster *and* exact at prototype scale
+- **ANN index** — search is exact (sqlite-vec `vec0` or numpy, both brute force); an approximate index loses recall under per-user document scopes and is not needed below ~0.5-1 M vectors (retrieval audit 2026-09-27)
 - **Retrieval profiles** — one profile (Balanced)
 - ~~**System view**~~ — **no longer four.** Six built views (Dashboard, Documents, Chat, Analysis, Reports, Ingestion) plus an Administration section, per the navigation in `frontend/src/components/Shell.tsx`. History is still folded into Chat.
 - **Playwright** — acceptance testing is manual and evidenced
