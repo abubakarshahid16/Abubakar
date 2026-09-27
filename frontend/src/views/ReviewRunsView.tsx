@@ -415,14 +415,24 @@ export function ReviewRunsView(
               {exporting ? "Preparing…" : "Export CRS - internal review copy"}
             </button>
             {/* Owner order 2f: the contractor's copy. No "AI Review Comments"
-                column and no unconfirmed AI item - only confirmed comments. */}
+                column and no unconfirmed AI item - only confirmed comments.
+                SAFETY GATE (2026-09-27): a copy meant to leave the building
+                must carry a human's decision, not just the machine's
+                recommendation - disabled here AND refused with 409 on the
+                server (`export_review_crs`), so a client that skips this
+                button still cannot get the file. */}
             <button
               type="button" onClick={() => void exportCrs(run.review_run_id, "issue")}
-              disabled={exporting}
+              disabled={exporting || !run.engineer_final_code}
               className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"
             >
               Export CRS - issue to contractor
             </button>
+            {!run.engineer_final_code && (
+              <p className="text-xs text-slateish-400">
+                An engineer must record the final code before issue.
+              </p>
+            )}
             {/* THE SAME SHEET, ON SCREEN. It reads from a sibling route that
                 the server builds from the same builder as the file above, so
                 this is the deliverable rather than a summary of it. */}

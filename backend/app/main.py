@@ -3985,7 +3985,7 @@ def review_vision_reader_status(
                               "application/vnd.openxmlformats-officedocument"
                               ".spreadsheetml.sheet": {}},
                           "description": "The Comment Resolution Sheet"},
-                    **schemas.ERRORS_404, **schemas.ERRORS_422})
+                    **schemas.ERRORS_404, **schemas.ERRORS_409, **schemas.ERRORS_422})
 def export_review_crs(
     review_run_id: str,
     request: Request,
@@ -4006,8 +4006,26 @@ def export_review_crs(
     rendering and the filename: `crs_export.build_crs` draws the client's own
     template, and the meta - including the deliberately BLANK transmittal
     numbers - is documented where it is built.
+
+    THE "ISSUE TO CONTRACTOR" COPY IS GATED (safety group, 2026-09-27): a copy
+    meant to leave the building must carry a human's decision, not just the
+    machine's recommendation. `copy=issue` with no `engineer_final_code` on
+    the run is refused with 409 rather than exported with a recommendation
+    dressed up as a decision. The "internal" copy is unaffected - an engineer
+    reviewing their own work in progress needs no gate.
     """
     reject_unknown_params(request, {"copy"})
+    if copy == "issue":
+        run = submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids)
+        if run is None:
+            raise HTTPException(status_code=404, detail=errors.safe_error(
+                errors.NOT_FOUND, "no review run with that id"))
+        if not run.get("engineer_final_code"):
+            raise HTTPException(status_code=409, detail=errors.safe_error(
+                errors.CODE_NOT_DECIDED,
+                "an engineer must record the final code before this run can "
+                "be issued to the contractor"))
     rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope, copy)
     workbook = crs_export_mod.build_crs(rows, meta)
 

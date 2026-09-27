@@ -50,4 +50,42 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=APP / "comparison.py", anchor='        review._event(conn, row["id"], "created_by_review", {\n',
              replacement='        (lambda *a, **k: None)(conn, row["id"], "created_by_review", {\n',
              target=_C, keyword="starts_its_history", tags=("audit",)),
+    # ---- from the safety group (2026-09-27): "issue to contractor" gated ---
+    Mutation(id="M1130", phase=95,
+             description="safety: the issue-to-contractor CRS export no "
+                         "longer refuses a run with no engineer's final code",
+             path=APP / "main.py",
+             anchor='    reject_unknown_params(request, {"copy"})\n'
+                    '    if copy == "issue":\n'
+                    '        run = submittal_review_mod.get_review_run(\n'
+                    '            review_run_id, allowed_document_ids=scope.allowed_document_ids)\n'
+                    '        if run is None:\n'
+                    '            raise HTTPException(status_code=404, detail=errors.safe_error(\n'
+                    '                errors.NOT_FOUND, "no review run with that id"))\n'
+                    '        if not run.get("engineer_final_code"):\n'
+                    '            raise HTTPException(status_code=409, detail=errors.safe_error(\n'
+                    '                errors.CODE_NOT_DECIDED,\n'
+                    '                "an engineer must record the final code before this run can "\n'
+                    '                "be issued to the contractor"))\n'
+                    '    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope, copy)',
+             replacement='    reject_unknown_params(request, {"copy"})\n'
+                         '    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope, copy)',
+             target="tests/test_crs_endpoint.py",
+             keyword="issue_copy_is_refused_until_an_engineer_decides",
+             tags=("safety", "critical")),
+    Mutation(id="M1131", phase=95, runner="vitest",
+             description="safety: the issue-to-contractor button is no "
+                         "longer disabled before an engineer decides",
+             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
+             anchor='              disabled={exporting || !run.engineer_final_code}\n'
+                    '              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"\n'
+                    '            >\n'
+                    '              Export CRS - issue to contractor\n',
+             replacement='              disabled={exporting}\n'
+                        '              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"\n'
+                        '            >\n'
+                        '              Export CRS - issue to contractor\n',
+             target="src/views/ReviewRunsView.crsPreview.test.tsx",
+             keyword="SAFETY GATE",
+             tags=("safety", "ui")),
 )

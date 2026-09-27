@@ -791,6 +791,12 @@ def test_the_additions_left_the_template_at_seven_columns():
     _number(doc, "EOC-SUB-2024-0417")
     run_id = _run(doc)
     _finding(doc, run_id, "NON_COMPLIANT")
+    # The issue-copy gate (safety group, 2026-09-27) requires an engineer's
+    # final code before this copy may be exported - not what this test is
+    # about, so it is satisfied here rather than worked around.
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET engineer_final_code='Approved'"
+                     " WHERE id = ?", (run_id,))
 
     # The copy ISSUED to the contractor is the template's seven columns; the
     # internal review copy adds only "AI Review Comments", last (owner
@@ -803,3 +809,29 @@ def test_the_additions_left_the_template_at_seven_columns():
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
             for c in range(1, 8)] == HEADERS
     assert ws.max_column == 7
+
+
+def test_the_issue_copy_is_refused_until_an_engineer_decides():
+    """SAFETY GROUP (2026-09-27). A copy meant to leave the building must
+    carry a human's decision, not just the machine's recommendation. With no
+    `engineer_final_code` on the run, `copy=issue` is refused with 409 - the
+    same rule the frontend enforces by disabling the button
+    (`ReviewRunsView.tsx`)."""
+    doc = _submittal()
+    run_id = _run(doc)
+    _finding(doc, run_id, "NON_COMPLIANT")
+
+    response = _client(doc).get(f"/api/reviews/runs/{run_id}/crs",
+                                 params={"copy": "issue"})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "code_not_decided"
+
+    # The internal copy is unaffected by the same gate.
+    assert _client(doc).get(f"/api/reviews/runs/{run_id}/crs").status_code == 200
+
+    # Once an engineer records the final code, the issue copy is allowed.
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET engineer_final_code='Approved'"
+                     " WHERE id = ?", (run_id,))
+    assert _client(doc).get(f"/api/reviews/runs/{run_id}/crs",
+                            params={"copy": "issue"}).status_code == 200
