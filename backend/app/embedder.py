@@ -16,7 +16,7 @@ anywhere, so they are stated explicitly here and asserted by tests:
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -47,11 +47,24 @@ PASSAGE_INPUT_VERSION = "heading-v1"
 
 @dataclass(frozen=True)
 class EmbedderConfig:
+    """How the embedder runs. The defaults are READ FROM SETTINGS.
+
+    They were literals - 12 threads, batch 32 - while `settings.embed_batch_size`
+    (16) sat in config.py unread, so neither could be set from `.env` and the
+    documented value was not the running one (perf audit item 5). Read at
+    construction, so `Embedder.instance(EmbedderConfig())` rebuilds the session
+    when a setting changes rather than keeping the old one.
+    """
+
     model_file: str = "model_qint8_avx512_vnni.onnx"
-    intra_op_threads: int = 12
-    batch_size: int = 32
+    intra_op_threads: int = field(default_factory=lambda: settings.embed_intra_op_threads())
+    batch_size: int = field(default_factory=lambda: settings.embed_batch_size)
     # Group similar-length texts into a batch so padding is not paid for.
     length_bucketed: bool = True
+    #: ONNX Runtime's CPU arena for THIS session (settings.onnx_cpu_arena_embed).
+    #: Part of the config so a changed setting is a changed config, and the
+    #: resident session is rebuilt rather than silently kept.
+    cpu_arena: bool = field(default_factory=lambda: settings.onnx_cpu_arena_embed)
 
 
 def mean_pool(last_hidden_state: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
@@ -93,7 +106,7 @@ class Embedder:
         opts.intra_op_num_threads = self.config.intra_op_threads
         opts.inter_op_num_threads = 1
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        opts.enable_cpu_mem_arena = settings.onnx_cpu_arena_embed
+        opts.enable_cpu_mem_arena = self.config.cpu_arena
         self.session = ort.InferenceSession(
             str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
         )
