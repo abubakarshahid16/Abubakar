@@ -148,4 +148,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="            opts.intra_op_num_threads = settings.num_thread\n",
         target=_T, keyword="session_is_created_with_the_derived_thread_count",
     ),
+    # ---- follow-up: rounding tolerance in the local-lane figure check ------
+    Mutation(
+        id="M1300", phase=_PHASE,
+        description="R9 follow-up: an ordinary rounding (17.2 for 17.24) is treated as "
+                    "an unsupported figure and its sentence is wrongly stripped",
+        path=APP / "answer.py",
+        anchor="                unsupported = {v for v in claimed - spans if not _is_rounding_of(v, spans)}\n",
+        replacement="                unsupported = claimed - spans\n",
+        target=_T, keyword="rounded_figure_is_not_treated_as_unsupported",
+    ),
 )

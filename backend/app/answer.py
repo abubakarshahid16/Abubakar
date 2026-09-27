@@ -531,6 +531,54 @@ _LIST_MARKER = re.compile(r"^\s*(?:[-*+>#]+|\d{1,2}[.)])(?:\s+|$)")
 NUMBERS_NOTICE = ("{n} sentence{s} removed: a figure in {it} was not in the passage "
                   "{it2} cited.")
 
+#: An ordinary rounding is not a wrong figure. A passage stating "17.24 barg"
+#: and an answer saying "17.2 barg" differ by ~0.2% - normal significant-figure
+#: rounding, not an invented number, and treating it as unsupported silently
+#: dropped an accurate sentence. 1% comfortably covers rounding to 2-3
+#: significant figures on the units this project sees (mm/s, barg, mm) while
+#: staying far below the gap a genuinely different figure has: 0.28 mm vs 280
+#: um is a ~1,000,000% mismatch, and this is checked on already-normalised
+#: numbers, so it never masks a units confusion.
+ROUNDING_RELATIVE_TOLERANCE = 0.01
+
+
+def _is_rounding_of(value: str, spans: set[str]) -> bool:
+    """True when `value` (a `synthesis._normalise_number` output) is within
+    ROUNDING_RELATIVE_TOLERANCE of some number in `spans` - an ordinary
+    rounding, never a different figure. A non-numeric token (a clause number
+    like "5.3.2", left un-normalised by `_normalise_number` on purpose) never
+    matches here: it either exact-matches upstream or is a genuine miss.
+    """
+    try:
+        claimed_value = float(value)
+    except ValueError:
+        return False
+    for span in spans:
+        try:
+            span_value = float(span)
+        except ValueError:
+            continue
+        scale = max(abs(claimed_value), abs(span_value), 1e-9)
+        if abs(claimed_value - span_value) <= ROUNDING_RELATIVE_TOLERANCE * scale:
+            return True
+    return False
+
+
+def _first_unsupported_value(segment: str, spans: set[str]) -> str | None:
+    """The first measurement in `segment` that is neither an exact match in
+    `spans` (`synthesis.first_unsupported_value`'s check, untouched) nor an
+    ordinary rounding of one (`_is_rounding_of`) - so the value reported to
+    the reader is a genuinely unsupported one, never a rounded match that
+    only a later token in the sentence turned out to be missing."""
+    from . import synthesis
+
+    held = synthesis.strip_reference_numerals(_CITATION.sub("", segment))
+    for token in synthesis._NUMBER_TOKEN.findall(held):
+        normalised = synthesis._normalise_number(token)
+        if normalised not in spans and not _is_rounding_of(normalised, spans):
+            return token
+    return None
+
 
 def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
     """Remove every sentence stating a figure its cited passage does not contain.
@@ -542,7 +590,12 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
     (reference numerals such as clause, table, page and standard numbers are
     names, not measurements, B34) against `synthesis._numbers` of the cited
     spans - so "0.28 mm [S1]" over a page saying "280 um" is caught the same
-    way here as in a summary.
+    way here as in a summary. An exact miss is then given one more chance:
+    `_is_rounding_of` lets it through when it is an ordinary rounding of a
+    number that IS in the spans (within ROUNDING_RELATIVE_TOLERANCE), so
+    "17.2" is not stripped from a page that says "17.24" - correct, not
+    invented. The synthesis-side exact/thousands-separator normalisation
+    itself is untouched.
 
     A sentence citing passages is held to THOSE passages. An uncited sentence
     (the local format allows "Yes." and bullets under one citation) is held to
@@ -570,9 +623,15 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
                                 if 1 <= int(n) <= len(passages)})
                 spans = (synthesis._numbers(" ".join(
                     passages[n - 1].get("text") or "" for n in cited)) if cited else every)
-                if claimed - spans:
-                    value = (synthesis.first_unsupported_value(segment, spans)
-                             or sorted(claimed - spans)[0])
+                # Exact match (incl. thousands separators, via `spans`/`claimed`
+                # themselves) is unchanged. A claimed number missing from
+                # `spans` is unsupported UNLESS it is an ordinary rounding of
+                # one that is there (_is_rounding_of) - "17.2" for a passage
+                # saying "17.24" is accurate, not invented.
+                unsupported = {v for v in claimed - spans if not _is_rounding_of(v, spans)}
+                if unsupported:
+                    value = (_first_unsupported_value(segment, spans)
+                             or sorted(unsupported)[0])
                     removed.append({"value": value, "cited": cited})
                     continue
             kept.append(segment)

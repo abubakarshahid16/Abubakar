@@ -2,8 +2,8 @@
 
 One section per defect, each test named for the property it pins, so a
 regression says WHICH one broke. Every test here is mutation-proven: the
-entries M1285-M1299 in scripts/mutations/ delete the feature and this file
-must fail.
+entries M1285-M1299 and M1300 in scripts/mutations/ delete the feature and
+this file must fail.
 
   1. ONE TOP-K. The chat searched with limit 3 while the gate claimed 5 and
      the benchmark reported recall@5.
@@ -376,6 +376,26 @@ def test_the_chat_passes_carried_identifiers_to_retrieval_as_soft(monkeypatch):
 
 
 PASSAGE = [{"text": "Vibration shall not exceed 3.0 mm/s RMS per clause 5.3.2 of API 610."}]
+
+
+def test_a_rounded_figure_is_not_treated_as_unsupported():
+    """"17.2 barg" for a passage stating "17.24 barg" is accurate, not
+    invented - an ordinary rounding must not trigger the strip."""
+    passage = [{"text": "Design pressure is 17.24 barg per clause 5.3.2."}]
+    text = "The design pressure is 17.2 barg [S1]."
+    clean, removed = answer_mod.ground_numbers(text, passage)
+    assert clean == text
+    assert removed == []
+
+
+def test_a_genuinely_different_figure_is_still_removed():
+    """A figure well outside rounding distance of anything in the passage is
+    still stripped - the tolerance must not swallow a real miss."""
+    passage = [{"text": "Design pressure is 17.24 barg per clause 5.3.2."}]
+    text = "The design pressure is 20.0 barg [S1]."
+    clean, removed = answer_mod.ground_numbers(text, passage)
+    assert "20.0" not in clean
+    assert removed and removed[0]["value"] == "20.0"
 
 
 def test_a_figure_its_cited_passage_does_not_contain_is_removed():
