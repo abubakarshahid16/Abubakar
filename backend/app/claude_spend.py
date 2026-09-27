@@ -12,6 +12,14 @@ not in the database on purpose - measured runs use disposable database copies,
 and a total kept in a copy would forget every run made against another copy.
 It never holds prompt text, document text or the key.
 
+THE CHECK IS MADE BY EVERY CALLER, OR BY `metered`. `reasoning_provider`
+calls `ensure_affordable` itself before each send and `record` after it.
+The four review routes in `claude_api` go through a raw Messages transport
+instead, so they get `metered(send, step)`: the same worst case, the same
+refusal before the call leaves, the same ledger line after it. There is one
+ledger; the per-run call cap in `claude_budget` is a second, separate limit,
+not a second record of dollars.
+
 PRICES are list prices per million tokens from Anthropic's pricing page
 (platform.claude.com/docs/en/about-claude/pricing, read 2026-09-25). They are
 an ESTIMATE; the invoice is the truth. An unknown model is priced at the most
@@ -19,8 +27,10 @@ expensive family listed, so an estimate errs toward refusing.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -154,3 +164,35 @@ def record(*, step: str, model: str, usage: dict | None, prompt_sha256: str,
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry) + "\n")
     return entry
+
+
+def metered(send, step: str):
+    """Wrap a Messages transport `send(url, *, headers, body, timeout) -> dict`
+    so that every call through it is checked against the caps BEFORE it
+    leaves and written to the ledger AFTER it returns.
+
+    The worst case is `worst_case_usd` - the one estimator - on the request
+    body itself: the model it names, every character of `messages` and
+    `system` as serialised (image data included, which errs toward refusing),
+    and its `max_tokens`. A refusal raises `BudgetExceeded` and `send` is never
+    called. A call that raises is not recorded: the request failed and the API
+    bills no tokens for it. The ledger line carries counts and a digest of the
+    body, never its text. `.usage` of the wrapped transport is carried over so
+    a caller can still read the per-run token counts off the result."""
+    def _metered(url, *, headers, body, timeout):
+        model = str(body.get("model") or "")
+        prompt_chars = (len(json.dumps(body.get("messages") or [], ensure_ascii=False, default=str))
+                        + len(json.dumps(body.get("system") or "", ensure_ascii=False, default=str)))
+        ensure_affordable(step, worst_case_usd(model, prompt_chars, int(body.get("max_tokens") or 0)))
+        started = time.time()
+        payload = send(url, headers=headers, body=body, timeout=timeout)
+        answer = payload if isinstance(payload, dict) else {}
+        record(step=step, model=str(answer.get("model") or model), usage=answer.get("usage"),
+               prompt_sha256=hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False,
+                                                       default=str).encode("utf-8")).hexdigest(),
+               wall_time_s=time.time() - started,
+               finish_reason=str(answer.get("stop_reason") or "error"))
+        return payload
+    _metered.usage = getattr(send, "usage", None)
+    _metered.step = step
+    return _metered
