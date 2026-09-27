@@ -211,6 +211,28 @@ export function ReviewRunsView(
     [runs, selectedRun],
   );
 
+  // BUG GROUP (2026-09-27): "Run AI review" opens its OWN run immediately
+  // (`start`, below) - while it is still queued or running, with no findings
+  // yet, because the job has not written any. The poll above then refreshes
+  // `runs` every 3s so the run card's own status/progress updates - but nothing
+  // told the OPEN FINDINGS PANEL to look again once the job finished, so an
+  // engineer watching the screen saw it sit there with nothing until they
+  // clicked the run card themselves. This tracks the open run's own status
+  // and reloads its findings the moment it leaves "queued"/"running" - the
+  // exact transition `active` above is already watching for, from the other
+  // side (whether ANY run is still active) rather than THIS one's own finish.
+  const openRunStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = openRunStatusRef.current;
+    const current = run?.status ?? null;
+    const wasActive = previous === "queued" || previous === "running";
+    const nowTerminal = current !== null && current !== "queued" && current !== "running";
+    if (selectedRun && wasActive && nowTerminal) {
+      void loadFindings(selectedRun);
+    }
+    openRunStatusRef.current = current;
+  }, [run?.status, selectedRun, loadFindings]);
+
   // 2g: THE PICKER AND THE PANEL NAME THE SAME DOCUMENT. They were two pieces
   // of state: the dropdown kept whatever was last chosen while the panel
   // showed whichever run was opened, so one document sat above another's

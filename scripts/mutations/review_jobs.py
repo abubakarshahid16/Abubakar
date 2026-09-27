@@ -45,4 +45,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M889", phase=77, runner="vitest", description="P3 UI: a pending cancellation is not shown",
              path=_V, anchor="          {run.job.cancel_requested ? \" · cancellation requested, stopping at the next step\" : \"\"}\n",
              replacement="", target=_VT, keyword="cancellation is pending", tags=("honesty", "ui")),
+    Mutation(id="M1135", phase=95, runner="vitest",
+             description="BUG GROUP: the open run's findings no longer "
+                         "auto-reload once its job finishes",
+             path=_V,
+             anchor='    if (selectedRun && wasActive && nowTerminal) {\n',
+             replacement='    if (false) {\n',
+             target=_VT, keyword="reload automatically", tags=("ui", "critical")),
 )
