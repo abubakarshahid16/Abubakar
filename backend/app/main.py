@@ -117,6 +117,18 @@ async def lifespan(app: FastAPI):
     # then rejects everyone looks like a broken deployment.
     auth_mod.install()
     keyword_mod.ensure_schema()
+    # A keyword index written by older indexing code (trailing full stops
+    # glued onto tokens - "MR0175." unsearchable) is rebuilt from `chunks`
+    # here, once, before the worker starts. FTS only: nothing is re-chunked or
+    # re-embedded. See keyword.INDEX_VERSION.
+    _fts = keyword_mod.migrate_index()
+    if _fts["rebuilt"] and _fts["documents"]:
+        import logging as _logging
+
+        _logging.getLogger("uvicorn.error").warning(
+            "keyword index rebuilt to version %s (was %s): %d documents, "
+            "%d chunks, %.1f s", _fts["version"], _fts["from_version"],
+            _fts["documents"], _fts["chunks"], _fts["seconds"])
     review_mod.ensure_schema()
     deliverables_mod.ensure_schema()
     risks_mod.ensure_schema()
