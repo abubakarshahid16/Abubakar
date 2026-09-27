@@ -2116,6 +2116,11 @@ def update_review_finding(
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "review owner not found"))
     changes = body.model_dump(exclude_unset=True)
+    # Owner order section 3: AN EDITED COMMENT IS THE ENGINEER'S, so saving
+    # it confirms it - and a confirmed finding survives a re-run, where an
+    # unconfirmed edit would silently vanish with the rest.
+    if changes.get("engineer_comment"):
+        changes["confirmed"] = True
     # CONFIRMATION IS THE CALLER'S OWN. `confirmed` is a flag on the body; the
     # NAME comes from the authenticated scope and can never be supplied by the
     # client, because a confirmation that can be attributed to someone else is
@@ -3746,8 +3751,10 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         finding["standard_name"] = names.get(finding.get("standard_document_id"))
     # Owner order 2d/2f: a confirmed AI engineering check item is printed
     # "confirmed by <name>" - the engineer's display name, never their id.
+    # Section 3: an edited comment names its editor the same way.
     confirmers = {f["confirmed_by"] for f in findings
-                  if f.get("origin") == "ai_engineering_check" and f.get("confirmed_by")}
+                  if (f.get("origin") == "ai_engineering_check" or f.get("engineer_comment"))
+                  and f.get("confirmed_by")}
     if confirmers:
         marks = ",".join("?" for _ in confirmers)
         people = {r["id"]: r["display_name"] for r in connect().execute(
@@ -3838,6 +3845,66 @@ def _crs_standards(review_run_id: str, submittal_id: str,
                               "its requirements were not checked",
                     "evidence": ""})
     return out
+
+
+@app.get("/api/reviews/readiness/{submittal_document_id}",
+         response_model=schemas.ReviewReadiness,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_readiness(
+    submittal_document_id: str, request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Owner order section 3: the readiness strip. Pages read (N of M) and the
+    standards the submittal cites, held and missing, under the caller's
+    grants - and whether anything changed since the last run, so a re-run
+    that cannot say anything new is asked about first.
+
+    404 when the caller may not read the submittal, like every review route.
+    """
+    reject_unknown_params(request, set())
+    require_document(submittal_document_id, scope)
+    allowed = scope.allowed_document_ids
+    page_ledger_mod.refresh(submittal_document_id, as_submittal=True)
+    pages = page_ledger_mod.coverage(submittal_document_id)
+    missing = _missing_references(submittal_document_id, allowed)
+    runs = submittal_review_mod.list_review_runs(
+        allowed_document_ids=allowed, submittal_document_id=submittal_document_id)
+    # The latest COMPLETED run: a failed or still-running one produced no
+    # result to compare against.
+    last = next((r for r in runs if r.get("status") == "completed"), None)
+    changes: list[str] = []
+    if last is not None:
+        since = last.get("completed_at") or last.get("updated_at") or ""
+        newer_facts = connect().execute(
+            "SELECT COUNT(*) FROM submittal_facts WHERE submittal_document_id = ?"
+            " AND superseded_at IS NULL AND COALESCE(updated_at, created_at) > ?",
+            (submittal_document_id, since)).fetchone()[0]
+        if newer_facts:
+            changes.append(f"{newer_facts} datasheet value(s) read since the last run")
+        newer_standards = [r["filename"] for r in connect().execute(
+            "SELECT d.id, d.filename FROM documents d JOIN document_classification c"
+            " ON c.document_id = d.id WHERE c.document_role = 'COMPANY_STANDARD'"
+            " AND d.uploaded_at > ?", (since,)) if scope.may_read(r["id"])]
+        if newer_standards:
+            changes.append(f"{len(newer_standards)} standard(s) added to the library since the "
+                           f"last run: {', '.join(newer_standards[:5])}")
+    held = [r["filename"] for r in connect().execute(
+        "SELECT DISTINCT d.id, d.filename FROM review_applicable_standards a"
+        " JOIN documents d ON d.id = a.standard_document_id"
+        " WHERE a.review_run_id = ? AND a.included = 1", ((last or {}).get("id"),))
+        if scope.may_read(r["id"])] if last else []
+    return {
+        "submittal_document_id": submittal_document_id,
+        "pages_total": pages.get("pages_total"),
+        "pages_read": len(pages.get("fact_pages") or []),
+        "unread_pages": pages.get("pages_not_read_into_fields") or [],
+        "standards_cited": len(held) + len(missing),
+        "standards_held": held,
+        "standards_missing": missing,
+        "last_run_id": (last or {}).get("id"),
+        "nothing_changed": last is not None and not changes,
+        "changes": changes,
+    }
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs",

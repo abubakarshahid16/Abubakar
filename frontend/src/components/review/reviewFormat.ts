@@ -262,3 +262,91 @@ export function kindLabel(finding: { origin?: string | null }): string {
   if (finding.origin === AI_ENGINEERING_CHECK) return "AI engineering check";
   return "";
 }
+
+/** Owner order section 3: the four totals, in plain words.
+ *
+ *  THE BOUNDARY IS STATED: `counted` is the run's comparison and datasheet
+ *  findings. AI engineering check items (kind C) are drafts with no
+ *  compliance status and are never counted; engineer comments filed from
+ *  chat are comments, not verdicts. "Not applicable" is its own number so
+ *  the four plus it add up to `counted`. A requirement with no value found
+ *  is "could not be checked" - never "meets" (rule 4). */
+export interface SummaryTotals {
+  meets: number;
+  doesNotMeet: number;
+  needsDecision: number;
+  couldNotCheck: number;
+  notApplicable: number;
+  counted: number;
+}
+
+export function summaryTotals(
+  findings: { compliance_status?: string | null; origin?: string | null; approval_status?: string | null }[],
+): SummaryTotals {
+  const totals: SummaryTotals = {
+    meets: 0, doesNotMeet: 0, needsDecision: 0, couldNotCheck: 0, notApplicable: 0, counted: 0,
+  };
+  for (const f of findings) {
+    if (f.origin === AI_ENGINEERING_CHECK || f.origin === "chat") continue;
+    if (f.approval_status === "rejected") continue;
+    const status = f.compliance_status;
+    if (!status) continue;
+    totals.counted += 1;
+    if (status === "COMPLIANT") totals.meets += 1;
+    else if (status === "NON_COMPLIANT") totals.doesNotMeet += 1;
+    else if (status === "NEEDS_ENGINEER_REVIEW" || status === "CONDITIONAL") totals.needsDecision += 1;
+    else if (status === "NOT_APPLICABLE") totals.notApplicable += 1;
+    else totals.couldNotCheck += 1;
+  }
+  return totals;
+}
+
+/** Owner order section 3: comments by kind. A - checked against the text
+ *  of a held standard; B - the datasheet against itself; C - AI engineering
+ *  check, split confirmed / unconfirmed because only a confirmed one goes to
+ *  the contractor. Rejected comments are not counted. */
+export interface KindCounts { a: number; b: number; cConfirmed: number; cUnconfirmed: number }
+
+export function kindCounts(
+  findings: { origin?: string | null; confirmed_by?: string | null; approval_status?: string | null }[],
+): KindCounts {
+  const counts: KindCounts = { a: 0, b: 0, cConfirmed: 0, cUnconfirmed: 0 };
+  for (const f of findings) {
+    if (f.approval_status === "rejected" || f.origin === "chat") continue;
+    if (f.origin === "datasheet_check") counts.b += 1;
+    else if (f.origin === AI_ENGINEERING_CHECK) {
+      if (f.confirmed_by) counts.cConfirmed += 1;
+      else counts.cUnconfirmed += 1;
+    } else counts.a += 1;
+  }
+  return counts;
+}
+
+/** Owner order section 3: runs grouped per document, latest first. The
+ *  first run of each group is the one shown; the rest are "earlier runs". */
+export function groupRunsByDocument<T extends { submittal_document_id: string; created_at?: string | null; review_run_id: string }>(
+  runs: T[],
+): { documentId: string; latest: T; earlier: T[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const run of runs) {
+    const list = groups.get(run.submittal_document_id) ?? [];
+    list.push(run);
+    groups.set(run.submittal_document_id, list);
+  }
+  const newestFirst = (a: T, b: T) =>
+    (b.created_at ?? "").localeCompare(a.created_at ?? "") || b.review_run_id.localeCompare(a.review_run_id);
+  return [...groups.entries()]
+    .map(([documentId, list]) => {
+      const [latest, ...earlier] = [...list].sort(newestFirst);
+      return { documentId, latest, earlier };
+    })
+    .sort((x, y) => newestFirst(x.latest, y.latest));
+}
+
+/** Owner order section 3: the readiness strip's page line, with its
+ *  denominator. Nothing when the page count is unknown (null renders as
+ *  nothing). */
+export function pagesReadLine(r: { pages_total: number | null; pages_read: number }): string {
+  if (r.pages_total == null) return "";
+  return `Pages read: ${r.pages_read} of ${r.pages_total}`;
+}

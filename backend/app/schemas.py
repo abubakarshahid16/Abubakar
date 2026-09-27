@@ -1892,6 +1892,9 @@ class ReviewFindingCreate(BaseModel):
 
 
 class ReviewFindingUpdate(BaseModel):
+    #: Owner order section 3: the engineer's own wording of the comment.
+    #: Saving it also confirms the comment under the caller's name.
+    engineer_comment: str | None = Field(default=None, min_length=1, max_length=4000)
     owner_user_id: str | None = None
     due_date: str | None = None
     severity: ReviewSeverity | None = None
@@ -1991,6 +1994,9 @@ class ReviewFinding(BaseModel):
     #: draft - never a verdict, never counted in the review code). NULL for
     #: every comparison finding.
     origin: str | None = None
+    #: Owner order section 3: the engineer's own wording, when edited. The CRS
+    #: prints it in place of the review's text. Null renders as nothing.
+    engineer_comment: str | None = None
 
 
 class PairRejectionCreate(BaseModel):
@@ -2066,6 +2072,26 @@ class CrsStandardRow(BaseModel):
     method: str = ""
     reason: str = ""
     evidence: str = ""
+
+
+class ReviewReadiness(BaseModel):
+    """Owner order section 3: what a review of this submittal can use, BEFORE
+    it is run - so the engineer uploads a missing standard or re-reads a page
+    first, instead of re-running and expecting a different result."""
+
+    submittal_document_id: str
+    pages_total: int | None = None
+    pages_read: int = 0
+    unread_pages: list[int] = []
+    standards_cited: int = 0
+    standards_held: list[str] = []
+    standards_missing: list[str] = []
+    last_run_id: str | None = None
+    #: True only when a previous run exists and nothing it depended on changed
+    #: since: no datasheet value was read or re-read after it, and no standard
+    #: was added to the library after it.
+    nothing_changed: bool = False
+    changes: list[str] = []
 
 
 class CrsReviewNote(BaseModel):

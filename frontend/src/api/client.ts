@@ -52,6 +52,7 @@ import type {
   ReportVerification,
   ReviewDashboard,
   CrsPreview,
+  ReviewReadiness,
   ReviewRunStandard,
   ReviewRunMissingReference,
   ReviewRunSummary,
@@ -414,6 +415,14 @@ export const reviews = {
    *  have. Shape-checked like every other list on this screen: a body of the
    *  wrong shape reaching the table as `ok` is how one bad response takes a
    *  whole view down. */
+  /** Owner order section 3: the readiness strip - pages read, standards
+   *  held and missing, and whether anything changed since the last run. */
+  readiness: (submittalDocumentId: string) =>
+    request<ReviewReadiness>(
+      `/reviews/readiness/${encodeURIComponent(submittalDocumentId)}`,
+      undefined,
+      hasArrayField("standards_missing"),
+    ),
   previewCrs: (runId: string) =>
     request<CrsPreview>(
       `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,
