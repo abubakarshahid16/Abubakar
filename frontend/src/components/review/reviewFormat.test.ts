@@ -11,10 +11,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  STATUS_ORDER, groupRunsByDocument, kindCounts, kindLabel, completenessLine, estimateDetail,
-  pagesReadLine, standardsChangeLine, confidenceLabel, findingLabel, matchMethodLabel,
-  orNothing, pageCoverageLine, pageList, statusLabel, statusRank, statusTone, summaryTotals,
-  withDenominator,
+  STATUS_ORDER, groupFindingsByTopic, groupRunsByDocument, kindCounts, kindLabel,
+  completenessLine, estimateDetail, pagesReadLine, standardsChangeLine, confidenceLabel,
+  findingLabel, matchMethodLabel, orNothing, pageCoverageLine, pageList, statusLabel,
+  statusRank, statusTone, summaryTotals, withDenominator,
 } from "./reviewFormat";
 import type { ReviewRunSummary } from "../../types/api";
 
@@ -317,5 +317,18 @@ describe("section 3: the readiness strip's page line", () => {
   it("says nothing when the page count is unknown, and states the denominator otherwise", () => {
     expect(pagesReadLine({ pages_total: null, pages_read: 0 })).toBe("");
     expect(pagesReadLine({ pages_total: 5, pages_read: 3 })).toBe("Pages read: 3 of 5");
+  });
+});
+
+describe("section 3: comments grouped by topic", () => {
+  it("groups by the matched field, falls back to equipment tag then Other, sorted with Other last", () => {
+    const groups = groupFindingsByTopic([
+      { matched_phrase: "Design pressure" },
+      { matched_phrase: "Design pressure" },
+      { matched_phrase: null, equipment_tag: "V-101" },
+      { matched_phrase: null, equipment_tag: null },
+    ]);
+    expect(groups.map((g) => g.topic)).toEqual(["Design pressure", "V-101", "Other"]);
+    expect(groups[0].findings).toHaveLength(2);
   });
 });

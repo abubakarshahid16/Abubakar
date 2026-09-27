@@ -3850,19 +3850,10 @@ def _crs_standards(review_run_id: str, submittal_id: str,
 @app.get("/api/reviews/readiness/{submittal_document_id}",
          response_model=schemas.ReviewReadiness,
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def review_readiness(
-    submittal_document_id: str, request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Owner order section 3: the readiness strip. Pages read (N of M) and the
-    standards the submittal cites, held and missing, under the caller's
-    grants - and whether anything changed since the last run, so a re-run
-    that cannot say anything new is asked about first.
-
-    404 when the caller may not read the submittal, like every review route.
-    """
-    reject_unknown_params(request, set())
-    require_document(submittal_document_id, scope)
+def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) -> dict:
+    """Owner order section 3: the readiness strip's own numbers - shared by
+    the GET route and the re-extraction route below, so "what changed" is
+    computed once and cannot drift into two answers (CLAUDE.md rule 8)."""
     allowed = scope.allowed_document_ids
     page_ledger_mod.refresh(submittal_document_id, as_submittal=True)
     pages = page_ledger_mod.coverage(submittal_document_id)
@@ -3905,6 +3896,52 @@ def review_readiness(
         "nothing_changed": last is not None and not changes,
         "changes": changes,
     }
+
+
+def review_readiness(
+    submittal_document_id: str, request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Owner order section 3: the readiness strip. Pages read (N of M) and the
+    standards the submittal cites, held and missing, under the caller's
+    grants - and whether anything changed since the last run, so a re-run
+    that cannot say anything new is asked about first.
+
+    404 when the caller may not read the submittal, like every review route.
+    """
+    reject_unknown_params(request, set())
+    require_document(submittal_document_id, scope)
+    return _readiness_payload(submittal_document_id, scope)
+
+
+@app.post("/api/reviews/readiness/{submittal_document_id}/reread-pages",
+          response_model=schemas.ReviewReadiness,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_reread_pages(
+    submittal_document_id: str, request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Owner order section 3: "Read unread pages" - re-run extraction on this
+    ONE submittal so a page the ledger says is unread gets another try (the
+    rule/geometry readers first, vision only where B7 says they still fail).
+
+    NOTHING IS DELETED. `datasheets.extract_facts(replace=True)` supersedes a
+    stale fact rather than removing it (#179) - a page that is re-read finds
+    the same value again, or a different one, but a value nobody could
+    re-derive from this run is never simply erased.
+
+    NO PASS/FAIL HERE. This route reads fields; it does not compare them to
+    anything and writes no compliance verdict - that is `run_comparison`'s
+    job, on a later, explicit review run.
+
+    404 when the caller may not read the submittal, like every review route.
+    """
+    reject_unknown_params(request, set())
+    require_document(submittal_document_id, scope)
+    datasheets_mod.extract_facts(
+        submittal_document_id, allowed_document_ids=scope.allowed_document_ids,
+        replace=True)
+    return _readiness_payload(submittal_document_id, scope)
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs",

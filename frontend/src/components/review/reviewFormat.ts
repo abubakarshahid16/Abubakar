@@ -350,3 +350,23 @@ export function pagesReadLine(r: { pages_total: number | null; pages_read: numbe
   if (r.pages_total == null) return "";
   return `Pages read: ${r.pages_read} of ${r.pages_total}`;
 }
+
+/** Owner order section 3: comments grouped by topic, so ten findings about
+ *  one field read as one group instead of ten unrelated rows. The topic is
+ *  the field the comment is about - the matched datasheet field name for a
+ *  kind A/C comment, or the equipment tag when there is no field - falling
+ *  back to "Other" rather than dropping a finding that names neither. */
+export function groupFindingsByTopic<
+  T extends { matched_phrase?: string | null; equipment_tag?: string | null },
+>(findings: T[]): { topic: string; findings: T[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const finding of findings) {
+    const topic = finding.matched_phrase || finding.equipment_tag || "Other";
+    const list = groups.get(topic) ?? [];
+    list.push(finding);
+    groups.set(topic, list);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a === "Other" ? 1 : b === "Other" ? -1 : a.localeCompare(b)))
+    .map(([topic, list]) => ({ topic, findings: list }));
+}
