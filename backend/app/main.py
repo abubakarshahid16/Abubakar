@@ -62,6 +62,7 @@ from . import standards as standards_mod
 from . import standards_inventory as standards_inventory_mod
 from . import submittal_review as submittal_review_mod
 from . import workbook as workbook_mod
+from . import vector_store as vector_store_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -176,6 +177,10 @@ async def lifespan(app: FastAPI):
         review_jobs_mod.recover_stale()
     except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
         pass
+    # THE DENSE-SEARCH INDEX: say which backend is active (sqlite-vec, or the
+    # exact numpy fallback and why), and backfill/sync the vec0 index from
+    # chunk_vectors before the first question pays for it. Never raises.
+    vector_store_mod.startup()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()

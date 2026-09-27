@@ -470,6 +470,15 @@ def _queue() -> dict:
     return job_queue.queue_counts(*ingest.pending_documents_clause())
 
 
+def _vector_store_status(host: bool) -> dict | None:
+    from . import vector_store
+
+    try:
+        return vector_store.status(include_counts=host)
+    except Exception:  # noqa: BLE001 - a status probe must not break the dashboard
+        return None
+
+
 def snapshot(worker_status: dict, allowed: Allowed = None,
              corpus_wide: bool = False, host: bool = False) -> dict:
     """Everything the dashboard shows, restricted to `allowed`.
@@ -515,6 +524,11 @@ def snapshot(worker_status: dict, allowed: Allowed = None,
         # readers. Omitted, not zeroed, for everyone else.
         **({"queue": _queue()} if host else {}),
         "models": models(),
+        # Which dense-search backend is ACTIVE and, when it is the exact
+        # numpy fallback, why - never a silent downgrade. The vector counts
+        # are corpus-wide, so they ride the admin gate like `system`; the
+        # backend itself is not about anybody's documents.
+        "vector_store": _vector_store_status(host),
         "worker": _scoped_worker(worker_status, allowed, corpus_wide),
         "warnings": warnings(allowed, host),
     }

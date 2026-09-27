@@ -20,12 +20,10 @@ import re
 import sqlite3
 from dataclasses import dataclass, field
 
-import numpy as np
-
 from . import keyword
 from . import progress
 from . import scores
-from . import vectorcache
+from . import vector_store
 from .db import connect
 from .config import settings
 from .embedder import Embedder, EmbedderConfig
@@ -205,29 +203,6 @@ class Candidate:
 # --------------------------------------------------------------- dense side
 
 
-def _load_vectors(document_id: str | None = None) -> tuple[list[str], np.ndarray]:
-    """All stored vectors for retrievable chunks, as one matrix.
-
-    Served from a memory-mapped cache, rebuilt only when the corpus changes.
-    Re-reading every blob from SQLite per query was the only component of
-    retrieval measured to grow with the corpus (x2.11 across a doubling, while
-    the matmul grew x1.05).
-
-    The underlying read is joined against `chunks` so a vector orphaned by a
-    re-chunk can never be retrieved, and filtered on `retrievable` so an
-    excluded chunk cannot come back through the dense path even if it slipped
-    past the index.
-
-    Reranking is an enhancement, never a dependency, and the same rule applies
-    here: if the cache cannot be built or mapped for any reason, the direct
-    read still answers the query.
-    """
-    try:
-        return vectorcache.load(document_id)
-    except Exception:  # noqa: BLE001 - never let a cache fault break retrieval
-        return vectorcache._read_from_db(document_id)
-
-
 def dense_search(
     question: str,
     limit: int = 30,
@@ -235,52 +210,24 @@ def dense_search(
     *,
     allowed_document_ids: frozenset[str],
 ) -> list[dict]:
-    """Brute-force cosine. Returns [] when nothing is embedded yet.
+    """Exact cosine over the current vectors. Returns [] when nothing is
+    embedded yet, and never loads the model when nothing is in scope.
 
     `allowed_document_ids` is REQUIRED and keyword-only - see keyword.search
     for why it has no default.
 
-    The mask is applied to the score vector BEFORE top-k selection. Taking the
-    top k and then dropping unauthorised rows would silently shrink the result
-    set, and the size of that shrinkage would itself leak how much matching
-    material exists in documents the caller cannot see.
+    Storage, the backend (sqlite-vec or the exact numpy matrix), and the scope
+    filter live in `vector_store.search`. The scope is applied BEFORE top-k
+    there, on every backend: taking the top k and then dropping unauthorised
+    rows would silently shrink the result set, and the size of that shrinkage
+    would itself leak how much matching material exists in documents the
+    caller cannot see.
     """
-    ids, matrix = _load_vectors(document_id)
-    if not ids:
-        return []
-    if not allowed_document_ids:
-        return []
-
-    query_vec = Embedder.instance(EmbedderConfig()).embed_queries([question])[0]
-    # both sides are unit length, so the dot product IS the cosine
-    scores = matrix @ query_vec
-
-    # Which rows are in scope. The vector cache is keyed by chunk, so the
-    # document each chunk belongs to is resolved once here rather than per row.
-    owner = _chunk_owner_map()
-    mask = np.array(
-        [owner.get(cid) in allowed_document_ids for cid in ids], dtype=bool
+    return vector_store.search(
+        lambda: Embedder.instance(EmbedderConfig()).embed_queries([question])[0],
+        limit=limit, document_id=document_id,
+        allowed_document_ids=allowed_document_ids,
     )
-    if not mask.any():
-        return []
-    # -inf rather than deletion: the index positions stay aligned with `ids`,
-    # and an out-of-scope row can never be selected however high it scored.
-    scores = np.where(mask, scores, -np.inf)
-
-    top = np.argsort(-scores)[:limit]
-    return [
-        {"chunk_id": ids[i], "cosine": float(scores[i])}
-        for i in top
-        if np.isfinite(scores[i])
-    ]
-
-
-def _chunk_owner_map() -> dict[str, str]:
-    """chunk_id -> document_id, for masking the dense matrix by scope."""
-    return {
-        r["id"]: r["document_id"]
-        for r in connect().execute("SELECT id, document_id FROM chunks")
-    }
 
 
 def every_document_id() -> frozenset[str]:
