@@ -36,7 +36,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import review
-from .db import add_column_if_missing, connect
+from .db import add_column_if_missing, connect, schema_once
 
 
 def _now() -> str:
@@ -74,6 +74,7 @@ def _scope_clause(
     return f" WHERE {column} IN ({marks})", sorted(allowed_document_ids)
 
 
+@schema_once
 def ensure_schema() -> None:
     """Create this module's tables. Idempotent, and safe to call repeatedly.
 

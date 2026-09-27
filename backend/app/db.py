@@ -1,5 +1,6 @@
 """SQLite storage. WAL mode, foreign keys on, one connection per thread."""
 
+import functools
 import sqlite3
 import threading
 from pathlib import Path
@@ -744,8 +745,90 @@ def connect() -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = 30000")
+        # DURABILITY, STATED HONESTLY. SQLite's default `synchronous=FULL`
+        # fsyncs the WAL on EVERY commit; measured 4.8 s of fsync for the
+        # 1,355 per-finding commits of one review run (perf audit item 1).
+        # Under WAL, NORMAL fsyncs only at checkpoints. It is still safe
+        # against an APPLICATION crash (a killed server loses nothing
+        # committed) and the file cannot corrupt, but a POWER CUT or OS crash
+        # can roll back the last few transactions committed before it.
+        # `SQLITE_SYNCHRONOUS=FULL` in backend/.env restores the old behaviour.
+        conn.execute(f"PRAGMA synchronous = {sqlite_synchronous()}")
         _local.conn = conn
     return conn
+
+
+#: The two values `settings.sqlite_synchronous` may take. Anything else would
+#: be interpolated into a PRAGMA, so it is refused rather than passed through.
+SYNCHRONOUS_MODES = ("FULL", "NORMAL")
+
+
+def sqlite_synchronous() -> str:
+    """The configured `PRAGMA synchronous` level, validated."""
+    mode = str(settings.sqlite_synchronous).strip().upper()
+    if mode not in SYNCHRONOUS_MODES:
+        raise ValueError(
+            f"SQLITE_SYNCHRONOUS must be one of {', '.join(SYNCHRONOUS_MODES)}, "
+            f"not {settings.sqlite_synchronous!r}")
+    return mode
+
+
+# --------------------------------------------------------- schema memo
+#
+# EVERY `ensure_schema` RAN ON EVERY CALL. They are called from read paths -
+# deliberately, so a module's tables exist before its first query - and each
+# one is ~150 `PRAGMA table_info` / `CREATE ... IF NOT EXISTS` statements.
+# Measured (perf audit items 1 and 9): 3.6 ms per call, 392 of the 397 SQL
+# statements behind `/api/reviews/runs/{id}/standards`, and one call per
+# finding written by a review run.
+#
+# KEYED ON `PRAGMA schema_version`, NOT ON "already ran once". The schema
+# version is SQLite's own counter, bumped by every CREATE, ALTER and DROP from
+# ANY connection or process. So the memo is exact rather than hopeful: after a
+# test drops a table, a migration adds a column, or `settings.db_path` points
+# at a new file, the version differs and the full check runs again. What the
+# memo saves is re-proving, 150 statements at a time, a schema nothing has
+# touched since the last proof. One PRAGMA per call remains.
+_schema_memo: dict[tuple[str, str], int] = {}
+
+
+def _schema_version(conn: sqlite3.Connection) -> int:
+    return conn.execute("PRAGMA schema_version").fetchone()[0]
+
+
+def schema_once(fn):
+    """Decorate an `ensure_schema`: skip it while the schema is unchanged.
+
+    `keyword.ensure_schema` takes an optional connection. Passed THIS thread's
+    own connection (what every caller in the app passes) it is memoised like
+    the rest; passed any other connection it simply runs, because the memo
+    describes the database behind `connect()` and nothing else.
+    """
+    name = f"{fn.__module__}.{fn.__qualname__}"
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        given = args[0] if args else kwargs.get("conn")
+        if len(args) > 1 or set(kwargs) - {"conn"} or (
+                given is not None and given is not getattr(_local, "conn", None)):
+            return fn(*args, **kwargs)
+        conn = connect()
+        key = (name, str(settings.db_path))
+        if _schema_memo.get(key) == _schema_version(conn):
+            return None
+        result = fn(*args, **kwargs)
+        # Recorded AFTER the function, so its own DDL is part of the proven
+        # state. A function that raised records nothing and runs again.
+        _schema_memo[key] = _schema_version(conn)
+        return result
+
+    wrapper.uncached = fn
+    return wrapper
+
+
+def reset_schema_memo() -> None:
+    """Forget every proven schema, so the next `ensure_schema` runs in full."""
+    _schema_memo.clear()
 
 
 def columns_of(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -1074,8 +1157,18 @@ def init_db(path: Path | None = None) -> None:
     conn.commit()
 
 
+def close_thread_connection() -> None:
+    """Close THIS thread's connection, if it has one. The schema memo is kept:
+    closing a connection changes nothing about the database's shape."""
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        conn.close()
+        _local.conn = None
+
+
 def reset_connection() -> None:
     """Test helper - drop the thread-local connection."""
+    reset_schema_memo()
     conn = getattr(_local, "conn", None)
     if conn is not None:
         conn.close()

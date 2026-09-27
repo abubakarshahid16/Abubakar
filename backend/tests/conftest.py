@@ -181,6 +181,20 @@ def _the_model_tier_is_off_unless_a_test_asks_for_it():
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _the_startup_warmup_is_off_unless_a_test_asks_for_it():
+    """Pin `startup_warmup` off, for the reason `match_enabled` is pinned.
+
+    Every `with TestClient(app)` runs the lifespan. Left on, each one would
+    start a background thread loading two ONNX models and harvesting acronyms
+    while the test ran - CPU contention and a thread racing the test's own
+    teardown, in hundreds of tests that are not about warm-up. The warm-up's
+    own tests (test_perf_quick_wins.py) turn it on deliberately.
+    """
+    settings.startup_warmup = False
+    yield
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _never_the_developers_database(tmp_path_factory):
     """Point the DEFAULT database at a temp file for the whole session.
 

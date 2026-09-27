@@ -27,13 +27,13 @@ from . import page_ledger as page_ledger_mod
 from . import highlight as highlight_mod
 from . import keyword as keyword_mod
 from . import metrics as metrics_mod
-from . import acronyms as acronyms_mod
 from . import answer as answer_mod
 from . import search as search_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
 from . import watcher as watcher_mod
 from . import watch_api as watch_api_mod
+from . import warmup as warmup_mod
 from .api_utils import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
@@ -200,13 +200,13 @@ async def lifespan(app: FastAPI):
     # start_watcher() returns a reason string rather than raising when it does
     # not start, so a machine with no drop folder boots exactly as before.
     watcher_mod.start_watcher()
-    # Harvest acronym expansions once at startup rather than lazily on the
-    # first question. It scans the whole corpus and takes ~2.5s, which is
-    # fine here and is not fine added to a 1.3s answer.
-    try:
-        acronyms_mod.harvest()
-    except Exception:  # noqa: BLE001 - a missing expansion map is not fatal
-        pass
+    # WARM THE FIRST QUESTION'S COSTS IN THE BACKGROUND: the embedder and
+    # reranker sessions and the acronym maps. This used to be
+    # `acronyms_mod.harvest()` inline, which raised TypeError (the scope
+    # argument is required) inside `except Exception: pass`, so nothing was
+    # ever warmed and nothing said so. `warmup` runs in a daemon thread, never
+    # blocks this start, never writes the database, and logs any failure.
+    warmup_mod.start()
     yield
     watcher_mod.stop_watcher()
     ingest_mod.stop_worker()

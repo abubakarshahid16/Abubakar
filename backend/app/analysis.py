@@ -687,7 +687,7 @@ def ollama_generate(system: str, prompt: str) -> synthesis.Generation:
             "num_thread": settings.num_thread,
             "num_batch": settings.num_batch,
         },
-        "keep_alive": "30m",
+        "keep_alive": settings.ollama_keep_alive,
     }
     # THROUGH THE ONE TRANSPORT. `prompt` comes from `synthesis.build_prompt`
     # over the evidence, so this request carries document passages verbatim.

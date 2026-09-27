@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -294,6 +295,12 @@ class Settings(BaseSettings):
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12
     num_batch: int = 2048
+    #: How long Ollama keeps the answer model resident after a call. SENT BY
+    #: EVERY CALL SITE through `model_transport.runner_options` - one path
+    #: (OllamaProvider) sent none, so Ollama's 5-minute default unloaded the
+    #: model during a demo pause and the next question paid the cold load
+    #: (23.6 s on the laptop, docs/benchmarks.md).
+    ollama_keep_alive: str = "30m"
     # 1536 -> 4096, and this is a DECISION, not a tuning pass. The execution
     # plan's change budget forbade touching model settings mid-sprint so the
     # evidence base would stay comparable; the project owner overrode that
@@ -433,9 +440,38 @@ class Settings(BaseSettings):
     #: 54x the largest real document and had never been measured against
     #: anything.
     max_upload_mb: int = 512
+    #: `PRAGMA synchronous` for every connection (db.connect). NORMAL under
+    #: WAL: safe against an application crash, cannot corrupt the file, but a
+    #: power cut or OS crash can lose the last few committed transactions.
+    #: FULL fsyncs every commit - measured 4.8 s of fsync for one 1,355-finding
+    #: review run written a finding at a time. Only FULL or NORMAL accepted.
+    sqlite_synchronous: str = "NORMAL"
+    #: How many per-document acronym maps `acronyms` keeps (LRU). A map is a
+    #: few KB; 4096 covers the 275-document corpus fifteen times over.
+    acronym_cache_documents: int = 4096
+    #: How many per-SCOPE merged acronym maps are kept (LRU): one per distinct
+    #: (document, caller scope) pair recently asked about.
+    acronym_cache_scopes: int = 64
+    #: Warm the embedder, reranker and acronym maps in a background thread at
+    #: startup, so the first question does not pay the model loads. Never
+    #: blocks the server start and never writes the database.
+    startup_warmup: bool = True
     page_batch_size: int = 32
     extract_processes: int = 1
+    #: Passages per embedder forward pass. READ by `embedder.EmbedderConfig`
+    #: (it used to be declared here and ignored: the embedder hard-coded 32).
+    #: Measured with `bench_embed2.py` (2 threads, arena on): bs 16 peaks at
+    #: 1,466 MB and bs 32 at 2,203 MB for the same passages/s; bs 64 peaks at
+    #: 4,580 MB. Vectors are identical across batch sizes (checked, max
+    #: difference 0.0), so this is a memory setting, not an accuracy one.
     embed_batch_size: int = 16
+    #: ONNX intra-op threads for the e5 embedder. 0 means "derive": half the
+    #: logical cores, at least 1 (`embed_intra_op_threads`). It was a
+    #: hard-coded 12, which is MORE threads than the demo box's 4C/8T has and
+    #: measured 4.2x slower than 1 thread on a 2-vCPU box (0.95 against 4.00
+    #: passages/s; single query 43.5 ms against 7.5 ms). Set EMBED_THREADS to
+    #: pin it per machine.
+    embed_threads: int = 0
 
     # ------------------------------------------------------- job retries (#177)
     #: How many times a failed stage is RE-TRIED before it is poisoned. Three
@@ -692,7 +728,17 @@ class Settings(BaseSettings):
     #: Left configurable because 503 MB against 3,247 MB is a real option on a
     #: machine that demos at 92% RAM - but it buys stability, not speed.
     onnx_cpu_arena_rerank: bool = True
-    onnx_cpu_arena_embed: bool = True
+    #: THE EMBEDDER'S ARENA IS NOW OFF BY DEFAULT (perf audit item 5). The
+    #: reasoning above is about the RERANKER, whose arena buys ~575 ms per
+    #: query and stays on. The embedder is different: queries need one 8 ms
+    #: single-text embed, and the arena it grows while INGESTING is held for
+    #: the life of the process. Measured (bench_embed2.py, bs 16, 1 thread):
+    #: arena on peaks at 1,466 MB and 4.00 passages/s, arena off at 958 MB and
+    #: 3.86 passages/s (within the noise of a shared box); vectors are
+    #: identical. The laptop table above measured 6.9 -> 5.7 c/s with BOTH
+    #: arenas off at 12 threads, so re-measure on the laptop; set
+    #: ONNX_CPU_ARENA_EMBED=true to restore the old behaviour.
+    onnx_cpu_arena_embed: bool = False
     # Small-to-big. Retrieval runs on the small chunk; the reader is shown
     # the surrounding parent block, expanded to neighbours up to this many
     # characters. The generated budget is smaller because three sources have
@@ -1050,6 +1096,12 @@ class Settings(BaseSettings):
         if self.smtp_timeout_seconds <= 0:
             raise NotificationConfigError("SMTP_TIMEOUT_SECONDS must be positive")
         return self
+
+    def embed_intra_op_threads(self) -> int:
+        """`embed_threads`, or half the logical cores (at least 1) when 0."""
+        if self.embed_threads and self.embed_threads > 0:
+            return int(self.embed_threads)
+        return max(1, (os.cpu_count() or 2) // 2)
 
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.upload_dir):

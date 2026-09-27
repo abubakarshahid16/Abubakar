@@ -50,7 +50,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from . import datasheets, db, standards
-from .db import connect
+from .db import connect, schema_once
 
 # --------------------------------------------------------------- vocabulary
 
@@ -135,6 +135,7 @@ def default_licence_status(family: str, *, held: bool) -> str:
 
 # ------------------------------------------------------------------ schema
 
+@schema_once
 def ensure_schema() -> None:
     """Additive columns on `document_classification`. Safe to call every
     request; `add_column_if_missing` is the project's own race-safe helper.
