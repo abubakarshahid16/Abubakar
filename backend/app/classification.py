@@ -379,6 +379,17 @@ _EQUIPMENT_TYPE_PATTERNS: tuple[tuple[str, "re.Pattern[str]", float], ...] = (
      0.85),
     ("Centrifugal Pump", re.compile(r"centrifugal\s+pumps?", re.I), 0.85),
     ("Pump", re.compile(r"pumps?\s+data\s*sheet", re.I), 0.75),
+    # 2026-09-27: two categories `datasheet_checks.json`'s mandatory table
+    # names but the classifier never recognised - measured the same way as
+    # the patterns above, the exact wording a real cover sheet uses to name
+    # itself, never a generic word alone (a "compressor" mentioned in a
+    # pump sheet's utility air supply is not a compressor datasheet).
+    ("Centrifugal Compressor", re.compile(r"centrifugal\s+compressors?", re.I), 0.85),
+    ("Reciprocating Compressor", re.compile(r"reciprocating\s+compressors?", re.I), 0.85),
+    ("Compressor", re.compile(r"compressors?\s+data\s*sheet", re.I), 0.75),
+    ("Heat Exchanger",
+     re.compile(r"heat\s+exchangers?|shell\s*(?:-|and)?\s*(?:-|and)?\s*tube\s+exchangers?", re.I),
+     0.8),
     ("Pressure Vessel", re.compile(r"pressure\s+vessels?", re.I), 0.8),
 )
 

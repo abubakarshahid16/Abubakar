@@ -53,4 +53,19 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="",
              target="src/components/review/reviewFormat.test.ts", keyword="datasheet check says what kind",
              tags=("ui",)),
+
+    # -------------------------------------------------------- 2026-09-27 fix
+    # Fix 3: `equipment_type` is NULL on almost every submittal (nothing
+    # wrote it before B9's classifier, and the classifier itself only
+    # matches evidence it can find). `mandatory.get(equipment_type or "", [])`
+    # silently checked NOTHING for every one of them - not one of these
+    # checks has ever fired on an unclassified datasheet.
+    Mutation(id="M1127", phase=94,
+             description="the generic mandatory-fields fallback is skipped for an unknown equipment_type",
+             path=_M,
+             anchor="    mandatory = rules[\"mandatory\"].get(equipment_type) if equipment_type else None\n"
+                    "    if mandatory is None:\n"
+                    "        mandatory = rules[\"mandatory\"].get(\"_generic\", [])\n",
+             replacement="    mandatory = rules[\"mandatory\"].get(equipment_type or \"\", [])\n",
+             target=_T, keyword="generic_mandatory_list", tags=("honesty", "critical")),
 )

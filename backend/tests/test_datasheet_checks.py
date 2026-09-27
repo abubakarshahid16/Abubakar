@@ -106,9 +106,38 @@ def test_a_mandatory_field_absent_or_tba_is_a_missing_value():
     assert results["DS-M2"]["detail"].startswith("Hydrotest pressure is marked 'TBA' on page 1")
 
 
-def test_no_mandatory_list_for_an_unknown_equipment_type():
-    assert not [k for k in run(full_vessel(**{"corrosion allowance": None}), equipment_type=None)
-                if k.startswith("DS-M")]
+def test_a_generic_mandatory_list_applies_when_equipment_type_is_unknown():
+    """2026-09-27: `equipment_type` is unknown/unconfirmed on most submittals
+    (it is NULL until B9's classifier or an engineer sets it), and this must
+    never mean "check nothing" - only a NARROWER, generic minimum than a
+    known equipment type gets, never zero.
+
+    Missing a GENERIC field (design temperature: in every equipment type's
+    own mandatory list) is still caught with no equipment_type. Missing a
+    field that is mandatory ONLY for a known Pressure Vessel (corrosion
+    allowance is not in the generic list) is not invented for an unknown
+    type - the fallback is a real minimum, not a guess at what this is.
+    """
+    results = run(full_vessel(**{"design temperature": None, "corrosion allowance": None}),
+                 equipment_type=None)
+    ds_m = {k: r for k, r in results.items() if k.startswith("DS-M")}
+    assert ds_m, "the generic fallback must still check the universal fields"
+    assert "Design temperature was not found" in ds_m["DS-M1"]["detail"]
+    assert ds_m["DS-M1"]["text"] == "Design temperature is a mandatory field for any datasheet."
+    assert not any("Corrosion allowance" in r["text"] for r in ds_m.values()), (
+        "corrosion allowance is Pressure-Vessel-specific, not generic - an "
+        "unknown type must not guess it applies"
+    )
+
+
+def test_the_generic_fallback_also_applies_to_an_unrecognised_equipment_type():
+    """A string that IS set but has no entry in the mandatory table (a type
+    this file's author never anticipated) gets the same generic minimum,
+    never an empty list either."""
+    results = run(full_vessel(**{"design temperature": None}), equipment_type="Some New Skid Package")
+    ds_m = {k: r for k, r in results.items() if k.startswith("DS-M")}
+    assert ds_m
+    assert "for a Some New Skid Package" in ds_m["DS-M1"]["text"]
 
 
 def test_a_value_without_its_unit_or_in_the_wrong_kind_of_unit():

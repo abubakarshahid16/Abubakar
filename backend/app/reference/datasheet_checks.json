@@ -33,7 +33,11 @@
   "mandatory": {
     "Pressure Vessel": ["design_pressure", "design_temperature", "test_pressure", "corrosion_allowance", "operating_pressure", "operating_temperature"],
     "Centrifugal Pump": ["rated_flow", "design_pressure", "design_temperature", "operating_temperature"],
-    "Pump": ["rated_flow", "design_pressure", "design_temperature", "operating_temperature"]
+    "Pump": ["rated_flow", "design_pressure", "design_temperature", "operating_temperature"],
+    "Pressure Safety Valve": ["design_pressure", "design_temperature"],
+    "Compressor": ["rated_flow", "design_pressure", "design_temperature", "operating_temperature"],
+    "Heat Exchanger": ["design_pressure", "design_temperature", "test_pressure"],
+    "_generic": ["design_pressure", "design_temperature"]
   },
   "needs_unit": ["design_pressure", "operating_pressure", "test_pressure", "design_temperature", "operating_temperature", "rated_flow", "min_flow", "max_flow", "corrosion_allowance"]
 }

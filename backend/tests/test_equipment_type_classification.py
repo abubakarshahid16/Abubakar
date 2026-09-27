@@ -137,6 +137,21 @@ Reference: Letter 4521 dated earlier this month regarding scheduling
 No equipment of any kind is named anywhere on this particular page.
 """
 
+# 2026-09-27: the two categories the mandatory-fields table (Fix 3) names
+# that the classifier did not yet recognise.
+COMPRESSOR_COVER = """Sheet 1 of 4
+CENTRIFUGAL COMPRESSOR DATA SHEET
+Item No.: 21-K-101
+Doc. No.: SITE-DAS-M-09
+This document is subject to detail design verification.
+"""
+EXCHANGER_COVER = """Page 1 of 6
+SHELL AND TUBE HEAT EXCHANGER DATA SHEET
+Item No.: 21-E-205
+Design Standard: TEMA Class R
+This document is subject to detail design verification.
+"""
+
 
 def _submittal(client, tmp_path, name, pages) -> str:
     doc_id = _upload(client, tmp_path, name, pages)
@@ -178,6 +193,30 @@ def test_a_psv_datasheet_is_classified_as_a_valve_not_a_pump(tmp_path):
     evidence = json.loads(record["equipment_type_evidence"])
     assert evidence["page"] == 1
     assert "pressure safety valve" in evidence["quote"].lower()
+
+
+def test_a_compressor_datasheet_is_classified_as_a_compressor(tmp_path):
+    """2026-09-27 Fix 3: compressor is one of the categories the mandatory
+    check now has a fields list for - the classifier must recognise it."""
+    client = TestClient(app)
+    doc_id = _submittal(client, tmp_path, "compressor.pdf", [COMPRESSOR_COVER])
+
+    record = _classification(doc_id)
+    assert record["equipment_type"] == "Centrifugal Compressor", record
+    evidence = json.loads(record["equipment_type_evidence"])
+    assert "centrifugal compressor" in evidence["quote"].lower()
+    assert evidence["confidence"] < 0.9
+
+
+def test_an_exchanger_datasheet_is_classified_as_a_heat_exchanger(tmp_path):
+    """2026-09-27 Fix 3: heat exchanger, likewise."""
+    client = TestClient(app)
+    doc_id = _submittal(client, tmp_path, "exchanger.pdf", [EXCHANGER_COVER])
+
+    record = _classification(doc_id)
+    assert record["equipment_type"] == "Heat Exchanger", record
+    evidence = json.loads(record["equipment_type_evidence"])
+    assert "heat exchanger" in evidence["quote"].lower()
 
 
 def test_a_vessel_datasheet_is_classified_from_its_body_text(tmp_path):
