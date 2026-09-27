@@ -22,7 +22,9 @@ WHAT THIS MODULE IS. Pure: no database, no model, no network.
 2b, THE RIGHT FIELD. `judge` pairs the rule's OUTPUT field for the verdict and
 records the INPUT used. Output absent -> MISSING_INFORMATION ("design pressure
 not stated"); input absent -> the required value cannot be calculated, so an
-engineer decides. The input is never compared against the rule.
+engineer decides. The input is never compared against the rule. A field the
+datasheet states twice with DIFFERENT values is a conflict, not an absence:
+NEEDS_ENGINEER_REVIEW, every value named with its page.
 
 A rule is written as data:
 
@@ -291,27 +293,88 @@ KNOWN_RULES = (
 )
 
 
-def _field(facts: list[dict], names) -> dict | None:
+#: The three states a datasheet field can be in for a rule. A CONFLICT is not
+#: an absence: two rows for one field with different values is something the
+#: sheet SAYS, and the engineer must reconcile it - reporting it as "not
+#: stated" hid a real disagreement behind a false absence.
+ABSENT = "absent"
+SINGLE = "single"
+CONFLICT = "conflict"
+
+#: Rationale tag for a field the datasheet states more than once, differently.
+CONFLICTING_VALUES = "conflicting_values"
+
+
+def _value_of(fact: dict) -> str:
+    return " ".join((fact.get("field_value") or "").split())
+
+
+def _read_field(facts: list[dict], names) -> tuple[str, list[dict]]:
+    """(state, the fact rows for the field). ABSENT: no row. SINGLE: every row
+    carries the same value (the first row is judged). CONFLICT: the rows
+    carry different values - no value is chosen."""
     from .datasheets import normalise_field_name
     wanted = {normalise_field_name(n) for n in names}
     hits = [f for f in facts if normalise_field_name(f.get("field_name") or "") in wanted]
-    values = {(f.get("field_value") or "").strip() for f in hits}
-    return hits[0] if len(values) == 1 else None
+    if not hits:
+        return ABSENT, []
+    return (SINGLE if len({_value_of(f) for f in hits}) == 1 else CONFLICT), hits
+
+
+def _conflict_words(field: str, hits: list[dict]) -> str:
+    """Every distinct value with the page(s) it was read on - the citation
+    for each side of the disagreement (CLAUDE.md rule 4)."""
+    pages: dict[str, list] = {}
+    for f in hits:
+        seen = pages.setdefault(_value_of(f), [])
+        if f.get("page") is not None and f.get("page") not in seen:
+            seen.append(f.get("page"))
+    parts = []
+    for value, where in pages.items():
+        shown = f"'{value}'" if value else "blank"
+        cite = (f" (page {', '.join(str(p) for p in where)})" if where
+                else " (page not recorded)")
+        parts.append(shown + cite)
+    return (f"{CONFLICTING_VALUES}: the datasheet states conflicting values for "
+            f"{field}: {'; '.join(parts)}")
 
 
 def judge(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
     """(verdict, fact judged) for a parsed rule against the datasheet's facts.
 
     The OUTPUT field is judged; the INPUT is only used to compute the
-    required value, and is named in the rationale.
+    required value, and is named in the rationale. A field the datasheet
+    states twice with different values is a CONFLICT: never judged, never
+    "not stated" - NEEDS_ENGINEER_REVIEW with every value and its page.
     """
-    output = _field(facts, [rule["output"]])
-    inp = _field(facts, rule.get("input_names") or [rule["input"]])
+    out_state, out_hits = _read_field(facts, [rule["output"]])
+    in_state, in_hits = _read_field(facts, rule.get("input_names") or [rule["input"]])
+    output = out_hits[0] if out_state == SINGLE else None
+    inp = in_hits[0] if in_state == SINGLE else None
+    if out_state == CONFLICT:
+        # The first row is returned so the finding cites a real page on the
+        # submittal; the rationale names every value and page.
+        return ({"status": NEEDS_ENGINEER_REVIEW,
+                 "rationale": (f"{RULE_REASON}: {_conflict_words(rule['output'], out_hits)}; "
+                               "no value was chosen and the rule was not applied - "
+                               "an engineer reconciles the datasheet"),
+                 "limit": None, "observed": None, "exception_applied": None}, out_hits[0])
     if output is None or output.get("is_blank"):
+        input_note = ""
+        if inp:
+            input_note = (f" (input {inp.get('field_label') or inp.get('field_name')} "
+                          f"{inp.get('field_value')} was found)")
+        elif in_state == CONFLICT:
+            input_note = f" ({_conflict_words(rule['input'], in_hits)})"
         return ({"status": MISSING_INFORMATION,
                  "rationale": f"{RULE_REASON}: {rule['output']} not stated on the datasheet"
-                              + (f" (input {inp.get('field_label') or inp.get('field_name')} "
-                                 f"{inp.get('field_value')} was found)" if inp else ""),
+                              + input_note,
+                 "limit": None, "observed": None, "exception_applied": None}, output)
+    if in_state == CONFLICT:
+        return ({"status": NEEDS_ENGINEER_REVIEW,
+                 "rationale": (f"{RULE_REASON}: {_conflict_words(rule['input'], in_hits)}; "
+                               f"so the required {rule['output']} could not be calculated - "
+                               "an engineer reconciles the datasheet"),
                  "limit": None, "observed": None, "exception_applied": None}, output)
     if inp is None or inp.get("is_blank"):
         return ({"status": NEEDS_ENGINEER_REVIEW,
