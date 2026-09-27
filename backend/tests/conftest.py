@@ -22,6 +22,20 @@ clean machine for the first time.
    tests and still exit zero. There is a floor: fewer than MINIMUM_TESTS
    actually executed is a failure, because a run that small has not tested the
    system regardless of what it reports.
+
+4-5. See the fixtures below: the developer's database and the developer's
+   `.env` never reach the suite.
+
+6. A SUITE THAT SPENT REAL MONEY ON THE OWNER'S LAPTOP.
+   The fixture named `_the_suite_does_not_read_the_developers_env` pinned
+   only `auth_mode`. With REASONING_PROVIDER=claude, both STANDARDS_READER_*
+   egress flags and a real key in `backend/.env`, test_reports.py made real,
+   paid Anthropic calls, the spend ledger and response cache under
+   `backend/data/` were the real ones, and 83 tests failed on that machine
+   only. `env_isolation.isolate()` below runs at IMPORT, before any test
+   module imports the application: every setting is the code's default,
+   the environment variables that could configure the app are removed, and
+   a network guard refuses anything but loopback.
 """
 
 from __future__ import annotations
@@ -31,6 +45,13 @@ import os
 import pytest
 
 from app.config import settings
+
+from tests import env_isolation
+
+#: At import, not in a fixture: a test module imported during collection must
+#: never see the developer's values, even for the length of an import.
+_REMOVED_ENV = env_isolation.isolate(settings)
+env_isolation.install_network_guard()
 
 #: What the application opens at runtime. A missing file here is a setup
 #: problem, not a test failure, and must be reported as one.
@@ -90,40 +111,55 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
 
 @pytest.fixture(autouse=True, scope="session")
-def _the_suite_does_not_read_the_developers_env(tmp_path_factory):
-    """Pin the authentication mode so the suite answers the same everywhere.
+def _the_suite_does_not_read_the_developers_env():
+    """Refuse to run if any egress switch, key or secret reached the session.
 
-    5. A TEST SUITE WHOSE RESULT DEPENDS ON AN UNTRACKED FILE.
-       `env_file` was a relative path, so `backend/.env` was read when pytest
-       ran from `backend/` - which is what the README and the PR template both
-       prescribe - and ignored when it ran from the repository root. With
-       AUTH_MODE=demo_required in that file, an unauthenticated TestClient
-       resolves to an EMPTY SCOPE, and the same commit on the same machine in
-       the same second reported:
+    WHAT THIS USED TO SAY, AND WHY IT WAS FALSE. The name promised the suite
+    did not read `backend/.env`; the body pinned `auth_mode` and nothing else.
+    Every other value in that file - the reasoning provider, both Claude egress
+    flags, the Anthropic key, the SMTP and market switches, the spend-ledger
+    and cache paths - still reached the tests. On the owner's laptop that
+    meant real, paid Anthropic calls from test_reports.py and 83 failures
+    nobody else could reproduce (honesty audit entry 77).
 
-           from backend/   :  32 failed, 848 passed
-           from repo root  :   0 failed, 880 passed
+    NOW. `env_isolation.isolate(settings)` runs when this file is imported:
+    the `Settings` class stops reading any env file, every variable in
+    `os.environ` that names a setting (or that the app reads directly:
+    ANTHROPIC_API_KEY, STANDARDS_READER_*, RAG_LIVE_WRITER) is removed, and
+    every field of the live `settings` is reset to the code's default. This
+    fixture is the check on that: it FAILS the session if any field in
+    `env_isolation.EGRESS_SAFE` is not at its safe value.
 
-       Neither number was wrong, which is worse than one of them being wrong:
-       no test report from this project could be read without also knowing the
-       reporter's working directory and the contents of a file that is not in
-       the repository. Anchoring `env_file` (config.py) fixes the application;
-       it makes the suite read a developer's local `.env` on EVERY run, which
-       is the opposite of what a suite should do.
-
-       So the mode is pinned here. The suite tests `disabled` by default, and
-       `demo_required` is tested DELIBERATELY, by fixtures that set it - see
-       test_access_routes.py and test_auth_required_mode.py - rather than by
-       whichever file happens to sit on the machine.
-
-       This pin makes the assertion at test_access_routes.py's
-       `test_auth_disabled_is_the_default_and_changes_nothing` vacuous, since
-       it would then be asserting the value this fixture just set. That test
-       was rewritten to construct a fresh Settings() with no environment, which
-       is the claim it was always trying to make.
+    The history that started this fixture still holds. `env_file` was once a
+    relative path, so the same commit reported 32 failures from `backend/`
+    and 0 from the repo root, depending on whether AUTH_MODE=demo_required
+    was read. The suite tests `disabled` by default; `demo_required` is tested
+    DELIBERATELY by fixtures that set it (test_access_routes.py,
+    test_auth_required_mode.py). A test that needs an egress flag on sets it
+    itself, with a fake transport, and monkeypatch undoes it.
     """
-    settings.auth_mode = "disabled"
+    unsafe = env_isolation.unsafe_fields(settings)
+    if unsafe:
+        pytest.exit(
+            "test settings are not isolated from this machine; unsafe fields: "
+            + ", ".join(unsafe), returncode=3)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_test_reaches_past_loopback():
+    """Fail, by name, any test that tried to open a non-loopback socket.
+
+    The network guard (env_isolation.install_network_guard) refuses the
+    connection with an OSError, which is what the code would see offline -
+    and a caller that catches OSError and falls back would hide that. So the
+    attempt is recorded and checked here.
+    """
+    env_isolation.take_attempts()
+    yield
+    attempts = env_isolation.take_attempts()
+    if attempts:
+        pytest.fail("this test tried to leave the machine: " + "; ".join(attempts))
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -171,6 +207,14 @@ def _never_the_developers_database(tmp_path_factory):
     settings.data_dir = session_dir
     settings.upload_dir = session_dir / "uploads"
     settings.db_path = session_dir / "session.sqlite"
+    #: The Claude spend ledger and response cache defaulted to backend/data -
+    #: the REAL ledger that enforces the owner's USD 20 cap, and the real
+    #: cache. A test that forgets its own tmp_path must still never read or
+    #: write them.
+    settings.claude_spend_log = session_dir / "claude_spend.jsonl"
+    settings.claude_cache_dir = session_dir / "claude_cache"
+    outside = env_isolation.paths_outside(settings, session_dir)
+    assert not outside, f"session paths outside the temp dir: {outside}"
     db.reset_connection()
     yield
     db.reset_connection()
