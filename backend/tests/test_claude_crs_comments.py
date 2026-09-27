@@ -124,11 +124,16 @@ def test_clause_citation_is_the_form_the_client_expects():
 
 
 def test_prompt_carries_every_input_and_asks_for_json_only():
+    # CRS quick wins (2026-09-27): page_section is now the DATASHEET's page
+    # and field ("p.4 - Chloride content (V-001)"), never the standard's own
+    # page - that lives in the Standard Reference column the model is not
+    # shown, so the old combined "clause 6.2.3 p14" string no longer appears
+    # anywhere; "Clause: 6.2.3" and the new page_section are checked instead.
     prompt = build_prompt(NC, row_for(NC))
     for piece in ("SAES-D-001 Para. 6.2.3", "8 g/L", "Required value: 5",
                   "Required unit: g/L", "Comparator: <=", "NON_COMPLIANT",
-                  "chloride content", "V-001", "clause 6.2.3 p14",
-                  "Contractor shall revise"):
+                  "chloride content", "V-001", "Clause: 6.2.3",
+                  "Page/Section: p.4", "Contractor shall revise"):
         assert piece in prompt, piece
     assert '"comment"' in prompt and '"action"' in prompt
     assert prompt.rstrip().endswith("Answer with JSON and nothing else.")
@@ -219,10 +224,12 @@ def test_invented_number_in_the_action_is_rejected():
 
 
 def test_number_that_is_in_the_inputs_is_accepted():
-    # 8 (submitted), 5 (required), 14 and 4 (page/section), 6.2.3 and 001
-    # (citation) are all inputs; a comment repeating them is honest.
+    # 8 (submitted), 5 (required), 4 (the datasheet page - page_section is
+    # now the DATASHEET's page, never the standard's own page 14 - CRS quick
+    # wins, 2026-09-27), and 6.2.3 and 001 (citation) are all inputs; a
+    # comment repeating them is honest.
     comment = ("At submittal p4 the chloride content is stated as 8 g/L; "
-               "SAES-D-001 Para. 6.2.3 (p14) limits it to 5 g/L. The "
+               "SAES-D-001 Para. 6.2.3 limits it to 5 g/L. The "
                "submittal does not comply.")
     gate = accept({"comment": comment, "action": None}, NC, row_for(NC))
     assert gate["accepted"] is True, gate
@@ -354,7 +361,13 @@ def test_apply_drafts_prefixes_and_keeps_machine_comment():
     assert lines[1] == MODEL_DRAFT_PREFIX + GOOD_NC
     assert lines[2] == "Action: " + GOOD_NC_ACTION
     assert drafted["machine_comment"] == view["rows"][0]["comment"]
-    assert "8 exceeds 5." in drafted["machine_comment"]
+    # CRS quick wins (2026-09-27): the engineer-voice template replaced the
+    # old passthrough of the finding's raw ai_rationale ("8 exceeds 5.") -
+    # the machine comment is now a full sentence built from the real
+    # citation and values, so those are what a genuine, non-empty comment
+    # must still carry.
+    assert "6.2.3" in drafted["machine_comment"]
+    assert "8 g/L" in drafted["machine_comment"]
     assert drafted["model_drafted"] is True
     assert untouched == view["rows"][1]
     assert "machine_comment" not in untouched
