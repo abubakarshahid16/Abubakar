@@ -183,13 +183,35 @@ points named, the trust boundaries, and **which invariants have no single owner*
 (7 and 8). It ends with the commands a future reader should run to check whether
 it is still true.
 
+## Follow-up audit, 2026-09-27
+
+A second static audit of `main` at `9ac07cf` found five defects not in the register
+above. All five were re-verified against the code, fixed on their own branches with
+mutation-proven tests, and recorded as honesty-audit entries 72-76.
+
+| # | Severity | Finding | Where | Branch |
+|---|---|---|---|---|
+| F1 | High | USD cap (5/step, 20 total) not applied to 4 of 5 `claude_api` routes; separate spend ledger | `claude_api.py` `_model_call_or_409` | `fix/claude-dollar-cap-all-routes` |
+| F2 | High | "Centrifugal/Reciprocating Compressor" fall to the 2-field generic checklist | `datasheet_checks.py` mandatory lookup | `fix/compressor-mandatory-checks` |
+| F3 | Medium | Conflicting datasheet values reported as "not stated" | `rule_eval._field` / `judge` | `fix/rule-eval-conflict-not-missing` |
+| F4 | Medium | "Never compared across editions" guard not wired into `run_check` | `web_standards.py` | `fix/web-standards-edition-guard` |
+| F5 | Low | Disk card renders null `disk_percent` as a green 0%; `WorkerPanel` shows 0 for absent data | `DashboardTechnicalDetails.tsx`, `WorkerPanel.tsx` | `fix/disk-card-unmeasured` |
+
+Verified clean in the same audit (spot-checked, static): socket containment for the
+three HTTP transports, transport gates failing closed before a socket is built, the
+market payload limited to phrase and metadata, no secrets in git history, the client
+register PDF never in git, classification separated from access. Still open and
+already tracked: `notifications.py` / `smtplib` outside the socket-containment scan
+(entry 49). Not verified (needs runtime): whether the market preview is byte-identical
+to what is sent.
+
 ## How to use this register
 
 - Fix in P-order, not severity order.
 - For each fix, ask **where else this claim lives** — a third of these findings
   are one half of a two-home defect.
 - When a fix corrects something this project previously stated as true, add the
-  retraction to `../status-honesty-audit.md`. That file is at 24 entries; several
+  retraction to `../status-honesty-audit.md`. That file is at 76 entries (2026-09-27); several
   findings here belong in it.
 - Do not mark a finding fixed without a test that fails when the fix is removed.
   Six of the findings above are tests that pass while their guarantee is absent.
