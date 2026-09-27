@@ -39,7 +39,7 @@ from app.main import app
 
 NOW = "2026-09-24T00:00:00Z"
 ROWS = [("Design pressure", "23.5 barg"), ("Set pressure", "340 psig"),
-        ("Compressibility factor", "0.892")]
+        ("Compressibility factor", "0.892"), ("Design temperature", "80 C")]
 NOTE = ("All materials and workmanship remain subject to inspection by the "
         "purchaser before shipment")
 

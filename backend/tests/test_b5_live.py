@@ -322,6 +322,11 @@ def _pump_pdf(tmp_path, cites):
     page.insert_text((40, 80), f"Pump shall comply with {cites}.", fontsize=7)
     page.insert_text((40, 110), "DESIGN PRESSURE", fontsize=7)
     page.insert_text((250, 110), "16 barg", fontsize=7)
+    # 2026-09-27 Fix 3: present so datasheet_checks' generic fallback (no
+    # equipment_type here) adds no extra finding - these tests are about
+    # the MISSING_LOCALLY/completeness gate, not that separate mechanism.
+    page.insert_text((40, 140), "DESIGN TEMPERATURE", fontsize=7)
+    page.insert_text((250, 140), "80 C", fontsize=7)
     pdf.save(str(path))
     text = pdf[0].get_text()
     pdf.close()
