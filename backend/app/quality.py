@@ -138,6 +138,52 @@ def longest_clause(text: str) -> int:
     return best
 
 
+#: A table row as the chunker writes a recovered table: "| CS-02 | TSA | 163 |".
+_MD_ROW = re.compile(r"^\|(?:[^|\n]*\|){2,}$")
+#: A data row: "4.1 Mixing Ratio : 4:1 by Volume", ": 35°C (Mixed)",
+#: "Approved Color/s : Yellow (RAL 1023)". A label (or nothing) then a colon
+#: then a value. The colon may open the line - the value printed on a line of
+#: its own under its label.
+_LABEL_VALUE = re.compile(r"^\s*(?P<label>[^:\n]{0,80}?)\s*:\s*(?P<value>\S[^\n]*)$")
+#: Requirement language: short text carrying one of these is a rule, not
+#: debris, however few words it has - "Shall be galvanized." is a clause.
+_REQUIREMENT_WORD = re.compile(
+    r"(?i)\b(?:shall|must|required|not\s+(?:be\s+)?(?:exceed|less|more)|minimum|"
+    r"maximum|min\.|max\.|approved|prohibited|permitted)\b")
+#: A measured value: a number followed by a unit or a ratio - "35°C",
+#: "125 - 150 um", "4:1", "15 minutes", "Sa 2.5". "Page 3 of 26" is not one.
+_VALUE = re.compile(
+    r"(?i)(?:\d\s*(?:°\s*[CF]\b|%|mm\b|um\b|µm\b|micron|mils?\b|MPa\b|kPa\b|bar\b|"
+    r"psi\b|hours?\b|hrs?\b|min(?:ute)?s?\b|days?\b|ppm\b|V\b|volts?\b|kg\b|m2\b|"
+    r"litres?\b|liters?\b)|\b\d+\s*:\s*\d+\b|\b(?:RAL|Sa|St|SSPC|ISO|ASTM|NACE)\s*[-\d])")
+
+
+def data_rows(text: str) -> int:
+    """How many lines of `text` are data rows: label/value pairs with real
+    content on both sides, or table rows. The paint-system data sheets the
+    owner's corpus lost (3,761 chunks, e.g. ": 4:1 by Volume") are exactly
+    this shape, and they never contain a six-word clause."""
+    count = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if _MD_ROW.match(line):
+            if any(any(ch.isalnum() for ch in cell) for cell in line.strip("|").split("|")):
+                count += 1
+            continue
+        m = _LABEL_VALUE.match(line)
+        if not m:
+            continue
+        label, value = m.group("label"), m.group("value")
+        label_ok = not label or any(is_word(t) for t in label.split())
+        value_ok = (any(is_word(t) for t in value.split())
+                    or any(ch.isdigit() for ch in value))
+        if label_ok and value_ok:
+            count += 1
+    return count
+
+
 def looks_like_table(text: str) -> dict:
     """Structural evidence that this is a real table rather than noise.
 
@@ -148,6 +194,13 @@ def looks_like_table(text: str) -> dict:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if not lines:
         return {"is_table": False, "reasons": ["empty"], "evidence": {}}
+
+    # A table the chunker rebuilt from geometry, or a run of data-sheet rows:
+    # structure the chunker already established, judged as such.
+    rows = data_rows(text)
+    if rows >= 2 and rows >= 0.6 * len(lines):
+        return {"is_table": True, "reasons": [],
+                "evidence": {"data_rows": rows, "lines": len(lines)}}
 
     has_label = bool(_TABLE_LABEL.search(text))
     numeric_lines = sum(1 for line in lines if _NUMERIC_CELL.match(line))
@@ -235,6 +288,18 @@ def assess(text: str, kind: str = "prose") -> dict:
     t = looks_like_table(text)
     if t["is_table"]:
         return {"ok": True, "reasons": [], "clause": clause, "kind": "table-like"}
+
+    # BRIEF 2026-09-27 (P0): short content is not junk. A data row
+    # ("Approved Color/s : Yellow (RAL 1023)") or a short requirement
+    # ("Nuts shall be heavy hex ASTM A194 Grade 2H.") never holds a six-word
+    # clause, and the rule above dropped 3,761 of them from the owner's
+    # corpus. Kept when there is a real word AND either a data row, a
+    # requirement word or a measured value. Symbol-font debris, number walls
+    # and dot leaders have no real word or none of the three, and still fail.
+    words = [w for w in cleaned.split() if is_word(w) and len(w.strip(_EDGE_PUNCT)) >= 3]
+    if words and (data_rows(text) or _REQUIREMENT_WORD.search(cleaned)
+                  or _VALUE.search(cleaned)):
+        return {"ok": True, "reasons": [], "clause": clause, "kind": "data"}
 
     return {
         "ok": False,

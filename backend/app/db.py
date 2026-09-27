@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS pages (
     needs_ocr     INTEGER NOT NULL DEFAULT 0,
     equation_heavy INTEGER NOT NULL DEFAULT 0,
     batch_no      INTEGER NOT NULL,
+    -- Ruled tables read by geometry at extraction (extract.page_tables):
+    -- rows plus the indices of the `text` lines they cover. NULL = none found
+    -- or extracted before the table reader existed.
+    tables_json   TEXT,
     PRIMARY KEY (document_id, page_no)
 );
 
@@ -821,6 +825,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     pg = {r["name"] for r in conn.execute("PRAGMA table_info(pages)")}
     if pg and "equation_heavy" not in pg:
         conn.execute("ALTER TABLE pages ADD COLUMN equation_heavy INTEGER NOT NULL DEFAULT 0")
+    if pg and "tables_json" not in pg:
+        add_column_if_missing(conn, "pages", "tables_json", "TEXT")
     docs = {r["name"] for r in conn.execute("PRAGMA table_info(documents)")}
     if docs and "chunk_count_total" not in docs:
         conn.execute(
