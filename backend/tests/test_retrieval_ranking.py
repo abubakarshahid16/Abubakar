@@ -2,7 +2,7 @@
 
 One section per defect, each test named for the property it pins, so a
 regression says WHICH one broke. Every test here is mutation-proven: the
-entries M1285-M1299 and M1300 in scripts/mutations/ delete the feature and
+entries M1285-M1299 and M1360 in scripts/mutations/ delete the feature and
 this file must fail.
 
   1. ONE TOP-K. The chat searched with limit 3 while the gate claimed 5 and
