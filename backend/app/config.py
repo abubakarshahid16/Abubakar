@@ -608,6 +608,13 @@ class Settings(BaseSettings):
     # reranking 30 candidates at 320 tokens costs ~1025ms, 20 at 256 costs
     # ~500ms, which is what keeps the Tier 1 answer inside its 1-2s budget.
     search_candidates: int = 30       # retrieved from each side before fusion
+    #: Dense-search backend (`vector_store.py`), env VECTOR_BACKEND:
+    #:   auto        sqlite-vec when the extension loads, else exact numpy
+    #:   sqlite_vec  asked for explicitly; still falls back, and says so
+    #:   numpy       the memory-mapped exact matrix, never the extension
+    #: Both are EXACT: the choice changes latency, never which chunks rank.
+    #: Whichever is active, and why, is on System Health (`/api/metrics`).
+    vector_backend: str = "auto"
     #: How many candidates the cross-encoder sees. Reduced from 20 to claw
     #: back the latency that widening the rerank window cost, measured over
     #: the independent 15-question set:

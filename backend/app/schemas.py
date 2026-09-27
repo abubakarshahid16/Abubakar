@@ -2986,6 +2986,31 @@ class ModelStatus(BaseModel):
     ollama_error: str | None = None
 
 
+class VectorStoreStatus(BaseModel):
+    """The dense-search backend (`vector_store.py`). Both backends are exact;
+    which one runs changes latency, never which chunks rank."""
+
+    requested: str = Field(description="VECTOR_BACKEND as configured")
+    active: Literal["sqlite_vec", "numpy"]
+    fallback_reason: str | None = Field(
+        None, description="why the exact numpy fallback is active; null when "
+                          "sqlite-vec is")
+    sqlite_vec_version: str | None = None
+    exact: bool = True
+    embedding_tag: str = Field(
+        description="model file + passage input format a vector must carry "
+                    "to be searched")
+    last_error: str | None = Field(
+        None, description="the last run-time failure of the sqlite-vec index, "
+                          "answered from the numpy path instead")
+    current_vectors: int | None = Field(
+        None, description="corpus-wide; null (absent) without the admin capability")
+    stale_vectors: int | None = Field(
+        None, description="vectors made by another model or input format: not "
+                          "searched until re-embedded. Corpus-wide; null "
+                          "without the admin capability")
+
+
 class DocumentFailure(BaseModel):
     id: str
     filename: str
@@ -3061,6 +3086,7 @@ class Metrics(BaseModel):
                     "any caller without the admin capability, like `system`.",
     )
     models: ModelStatus
+    vector_store: VectorStoreStatus | None = None
     worker: WorkerStatus
     warnings: list[MetricWarning]
 

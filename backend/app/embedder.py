@@ -54,6 +54,23 @@ class EmbedderConfig:
     length_bucketed: bool = True
 
 
+def embedding_tag(model_file: str | None = None) -> str:
+    """WHAT A STORED VECTOR WAS COMPUTED BY: the model file and the passage
+    input format, written to `chunk_vectors.model` on every vector.
+
+    THE ONE HOME of this string. Ingestion writes it and the vector store
+    reads it back: a vector whose tag differs from the current one was made by
+    another model or from another input format, so its cosine against a query
+    embedded today is meaningless. The store leaves such a vector out of dense
+    search, counts it as STALE in System Health, and `embed_pending` re-embeds
+    it. Before this function the tag was written and never read (P2-11).
+
+    The format is unchanged from what ingestion already wrote, so vectors made
+    by the current build stay current - no re-embed is forced by this change.
+    """
+    return f"{model_file or EmbedderConfig().model_file}+{PASSAGE_INPUT_VERSION}"
+
+
 def mean_pool(last_hidden_state: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
     """Mean over real tokens only, padding excluded.
 
