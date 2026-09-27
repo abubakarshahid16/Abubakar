@@ -373,6 +373,12 @@ def test_the_issue_copy_carries_no_ai_column_and_no_unconfirmed_text(world):
     """M1031: the contractor's copy - only confirmed comments leave the building."""
     _sub, run, scope = world
     aic.run_check(run, allowed_document_ids=scope, cited=[], provider=Fake())
+    # The safety gate (2026-09-27): copy=issue is refused with 409 until an
+    # engineer records the final code - not what this test is about, so it is
+    # satisfied here rather than worked around.
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET engineer_final_code='Approved'"
+                     " WHERE id = ?", (run,))
 
     view = _preview(run, "issue")
     assert view["columns"] == list(crs_export.HEADERS)

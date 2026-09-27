@@ -54,6 +54,12 @@ def test_the_issue_copy_has_no_review_notes_the_internal_copy_does():
     """M1049."""
     doc, run_id = _world()
     client = _client(doc)
+    # The safety gate (2026-09-27): copy=issue is refused with 409 until an
+    # engineer records the final code - not what this test is about, so it is
+    # satisfied here rather than worked around.
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET engineer_final_code='Approved'"
+                     " WHERE id = ?", (run_id,))
     assert client.get(f"/api/reviews/runs/{run_id}/crs/preview",
                       params={"copy": "issue"}).json()["review_notes"] == []
     issued = load_workbook(io.BytesIO(client.get(f"/api/reviews/runs/{run_id}/crs",
