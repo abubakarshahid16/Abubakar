@@ -983,8 +983,14 @@ def test_a_full_run_writes_findings_into_the_phase_1_columns():
     assert row["standard_clause"] == "5.3.3"
     assert row["contractor_page"] == 1
     assert row["ai_rationale"]
-    # One page of facts against a 35-slot estimate gates the code.
-    assert result["recommended_code"]["code"] == comparison.CODE_MANUAL
+    # CRS quick wins: A PROVEN BREACH COMES FIRST. It once read Manual here
+    # (one page of facts against a nominal 35-slot estimate gated the code);
+    # a breach shown by arithmetic now sends the sheet back whatever else is
+    # unknown, and the completeness is measured against what the applicable
+    # standard asks for - 1 of 1 answered.
+    assert result["recommended_code"]["code"] == comparison.CODE_REJECTED
+    assert result["completeness"]["fields_required"] == 1
+    assert result["completeness"]["fields_answered"] == 1
 
 
 def test_re_running_a_comparison_does_not_double_the_findings():

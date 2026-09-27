@@ -142,8 +142,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         # Re-anchored 2026-09-21: the match_rules integration (ba73a8c) now
         # takes the longest over the hits its rules ALLOWED, and the old
         # anchor on `hits` matched nothing - silently disarming this mutation.
-        anchor='    longest = max(len(h["name"]) for h in allowed)',
-        replacement='    longest = min(len(h["name"]) for h in allowed)',
+        # Re-anchored 2026-09-27 (CRS quick wins): longest-wins is measured on
+        # the field's CANONICAL name (synonym table) in `_resolve_hits`.
+        anchor='    longest = max(len(h["key"]) for h in allowed)',
+        replacement='    longest = min(len(h["key"]) for h in allowed)',
         target="tests/test_containment_match.py",
         keyword="longest_field_name_wins",
     ),
@@ -152,8 +154,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="let a CATEGORICAL fact match, reviving the insulation "
                     "false friend",
         path=APP / "comparison.py",
-        anchor="        if not fact_has_number(fact):\n            continue",
-        replacement="        if False:\n            continue",
+        # Re-anchored 2026-09-27 (CRS quick wins): the numeric pass is now
+        # `_containment_hits` called with `fact_has_number`.
+        anchor="    hits = _containment_hits(requirement, subject, facts, fact_has_number)",
+        replacement="    hits = _containment_hits(requirement, subject, facts, lambda f: True)",
         target="tests/test_containment_match.py",
         keyword="categorical_fact_never_matches",
         tags=("honesty",),
@@ -251,8 +255,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="re-propose a pairing a human already rejected",
         path=APP / "comparison.py",
         # Re-anchored (B4 quality): match_by_field_name has the same line.
-        anchor="        return none\n\n    rejected = _rejected_keys_for(requirement)",
-        replacement="        return none\n\n    rejected = set()",
+        # Re-anchored 2026-09-27 (CRS quick wins): `_containment_hits`.
+        anchor=("    rejected = _rejected_keys_for(requirement)\n"
+                "    tag_scoped = facts_are_tag_scoped(facts)\n"
+                "    canonical_subject"),
+        replacement=("    rejected = set()\n"
+                     "    tag_scoped = facts_are_tag_scoped(facts)\n"
+                     "    canonical_subject"),
         target="tests/test_findings_reachable.py",
         keyword="rejected_pair_is_never_proposed_again",
         tags=("honesty", "critical"),
@@ -684,7 +693,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M213", phase=18,
         description="accept any string at all as a review code",
         path=APP / "comparison.py",
-        anchor="    if code not in DEFAULT_CODES:",
+        # Re-anchored 2026-09-27 (CRS quick wins): the configured labels.
+        anchor="    if code not in codes:",
         replacement="    if False:",
         target="tests/test_review_code.py",
         keyword="not_a_review_code_is_refused",
@@ -792,8 +802,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a generic manual flag instead of saying WHY: the reader "
                     "cannot tell other documents are needed",
         path=APP / "comparison.py",
-        anchor='            "reason": (f"Manual review: {len(out_of_scope)} requirement"',
-        replacement='            "reason": ("Manual review required"',
+        # Re-anchored 2026-09-27 (CRS quick wins): `_out_of_scope_reason`.
+        anchor='            "reason": _out_of_scope_reason(findings),',
+        replacement='            "reason": "Manual review required",',
         target="tests/test_comparison.py",
         keyword="never_approve",
         tags=("honesty",),
@@ -885,8 +896,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the review stops asking which pages were read, so 'no value "
                     "found' is the contractor's omission again (B3)",
         path=APP / "comparison.py",
-        anchor="        if fact is None and verdict.get(\"status\") == MISSING_INFORMATION:\n"
-               "            verdict = qualify_by_pages(verdict, pages_read)\n",
+        # Re-anchored 2026-09-27 (CRS quick wins): one level deeper, inside
+        # the per-item loop.
+        anchor="            if fact is None and verdict.get(\"status\") == MISSING_INFORMATION:\n"
+               "                verdict = qualify_by_pages(verdict, pages_read)\n",
         replacement="",
         target=_B3_TEST, keyword="not_called_the_contractors_omission or decides_the_code",
         tags=("honesty", "critical"),
@@ -925,8 +938,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description='B4 5.3: a model-named pairing carries a COMPLIANT/NON_COMPLIANT verdict',
         path=APP / 'comparison.py',
         # Re-anchored (B4 quality): every status is now held.
-        anchor='                       "status": NEEDS_ENGINEER_REVIEW,\n                       "rationale": (\n                           f"{FIELD_NAME_PAIR_PREFIX}',
-        replacement='                       "status": status,\n                       "rationale": (\n                           f"{FIELD_NAME_PAIR_PREFIX}',
+        # Re-anchored 2026-09-27 (CRS quick wins): one level deeper.
+        anchor='                           "status": NEEDS_ENGINEER_REVIEW,\n                           "rationale": (\n                               f"{FIELD_NAME_PAIR_PREFIX}',
+        replacement='                           "status": status,\n                           "rationale": (\n                               f"{FIELD_NAME_PAIR_PREFIX}',
         target='tests/test_field_naming.py',
         keyword='never_carries_a_verdict',
         tags=('honesty', 'critical'),
@@ -963,15 +977,16 @@ MUTATIONS: tuple[Mutation, ...] = (
         id='M657', phase=64,
         description='B4 item 2: a model-named blank pairing carries MISSING_INFORMATION unheld',
         path=APP / 'comparison.py',
-        anchor=('            verdict = {**verdict,\n'
-                '                       "status": NEEDS_ENGINEER_REVIEW,\n'
-                '                       "rationale": (\n'
-                '                           f"{FIELD_NAME_PAIR_PREFIX}'),
-        replacement=('            verdict = {**verdict,\n'
-                     '                       "status": (NEEDS_ENGINEER_REVIEW if status in '
+        # Re-anchored 2026-09-27 (CRS quick wins): one level deeper.
+        anchor=('                verdict = {**verdict,\n'
+                '                           "status": NEEDS_ENGINEER_REVIEW,\n'
+                '                           "rationale": (\n'
+                '                               f"{FIELD_NAME_PAIR_PREFIX}'),
+        replacement=('                verdict = {**verdict,\n'
+                     '                           "status": (NEEDS_ENGINEER_REVIEW if status in '
                      '(COMPLIANT, NON_COMPLIANT) else status),\n'
-                     '                       "rationale": (\n'
-                     '                           f"{FIELD_NAME_PAIR_PREFIX}'),
+                     '                           "rationale": (\n'
+                     '                               f"{FIELD_NAME_PAIR_PREFIX}'),
         target='tests/test_b4_quality.py', keyword='blank_field_pairing_is_held',
         tags=('honesty', 'critical'),
     ),
@@ -983,5 +998,36 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor='        if (fact is not None and not fact.get("is_blank") and rule_verdict is None\n',
         replacement='        if (fact is not None and rule_verdict is None\n',
         target='tests/test_b4_quality.py', keyword='blank_field_pairing_is_held',
+    ),
+    # ---- CRS quick wins (2026-09-27, audit crs.md defects 3, 5, 14) -------
+    Mutation(
+        id="M1303", phase=96,
+        description="a statement clause is never dispatched to match_statement, "
+                    "so it can never be paired with a datasheet field again",
+        path=APP / "comparison.py",
+        anchor=(
+            "    if requirement.get(\"requirement_type\") == requirements_3b.STATEMENT:\n"
+            "        # CRS QUICK WINS: a statement that names a datasheet field is an\n"
+            "        # engineer's question (or a closed categorical check), not a note\n"
+            "        # hidden as \"requires another document\". See `match_statement`.\n"
+            "        return match_statement(requirement, facts, sheet_kind=sheet_kind)\n"
+        ),
+        replacement="",
+        target="tests/test_containment_match.py",
+        keyword="a_statement_is_matched_only_to_become_a_question_never_a_verdict",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M1304", phase=96,
+        description="the caller's review-code labels are ignored; the client "
+                    "A/B/C/D scheme can never be configured",
+        path=APP / "comparison.py",
+        anchor=("    codes = codes or review_codes()\n"
+                "    result = _recommend_code(findings, completeness, codes=codes,\n"),
+        replacement=("    codes = review_codes()\n"
+                     "    result = _recommend_code(findings, completeness, codes=codes,\n"),
+        target="tests/test_comparison.py",
+        keyword="test_review_codes_are_configurable",
+        tags=("honesty",),
     ),
 )

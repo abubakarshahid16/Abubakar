@@ -36,6 +36,8 @@ import re
 import statistics
 from typing import Any
 
+from . import blank_markers
+
 # --------------------------------------------------------------------------
 # Units
 # --------------------------------------------------------------------------
@@ -537,9 +539,9 @@ m2 m3 mm2 cm3 ft2 ft3 nm3 sm3
 """.split())
 #: A printed marker meaning "not filled here": the API legend's "*" (to be
 #: advised), "By <party>", "(Note 3)" / "[Note - 3]", TBA / TBC / TBD.
-_BLANK_MARKER = re.compile(
-    r"^(?:\*|by\s+[a-z][\w\s/&.-]*|[\[(]?\s*note\s*[-–—]?\s*\d+\s*[\])]?|tb[acd]|later)$",
-    re.IGNORECASE)
+#: CRS quick wins (2026-09-27): the "not provided" markers live in ONE home,
+#: `blank_markers`, which the text reader and the datasheet self-checks read
+#: too - "VENDOR TO ADVISE" and "TBD" are blanks here now, as they are there.
 _DASHES = str.maketrans({"–": "-", "—": "-", "−": "-"})
 _RANGE = re.compile(rf"^(?P<a>{_NUM})\s*-\s*(?P<b>{_NUM})\s*(?P<u>.*)$")
 _PAREN_UNIT = re.compile(r"^(?P<v>.*?\S)\s*\((?P<u>[^()]+)\)$")
@@ -610,7 +612,7 @@ def _parse_form_value(text: str) -> dict[str, Any]:
         rest = star.group("rest")
         return {"value": None, "unit": None, "expected_units": [_unit_of(rest)] if rest else [],
                 "is_blank": True, "blank_marker": "*", "unit_only": False, "condition": None}
-    if residue and _BLANK_MARKER.match(residue):
+    if residue and blank_markers.is_marker(residue):
         return {"value": None, "unit": None, "expected_units": [], "is_blank": True,
                 "blank_marker": residue, "unit_only": False, "condition": None}
     parts = [x.strip() for x in residue.split("@")]

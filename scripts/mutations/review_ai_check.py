@@ -59,7 +59,11 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="409_when_off", tags=("privacy",)),
     Mutation(id="M1031", phase=86, description="the contractor's copy keeps unconfirmed AI rows",
              path=APP / "crs_export.py",
-             anchor='        findings = [f for f in findings if not str(f.get("ai_review_comment") or "").strip()]\n',
+             # Re-anchored 2026-09-27 (CRS quick wins): the issue-copy filter
+             # now also requires engineer confirmation (M1305 removes that half).
+             anchor=('        findings = [f for f in findings\n'
+                     '                    if not str(f.get("ai_review_comment") or "").strip()\n'
+                     '                    and f.get("engineer_confirmed") is True]\n'),
              replacement="        pass\n",
              target=_T, keyword="issue_copy_carries_no_ai_column", tags=("honesty", "critical")),
     Mutation(id="M1032", phase=86, description="an unconfirmed AI item is printed in COMPANY Comments",
