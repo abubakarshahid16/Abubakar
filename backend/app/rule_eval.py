@@ -309,16 +309,47 @@ def _value_of(fact: dict) -> str:
     return " ".join((fact.get("field_value") or "").split())
 
 
+def _same_value_key(fact: dict) -> tuple:
+    """What two rows must share to be ONE value. The quantity when it parses
+    ("3,300 kPa" = "3300 kPa" = "3.3 MPa"; gauge and absolute kept apart),
+    else the written text with spacing and thousands separators folded."""
+    raw, unit = fact.get("raw_value"), fact.get("raw_unit") or ""
+    if raw not in (None, ""):
+        base, basis = _split_basis(unit)
+        m = claims.normalise(str(raw), base)
+        if m.normalized_value is not None and m.normalized_unit:
+            return ("q", round(float(m.normalized_value), 9), m.normalized_unit, basis)
+        number = claims.parse_value(str(raw))
+        if number is not None:
+            return ("n", round(number, 9), " ".join(unit.lower().split()))
+    text = _value_of(fact).lower()
+    return ("t", re.sub(r"(?<=\d),(?=\d{3}\b)", "", text))
+
+
 def _read_field(facts: list[dict], names) -> tuple[str, list[dict]]:
-    """(state, the fact rows for the field). ABSENT: no row. SINGLE: every row
-    carries the same value (the first row is judged). CONFLICT: the rows
-    carry different values - no value is chosen."""
+    """(state, the fact rows for the field) within ONE equipment scope.
+    ABSENT: no row. SINGLE: every row carries the same value (the first row
+    is judged). CONFLICT: the rows carry different values - none is chosen.
+
+    THE MOST SPECIFIC NAME WINS. `names` lists synonyms of the quantity the
+    rule reads first ("mop", "maximum operating pressure") and the generic,
+    less specific name LAST ("operating pressure" - `parse_rule` stores it
+    as `rule["input"]`). A normal operating pressure beside a maximum one is
+    two quantities, not a disagreement: the generic name is read only when
+    no specific name is on the sheet. Specific synonyms that disagree are
+    one quantity stated twice - a real conflict."""
     from .datasheets import normalise_field_name
-    wanted = {normalise_field_name(n) for n in names}
-    hits = [f for f in facts if normalise_field_name(f.get("field_name") or "") in wanted]
+    names = list(names)
+    tiers = [names[:-1], names[-1:]] if len(names) > 1 else [names]
+    hits: list[dict] = []
+    for tier in tiers:
+        wanted = {normalise_field_name(n) for n in tier}
+        hits = [f for f in facts if normalise_field_name(f.get("field_name") or "") in wanted]
+        if hits:
+            break
     if not hits:
         return ABSENT, []
-    return (SINGLE if len({_value_of(f) for f in hits}) == 1 else CONFLICT), hits
+    return (SINGLE if len({_same_value_key(f) for f in hits}) == 1 else CONFLICT), hits
 
 
 def _conflict_words(field: str, hits: list[dict]) -> str:
@@ -339,8 +370,8 @@ def _conflict_words(field: str, hits: list[dict]) -> str:
             f"{field}: {'; '.join(parts)}")
 
 
-def judge(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
-    """(verdict, fact judged) for a parsed rule against the datasheet's facts.
+def _judge_one(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
+    """(verdict, fact judged) for a parsed rule against ONE equipment scope's facts.
 
     The OUTPUT field is judged; the INPUT is only used to compute the
     required value, and is named in the rationale. A field the datasheet
@@ -381,9 +412,9 @@ def judge(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
                  "rationale": (f"{RULE_REASON}: {rule['input']} is not stated on the datasheet, "
                                f"so the required {rule['output']} could not be calculated"),
                  "limit": None, "observed": None, "exception_applied": None}, output)
-    try:
-        x_in, x_out = float(inp["raw_value"]), float(output["raw_value"])
-    except (TypeError, ValueError, KeyError):
+    # claims.parse_value: "3,300" is 3300 (thousands), "9,0" is 9.0; None if not a number.
+    x_in, x_out = (claims.parse_value(str(f.get("raw_value") or "")) for f in (inp, output))
+    if x_in is None or x_out is None:
         return ({"status": NEEDS_ENGINEER_REVIEW,
                  "rationale": f"{RULE_REASON}: a value is not a single number; not calculated",
                  "limit": None, "observed": None, "exception_applied": None}, output)
@@ -396,6 +427,42 @@ def judge(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
              "limit": result["required_value"], "observed": result["output_checked"],
              "exception_applied": None, "input_used": result["input_used"],
              "rows_used": result["rows_used"]}, output)
+
+
+#: Which per-tag status decides a multi-tag verdict: a breach anywhere is a
+#: breach; COMPLIANT only when EVERY tag was judged and met the rule.
+_TAG_PRECEDENCE = (NON_COMPLIANT, NEEDS_ENGINEER_REVIEW, MISSING_INFORMATION, COMPLIANT)
+
+
+def judge(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
+    """(verdict, fact judged) for a parsed rule against the datasheet's facts.
+
+    PER EQUIPMENT TAG. A sheet covering P-101A and P-101B states one design
+    pressure for each; two different values there are two pumps, not a
+    conflict. With two or more tags, each tag is judged on its own rows
+    (untagged rows apply to every tag unless the tag states the field
+    itself), and the verdicts are combined by `_TAG_PRECEDENCE` with every
+    tag's result named in the rationale.
+    """
+    tags = sorted({f.get("equipment_tag") for f in facts if f.get("equipment_tag")})
+    if len(tags) < 2:
+        return _judge_one(rule, facts)
+    from .datasheets import normalise_field_name
+    untagged = [f for f in facts if not f.get("equipment_tag")]
+    per_tag = []
+    for tag in tags:
+        own = [f for f in facts if f.get("equipment_tag") == tag]
+        # A tag's own row outranks the sheet-wide one for the same field.
+        own_names = {normalise_field_name(f.get("field_name") or "") for f in own}
+        scope = own + [f for f in untagged
+                       if normalise_field_name(f.get("field_name") or "") not in own_names]
+        per_tag.append((tag, *_judge_one(rule, scope)))
+    status = next(s for s in _TAG_PRECEDENCE if any(v["status"] == s for _t, v, _f in per_tag))
+    tag, verdict, fact = next(x for x in per_tag if x[1]["status"] == status)
+    words = "; ".join(f"{t}: {v['status']} - {v['rationale']}" for t, v, _f in per_tag)
+    return ({**verdict, "status": status,
+             "rationale": f"{RULE_REASON}: judged per equipment tag ({len(per_tag)} tags); "
+                          f"{tag} decides. {words}"}, fact)
 
 
 def known_rule_for(requirement: dict) -> dict | None:
