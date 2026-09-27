@@ -1,7 +1,7 @@
 """Owner order section 3 (screen, part A): readiness strip and Edit/Reject."""
 from __future__ import annotations
 
-from ._base import APP, Mutation
+from ._base import APP, FRONTEND_SRC, Mutation
 
 _T = "tests/test_review_screen.py"
 _MAIN = APP / "main.py"
@@ -49,4 +49,22 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor='    if finding.get("engineer_comment"):\n        return finding["engineer_comment"]\n',
              replacement='    if False:\n        return finding["engineer_comment"]\n',
              target=_T, keyword="edit_is_the_crs_comment", tags=("honesty", "critical")),
+    # ---- from the honesty group (2026-09-27): unread pages name their reason
+    Mutation(id="M1133", phase=95,
+             description="honesty: the readiness payload drops the page "
+                         "ledger's own reason for each unread page",
+             path=_MAIN,
+             anchor='        "unread_page_reasons": pages.get("not_read_reasons") or {},\n',
+             replacement='        "unread_page_reasons": {},\n',
+             target=_T, keyword="unread_page_carries_its_own_reason",
+             tags=("honesty", "critical")),
+    Mutation(id="M1134", phase=95, runner="vitest",
+             description="honesty: the readiness strip stops naming why each "
+                         "unread page is unread",
+             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
+             anchor='              Page {page}: {readiness.unread_page_reasons?.[String(page)]\n'
+                    '                || "reason not recorded"}\n',
+             replacement='              Page {page}\n',
+             target="src/views/ReviewRunsView.screen.test.tsx",
+             keyword="HONESTY GROUP", tags=("honesty", "ui")),
 )

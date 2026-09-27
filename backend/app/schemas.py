@@ -2083,6 +2083,13 @@ class ReviewReadiness(BaseModel):
     pages_total: int | None = None
     pages_read: int = 0
     unread_pages: list[int] = []
+    #: HONESTY GROUP (2026-09-27): keyed by page number (as a string, since
+    #: that is what a JSON object key is), the reason `page_ledger.refresh`
+    #: recorded for why the page did not read into fields - "no text on this
+    #: page", "read but only by the page reader", a vision-routing decision,
+    #: etc. `page_ledger.coverage()` has always computed this
+    #: (`not_read_reasons`); it was simply never carried past `unread_pages`.
+    unread_page_reasons: dict[str, str] = {}
     standards_cited: int = 0
     standards_held: list[str] = []
     standards_missing: list[str] = []

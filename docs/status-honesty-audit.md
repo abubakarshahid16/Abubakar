@@ -1370,3 +1370,102 @@ final code before issue." Both are proven by mutation (`M1130`, `M1131` in
    at all - an engineer's decision - has not been met, and neither did any route. A
    privacy- or safety-relevant distinction between two export modes needs its own
    gate and its own test, not just its own paragraph in a fixes log.
+
+---
+
+## Readiness strip, 2026-09-27 (honesty audit entry 70): the page ledger's own reason for an unread page was computed and then thrown away
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-27.
+
+**The claim.** PR #285 (commit `93a78ae`, "fix: page ledger reports the real vision-routing
+decision, not a stale placeholder") fixed `page_ledger.py` so every page's ledger row
+carries a real, specific reason it did or did not read into fields - "no label-value
+pairs recovered from this page", "vision reader not run (page could not be rendered)",
+"read only by the page reader", and so on - and `page_ledger.coverage()` has always
+exposed these, keyed by page, as `not_read_reasons`. The reasonable reading of that fix
+is that an engineer looking at "Read unread pages" on the review screen would now see
+why each page was unread. They would not: `_readiness_payload` (`backend/app/main.py`)
+read `pages.get("pages_not_read_into_fields")` for the page numbers and never once read
+`pages.get("not_read_reasons")`, so the number reached `schemas.ReviewReadiness` and the
+frontend and the reason - computed, correct, sitting right next to it in the same dict -
+did not. The screen said a page was unread and nothing about why, the exact "not
+mentioned" silence CLAUDE.md rule 4 forbids, for every submittal that has ever had an
+unread page.
+
+**How it surfaced.** Owner order (2026-09-27): the readiness payload must show a reason
+per still-unread page, not a bare "unread" - traced from the PR #285 ledger fix through
+`_readiness_payload` to the frontend and found to stop midway, at the route that builds
+the API response.
+
+**Fixed:** `_readiness_payload` now carries `pages.get("not_read_reasons") or {}` as
+`unread_page_reasons`; `schemas.ReviewReadiness` and `contracts/types.ts` both gained the
+field (the single source of truth for the frontend type, per CLAUDE.md rule 8); and
+`ReviewRunsView.tsx`'s readiness strip prints one line per unread page naming its reason,
+falling back to "reason not recorded" only when the ledger genuinely has none. Proven by
+mutation (`M1133`, `M1134` in `scripts/mutations/review_screen.py`): reverting either
+change is DETECTED by `test_an_unread_page_carries_its_own_reason_not_a_bare_unread`
+(`backend/tests/test_review_screen.py`) or the new "HONESTY GROUP" test in
+`ReviewRunsView.screen.test.tsx`, respectively.
+
+### The rule this produces
+
+23. **A value computed for a purpose is not delivered until it reaches the screen that
+   purpose was for.** `page_ledger.coverage()` computing `not_read_reasons` correctly did
+   not make the reason visible to anyone; the field has to be threaded through every
+   layer between the computation and the pixel - the route's response dict, the response
+   schema, the frontend's own copy of that schema, and the component that renders it -
+   and a test should exist at the layer where the thread is likeliest to be dropped: the
+   boundary between "the code that computes it" and "the code that returns it."
+
+---
+
+## CRS export, 2026-09-27 (honesty audit entry 71): an unconfirmed AI/web item's "Comment By" was blank, not "unconfirmed"
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-27.
+
+**The claim.** `crs_mapping.build_crs_rows` gives a kind C (`ai_engineering_check`) or
+kind D (`web_standard_check`) item a `comment_by` of `"AI engineering check, confirmed by
+<name>"` or `"Web check, confirmed by <name>"` once an engineer confirms it - but before
+confirmation, `comment_by` was the empty string `""`. The row still existed, its text
+still sat in the "AI Review Comments" column (`ai_review_comment`), and the sheet's
+"Comment By" column for that row was simply blank. A blank cell in a byline column reads
+as a rendering fault or an oversight, not as "this is a draft, not yet confirmed" - the
+one thing that column exists to say. `backend/tests/test_review_ai_check.py`'s own
+`test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy` asserted
+`row["comment_by"] == ""` outright: the blank was not an oversight the tests missed, it
+was the documented, intended shape.
+
+**How it surfaced.** Owner order (2026-09-27): the "Comment By" column for an
+unconfirmed AI-originated row must read "AI - engineer to confirm", never blank -
+traced to `crs_mapping.build_crs_rows`'s AI/web engineering-check loop, the single place
+`comment_by` is decided for these two kinds.
+
+**Fixed:** `crs_mapping.py` gained `_AI_UNCONFIRMED_BY = "AI - engineer to confirm"` and
+`_WEB_UNCONFIRMED_BY = "Web check - engineer to confirm"`, and an unconfirmed kind C or D
+row's `comment_by` is now one of these rather than `""`. Proven by mutation (`M1132` in
+`scripts/mutations/review_ai_check.py`): reverting the change is DETECTED by the new
+`test_an_unconfirmed_items_comment_by_is_never_blank`
+(`backend/tests/test_review_ai_check.py`).
+
+**Found in the same code while fixing this, and left as found-but-not-fixed:** two
+mutation entries in `scripts/mutations/review_ai_check.py` (`M1034`, `M1038`) have had
+stale anchors since an earlier, unrelated refactor merged the kind C and kind D origin
+checks - they currently report a harness ERROR, not a verdict. Re-anchoring `M1038` to
+the current text additionally reveals its own test does not detect it:
+`build_crs_rows` already drops every rejected finding at its own top (`findings = [f for
+f in findings if not _rejected(f)]`, before any per-origin loop runs), so the inner
+`f.get("approval_status") == "rejected"` check the mutation targets is dead code -
+removing it changes nothing a test can observe. Fixing this needs a design decision
+(delete the dead inner check, or find what the outer filter does not already cover)
+outside this task's scope; `M1034` was re-anchored (it is not dead code - it still
+decides which prefix a CONFIRMED row gets) and confirmed DETECTED.
+
+### The rule this produces
+
+24. **"Not yet confirmed" is a state, and a state is not the same as nothing.** A field
+   that identifies WHO said something is never correct left blank for a row that exists
+   and has content - the fix is not "leave it empty until an engineer acts," it is "say
+   whose draft it is now, and say whose confirmation it carries once someone gives one."
+   A test that asserts the blank as the intended shape (as this project's own test did)
+   turns the defect into a specification; read what a test proves as carefully as what
+   it merely permits to pass.

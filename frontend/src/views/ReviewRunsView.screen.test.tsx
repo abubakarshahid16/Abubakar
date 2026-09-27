@@ -60,6 +60,10 @@ function ready(over: Partial<ReviewReadiness> = {}): ReviewReadiness {
     pages_total: 5,
     pages_read: 3,
     unread_pages: [4, 5],
+    unread_page_reasons: {
+      "4": "no label-value pairs recovered from this page",
+      "5": "read only by the page reader",
+    },
     standards_cited: 3,
     standards_held: ["API 999.pdf"],
     standards_missing: ["API 998", "API 997"],
@@ -115,6 +119,37 @@ describe("the readiness strip", () => {
     render(<ReviewRunsView onOpenStandards={vi.fn()} />);
     const strip = within(await pickSubmittal());
     expect(strip.queryByRole("button", { name: "Upload missing standards" })).toBeNull();
+  });
+
+  it("HONESTY GROUP: names WHY each unread page is unread, not just its number", async () => {
+    // Before this fix, the strip said "(not read: 4, 5)" and nothing else -
+    // the ledger has always known why (page_ledger.coverage's own
+    // not_read_reasons), it just never reached the screen.
+    readiness.mockResolvedValue({
+      ok: true, data: ready({
+        unread_page_reasons: {
+          "4": "no label-value pairs recovered from this page",
+          "5": "vision reader not run (page could not be rendered)",
+        },
+      }),
+    });
+    render(<ReviewRunsView />);
+    const strip = within(await pickSubmittal());
+
+    expect(strip.getByText(/Page 4: no label-value pairs recovered from this page/))
+      .toBeInTheDocument();
+    expect(strip.getByText(/Page 5: vision reader not run \(page could not be rendered\)/))
+      .toBeInTheDocument();
+  });
+
+  it("says a reason was not recorded rather than showing nothing, for a page missing one", async () => {
+    readiness.mockResolvedValue({
+      ok: true, data: ready({ unread_page_reasons: {} }),
+    });
+    render(<ReviewRunsView />);
+    const strip = within(await pickSubmittal());
+
+    expect(strip.getByText(/Page 4: reason not recorded/)).toBeInTheDocument();
   });
 });
 

@@ -108,6 +108,28 @@ def test_the_last_run_is_measured_from_completion_not_the_code_decision(world):
     assert _readiness(sub)["nothing_changed"] is False
 
 
+def test_an_unread_page_carries_its_own_reason_not_a_bare_unread(tmp_path):
+    """HONESTY GROUP (2026-09-27). `page_ledger.coverage` has always computed
+    WHY a page did not read into fields (`not_read_reasons`); this endpoint
+    dropped it on the floor, carrying only the page numbers in `unread_pages`.
+    An engineer clicking "Read unread pages" could see page 2 was unread and
+    nothing about why - the same "not mentioned" silence CLAUDE.md rule 4
+    forbids elsewhere. `_sheet(notes_page=True)`'s page 2 is prose with no
+    field in it, so extraction always leaves it `no_facts` with a real
+    reason (`test_extraction_records_each_pages_outcome_with_its_reason`)."""
+    sub = _sheet(tmp_path, notes_page=True)
+    from app import datasheets
+    datasheets.extract_facts(sub, allowed_document_ids=frozenset({sub}))
+
+    body = _readiness(sub)
+    assert body["unread_pages"] == [2]
+    assert "2" in body["unread_page_reasons"], \
+        "the page ledger's own reason for page 2 never reached the readiness payload"
+    reason = body["unread_page_reasons"]["2"]
+    assert reason and reason != "unread", \
+        "a bare 'unread' with no reason is exactly what this fix replaces"
+
+
 def test_a_submittal_the_caller_cannot_read_is_404(world, monkeypatch):
     sub, _run, _scope = world
     _signed_in(monkeypatch, frozenset(), user_id="outsider")

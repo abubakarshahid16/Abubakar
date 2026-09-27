@@ -420,6 +420,10 @@ export interface ReviewReadiness {
   pages_total: number | null;
   pages_read: number;
   unread_pages: number[];
+  /** Keyed by page number (a string - a JSON object key always is): why that
+   *  page did not read into fields. Present for every page in `unread_pages`;
+   *  absent only for a page the ledger never wrote a reason for. */
+  unread_page_reasons: Record<string, string>;
   standards_cited: number;
   standards_held: string[];
   standards_missing: string[];
