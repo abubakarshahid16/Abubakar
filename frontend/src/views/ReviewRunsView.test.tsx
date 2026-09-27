@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewRunSummary } from "../types/api";
 import { ReviewRunsView } from "./ReviewRunsView";
@@ -10,8 +10,12 @@ const reviewRuns = vi.fn();
 const list = vi.fn();
 const reviewRunStandards = vi.fn();
 
+const documentApi = vi.fn();
 vi.mock("../api/client", () => ({
-  api: { documents: (...args: unknown[]) => documents(...args) },
+  api: {
+    documents: (...args: unknown[]) => documents(...args),
+    document: (...args: unknown[]) => documentApi(...args),
+  },
   reviews: {
     // Section 3's readiness strip; not what these tests are about.
     readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
@@ -58,6 +62,8 @@ beforeEach(() => {
   reviewRuns.mockReset();
   list.mockReset();
   reviewRunStandards.mockReset();
+  documentApi.mockReset();
+  documentApi.mockResolvedValue({ ok: false, error: { message: "not in this test" } });
   documents.mockResolvedValue({ ok: true, data: [] });
   reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run()] } });
   list.mockResolvedValue({ ok: true, data: { findings: [] } });
@@ -224,5 +230,32 @@ describe("2g: the picker and the panel always name the same document", () => {
     await userEvent.selectOptions(screen.getByLabelText("Submittal"), "doc-new");
     expect(screen.queryByRole("heading", { name: "drum.pdf", level: 2 })).toBeNull();
     expect(screen.getByLabelText("Submittal")).toHaveValue("doc-new");
+  });
+});
+
+describe("UX GROUP (2026-09-27): the finding detail panel", () => {
+  // jsdom implements no scrollIntoView; installed per-test so this test
+  // cannot pass on some other test's leftover spy, and removed after so it
+  // cannot leave one behind either.
+  afterEach(() => {
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+  });
+
+  it("scrolls into view when a finding is selected, wherever the table put it", async () => {
+    list.mockResolvedValue({
+      ok: true,
+      data: { findings: [{ id: "f1", document_id: "doc-sub", finding: "x",
+        compliance_status: "NON_COMPLIANT", requirement: "A requirement." }] },
+    });
+    const spy = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      value: spy, writable: true, configurable: true,
+    });
+
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByText("A requirement."));
+
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ block: "nearest" }));
   });
 });

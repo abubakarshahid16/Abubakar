@@ -56,6 +56,7 @@ export function ReviewRunsView(
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const findingsRef = useRef<HTMLElement | null>(null);
+  const detailRef = useRef<HTMLDivElement | null>(null);
   // Owner order section 3: the readiness strip, and the question asked when
   // a re-run cannot say anything new.
   const [readiness, setReadiness] = useState<ReviewReadiness | null>(null);
@@ -205,6 +206,18 @@ export function ReviewRunsView(
     if (typeof el.scrollIntoView !== "function") return;
     el.scrollIntoView({ block: "start" });
   }, [selectedRun]);
+
+  // UX GROUP (2026-09-27): FindingDetail renders BELOW every findings table
+  // on the run (one per topic group, when the run's comments are grouped),
+  // so a click on an early row can leave the detail a long scroll away with
+  // no sign anything happened. Same guard as `findingsRef` above: jsdom and
+  // older engines have no scrollIntoView, and selection still works without it.
+  useEffect(() => {
+    const el = detailRef.current;
+    if (!selectedFinding || el === null) return;
+    if (typeof el.scrollIntoView !== "function") return;
+    el.scrollIntoView({ block: "nearest" });
+  }, [selectedFinding]);
 
   const run = useMemo(
     () => runs.find((item) => item.review_run_id === selectedRun) ?? null,
@@ -510,11 +523,13 @@ export function ReviewRunsView(
           )}
 
           {finding && (
-            <FindingDetail
-              finding={finding} documents={documents}
-              standardNames={standardNames}
-              onChanged={() => { void loadFindings(run.review_run_id); }}
-            />
+            <div ref={detailRef}>
+              <FindingDetail
+                finding={finding} documents={documents}
+                standardNames={standardNames}
+                onChanged={() => { void loadFindings(run.review_run_id); }}
+              />
+            </div>
           )}
         </section>
       )}

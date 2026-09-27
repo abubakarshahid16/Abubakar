@@ -233,3 +233,65 @@ describe("B3: a finding on an unread page, in the table", () => {
     expect(within(row!).queryByText("Needs engineer review")).toBeNull();
   });
 });
+
+describe("UX GROUP (2026-09-27): the whole row opens the finding", () => {
+  /** Before this fix, only the standard-name link called `onSelect` - every
+   *  other cell, including the outcome/status badge, was inert text. */
+  function oneRow() {
+    return [finding({
+      id: "b", compliance_status: "NEEDS_ENGINEER_REVIEW",
+      standard_document_id: "doc_std", standard_clause: "6.2.2",
+      matched_phrase: "maximum operating pressure", match_method: "containment",
+      contractor_evidence_text: "2.2 bar (ga)",
+    })];
+  }
+
+  it("opens on a click anywhere in the row, not only the name link", async () => {
+    const onSelect = vi.fn();
+    render(<FindingsTable findings={oneRow()} selectedId={null} onSelect={onSelect} />);
+
+    // The requirement text cell - not the name link, not a button.
+    await userEvent.click(screen.getByText("A requirement."));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
+  });
+
+  it("opens on a click on the outcome/status badge specifically", async () => {
+    const onSelect = vi.fn();
+    render(<FindingsTable findings={oneRow()} selectedId={null} onSelect={onSelect} />);
+    const row = screen.getByText("A requirement.").closest("tr")!;
+
+    // Scoped to the row: "Needs engineer review" is also an <option> in the
+    // status filter above the table.
+    await userEvent.click(within(row).getByText("Needs engineer review"));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
+  });
+
+  it("still opens from the name link, unchanged", async () => {
+    const onSelect = vi.fn();
+    render(<FindingsTable findings={oneRow()} selectedId={null} onSelect={onSelect} />);
+    const row = screen.getByText("A requirement.").closest("tr")!;
+
+    // Scoped to the row: "doc_std" is also an <option> in the standard filter.
+    await userEvent.click(within(row).getByText("doc_std"));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire the row's own select twice from a click that only toggles 'more'", async () => {
+    const onSelect = vi.fn();
+    const rows = [finding({
+      id: "long", compliance_status: "NON_COMPLIANT",
+      requirement: "x".repeat(200),
+    })];
+    render(<FindingsTable findings={rows} selectedId={null} onSelect={onSelect} />);
+
+    await userEvent.click(screen.getByText("more"));
+
+    expect(screen.getByText("less")).toBeInTheDocument();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});

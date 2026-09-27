@@ -717,4 +717,27 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="PAGE_READER_ONLY finding",
         tags=("honesty", "ui"),
     ),
+    # ---- UX group (2026-09-27): the whole finding row opens the detail
+    Mutation(
+        id="M1136", phase=95, runner="vitest",
+        description="the finding row stops opening on a click anywhere in "
+                    "it, back to only the standard-name link",
+        path=_REVIEW_UI / "FindingsTable.tsx",
+        anchor='    <tr\n      role="row"\n      onClick={onSelect}\n      className=',
+        replacement='    <tr\n      role="row"\n      className=',
+        target="src/components/review/FindingsTable.test.tsx",
+        keyword="UX GROUP",
+        tags=("ui", "critical"),
+    ),
+    Mutation(
+        id="M1137", phase=95, runner="vitest",
+        description="the finding detail panel stops scrolling into view "
+                    "once a finding is selected",
+        path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
+        anchor='    if (!selectedFinding || el === null) return;\n    if (typeof el.scrollIntoView !== "function") return;\n    el.scrollIntoView({ block: "nearest" });\n',
+        replacement='    if (true) return;\n',
+        target="src/views/ReviewRunsView.test.tsx",
+        keyword="UX GROUP",
+        tags=("ui",),
+    ),
 )
