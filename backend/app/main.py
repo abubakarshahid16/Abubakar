@@ -3847,9 +3847,6 @@ def _crs_standards(review_run_id: str, submittal_id: str,
     return out
 
 
-@app.get("/api/reviews/readiness/{submittal_document_id}",
-         response_model=schemas.ReviewReadiness,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
 def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) -> dict:
     """Owner order section 3: the readiness strip's own numbers - shared by
     the GET route and the re-extraction route below, so "what changed" is
@@ -3898,6 +3895,9 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
     }
 
 
+@app.get("/api/reviews/readiness/{submittal_document_id}",
+         response_model=schemas.ReviewReadiness,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
 def review_readiness(
     submittal_document_id: str, request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
