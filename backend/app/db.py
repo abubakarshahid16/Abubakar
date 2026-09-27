@@ -979,7 +979,62 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_id, ordinal)"
     )
+    for statement in VECTOR_GENERATION_SQL:
+        conn.execute(statement)
     conn.commit()
+
+
+def _vector_generation_triggers() -> tuple[str, ...]:
+    """One trigger per write that can change what dense search may return."""
+    bump = ("INSERT INTO vector_generation (document_id, token) VALUES ({doc}, random())"
+            " ON CONFLICT(document_id) DO UPDATE SET token = excluded.token;")
+    corpus = bump.format(doc="''")
+    out = []
+    for table, event, rows in (
+        ("chunk_vectors", "INSERT", ("NEW",)),
+        ("chunk_vectors", "DELETE", ("OLD",)),
+        ("chunk_vectors", "UPDATE", ("OLD", "NEW")),
+        ("chunks", "INSERT", ("NEW",)),
+        ("chunks", "DELETE", ("OLD",)),
+        ("chunks", "UPDATE OF retrievable, id, document_id", ("OLD", "NEW")),
+    ):
+        name = f"vecgen_{table}_{event.split()[0].lower()}"
+        body = " ".join(bump.format(doc=f"{r}.document_id") for r in rows)
+        out.append(f"CREATE TRIGGER IF NOT EXISTS {name} AFTER {event} ON {table}"
+                   f" BEGIN {body} {corpus} END")
+    return tuple(out)
+
+
+#: VECTOR GENERATION TOKENS, read by `vector_store` (the dense-search index).
+#:
+#: A RANDOM token per document, and one for the whole corpus under the id '',
+#: replaced by a trigger on every write that can change what dense search may
+#: return: a vector added, replaced or deleted, a chunk added or deleted (a
+#: vector whose chunk is gone is an orphan), a chunk's `retrievable` flipped.
+#: The vector index compares tokens instead of recomputing a signature, so a
+#: query costs one indexed read instead of the aggregate scans of `chunks` the
+#: retrieval audit measured at 98% of the dense stage (2.3, finding L3).
+#:
+#: TRIGGERS, NOT CALLS, because every writer is covered - ingestion, the
+#: chunker, exclusion edits, a cascade from deleting a document, a script, a
+#: test's raw SQL - and a writer that forgets cannot exist.
+#:
+#: RANDOM, NOT A COUNTER, because a counter repeats: restore an older backup
+#: and write once, and the counter reaches a value the index has already seen
+#: for different content. A random 64-bit token never matches by accident.
+#: The seed rows give a database that predates the triggers a token for every
+#: document it already holds, so the first index build covers all of them.
+VECTOR_GENERATION_SQL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS vector_generation (
+        document_id TEXT PRIMARY KEY,   -- '' is the whole corpus
+        token       INTEGER NOT NULL
+    )""",
+    "INSERT OR IGNORE INTO vector_generation (document_id, token) VALUES ('', random())",
+    "INSERT OR IGNORE INTO vector_generation (document_id, token)"
+    " SELECT document_id, random() FROM"
+    " (SELECT DISTINCT document_id FROM chunk_vectors)",
+    *_vector_generation_triggers(),
+)
 
 
 def init_db(path: Path | None = None) -> None:
