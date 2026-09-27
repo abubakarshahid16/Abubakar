@@ -1,21 +1,22 @@
 /** P3: a queued or running review shows its progress and can be cancelled.
  *  Mutations M886-M889. */
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewRunSummary } from "../types/api";
 import { ReviewRunsView } from "./ReviewRunsView";
 
 const reviewRuns = vi.fn();
 const cancelJob = vi.fn();
+const list = vi.fn();
 vi.mock("../api/client", () => ({
   api: { documents: () => Promise.resolve({ ok: true, data: [] }) },
   reviews: {
     // Section 3's readiness strip; not what these tests are about.
     readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
-    list: () => Promise.resolve({ ok: true, data: { findings: [] } }),
+    list: (...a: unknown[]) => list(...a),
     reviewRunStandards: () => Promise.resolve({ ok: true, data: { standards: [] } }),
     reviewRunStandardsAll: () => Promise.resolve({ ok: true, data: { standards: [] } }),
     cancelJob: (...a: unknown[]) => cancelJob(...a),
@@ -32,7 +33,11 @@ function run(over: Partial<ReviewRunSummary>): ReviewRunSummary {
       progress_label: "queued", cancel_requested: false }, ...over } as ReviewRunSummary;
 }
 
-beforeEach(() => { reviewRuns.mockReset(); cancelJob.mockReset(); });
+beforeEach(() => {
+  reviewRuns.mockReset(); cancelJob.mockReset();
+  list.mockReset(); list.mockResolvedValue({ ok: true, data: { findings: [] } });
+});
+afterEach(() => { vi.useRealTimers(); });
 
 describe("a review on the queue", () => {
   it("says a queued review is waiting and cancels it on request", async () => {
@@ -79,5 +84,61 @@ describe("a review on the queue", () => {
     await screen.findByText("pump.pdf");
     expect(screen.queryByTestId("review-progress")).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel this review" })).toBeNull();
+  });
+});
+
+describe("the open run's findings, once its job finishes", () => {
+  it("BUG GROUP (2026-09-27): reload automatically - no second click on the run card", async () => {
+    // "Run AI review" opens ITS OWN run immediately (`start`, ReviewRunsView.tsx)
+    // while it is still queued/running, with no findings yet - the job has
+    // written none. The 3s poll below already refreshes the run CARD's own
+    // status and progress; before this fix nothing told the OPEN FINDINGS
+    // PANEL to look again once the job actually finished, so an engineer
+    // watching the screen saw it sit empty until they clicked the run card
+    // themselves. Opening the run here (one click) stands in for `start()`'s
+    // own auto-open; the fix is proven by the SECOND `list` call happening
+    // with no second click at all.
+    vi.useFakeTimers();
+    let status: "running" | "completed" = "running";
+    reviewRuns.mockImplementation(() => Promise.resolve({
+      ok: true,
+      data: { runs: [run({ status,
+        job: { id: "job-1", state: status === "completed" ? "done" : "running",
+              progress_done: status === "completed" ? 3 : 1, progress_total: 3,
+              progress_label: status === "completed" ? "done" : "comparing",
+              cancel_requested: false } })] },
+    }));
+
+    render(<ReviewRunsView />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+    fireEvent.click(screen.getByText("pump.pdf"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenLastCalledWith({ review_run_id: "run-1" });
+
+    // The job finishes in the background; nothing here clicks anything.
+    status = "completed";
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(list).toHaveBeenLastCalledWith({ review_run_id: "run-1" });
+  });
+
+  it("does not reload findings on every poll tick while still running", async () => {
+    vi.useFakeTimers();
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "running",
+      job: { id: "job-1", state: "running", progress_done: 1, progress_total: 3,
+            progress_label: "comparing", cancel_requested: false } })] } });
+
+    render(<ReviewRunsView />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    fireEvent.click(screen.getByText("pump.pdf"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(list).toHaveBeenCalledTimes(1);
+
+    // Several poll ticks, status never leaves "running".
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+    expect(list).toHaveBeenCalledTimes(1);
   });
 });
