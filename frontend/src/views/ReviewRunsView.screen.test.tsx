@@ -18,6 +18,7 @@ const documents = vi.fn();
 const reviewRuns = vi.fn();
 const list = vi.fn();
 const readiness = vi.fn();
+const rereadPages = vi.fn();
 const previewCrs = vi.fn();
 const startReviewRun = vi.fn();
 
@@ -27,6 +28,7 @@ vi.mock("../api/client", () => ({
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
     list: (...args: unknown[]) => list(...args),
     readiness: (...args: unknown[]) => readiness(...args),
+    rereadPages: (...args: unknown[]) => rereadPages(...args),
     previewCrs: (...args: unknown[]) => previewCrs(...args),
     startReviewRun: (...args: unknown[]) => startReviewRun(...args),
     reviewRunStandards: async () => ({ ok: true, data: { standards: [] } }),
@@ -71,7 +73,7 @@ function finding(over: Partial<ReviewFinding>): ReviewFinding {
 }
 
 beforeEach(() => {
-  for (const mock of [documents, reviewRuns, list, readiness, previewCrs, startReviewRun]) mock.mockReset();
+  for (const mock of [documents, reviewRuns, list, readiness, rereadPages, previewCrs, startReviewRun]) mock.mockReset();
   documents.mockResolvedValue({
     ok: true,
     data: [{ id: "doc-sub", filename: "vessel.pdf", document_role: "CONTRACTOR_SUBMITTAL" }],
@@ -209,5 +211,27 @@ describe("runs grouped per document", () => {
     expect(latestCards[0]).toHaveTextContent("Code 2");
     expect(within(earlier).getByRole("button", { name: /vessel\.pdf/i })).toHaveTextContent("Code 1");
     expect(screen.getAllByTestId("earlier-runs")).toHaveLength(1);
+  });
+});
+
+describe("Read unread pages", () => {
+  it("re-extracts and shows the returned readiness, only when pages are unread", async () => {
+    rereadPages.mockResolvedValue({ ok: true, data: ready({ unread_pages: [], nothing_changed: true, changes: [] }) });
+    render(<ReviewRunsView />);
+    const strip = within(await pickSubmittal());
+
+    await userEvent.click(strip.getByRole("button", { name: "Read unread pages" }));
+    expect(rereadPages).toHaveBeenCalledWith("doc-sub");
+    expect(await strip.findByText(/Nothing changed since the last run/)).toBeInTheDocument();
+    expect(strip.queryByRole("button", { name: "Read unread pages" })).toBeNull();
+  });
+
+  it("shows the error rather than failing silently", async () => {
+    rereadPages.mockResolvedValue({ ok: false, error: { message: "budget exceeded" } });
+    render(<ReviewRunsView />);
+    const strip = within(await pickSubmittal());
+
+    await userEvent.click(strip.getByRole("button", { name: "Read unread pages" }));
+    expect(await strip.findByRole("alert")).toHaveTextContent("budget exceeded");
   });
 });

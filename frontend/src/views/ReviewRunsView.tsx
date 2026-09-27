@@ -26,9 +26,9 @@ import { FindingsTable } from "../components/review/FindingsTable";
 import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
 import { StandardOverrideControl } from "../components/review/StandardOverrideControl";
 import {
-  STATUS_ORDER, completenessLine, groupRunsByDocument, kindCounts, pageCoverageLine,
-  pageList, pagesReadLine, statusLabel, statusTone, standardsChangeLine, summaryTotals,
-  whenLabel, withDenominator,
+  STATUS_ORDER, completenessLine, groupFindingsByTopic, groupRunsByDocument, kindCounts,
+  pageCoverageLine, pageList, pagesReadLine, statusLabel, statusTone, standardsChangeLine,
+  summaryTotals, whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
 
 type Phase =
@@ -348,7 +348,15 @@ export function ReviewRunsView(
           </p>
         )}
         {target && readiness && readiness.submittal_document_id === target && (
-          <ReadinessStrip readiness={readiness} onOpenStandards={onOpenStandards} />
+          <ReadinessStrip
+            readiness={readiness} onOpenStandards={onOpenStandards}
+            onReread={async () => {
+              const result = await reviewsApi.rereadPages(target);
+              if (!result.ok) throw new Error(result.error.message);
+              setReadiness(result.data);
+              if (run) await loadFindings(run.review_run_id);
+            }}
+          />
         )}
         {confirmRerun && (
           <div role="alertdialog" aria-label="Nothing changed since the last run"
@@ -464,11 +472,32 @@ export function ReviewRunsView(
 
           <ReviewNotes key={run.review_run_id} runId={run.review_run_id} />
 
-          <FindingsTable
-            findings={findings} selectedId={selectedFinding}
-            standardNames={standardNames}
-            onSelect={(item) => setSelectedFinding(item.id)}
-          />
+          {/* Owner order section 3: COMMENTS GROUPED BY TOPIC - the field a
+              comment is about - so ten findings on one field read as one
+              group rather than ten unrelated rows. Ungrouped when there is
+              only one group (nothing to group), the same table as before. */}
+          {groupFindingsByTopic(findings).length <= 1 ? (
+            <FindingsTable
+              findings={findings} selectedId={selectedFinding}
+              standardNames={standardNames}
+              onSelect={(item) => setSelectedFinding(item.id)}
+            />
+          ) : (
+            <div className="space-y-4" data-testid="findings-by-topic">
+              {groupFindingsByTopic(findings).map((group) => (
+                <div key={group.topic}>
+                  <h3 className="mb-1 text-sm font-semibold text-slateish-200">
+                    {group.topic} ({group.findings.length})
+                  </h3>
+                  <FindingsTable
+                    findings={group.findings} selectedId={selectedFinding}
+                    standardNames={standardNames}
+                    onSelect={(item) => setSelectedFinding(item.id)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
 
           {finding && (
             <FindingDetail
@@ -528,9 +557,12 @@ export function ReviewRunsView(
 
 /** Owner order section 3: what the review can use, before it is run. Every
  *  count carries its denominator and is about this caller's documents. */
-function ReadinessStrip({ readiness, onOpenStandards }: {
+function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
   readiness: ReviewReadiness; onOpenStandards?: () => void;
+  onReread: () => Promise<void>;
 }) {
+  const [rereading, setRereading] = useState(false);
+  const [rereadError, setRereadError] = useState<string | null>(null);
   const pages = pagesReadLine(readiness);
   const missing = readiness.standards_missing;
   return (
@@ -541,6 +573,27 @@ function ReadinessStrip({ readiness, onOpenStandards }: {
           {pages}
           {readiness.unread_pages.length > 0 && (
             <span className="text-slateish-400"> (not read: {pageList(readiness.unread_pages)})</span>
+          )}
+        </span>
+      )}
+      {readiness.unread_pages.length > 0 && (
+        <span className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setRereading(true);
+              setRereadError(null);
+              void onReread().catch((error: unknown) => {
+                setRereadError(error instanceof Error ? error.message : "Could not re-read the pages.");
+              }).finally(() => setRereading(false));
+            }}
+            disabled={rereading}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs text-signal-300 disabled:opacity-50"
+          >
+            {rereading ? "Reading…" : "Read unread pages"}
+          </button>
+          {rereadError && (
+            <span role="alert" className="text-xs text-rose-300">{rereadError}</span>
           )}
         </span>
       )}

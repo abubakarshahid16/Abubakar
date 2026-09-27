@@ -423,6 +423,14 @@ export const reviews = {
       undefined,
       hasArrayField("standards_missing"),
     ),
+  /** Owner order section 3: "Read unread pages" - re-extracts this ONE
+   *  submittal, then answers the readiness strip's own numbers again. */
+  rereadPages: (submittalDocumentId: string) =>
+    request<ReviewReadiness>(
+      `/reviews/readiness/${encodeURIComponent(submittalDocumentId)}/reread-pages`,
+      { method: "POST" },
+      hasArrayField("standards_missing"),
+    ),
   previewCrs: (runId: string) =>
     request<CrsPreview>(
       `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,

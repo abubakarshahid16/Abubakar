@@ -199,3 +199,42 @@ See `docs/extraction-filter-audit.md` for the per-rule report.
 - DB migration: **YES**. Two additive nullable columns on
   `standard_requirements`, added automatically at start-up. Back up the laptop
   DB before updating.
+
+## Screen redesign PR A - readiness strip, summary, notes, grouped runs, Edit/Reject
+
+See the PR description for the full list. In short: `GET /api/reviews/readiness/{id}`
+(pages read, standards held/missing, "nothing changed since the last run"),
+the four-total summary with kind A/B/C counts, on-screen Review notes, runs
+grouped per document, and an Edit/Reject action on individual comments.
+Also fixed a pre-existing mutation-id collision on `main` between
+`chat_claude_first.py` and `rule_eval.py`.
+- DB migration: **none** (`completed_at` and `engineer_comment` are additive
+  nullable columns, added automatically at start-up).
+
+## Screen redesign PR B - "Read unread pages" + comments grouped by topic
+
+- **"Read unread pages"** (`POST /api/reviews/readiness/{submittal_document_id}
+  /reread-pages`): re-runs `datasheets.extract_facts(replace=True)` on this ONE
+  submittal, so a page the ledger says is unread gets another try (rule and
+  geometry readers first; vision only where B7 says they still fail), then
+  answers the same readiness numbers as the GET route (shared helper, so the
+  two routes cannot drift into two answers to one question - CLAUDE.md rule 8).
+- **Nothing is deleted.** `extract_facts(replace=True)` supersedes a stale
+  fact rather than removing it (#179); this route writes no review finding
+  and no compliance verdict - it reads fields, it does not compare them.
+- **On the screen:** the readiness strip's "Read unread pages" button is
+  shown only while pages are unread, and reports the API's own error rather
+  than failing silently.
+- **Comments grouped by topic.** The findings table is now split by the
+  field a comment is about (the matched datasheet field name, or the
+  equipment tag when there is none, or "Other") - ten findings on one field
+  read as one group of ten, not ten unrelated rows. Unchanged when there is
+  only one topic.
+- **Testing.** Owner decision 2026-09-27 (minimum testing mode): no local
+  test-suite run, no mutation run. A few tests only, for the new behaviour
+  and the safety rules - permissions (a caller without access gets 404 from
+  the re-read route, same as every review route), no data loss (a run's
+  findings are unchanged by a re-read of the submittal they were about), and
+  AI never sets pass/fail (re-reading writes no new finding and no
+  compliance status). CI is the gate for this PR.
+- DB migration: **none**.
