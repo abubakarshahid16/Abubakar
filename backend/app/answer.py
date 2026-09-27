@@ -618,6 +618,18 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
         kept: list[str] = []
         for segment in _SEGMENT.split(line[len(prefix):]):
             claimed = synthesis.claimed_numbers(segment)
+            # A count of documents ("12 distinct standards", "1 standard and
+            # 2 procedures") is not a measurement the cited passage must
+            # contain - it is a meta-count of what retrieval returned, and
+            # its own honesty (naming "retrieved", not the library) is
+            # enforced separately by corpus.bound_counts right after this
+            # function returns. Holding it to the passage text here stripped
+            # the whole sentence before bound_counts ever saw it - the
+            # regression the round-2 review caught in test_corpus_questions.
+            if claimed:
+                count_matches = [m.group(0) for m in corpus_mod.DOC_COUNT_CLAIM.finditer(segment)]
+                if count_matches:
+                    claimed = claimed - synthesis._numbers(" ".join(count_matches))
             if claimed:
                 cited = sorted({int(n) for n in _CITATION.findall(segment)
                                 if 1 <= int(n) <= len(passages)})

@@ -158,4 +158,21 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="                unsupported = claimed - spans\n",
         target=_T, keyword="a_rounded_figure_is_not_treated_as_unsupported",
     ),
+    # ---- round-2 integration fix: a document count is not a measurement ----
+    Mutation(
+        id="M1361", phase=_PHASE,
+        description="a document count ('1 standard', '12 distinct standards') is treated "
+                    "as an unsupported passage measurement and its sentence - and with it "
+                    "the whole answer - is wrongly stripped before corpus.bound_counts "
+                    "ever runs",
+        path=APP / "answer.py",
+        anchor=(
+            '            if claimed:\n'
+            '                count_matches = [m.group(0) for m in corpus_mod.DOC_COUNT_CLAIM.finditer(segment)]\n'
+            '                if count_matches:\n'
+            '                    claimed = claimed - synthesis._numbers(" ".join(count_matches))\n'
+        ),
+        replacement="",
+        target=_T, keyword="a_document_count_is_not_treated_as_an_unsupported_figure",
+    ),
 )

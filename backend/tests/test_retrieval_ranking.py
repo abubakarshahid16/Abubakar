@@ -398,6 +398,29 @@ def test_a_genuinely_different_figure_is_still_removed():
     assert removed and removed[0]["value"] == "20.0"
 
 
+def test_a_document_count_is_not_treated_as_an_unsupported_figure():
+    """"1 standard and 2 procedures" counts what RETRIEVAL returned, not a
+    measurement the cited passage must contain - ground_numbers stripping it
+    is the round-2 regression caught in test_corpus_questions.py (the whole
+    sentence, and with it the answer, disappeared before corpus.bound_counts
+    ever got a chance to name its boundary). Singular counts ("1 standard")
+    must be recognised exactly like the plural form bound_counts already
+    handles."""
+    passage = [{"text": "Vibration shall not exceed 3.0 mm/s RMS per clause 5.3.2 of API 610."}]
+    text = "The retrieved passages mention 1 standard and 2 procedures [S1]."
+    clean, removed = answer_mod.ground_numbers(text, passage)
+    assert clean == text
+    assert removed == []
+
+
+def test_a_plural_document_count_is_also_exempt():
+    passage = [{"text": "Vibration shall not exceed 3.0 mm/s RMS per clause 5.3.2 of API 610."}]
+    text = "There are 12 distinct standards covering vibration [S1]."
+    clean, removed = answer_mod.ground_numbers(text, passage)
+    assert clean == text
+    assert removed == []
+
+
 def test_a_figure_its_cited_passage_does_not_contain_is_removed():
     text = ("Yes.\n- The limit is 4.5 mm/s [S1].\n- The limit is 3.0 mm/s RMS [S1].\n"
             "1. See clause 5.3.2 of API 610 [S1].")

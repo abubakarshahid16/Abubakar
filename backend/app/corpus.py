@@ -277,6 +277,19 @@ COUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + _MD + r"\s+" + _MD
                          + _COUNT_ADJ + _DOC_KINDS + r"(?![A-Za-z0-9])",
                          re.IGNORECASE)
 
+#: The same document count, but matching the SINGULAR noun too ("1 standard",
+#: "2 procedures") - bound_counts itself only needs the plural form its own
+#: tests fix (a count of exactly one is vanishingly rare model phrasing and
+#: not worth widening THAT pattern for), but answer.ground_numbers uses this
+#: wider match so a document count is never mistaken for a passage
+#: measurement it must literally contain, whichever way the model wrote it.
+_DOC_KINDS_EITHER = (r"(?:standards?|specifications?|specs?|documents?|files?|"
+                     r"datasheets?|data\s+sheets?|submittals?|drawings?|"
+                     r"procedures?|reports?|manuals?|codes?)")
+DOC_COUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + _MD + r"\s+" + _MD
+                              + _COUNT_ADJ + _DOC_KINDS_EITHER + r"(?![A-Za-z0-9])",
+                              re.IGNORECASE)
+
 #: The words that make a count honest, required verbatim: the task says any
 #: count "must say so IN THOSE WORDS". A sentence already carrying one is
 #: left exactly as the model wrote it.
