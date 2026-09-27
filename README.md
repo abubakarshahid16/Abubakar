@@ -282,6 +282,13 @@ server: see step 6.
 Slow tests that build a real ONNX session are marked `slow` and deselected by
 default. Run them with `python -m pytest -m slow`.
 
+The retrieval latency benchmark (about 105 s on its own) is marked `benchmark`
+and is also deselected by default. CI runs it in a separate step, so it still
+gates every push; run it locally with `python -m pytest -m benchmark`.
+
+A plain run is serial. `pytest-xdist` is installed with the requirements, so on
+a 4-core machine run `python -m pytest -q -n 4` (CI uses `-n auto`).
+
 If the models are not staged, the suite **stops immediately** with the command
 that fixes it, rather than producing ninety failures with one cause.
 

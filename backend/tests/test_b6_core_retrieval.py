@@ -300,6 +300,12 @@ def test_an_empty_grant_returns_nothing_at_all(bench):
 
 # ================================================================ 7. measured
 
+#: BENCHMARK, NOT DESELECTED FROM CI. 105 s of a 14.5-minute local run (perf
+#: audit item 8), so a plain `pytest` skips it via the `benchmark` marker -
+#: and `.github/workflows/tests.yml` runs `-m benchmark` as its own step, so
+#: its recall/MRR/latency floors still gate every push. Locally:
+#: `python -m pytest -m benchmark`.
+@pytest.mark.benchmark
 def test_recall_mrr_precision_and_latency_are_measured(bench):
     """The B6 measurement, on the SYNTHETIC set. Reported in the test log as a
     warning (the CI log prints warnings) and held to floors well below what a
