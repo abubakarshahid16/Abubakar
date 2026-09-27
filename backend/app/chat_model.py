@@ -199,7 +199,7 @@ def generate(system: str, prompt: str, *, temperature: float, preference: str | 
             "num_batch": settings.num_batch,
         },
         # hold the model resident between turns so the cold load is paid once
-        "keep_alive": "30m",
+        "keep_alive": settings.ollama_keep_alive,
     }
     raw = model_transport.post_json("/api/generate", body, timeout=timeout)
     return {**raw, "provider": rp.OLLAMA, "cost_usd": None}
