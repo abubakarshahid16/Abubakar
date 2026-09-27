@@ -2614,6 +2614,9 @@ class Understanding(BaseModel):
     clause_reason: str | None = None
     ambiguous_documents: list[str] = []
     notes: list[str] = []
+    soft_identifiers: list[str] = Field(
+        [], description="identifiers a follow-up carried from an earlier question. "
+        "They steer retrieval but are not required; typing one again makes it required")
 
 
 class ScopeDocument(BaseModel):
@@ -2820,7 +2823,11 @@ class AskRequest(BaseModel):
     question: str = Field("", max_length=500)
     tier: Literal["extract", "generated"] = "extract"
     document_id: str | None = None
-    limit: int = Field(3, ge=1, le=5)
+    limit: int | None = Field(
+        None, ge=1, le=5,
+        description="how many ranked passages to consider; default is the "
+        "configured answer top-k (ANSWER_TOP_K, 5), the same k the retrieval "
+        "benchmark reports recall at")
     explain_of: str | None = Field(
         None,
         description="upgrade this assistant message to Tier 2 instead of asking anew; "
