@@ -10,7 +10,8 @@ PURE ARITHMETIC, RULES AS DATA. `evaluate` takes the datasheet's facts and
 returns results; it opens no database, calls no model, reads no network. The
 rules are `reference/datasheet_checks.json` - roles (which field names mean
 "design pressure"), unit families, placeholder words, consistency pairs and
-mandatory fields per equipment type - each with an id and plain-English text.
+mandatory fields per equipment type (the placeholder words are
+`blank_markers`, shared with the datasheet reader) - each with an id and plain-English text.
 
 WHAT IT NEVER DOES:
   * compare two values it cannot put on one scale (different units that do
@@ -32,6 +33,8 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+
+from . import blank_markers
 
 RULES_PATH = Path(__file__).parent / "reference" / "datasheet_checks.json"
 ORIGIN = "datasheet_check"
@@ -162,7 +165,6 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
              rules: dict | None = None) -> list[dict]:
     """Every check's result for one datasheet. Pure."""
     rules = rules or load_rules()
-    placeholders = set(rules["placeholders"])
     by_tag: dict[str | None, dict[str, list[dict]]] = {}
     for fact in facts:
         role = role_of(fact.get("field_name") or "", rules)
@@ -198,8 +200,12 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                                    None, role, tag))
                 continue
             for fact in found:
-                shown = _fold(fact.get("field_value") or fact.get("blank_marker"))
-                if shown in placeholders or _fold(fact.get("blank_marker")) in placeholders:
+                # ONE LIST (rule 8): `blank_markers`, the list the datasheet
+                # reader itself used to mark the fact blank - a lone "*" or
+                # "VENDOR TO ADVISE" is a placeholder here exactly as there.
+                printed = fact.get("field_value") or fact.get("blank_marker") or ""
+                if fact.get("is_blank") or (printed.strip()
+                                            and blank_markers.classify(printed)[0]):
                     out.append(_result("DS-M2", MISSING_INFORMATION,
                                        f"{_pretty(role)} is a mandatory field for {equipment_phrase}.",
                                        f"{_label(fact, role)} is marked '{_shown(fact) or fact.get('blank_marker')}' "

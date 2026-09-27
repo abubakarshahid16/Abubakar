@@ -44,8 +44,8 @@ from datetime import datetime, timezone
 
 import json
 
-from . import (claims, orphan_guard, page_ledger, provenance, row_noise, submittal_review,
-               tables)
+from . import (blank_markers, claims, orphan_guard, page_ledger, provenance, row_noise,
+               submittal_review, tables)
 from .config import settings
 from .db import connect
 
@@ -59,16 +59,10 @@ from .db import connect
 #: Taken verbatim from the two real datasheets, which write it several ways -
 #: "By Contractor /Vendor", "By Contractor / Vendor", "(By Contractor, as per
 #: Code)" - so the pattern is deliberately loose about the separator.
-_BLANK_MARKERS = re.compile(
-    r"\b(?:by\s+(?:the\s+)?(?:contractor|vendor|supplier|manufacturer)"
-    r"(?:\s*/\s*(?:vendor|contractor|supplier))?"
-    r"|to\s+be\s+(?:advised|confirmed|determined)|tba|tbc|tbd)\b",
-    re.IGNORECASE,
-)
-
-#: A cell holding nothing but placeholder rules - "_______", "****", "---".
-#: A form draws them where a value goes, and they are blanks, not values.
-_PLACEHOLDER = re.compile(r"^[\s_\-*.·–—]{2,}$")
+#: CRS quick wins (2026-09-27): the marker lists moved to `blank_markers`,
+#: the ONE home every reader now asks (this module, the geometry reader and
+#: `datasheet_checks`). A lone `*`, "VENDOR TO ADVISE", "-" and "LATER" are
+#: blanks there; "N/A" is an answer, never a blank.
 
 #: A referenced standard named inside a datasheet. Both real client sheets name a
 #: stack of them, and phase 5 needs to know which standards a submittal itself
@@ -76,7 +70,23 @@ _PLACEHOLDER = re.compile(r"^[\s_\-*.·–—]{2,}$")
 #: shape rather than by one loose pattern that would also match a tag number.
 _REFERENCED_STANDARD = re.compile(
     r"\b("
-    r"API\s*(?:RP\s*)?\d{3}(?:\s*Pt[-\s]?\d)?"
+    # CRS QUICK WINS (2026-09-27, audit crs.md defect 6): 14 of 34 common
+    # spellings were invisible - "API 6D", "API-610", "API Std 610", "NFPA
+    # 20", "ASME VIII DIV. 1" (the repo's own synthetic vessel sheet), IEEE,
+    # MSS, UL, DIN, BS, TEMA, PIP. A citation nobody detects is a standard
+    # never applied and never reported missing. API takes a hyphen, an
+    # RP/Std/Spec word, three or four digits, or one or two digits ONLY with a
+    # letter suffix (6D, 5L, 12F) - a bare "API 20" in prose stays a number.
+    r"API[-\s]*(?:(?:RP|STD|SPEC|MPMS)\.?[-\s]*)?(?:\d{3,4}|\d{1,2}[A-Z]{1,2})"
+    r"(?:\s*Pt[-\s]?\d)?"
+    r"|NFPA[-\s]*\d{1,4}[A-Z]?"
+    r"|IEEE[-\s]*(?:STD\.?\s*)?\d{3,4}(?:\.\d{1,3})?"
+    r"|MSS[-\s]*SP[-\s]*\d{1,3}"
+    r"|UL[-\s]*\d{3,4}[A-Z]?"
+    r"|DIN[-\s]*(?:EN[-\s]*)?\d{3,5}"
+    r"|BS[-\s]*(?:EN[-\s]*)?\d{3,5}"
+    r"|TEMA[-\s]+(?:CLASS[-\s]*)?[RCB]"
+    r"|PIP[-\s]*[A-Z]{4}\d{3,4}[A-Z]?"
     # KOC discipline codes are ONE letter (E electrical, G general, I
     # instrumentation, P painting, Q quality...) or TWO (ME mechanical
     # equipment, MP mechanical piping...) depending on the discipline, not a
@@ -98,7 +108,11 @@ _REFERENCED_STANDARD = re.compile(
     # (B16.5, B31.3), or a section in roman numerals with an optional division
     # (Sec VIII, Section VIII Div 1).
     r"|ASME\s*B\d{1,2}\.\d{1,3}(?:\.\d{1,3})?"
-    r"|ASME\s*SEC(?:T|TION)?\.?\s*[IVX]+(?:\s*DIV(?:\.|ISION)?\s*\d+)?"
+    # The section word is optional (quick wins 2026-09-27): "ASME VIII DIV.
+    # 1" names Section VIII as surely as "ASME SEC VIII DIV 1". A roman
+    # numeral is still required, so "ASME B" (a family, not a document)
+    # stays unmatched as before.
+    r"|ASME\s*(?:SEC(?:T|TION)?\.?\s*)?[IVX]+(?:\s*,?\s*DIV(?:\.|ISION)?\s*\d+)?"
     r"|ASTM\s*[A-Z]\d{1,4}"
     r"|IEC\s*\d{5}"
     # `\d{3,4}` so a four-digit series (SAES-R-1101) is a citation. The
@@ -749,7 +763,7 @@ def is_field_label(text: str) -> bool:
     if digits > letters:
         return False
     # A blank marker is what a value says, never what a field is called.
-    return not _BLANK_MARKERS.search(candidate)
+    return not blank_markers.names_a_marker(candidate)
 
 
 #: Label text that is a section heading rather than a field.
@@ -815,19 +829,11 @@ def is_blank_value(value: str | None) -> tuple[bool, str | None]:
     underscores or asterisks where the value goes, and an explicit
     "By Contractor / Vendor". All three are MISSING INFORMATION.
     """
-    text = (value or "").strip()
-    if not text:
-        return True, "empty"
-    if _PLACEHOLDER.match(text):
-        return True, "placeholder"
-    marker = _BLANK_MARKERS.search(text)
-    if marker:
-        # "217C By Contractor /Vendor" carries a number AND the marker. It is
-        # still blank: the number is a provisional process figure and the sheet
-        # is saying the vendor has to confirm it. Treating it as a filled value
-        # would compare a placeholder against a standard.
-        return True, marker.group(0).strip()
-    return False, None
+    # ONE HOME (rule 8): `blank_markers.classify`, which the geometry reader
+    # and the datasheet self-checks read too. "217C By Contractor /Vendor"
+    # carries a number AND the marker and is still blank: the number is a
+    # provisional figure the vendor has to confirm.
+    return blank_markers.classify(value)
 
 
 def referenced_standard_spans(text: str) -> list[tuple[str, int, int]]:
@@ -856,6 +862,11 @@ def referenced_standards(text: str) -> list[str]:
         # one inflated the denominator that reference coverage is measured
         # against. The digits are the identity; everything else is spelling.
         key = re.sub(r"[^A-Z0-9]", "", raw.upper())
+        # "ASME VIII DIV. 1" and "ASME SEC VIII DIV 1" are one code: the
+        # section and division words are spelling, not identity.
+        if key.startswith("ASME"):
+            key = re.sub(r"SECTION|SECT|SEC|DIVISION", lambda m: "DIV" if m.group(0)
+                         == "DIVISION" else "", key)
         seen.setdefault(key, raw)
     return list(seen.values())
 
@@ -1275,6 +1286,61 @@ def _pairs_from_numbered_row(cells: list[str], serials: list[int]) -> list[tuple
     return out
 
 
+#: CRS QUICK WINS (2026-09-27, audit crs.md defect 4): THE TWO-TAG ENQUIRY
+#: LAYOUT - `ITEM | UNIT | P-101A | P-101B`. Each value column was read as
+#: "<label> - <column header>", so the TAG became part of the FIELD NAME
+#: ("noise level p 101a", `equipment_tag` NULL on 26 of 26 facts) and the UNIT
+#: column became a fact of its own ("noise level unit" = dB(A)) instead of the
+#: unit of the values beside it. 19 of 45 facts on the audit's pump sheet were
+#: such artefacts, and none of them could pair with a clause.
+#:
+#: A column header is a TAG only in the shape plant tags are written: letters,
+#: a HYPHEN, digits, an optional letter suffix ("P-101A", "V-2001",
+#: "2003-47-V-0001A"). The hyphen is required so a designation header
+#: ("CL300", "SA516") is never taken for a piece of equipment.
+_TAG_COLUMN = re.compile(r"^(?:\d{2,5}-){0,3}[A-Z]{1,5}-\d{2,5}[A-Z]{0,2}(?:/[A-Z])?$")
+_UNIT_COLUMN = re.compile(r"^(?:units?|uom|u/m|unit of measure)$", re.IGNORECASE)
+
+#: Carries a value column's equipment tag from the table reader to the fact
+#: writer, the way `_SLOT_MARK` carries "this cell is a value": appended to the
+#: label as `label + _TAG_MARK + tag`, and split off again by
+#: `split_column_tag` before the fact is written, where the tag becomes the
+#: fact's `equipment_tag`. Invisible, and never written to the database.
+_TAG_MARK = "\u2064"
+
+
+def is_tag_header(text: str | None) -> bool:
+    """Is this column header an equipment tag (see `_TAG_COLUMN`)?"""
+    return bool(_TAG_COLUMN.match(" ".join((text or "").split()).upper()))
+
+
+def is_unit_header(text: str | None) -> bool:
+    """Is this column header the sheet's UNIT column?"""
+    return bool(_UNIT_COLUMN.match(" ".join((text or "").split())))
+
+
+def with_column_tag(label: str, tag: str | None) -> str:
+    return f"{label}{_TAG_MARK}{tag}" if tag else label
+
+
+def split_column_tag(label: str) -> tuple[str, str | None]:
+    """`(label, tag)` - the tag a value column carried, or None."""
+    if _TAG_MARK not in (label or ""):
+        return label, None
+    base, _mark, tag = label.partition(_TAG_MARK)
+    return base, (tag or None)
+
+
+def join_unit_column(value: str, unit: str | None) -> str:
+    """"3.5" under a "mm/s" unit column is "3.5 mm/s". Only a bare NUMBER
+    takes the unit: a blank ("*"), a categorical answer or a value that
+    already carries a unit is left exactly as printed."""
+    unit = " ".join((unit or "").split())
+    if not unit or not _is_numeric_cell(value) or blank_markers.classify(value)[0]:
+        return value
+    return f"{value.strip()} {unit}"
+
+
 def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
     """Label:value pairs from one RULED table shape, respecting its columns.
 
@@ -1372,6 +1438,13 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
 
     padded_rows = [_padded(row) for row in shape]
     serials = _serial_columns(padded_rows[data_start:], width)
+    # THE TWO-TAG LAYOUT: which value columns are equipment tags, and which
+    # one is the unit column. Empty unless at least one header is a tag.
+    tag_cols = {i: " ".join(header[i].split()) for i in range(1, width)
+                if i < len(header) and is_tag_header(header[i])}
+    unit_col = next((i for i in range(1, width)
+                     if i < len(header) and is_unit_header(header[i])), None) \
+        if tag_cols else None
 
     out = []
     for row in shape[data_start:]:
@@ -1437,6 +1510,17 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
             if not value:
                 continue
             col_header = header[i] if i < len(header) else ""
+            if tag_cols:
+                # THE TWO-TAG LAYOUT (see `_TAG_COLUMN`): the unit column is
+                # the unit of the values beside it, never a fact; a tag
+                # column's value is this row's field FOR THAT TAG.
+                if i == unit_col:
+                    continue
+                if i in tag_cols:
+                    out.append((with_column_tag(label, tag_cols[i]),
+                                join_unit_column(value, cells[unit_col]
+                                                 if unit_col is not None else None)))
+                    continue
             field = f"{label} - {col_header}" if col_header else label
             out.append((field, value))
     return out
@@ -2641,7 +2725,7 @@ def _extract_facts(
     # hash plus every chunk's text, in order. See `provenance.py`. NOT
     # covered: `page_ocr` text read by the OCR fallback tier, which carries
     # its own engine/model/dpi record; a re-OCR is visible there, not here.
-    extractor_version = provenance.code_version("datasheets", "tables")
+    extractor_version = provenance.code_version("datasheets", "tables", "blank_markers")
     inputs = provenance.input_hash(chunks[0]["sha256"], *(c["text"] for c in chunks))
     # KEYED BY EVERY PAGE A CHUNK COVERS, not by the page it starts on.
     #
@@ -2771,7 +2855,11 @@ def _extract_facts(
         # exists nowhere in the output.
         split: list[tuple[str, str]] = []
         for one_label, one_value in found:
-            split.extend(split_compound_pair(one_label, one_value))
+            # The column tag rides past the compound split untouched: "P-101A"
+            # must not be read as a second field name of the label.
+            base, column_tag = split_column_tag(one_label)
+            split.extend((with_column_tag(part, column_tag), part_value)
+                         for part, part_value in split_compound_pair(base, one_value))
         # #179: both readers ran over this page, so a cell they can both
         # read is here twice - see collapse_double_reads.
         pairs_by_page[page] = collapse_double_reads(split)
@@ -2790,7 +2878,8 @@ def _extract_facts(
         geometry_furniture = furniture_labels(
             {page: [(row["label"], row["value_text"] or "") for row in rows]
              for page, rows in geometry_by_page.items()})
-        geometry_version = provenance.code_version("datasheets", "tables", "geometry_reader")
+        geometry_version = provenance.code_version(
+            "datasheets", "tables", "geometry_reader", "blank_markers")
         vision_version = provenance.code_version("datasheets", "vision_reader", "row_noise")
     # WHICH EQUIPMENT EACH PAGE IS ABOUT, decided over the whole document
     # because the one-tag rule cannot be seen from a single page.
@@ -2854,13 +2943,20 @@ def _extract_facts(
             # RATED). The grid's reading carries the column and the unit.
             grid_names = {normalise_field_name(cell["label"])
                           for cell in grid_by_page.get(page, [])}
+            # THE TWO-TAG LAYOUT: a row the table reader read per tag column
+            # is not written again, untagged, from the flat text reader's
+            # reading of the same line ("DESIGN PRESSURE" = "25 barg").
+            tag_row_names = {normalise_field_name(split_column_tag(one)[0])
+                             for one, _v in pairs if split_column_tag(one)[1]}
             for label, value in pairs:
+                marked_label = label
+                label, column_tag = split_column_tag(label)
                 # Whitespace-insensitive, the same key collapse_double_reads
                 # uses (#179) - one definition of "the same cell", not two.
                 # THE PAGE IS PART OF THE KEY: the same value on another page
                 # is another valve's value on a one-valve-per-page sheet, and
                 # it is kept (the 15 "duplicates" #179 verified in the PDF).
-                key = (page, *_same_cell_key(label, value))
+                key = (page, *_same_cell_key(marked_label, value))
                 if not label.strip():
                     dropped["empty label"] = dropped.get("empty label", 0) + 1
                     continue
@@ -2868,6 +2964,10 @@ def _extract_facts(
                     dropped["duplicate"] = dropped.get("duplicate", 0) + 1
                     continue
                 seen.add(key)
+                if column_tag is None and normalise_field_name(label) in tag_row_names:
+                    dropped["read as a tag-column row"] = dropped.get(
+                        "read as a tag-column row", 0) + 1
+                    continue
                 if grid_names and (
                         normalise_field_name(label) in grid_names
                         or normalise_field_name(label_unit(label)[0]) in grid_names):
@@ -2949,7 +3049,7 @@ def _extract_facts(
                         extraction_method=(
                             "ocr_fallback" if page in low_confidence_pages
                             else "extracted"),
-                        equipment_tag=tags.get(page),
+                        equipment_tag=column_tag or tags.get(page),
                         commit=False,
                         extractor_version=extractor_version,
                         input_hash=inputs,
@@ -3013,7 +3113,30 @@ def _extract_facts(
             # a whole says it is the revision history - see
             # row_noise.revision_table_ids.
             revision_tables = row_noise.revision_table_ids(geometry_by_page.get(page, []))
+            # THE TWO-TAG LAYOUT, geometry side: the reader names a tag
+            # column's cell "<LABEL> <TAG>" and reads the UNIT column as a
+            # cell of its own. The unit is joined to the values of its table
+            # row, the tag leaves the label for `equipment_tag`, and the unit
+            # cell is not a fact.
+            geometry_units = {
+                (r.get("table_id"), r.get("row")): (r.get("value_text") or "").strip()
+                for r in geometry_by_page.get(page, [])
+                if r.get("source") == "table" and is_unit_header(r.get("column_label"))}
             for row in geometry_by_page.get(page, []):
+                row_tag = None
+                if row.get("source") == "table" and is_unit_header(row.get("column_label")):
+                    dropped["geometry: unit column"] = dropped.get("geometry: unit column", 0) + 1
+                    continue
+                column = " ".join((row.get("column_label") or "").split())
+                if row.get("source") == "table" and is_tag_header(column):
+                    printed = " ".join((row["label"] or "").split())
+                    if printed.upper().endswith(column.upper()):
+                        row_tag = column
+                        unit = geometry_units.get((row.get("table_id"), row.get("row")))
+                        row = {**row, "label": printed[:-len(column)].strip(),
+                               "unit": row.get("unit") or (
+                                   unit if not row["is_blank"]
+                                   and _is_numeric_cell(row.get("value") or "") else None)}
                 label = (row["label"] or "").strip()
                 if not label:
                     dropped["empty label"] = dropped.get("empty label", 0) + 1
@@ -3034,13 +3157,15 @@ def _extract_facts(
                     dropped["geometry: furniture, tag or date"] = dropped.get(
                         "geometry: furniture, tag or date", 0) + 1
                     continue
-                same_label = rule_facts.get(name, [])
+                same_label = [f for f in rule_facts.get(name, [])
+                              if row_tag is None or f.get("equipment_tag") == row_tag]
                 if any(_geometry_agrees(raw, row["is_blank"], f) for f in same_label):
                     # The rule reader already wrote this reading: no duplicate.
                     dropped["geometry: same as rule reader"] = dropped.get(
                         "geometry: same as rule reader", 0) + 1
                     continue
-                key = (page, name, "<blank>" if row["is_blank"] else _fold(raw), "geometry")
+                key = (page, name, "<blank>" if row["is_blank"] else _fold(raw), "geometry",
+                       row_tag or "")
                 if key in seen:
                     dropped["duplicate"] = dropped.get("duplicate", 0) + 1
                     continue
@@ -3062,7 +3187,7 @@ def _extract_facts(
                         section=section_heading(chunk["section"]),
                         source_text=row["value_text"], review_run_id=review_run_id,
                         confidence=0.6, extraction_method=GEOMETRY_METHOD,
-                        equipment_tag=tags.get(page), commit=False,
+                        equipment_tag=row_tag or tags.get(page), commit=False,
                         validation_state=GEOMETRY_CONFLICT if same_label else None,
                         extractor_version=geometry_version, input_hash=inputs,
                         value_column=row["column_label"],
