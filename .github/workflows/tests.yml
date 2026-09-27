@@ -73,6 +73,14 @@ jobs:
         working-directory: backend
         run: python -m pytest -q -n auto --durations=10
 
+      # THE BENCHMARKS, WHICH THE STEP ABOVE DESELECTS (pytest.ini's
+      # `-m "not slow and not benchmark"`). Split out so a local run is not
+      # held up by a 105 s latency benchmark - NOT dropped: its recall, MRR
+      # and p95 floors still fail this job. `-m` here replaces the default.
+      - name: Run the benchmarks
+        working-directory: backend
+        run: python -m pytest -q -m benchmark --durations=10
+
   frontend:
     name: frontend (vitest + tsc)
     runs-on: ubuntu-latest

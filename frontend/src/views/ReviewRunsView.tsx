@@ -932,8 +932,15 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
                   in them would put words in their mouth. */}
               <td className="border border-ink-600 px-2 py-1 align-top" />
               <td className="border border-ink-600 px-2 py-1 align-top" />
+              {/* CRS quick wins: the standard and clause, in their own column
+                  after the client's seven (Page/Section is the datasheet's). */}
+              {preview.columns.includes("Standard Reference") && (
+                <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
+                  {row.standard_reference ?? ""}
+                </td>
+              )}
               {/* Owner order 2f: the last column, internal copy only. */}
-              {preview.columns.length > 7 && (
+              {preview.columns.includes("AI Review Comments") && (
                 <td className="whitespace-pre-line border border-ink-600 px-2 py-1 align-top text-slateish-200">
                   {row.ai_review_comment}
                 </td>

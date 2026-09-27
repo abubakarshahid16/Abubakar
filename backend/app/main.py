@@ -27,13 +27,13 @@ from . import page_ledger as page_ledger_mod
 from . import highlight as highlight_mod
 from . import keyword as keyword_mod
 from . import metrics as metrics_mod
-from . import acronyms as acronyms_mod
 from . import answer as answer_mod
 from . import search as search_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
 from . import watcher as watcher_mod
 from . import watch_api as watch_api_mod
+from . import warmup as warmup_mod
 from .api_utils import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
@@ -62,6 +62,7 @@ from . import standards as standards_mod
 from . import standards_inventory as standards_inventory_mod
 from . import submittal_review as submittal_review_mod
 from . import workbook as workbook_mod
+from . import vector_store as vector_store_mod
 from . import schemas
 from .config import settings
 from .db import connect, init_db
@@ -117,6 +118,18 @@ async def lifespan(app: FastAPI):
     # then rejects everyone looks like a broken deployment.
     auth_mod.install()
     keyword_mod.ensure_schema()
+    # A keyword index written by older indexing code (trailing full stops
+    # glued onto tokens - "MR0175." unsearchable) is rebuilt from `chunks`
+    # here, once, before the worker starts. FTS only: nothing is re-chunked or
+    # re-embedded. See keyword.INDEX_VERSION.
+    _fts = keyword_mod.migrate_index()
+    if _fts["rebuilt"] and _fts["documents"]:
+        import logging as _logging
+
+        _logging.getLogger("uvicorn.error").warning(
+            "keyword index rebuilt to version %s (was %s): %d documents, "
+            "%d chunks, %.1f s", _fts["version"], _fts["from_version"],
+            _fts["documents"], _fts["chunks"], _fts["seconds"])
     review_mod.ensure_schema()
     deliverables_mod.ensure_schema()
     risks_mod.ensure_schema()
@@ -176,6 +189,10 @@ async def lifespan(app: FastAPI):
         review_jobs_mod.recover_stale()
     except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
         pass
+    # THE DENSE-SEARCH INDEX: say which backend is active (sqlite-vec, or the
+    # exact numpy fallback and why), and backfill/sync the vec0 index from
+    # chunk_vectors before the first question pays for it. Never raises.
+    vector_store_mod.startup()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()
@@ -183,13 +200,13 @@ async def lifespan(app: FastAPI):
     # start_watcher() returns a reason string rather than raising when it does
     # not start, so a machine with no drop folder boots exactly as before.
     watcher_mod.start_watcher()
-    # Harvest acronym expansions once at startup rather than lazily on the
-    # first question. It scans the whole corpus and takes ~2.5s, which is
-    # fine here and is not fine added to a 1.3s answer.
-    try:
-        acronyms_mod.harvest()
-    except Exception:  # noqa: BLE001 - a missing expansion map is not fatal
-        pass
+    # WARM THE FIRST QUESTION'S COSTS IN THE BACKGROUND: the embedder and
+    # reranker sessions and the acronym maps. This used to be
+    # `acronyms_mod.harvest()` inline, which raised TypeError (the scope
+    # argument is required) inside `except Exception: pass`, so nothing was
+    # ever warmed and nothing said so. `warmup` runs in a daemon thread, never
+    # blocks this start, never writes the database, and logs any failure.
+    warmup_mod.start()
     yield
     watcher_mod.stop_watcher()
     ingest_mod.stop_worker()
@@ -744,13 +761,15 @@ def get_answer(
     q: str = Query(..., min_length=1, max_length=500),
     tier: str = Query("extract"),
     document_id: str | None = Query(None),
-    limit: int = Query(3, ge=1, le=5),
+    # None = settings.answer_top_k, the one top-k (answer.gate_candidates).
+    limit: int | None = Query(None, ge=1, le=5),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Answer a question against the indexed documents.
 
     tier=extract   (default) the top passage verbatim, no model involved
-    tier=generated             2-3 passages summarised by the local model
+    tier=generated             up to 3 passages summarised by the local model
+                               (CLAUDE_CONTEXT_PASSAGES on the Claude lane)
 
     The response always carries answer_type, so a quotation and generated
     prose can never be confused.
@@ -1717,6 +1736,9 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         # from the same stored counts.
         "recommended_reason": comparison_mod.plain_outcome(outcome)[0],
         "recommended_details": comparison_mod.plain_outcome(outcome)[1],
+        # The client's configured code labels, in policy order, so the screen
+        # offers exactly the labels `record_engineer_code` accepts.
+        "review_codes": list(comparison_mod.review_codes()),
         "failure_reason": outcome.get("error"),
         # THE ENGINEER'S DECISION BESIDE THE MACHINE'S, never instead of it.
         "engineer_final_code": run.get("engineer_final_code"),
@@ -1836,9 +1858,11 @@ def review_dashboard(
         code = run.get("engineer_final_code") or outcome.get("recommended_code")
         if (run.get("status") or "") == "failed":
             reasons["the run failed"] = reasons.get("the run failed", 0) + 1
-        elif code == comparison_mod.CODE_REJECTED:
+        # BY ROLE, not by label: the labels are the client's to configure
+        # (reference/review_codes.json, CRS quick wins 2026-09-27).
+        elif comparison_mod.code_role(code) == "revise_and_resubmit":
             reasons["rejected"] = reasons.get("rejected", 0) + 1
-        elif code == comparison_mod.CODE_MANUAL:
+        elif comparison_mod.code_role(code) == "manual_review":
             key = "not enough was read to recommend a code"
             reasons[key] = reasons.get(key, 0) + 1
 
@@ -3757,6 +3781,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     }
     for finding in findings:
         finding["standard_name"] = names.get(finding.get("standard_document_id"))
+    # CRS quick wins: the clause's parsed limit and the field as the datasheet
+    # printed it, for the engineer-voice comment (read-only lookups by id).
+    comparison_mod.attach_crs_context(findings)
     # Owner order 2d/2f: a confirmed AI engineering check item is printed
     # "confirmed by <name>" - the engineer's display name, never their id.
     # Section 3: an edited comment names its editor the same way. 2d-2: a

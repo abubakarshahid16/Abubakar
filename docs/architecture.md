@@ -156,7 +156,7 @@ Twenty-three tables. These are the ones that decide something.
 | `pages` | extracted text per page, plus the `needs_ocr` and `equation_heavy` detection flags |
 | `page_ocr` | recognised text and its provenance, keyed `(document_id, page_no)`, **in a table extraction never writes** — `extract.py` uses `INSERT OR REPLACE` on `pages`, which would destroy a provenance column on every re-extraction (ADR-0006 §1A) |
 | `chunks` | the retrievable unit, and `text_source` — `'extracted'` or `'recognised'` — carried on the row rather than joined back, so retrieval and the UI see provenance without a join |
-| `chunk_vectors` | the dense index. A `BLOB` per chunk in SQLite, **not LanceDB**; `vectorcache.py` maps them into one numpy matrix and validates the cache on vector count + max rowid + excluded count + rowid sum |
+| `chunk_vectors` | the dense vectors: a `BLOB` per chunk in SQLite, **not LanceDB**, tagged with `embedding_tag()` (model + input format). The source of truth for `vector_store.py`, which searches a derived sqlite-vec `vec0` index in `data/vector_index.sqlite` (or, as fallback, `vectorcache.py`'s memory-mapped numpy matrix). Both are kept current by the `vector_generation` tokens that triggers replace on every relevant write (`db.py`) |
 | `chunks_fts` | the keyword index (FTS5, `keyword.py:27`) |
 | `exclusions` | why a chunk or page is not retrievable. Every drop carries a reason slug |
 | `jobs`, `stage_runs`, `watch_events` | work attempted and observed, for the metrics lane |

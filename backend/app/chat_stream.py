@@ -16,7 +16,8 @@ state one streamed turn needs and nothing else:
     only once its quote verifies on the page it cites - exactly the check the
     final answer gets (`answer.verify_claims`), so the reader never sees a
     claim the finished answer will not contain. On the local lane an invented
-    source number is dropped as it streams.
+    source number is dropped as it streams, and so is a sentence stating a
+    figure its cited passage does not contain (`answer.ground_numbers`).
 
 The `done` event carries the complete answer, built by the same code as the
 non-streaming route; the streamed text is a preview of it, never a second
@@ -105,6 +106,10 @@ class Turn:
             n = len(self.passages or [])
             clean = answer_mod._CITATION.sub(
                 lambda m: m.group(0) if 1 <= int(m.group(1)) <= n else "", sentence)
+            # The local lane's figure check, per sentence - the same one the
+            # final answer gets (answer.ground_numbers), so a figure its cited
+            # passage does not contain is never shown and then withdrawn.
+            clean, _removed = answer_mod.ground_numbers(clean, self.passages or [])
         if clean.strip():
             self.shown.append(clean.strip())
             self.emit("delta", {"text": clean.strip() + " "})

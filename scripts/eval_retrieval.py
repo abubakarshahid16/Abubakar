@@ -1,4 +1,5 @@
-"""Retrieval tripwire: measure recall@5, recall@10 and MRR on a fixed case set.
+"""Retrieval tripwire: measure recall@k (k = settings.answer_top_k, default 5),
+recall@10 and MRR on a fixed case set.
 
 WHY THIS EXISTS. Later phases of the master order change answering, review and
 export. None of them intend to change retrieval - but retrieval is upstream of
@@ -130,7 +131,11 @@ GOLD = REPO / "gold" / "R1-SAMPLE-30.csv"
 OUT_DIR = REPO / ".cowork" / "eval"
 
 LIMIT = 10
-CUTOFFS = (5, 10)
+#: recall/precision are reported at THE answer top-k - `settings.answer_top_k`,
+#: the number of ranked passages the chat and /api/answer consider - and at
+#: LIMIT. It was a literal 5 here while the chat searched with limit 3, so the
+#: published recall@5 described a depth no chat user received (audit R5).
+CUTOFFS = tuple(sorted({max(1, min(settings.answer_top_k, LIMIT)), LIMIT}))
 
 #: Any real decrease fails. Float comparison noise only - NEVER widened to
 #: absorb a genuine drop.

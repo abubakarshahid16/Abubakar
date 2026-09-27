@@ -250,6 +250,33 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
             tone={models.answer_model_reachable ? "good" : "warn"}
             hint="Tier 2 only; quoted answers never need it"
           />
+          {/* Which dense-search backend answered, and why when it is the
+              fallback - never a silent downgrade. Both are exact, so the
+              fallback is a warn, not a danger: results are the same, only
+              latency differs. Stale counts reach admins only. */}
+          {metrics.vector_store && (
+            <Stat
+              label="Vector search"
+              value={
+                metrics.vector_store.active === "sqlite_vec"
+                  ? `sqlite-vec ${metrics.vector_store.sqlite_vec_version ?? ""}`.trim()
+                  : "numpy (fallback)"
+              }
+              tone={
+                metrics.vector_store.active === "sqlite_vec" && !metrics.vector_store.last_error
+                  && !metrics.vector_store.stale_vectors
+                  ? "good"
+                  : "warn"
+              }
+              hint={[
+                metrics.vector_store.fallback_reason ?? "exact search",
+                metrics.vector_store.last_error ? `index error: ${metrics.vector_store.last_error}` : null,
+                metrics.vector_store.stale_vectors
+                  ? `${nf.format(metrics.vector_store.stale_vectors)} stale vectors need re-embedding`
+                  : null,
+              ].filter(Boolean).join(" · ")}
+            />
+          )}
         </div>
       </Section>
 

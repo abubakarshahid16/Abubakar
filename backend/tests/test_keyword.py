@@ -84,7 +84,10 @@ def test_a_question_with_no_usable_tokens_returns_nothing_rather_than_erroring()
 
 def test_conversational_stopwords_do_not_enter_the_match_query():
     q = keyword.build_match_query("can you tell me about Design team leader")
-    assert q == '("Design" OR "team" OR "leader")'
+    # Each ordinary word is OR-ed with its singular/plural (word_forms);
+    # none of can/you/tell/me/about may appear in any form.
+    assert q == ('("design" OR "designs" OR "team" OR "teams" OR "leader" '
+                 'OR "leaders")')
 
 
 def test_exact_content_phrase_is_built_separately_from_the_recall_query():

@@ -84,13 +84,14 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
         return 0
     page_count = doc["page_count"] or 0
     pages = {r["page_no"]: r for r in conn.execute(
-        "SELECT page_no, char_count, needs_ocr FROM pages WHERE document_id = ?",
+        "SELECT page_no, char_count, needs_ocr, ocr_route FROM pages WHERE document_id = ?",
         (document_id,))}
     # Pages known to the stage tables beyond page_count still get a row: a
     # page that exists anywhere must be accounted for.
     numbers = set(range(1, page_count + 1)) | set(pages)
     ocr = {r["page_no"]: r for r in conn.execute(
-        "SELECT page_no, engine, mean_conf, seconds FROM page_ocr WHERE document_id = ?",
+        "SELECT page_no, engine, mean_conf, seconds, error FROM page_ocr"
+        " WHERE document_id = ?",
         (document_id,))}
     covered: dict[int, list[bool]] = {}
     chunk_pages: dict[str, range] = {}
@@ -156,7 +157,13 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
             native_status, native_chars = "empty", 0
 
         o = ocr.get(p)
-        if o is not None:
+        # The routing reason says WHY the page was or was not sent to
+        # recognition (audit F6); a failure replaces it with what went wrong
+        # (audit F7) - the page is then unread, and says so.
+        ocr_reason = page["ocr_route"] if page is not None else None
+        if o is not None and o["error"]:
+            ocr_status, ocr_reason = "failed", f"recognition failed: {o['error']}"
+        elif o is not None:
             ocr_status = "done"
         elif page is not None and page["needs_ocr"]:
             ocr_status = "pending"
@@ -215,7 +222,7 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
 
         vision_recorded_by = "extraction" if p in recorded_vision else None
         rows.append((document_id, p, doc["sha256"], native_status, native_chars,
-                     ocr_status, o["engine"] if o else None,
+                     ocr_status, ocr_reason, o["engine"] if o else None,
                      o["mean_conf"] if o else None, o["seconds"] if o else None,
                      index_status, index_reason, vision_status, vision_reason,
                      vision_recorded_by, *facts, now))
@@ -225,12 +232,12 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
         conn.executemany(
             """INSERT INTO page_ledger
                    (document_id, page_no, file_sha256, native_status, native_chars,
-                    ocr_status, ocr_engine, ocr_mean_conf, ocr_seconds,
+                    ocr_status, ocr_reason, ocr_engine, ocr_mean_conf, ocr_seconds,
                     index_status, index_reason, vision_status, vision_reason,
                     vision_recorded_by,
                     facts_status, facts_count, facts_reason, facts_recorded_by,
                     extractor_version, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
     return len(rows)
 
 

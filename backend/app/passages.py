@@ -27,6 +27,42 @@ from .db import connect
 #: adjacency rather than silently refusing to.
 _NO_PARENT = "\x00none"
 
+#: The shortest shared boundary text treated as chunk OVERLAP rather than
+#: coincidence. The chunker carries whole trailing sentences forward
+#: (`chunk_overlap_tokens`, ~60 tokens), so a real overlap is a sentence or
+#: more; twenty characters is well under one sentence and far longer than a
+#: shared word or number.
+MIN_OVERLAP_CHARS = 20
+
+
+def boundary_overlap(previous: str, following: str) -> int:
+    """How many leading characters of `following` repeat the end of `previous`.
+
+    The chunker starts each prose chunk with the last sentences of the one
+    before it, so joining neighbours as they are stored repeats those
+    sentences - up to ~20% of a Tier 2 source's budget spent on text the
+    reader has just read (retrieval audit R11). Measured on the text itself,
+    so no stored offset is needed and nothing is re-indexed.
+
+    Returns 0 unless the shared text is at least MIN_OVERLAP_CHARS long and
+    ends on a word boundary in `following`: a coincidental repeat of a few
+    characters, or one ending mid-word, is not overlap and is left alone.
+    Longest overlap wins, including `following` lying wholly inside the end of
+    `previous` (a strict continuation adds nothing new).
+    """
+    if len(previous) < MIN_OVERLAP_CHARS or len(following) < MIN_OVERLAP_CHARS:
+        return 0
+    probe = following[:MIN_OVERLAP_CHARS]
+    start = previous.find(probe)
+    while start != -1:
+        length = len(previous) - start
+        if length <= len(following) and following.startswith(previous[start:]):
+            if length == len(following) or not following[length].isalnum() \
+                    or not following[length - 1].isalnum():
+                return length
+        start = previous.find(probe, start + 1)
+    return 0
+
 
 def _rows_for(document_id: str) -> list[dict]:
     return [
@@ -76,8 +112,22 @@ def expand_passage(
             and joinable(rows[hi + 1]):
         hi += 1
 
+    # Overlap with the row before, per row, measured once. A joined passage
+    # carries each shared boundary ONCE (see boundary_overlap), so both the
+    # budget and the text below count what the reader is actually shown.
+    overlap_memo: dict[int, int] = {}
+
+    def overlap(i: int) -> int:
+        if i not in overlap_memo:
+            overlap_memo[i] = boundary_overlap(rows[i - 1]["text"], rows[i]["text"])
+        return overlap_memo[i]
+
     def size(lo: int, hi: int) -> int:
-        return sum(len(rows[i]["text"]) for i in range(lo, hi + 1)) + 2 * (hi - lo)
+        total = len(rows[lo]["text"])
+        for i in range(lo + 1, hi + 1):
+            shared = overlap(i)
+            total += len(rows[i]["text"]) - shared + (0 if shared else 2)
+        return total
 
     # A parent larger than the budget is trimmed back towards the hit rather
     # than truncated mid-word: the chunk that matched is never dropped.
@@ -102,9 +152,23 @@ def expand_passage(
                 lo, hi = new_lo, new_hi
                 grew = True
 
-    parts = [rows[i]["text"] for i in range(lo, hi + 1)]
-    text = "\n\n".join(parts)
-    offset = sum(len(p) + 2 for p in parts[: index - lo])
+    # Joined with a blank line, except across an overlap: there the repeated
+    # sentences are written once and the next chunk continues straight on,
+    # so every chunk - the matched one included - is still one contiguous
+    # span of the joined text.
+    text = rows[lo]["text"]
+    offset = 0
+    for i in range(lo + 1, hi + 1):
+        shared = overlap(i)
+        if shared:
+            start = len(text) - shared
+            text += rows[i]["text"][shared:]
+        else:
+            text += "\n\n"
+            start = len(text)
+            text += rows[i]["text"]
+        if i == index:
+            offset = start
 
     return {
         "text": text,

@@ -10,6 +10,17 @@ of identifiers - `API 610`, clause `5.3.2`, `ASTM A216 WCB`, `P-101A` - and the
 default unicode61 tokenizer splits on `.` and `-`, turning `5.3.2` into three
 separate tokens and destroying exactly the lookups lexical search exists to get
 right. Those characters are kept inside tokens instead.
+
+...but ONLY inside them. With `tokenchars '.-/_'` alone, the full stop that
+ends a sentence was glued onto its last word as well: "comply with NACE
+MR0175." was stored as the token `mr0175.`, a query for MR0175 matched nothing,
+and the lexical gate then told the reader "MR0175 does not appear anywhere in
+the indexed documents" - a false "not mentioned" (audit R1/R2/F3). So the text
+is NORMALISED before it is indexed (`index_text`), and every query term goes
+through the same normaliser (`strip_edge_punctuation`, applied in `_escape`):
+a `.`, `-`, `/` or `_` survives only BETWEEN two letters or digits. What the
+index writes is versioned by INDEX_VERSION; `migrate_index` rebuilds an index
+written by an older version, at startup.
 """
 
 from __future__ import annotations
@@ -18,11 +29,30 @@ import difflib
 import re
 import sqlite3
 
-from .db import connect
+from .db import connect, schema_once
 from .rates import Timer, rate
 
 #: Keep `.`, `-`, `/` and `_` inside tokens so identifiers survive intact.
+#: The tokenizer cannot say "only between two alphanumerics", which is why
+#: `index_text` strips the edge ones before the text reaches it.
 TOKENIZER = "unicode61 remove_diacritics 2 tokenchars '.-/_'"
+
+#: WHAT THE INDEX CONTAINS, VERSIONED. Bump whenever TOKENIZER or `index_text`
+#: changes what is written into chunks_fts, so an index built by older code is
+#: detected as stale (`index_is_stale`) and rebuilt from `chunks` by
+#: `migrate_index` - at server startup, never in a read path. The FTS index is
+#: derived data only: rebuilding it re-chunks nothing and re-embeds nothing.
+#:   (none) raw chunk text, trailing sentence punctuation glued onto tokens
+#:   "2"    `index_text`: edge punctuation stripped, identifier / thousands /
+#:          compound-word aliases appended (2026-09-27, audit R1/R3/R4, F3)
+INDEX_VERSION = "2"
+
+META_SCHEMA = """
+CREATE TABLE IF NOT EXISTS keyword_index_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
 
 SCHEMA = f"""
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -73,9 +103,22 @@ DESIGNATOR = re.compile(
     r"\b(" + "|".join(DESIGNATOR_WORDS) + r")\b"
     r"(?:\s+(?:no\.?|number|nr\.?))?"
     r"\s*[:.]?\s*"
-    r"(\d+[A-Za-z]?)\b",
+    # The WHOLE number: "clause 5.3.2" is clause 5.3.2, not clause 5. The
+    # truncated capture made every clause/section/table X.Y question require
+    # the phrase "clause 5" - which no chunk contains - so the keyword side
+    # returned nothing (audit R3).
+    r"(\d+(?:\.\d+)*[A-Za-z]?)\b",
     re.IGNORECASE,
 )
+
+
+#: Designators that name a place in the document's STRUCTURE. Their number
+#: lives in the heading (the `section` column) far more often than the body
+#: prints "clause 5.3.2", so requiring the noun phrase excluded the very chunk
+#: that IS clause 5.3.2. A dotted number is distinctive on its own and is
+#: accepted bare; a bare integer ("section 4") is too common to require and is
+#: only preferred.
+STRUCTURAL_DESIGNATORS = frozenset({"clause", "section"})
 
 
 def find_designators(text: str) -> list[str]:
@@ -99,10 +142,183 @@ def designator_variants(designator: str) -> list[str]:
     ]
 
 
+# ------------------------------------------------------- index normalisation
+
+#: A run of the characters TOKENIZER keeps inside tokens.
+_JOINER_RUN = re.compile(r"[.\-/_]+")
+
+#: A number written with thousands separators: 3,300 / 12,500 / 1,000,000.
+_THOUSANDS = re.compile(r"(?<![\d,.])\d{1,3}(?:,\d{3})+(?![\d,])")
+
+#: A hyphen/slash compound of ordinary words: carbon-steel, hot-dip, ASME/ANSI.
+#: Letters only - an identifier such as P-101A or A-106 is never split, so its
+#: number cannot be found on its own.
+_COMPOUND = re.compile(r"(?<![\w\-/])[^\W\d_]{2,}(?:[-/][^\W\d_]{2,})+(?![\w\-/])")
+
+
+def strip_edge_punctuation(text: str) -> str:
+    """`.`, `-`, `/` and `_` kept only BETWEEN two letters or digits.
+
+    "comply with NACE MR0175." -> "comply with NACE MR0175 "; "5.3.2.",
+    "A-106", "10.9", "mm/s", "Sa 2½" keep their inner characters. The ONE
+    normaliser for both sides of the index: `index_text` applies it to what is
+    stored, `_escape` to every term a query sends. If they ever differ, a term
+    is stored in one spelling and asked for in another, and matches nothing.
+    """
+    def keep_inner(m: re.Match[str]) -> str:
+        start, end = m.start(), m.end()
+        if (start > 0 and end < len(text)
+                and text[start - 1].isalnum() and text[end].isalnum()):
+            return m.group(0)
+        return " "
+    return _JOINER_RUN.sub(keep_inner, text)
+
+
+def _joined(identifier: str) -> str:
+    """API 610 / API-610 / API610 -> "api610": one spelling for all three."""
+    return re.sub(r"[\s\-]+", "", identifier).lower()
+
+
+def identifier_forms(identifier: str) -> list[str]:
+    """Every spelling of one identifier worth asking the index for.
+
+    "API 610", "API-610" and "API610" are the same standard; documents use all
+    three. The joined form is what `index_text` appends for every identifier
+    it sees, so it matches whichever spelling the document used. The spaced
+    and hyphenated forms still match an index built before that alias existed.
+    Only the identifier AS A WHOLE is ever asked for - never "610" alone.
+    """
+    ident = identifier.strip()
+    parts = [p for p in re.split(r"[\s\-]+", ident) if p]
+    if len(parts) == 1:
+        # API610 -> API + 610, so the spaced spelling is asked for too
+        m = re.fullmatch(r"([A-Za-z]{2,})(\d[\w.]*)", ident)
+        if m:
+            parts = [m.group(1), m.group(2)]
+    forms = [ident]
+    if len(parts) > 1:
+        forms += [" ".join(parts), "-".join(parts)]
+    forms.append(_joined(ident))
+    out: list[str] = []
+    seen: set[str] = set()
+    for form in forms:
+        if form.lower() not in seen:
+            seen.add(form.lower())
+            out.append(form)
+    return out
+
+
+def index_text(text: str | None) -> str:
+    """What chunks_fts stores for one column of one chunk.
+
+    The text with edge punctuation stripped (see `strip_edge_punctuation`),
+    followed by ALIASES - extra tokens, never replacements, so every original
+    token stays findable:
+
+      * the joined spelling of each identifier: "API 610" adds `api610`,
+        "NACE MR0175" adds `nacemr0175`, "A-106" adds `a106`;
+      * a thousands-separated number without its commas: "3,300" adds `3300`
+        (the tokenizer already splits it into `3` and `300`);
+      * the halves of a hyphen/slash compound of words: "carbon-steel" adds
+        `carbon steel`, so "steel" finds it.
+
+    This column is never shown to anyone - search returns chunk ids and the
+    text is read from `chunks` - so aliases cost only index size.
+    """
+    body = strip_edge_punctuation(text or "")
+    aliases: list[str] = []
+    for m in IDENTIFIER.finditer(body):
+        joined = _joined(m.group(0))
+        if joined != m.group(0).lower():
+            aliases.append(joined)
+    for m in _THOUSANDS.finditer(body):
+        aliases.append(m.group(0).replace(",", ""))
+    for m in _COMPOUND.finditer(body):
+        aliases.append(" ".join(re.split(r"[-/]", m.group(0))))
+    unique = list(dict.fromkeys(a for a in aliases if a))
+    if not unique:
+        return body
+    return body + "\n" + " ".join(unique)
+
+
+@schema_once
 def ensure_schema(conn: sqlite3.Connection | None = None) -> None:
     conn = conn or connect()
     conn.executescript(SCHEMA)
+    conn.executescript(META_SCHEMA)
     conn.commit()
+
+
+def index_version(conn: sqlite3.Connection | None = None) -> str | None:
+    """The INDEX_VERSION that built this database's chunks_fts, or None for
+    an index written before versioning existed."""
+    conn = conn or connect()
+    ensure_schema(conn)
+    row = conn.execute(
+        "SELECT value FROM keyword_index_meta WHERE key = 'index_version'"
+    ).fetchone()
+    return row[0] if row else None
+
+
+def index_is_stale(conn: sqlite3.Connection | None = None) -> bool:
+    """True when chunks_fts was written by different indexing code and still
+    holds rows written that way. An empty index is never stale."""
+    conn = conn or connect()
+    if index_version(conn) == INDEX_VERSION:
+        return False
+    return conn.execute("SELECT 1 FROM chunks_fts LIMIT 1").fetchone() is not None
+
+
+def _index_rows(conn: sqlite3.Connection, document_id: str) -> int:
+    """(Re)write one document's rows. The caller owns the transaction."""
+    rows = conn.execute(
+        """SELECT id, text, section, filename FROM chunks
+           WHERE document_id = ? AND retrievable = 1 ORDER BY ordinal""",
+        (document_id,),
+    ).fetchall()
+    conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
+    conn.executemany(
+        """INSERT INTO chunks_fts (text, section, filename, chunk_id, document_id)
+           VALUES (?, ?, ?, ?, ?)""",
+        [(index_text(r["text"]), index_text(r["section"] or ""),
+          index_text(r["filename"]), r["id"], document_id) for r in rows],
+    )
+    return len(rows)
+
+
+def migrate_index() -> dict:
+    """Rebuild chunks_fts if older indexing code wrote it. Idempotent.
+
+    Called ONCE, at server startup (main.lifespan), for the reason the
+    submittal-facts migration gives: a rebuild never belongs in a function
+    every read path calls. Only the documents ALREADY in the index are
+    rebuilt, each from its current retrievable chunks - exactly what
+    `index_document` would write - so a document still waiting for its
+    keyword stage is not indexed early. One transaction: a failure leaves the
+    old index, and the old version stamp, in place.
+    """
+    timer = Timer()
+    conn = connect()
+    ensure_schema(conn)
+    before = index_version(conn)
+    if before == INDEX_VERSION:
+        return {"rebuilt": False, "from_version": before,
+                "version": INDEX_VERSION, "documents": 0, "seconds": 0.0}
+    document_ids = [r[0] for r in conn.execute(
+        "SELECT DISTINCT document_id FROM chunks_fts")]
+    chunks = 0
+    with conn:
+        for document_id in document_ids:
+            chunks += _index_rows(conn, document_id)
+        conn.execute(
+            "INSERT INTO keyword_index_meta (key, value) VALUES ('index_version', ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (INDEX_VERSION,),
+        )
+    reset_vocabulary_cache()
+    return {"rebuilt": True, "from_version": before, "version": INDEX_VERSION,
+            "documents": len(document_ids), "chunks": chunks,
+            "seconds": timer.seconds()}
 
 
 def index_document(
@@ -126,19 +342,8 @@ def index_document(
     conn = connect()
     ensure_schema(conn)
 
-    rows = conn.execute(
-        """SELECT id, text, section, filename FROM chunks
-           WHERE document_id = ? AND retrievable = 1 ORDER BY ordinal""",
-        (document_id,),
-    ).fetchall()
-
     with conn:
-        conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
-        conn.executemany(
-            """INSERT INTO chunks_fts (text, section, filename, chunk_id, document_id)
-               VALUES (?, ?, ?, ?, ?)""",
-            [(r["text"], r["section"] or "", r["filename"], r["id"], document_id) for r in rows],
-        )
+        indexed = _index_rows(conn, document_id)
         if advance_to is not None:
             # compare-and-set, so a concurrent change cannot be overwritten
             if expect_status is None:
@@ -155,9 +360,9 @@ def index_document(
     elapsed = timer.seconds()
     return {
         "document_id": document_id,
-        "indexed": len(rows),
+        "indexed": indexed,
         "seconds": elapsed,
-        "chunks_per_sec": rate(len(rows), elapsed),
+        "chunks_per_sec": rate(indexed, elapsed),
     }
 
 
@@ -223,6 +428,16 @@ def drop_document(document_id: str) -> None:
 _QUERY_PUNCTUATION = re.compile(r"[^\w\s./\-]+")
 
 
+def _drop_punctuation(m: re.Match[str]) -> str:
+    """A lone comma between two digits is a thousands separator ("3,300")
+    and is kept; any other punctuation becomes a space."""
+    text, start, end = m.string, m.start(), m.end()
+    if (m.group(0) == "," and start > 0 and end < len(text)
+            and text[start - 1].isdigit() and text[end].isdigit()):
+        return ","
+    return " "
+
+
 def normalise_query(question: str) -> str:
     """The question as the FTS query builder should see it.
 
@@ -232,7 +447,9 @@ def normalise_query(question: str) -> str:
     casing the question stops `API 610` being recognised as an identifier and
     silently turns a required term into an optional one.
     """
-    return " ".join(_QUERY_PUNCTUATION.sub(" ", question).split())
+    cleaned = _QUERY_PUNCTUATION.sub(_drop_punctuation, question)
+    # The same edge stripping the index applies, so "HRC." asks for `hrc`.
+    return " ".join(strip_edge_punctuation(cleaned).split())
 
 
 # ------------------------------------------------------- typo tolerance
@@ -261,8 +478,7 @@ FUZZY_MIN_WORD = 5
 #: as no hit, and it is what "sumbittal requirements" produces.
 FUZZY_MIN_HITS = 3
 
-#: Vocabulary is rebuilt when the number of indexed chunks changes, the same
-#: cache key acronyms.py uses.
+#: Vocabulary is rebuilt when the number of indexed chunks changes.
 _vocab_cache: dict[tuple[str | None, int], list[str]] = {}
 
 
@@ -437,8 +653,70 @@ def tolerant_variants(
 
 
 def _escape(token: str) -> str:
-    """FTS5 treats several characters as syntax. Quote every token."""
+    """FTS5 treats several characters as syntax. Quote every token.
+
+    Normalised exactly as `index_text` normalises what is stored, so a term
+    ending in a full stop ("no. 1", "MR0175.") asks for the token the index
+    actually holds.
+    """
+    token = " ".join(strip_edge_punctuation(token).split())
     return '"' + token.replace('"', '""') + '"'
+
+
+def _identifier_expr(identifier: str) -> str:
+    """One identifier, in every spelling, as an OR group. See identifier_forms."""
+    forms = [_escape(f) for f in identifier_forms(identifier)]
+    return forms[0] if len(forms) == 1 else "(" + " OR ".join(forms) + ")"
+
+
+def word_forms(word: str) -> list[str]:
+    """The word and its regular English singular/plural counterpart.
+
+    "pump" <-> "pumps", "valve" <-> "valves", "assembly" <-> "assemblies",
+    "flange" <-> "flanges", "box" <-> "boxes". Deliberately NOT a stemmer:
+    only ordinary lowercase-or-capitalised alphabetic words of four or more
+    letters are folded, never identifiers, codes, acronyms (HRC, WPS) or
+    anything with a digit - "A106s" or "API 610s" are never invented. An
+    irregular or wrong fold only adds a spelling nobody wrote, which matches
+    nothing; it can never remove a match, because the word as typed is always
+    the first form.
+    """
+    if (len(word) < 4 or not word.isalpha() or word.isupper()
+            or IDENTIFIER.fullmatch(word)):
+        return [word]
+    lower = word.lower()
+    if lower.endswith(("ed", "ing")):
+        # a verb form has no plural; "specifieds" is only noise. NOT "-ly":
+        # assembly and supply are nouns this corpus pluralises.
+        return [lower]
+    forms = [lower]
+    if lower.endswith("ies") and len(lower) > 4:
+        forms.append(lower[:-3] + "y")
+    elif lower.endswith(("sses", "shes", "ches", "xes", "zes")):
+        forms.append(lower[:-2])
+    elif lower.endswith("s") and not lower.endswith(("ss", "us", "is")):
+        forms.append(lower[:-1])
+    elif lower.endswith("y") and lower[-2:-1] not in "aeiou":
+        forms.append(lower[:-1] + "ies")
+    elif lower.endswith(("s", "x", "z", "ch", "sh")):
+        forms.append(lower + "es")
+    else:
+        forms.append(lower + "s")
+    return forms
+
+
+def term_expression(term: str) -> str:
+    """The MATCH expression asking whether one term is present, in the forms
+    this module treats as the same term. Shared by `search` and
+    `term_occurrences`, so the lexical gate never judges a term absent that
+    search would have found."""
+    stripped = " ".join(strip_edge_punctuation(term).split())
+    if IDENTIFIER.fullmatch(stripped):
+        return _identifier_expr(stripped)
+    forms = word_forms(stripped)
+    if len(forms) == 1:
+        return _escape(stripped)
+    return "(" + " OR ".join(_escape(f) for f in forms) + ")"
 
 
 # Deliberately small and query-oriented.  Domain words (including short ones
@@ -452,7 +730,7 @@ STOPWORDS = frozenset({
     "would", "you", "your",
 })
 
-_QUERY_TOKEN = re.compile(r"[\w.\-/]{2,}")
+_QUERY_TOKEN = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|[\w.\-/]{2,}")
 
 
 def content_phrases(question: str) -> list[str]:
@@ -512,8 +790,13 @@ def build_match_query(
     ]
 
     parts: list[str] = []
+    #: Structural designators with a bare integer ("section 4"): preferred,
+    #: OR-ed with the ordinary words, never required.
+    optional: list[str] = []
     if identifiers:
-        parts.append(" AND ".join(_escape(i) for i in identifiers))
+        # Each identifier is required, in any of its spellings (API 610 /
+        # API-610 / API610) - but only as a whole, never its number alone.
+        parts.append(" AND ".join(_identifier_expr(i) for i in identifiers))
     if designators:
         # A designator is REQUIRED, like an identifier, but matched across its
         # spellings. "coating system no. 1" and "coating system 1" are the same
@@ -524,10 +807,20 @@ def build_match_query(
             # rebinding it here left it a str by the time the `words` branch
             # called `.get()` on it - AttributeError for every question that
             # carried a designator AND an ordinary word.
-            spelled = " OR ".join(_escape(v) for v in designator_variants(d))
-            parts.append(f"({spelled})")
-    if words:
-        spellings: list[str] = []
+            spelled = list(dict.fromkeys(
+                _escape(v) for v in designator_variants(d)))
+            noun, _, number = d.partition(" ")
+            if noun in STRUCTURAL_DESIGNATORS:
+                if "." in number:
+                    # clause 5.3.2 is findable by "5.3.2" wherever it is
+                    # printed - usually the heading, not "clause 5.3.2"
+                    spelled.append(_escape(number))
+                else:
+                    optional.extend(spelled)
+                    continue
+            parts.append("(" + " OR ".join(spelled) + ")")
+    if words or optional:
+        spellings: list[str] = list(optional)
         for w in words:
             forms = (variants or {}).get(w.lower())
             if forms:
@@ -537,8 +830,13 @@ def build_match_query(
                 spellings.extend(_escape(f) for f in forms)
                 if _correctable(w):
                     spellings.append(_escape(w) + "*")
+            elif _THOUSANDS.fullmatch(w.split(".")[0]):
+                # "3,300": the phrase 3 300 as the tokenizer splits it, or the
+                # joined alias index_text adds
+                spellings.append(_escape(w.replace(",", " ")))
+                spellings.append(_escape(w.replace(",", "")))
             else:
-                spellings.append(_escape(w))
+                spellings.extend(_escape(f) for f in word_forms(w))
         ors = " OR ".join(spellings)
         parts.append(f"({ors})")
     if not parts:
@@ -743,7 +1041,9 @@ def term_occurrences(
     ensure_schema(conn)
     if not allowed_document_ids:
         return 0
-    params: list[object] = [_escape(term)]
+    if not strip_edge_punctuation(term).strip():
+        return -1
+    params: list[object] = [term_expression(term)]
     where = "chunks_fts MATCH ?"
     if document_id:
         where += " AND document_id = ?"

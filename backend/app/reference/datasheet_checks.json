@@ -17,7 +17,7 @@
     "flow": ["m3/h", "m3/hr", "m³/h", "gpm", "usgpm", "l/s", "l/min", "m3/s", "bpd"],
     "length": ["mm", "in", "inch", "m", "cm"]
   },
-  "placeholders": ["tba", "tbd", "later", "by vendor", "by contractor", "to be advised", "to be confirmed", "to follow", "tbc", "later by vendor"],
+  "_placeholders": "Moved 2026-09-27 to app/blank_markers.py - the ONE list of not-provided markers every datasheet reader and these checks read (CLAUDE.md rule 8).",
   "consistency": [
     {"id": "DS-C1", "left": "design_pressure", "op": ">=", "right": "operating_pressure",
      "text": "The design pressure should be at least the operating pressure."},

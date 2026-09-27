@@ -116,6 +116,31 @@ describe("both codes, never one", () => {
   });
 });
 
+describe("the client's own code labels, when the run carries them", () => {
+  it("offers the run's review_codes instead of the built-in four", () => {
+    /* CRS quick wins (audit crs.md defect 14), THE MUTATION TARGET (M1310):
+     * a client whose CRS uses "Code 1".."Code 4" sees THOSE in the picker,
+     * not the English defaults every account used to be stuck with. */
+    render(
+      <ReviewCodePanel
+        run={run({ review_codes: ["Code 1", "Code 2", "Code 3", "Code 4"] })}
+        onDecided={vi.fn()}
+      />,
+    );
+
+    const select = screen.getByRole("combobox");
+    expect(within(select).getByText("Code 3")).toBeInTheDocument();
+    expect(within(select).queryByText("Manual Review Required")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the built-in four when the run carries none", () => {
+    render(<ReviewCodePanel run={run({ review_codes: undefined })} onDecided={vi.fn()} />);
+
+    const select = screen.getByRole("combobox");
+    expect(within(select).getByText("Manual Review Required")).toBeInTheDocument();
+  });
+});
+
 describe("a reason is required only when the codes differ", () => {
   it("does not ask for one when the engineer agrees", async () => {
     const onDecided = vi.fn();

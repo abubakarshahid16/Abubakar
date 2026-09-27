@@ -221,6 +221,9 @@ egress flag `false` and `ANTHROPIC_API_KEY` empty unless the owner authorises th
 
 Run from `backend/`: `python -m pytest -q --no-header -p no:cacheprovider`
 
+> **Since 2026-09-27 the suite ignores `backend/.env` and your shell's settings entirely**
+> (`tests/env_isolation.py`), so there is ONE expected figure; the two-figure history below predates that (and B28's tests now set their own `AUTH_SECRET`).
+
 **16 committed tests need `AUTH_SECRET` in `backend/.env`** (`test_admin_db_routes` x13,
 `test_review_code` x3). This is bug **B28**. So the count depends on whether `.env` is
 configured:

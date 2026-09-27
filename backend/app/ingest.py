@@ -25,7 +25,7 @@ from .db import connect
 from . import keyword
 from . import ocr
 from .extract import extract_document
-from .embedder import PASSAGE_INPUT_VERSION, Embedder, EmbedderConfig
+from .embedder import Embedder, EmbedderConfig, embedding_tag
 
 # A worker with no heartbeat for this long has died or hung.
 STALL_AFTER_SECONDS = 120
@@ -594,18 +594,24 @@ class IngestionWorker:
             return result
 
     def embed_pending(self, doc_id: str, batch: int = 64) -> int:
-        """Embed retrievable chunks that have no vector yet.
+        """Embed retrievable chunks that have no CURRENT vector yet.
 
         Runs AFTER the document is already answerable, and updates
         embedded_count as it goes so the UI can show honest progress.
+
+        A vector whose `model` tag is not today's `embedding_tag()` is STALE
+        (another model, or another input format) and is re-embedded here: the
+        vector store already leaves it out of dense search, so without this
+        the chunk would be keyword-only for ever (P2-11).
         """
         conn = connect()
         rows = conn.execute(
             """SELECT c.id, c.section, c.text FROM chunks c
                LEFT JOIN chunk_vectors v ON v.chunk_id = c.id
-               WHERE c.document_id = ? AND c.retrievable = 1 AND v.chunk_id IS NULL
+               WHERE c.document_id = ? AND c.retrievable = 1
+                 AND (v.chunk_id IS NULL OR v.model IS NOT ?)
                ORDER BY c.ordinal""",
-            (doc_id,),
+            (doc_id, embedding_tag()),
         ).fetchall()
         if not rows:
             return 0
@@ -631,7 +637,7 @@ class IngestionWorker:
                        VALUES (?, ?, ?, ?, ?, ?)""",
                     [
                         (r["id"], doc_id, int(v.shape[0]), v.astype("float32").tobytes(),
-                         f"{embedder.config.model_file}+{PASSAGE_INPUT_VERSION}", _now())
+                         embedding_tag(embedder.config.model_file), _now())
                         for r, v in zip(window, vectors)
                     ],
                 )
@@ -639,9 +645,9 @@ class IngestionWorker:
                     """UPDATE documents SET embedded_count =
                        (SELECT COUNT(*) FROM chunk_vectors v
                         JOIN chunks c ON c.id = v.chunk_id
-                        WHERE v.document_id = ?)
+                        WHERE v.document_id = ? AND v.model = ?)
                        WHERE id = ?""",
-                    (doc_id, doc_id),
+                    (doc_id, embedding_tag(), doc_id),
                 )
             done += len(window)
             now = time.time()
@@ -725,8 +731,8 @@ class IngestionWorker:
         actual = conn.execute(
             """SELECT COUNT(*) FROM chunk_vectors v
                JOIN chunks c ON c.id = v.chunk_id
-               WHERE v.document_id = ?""",
-            (doc_id,),
+               WHERE v.document_id = ? AND v.model = ?""",
+            (doc_id, embedding_tag()),
         ).fetchone()[0]
         with conn:
             conn.execute(
@@ -774,10 +780,11 @@ class IngestionWorker:
                     """UPDATE documents SET
                          embedded_count = (SELECT COUNT(*) FROM chunk_vectors v
                                            JOIN chunks c ON c.id = v.chunk_id
-                                           WHERE v.document_id = ?),
+                                           WHERE v.document_id = ? AND v.model = ?),
                          status = ?, indexed_at = ?
                        WHERE id = ? AND status = ?""",
-                    (doc_id, states.READY, _now(), doc_id, states.PARTIALLY_SEARCHABLE),
+                    (doc_id, embedding_tag(), states.READY, _now(), doc_id,
+                     states.PARTIALLY_SEARCHABLE),
                 )
                 conn.execute(
                     "UPDATE jobs SET state = 'done', updated_at = ? WHERE document_id = ?",

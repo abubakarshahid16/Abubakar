@@ -17,7 +17,7 @@ confirm or move any row before implementation starts.
 |---|---|---|
 | Route | `main.py` `POST /api/conversations/{id}/ask` | Scope from `access.current_scope`; body `question`, `tier` (`extract` / `generated`), `explain_of`, `progress_id` |
 | Follow-up | `chat.resolve_followup`, `FOLLOWUP_WINDOW = 3` | Up to 3 prior **user questions** only; prior answers never reach retrieval or the prompt; the rewritten query is not stored |
-| Retrieval | `search.search` | FTS5 BM25 + cosine over `vectorcache`, scope mask **before** top-k, RRF, identifier boost, cross-encoder rerank; 30 candidates, 16 reranked |
+| Retrieval | `search.search` | FTS5 BM25 + exact cosine via `vector_store` (sqlite-vec, numpy fallback), scope **before** top-k, RRF, identifier boost, cross-encoder rerank; 30 candidates, 16 reranked |
 | Tier 1 | `answer.answer`, `tier="extract"` | One verbatim passage, no model |
 | Tier 2 | `answer.answer`, `tier="generated"` | Local Ollama writes a cited answer; `validate_citations`, `strip_half_citation`; floor `MIN_RERANK_SCORE=-3.0` |
 | Refusal | `answer_type="insufficient_evidence"` | "The documents do not answer this" |

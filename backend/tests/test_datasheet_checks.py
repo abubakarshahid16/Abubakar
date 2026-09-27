@@ -278,5 +278,6 @@ def test_with_no_standard_held_the_review_still_gives_datasheet_check_comments(v
     # Every field check cites its page and field; the revision-block check is
     # about the whole sheet and cites no single page.
     field_rows = [r for r in comments if "revision block" not in r["comment"]]
-    assert field_rows and all(r["page_section"].startswith("submittal p1 / ") for r in field_rows)
+    # CRS quick wins: Page/Section is "p.<page> - <field>", the datasheet's.
+    assert field_rows and all(r["page_section"].startswith("p.1 - ") for r in field_rows)
     assert all(r["comment_by"] == "AI Review" for r in comments)

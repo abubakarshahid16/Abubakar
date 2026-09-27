@@ -34,9 +34,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M50", phase=5,
         description="treat a By Contractor field as a filled value, not a blank",
-        path=APP / "datasheets.py",
-        anchor="    marker = _BLANK_MARKERS.search(text)\n    if marker:",
-        replacement="    marker = _BLANK_MARKERS.search(text)\n    if False:",
+        # Re-anchored 2026-09-27 (CRS quick wins): the marker list moved to
+        # its one home, `blank_markers`.
+        path=APP / "blank_markers.py",
+        anchor="    marker = _ANYWHERE.search(text)\n    if marker:",
+        replacement="    marker = _ANYWHERE.search(text)\n    if False:",
         target="tests/test_datasheets.py",
         keyword="by_contractor_field_is_recorded_as_blank",
         tags=("honesty", "missing-information"),
@@ -778,8 +780,10 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "for a DIFFERENT valve on another page is deleted as a "
                     "duplicate (issue #179: legitimate repeats must stay)",
         path=APP / "datasheets.py",
-        anchor="                key = (page, *_same_cell_key(label, value))",
-        replacement="                key = _same_cell_key(label, value)",
+        # Re-anchored 2026-09-27 (CRS quick wins): the key reads the label
+        # with its column tag still on (`marked_label`).
+        anchor="                key = (page, *_same_cell_key(marked_label, value))",
+        replacement="                key = _same_cell_key(marked_label, value)",
         target="tests/test_179_layouts.py",
         keyword="same_value_for_a_different_valve",
         tags=("honesty", "critical"),
@@ -1374,5 +1378,61 @@ MUTATIONS: tuple[Mutation, ...] = (
         target='tests/test_b3_page_ledger.py',
         keyword='text_reader_also_read_keeps_missing',
         tags=('honesty',),
+    ),
+    # ---- CRS quick wins (2026-09-27, audit crs.md defects 4, 6) -----------
+    Mutation(
+        id="M1314", phase=96,
+        description="the widened citation grammar (NFPA, IEEE, MSS, UL, DIN, "
+                    "BS, TEMA, PIP, ASME without SEC) is dropped back to the "
+                    "narrower set, missing 41% of common spellings again",
+        path=APP / "datasheets.py",
+        anchor='    r"|NFPA[-\\s]*\\d{1,4}[A-Z]?"\n'
+              '    r"|IEEE[-\\s]*(?:STD\\.?\\s*)?\\d{3,4}(?:\\.\\d{1,3})?"\n'
+              '    r"|MSS[-\\s]*SP[-\\s]*\\d{1,3}"\n'
+              '    r"|UL[-\\s]*\\d{3,4}[A-Z]?"\n'
+              '    r"|DIN[-\\s]*(?:EN[-\\s]*)?\\d{3,5}"\n'
+              '    r"|BS[-\\s]*(?:EN[-\\s]*)?\\d{3,5}"\n'
+              '    r"|TEMA[-\\s]+(?:CLASS[-\\s]*)?[RCB]"\n'
+              '    r"|PIP[-\\s]*[A-Z]{4}\\d{3,4}[A-Z]?"\n',
+        replacement="",
+        target="tests/test_datasheets.py",
+        keyword="test_the_widened_citation_grammar_catches_common_spellings",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M1315", phase=96,
+        description="a two-tag value column's tag is dropped and its value "
+                    "never joins the unit column - the tag and the unit are "
+                    "both lost",
+        path=APP / "datasheets.py",
+        anchor=(
+            "                if i in tag_cols:\n"
+            "                    out.append((with_column_tag(label, tag_cols[i]),\n"
+            "                                join_unit_column(value, cells[unit_col]\n"
+            "                                                 if unit_col is not None else None)))\n"
+            "                    continue\n"
+        ),
+        replacement="                if i in tag_cols:\n                    continue\n",
+        target="tests/test_datasheets.py",
+        keyword="test_two_tag_columns_carry_the_tag_and_the_unit_column_is_never_a_fact",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M1316", phase=96,
+        description="ambiguous blank-marker residue (a bare '*', '-', '?' or a "
+                    "'[Note - 3]' reference) is read as an explicit blank fact "
+                    "again, the same way an unambiguous 'By Contractor'/'TBA' "
+                    "marker is - B4 pump-layout regression from unifying blank "
+                    "marker detection",
+        path=APP / "datasheets.py",
+        anchor=(
+            "    ambiguous_residue = (marker not in (None, \"empty\", \"placeholder\")\n"
+            "                         and not blank_markers.names_a_marker(value))\n"
+            "    return not (parsed is None and (marker in (None, \"empty\") or ambiguous_residue)\n"
+        ),
+        replacement="    return not (parsed is None and marker in (None, \"empty\")\n",
+        target="tests/test_b4_pump_layouts.py",
+        keyword="test_a_note_reference_is_not_a_value",
+        tags=("honesty", "critical"),
     ),
 )

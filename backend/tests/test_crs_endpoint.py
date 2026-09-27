@@ -205,15 +205,17 @@ def test_a_finding_becomes_a_row_with_its_citation_and_both_texts():
 
     assert ws.cell(row=FIRST_DATA_ROW, column=1).value == 1
     assert ws.cell(row=FIRST_DATA_ROW, column=2).value == "drum.pdf"
-    citation = ws.cell(row=FIRST_DATA_ROW, column=3).value
-    assert "SAES-D-001.pdf" in citation, "the citation names an id, not a standard"
-    assert "doc_std" not in citation
-    assert "clause 6.2.2" in citation and "p14" in citation
-    assert "submittal p4" in citation
+    # CRS quick wins: the standard and clause in their OWN column (8) ...
+    citation = ws.cell(row=FIRST_DATA_ROW, column=8).value
+    assert "SAES-D-001" in citation, "the citation names an id, not a standard"
+    assert "doc_std" not in citation and ".pdf" not in citation
+    assert "cl. 6.2.2" in citation and "p.14" in citation
+    # ... and Page/Section is the SUBMITTAL's page, never the standard's file.
+    assert ws.cell(row=FIRST_DATA_ROW, column=3).value.startswith("p.4")
     comment = ws.cell(row=FIRST_DATA_ROW, column=4).value
-    assert "The design pressure shall be 6,900 kPa." in comment
+    assert "The design pressure shall be 6,900 kPa" in comment
     assert "2.2 bar (ga)" in comment
-    assert "unit_mismatch" in comment
+    assert "Contractor to revise" in comment
 
 
 def test_the_contractor_columns_are_always_empty():
@@ -230,24 +232,28 @@ def test_the_contractor_columns_are_always_empty():
     assert all(v in (None, "") for v in _cells(ws, 7))
 
 
-def test_a_thousand_no_evidence_findings_do_not_become_a_thousand_rows():
-    """MISSING_INFORMATION never enters individually. The drum run has 20 of
-    them; a CRS listing each would be noise, so they collapse into the one
-    summary row #165 added rather than the twenty individual rows this test
-    used to forbid outright."""
+def test_every_missing_value_is_its_own_row_and_duplicates_are_one():
+    """CRS QUICK WINS (supersedes #165's summary row): one row per missing
+    field - the summary row hid a vibration breach, a hydrotest shortfall and
+    a nozzle breach on the audit's planted sheets. Twenty findings about THE
+    SAME field and value (the same clause, the same printed value, the same
+    page) are still one row, not twenty."""
     doc = _submittal()
     run_id = _run(doc)
     _finding(doc, run_id, "NON_COMPLIANT")
     for _ in range(20):
-        _finding(doc, run_id, "MISSING_INFORMATION")
+        _finding(doc, run_id, "MISSING_INFORMATION", contractor_evidence_text="*")
+    for n in range(3):
+        _finding(doc, run_id, "MISSING_INFORMATION", contractor_evidence_text="*",
+                 requirement_source_text=f"Field {n} shall be stated.")
 
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
 
     items = [v for v in _cells(ws, 1) if isinstance(v, int)]
-    assert items == [1, 2], "20 MISSING_INFORMATION findings became != 1 row"
-    summary = ws.cell(row=FIRST_DATA_ROW + 1, column=4).value
-    assert "20 requirements" in summary
-    assert "not itemized" in summary
+    assert items == [1, 2, 3, 4, 5], items
+    comments = [str(v) for v in _cells(ws, 4) if v]
+    assert not any("not itemized" in c for c in comments)
+    assert sum("Field " in c for c in comments) == 3
 
 
 def test_a_run_with_no_includable_findings_still_exports_its_gap_rows():
@@ -517,11 +523,12 @@ def test_the_preview_carries_the_seven_columns_the_template_defines():
     # The template's seven, in order; the internal review copy (the default)
     # adds "AI Review Comments" LAST (owner decision 2026-09-27), and the
     # copy issued to the contractor is the template exactly.
-    assert body["columns"] == [*HEADERS, "AI Review Comments"]
+    # CRS quick wins: "Standard Reference" follows the seven, in both copies.
+    assert body["columns"] == [*HEADERS, "Standard Reference", "AI Review Comments"]
     assert body["columns"][5:7] == ["Contractor's Response", "Final Resolution"]
     issued = _preview(_client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview",
                                        params={"copy": "issue"}))
-    assert issued["columns"] == HEADERS
+    assert issued["columns"] == [*HEADERS, "Standard Reference"]
 
 
 def test_the_contractor_columns_come_back_empty_rather_than_missing():
@@ -584,7 +591,7 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
 
     # The column headers, directly under the header block.
     assert [_cell(ws, COLUMN_HEADER_ROW, c)
-            for c in range(1, 9)] == body["columns"]
+            for c in range(1, 10)] == body["columns"]
 
     # Every data row, from row 9, across all seven columns.
     assert len(body["rows"]) >= 3, "the fixture produced too few rows to prove"
@@ -594,7 +601,8 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
             row["item_no"], row["document_name"], row["page_section"],
             row["comment"], row["comment_by"], row["contractor_response"],
             row["final_resolution"]], f"row {row['item_no']} disagrees"
-        assert _cell(ws, r, 8) == row["ai_review_comment"]
+        assert _cell(ws, r, 8) == row["standard_reference"]
+        assert _cell(ws, r, 9) == row["ai_review_comment"]
     # And no eighth row hiding in the workbook that the preview never showed.
     assert _cell(ws, COLUMN_HEADER_ROW + len(body["rows"]) + 1, 1) == ""
 
@@ -699,23 +707,24 @@ def test_a_submittal_with_no_number_recorded_exports_a_blank_one():
     assert _submittal_no(ws) in (None, "")
 
 
-def test_the_page_section_column_carries_the_citation():
-    """ITEM 2 OF THREE, AND IT ALREADY EXISTED - `crs_mapping._citation`
-    fills the client's own "Page No./Section" column. Verified here rather
-    than rebuilt: the standard's name, its clause and page, and the page of
-    the submittal the evidence was read from."""
+def test_the_page_section_column_carries_the_datasheet_page_and_field():
+    """CRS QUICK WINS (audit crs.md defect 8): the client's "Page No./Section"
+    column is where the CONTRACTOR looks for their page - it names the
+    datasheet page, field and tag. The standard's name, clause and page moved
+    to their own "Standard Reference" column."""
     doc = _submittal()
     _submittal("doc_std", "SAES-D-001.pdf")
     run_id = _run(doc)
-    _finding(doc, run_id, "NON_COMPLIANT")
+    _finding(doc, run_id, "NON_COMPLIANT", matched_phrase="design pressure")
 
     ws = _sheet(_client(doc, "doc_std").get(f"/api/reviews/runs/{run_id}/crs"))
 
     assert ws.cell(row=COLUMN_HEADER_ROW, column=3).value == "Page No./Section"
-    citation = ws.cell(row=FIRST_DATA_ROW, column=3).value
-    assert "SAES-D-001.pdf" in citation
-    assert "clause 6.2.2" in citation and "p14" in citation
-    assert "submittal p4" in citation
+    where = ws.cell(row=FIRST_DATA_ROW, column=3).value
+    assert where == "p.4 - Design pressure (2003-47-V-0001A/B)"
+    assert "SAES-D-001" not in where
+    assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value == "Standard Reference"
+    assert ws.cell(row=FIRST_DATA_ROW, column=8).value == "SAES-D-001 cl. 6.2.2 (p.14)"
 
 
 def _refs(ws) -> list[str]:
@@ -784,9 +793,12 @@ def test_the_reference_the_preview_shows_is_the_one_in_the_file():
         assert str(cell).split("\n")[0] == f"Ref: {row['row_ref']}"
 
 
-def test_the_additions_left_the_template_at_seven_columns():
-    """P0-5. The client's template has seven columns; widening it is a change
-    they have to sign off. The reference rides in the comment text instead."""
+def test_the_additions_left_the_seven_template_columns_in_place():
+    """P0-5. The client's seven template columns keep their order and names;
+    the row reference rides in the comment text. CRS quick wins (2026-09-27)
+    adds ONE column after them in both copies, "Standard Reference" (the
+    brief's order: the standard in its own column) - a widening the client
+    has to sign off, flagged in the change's report."""
     doc = _submittal()
     _number(doc, "EOC-SUB-2024-0417")
     run_id = _run(doc)
@@ -798,17 +810,17 @@ def test_the_additions_left_the_template_at_seven_columns():
         conn.execute("UPDATE review_runs SET engineer_final_code='Approved'"
                      " WHERE id = ?", (run_id,))
 
-    # The copy ISSUED to the contractor is the template's seven columns; the
-    # internal review copy adds only "AI Review Comments", last (owner
-    # decision 2026-09-27), and moves no other column.
+    # The copy ISSUED to the contractor is the template's seven columns plus
+    # "Standard Reference"; the internal review copy adds "AI Review
+    # Comments", last (owner decision 2026-09-27), and moves no other column.
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs", params={"copy": "issue"}))
     internal = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
     assert [internal.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 9)] == [*HEADERS, "AI Review Comments"]
+            for c in range(1, 10)] == [*HEADERS, "Standard Reference", "AI Review Comments"]
 
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 8)] == HEADERS
-    assert ws.max_column == 7
+            for c in range(1, 9)] == [*HEADERS, "Standard Reference"]
+    assert ws.max_column == 8
 
 
 def test_the_issue_copy_is_refused_until_an_engineer_decides():

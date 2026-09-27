@@ -4,24 +4,27 @@ Pure functions: findings in as plain dicts, comment rows out as plain dicts
 for crs_export.build_crs. No db, no app imports. Pre-built and pre-tested by
 Cowork (7 standalone tests) on branch cowork/phase-7-crs-export.
 
-ISSUE #165, CRITERION 4. NON_COMPLIANT and NEEDS_ENGINEER_REVIEW findings
-still enter one row each - they are the individual things an engineer acts
-on. MISSING_INFORMATION and NOT_IN_DOCUMENT_SCOPE findings still never enter
-individually (a real run over one of the pump-datasheet regression documents
-carries hundreds of NOT_IN_DOCUMENT_SCOPE findings and dozens of MISSING_
-INFORMATION ones - a row each would bury the handful of real defects under
-noise, the same reasoning that already kept MISSING_INFORMATION out). But
-dropping either bucket to nothing, as the code did before #165, is a
-different defect: a client reading the sheet has no way to know either
-question was ever asked. Each bucket instead gets ONE summary row, stating
-its own count and boundary (CLAUDE.md rule 4: every count states its
-boundary) - the same shape `missing_references` already uses for a cited
-standard the library does not hold. `row_kind` rides on every row (never
-printed) so `crs_export` can fill each kind its own colour without re-deciding
-what the sheet says.
+CRS QUICK WINS (2026-09-27, audit crs.md defects 2, 5, 8, 9) - supersedes
+issue #165's summary rows. NON_COMPLIANT, MISSING_INFORMATION and
+NEEDS_ENGINEER_REVIEW findings enter ONE ROW PER FIELD ISSUE: the same clause,
+field and printed value across several tags (or several standards stating the
+same words) is one row naming them all. The old single "N requirements ...
+not itemized here" row hid a vibration breach, a hydrotest shortfall and a
+nozzle-size breach on the audit's planted-defect sheets; a blank "vendor to
+advise" value is the most common comment a reviewing engineer writes, so it
+is a row of its own. NOT_IN_DOCUMENT_SCOPE, unread-page and page-reader
+questions stay off the sheet as Review notes (owner order 2f), each note
+counting its own boundary. The comment is written in an engineer's voice
+(`engineer_comment_text`), Page/Section is the DATASHEET's page and field,
+the standard and clause ride in `standard_reference`, and every row carries
+`engineer_confirmed` - the issue-to-contractor copy prints only those.
+`row_kind` rides on every row (never printed) so `crs_export` can fill each
+kind its own colour without re-deciding what the sheet says.
 """
 
-INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW")
+import re
+
+INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
 #: Read by `crs_export` to colour a row. Never printed. One tag per bucket
 #: this module can produce, so a renderer can distinguish "already flagged
@@ -127,24 +130,6 @@ def _ai_relates_to(finding: dict) -> str:
     return "" if name == "no standard named" else name
 
 
-def _citation(finding: dict) -> str:
-    parts = []
-    std = finding.get("standard_name") or finding.get("standard_document_id")
-    if std:
-        clause = finding.get("standard_clause")
-        page = finding.get("standard_page")
-        bits = [str(std)]
-        if clause:
-            bits.append(f"clause {clause}")
-        if page:
-            bits.append(f"p{page}")
-        parts.append(" ".join(bits))
-    cpage = finding.get("contractor_page")
-    if cpage:
-        parts.append(f"submittal p{cpage}")
-    return " / ".join(parts)
-
-
 def _rejected(finding: dict) -> bool:
     """Owner order section 3: an engineer rejected this comment - it is left
     off the sheet. The finding and the rejection both stay on record."""
@@ -156,55 +141,8 @@ def _edited_by(finding: dict) -> str:
     return f"AI Review, edited and confirmed by {who}"
 
 
-def _comment_text(finding: dict) -> str:
-    # Owner order section 3: THE ENGINEER'S WORDING, when they edited it, is
-    # the comment. The review's own text stays on the finding, not the sheet.
-    if finding.get("engineer_comment"):
-        return finding["engineer_comment"]
-    lines = []
-    req = finding.get("requirement_source_text")
-    if req:
-        lines.append(f"Requirement: {req}")
-    value = finding.get("contractor_evidence_text")
-    if value:
-        lines.append(f"Submitted: {value}")
-    rationale = finding.get("ai_rationale")
-    if rationale:
-        lines.append(rationale)
-    tag = finding.get("equipment_tag")
-    if tag:
-        lines.append(f"Equipment: {tag}")
-    return "\n".join(lines)
-
-
 def _fold(text) -> str:
     return " ".join(str(text or "").lower().split())
-
-
-def _merge_same_rule(ordered: list[dict]) -> list[tuple[dict, list[dict]]]:
-    """Owner order 2e: THE SAME RULE FROM SEVERAL STANDARDS IS ONE COMMENT.
-
-    Two standards carrying the same requirement text, decided the same way
-    against the same datasheet value, printed twice was the design-pressure
-    rule the owner saw repeated. One row now, citing every standard. Only
-    IDENTICAL requirement text (whitespace and case folded) against the same
-    submitted value and page, with the same status, is merged - a similar
-    rule is a different rule until a person says otherwise.
-    """
-    groups: dict[tuple, list[dict]] = {}
-    order: list[tuple] = []
-    for f in ordered:
-        text = _fold(f.get("requirement_source_text"))
-        # An engineer's edited wording is theirs for THAT finding: two
-        # findings they worded differently are never printed as one.
-        key = ((f.get("compliance_status"), text, _fold(f.get("contractor_evidence_text")),
-                f.get("contractor_page"), f.get("engineer_comment"))
-               if text else ("__unique__", f.get("id") or id(f)))
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(f)
-    return [(groups[k][0], groups[k][1:]) for k in order]
 
 
 #: The "Review notes" sheet (owner order 2f): the engineer's internal list.
@@ -212,6 +150,11 @@ NOTE_MISSING_STANDARD = "Standard not in your library - upload required"
 NOTE_UNREAD_PAGES = "Pages not yet readable - engineer to check"
 NOTE_PAGE_READER = "Value not found by the page reader - engineer to check the page"
 NOTE_OTHER_DOCUMENT = "Requires another document"
+#: CRS quick wins: a statement no datasheet field was found for. NOT "requires
+#: another document" - the clause names no document (audit crs.md defect 5:
+#: the note claimed 9, 2 were true).
+NOTE_NO_FIELD = "No datasheet field found - engineer to check"
+_NO_FIELD_MARKER = "no_field_matched"
 
 
 def build_review_notes(findings: list[dict], missing_references: list[str],
@@ -221,7 +164,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     One row per cited standard not held; one row for the pages not read into
     fields; one for values the page reader did not find; and the requirements
     that name their own evidence (a certificate, procedure, drawing) GROUPED
-    BY STANDARD with a count each, not one row per requirement (2e). Every
+    BY STANDARD with a count each, not one row per requirement (2e) - and,
+    apart from them, the statements no datasheet field was found for, which
+    name no document (quick wins; they were counted as the first kind). Every
     count states its boundary: "of this run's requirements from <standard>".
     """
     notes: list[dict] = []
@@ -248,7 +193,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     by_standard: dict[str, int] = {}
     for f in findings:
         if (f.get("compliance_status") == _NOT_IN_DOCUMENT_SCOPE
-                and _REQUIRES_OTHER_DOCUMENT_MARKER in (f.get("ai_rationale") or "")):
+                and (f.get("ai_rationale") or "").startswith(_REQUIRES_OTHER_DOCUMENT_MARKER)):
             name = str(f.get("standard_name") or f.get("standard_document_id") or "")
             by_standard[name] = by_standard.get(name, 0) + 1
     for name in sorted(by_standard):
@@ -258,94 +203,314 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "name their own evidence - a certificate, procedure, "
                                  "drawing or other document - which is not this "
                                  "datasheet. Check each against the document it names.")})
+    no_field: dict[str, int] = {}
+    for f in findings:
+        if (f.get("compliance_status") == _NOT_IN_DOCUMENT_SCOPE
+                and (f.get("ai_rationale") or "").startswith(_NO_FIELD_MARKER)):
+            standard = str(f.get("standard_name") or f.get("standard_document_id") or "")
+            no_field[standard] = no_field.get(standard, 0) + 1
+    for name in sorted(no_field):
+        n = no_field[name]
+        notes.append({"note": NOTE_NO_FIELD, "standard": name, "count": n,
+                      "detail": (f"{n} of this run's requirements from {name or 'this standard'} "
+                                 "state no value, and no field read from this datasheet "
+                                 "was found for them. They do not name another document; "
+                                 "check each against the datasheet, or the document "
+                                 "that governs it.")})
     return notes
+
+
+def _std_short(name) -> str:
+    """"SAES-D-901.pdf" -> "SAES-D-901": a reference, not a file name."""
+    text = str(name or "").strip()
+    return re.sub(r"\.(pdf|docx?|xlsx?)$", "", text, flags=re.IGNORECASE)
+
+
+def _standard_reference(finding: dict) -> str:
+    """The Standard Reference column: "SAES-D-901 cl. 4.3 (p.1)", or
+    "Datasheet check DS-M1" for a kind B check. Its OWN column (quick wins):
+    it used to ride in Page/Section as "SAES-D-901.pdf clause 4.3 p1 /
+    submittal p1", where the contractor looks for THEIR page."""
+    if finding.get("origin") == _DATASHEET_ORIGIN:
+        m = re.match(r"(Datasheet check [A-Z]+-[A-Z0-9]+)",
+                     finding.get("requirement_source_text") or finding.get("ai_rationale") or "")
+        return m.group(1) if m else "Datasheet check"
+    std = _std_short(finding.get("standard_name") or finding.get("standard_document_id"))
+    if not std:
+        return ""
+    clause = finding.get("standard_clause")
+    page = finding.get("standard_page")
+    return std + (f" cl. {clause}" if clause else "") + (f" (p.{page})" if page else "")
+
+
+def _field_label(finding: dict) -> str:
+    """What the DATASHEET calls the field, as it printed it, else the phrase
+    the pairing matched, else the datasheet check's field."""
+    label = (finding.get("crs_field_label") or finding.get("contractor_section")
+             if finding.get("origin") == _DATASHEET_ORIGIN
+             else finding.get("crs_field_label") or finding.get("matched_phrase"))
+    if not label and not (finding.get("fact_id") or finding.get("contractor_page")):
+        # NOT FOUND ON THE SHEET: the clause's own subject names the field,
+        # when it is a clean noun phrase.
+        subject = " ".join(str((finding.get("requirement_limit") or {}).get("subject")
+                               or "").split())
+        if subject and len(subject) <= 70 and " shall " not in f" {subject.lower()} ":
+            label = subject
+    label = " ".join(str(label or "").split())
+    if label and label.isupper() and len(label) > 5:
+        # "CORROSION ALLOWANCE" reads as "Corrosion allowance"; an acronym
+        # the sheet printed as its whole label ("PWHT", "MAWP") stays one.
+        label = label.capitalize()
+    elif label and label.islower():
+        label = label[0].upper() + label[1:]
+    return label
+
+
+def _items(group: list[dict]) -> list[str]:
+    """The equipment tags (or nozzle marks) a grouped row is about, in order."""
+    seen: list[str] = []
+    for f in group:
+        tag = f.get("equipment_tag")
+        if tag and tag not in seen:
+            seen.append(str(tag))
+    return seen
+
+
+def _page_section(group: list[dict]) -> str:
+    """The DATASHEET's page and field: "p.1 - Corrosion allowance (V-2001)".
+    Never the standard's file name - that is the Standard Reference column."""
+    f = group[0]
+    pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
+    field = _field_label(f)
+    tags = _items(group)
+    where = (f"p.{_page_list(pages)}" if pages else "")
+    if field:
+        where = f"{where} - {field}" if where else field
+    if tags:
+        where += f" ({', '.join(tags)})"
+    # The chunk's section heading is NOT printed here: on a ruled form it is
+    # routinely another cell's text ("3.5 RATED POWER" on the audit's pump
+    # sheet), and the page + field + tag already say where the value is.
+    return where
+
+
+_OP_WORDS = {">=": "not less than", "<=": "not more than", ">": "more than",
+             "<": "less than", "=": "equal to", "==": "equal to"}
+
+
+def _clause_sentence(finding: dict, limit: int = 220) -> str:
+    """The clause's own words, without its leading clause number, cut short
+    with "..." rather than pasted whole."""
+    text = " ".join(str(finding.get("requirement_source_text")
+                        or finding.get("requirement") or "").split())
+    clause = str(finding.get("standard_clause") or "")
+    if clause and text.startswith(clause + " "):
+        text = text[len(clause) + 1:]
+    text = text.rstrip(".")
+    if len(text) > limit:
+        text = text[:limit].rsplit(" ", 1)[0] + " ..."
+    return text
+
+
+def _requirement_words(finding: dict) -> str:
+    """"requires <subject> not less than 3 mm" - ONLY for a verdict the
+    arithmetic made (COMPLIANT / NON_COMPLIANT), where the parsed limit is the
+    one that was compared. Everywhere else the clause's own sentence is
+    quoted: a blank field or an engineer's question must not restate a limit
+    the parser may have got wrong ("30 %" read from "30 % of rated flow")."""
+    limit = finding.get("requirement_limit") or {}
+    subject = " ".join(str(limit.get("subject") or "").split())
+    clean_subject = subject and len(subject) <= 70 and " shall " not in f" {subject.lower()} "
+    if (limit.get("operator") in _OP_WORDS and limit.get("raw_value") not in (None, "")
+            and clean_subject
+            and finding.get("compliance_status") in ("NON_COMPLIANT", "COMPLIANT")):
+        unit = f" {limit['raw_unit']}" if limit.get("raw_unit") else ""
+        return (f"requires {subject[0].lower() + subject[1:]} "
+                f"{_OP_WORDS[limit['operator']]} {limit['raw_value']}{unit}.")
+    sentence = _clause_sentence(finding)
+    return f"\"{sentence}.\"" if sentence else "states a requirement."
+
+
+def _provided(finding: dict) -> str:
+    """What the datasheet says, in its own words."""
+    value = " ".join(str(finding.get("contractor_evidence_text") or "").split())
+    blank = finding.get("crs_is_blank")
+    if blank or (finding.get("ai_rationale") or "").startswith(
+            "the submittal leaves this field to be provided"):
+        return f"is left to be provided ('{value}')" if value else "is left blank"
+    return f"states {value}" if value else "states no readable value"
+
+
+def _reason_words(finding: dict) -> str:
+    """An engineer-review reason without its machine code: "unit_mismatch:
+    the requirement is in ..." -> "the requirement is in ..."."""
+    text = " ".join(str(finding.get("ai_rationale") or "").split())
+    return re.sub(r"^[a-z_]+:\s*", "", text)
+
+
+def _action(finding: dict, field: str) -> str:
+    status = finding.get("compliance_status")
+    what = field or "the value"
+    if status == "NON_COMPLIANT":
+        return (f"Contractor to revise {what} to meet the requirement, or submit a "
+                "deviation request with justification for Company approval.")
+    if status == _MISSING_INFORMATION:
+        if finding.get("fact_id") or finding.get("contractor_page"):
+            return f"Contractor to provide {what}."
+        return f"Contractor to state {what} on the datasheet."
+    return f"Engineer to check: {_reason_words(finding).rstrip('.')}."
+
+
+def engineer_comment_text(group: list[dict]) -> str:
+    """THE COMMENT, IN AN ENGINEER'S VOICE (CRS quick wins, audit crs.md
+    defect 8):
+
+        <Standard> cl. <clause>: requires <required>. Datasheet <page/field>
+        states <provided | blank>. Contractor to <action>.
+
+    It replaced a log line ("Requirement: <whole clause> / Submitted: 1.5 mm /
+    the submitted value 1.5 mm is outside the required >= 3 mm / Equipment:
+    V-2001") that pasted the clause, printed operator symbols and machine
+    reason codes, and never said what the contractor should do. Every
+    number in it is one already on the finding - nothing is re-derived.
+    """
+    f = group[0]
+    refs = list(dict.fromkeys(r for r in (_standard_reference(g) for g in group) if r))
+    ref = "; ".join(refs) or "Requirement"
+    field = _field_label(f)
+    tags = _items(group)
+    where = " ".join(p for p in (
+        f"p.{f['contractor_page']}," if f.get("contractor_page") else "",
+        field or "", f"({', '.join(tags)})" if tags else "") if p)
+    lead = f"{ref}: {_requirement_words(f)}"
+    if not (f.get("fact_id") or f.get("contractor_page")):
+        # NOT FOUND IS NOT "NOT STATED" (honesty audit 50): what is known is
+        # that no field READ from the sheet answered it, with the pages that
+        # were read - never that the document is silent.
+        checked = (f.get("ai_rationale") or "").partition("; ")[2].strip().rstrip(".")
+        said = ("Not answered by any field read from the datasheet"
+                + (f" ({checked})" if checked else "") + ".")
+    else:
+        said = f"Datasheet {where} {_provided(f)}." if where else f"The datasheet {_provided(f)}."
+    return f"{lead} {said} {_action(f, field)}"
+
+
+def _confirmed(finding: dict) -> bool:
+    """Has an ENGINEER confirmed this comment? (the issue copy's gate)"""
+    return bool(finding.get("confirmed_by") or finding.get("engineer_comment")
+                or finding.get("approval_status") == "accepted"
+                or finding.get("origin") == "chat")
+
+
+def _group_key(f: dict) -> tuple:
+    """ONE ROW PER FIELD ISSUE: the same requirement wording, the same
+    status, the same datasheet field (by its printed label) and the same
+    printed value - whichever tags carry it and whichever standards state it.
+    An engineer's own wording is theirs for THAT finding, never merged."""
+    text = _fold(f.get("requirement_source_text"))
+    if not text or f.get("engineer_comment"):
+        return ("__unique__", f.get("id") or id(f))
+    return (f.get("compliance_status"), text,
+            _fold(f.get("crs_field_label") or f.get("matched_phrase") or f.get("contractor_section")),
+            _fold(f.get("contractor_evidence_text")), f.get("contractor_page"),
+            f.get("origin") == _DATASHEET_ORIGIN)
+
+
+def _grouped(ordered: list[dict]) -> list[list[dict]]:
+    groups: dict[tuple, list[dict]] = {}
+    order: list[tuple] = []
+    for f in ordered:
+        key = _group_key(f)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(f)
+    return [groups[k] for k in order]
+
+
+def _by(group: list[dict]) -> str:
+    f = group[0]
+    if f.get("engineer_comment"):
+        return _edited_by(f)
+    if f.get("confirmed_by"):
+        return f"AI Review, confirmed by {f.get('confirmed_by_name') or f['confirmed_by']}"
+    return "AI Review"
 
 
 def build_crs_rows(findings: list[dict], missing_references: list[str],
                    submittal_name: str,
                    unread_pages: list[int] | None = None) -> list[dict]:
-    """One row per NON_COMPLIANT or NEEDS_ENGINEER_REVIEW finding, then one
-    summary row each for MISSING_INFORMATION and requires-another-document
-    findings (present only when the run has at least one), then one row per
-    cited-and-missing standard.
+    """The CRS rows for one run - ONE ROW PER FIELD ISSUE.
 
-    NEITHER BUCKET ENTERS INDIVIDUALLY. A thousand rows of "no evidence" or
-    "checked in another document" is noise a reader cannot use - the same
-    reasoning issue #165's predecessor already applied to MISSING_INFORMATION
-    alone. But saying nothing about either bucket is a different defect: it
-    reads as "no such requirements existed" about a review that may have
-    parked most of its work there. Each bucket gets exactly one row stating
-    its own count, honouring CLAUDE.md rule 4 (every count states its
-    boundary) the same way the missing-reference rows already do.
+    CRS QUICK WINS (2026-09-27, audit crs.md defects 2, 8, 9):
 
-    Order: NON_COMPLIANT, then NEEDS_ENGINEER_REVIEW, then comments engineers
-    filed from chat (their words, their name), then the summaries,
-    then the standards gaps.
+      * EVERY MISSING / BLANK / "VENDOR TO ADVISE" VALUE IS ITS OWN ROW. The
+        one summary row ("4 requirements ... were not answered ... not
+        itemized here") hid a vibration breach, a hydrotest shortfall and a
+        nozzle-size breach on the audit's planted-defect sheets. A value the
+        sheet leaves blank is the most common comment a reviewing engineer
+        writes; it is one row per field, the tags that share it listed on it.
+      * THE COMMENT IS AN ENGINEER'S (`engineer_comment_text`); Page/Section
+        is the DATASHEET's page and field; the standard and clause sit in
+        their own column (`standard_reference`).
+      * EVERY ROW SAYS WHETHER AN ENGINEER HAS CONFIRMED IT
+        (`engineer_confirmed`), which is all the issue-to-contractor copy
+        carries - `crs_export` drops the rest there, so an AI draft or an
+        internal question never leaves the building.
 
-    B3: a NEEDS_ENGINEER_REVIEW finding whose reason is UNREAD_PAGES is not an
-    individual row either. It says "the value may be on a page nobody has read
-    into fields yet" - work for the reviewing engineer, not a question for the
-    contractor - and on today's regression documents there are 55 to 79 of
-    them per run. They get ONE plain summary row naming the pages
-    (`unread_pages`, the run's stored page coverage).
+    Order: breaches, then values left blank, then values not found, then
+    datasheet self-checks, then the engineer's open questions, then the
+    engineer's own chat comments, then AI/web check items.
+
+    Never rows: rejected findings; UNREAD_PAGES and PAGE_READER_ONLY
+    questions and NOT_IN_DOCUMENT_SCOPE (all Review notes, B3/2f); a
+    COMPLIANT result.
     """
-    rows = []
+    rows: list[dict] = []
     findings = [f for f in findings if not _rejected(f)]
-    ordered = [f for f in findings
-               if f.get("compliance_status") == "NON_COMPLIANT"]
-    ordered += [f for f in findings
-                if f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
-                and not _unread(f) and not _page_reader_only(f)]
-    # Owner order 2c: a datasheet check's missing value is a comment of its
-    # own ("Hydrotest pressure is marked 'TBA'"), not one of the uncounted
-    # absences summarised below.
-    ordered += [f for f in findings
-                if f.get("origin") == _DATASHEET_ORIGIN
-                and f.get("compliance_status") == _MISSING_INFORMATION]
-    for f, also in _merge_same_rule(ordered):
-        if f.get("origin") == _DATASHEET_ORIGIN:
+    standard = [f for f in findings
+                if f.get("origin") not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, "chat")]
+    status = lambda f: f.get("compliance_status")  # noqa: E731
+    paired = lambda f: bool(f.get("fact_id") or f.get("contractor_page"))  # noqa: E731
+    breaches = [f for f in standard if status(f) == "NON_COMPLIANT"]
+    blanks = [f for f in standard if status(f) == _MISSING_INFORMATION and paired(f)]
+    not_found = [f for f in standard if status(f) == _MISSING_INFORMATION and not paired(f)]
+    questions = [f for f in standard if status(f) == "NEEDS_ENGINEER_REVIEW"
+                 and not _unread(f) and not _page_reader_only(f)]
+    # A datasheet check about a field a standard's row already names (the
+    # same fact) is that row, not a second one.
+    covered = {f.get("fact_id") for f in breaches + blanks if f.get("fact_id")}
+    checks = [f for f in findings if f.get("origin") == _DATASHEET_ORIGIN
+              and status(f) in ("NON_COMPLIANT", _MISSING_INFORMATION)
+              and not (f.get("fact_id") and f.get("fact_id") in covered)]
+    for kind, bucket in ((ROW_KIND_NON_COMPLIANT, breaches),
+                         (ROW_KIND_MISSING_INFORMATION, blanks),
+                         (ROW_KIND_MISSING_INFORMATION, not_found),
+                         (ROW_KIND_DATASHEET_CHECK, checks),
+                         (ROW_KIND_NEEDS_ENGINEER_REVIEW, questions)):
+        for group in _grouped(bucket):
+            f = group[0]
+            if kind == ROW_KIND_DATASHEET_CHECK:
+                text = f.get("engineer_comment") or " ".join(p for p in (
+                    f.get("finding"), f.get("required_action")) if p)
+            else:
+                text = f.get("engineer_comment") or engineer_comment_text(group)
             rows.append({
+                # THE FINDING'S OWN STORED ID, carried so `crs_export` can mint
+                # a per-row reference that survives a re-export; never printed.
                 "finding_id": f.get("id") or "",
                 "document_name": submittal_name,
-                "page_section": " / ".join(p for p in (
-                    f"submittal p{f['contractor_page']}" if f.get("contractor_page") else "",
-                    f.get("contractor_section") or "") if p),
-                # "Datasheet check: ..." - the finding's own words, which say
-                # the calculation ("Design pressure 20 barg (page 1) is not at
-                # least operating pressure 23.5 barg (page 1).").
-                "comment": f.get("engineer_comment") or f.get("finding") or "",
-                "comment_by": (_edited_by(f) if f.get("engineer_comment")
-                               else f"AI Review, confirmed by {f['confirmed_by']}"
-                               if f.get("confirmed_by") else "AI Review"),
-                "row_kind": ROW_KIND_DATASHEET_CHECK,
+                "page_section": _page_section(group),
+                "comment": text,
+                "comment_by": _by(group),
+                "standard_reference": "; ".join(dict.fromkeys(
+                    r for r in (_standard_reference(g) for g in group) if r)),
+                "row_kind": kind,
+                "engineer_confirmed": all(_confirmed(g) for g in group),
             })
-            continue
-        by = "AI Review"
-        if f.get("engineer_comment"):
-            by = _edited_by(f)
-        elif f.get("confirmed_by"):
-            by = f"AI Review, confirmed by {f['confirmed_by']}"
-        row_kind = (ROW_KIND_NON_COMPLIANT
-                    if f.get("compliance_status") == "NON_COMPLIANT"
-                    else ROW_KIND_NEEDS_ENGINEER_REVIEW)
-        rows.append({
-            # THE FINDING'S OWN STORED ID, carried so `crs_export` can mint a
-            # per-row reference that survives a re-export. It is never
-            # printed: `review_findings.id` is a uuid an engineer cannot read
-            # back, and the sheet shows the short reference derived from it.
-            "finding_id": f.get("id") or "",
-            "document_name": submittal_name,
-            "page_section": "; ".join([_citation(f), *(_citation(o) for o in also)]),
-            "comment": _comment_text(f) + (
-                "\nThe same requirement is in: " + "; ".join(_citation(o) for o in also)
-                if also else ""),
-            "comment_by": by,
-            "row_kind": row_kind,
-        })
 
-    # An engineer's own comments, filed from chat, after the review's rows and
-    # before its summaries: they are individual comments to the contractor,
-    # like the rows above, but the engineer's rather than the machine's.
+    # An engineer's own comments, filed from chat: individual comments to the
+    # contractor, the engineer's rather than the machine's.
     for f in findings:
         if f.get("origin") != "chat":
             continue
@@ -355,7 +520,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "page_section": "",
             "comment": f.get("engineer_comment") or f.get("finding") or "",
             "comment_by": f"{f.get('confirmed_by') or 'Engineer'} (filed from chat)",
+            "standard_reference": "",
             "row_kind": ROW_KIND_ENGINEER_COMMENT,
+            "engineer_confirmed": True,
         })
 
     # Owner order 2d/2f and 2d-2: AI engineering check (kind C) and public-web
@@ -372,8 +539,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             relates = _ai_relates_to(f)
             if relates and not f.get("engineer_comment"):
                 text += f" (Relates to {relates}.)"
-        where = " / ".join(p for p in (
-            f"submittal p{f['contractor_page']}" if f.get("contractor_page") else "",
+        # The datasheet's page and field, in the shape every row uses.
+        where = " - ".join(p for p in (
+            f"p.{f['contractor_page']}" if f.get("contractor_page") else "",
             f.get("contractor_section") or "") if p)
         confirmed = bool(f.get("confirmed_by"))
         confirmed_by_prefix = _AI_CONFIRMED_BY if origin == _AI_ORIGIN else _WEB_CONFIRMED_BY
@@ -390,37 +558,14 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "comment_by": (f"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}"
                            if confirmed else unconfirmed_by),
             "ai_review_comment": "" if confirmed else text,
+            "standard_reference": relates if origin == _AI_ORIGIN and not f.get("engineer_comment") else "",
             "row_kind": row_kind,
+            "engineer_confirmed": confirmed,
         })
 
     # OWNER ORDER 2f: THE INTERNAL NOTES LEFT THIS SHEET. Requirements that
     # need another document, pages not yet read, values the page reader did
     # not find, and cited standards not in the library are the ENGINEER'S
-    # to-do list - they were printed in the contractor's COMPANY Comments
-    # column as "AI Review". They are now the "Review notes" sheet
-    # (`build_review_notes`), which the contractor's copy does not carry.
-
-    missing_info_count = sum(
-        1 for f in findings
-        if f.get("compliance_status") == _MISSING_INFORMATION
-        and f.get("origin") != _DATASHEET_ORIGIN)
-    if missing_info_count:
-        rows.append({
-            "finding_id": "missing-information-summary",
-            "document_name": submittal_name,
-            "page_section": "",
-            # WHAT WAS CHECKED (honesty audit 50): "have no value stated for
-            # them in it" claimed the document was silent; what is known is
-            # that no field read from it answered them.
-            "comment": (
-                f"{missing_info_count} requirement"
-                f"{'s' if missing_info_count != 1 else ''} reviewed against "
-                "this submittal were not answered by any field read from it. "
-                "This is an absence, not a breach - the vendor has not been "
-                "asked yet - and is not itemized here: a row each would bury "
-                "the comments above."),
-            "comment_by": "AI Review",
-            "row_kind": ROW_KIND_MISSING_INFORMATION,
-        })
-
+    # to-do list - the "Review notes" sheet (`build_review_notes`), which the
+    # contractor's copy does not carry.
     return rows

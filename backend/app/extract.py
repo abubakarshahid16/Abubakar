@@ -12,22 +12,27 @@ REPLACE, so re-running a batch after a crash replaces rather than duplicates.
 from __future__ import annotations
 
 import concurrent.futures as cf
+import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import pymupdf  # PyMuPDF
 
+from . import ocr, states
 from .config import settings
 from .quality import normalise_text
+from . import tables as tables_mod
 from .db import connect
 from .rates import Timer, rate
 
-# A page with less usable text than this is assumed to be scanned or
-# image-dominant. Detection only AT THIS STAGE: the flag is what ocr.py
-# later consumes via idx_pages_ocr. It used to say OCR was deliberately
-# not implemented, which stopped being true when recognition shipped.
-MIN_USABLE_CHARS = 100
+# Which pages go to recognition is decided HERE, per page, by
+# `ocr.route_page` (audit F6) - detection only at this stage; ocr.py later
+# consumes the flag via idx_pages_ocr. It used to be "fewer than 100 usable
+# characters" alone, which never read a scanned page carrying a digital
+# header, footer or DCC stamp (238 chars) and recorded nothing about it. The
+# character floor is now `settings.ocr_min_usable_chars`, one rule of several,
+# and the reason for every decision is stored on the page.
 # A page this dense in mathematical symbols extracts as prose ABOUT maths with
 # the maths missing. Flagged rather than silently degraded.
 EQUATION_MARKERS = set("∫∑∏√±≤≥≠≈∞∂∇αβγδεθλμπρσφψωΓΔΘΛΞΠΣΦΨΩ")
@@ -71,26 +76,137 @@ def page_count(pdf_path: str) -> int:
         return doc.page_count
 
 
-def extract_batch(pdf_path: str, first_page: int, last_page: int) -> list[tuple[int, str, bool]]:
+# ------------------------------------------------------------------ tables
+#
+# RULED TABLES ARE READ BY GEOMETRY, HERE, ONCE (audit 2026-09-27 F1).
+# `get_text("text")` emits a table one CELL per line with no row or column
+# structure, so the chunker saw "3.0" (a corrosion allowance) above
+# "Hydrocarbon" (the next row's service) and read the pair as clause heading
+# "3.0 Hydrocarbon"; the quality gate then dropped the rows as debris. The
+# page text itself is NOT changed - classification, comparison and the page
+# viewer all read `pages.text` - the table is stored BESIDE it, as rows plus
+# the indices of the text lines it covers, so the chunker can emit the table
+# as one structured block and keep its cells out of the prose.
+
+#: Bump when what `page_tables` stores changes. Part of the chunk signature
+#: through `pages.tables_json`, so a re-extraction is detected as new input.
+TABLE_READER_VERSION = "1"
+
+#: A page with fewer vector paths than this has no ruling to find. Checked
+#: first because `get_drawings` costs about a millisecond and `find_tables`
+#: about 150 ms - measured on the synthetic corpus and the audit specs.
+MIN_TABLE_PATHS = 6
+
+
+def _raw_lines(page) -> tuple[list[str], list[tuple[float, float, float, float]]]:
+    """Each text line of the page, IN THE ORDER `get_text("text")` emits them,
+    with its bounding box. Verified line-for-line against the plain text on
+    the audit and synthetic corpora; a page where the two disagree is caught
+    by the caller and stores no tables rather than a wrong mapping."""
+    texts: list[str] = []
+    boxes: list[tuple[float, float, float, float]] = []
+    for block in page.get_text("dict")["blocks"]:
+        if block.get("type") != 0:
+            continue
+        for line in block["lines"]:
+            texts.append("".join(span["text"] for span in line["spans"]))
+            boxes.append(tuple(line["bbox"]))
+    return texts, boxes
+
+
+def page_tables(page, raw_text: str) -> list[dict]:
+    """Every ruled table on `page`: its rows and the text lines it covers.
+
+    Each entry is {"bbox", "rows", "lines"}: `rows` are cell texts (the
+    tables.py guards drop 1xN strips, character fragmentation and 50-column
+    letter grids), `lines` the 0-based indices into `raw_text.split("\n")`
+    whose centre lies inside the table. An empty list when the page has no
+    ruling, no table, or a line mapping that cannot be trusted.
+    """
+    try:
+        paths = page.get_drawings()
+    except Exception:  # noqa: BLE001 - geometry that defeats the reader
+        return []
+    if len(paths) < MIN_TABLE_PATHS:
+        return []
+    try:
+        found = page.find_tables(strategy="lines").tables
+    except Exception:  # noqa: BLE001 - same: no table rather than no page
+        return []
+    if not found:
+        return []
+    texts, boxes = _raw_lines(page)
+    plain = raw_text.split("\n")
+    if plain and plain[-1] == "":
+        plain = plain[:-1]
+    if plain != texts:
+        return []
+    out: list[dict] = []
+    claimed: set[int] = set()
+    for table in found:
+        try:
+            rows = [[tables_mod._clean(normalise_text(c or "")) for c in row]
+                    for row in table.extract()]
+        except Exception:  # noqa: BLE001
+            continue
+        rows = [row for row in rows if any(cell for cell in row)]
+        if not rows:
+            continue
+        width = max(len(r) for r in rows)
+        if len(rows) < tables_mod.MIN_ROWS or width < tables_mod.MIN_COLUMNS:
+            continue
+        if width > tables_mod.MAX_COLUMNS or tables_mod._is_fragmented(rows):
+            continue
+        x0, y0, x1, y1 = table.bbox
+        lines = [
+            i for i, (bx0, by0, bx1, by1) in enumerate(boxes)
+            if i not in claimed
+            and x0 - 1 <= (bx0 + bx1) / 2 <= x1 + 1
+            and y0 - 1 <= (by0 + by1) / 2 <= y1 + 1
+        ]
+        if not lines:
+            continue
+        claimed.update(lines)
+        out.append({"bbox": [round(v, 1) for v in (x0, y0, x1, y1)],
+                    "rows": rows, "lines": lines})
+    return out
+
+
+def _tables_json(page, raw_text: str, text: str) -> str | None:
+    """The page's tables as stored, or None. The line indices address the
+    NORMALISED text the chunker reads, so normalisation must not have changed
+    the line count - if it did, no mapping is stored."""
+    if raw_text.count("\n") != text.count("\n"):
+        return None
+    found = page_tables(page, raw_text)
+    if not found:
+        return None
+    return json.dumps({"v": TABLE_READER_VERSION, "tables": found},
+                      ensure_ascii=False, separators=(",", ":"))
+
+
+def extract_batch(pdf_path: str, first_page: int, last_page: int
+                  ) -> list[tuple[int, str, bool, bool, str | None, str | None]]:
     """Extract [first_page, last_page] inclusive, 1-based.
 
     Runs in a worker process. Opens the document itself - a pymupdf.Document
     cannot cross a process boundary. Returns plain tuples so the payload
-    pickles cheaply.
+    pickles cheaply: (page_no, text, needs_ocr, equation_heavy, ocr_route,
+    tables_json).
     """
-    out: list[tuple[int, str, bool]] = []
+    out: list[tuple[int, str, bool, bool, str | None, str | None]] = []
     with pymupdf.open(pdf_path) as doc:
         for pno in range(first_page - 1, min(last_page, doc.page_count)):
             page = doc.load_page(pno)
-            text = page.get_text("text") or ""
+            raw = page.get_text("text") or ""
             # Normalise here, once, so symbol-font control characters never
             # reach chunking. Leaving them in made real content look like
             # gibberish to the quality gate and silently excluded it.
-            text = normalise_text(text)
-            usable = len(text.strip())
-            needs_ocr = usable < MIN_USABLE_CHARS
+            text = normalise_text(raw)
+            route = ocr.route_page(page, text)
             eq_heavy = equation_density(text) >= EQUATION_PAGE_RATIO
-            out.append((pno + 1, text, needs_ocr, eq_heavy))
+            out.append((pno + 1, text, route.needs_ocr, eq_heavy, route.reason,
+                        _tables_json(page, raw, text)))
     return out
 
 
@@ -108,17 +224,29 @@ def _batches(total_pages: int, size: int, start_batch: int) -> list[tuple[int, i
     return result
 
 
-def _commit_batch(doc_id: str, job_id: str, batch_no: int, rows: list[tuple[int, str, bool]]) -> None:
-    """Persist one batch and advance the checkpoint atomically."""
+def _commit_batch(doc_id: str, job_id: str, batch_no: int, rows: list[tuple]) -> None:
+    """Persist one batch and advance the checkpoint atomically.
+
+    A row without a routing reason (a 4-tuple from an older caller) stores
+    NULL reason and version, which reads as "not decided by the current
+    rule" - stale, never as a decision nobody made. The tables element is
+    optional too: a row from a caller that reads no tables (a test
+    stand-in, an older worker) stores none.
+    """
     conn = connect()
+    payload = []
+    for p, t, o, e, *rest in rows:
+        reason = rest[0] if len(rest) > 0 else None
+        tables = rest[1] if len(rest) > 1 else None
+        payload.append((doc_id, p, t, len(t.strip()), int(o), int(e), batch_no, reason,
+                        ocr.OCR_ROUTE_VERSION if reason is not None else None, tables))
     with conn:
         conn.executemany(
             """INSERT OR REPLACE INTO pages
                (document_id, page_no, text, char_count, needs_ocr, equation_heavy,
-                batch_no)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            [(doc_id, p, t, len(t.strip()), int(o), int(e), batch_no)
-             for p, t, o, e in rows],
+                batch_no, ocr_route, ocr_route_version, tables_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            payload,
         )
         done = conn.execute(
             "SELECT COUNT(*) AS c, COALESCE(SUM(needs_ocr),0) AS o,"
@@ -228,3 +356,77 @@ def extract_document(doc_id: str, progress=None) -> dict:
         "pages_per_sec": rate(pages_this_run, elapsed),
         "resumed_from_batch": start_batch,
     }
+
+
+#: Statuses a re-route may send back through the pipeline when it finds a
+#: page that now needs recognition. READY and NO_SEARCHABLE_CONTENT may go to
+#: CHUNKING (states.py); chunking skips unchanged text by its signature, so
+#: the worker's cost is the new pages' recognition and whatever they change.
+_REROUTE_RESUMABLE = (states.READY, states.NO_SEARCHABLE_CONTENT)
+
+
+def reroute_document(doc_id: str, *, apply: bool = True) -> dict:
+    """Re-decide OCR routing for an ALREADY-EXTRACTED document.
+
+    Re-opens the stored PDF and runs `ocr.route_page` on each page against
+    the text already stored in `pages` - nothing is re-extracted, re-chunked
+    or re-embedded here. Pages whose decision is unchanged only get their
+    reason and version recorded. When a page newly needs recognition and has
+    none yet, a finished document is moved to CHUNKING so the ingestion
+    worker picks it up: chunking is skipped as unchanged, the keyword index
+    is rebuilt, and the OCR stage reads only the newly routed pages.
+
+    `apply=False` computes the same answer and writes nothing (the estimate
+    `scripts/reroute_ocr.py` prints by default). Counts only, never text.
+    """
+    conn = connect()
+    doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    if doc is None:
+        raise ValueError(f"unknown document {doc_id}")
+    result = {"document_id": doc_id, "pages": 0, "stale": 0, "newly_needs_ocr": 0,
+              "no_longer_needs_ocr": 0, "requeued": False, "routes": {}, "error": None}
+    if not doc["stored_path"] or not os.path.exists(doc["stored_path"]):
+        result["error"] = "stored file is missing"
+        return result
+    rows = conn.execute(
+        "SELECT page_no, text, needs_ocr, ocr_route_version FROM pages"
+        " WHERE document_id = ? ORDER BY page_no", (doc_id,)).fetchall()
+    recognised = {r["page_no"] for r in conn.execute(
+        "SELECT page_no FROM page_ocr WHERE document_id = ?", (doc_id,))}
+    updates = []
+    newly_pending = 0
+    with pymupdf.open(doc["stored_path"]) as pdf:
+        for r in rows:
+            if not 1 <= r["page_no"] <= pdf.page_count:
+                continue
+            route = ocr.route_page(pdf.load_page(r["page_no"] - 1), r["text"] or "")
+            result["pages"] += 1
+            result["routes"][route.code] = result["routes"].get(route.code, 0) + 1
+            if r["ocr_route_version"] != ocr.OCR_ROUTE_VERSION:
+                result["stale"] += 1
+            if route.needs_ocr and not r["needs_ocr"]:
+                result["newly_needs_ocr"] += 1
+                if r["page_no"] not in recognised:
+                    newly_pending += 1
+            elif r["needs_ocr"] and not route.needs_ocr:
+                result["no_longer_needs_ocr"] += 1
+            updates.append((int(route.needs_ocr), route.reason, ocr.OCR_ROUTE_VERSION,
+                            doc_id, r["page_no"]))
+    requeue = newly_pending > 0 and doc["status"] in _REROUTE_RESUMABLE
+    result["requeued"] = requeue
+    if not apply:
+        return result
+    with conn:
+        conn.executemany(
+            "UPDATE pages SET needs_ocr = ?, ocr_route = ?, ocr_route_version = ?"
+            " WHERE document_id = ? AND page_no = ?", updates)
+        conn.execute(
+            "UPDATE documents SET needs_ocr_pages ="
+            " (SELECT COALESCE(SUM(needs_ocr), 0) FROM pages WHERE document_id = ?)"
+            " WHERE id = ?", (doc_id, doc_id))
+        if requeue:
+            states.check_transition(doc["status"], states.CHUNKING)
+            conn.execute(
+                "UPDATE documents SET status = ?, error_code = NULL, error_message = NULL"
+                " WHERE id = ? AND status = ?", (states.CHUNKING, doc_id, doc["status"]))
+    return result

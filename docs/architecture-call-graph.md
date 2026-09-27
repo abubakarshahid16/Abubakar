@@ -113,8 +113,9 @@ get the same check and ledger through `claude_spend.metered(transport, step)` in
 - History: `chat.resolve_followup` uses up to `FOLLOWUP_WINDOW` prior **user questions**;
   prior answers never reach retrieval or the prompt. The rewritten query is not stored
   (B9A work).
-- Retrieval: `search.search` (`search.py:797`) = FTS5 BM25 + brute-force cosine over the
-  `vectorcache` matrix, scope mask applied **before** top-k (:258-270), fused by RRF
+- Retrieval: `search.search` (`search.py:797`) = FTS5 BM25 + exact cosine through
+  `vector_store.search` (sqlite-vec `vec0`, numpy `vectorcache` fallback), scope applied
+  **before** top-k inside the KNN, fused by RRF
   (`RRF_K=60`), identifier boost, then the local cross-encoder reranker (falls back to RRF
   order if the model file is missing). `search_candidates=30`, `rerank_candidates=16`.
 - Tier 1 returns a verbatim passage without a model; Tier 2 calls Ollama; credibility floor

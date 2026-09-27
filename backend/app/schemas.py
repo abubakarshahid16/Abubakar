@@ -137,8 +137,11 @@ class Document(BaseModel):
     embedded_count: int
     status: DocStatus
     needs_ocr_pages: int = Field(
-        description="pages with no usable extractable text - candidates for "
-        "recognition. Not the same as recognised_pages: some are simply blank"
+        description="pages routed to recognition (`ocr.route_page`): no usable "
+        "text layer, or mostly scanned image with only a thin text layer (a "
+        "digital header or stamp over a scan). Not the same as recognised_pages: "
+        "some are blank, some failed, and on a page that also has a text layer "
+        "recognition may add nothing new"
     )
     recognised_pages: int = Field(
         0,
@@ -2059,6 +2062,11 @@ class CrsPreviewRow(BaseModel):
     #: caller (this JSON preview, or the .xlsx's own fill colour) can tell the
     #: four kinds of row apart without parsing the comment text.
     row_kind: str = ""
+    #: CRS quick wins (2026-09-27): the standard and clause the comment rests
+    #: on ("SAES-D-901 cl. 4.3 (p.1)", "Datasheet check DS-M1"), printed in
+    #: its own "Standard Reference" column after the client's seven. Empty
+    #: for an engineer's own chat comment.
+    standard_reference: str = ""
     #: Owner decision 2026-09-27 (order 2f): an UNCONFIRMED AI engineering
     #: check item's text, printed in the last column "AI Review Comments" of
     #: the internal review copy, with `comment` left empty. Empty on every
@@ -2249,6 +2257,11 @@ class ReviewRunSummary(BaseModel):
     #: 2g: the technical sentence behind `recommended_reason` (the nominal
     #: field estimate, identifiers), shown under "Details". Null when none.
     recommended_details: str | None = None
+    #: The four review-code labels the client configured
+    #: (`reference/review_codes.json`), in policy order: approved, approved
+    #: with comments, revise and resubmit, manual review. Empty on a caller
+    #: that predates it; the screen then falls back to the default labels.
+    review_codes: list[str] = []
     #: 2e: {previous_run_id, added: [names], removed: [names]} against the
     #: previous run of the same submittal; null when there is none.
     standards_change: dict | None = None
@@ -2289,6 +2302,8 @@ class PageLedgerRow(BaseModel):
     native_status: str
     native_chars: int | None = None
     ocr_status: str
+    #: why the page was / was not routed to recognition, or why it failed
+    ocr_reason: str | None = None
     ocr_engine: str | None = None
     ocr_mean_conf: float | None = None
     index_status: str
@@ -2614,6 +2629,9 @@ class Understanding(BaseModel):
     clause_reason: str | None = None
     ambiguous_documents: list[str] = []
     notes: list[str] = []
+    soft_identifiers: list[str] = Field(
+        [], description="identifiers a follow-up carried from an earlier question. "
+        "They steer retrieval but are not required; typing one again makes it required")
 
 
 class ScopeDocument(BaseModel):
@@ -2820,7 +2838,11 @@ class AskRequest(BaseModel):
     question: str = Field("", max_length=500)
     tier: Literal["extract", "generated"] = "extract"
     document_id: str | None = None
-    limit: int = Field(3, ge=1, le=5)
+    limit: int | None = Field(
+        None, ge=1, le=5,
+        description="how many ranked passages to consider; default is the "
+        "configured answer top-k (ANSWER_TOP_K, 5), the same k the retrieval "
+        "benchmark reports recall at")
     explain_of: str | None = Field(
         None,
         description="upgrade this assistant message to Tier 2 instead of asking anew; "
@@ -2981,6 +3003,31 @@ class ModelStatus(BaseModel):
     ollama_error: str | None = None
 
 
+class VectorStoreStatus(BaseModel):
+    """The dense-search backend (`vector_store.py`). Both backends are exact;
+    which one runs changes latency, never which chunks rank."""
+
+    requested: str = Field(description="VECTOR_BACKEND as configured")
+    active: Literal["sqlite_vec", "numpy"]
+    fallback_reason: str | None = Field(
+        None, description="why the exact numpy fallback is active; null when "
+                          "sqlite-vec is")
+    sqlite_vec_version: str | None = None
+    exact: bool = True
+    embedding_tag: str = Field(
+        description="model file + passage input format a vector must carry "
+                    "to be searched")
+    last_error: str | None = Field(
+        None, description="the last run-time failure of the sqlite-vec index, "
+                          "answered from the numpy path instead")
+    current_vectors: int | None = Field(
+        None, description="corpus-wide; null (absent) without the admin capability")
+    stale_vectors: int | None = Field(
+        None, description="vectors made by another model or input format: not "
+                          "searched until re-embedded. Corpus-wide; null "
+                          "without the admin capability")
+
+
 class DocumentFailure(BaseModel):
     id: str
     filename: str
@@ -3056,6 +3103,7 @@ class Metrics(BaseModel):
                     "any caller without the admin capability, like `system`.",
     )
     models: ModelStatus
+    vector_store: VectorStoreStatus | None = None
     worker: WorkerStatus
     warnings: list[MetricWarning]
 

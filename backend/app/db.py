@@ -1,5 +1,6 @@
 """SQLite storage. WAL mode, foreign keys on, one connection per thread."""
 
+import functools
 import sqlite3
 import threading
 from pathlib import Path
@@ -65,6 +66,17 @@ CREATE TABLE IF NOT EXISTS pages (
     needs_ocr     INTEGER NOT NULL DEFAULT 0,
     equation_heavy INTEGER NOT NULL DEFAULT 0,
     batch_no      INTEGER NOT NULL,
+    -- Ruled tables read by geometry at extraction (extract.page_tables):
+    -- rows plus the indices of the `text` lines they cover. NULL = none found
+    -- or extracted before the table reader existed.
+    tables_json   TEXT,
+    -- Why this page was or was not routed to recognition (`ocr.route_page`,
+    -- audit F6): a code and the measurements, never page text. NULL on a page
+    -- decided before routing was recorded - `ocr_route_version` NULL or older
+    -- than `ocr.OCR_ROUTE_VERSION` marks the decision stale, and
+    -- `scripts/reroute_ocr.py` re-decides it without re-extracting.
+    ocr_route     TEXT,
+    ocr_route_version TEXT,
     PRIMARY KEY (document_id, page_no)
 );
 
@@ -100,6 +112,10 @@ CREATE TABLE IF NOT EXISTS page_ocr (
     seconds       REAL    NOT NULL,
     recognised_at TEXT    NOT NULL,
     batch_no      INTEGER NOT NULL,
+    -- Set when recognition FAILED on this page (audit F7): the row still
+    -- exists, with empty text, so the page counts as consumed and one bad
+    -- page cannot hold the whole document out of search. NULL on success.
+    error         TEXT,
     PRIMARY KEY (document_id, page_no)
 );
 
@@ -194,6 +210,8 @@ CREATE TABLE IF NOT EXISTS page_ledger (
     native_chars    INTEGER,
     -- 'not_required' | 'pending' | 'done'
     ocr_status      TEXT    NOT NULL DEFAULT 'unknown',
+    -- the routing reason (pages.ocr_route) or, when recognition failed, why
+    ocr_reason      TEXT,
     ocr_engine      TEXT,
     ocr_mean_conf   REAL,
     ocr_seconds     REAL,
@@ -727,8 +745,90 @@ def connect() -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = 30000")
+        # DURABILITY, STATED HONESTLY. SQLite's default `synchronous=FULL`
+        # fsyncs the WAL on EVERY commit; measured 4.8 s of fsync for the
+        # 1,355 per-finding commits of one review run (perf audit item 1).
+        # Under WAL, NORMAL fsyncs only at checkpoints. It is still safe
+        # against an APPLICATION crash (a killed server loses nothing
+        # committed) and the file cannot corrupt, but a POWER CUT or OS crash
+        # can roll back the last few transactions committed before it.
+        # `SQLITE_SYNCHRONOUS=FULL` in backend/.env restores the old behaviour.
+        conn.execute(f"PRAGMA synchronous = {sqlite_synchronous()}")
         _local.conn = conn
     return conn
+
+
+#: The two values `settings.sqlite_synchronous` may take. Anything else would
+#: be interpolated into a PRAGMA, so it is refused rather than passed through.
+SYNCHRONOUS_MODES = ("FULL", "NORMAL")
+
+
+def sqlite_synchronous() -> str:
+    """The configured `PRAGMA synchronous` level, validated."""
+    mode = str(settings.sqlite_synchronous).strip().upper()
+    if mode not in SYNCHRONOUS_MODES:
+        raise ValueError(
+            f"SQLITE_SYNCHRONOUS must be one of {', '.join(SYNCHRONOUS_MODES)}, "
+            f"not {settings.sqlite_synchronous!r}")
+    return mode
+
+
+# --------------------------------------------------------- schema memo
+#
+# EVERY `ensure_schema` RAN ON EVERY CALL. They are called from read paths -
+# deliberately, so a module's tables exist before its first query - and each
+# one is ~150 `PRAGMA table_info` / `CREATE ... IF NOT EXISTS` statements.
+# Measured (perf audit items 1 and 9): 3.6 ms per call, 392 of the 397 SQL
+# statements behind `/api/reviews/runs/{id}/standards`, and one call per
+# finding written by a review run.
+#
+# KEYED ON `PRAGMA schema_version`, NOT ON "already ran once". The schema
+# version is SQLite's own counter, bumped by every CREATE, ALTER and DROP from
+# ANY connection or process. So the memo is exact rather than hopeful: after a
+# test drops a table, a migration adds a column, or `settings.db_path` points
+# at a new file, the version differs and the full check runs again. What the
+# memo saves is re-proving, 150 statements at a time, a schema nothing has
+# touched since the last proof. One PRAGMA per call remains.
+_schema_memo: dict[tuple[str, str], int] = {}
+
+
+def _schema_version(conn: sqlite3.Connection) -> int:
+    return conn.execute("PRAGMA schema_version").fetchone()[0]
+
+
+def schema_once(fn):
+    """Decorate an `ensure_schema`: skip it while the schema is unchanged.
+
+    `keyword.ensure_schema` takes an optional connection. Passed THIS thread's
+    own connection (what every caller in the app passes) it is memoised like
+    the rest; passed any other connection it simply runs, because the memo
+    describes the database behind `connect()` and nothing else.
+    """
+    name = f"{fn.__module__}.{fn.__qualname__}"
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        given = args[0] if args else kwargs.get("conn")
+        if len(args) > 1 or set(kwargs) - {"conn"} or (
+                given is not None and given is not getattr(_local, "conn", None)):
+            return fn(*args, **kwargs)
+        conn = connect()
+        key = (name, str(settings.db_path))
+        if _schema_memo.get(key) == _schema_version(conn):
+            return None
+        result = fn(*args, **kwargs)
+        # Recorded AFTER the function, so its own DDL is part of the proven
+        # state. A function that raised records nothing and runs again.
+        _schema_memo[key] = _schema_version(conn)
+        return result
+
+    wrapper.uncached = fn
+    return wrapper
+
+
+def reset_schema_memo() -> None:
+    """Forget every proven schema, so the next `ensure_schema` runs in full."""
+    _schema_memo.clear()
 
 
 def columns_of(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -821,6 +921,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     pg = {r["name"] for r in conn.execute("PRAGMA table_info(pages)")}
     if pg and "equation_heavy" not in pg:
         conn.execute("ALTER TABLE pages ADD COLUMN equation_heavy INTEGER NOT NULL DEFAULT 0")
+    if pg and "tables_json" not in pg:
+        add_column_if_missing(conn, "pages", "tables_json", "TEXT")
     docs = {r["name"] for r in conn.execute("PRAGMA table_info(documents)")}
     if docs and "chunk_count_total" not in docs:
         conn.execute(
@@ -867,6 +969,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_page_ocr_document ON page_ocr(document_id)"
     )
+    # OCR routing reason and per-page recognition failure (audit F6/F7).
+    # Nullable, no back-fill: a page routed before this build has no recorded
+    # reason, and NULL `ocr_route_version` is exactly what marks it stale.
+    if pg and "ocr_route" not in pg:
+        add_column_if_missing(conn, "pages", "ocr_route", "TEXT")
+    if pg and "ocr_route_version" not in pg:
+        add_column_if_missing(conn, "pages", "ocr_route_version", "TEXT")
+    add_column_if_missing(conn, "page_ocr", "error", "TEXT")
+    add_column_if_missing(conn, "page_ledger", "ocr_reason", "TEXT")
     # --------------------------------------------- AI submittal review, phase 1
     # The submittal-review vocabulary on an existing classification row. Every
     # column is nullable with no default, so an existing row keeps every value
@@ -979,7 +1090,62 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_id, ordinal)"
     )
+    for statement in VECTOR_GENERATION_SQL:
+        conn.execute(statement)
     conn.commit()
+
+
+def _vector_generation_triggers() -> tuple[str, ...]:
+    """One trigger per write that can change what dense search may return."""
+    bump = ("INSERT INTO vector_generation (document_id, token) VALUES ({doc}, random())"
+            " ON CONFLICT(document_id) DO UPDATE SET token = excluded.token;")
+    corpus = bump.format(doc="''")
+    out = []
+    for table, event, rows in (
+        ("chunk_vectors", "INSERT", ("NEW",)),
+        ("chunk_vectors", "DELETE", ("OLD",)),
+        ("chunk_vectors", "UPDATE", ("OLD", "NEW")),
+        ("chunks", "INSERT", ("NEW",)),
+        ("chunks", "DELETE", ("OLD",)),
+        ("chunks", "UPDATE OF retrievable, id, document_id", ("OLD", "NEW")),
+    ):
+        name = f"vecgen_{table}_{event.split()[0].lower()}"
+        body = " ".join(bump.format(doc=f"{r}.document_id") for r in rows)
+        out.append(f"CREATE TRIGGER IF NOT EXISTS {name} AFTER {event} ON {table}"
+                   f" BEGIN {body} {corpus} END")
+    return tuple(out)
+
+
+#: VECTOR GENERATION TOKENS, read by `vector_store` (the dense-search index).
+#:
+#: A RANDOM token per document, and one for the whole corpus under the id '',
+#: replaced by a trigger on every write that can change what dense search may
+#: return: a vector added, replaced or deleted, a chunk added or deleted (a
+#: vector whose chunk is gone is an orphan), a chunk's `retrievable` flipped.
+#: The vector index compares tokens instead of recomputing a signature, so a
+#: query costs one indexed read instead of the aggregate scans of `chunks` the
+#: retrieval audit measured at 98% of the dense stage (2.3, finding L3).
+#:
+#: TRIGGERS, NOT CALLS, because every writer is covered - ingestion, the
+#: chunker, exclusion edits, a cascade from deleting a document, a script, a
+#: test's raw SQL - and a writer that forgets cannot exist.
+#:
+#: RANDOM, NOT A COUNTER, because a counter repeats: restore an older backup
+#: and write once, and the counter reaches a value the index has already seen
+#: for different content. A random 64-bit token never matches by accident.
+#: The seed rows give a database that predates the triggers a token for every
+#: document it already holds, so the first index build covers all of them.
+VECTOR_GENERATION_SQL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS vector_generation (
+        document_id TEXT PRIMARY KEY,   -- '' is the whole corpus
+        token       INTEGER NOT NULL
+    )""",
+    "INSERT OR IGNORE INTO vector_generation (document_id, token) VALUES ('', random())",
+    "INSERT OR IGNORE INTO vector_generation (document_id, token)"
+    " SELECT document_id, random() FROM"
+    " (SELECT DISTINCT document_id FROM chunk_vectors)",
+    *_vector_generation_triggers(),
+)
 
 
 def init_db(path: Path | None = None) -> None:
@@ -991,8 +1157,18 @@ def init_db(path: Path | None = None) -> None:
     conn.commit()
 
 
+def close_thread_connection() -> None:
+    """Close THIS thread's connection, if it has one. The schema memo is kept:
+    closing a connection changes nothing about the database's shape."""
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        conn.close()
+        _local.conn = None
+
+
 def reset_connection() -> None:
     """Test helper - drop the thread-local connection."""
+    reset_schema_memo()
     conn = getattr(_local, "conn", None)
     if conn is not None:
         conn.close()
