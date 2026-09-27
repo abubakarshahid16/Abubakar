@@ -225,13 +225,31 @@ function FindingRow({ finding, name, selected, onSelect }: {
     orNothing(finding.contractor_evidence_text),
   ].filter(Boolean).join(" ");
 
+  // UX GROUP (2026-09-27): THE WHOLE ROW IS THE CONTROL, not just the
+  // standard-name link. Every other cell - the requirement, the submitted
+  // value, the outcome/status badge - was inert text with no click
+  // affordance at all, so a reader had to find and hit that one narrow link
+  // to open a finding's detail. `onClick` on the `<tr>` itself catches a
+  // click anywhere in the row (it bubbles from any cell, including the
+  // badge); `role="row"` is kept EXPLICIT rather than overridden to
+  // `"button"`, because a table's row/cell structure is how a screen reader
+  // announces "column N of M" for each cell, and this row's own `<td>`s
+  // still need it. The name link stays a real `<button>` so Tab still
+  // reaches a focusable, correctly-labelled control per row - the row-level
+  // click is additive for the mouse, not a replacement for keyboard access.
   return (
     <tr
-      className={`border-t border-ink-800 align-top ${selected ? "bg-signal-500/10" : "hover:bg-ink-850"}`}
+      role="row"
+      onClick={onSelect}
+      className={`cursor-pointer border-t border-ink-800 align-top ${selected ? "bg-signal-500/10" : "hover:bg-ink-850"}`}
       aria-selected={selected}
     >
       <td className="px-3 py-2">
-        <button type="button" onClick={onSelect} className="text-left text-signal-300 hover:underline">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onSelect(); }}
+          className="text-left text-signal-300 hover:underline"
+        >
           {name ?? orNothing(finding.standard_document_id)}
         </button>
         <span className="mt-0.5 block text-xs text-slateish-400">
@@ -243,7 +261,8 @@ function FindingRow({ finding, name, selected, onSelect }: {
         {shown}
         {long && (
           <button
-            type="button" onClick={() => setExpanded((value) => !value)}
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setExpanded((value) => !value); }}
             className="ml-1 text-xs text-signal-300 hover:underline"
           >
             {expanded ? "less" : "more"}
