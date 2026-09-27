@@ -55,6 +55,13 @@ _AI_CONFIRMED_BY = "AI engineering check, confirmed by "
 ROW_KIND_WEB_STANDARD_CHECK = "web_standard_check"
 _WEB_ORIGIN = "web_standard_check"
 _WEB_CONFIRMED_BY = "Web check, confirmed by "
+#: Honesty audit entry 70: an unconfirmed kind C/D item left "Comment By"
+#: BLANK - not "not mentioned", not a status, just absent, on a row that the
+#: sheet otherwise clearly attributes to the AI (the "AI Review Comments"
+#: column holds its text). A blank byline reads as an oversight, not as "not
+#: yet confirmed"; these say so.
+_AI_UNCONFIRMED_BY = "AI - engineer to confirm"
+_WEB_UNCONFIRMED_BY = "Web check - engineer to confirm"
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
 #: literal, not imported from `comparison`, because this module stays pure
@@ -370,6 +377,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             f.get("contractor_section") or "") if p)
         confirmed = bool(f.get("confirmed_by"))
         confirmed_by_prefix = _AI_CONFIRMED_BY if origin == _AI_ORIGIN else _WEB_CONFIRMED_BY
+        # Owner order group HONESTY (2026-09-27): unconfirmed is a state, not
+        # an absence - "Comment By" says whose draft it is even before an
+        # engineer confirms it, never blank.
+        unconfirmed_by = _AI_UNCONFIRMED_BY if origin == _AI_ORIGIN else _WEB_UNCONFIRMED_BY
         row_kind = ROW_KIND_AI_ENGINEERING_CHECK if origin == _AI_ORIGIN else ROW_KIND_WEB_STANDARD_CHECK
         rows.append({
             "finding_id": f.get("id") or "",
@@ -377,7 +388,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "page_section": where,
             "comment": text if confirmed else "",
             "comment_by": (f"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}"
-                           if confirmed else ""),
+                           if confirmed else unconfirmed_by),
             "ai_review_comment": "" if confirmed else text,
             "row_kind": row_kind,
         })

@@ -3896,6 +3896,14 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
         "pages_total": pages.get("pages_total"),
         "pages_read": len(pages.get("fact_pages") or []),
         "unread_pages": pages.get("pages_not_read_into_fields") or [],
+        # HONESTY GROUP (2026-09-27): the ledger has always recorded WHY a
+        # page did not read into fields (`page_ledger.coverage`'s own
+        # `not_read_reasons`, keyed by page); this route simply never carried
+        # it past `unread_pages`, so the strip could say a page was unread
+        # but never say why - the same "not mentioned" silence CLAUDE.md rule
+        # 4 forbids elsewhere. Keyed by the page number AS A STRING because
+        # that is what a JSON object key is.
+        "unread_page_reasons": pages.get("not_read_reasons") or {},
         "standards_cited": len(held) + len(missing),
         "standards_held": held,
         "standards_missing": missing,

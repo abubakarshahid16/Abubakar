@@ -361,12 +361,34 @@ def test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy(world
     view = _preview(run)
     assert view["columns"] == [*crs_export.HEADERS, "AI Review Comments"]
     [row] = [r for r in view["rows"] if TEXT in r["ai_review_comment"]]
-    assert TEXT not in row["comment"] and row["comment_by"] == ""
+    assert TEXT not in row["comment"]
+    # Honesty audit entry 71: "Comment By" is never blank - unconfirmed is a
+    # state to name, not an absence to leave silent.
+    assert row["comment_by"] == "AI - engineer to confirm"
     assert row["page_section"] == "submittal p1 / Design pressure"
     assert "Relates to API 610" in row["ai_review_comment"]
     name, sheet, _text = _workbook_text(run, "internal")
     assert "internal-review-copy" in name
     assert sheet.cell(row=crs_export.COLUMN_HEADER_ROW, column=8).value == "AI Review Comments"
+
+
+def test_an_unconfirmed_items_comment_by_is_never_blank(world):
+    """HONESTY GROUP (2026-09-27), M1132. Before this fix, an unconfirmed kind
+    C item's `comment_by` was `""` - not "not mentioned", not a status, just
+    silently absent on a row the sheet otherwise clearly attributes to the AI
+    (its text sits in "AI Review Comments"). A reader scanning the Comment By
+    column would see a blank cell rather than something to act on."""
+    _sub, run, scope = world
+    aic.run_check(run, allowed_document_ids=scope, cited=[], provider=Fake())
+
+    view = _preview(run)
+    [row] = [r for r in view["rows"] if TEXT in r["ai_review_comment"]]
+    assert row["comment_by"], "an unconfirmed item's Comment By was blank"
+    assert row["comment_by"] == "AI - engineer to confirm"
+    # And the workbook (not just the preview) carries the same text - the
+    # preview and the .xlsx are one builder, never two that can disagree.
+    _name, sheet, text = _workbook_text(run, "internal")
+    assert "AI - engineer to confirm" in text
 
 
 def test_the_issue_copy_carries_no_ai_column_and_no_unconfirmed_text(world):

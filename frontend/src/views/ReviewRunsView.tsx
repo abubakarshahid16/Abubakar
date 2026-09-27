@@ -587,6 +587,22 @@ function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
           )}
         </span>
       )}
+      {/* HONESTY GROUP (2026-09-27): a bare page number said a page was
+          unread and nothing about why - the ledger has always known
+          (`page_ledger.coverage`'s `not_read_reasons`), it just never
+          reached here. One line per page, its own reason, never "unread"
+          alone. */}
+      {readiness.unread_pages.length > 0 && (
+        <ul data-testid="unread-page-reasons"
+          className="w-full list-none pl-0 text-xs text-slateish-400">
+          {readiness.unread_pages.map((page) => (
+            <li key={page}>
+              Page {page}: {readiness.unread_page_reasons?.[String(page)]
+                || "reason not recorded"}
+            </li>
+          ))}
+        </ul>
+      )}
       {readiness.unread_pages.length > 0 && (
         <span className="flex items-center gap-2">
           <button

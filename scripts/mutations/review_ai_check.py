@@ -67,16 +67,44 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor='            "comment": text if confirmed else "",\n',
              replacement='            "comment": text,\n',
              target=_T, keyword="only_in_the_ai_column", tags=("honesty", "critical")),
-    Mutation(id="M1034", phase=86, description="confirmation does not name the engineer on the CRS",
+    Mutation(id="M1034", phase=86,
+             description="confirmation does not name the engineer on the CRS "
+                         "(re-anchored 2026-09-27: `confirmed_by_prefix` now "
+                         "covers both kind C and kind D)",
              path=APP / "crs_mapping.py",
-             anchor="            \"comment_by\": (f\"{_AI_CONFIRMED_BY}{f.get('confirmed_by_name') or f['confirmed_by']}\"\n",
-             replacement="            \"comment_by\": (\"AI Review\"\n",
+             anchor="            \"comment_by\": (f\"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}\"\n"
+                    "                           if confirmed else unconfirmed_by),\n",
+             replacement="            \"comment_by\": (\"AI Review\"\n"
+                        "                           if confirmed else unconfirmed_by),\n",
              target=_T, keyword="under_the_engineers_name", tags=("honesty",)),
     Mutation(id="M1038", phase=86, description="a rejected AI item stays on the sheet",
              path=APP / "crs_mapping.py",
              anchor='        if f.get("origin") != _AI_ORIGIN or f.get("approval_status") == "rejected":\n',
              replacement='        if f.get("origin") != _AI_ORIGIN:\n',
              target=_T, keyword="rejected_item_is_not_on_the_sheet", tags=("honesty",)),
+    #: NOT RE-ANCHORED (found 2026-09-27, honesty group investigation, left as
+    #: found-but-not-fixed): this anchor has been stale since an earlier,
+    #: unrelated refactor merged the kind C and kind D origin checks (`origin
+    #: not in (_AI_ORIGIN, _WEB_ORIGIN)` replaced `f.get("origin") !=
+    #: _AI_ORIGIN`), so this mutation currently reports a harness ERROR, not a
+    #: verdict. Re-anchoring it to the current text would also reveal that its
+    #: own test does not detect it: `build_crs_rows` already drops every
+    #: rejected finding at its own top (`findings = [f for f in findings if
+    #: not _rejected(f)]`, before ANY per-origin loop runs), so the inner
+    #: `approval_status == "rejected"` check the anchor targets is dead code -
+    #: removing it changes nothing a test could observe. Fixing this requires
+    #: a design decision (delete the dead inner check, or find what the
+    #: outer/global filter does NOT already cover) outside this task's scope.
+    Mutation(id="M1132", phase=95,
+             description="honesty: an unconfirmed AI/web item's Comment By "
+                         "goes back to blank instead of naming it a draft",
+             path=APP / "crs_mapping.py",
+             anchor="            \"comment_by\": (f\"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}\"\n"
+                    "                           if confirmed else unconfirmed_by),\n",
+             replacement="            \"comment_by\": (f\"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}\"\n"
+                        "                           if confirmed else \"\"),\n",
+             target=_T, keyword="comment_by_is_never_blank",
+             tags=("honesty", "critical")),
     Mutation(id="M1039", phase=86, runner="vitest",
              description="an AI engineering check item reads as a status, not as a draft",
              path=FRONTEND_SRC / "components/review/reviewFormat.ts",
