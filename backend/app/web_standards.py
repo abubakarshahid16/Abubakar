@@ -29,8 +29,10 @@ WHAT IT IS NOT, ENFORCED IN CODE:
     compared", naming both, and `compare` is never called for it. An
     UNKNOWN is not a match either: when either side has no year (the
     citation names none, or the page gives no date) the item is stored as
-    "edition not confirmed - not compared". Only a confirmed same year is
-    compared. Every one of the three is the same pending, unconfirmed draft.
+    "edition not confirmed - not compared". Only a confirmed same year
+    reaches `compare` - and even then, `run_check` names no field, so it
+    comes back a question for the engineer, never a verdict. Every one of
+    the three is the same pending, unconfirmed draft.
   * NEVER COUNTED. Stored as a pending, unconfirmed draft
     (`origin = 'web_standard_check'`), exactly like the AI engineering check
     (kind C) - `comparison.recommend_code` never sees it, and it is shown on
@@ -202,16 +204,32 @@ def edition_confirmed_same(cited_edition: str | None, web_date: str | None) -> b
     return bool(cited and web and cited.group() == web.group())
 
 
-#: What may follow a citation to state its edition: an optional separator,
-#: an optional "11th edition" / "Ed." / "Rev." word, then a year - or the
-#: edition word alone. Read from the text right after the citation, on the
-#: same line, and nowhere else.
+#: A year, and only a whole one - not the start of 19500 or 1950.5.
+_EDITION_YEAR = r"(?:19|20)\d{2}(?![\d])"
+#: What may follow a citation to state its edition, read from the text right
+#: after the citation, on the same line, and nowhere else. A bare 19xx/20xx
+#: number is NOT an edition by itself - "API 610, 1950 rpm driver" and
+#: "API 610 - 2000 kPa design" carry a speed and a pressure. So a year is
+#: accepted only:
+#:   * after an edition word ("11th edition 2010", "Ed. 2010", "Rev 2014"), or
+#:   * joined straight onto the citation by ":" or "-" with no space - the
+#:     way a standards body writes its own edition ("ISO 9001:2015",
+#:     "ASME B31.3-2016") - unless a short unit-like token, a % / ° sign or
+#:     a number's continuation follows ("API610-2000 kPa" is a pressure);
+#:   * on its own - after an optional separator, including "(" - when NOTHING
+#:     that reads as a unit, a word or a number's continuation follows it
+#:     ("API 610 (2010)", "API 610, 2010" at end of line);
+#: or an edition word with no year ("11th edition").
+_NOT_A_NUMBER_TAIL = r"(?![.,]\d)"
 _EDITION_TAIL = re.compile(
-    r"^[ \t]*(?:[-:/,(][ \t]*)?"
+    r"^(?:[:-](?P<joined>" + _EDITION_YEAR + _NOT_A_NUMBER_TAIL +
+    r"(?![ \t]*(?:[%/°]|[A-Za-z]{1,3}\d?\b)))"
+    r"|[ \t]*(?:[-:/,(][ \t]*)?"
     r"(?P<edition>"
-    r"(?:(?:\d{1,2}(?:st|nd|rd|th)[ \t]+)?(?:edition|ed\.?|rev(?:ision)?\.?)[ \t]*[,(]?[ \t]*)?"
-    r"(?:19|20)\d{2}\b"
-    r"|\d{1,2}(?:st|nd|rd|th)[ \t]+(?:edition\b|ed\.))",
+    r"(?:\d{1,2}(?:st|nd|rd|th)[ \t]+)?(?:edition\b|ed\b\.?|rev(?:ision)?\b\.?)"
+    r"[ \t]*[,(:]?[ \t]*" + _EDITION_YEAR +
+    r"|" + _EDITION_YEAR + _NOT_A_NUMBER_TAIL + r"(?![ \t]*[A-Za-z%/°])"
+    r"|\d{1,2}(?:st|nd|rd|th)[ \t]+(?:edition\b|ed\.)))",
     re.IGNORECASE,
 )
 
@@ -237,7 +255,8 @@ def cited_edition(submittal_text: str, identifier: str) -> str | None:
             continue
         match = _EDITION_TAIL.match(text[end:end + 40].split("\n", 1)[0])
         if match:
-            edition = match.group("edition").strip().rstrip(",(").strip()
+            edition = (match.group("joined") or match.group("edition")).strip()
+            edition = edition.rstrip(",(").strip()
             if edition.count("(") > edition.count(")"):
                 edition += ")"
             found.append(edition)
@@ -288,11 +307,13 @@ def run_check(
     never attempted.
 
     Counts, all for THIS run only: `checked` identifiers attempted; `kept`
-    drafts stored (a verified quote); of those, `compared` (edition
-    confirmed the same), `edition_differs` (both years known and different
-    - never compared) and `edition_unconfirmed` (a year missing on either
-    side - never compared). compared + edition_differs + edition_unconfirmed
-    == kept.
+    drafts stored (a verified quote); of those, `edition_confirmed` (same
+    year on both sides, so passed to `compare` - which, with no field named,
+    returns a question for the engineer, NOT a verdict: this is not a count
+    of compliance verdicts), `edition_differs` (both years known and
+    different - never passed to `compare`) and `edition_unconfirmed` (a year
+    missing on either side - never passed to `compare`).
+    edition_confirmed + edition_differs + edition_unconfirmed == kept.
 
     Earlier UNCONFIRMED items of this run are replaced; a confirmed one is
     an engineer's decision and is never deleted (same rule as kind C).
@@ -300,7 +321,7 @@ def run_check(
     from . import review as review_mod
     from . import submittal_review
 
-    empty = {"checked": 0, "kept": 0, "compared": 0,
+    empty = {"checked": 0, "kept": 0, "edition_confirmed": 0,
              "edition_differs": 0, "edition_unconfirmed": 0}
     ok, why = available()
     if not ok:
@@ -348,7 +369,7 @@ def run_check(
             action = (f"Confirm which edition of {identifier} governs before relying "
                       f"on the web source - engineer to check.")
         else:
-            counts["compared"] += 1
+            counts["edition_confirmed"] += 1
             # No field is named for a generic missing-standard lookup, so this
             # is always a question for the engineer - never a guessed verdict
             # from a field this module invented (see `compare`'s docstring).

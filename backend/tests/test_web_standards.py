@@ -118,7 +118,7 @@ def test_an_unverified_quote_is_never_kept(world, lane_on):
     result = web_standards.run_check(
         run, allowed_document_ids=scope, missing_identifiers=["API 610"],
         fetch_search=_fetch_search, fetch_text=lambda u, t: "a page with unrelated text")
-    assert result == {"ran": True, "reason": None, "checked": 1, "kept": 0, "compared": 0,
+    assert result == {"ran": True, "reason": None, "checked": 1, "kept": 0, "edition_confirmed": 0,
                       "edition_differs": 0, "edition_unconfirmed": 0}
     [n] = db.connect().execute(
         "SELECT COUNT(*) c FROM review_findings WHERE review_run_id = ?"
@@ -186,6 +186,20 @@ def test_a_differing_edition_is_never_compared():
     ("API610-2010", "2010"),
     ("API 610 11th edition only", "11th edition"),
     ("API 610 as amended", None),
+    ("API 610:2015 applies", "2015"),
+    ("API 610 Rev. 2014 applies", "Rev. 2014"),
+    ("API 610 (11th Edition, 2010)", "11th Edition, 2010"),
+    # A speed, a pressure, a flow - NOT an edition:
+    ("API 610, 1950 rpm driver", None),
+    ("API 610 - 2000 kPa design", None),
+    ("API 610 (2000 kPa) casing", None),
+    ("API 610 2000% margin", None),
+    ("API 610, 2000.5 m3/h", None),
+    ("API 610, 2000,000 units", None),
+    ("API 610 20001 serial", None),
+    ("API610-2000 kPa", None),
+    ("API610-2000 m3/h", None),
+    ("API 610, 2010 and more", None),
     # Two citations naming DIFFERENT years: ambiguous, never a guess.
     ("API 610 (2010) here and API 610 (2014) there", None),
 ])
@@ -232,7 +246,7 @@ def test_the_check_path_never_compares_a_differing_edition(world, lane_on, compa
         run, allowed_document_ids=scope, missing_identifiers=["API 610"],
         fetch_search=_fetch_search, fetch_text=lambda u, t: PAGE_TEXT)
 
-    assert (result["kept"], result["edition_differs"], result["compared"],
+    assert (result["kept"], result["edition_differs"], result["edition_confirmed"],
             result["edition_unconfirmed"]) == (1, 1, 0, 0)
     assert compare_spy == [], "a differing edition must never reach compare"
     [row] = _web_rows(run)
@@ -252,7 +266,7 @@ def test_an_unknown_edition_is_not_a_match(world, lane_on, compare_spy):
         run, allowed_document_ids=scope, missing_identifiers=["API 610"],
         fetch_search=_fetch_search, fetch_text=lambda u, t: PAGE_TEXT)
 
-    assert (result["kept"], result["edition_unconfirmed"], result["compared"],
+    assert (result["kept"], result["edition_unconfirmed"], result["edition_confirmed"],
             result["edition_differs"]) == (1, 1, 0, 0)
     assert compare_spy == []
     [row] = _web_rows(run)
@@ -261,13 +275,16 @@ def test_an_unknown_edition_is_not_a_match(world, lane_on, compare_spy):
 
 
 def test_only_a_confirmed_same_edition_is_compared(world, lane_on, compare_spy):
+    """...and even then, with no field named, it is a question - the count
+    is `edition_confirmed`, never a count of verdicts."""
     sub, run, scope = world
     _cite(sub, "Pump to API 610 (2024) throughout.")
     result = web_standards.run_check(
         run, allowed_document_ids=scope, missing_identifiers=["API 610"],
         fetch_search=_fetch_search, fetch_text=lambda u, t: PAGE_TEXT)
 
-    assert (result["kept"], result["compared"]) == (1, 1)
+    assert (result["kept"], result["edition_confirmed"]) == (1, 1)
+    assert "compared" not in result, "no count may claim a comparison that gave no verdict"
     assert compare_spy == ["API 610"]
     [row] = _web_rows(run)
     assert row["finding"] == web_standards.LABEL_TEMPLATE.format(name="API 610")

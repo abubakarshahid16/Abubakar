@@ -266,10 +266,13 @@ Also fixed a pre-existing mutation-id collision on `main` between
   from the web page's own date is stored as "Edition differs - not
   compared", naming both; a year missing on either side is stored as
   "Edition not confirmed - not compared". Only a confirmed same year
-  reaches `compare`. (Corrected 2026-09-27: as first shipped,
-  `edition_differs` existed and was unit-tested but the check path never
-  called it, so this line was not true. Now tested through `run_check`,
-  M1140/M1141.)
+  reaches `compare` (still a question for the engineer, since no field is
+  named - reported as `edition_confirmed`, never as a comparison count). A
+  bare number after a citation is not an edition: "API 610, 1950 rpm" and
+  "API 610 - 2000 kPa" read as no edition stated. (Corrected 2026-09-27: as
+  first shipped, `edition_differs` existed and was unit-tested but the
+  check path never called it, so this line was not true. Now tested
+  through `run_check`, M1140/M1141, M1150-M1152.)
 - **Never counted.** Stored as a pending, unconfirmed draft
   (`origin = 'web_standard_check'`, kind D) exactly like the AI engineering
   check (kind C) - never seen by `comparison.recommend_code`, shown on the

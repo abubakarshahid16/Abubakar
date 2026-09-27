@@ -336,11 +336,12 @@ class WebCheckResult(BaseModel):
     ran: bool
     reason: str | None = None
     checked: int = 0
-    #: Drafts stored for this run. Of those: `compared` (edition confirmed
-    #: the same), `edition_differs` and `edition_unconfirmed` (never
-    #: compared - see `web_standards` "NEVER COMPARED ACROSS EDITIONS").
+    #: Drafts stored for this run. Of those: `edition_confirmed` (same year
+    #: on both sides; still a question for the engineer, never a verdict),
+    #: `edition_differs` and `edition_unconfirmed` (never compared - see
+    #: `web_standards` "NEVER COMPARED ACROSS EDITIONS"). The three sum to kept.
     kept: int = 0
-    compared: int = 0
+    edition_confirmed: int = 0
     edition_differs: int = 0
     edition_unconfirmed: int = 0
 
