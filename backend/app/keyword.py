@@ -18,7 +18,7 @@ import difflib
 import re
 import sqlite3
 
-from .db import connect
+from .db import connect, schema_once
 from .rates import Timer, rate
 
 #: Keep `.`, `-`, `/` and `_` inside tokens so identifiers survive intact.
@@ -99,6 +99,7 @@ def designator_variants(designator: str) -> list[str]:
     ]
 
 
+@schema_once
 def ensure_schema(conn: sqlite3.Connection | None = None) -> None:
     conn = conn or connect()
     conn.executescript(SCHEMA)
@@ -261,8 +262,7 @@ FUZZY_MIN_WORD = 5
 #: as no hit, and it is what "sumbittal requirements" produces.
 FUZZY_MIN_HITS = 3
 
-#: Vocabulary is rebuilt when the number of indexed chunks changes, the same
-#: cache key acronyms.py uses.
+#: Vocabulary is rebuilt when the number of indexed chunks changes.
 _vocab_cache: dict[tuple[str | None, int], list[str]] = {}
 
 

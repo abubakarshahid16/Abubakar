@@ -52,7 +52,7 @@ from pydantic import BaseModel, Field
 from . import auth as auth_mod
 from . import errors
 from .config import settings
-from .db import connect
+from .db import connect, schema_once
 
 # ------------------------------------------------------------- error codes
 #
@@ -96,6 +96,7 @@ _EMAIL = re.compile(r"^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$")
 # ------------------------------------------------------------------ storage
 
 
+@schema_once
 def ensure_schema() -> None:
     """Create the setup-token table if it is not there yet.
 
