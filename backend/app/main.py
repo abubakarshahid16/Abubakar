@@ -744,13 +744,15 @@ def get_answer(
     q: str = Query(..., min_length=1, max_length=500),
     tier: str = Query("extract"),
     document_id: str | None = Query(None),
-    limit: int = Query(3, ge=1, le=5),
+    # None = settings.answer_top_k, the one top-k (answer.gate_candidates).
+    limit: int | None = Query(None, ge=1, le=5),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Answer a question against the indexed documents.
 
     tier=extract   (default) the top passage verbatim, no model involved
-    tier=generated             2-3 passages summarised by the local model
+    tier=generated             up to 3 passages summarised by the local model
+                               (CLAUDE_CONTEXT_PASSAGES on the Claude lane)
 
     The response always carries answer_type, so a quotation and generated
     prose can never be confused.
