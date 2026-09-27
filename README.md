@@ -261,7 +261,7 @@ working one. No key in `.env.example` is a real credential.
 
 ```bash
 cd backend
-python -m pytest -q      # expected counts: SETUP.md section 5 (two figures, with and without .env)
+python -m pytest -q      # expected counts: SETUP.md section 5; the result does not depend on backend/.env
 ```
 
 **The count is stable; the duration is not.** The expected count lives in
@@ -273,11 +273,15 @@ the same work, three times the wall clock, on the same runner type. Locally it t
 run competing. So treat the count as the thing to check and the duration as
 weather. If your run matches SETUP.md's count in twelve minutes, nothing is wrong.
 
-Run it from `backend/`, not from the repository root. `pytest.ini` lives there,
-and so does `.env` - which the application reads for `AUTH_MODE`. The suite pins
-the authentication mode itself (`tests/conftest.py`) so its result does not
-depend on whether you have a local `.env`, but the same is not true of the
-server: see step 6.
+Run it from `backend/`, not from the repository root. `pytest.ini` lives there.
+**The suite never reads `backend/.env` or your shell's settings**
+(`tests/env_isolation.py`, called from `tests/conftest.py` at import): every
+setting is the code's default, egress/key/proxy variables are removed, the
+spend ledger and cache are temp files, and a network guard refuses anything but
+loopback. Until 2026-09-27 only `AUTH_MODE` was pinned, and a `.env` with the
+Claude lane on made real, paid API calls from the suite (honesty audit 77). A
+test that needs a lane on sets it itself, with a fake transport. The server
+DOES read `backend/.env`: see step 6.
 
 Slow tests that build a real ONNX session are marked `slow` and deselected by
 default. Run them with `python -m pytest -m slow`.
