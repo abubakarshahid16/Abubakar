@@ -1323,3 +1323,50 @@ written parser that could itself disagree.
    When a field name implies a specific representation (ISO date, a normalised key, a
    canonical unit), a test must assert the representation, not merely that something
    landed in the column.
+
+---
+
+## CRS export, 2026-09-27 (honesty audit entry 69): "issue to contractor" carried no gate at all
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-27.
+
+**The claim.** `docs/review-fixes-log.md` (2d, owner decision 2026-09-27) documents two
+CRS export copies: "internal review copy" (default) and "issue to contractor", the
+latter with the "AI Review Comments" column and every unconfirmed AI item removed. The
+document reads as though "issue to contractor" is the copy safe to send outside the
+building once an engineer has looked at the AI's unconfirmed items - but nothing in the
+code ever asked whether an engineer had recorded a final code (`review_runs.
+engineer_final_code`) on the run before allowing that copy out. `GET
+/api/reviews/runs/{id}/crs?copy=issue` and the frontend's "Export CRS - issue to
+contractor" button both worked identically whether or not `engineer_final_code` was
+NULL - a run the AI had only recommended a code for, never one an engineer had signed,
+could be exported and issued to a contractor exactly like a decided one, with the CRS's
+own `recommended_code_status` correctly printing "not yet decided" but nothing refusing
+the export itself. A search of the whole repository (backend, frontend, `docs/`,
+`scripts/mutations/`) turned up no other place this gate was even partially enforced -
+this was not a second, unfixed copy of an existing rule; the rule had never been written
+into the software at all, only into the description of what the two copies contain.
+
+**How it surfaced.** Owner order (2026-09-27): "Export CRS - issue to contractor" must
+be blocked until `engineer_final_code` is set on the review run - stated as a
+requirement to implement, not as something already believed broken, which is itself
+notable: the gap had not been noticed until asked for directly.
+
+**Fixed:** `export_review_crs` (`backend/app/main.py`) now refuses `copy=issue` with
+HTTP 409 (`errors.CODE_NOT_DECIDED`) when the run's `engineer_final_code` is NULL; the
+"internal" copy is unaffected. `ReviewRunsView.tsx` disables the "Export CRS - issue to
+contractor" button under the same condition and shows "An engineer must record the
+final code before issue." Both are proven by mutation (`M1130`, `M1131` in
+`scripts/mutations/review_decisions.py`): reverting either change is DETECTED by
+`test_the_issue_copy_is_refused_until_an_engineer_decides`
+(`backend/tests/test_crs_endpoint.py`) or the new "SAFETY GATE" test in
+`ReviewRunsView.crsPreview.test.tsx`, respectively.
+
+### The rule this produces
+
+22. **A rule documented as a copy's contents is not a rule enforced in the code that
+   produces the copy.** `docs/review-fixes-log.md` said what "issue to contractor"
+   leaves out; it never said what stops the export when the precondition for issuing it
+   at all - an engineer's decision - has not been met, and neither did any route. A
+   privacy- or safety-relevant distinction between two export modes needs its own
+   gate and its own test, not just its own paragraph in a fixes log.

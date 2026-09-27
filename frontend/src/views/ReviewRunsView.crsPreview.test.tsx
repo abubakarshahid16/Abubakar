@@ -288,10 +288,15 @@ describe("the download the preview sits beside", () => {
     expect(previewCrs).not.toHaveBeenCalled();
   });
 
-  it("offers the contractor's copy as its own export (order 2f)", async () => {
+  it("offers the contractor's copy as its own export (order 2f), once an engineer has decided", async () => {
     exportCrs.mockResolvedValue({
       ok: true,
       data: { blob: new Blob(["x"]), filename: "CRS_drum_2026-09-20_issue-to-contractor.xlsx" },
+    });
+    // The safety gate below only lets this button fire once the run carries
+    // the engineer's own decision - not just the machine's recommendation.
+    reviewRuns.mockResolvedValue({
+      ok: true, data: { runs: [run({ engineer_final_code: "Approved" })] },
     });
     render(<ReviewRunsView />);
     await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
@@ -299,6 +304,24 @@ describe("the download the preview sits beside", () => {
     await userEvent.click(screen.getByRole("button", { name: "Export CRS - issue to contractor" }));
 
     expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
+  });
+
+  it("SAFETY GATE: refuses to issue the contractor's copy before an engineer records the final code", async () => {
+    // No `engineer_final_code` on this run (the default fixture carries
+    // none) - the button must be disabled and say why, and clicking it (were
+    // it not disabled) must never reach `exportCrs`. The server enforces the
+    // same rule independently (`export_review_crs`, 409 `code_not_decided`);
+    // this holds the client's half.
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+
+    const button = screen.getByRole("button", { name: "Export CRS - issue to contractor" });
+    expect(button).toBeDisabled();
+    expect(screen.getByText(
+      "An engineer must record the final code before issue.")).toBeInTheDocument();
+
+    await userEvent.click(button);
+    expect(exportCrs).not.toHaveBeenCalled();
   });
 });
 
