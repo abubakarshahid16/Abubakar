@@ -740,4 +740,16 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="UX GROUP",
         tags=("ui",),
     ),
+    Mutation(
+        id="M1310", phase=96, runner="vitest",
+        description="CRS quick wins (defect 14): the code picker always "
+                    "shows the built-in four labels, ignoring the run's own "
+                    "configured review_codes",
+        path=FRONTEND_SRC / "components" / "review" / "ReviewCodePanel.tsx",
+        anchor='          {(run.review_codes?.length ? run.review_codes : REVIEW_CODES).map((value) => (',
+        replacement='          {REVIEW_CODES.map((value) => (',
+        target="src/components/review/ReviewCodePanel.test.tsx",
+        keyword="the client's own code labels",
+        tags=("ui", "crs"),
+    ),
 )

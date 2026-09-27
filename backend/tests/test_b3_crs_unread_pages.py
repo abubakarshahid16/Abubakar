@@ -57,6 +57,11 @@ def test_the_missing_information_row_states_what_was_checked():
     """Honesty audit 50: 'have no value stated for them in it' claimed the
     document was silent; what is known is that no field read from it answered."""
     rows = crs_mapping.build_crs_rows(_run(), [], "vessel.pdf", unread_pages=[1])
-    [missing] = [r for r in rows if r["row_kind"] == crs_mapping.ROW_KIND_MISSING_INFORMATION]
-    assert "not answered by any field read from it" in missing["comment"]
-    assert "no value stated" not in missing["comment"]
+    # CRS quick wins: one row per requirement no field answered (three here),
+    # each still saying what was CHECKED, never that the sheet is silent.
+    missing = [r for r in rows if r["row_kind"] == crs_mapping.ROW_KIND_MISSING_INFORMATION]
+    assert len(missing) == 3
+    for row in missing:
+        assert "Not answered by any field read from the datasheet" in row["comment"]
+        assert "no value stated" not in row["comment"]
+        assert "does not state" not in row["comment"]

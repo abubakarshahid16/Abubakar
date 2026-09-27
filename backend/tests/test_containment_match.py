@@ -156,11 +156,17 @@ def test_a_requirement_whose_unit_cannot_be_converted_is_still_matched():
     assert result["matched_phrase"] == "noise level"
 
 
-def test_a_statement_requirement_is_not_matched():
-    assert comparison.match_by_containment(
-        requirement("the design pressure shall be stated",
-                    requirement_type="statement"),
-        [fact("design pressure")])["fact"] is None
+def test_a_statement_is_matched_only_to_become_a_question_never_a_verdict():
+    """CRS quick wins (audit crs.md defect 5): a statement naming a datasheet
+    field is paired so the engineer sees both sides - it used to be hidden as
+    "requires another document". It carries no number, so what `compare`
+    makes of it is a question, never COMPLIANT or NON_COMPLIANT."""
+    statement = requirement("the design pressure shall be stated",
+                            requirement_type="statement", raw_value=None, raw_unit=None)
+    match = comparison.match_by_containment(statement, [fact("design pressure")])
+    assert match["fact"]["id"] == "fact-design pressure"
+    verdict = comparison.compare(statement, match["fact"])
+    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
 
 
 def test_a_very_short_field_name_is_not_matched():

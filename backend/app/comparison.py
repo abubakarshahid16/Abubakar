@@ -48,8 +48,9 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
-from . import (claims, conditions, datasheets, match_rules, page_ledger,
+from . import (claims, conditions, datasheets, field_links, match_rules, page_ledger,
                 requirements_3b, review, schemas, submittal_review)
 from .config import settings
 from .db import connect
@@ -84,6 +85,15 @@ MISSING_LOCALLY = "MISSING_LOCALLY"
 #: have to answer it".
 REQUIRES_OTHER_DOCUMENT = "requires_other_document"
 
+#: CRS quick wins (2026-09-27, audit crs.md defect 5). The OTHER reason a
+#: `statement` is NOT_IN_DOCUMENT_SCOPE: no datasheet field was found for it.
+#: It used to carry `REQUIRES_OTHER_DOCUMENT` too, so the CRS Review notes
+#: said "9 requirements name their own evidence - a certificate, procedure,
+#: drawing" on a sheet where 2 did; the other 7 (a manway size, a flange
+#: class, PWHT...) named nothing of the kind. Only a clause whose own sentence
+#: names a document (`required_evidence_type`) carries the first token now.
+NO_FIELD_MATCHED = "no_field_matched"
+
 #: Statuses that block approval. `MISSING_INFORMATION` is deliberately NOT
 #: here: a field nobody filled in is a question, not a failure, and it steers
 #: the code through completeness rather than by masquerading as a breach.
@@ -102,6 +112,42 @@ CODE_MANUAL = "Manual Review Required"
 
 DEFAULT_CODES = (
     CODE_APPROVED, CODE_APPROVED_WITH_COMMENTS, CODE_REJECTED, CODE_MANUAL)
+
+#: CRS quick wins (2026-09-27): the client's LABELS for the four codes, by
+#: role, in `reference/review_codes.json`. The defaults there are
+#: `DEFAULT_CODES`. The policy that picks a role stays here, in code.
+REVIEW_CODES_PATH = Path(__file__).parent / "reference" / "review_codes.json"
+CODE_ROLES = ("approved", "approved_with_comments", "revise_and_resubmit", "manual_review")
+
+
+def review_codes(path: Path | None = None) -> tuple[str, str, str, str]:
+    """The four configured labels in `DEFAULT_CODES` order (approved, with
+    comments, revise and resubmit, manual review).
+
+    A missing file is the defaults. A file that names a role with no label,
+    or gives two roles one label, is REFUSED with an error rather than half
+    applied: two codes that print alike would let a reader mistake a
+    rejection for an approval.
+    """
+    source = path or REVIEW_CODES_PATH
+    if not source.exists():
+        return DEFAULT_CODES
+    data = json.loads(source.read_text(encoding="utf-8")).get("codes") or {}
+    labels = tuple(" ".join(str(data.get(role) or "").split()) for role in CODE_ROLES)
+    if not all(labels) or len(set(labels)) != len(labels):
+        raise ComparisonError(
+            "reference/review_codes.json must give four different, non-empty "
+            "labels for: " + ", ".join(CODE_ROLES))
+    return labels  # type: ignore[return-value]
+
+
+def code_role(label: str | None, codes: tuple[str, ...] | None = None) -> str | None:
+    """Which role a stored code label plays, under the configured labels or
+    the defaults (a run recorded before a relabel keeps its old label)."""
+    for table in (codes or review_codes(), DEFAULT_CODES):
+        if label in table:
+            return CODE_ROLES[table.index(label)]
+    return None
 
 #: Below this, the recommendation is Manual Review Required whatever else was
 #: found. Section 15 scopes that code to "insufficient confidence"; insufficient
@@ -125,6 +171,34 @@ COMPLETENESS_THRESHOLD = 0.6
 #: in words that the denominator is nominal so a reader cannot mistake it for a
 #: count of the sheet in front of them.
 FIELDS_PER_PAGE_NOMINAL = 35
+
+#: Which denominator a completeness figure was computed on (CRS quick wins).
+#: A review run's code is gated on BASIS_REQUIRED_FIELDS; the nominal basis
+#: survives only where no comparison has run yet.
+BASIS_REQUIRED_FIELDS = "required_by_applicable_standards"
+BASIS_NOMINAL = "nominal_fields_per_page"
+
+
+def _required_and_answered(findings: list[dict]) -> tuple[int, int]:
+    """(requirements that ask this datasheet for a value, how many a field
+    read from it answered), counted per REQUIREMENT - one clause judged for
+    three nozzles is one requirement.
+
+    Left out of both: datasheet self-checks (no requirement), and
+    NOT_IN_DOCUMENT_SCOPE (the clause names another document, or no field on
+    this sheet was found for a statement - B9's own boundary). A requirement
+    whose value may sit on a page nobody read (UNREAD_PAGES) is counted as
+    unanswered: not found is not present, and not read is not read.
+    """
+    asked: dict[str, bool] = {}
+    for f in findings:
+        rid = f.get("requirement_id")
+        if not rid or f.get("compliance_status") == NOT_IN_DOCUMENT_SCOPE:
+            continue
+        answered = bool(f.get("fact_id")) and not (
+            f.get("ai_rationale") or "").startswith(UNREAD_PAGES)
+        asked[rid] = asked.get(rid, False) or answered
+    return len(asked), sum(1 for v in asked.values() if v)
 
 #: Confidence ceilings. NEVER "high" (CLAUDE.md rule 4). A deterministic
 #: numeric comparison is the strongest thing here and still stops at 0.9,
@@ -391,10 +465,15 @@ def compare(requirement: dict, fact: dict | None, *,
         if requirement.get("requirement_type") == requirements_3b.STATEMENT:
             return {
                 "status": NOT_IN_DOCUMENT_SCOPE,
+                # WHAT WAS CHECKED, NOT A CLAIM ABOUT ANOTHER DOCUMENT (CRS
+                # quick wins): no field read from this datasheet was found for
+                # the clause. It does not name a certificate or drawing - the
+                # branch above is the one for a clause that does.
                 "rationale": (
-                    f"{REQUIRES_OTHER_DOCUMENT}: this requirement states no "
-                    f"field or value a submittal of this type could answer; "
-                    f"it has to be checked in the document that governs it"),
+                    f"{NO_FIELD_MATCHED}: no field read from this datasheet was "
+                    f"found for this requirement, and it states no value a "
+                    f"field could be compared with; an engineer checks it "
+                    f"against the datasheet or the document that governs it"),
                 "limit": None, "observed": None, "exception_applied": None,
             }
         return {
@@ -467,6 +546,23 @@ def compare(requirement: dict, fact: dict | None, *,
             "exception_applied": None,
             "condition": condition,
         }
+
+    # CRS QUICK WINS: A CLOSED CATEGORICAL CLAUSE IS COMPARED AS TEXT.
+    # "minimum pressure rating of Class 300" against CL150, "full
+    # radiography" against SPOT. Only the three closed families
+    # `field_links` reads, only against a field OF that family, and a
+    # conditional clause is reported, never decided (`compare_categorical`).
+    if requirement.get("requirement_type") == requirements_3b.STATEMENT:
+        rule = field_links.categorical_requirement(
+            requirement.get("source_text") or requirement.get("requirement_text"))
+        family_field = field_links.field_of(fact.get("field_name"))[0]
+        if rule is not None and family_field in field_links.FAMILY_FIELDS[rule["family"]]:
+            judged = field_links.compare_categorical(rule, fact.get("field_value"))
+            if judged is not None:
+                return {"status": judged["status"], "rationale": judged["rationale"],
+                        "limit": None,
+                        "observed": _describe(_measurement_from_fact(fact), fact),
+                        "exception_applied": None}
 
     # A SATISFIED condition travels with the verdict too. NORTH-STAR section 4
     # requires a review run to preserve its applicability evidence, and "this
@@ -873,6 +969,7 @@ def _confidence_label(value: float) -> str:
 def completeness_for_run(
     submittal_document_id: str, *, allowed_document_ids: frozenset[str],
     reference_coverage: float | None = None,
+    findings: list[dict] | None = None,
 ) -> dict:
     """How much of this submittal the review actually examined.
 
@@ -895,10 +992,28 @@ def completeness_for_run(
     pages = (row["page_count"] if row else None) or 0
 
     fields_read = len(facts)
-    fields_estimated = pages * FIELDS_PER_PAGE_NOMINAL if pages else None
-    extraction = (
-        round(min(fields_read / fields_estimated, 1.0), 3)
-        if fields_estimated else None)
+    if findings is not None:
+        # CRS QUICK WINS (audit crs.md defect 7): THE DENOMINATOR IS WHAT THE
+        # APPLICABLE STANDARDS ACTUALLY ASK THIS DATASHEET FOR, not the page
+        # count times a nominal 35. The nominal figure scored a compact sheet
+        # read 31 of 34 fields at 31/70 = 0.44 and gated it to Manual. Now:
+        # of the requirements this run evaluated that ask for a datasheet
+        # value (every one except those that need another document, or have
+        # no field on any datasheet), how many were answered by a field read
+        # from THIS sheet - blank or not, because a blank is the sheet
+        # answering "not provided", which is a finding, not a reading gap.
+        required, answered = _required_and_answered(findings)
+        extraction = round(answered / required, 3) if required else None
+        basis = {"basis": BASIS_REQUIRED_FIELDS, "fields_required": required,
+                 "fields_answered": answered, "fields_estimated": None}
+    else:
+        # No findings yet (the applicability screen, before any comparison):
+        # the old NOMINAL figure, labelled nominal wherever it is printed.
+        fields_estimated = pages * FIELDS_PER_PAGE_NOMINAL if pages else None
+        extraction = (
+            round(min(fields_read / fields_estimated, 1.0), 3)
+            if fields_estimated else None)
+        basis = {"basis": BASIS_NOMINAL, "fields_estimated": fields_estimated}
 
     # B18, the same rule as `applicability.completeness`: extraction None means
     # the page count is unknown, so how much of the sheet was examined was
@@ -913,7 +1028,7 @@ def completeness_for_run(
         overall = round(min(parts), 3)
     return {
         "fields_read": fields_read,
-        "fields_estimated": fields_estimated,
+        **basis,
         "pages": pages,
         "extraction_coverage": extraction,
         "reference_coverage": reference_coverage,
@@ -926,7 +1041,7 @@ def completeness_for_run(
 
 
 def recommend_code(findings: list[dict], completeness: dict, *,
-                   codes: tuple[str, ...] = DEFAULT_CODES,
+                   codes: tuple[str, ...] | None = None,
                    missing_references: list[str] | tuple[str, ...] = (),
                    page_coverage: dict | None = None) -> dict:
     """The recommendation, with `reason` in PLAIN WORDS for the engineer and
@@ -936,9 +1051,29 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     true - the plain one just leaves out the words only a developer reads
     ("NOMINAL ESTIMATE", "denominator", "MISSING_LOCALLY").
     """
+    codes = codes or review_codes()
     result = _recommend_code(findings, completeness, codes=codes,
                              missing_references=missing_references)
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
+    if result["code"] == codes[2]:
+        # A PROVEN BREACH, IN AN ENGINEER'S WORDS, with what else is open.
+        n = result["blocking"]
+        plain = f"{n} requirement{'s are' if n != 1 else ' is'} not met."
+        also = []
+        if result["unresolved"]:
+            also.append(f"{result['unresolved']} more need{'s' if result['unresolved'] == 1 else ''}"
+                        " an engineer")
+        if result["missing_information"]:
+            k = result["missing_information"]
+            also.append(f"{k} value{'s are' if k != 1 else ' is'} left for the contractor")
+        extraction = completeness.get("extraction_coverage")
+        if extraction is None or extraction < COMPLETENESS_THRESHOLD:
+            also.append("not enough of the datasheet was checked to say the rest is met")
+        if also:
+            plain += " Also: " + "; ".join(also) + "."
+        if missing:
+            plain += " " + _standards_sentence(missing, _not_checked(missing))
+        return {**result, "details": result["reason"], "reason": plain}
     return {**result, "details": result["reason"],
             "reason": plain_reason(result["code"], result["reason"], completeness,
                                    page_coverage, missing, codes=codes)}
@@ -972,7 +1107,7 @@ def _not_checked(missing: list[str]) -> str:
 
 def plain_reason(code: str, technical: str, completeness: dict | None,
                  page_coverage: dict | None, missing: list[str], *,
-                 codes: tuple[str, ...] = DEFAULT_CODES) -> str:
+                 codes: tuple[str, ...] | None = None) -> str:
     """The recommendation's reason as an engineer says it.
 
     Built from the same counts as the technical sentence, never from a
@@ -982,7 +1117,20 @@ def plain_reason(code: str, technical: str, completeness: dict | None,
     the plain sentence at all - it stays in `details`, labelled nominal.
     """
     completeness = completeness or {}
+    codes = codes or review_codes()
     manual = codes[3]
+    if (completeness.get("basis") == BASIS_REQUIRED_FIELDS
+            and "not enough to recommend a code" in technical):
+        required = completeness.get("fields_required") or 0
+        answered = completeness.get("fields_answered") or 0
+        head = (f"Found {answered} of the {required} datasheet value"
+                f"{'s' if required != 1 else ''} the applicable standards ask for."
+                if required else
+                "No applicable standard asks this datasheet for a value that was checked.")
+        if missing:
+            return f"{head} " + _standards_sentence(
+                missing, "so a review code can't be suggested yet.")
+        return f"{head} That is not enough to suggest a review code yet."
     gated = ("NOMINAL ESTIMATE" in technical
              or technical.startswith("the submittal could not be read well enough"))
     if gated:
@@ -1029,12 +1177,16 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
                     missing_references: list[str] | tuple[str, ...] = ()) -> dict:
     """The AI-RECOMMENDED review code. Deterministic policy, never the model.
 
-    THE COMPLETENESS GATE COMES FIRST AND OVERRIDES EVERYTHING. A review that
-    examined nine fields and returns "Approved with Comments" is making a claim
-    about the two hundred and forty nobody looked at - and the code is exactly
-    what a reader takes as that claim. Section 15 scopes Manual Review Required
-    to "insufficient confidence"; insufficient extraction is the same thing
-    wearing different clothes.
+    A PROVEN BREACH COMES FIRST (CRS quick wins, 2026-09-27): a requirement
+    shown by arithmetic to be unmet sends the sheet back whatever else is
+    open, with the open items stated beside it. THEN THE COMPLETENESS GATE,
+    which overrides every approval: a review that examined nine fields and
+    returns "Approved with Comments" is making a claim about the two hundred
+    and forty nobody looked at - and the code is exactly what a reader takes
+    as that claim. Section 15 scopes Manual Review Required to "insufficient
+    confidence"; insufficient extraction is the same thing wearing different
+    clothes. A breach is not a claim about what nobody looked at, which is
+    why it may come before the gate and an approval may not.
 
     `codes` is a parameter because the client may use different names or
     numbers (section 15). The POLICY is fixed; the labels are not.
@@ -1050,6 +1202,39 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
     out_of_scope = [s for s in statuses if s == NOT_IN_DOCUMENT_SCOPE]
 
     missing_locally = [m for m in dict.fromkeys(missing_references or ()) if m]
+    # CRS QUICK WINS (audit crs.md defect 7): A PROVEN BREACH COMES FIRST.
+    # The completeness gate and the open questions used to be checked before
+    # it, so a sheet with three proven breaches and one open question, or
+    # with five breaches and a public code not held, was "Manual Review
+    # Required" - on every synthetic and every real run the audit measured.
+    # A requirement shown by arithmetic to be unmet is a reason to send the
+    # sheet back whatever else is unknown; the unknowns are stated beside it
+    # (they lower confidence, they do not erase the breach), and the engineer
+    # still decides the final code.
+    if blocking:
+        caveats = []
+        if unresolved:
+            caveats.append(f"{len(unresolved)} more requirement(s) need an engineer")
+        if missing:
+            caveats.append(f"{len(missing)} value(s) are left for the contractor "
+                           "to provide")
+        extraction = completeness.get("extraction_coverage")
+        if extraction is None or extraction < COMPLETENESS_THRESHOLD:
+            caveats.append("the review did not cover enough of the datasheet to "
+                           "say the rest is met")
+        if missing_locally:
+            caveats.append(f"{len(missing_locally)} cited standard(s) are not held "
+                           f"locally ({MISSING_LOCALLY}) and were not checked: "
+                           f"{', '.join(missing_locally)}")
+        return {
+            "code": rejected,
+            "reason": f"{len(blocking)} requirement(s) are not met"
+                      + (f"; {'; '.join(caveats)}" if caveats else ""),
+            "blocking": len(blocking), "unresolved": len(unresolved),
+            "missing_information": len(missing),
+            "not_in_document_scope": len(out_of_scope),
+            "missing_locally": len(missing_locally),
+        }
     if not completeness.get("sufficient"):
         reason = _insufficient_reason(completeness)
         if missing_locally:
@@ -1087,16 +1272,7 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
             "code": manual,
             "reason": f"{len(unresolved)} requirement(s) could not be evaluated "
                       "and need an engineer",
-            "blocking": len(blocking), "unresolved": len(unresolved),
-            "missing_information": len(missing),
-            "not_in_document_scope": len(out_of_scope),
-            "missing_locally": len(missing_locally),
-        }
-    if blocking:
-        return {
-            "code": rejected,
-            "reason": f"{len(blocking)} requirement(s) are not met",
-            "blocking": len(blocking), "unresolved": 0,
+            "blocking": 0, "unresolved": len(unresolved),
             "missing_information": len(missing),
             "not_in_document_scope": len(out_of_scope),
             "missing_locally": len(missing_locally),
@@ -1136,9 +1312,10 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
             "code": manual,
             # The owner's wording, 2026-09-22: a specific reason, never a
             # generic manual flag. The reader learns WHY it is manual.
-            "reason": (f"Manual review: {len(out_of_scope)} requirement"
-                       f"{' requires' if len(out_of_scope) == 1 else 's require'}"
-                       " other documents"),
+            # CRS quick wins: a statement with NO FIELD FOUND is not a
+            # requirement "for another document" (NO_FIELD_MATCHED); it is
+            # counted and named apart so the sentence stays true.
+            "reason": _out_of_scope_reason(findings),
             "blocking": 0, "unresolved": 0, "missing_information": 0,
             "not_in_document_scope": len(out_of_scope),
             "missing_locally": 0,
@@ -1151,10 +1328,42 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
     }
 
 
+def _out_of_scope_reason(findings: list[dict]) -> str:
+    scoped = [f for f in findings if f.get("compliance_status") == NOT_IN_DOCUMENT_SCOPE]
+    no_field = sum(1 for f in scoped
+                   if (f.get("ai_rationale") or f.get("rationale") or "").startswith(NO_FIELD_MATCHED))
+    other = len(scoped) - no_field
+    parts = []
+    if other:
+        parts.append(f"{other} requirement{' requires' if other == 1 else 's require'}"
+                     " other documents")
+    if no_field:
+        parts.append(f"{no_field} requirement{' has' if no_field == 1 else 's have'} no "
+                     "datasheet field found for "
+                     f"{'it' if no_field == 1 else 'them'}")
+    return "Manual review: " + "; ".join(parts)
+
+
 def _insufficient_reason(completeness: dict) -> str:
     """Why the review was gated, WITH THE COUNTS."""
     read = completeness.get("fields_read")
     total = completeness.get("fields_estimated")
+    if completeness.get("basis") == BASIS_REQUIRED_FIELDS:
+        required = completeness.get("fields_required") or 0
+        answered = completeness.get("fields_answered") or 0
+        cover = completeness.get("reference_coverage")
+        if not required:
+            head = ("no requirement of an applicable standard asks this datasheet "
+                    "for a value, so how much of it the review covered was not "
+                    "measured")
+        else:
+            head = (f"{answered} of the {required} datasheet values the applicable "
+                    f"standards' requirements ask for were found in the fields read "
+                    f"from this submittal")
+        if cover is not None and cover < COMPLETENESS_THRESHOLD:
+            head += (f"; the library holds {round(cover * 100)}% of the standards "
+                     "the submittal cites")
+        return f"{head}, and that is not enough to recommend a code"
     if total:
         pages = completeness.get("pages")
         # THE DENOMINATOR SAYS WHERE IT COMES FROM. "approximately 385 fields"
@@ -1324,113 +1533,144 @@ def run_comparison(
                 rule_verdict, fact = rule_eval.judge(rule, facts)
                 match = {**match, "fact": fact, "matched_phrase": rule["output"],
                          "method": METHOD_RULE, "reason": None}
-        # `facts` is the WHOLE submittal's fact set, not the matched fact. B24
-        # needs the material/service/class fields to establish a condition, and
-        # those are different rows from the one being compared.
-        verdict = rule_verdict or compare(requirement, fact, subject=subject,
-                                          submittal_facts=facts)
-        if rule_verdict is None and rule_unread and verdict.get("status") == NEEDS_ENGINEER_REVIEW:
-            verdict = {**verdict, "rationale": f"{verdict.get('rationale') or ''}; {rule_unread}"}
-        # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in
-        # NEEDS_ENGINEER_REVIEW, but only one of them is the real reason: the
-        # number is not a limit. Reporting "unit_mismatch" against a table row
-        # tells a reviewer to go and reconcile kPa with bar, which would leave
-        # them comparing a design pressure against a lookup boundary once the
-        # units agreed.
-        # A BLANK FIELD HAS NO NUMBER AND NO UNIT TO GUARD (B4 item 2: a blank
-        # can now be paired by field name); `compare` has already said what
-        # it is - left to be provided.
-        if (fact is not None and not fact.get("is_blank") and rule_verdict is None
-                and requirement.get("requirement_type") != requirements_3b.TABLE_ROW):
-            # THE UNIT GUARD. A match says the two are ABOUT the same thing; it
-            # says nothing about whether their numbers can be compared. A
-            # length against a pressure is not a breach and not a pass - it is
-            # a question for a person, and the finding carries both raw units
-            # so they can see what was compared with what.
-            # `same_unit` compares MEASUREMENTS, and it compares the raw
-            # spellings rather than the normalised ones on purpose - `dB(A)`
-            # and `dB` are different units. The base unit is passed as the raw
-            # spelling here so that a gauge pressure and a plain one still meet
-            # (`bar` both sides); the gauge reference itself is carried on the
-            # fact and is a separate question from whether the units match.
-            # THE RAW SPELLINGS, WITH ANY GAUGE REFERENCE STRIPPED. `unit`
-            # holds the NORMALISED unit, which is NULL for every unit the table
-            # recognises but does not convert - dB(A) among them - so comparing
-            # those columns reported a unit mismatch between two dB(A) values.
-            # `same_unit` is a comparison of spellings and wants the spellings.
-            requirement_unit = _unit_measure(requirement)
-            fact_unit = _unit_measure(fact)
-            if not _units_comparable(requirement, fact, requirement_unit, fact_unit):
+        # ONE FINDING PER ITEM (CRS quick wins): the same field about several
+        # named items - N1/N2/N3, or P-101A/P-101B - is one clause judged
+        # against each (`_resolve_hits`); otherwise the one matched fact.
+        targets = (match.get("items") or [fact]) if rule_verdict is None else [fact]
+        governing_requirement = requirement
+        for fact in targets:
+            requirement = _unit_from_clause_text(governing_requirement, fact)
+            # `facts` is the WHOLE submittal's fact set, not the matched fact. B24
+            # needs the material/service/class fields to establish a condition, and
+            # those are different rows from the one being compared.
+            verdict = rule_verdict or compare(requirement, fact, subject=subject,
+                                              submittal_facts=facts)
+            if rule_verdict is None and rule_unread and verdict.get("status") == NEEDS_ENGINEER_REVIEW:
+                verdict = {**verdict, "rationale": f"{verdict.get('rationale') or ''}; {rule_unread}"}
+            # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in
+            # NEEDS_ENGINEER_REVIEW, but only one of them is the real reason: the
+            # number is not a limit. Reporting "unit_mismatch" against a table row
+            # tells a reviewer to go and reconcile kPa with bar, which would leave
+            # them comparing a design pressure against a lookup boundary once the
+            # units agreed.
+            # A BLANK FIELD HAS NO NUMBER AND NO UNIT TO GUARD (B4 item 2: a blank
+            # can now be paired by field name); `compare` has already said what
+            # it is - left to be provided.
+            # A STATEMENT HAS NO NUMBER AND NO UNIT TO GUARD either (CRS quick
+            # wins, `match_statement`): `compare` has already said what it is -
+            # a categorical verdict or an engineer's question - and "the
+            # requirement is in no unit" would overwrite that with a reason
+            # that is not the real one.
+            if (fact is not None and not fact.get("is_blank") and rule_verdict is None
+                    and requirement.get("requirement_type") not in (
+                        requirements_3b.TABLE_ROW, requirements_3b.STATEMENT)):
+                # THE UNIT GUARD. A match says the two are ABOUT the same thing; it
+                # says nothing about whether their numbers can be compared. A
+                # length against a pressure is not a breach and not a pass - it is
+                # a question for a person, and the finding carries both raw units
+                # so they can see what was compared with what.
+                # `same_unit` compares MEASUREMENTS, and it compares the raw
+                # spellings rather than the normalised ones on purpose - `dB(A)`
+                # and `dB` are different units. The base unit is passed as the raw
+                # spelling here so that a gauge pressure and a plain one still meet
+                # (`bar` both sides); the gauge reference itself is carried on the
+                # fact and is a separate question from whether the units match.
+                # THE RAW SPELLINGS, WITH ANY GAUGE REFERENCE STRIPPED. `unit`
+                # holds the NORMALISED unit, which is NULL for every unit the table
+                # recognises but does not convert - dB(A) among them - so comparing
+                # those columns reported a unit mismatch between two dB(A) values.
+                # `same_unit` is a comparison of spellings and wants the spellings.
+                requirement_unit = _unit_measure(requirement)
+                fact_unit = _unit_measure(fact)
+                if not _units_comparable(requirement, fact, requirement_unit, fact_unit):
+                    verdict = {
+                        **verdict,
+                        "status": NEEDS_ENGINEER_REVIEW,
+                        "rationale": (
+                            f"{UNIT_MISMATCH}: the requirement is in "
+                            f"{requirement.get('raw_unit') or requirement.get('unit') or 'no unit'} "
+                            f"and the submitted value is in "
+                            f"{fact.get('raw_unit') or fact.get('unit') or 'no unit'}; "
+                            "these are not the same quantity and were not compared"),
+                    }
+            elif match["reason"] == AMBIGUOUS_MATCH:
                 verdict = {
                     **verdict,
                     "status": NEEDS_ENGINEER_REVIEW,
                     "rationale": (
-                        f"{UNIT_MISMATCH}: the requirement is in "
-                        f"{requirement.get('raw_unit') or requirement.get('unit') or 'no unit'} "
-                        f"and the submitted value is in "
-                        f"{fact.get('raw_unit') or fact.get('unit') or 'no unit'}; "
-                        "these are not the same quantity and were not compared"),
+                        f"{AMBIGUOUS_MATCH}: more than one submitted field is named "
+                        f"inside this requirement ({', '.join(match['candidates'])}); "
+                        "no value was chosen, because choosing one arbitrarily "
+                        "would attach a real number to the wrong requirement"),
                 }
-        elif match["reason"] == AMBIGUOUS_MATCH:
-            verdict = {
-                **verdict,
-                "status": NEEDS_ENGINEER_REVIEW,
-                "rationale": (
-                    f"{AMBIGUOUS_MATCH}: more than one submitted field is named "
-                    f"inside this requirement ({', '.join(match['candidates'])}); "
-                    "no value was chosen, because choosing one arbitrarily "
-                    "would attach a real number to the wrong requirement"),
-            }
-        # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
-        # is only the contractor's omission if every page was read into fields.
-        if fact is None and verdict.get("status") == MISSING_INFORMATION:
-            verdict = qualify_by_pages(verdict, pages_read)
-        # THE PAIRING NOTE GOES ON LAST, after every verdict adjustment above,
-        # because the unit guard and the tie branch REPLACE the rationale. A
-        # prefix written before them would be silently dropped on exactly the
-        # findings a reader most needs it on.
-        if match["method"] == METHOD_MODEL_CHOICE:
-            verdict = {**verdict, "rationale": (
-                f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
-                f"{verdict.get('rationale') or ''}")}
-        elif match["method"] == METHOD_FIELD_NAME:
-            # A MODEL-NAMED PAIRING NEVER CARRIES A VERDICT. The arithmetic
-            # is shown, the status waits for an engineer: measured on a copy
-            # (2026-09-25) a seal-selection table's temperature band, paired
-            # by name with the sheet's pumping temperature, read
-            # NON_COMPLIANT - the right field and the wrong kind of rule.
-            # B4 item 2: EVERY status is held, not only the two verdicts -
-            # a blank field paired by a model-assigned name reads
-            # MISSING_INFORMATION only if the pairing is right, so it waits
-            # for the engineer too, with the comparison's own words kept.
-            status = verdict.get("status")
-            held = status != NEEDS_ENGINEER_REVIEW
-            said = ("The numbers read" if status in (COMPLIANT, NON_COMPLIANT)
-                    else "The comparison read")
-            others = match.get("candidates") or []
-            verdict = {**verdict,
-                       "status": NEEDS_ENGINEER_REVIEW,
-                       "rationale": (
-                           f"{FIELD_NAME_PAIR_PREFIX}{match.get('matched_phrase') or ''}. "
-                           + (f"{said} {status}, held for "
-                              "an engineer because the pairing is unconfirmed. " if held else "")
-                           + (f"Blank fields under the same name, not used: {', '.join(others)}. "
-                              if others else "")
-                           + f"{verdict.get('rationale') or ''}")}
-        elif model_reason:
-            # WHY NO MODEL PAIRING WAS MADE, in words, on the finding itself.
-            # Without it "the model was off" and "the model was asked and
-            # declined" read identically to an engineer.
-            verdict = {**verdict, "rationale": (
-                f"{verdict.get('rationale') or ''} "
-                f"(model tier: {model_reason})")}
-            model_reasons[model_reason] = model_reasons.get(model_reason, 0) + 1
-        opinion = (model_opinions or {}).get(requirement.get("id"))
-        findings.append(create_finding(
-            review_run_id=review_run_id, submittal_document_id=submittal_id,
-            requirement=requirement, fact=fact, verdict=verdict,
-            model_opinion=opinion, matched_phrase=match["matched_phrase"],
-            match_method=match["method"]))
+            # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
+            # is only the contractor's omission if every page was read into fields.
+            if fact is None and verdict.get("status") == MISSING_INFORMATION:
+                verdict = qualify_by_pages(verdict, pages_read)
+            # THE PAIRING NOTE GOES ON LAST, after every verdict adjustment above,
+            # because the unit guard and the tie branch REPLACE the rationale. A
+            # prefix written before them would be silently dropped on exactly the
+            # findings a reader most needs it on.
+            if match["method"] == METHOD_MODEL_CHOICE:
+                verdict = {**verdict, "rationale": (
+                    f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
+                    f"{verdict.get('rationale') or ''}")}
+            elif match["method"] == METHOD_FIELD_NAME:
+                # A MODEL-NAMED PAIRING NEVER CARRIES A VERDICT. The arithmetic
+                # is shown, the status waits for an engineer: measured on a copy
+                # (2026-09-25) a seal-selection table's temperature band, paired
+                # by name with the sheet's pumping temperature, read
+                # NON_COMPLIANT - the right field and the wrong kind of rule.
+                # B4 item 2: EVERY status is held, not only the two verdicts -
+                # a blank field paired by a model-assigned name reads
+                # MISSING_INFORMATION only if the pairing is right, so it waits
+                # for the engineer too, with the comparison's own words kept.
+                status = verdict.get("status")
+                held = status != NEEDS_ENGINEER_REVIEW
+                said = ("The numbers read" if status in (COMPLIANT, NON_COMPLIANT)
+                        else "The comparison read")
+                others = match.get("candidates") or []
+                verdict = {**verdict,
+                           "status": NEEDS_ENGINEER_REVIEW,
+                           "rationale": (
+                               f"{FIELD_NAME_PAIR_PREFIX}{match.get('matched_phrase') or ''}. "
+                               + (f"{said} {status}, held for "
+                                  "an engineer because the pairing is unconfirmed. " if held else "")
+                               + (f"Blank fields under the same name, not used: {', '.join(others)}. "
+                                  if others else "")
+                               + f"{verdict.get('rationale') or ''}")}
+            elif model_reason:
+                # WHY NO MODEL PAIRING WAS MADE, in words, on the finding itself.
+                # Without it "the model was off" and "the model was asked and
+                # declined" read identically to an engineer.
+                verdict = {**verdict, "rationale": (
+                    f"{verdict.get('rationale') or ''} "
+                    f"(model tier: {model_reason})")}
+                model_reasons[model_reason] = model_reasons.get(model_reason, 0) + 1
+            # HOW THE PAIRING WAS MADE, when it was not word for word (CRS
+            # quick wins): through the synonym table, and/or with the clause's
+            # unit read from its own text. Both are on the finding so an
+            # engineer can see what the verdict rests on.
+            if fact is not None and match["method"] == METHOD_CONTAINMENT:
+                notes = []
+                if match.get("synonym"):
+                    notes.append(f"field linked through the synonym table as "
+                                 f"'{match['synonym']}'")
+                if requirement.get("unit_from_clause_text"):
+                    notes.append(f"the clause's unit {requirement.get('raw_unit')!r} was "
+                                 "read from its own text beside its number")
+                if notes:
+                    verdict = {**verdict, "rationale": (
+                        f"{verdict.get('rationale') or ''} ({'; '.join(notes)})")}
+            opinion = (model_opinions or {}).get(requirement.get("id"))
+            findings.append(create_finding(
+                review_run_id=review_run_id, submittal_document_id=submittal_id,
+                requirement=requirement, fact=fact, verdict=verdict,
+                model_opinion=opinion,
+                matched_phrase=(_normalise_for_match(fact.get("field_name"))
+                                if match.get("items") and fact is not None
+                                else match["matched_phrase"]),
+                match_method=match["method"]))
 
     # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against
     # itself, pure arithmetic, no standard needed. Written before the code is
@@ -1447,7 +1687,7 @@ def run_comparison(
 
     coverage = completeness_for_run(
         submittal_id, allowed_document_ids=allowed_document_ids,
-        reference_coverage=reference_coverage)
+        reference_coverage=reference_coverage, findings=findings)
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read)
@@ -1482,6 +1722,34 @@ def run_comparison(
         "page_coverage": pages_read,
         "recommended_code": recommendation,
     }
+
+
+def _unit_from_clause_text(requirement: dict, fact: dict | None) -> dict:
+    """The requirement, with its unit read from its OWN sentence when the
+    parser lost it. CRS quick wins (audit crs.md [C]: "P4.4 3.0 mm/s -> unit
+    None").
+
+    ONLY WHEN THE CLAUSE PRINTS THE FACT'S UNIT RIGHT AFTER THE SAME NUMBER:
+    "shall not exceed 3.0 mm/s" against a fact in mm/s. Nothing is converted
+    and nothing is guessed - a clause reading "1.3 times the design
+    pressure" has no unit beside its number and keeps none, so it stays an
+    engineer's question. The copy carries `unit_from_clause_text` so the
+    finding says where the unit came from.
+    """
+    if (fact is None or fact.get("is_blank") or requirement.get("raw_unit")
+            or requirement.get("raw_value") in (None, "")
+            or requirement.get("requirement_type") != "numeric_limit"):
+        return requirement
+    unit = (fact.get("raw_unit") or "").strip()
+    if not unit:
+        return requirement
+    text = " ".join(str(requirement.get("source_text")
+                        or requirement.get("requirement_text") or "").split())
+    pattern = (r"(?<![\d.])" + re.escape(str(requirement["raw_value"]).strip())
+               + r"\s*" + re.escape(unit) + r"(?![\w/])")
+    if not re.search(pattern, text, re.IGNORECASE):
+        return requirement
+    return {**requirement, "raw_unit": unit, "unit_from_clause_text": True}
 
 
 #: The requirement types a matcher may pair a submitted value with, and the
@@ -1658,6 +1926,11 @@ def match_by_containment(requirement: dict, facts: list[dict], *,
     # Matching one is not comparing it. `compare` still refuses the comparison
     # and quotes the row; the match is what tells the engineer WHICH submitted
     # value the row bears on.
+    if requirement.get("requirement_type") == requirements_3b.STATEMENT:
+        # CRS QUICK WINS: a statement that names a datasheet field is an
+        # engineer's question (or a closed categorical check), not a note
+        # hidden as "requires another document". See `match_statement`.
+        return match_statement(requirement, facts, sheet_kind=sheet_kind)
     if not is_matchable(requirement):
         return none
     # THE TEST IS THE RAW NUMBER, NOT THE NORMALISED ONE.
@@ -1674,25 +1947,66 @@ def match_by_containment(requirement: dict, facts: list[dict], *,
     if not subject:
         return none
 
+    # NUMBERS FIRST; A BLANK ONLY WHEN NO NUMBER ANSWERS THE CLAUSE (CRS
+    # quick wins). A "vendor to advise" field is the most common real CRS
+    # comment, and `compare` has always had its branch ("the submittal
+    # leaves this field to be provided") - but no blank ever reached it,
+    # because this pass skipped every fact without a number.
+    hits = _containment_hits(requirement, subject, facts, fact_has_number)
+    if not hits:
+        hits = _containment_hits(requirement, subject, facts,
+                                 lambda f: bool(f.get("is_blank")))
+    if not hits:
+        return none
+    return _resolve_hits(requirement, facts, hits, sheet_kind=sheet_kind)
+
+
+def _containment_hits(requirement: dict, subject: str, facts: list[dict],
+                      eligible) -> list[dict]:
+    """Every fact `eligible` accepts whose field name is contained, as whole
+    words, in `subject` - literally, or through the field synonym table
+    (`field_links.canonical`, applied to BOTH sides).
+
+    A hit made only through the table carries `synonym` = the canonical
+    phrase, so the finding can say the pairing rests on it.
+    """
     rejected = _rejected_keys_for(requirement)
     tag_scoped = facts_are_tag_scoped(facts)
+    canonical_subject = field_links.canonical(subject)
     hits: list[dict] = []
     for fact in facts:
-        if not fact_has_number(fact):
-            continue          # categorical or blank: never matched in this pass
+        if not eligible(fact):
+            continue
         if fact_key(fact, tag_scoped=tag_scoped) in rejected:
             # A HUMAN ALREADY SAID THIS PAIR IS WRONG. Asking again is how an
             # engineer learns the machine does not listen, and they stop
             # correcting it.
             continue
         name = _normalise_for_match(fact.get("field_name"))
-        if len(name) < 4:
+        canonical_name, item = field_links.field_of(name)
+        if len(name) < 4 or len(canonical_name) < 4:
             # A one- or two-word fragment is contained in half of everything.
             continue
         if _contains_words(subject, name):
-            hits.append({"fact": fact, "name": name})
-    if not hits:
-        return none
+            hits.append({"fact": fact, "name": name, "key": canonical_name,
+                         "item": item, "synonym": None})
+        elif _contains_words(canonical_subject, canonical_name):
+            hits.append({"fact": fact, "name": name, "key": canonical_name,
+                         "item": item, "synonym": canonical_name})
+    return hits
+
+
+def _item_of(hit: dict) -> str | None:
+    """Which piece of equipment (or nozzle) a hit's value is about."""
+    return hit.get("item") or hit["fact"].get("equipment_tag")
+
+
+def _resolve_hits(requirement: dict, facts: list[dict], hits: list[dict], *,
+                  sheet_kind: str | None) -> dict:
+    """The rules, then longest-wins, then the tie - shared by the numeric and
+    the statement passes so both obey the same three `match_rules` rules."""
+    none: dict = {"fact": None, "matched_phrase": None, "method": None,
+                  "reason": None, "candidates": [], "refused": []}
 
     # THE RULES, BEFORE THE TIE. See the docstring: rule 3 is what lets the
     # constrained quantity win over the table's input.
@@ -1709,15 +2023,81 @@ def match_by_containment(requirement: dict, facts: list[dict], *,
         return {**none, "reason": REFUSED_BY_RULE if refused else None,
                 "refused": refused}
 
-    longest = max(len(h["name"]) for h in allowed)
-    best = [h for h in allowed if len(h["name"]) == longest]
+    # LONGEST WINS, measured on the field's CANONICAL name, so "n3 size"
+    # (read as "nozzle size") competes as the nozzle's size it is.
+    longest = max(len(h["key"]) for h in allowed)
+    best = [h for h in allowed if len(h["key"]) == longest]
     if len(best) > 1:
+        # THE SAME FIELD FOR SEVERAL ITEMS IS NOT A TIE (CRS quick wins).
+        # "Nozzle size >= 50 mm" against N1, N2 and N3, or noise level for
+        # P-101A and P-101B, is one clause about each item - an engineer
+        # writes a comment per offending item. Every hit must be the same
+        # field (one canonical name) about a DIFFERENT, named item; anything
+        # else is still the question it always was.
+        items = [_item_of(h) for h in best]
+        if (len({h["key"] for h in best}) == 1 and all(items)
+                and len(set(items)) == len(items)):
+            ordered = sorted(best, key=_item_of)
+            return {"fact": ordered[0]["fact"], "matched_phrase": ordered[0]["name"],
+                    "method": METHOD_CONTAINMENT, "reason": None, "candidates": [],
+                    "refused": refused, "synonym": ordered[0]["synonym"],
+                    "items": [h["fact"] for h in ordered]}
         return {**none, "reason": AMBIGUOUS_MATCH,
                 "candidates": sorted(h["name"] for h in best),
                 "refused": refused}
     return {"fact": best[0]["fact"], "matched_phrase": best[0]["name"],
             "method": METHOD_CONTAINMENT, "reason": None, "candidates": [],
-            "refused": refused}
+            "refused": refused, "synonym": best[0]["synonym"]}
+
+
+def match_statement(requirement: dict, facts: list[dict], *,
+                    sheet_kind: str | None = None) -> dict:
+    """The datasheet field a `statement` clause is about, or none. CRS quick
+    wins (audit crs.md defect 5).
+
+    A statement ("Manways shall have a minimum inside diameter of 450 mm",
+    "Nozzle flanges shall have a minimum pressure rating of Class 300") has
+    no parsed number, so the numeric pass never saw it and `compare` sent it
+    to "requires another document" - hiding a manway, a flange class, a
+    radiography extent and a blank PWHT field on the audit's vessel sheet.
+
+    TWO WAYS, BOTH DETERMINISTIC:
+      * a CLOSED CATEGORICAL clause (`field_links.categorical_requirement`:
+        flange class, radiography extent, PWHT yes/no) pairs with the one
+        field of its family - by the family, not by words in the subject;
+      * otherwise the subject is searched as the numeric pass searches it
+        (whole words, through the synonym table), over blank, numeric and
+        closed-answer facts alike. What such a pairing produces is decided by
+        `compare`: blank -> the contractor's to provide; anything else -> a
+        question for the engineer with both sides shown, never a verdict.
+    """
+    none: dict = {"fact": None, "matched_phrase": None, "method": None,
+                  "reason": None, "candidates": [], "refused": []}
+    text = requirement.get("source_text") or requirement.get("requirement_text") or ""
+    rule = field_links.categorical_requirement(text)
+    if rule is not None:
+        rejected = _rejected_keys_for(requirement)
+        tag_scoped = facts_are_tag_scoped(facts)
+        hits = []
+        for fact in facts:
+            name = _normalise_for_match(fact.get("field_name"))
+            key, item = field_links.field_of(name)
+            if (key in field_links.FAMILY_FIELDS[rule["family"]]
+                    and fact_key(fact, tag_scoped=tag_scoped) not in rejected):
+                hits.append({"fact": fact, "name": name, "key": key, "item": item,
+                             "synonym": key if key != name else None})
+        if hits:
+            return _resolve_hits(requirement, facts, hits, sheet_kind=sheet_kind)
+    subject = _normalise_for_match(requirement.get("subject"))
+    if not subject:
+        return none
+    hits = _containment_hits(
+        requirement, subject, facts,
+        lambda f: bool(f.get("is_blank")) or fact_has_number(f)
+        or datasheets.is_categorical_value(f.get("field_value")))
+    if not hits:
+        return none
+    return _resolve_hits(requirement, facts, hits, sheet_kind=sheet_kind)
 
 
 # ------------------------------------------- B4 5.3: field-name equality
@@ -2291,6 +2671,56 @@ def _match_fact(requirement: dict, by_field: dict) -> dict | None:
     return None
 
 
+def attach_crs_context(findings: list[dict]) -> list[dict]:
+    """What the CRS wording needs that a finding row does not carry, looked
+    up by the finding's own ids (CRS quick wins, `crs_mapping`):
+
+      * `requirement_limit` - the clause's parsed subject, operator, value and
+        unit, so the comment says "requires corrosion allowance ... not less
+        than 3 mm" instead of pasting the clause; with the unit recovered
+        from the clause text exactly as the comparison recovered it
+        (`_unit_from_clause_text`);
+      * `crs_field_label` / `crs_is_blank` - the field as the DATASHEET
+        printed it, and whether the sheet left it blank.
+
+    READ-ONLY, in place, and nothing is invented: a finding whose requirement
+    or fact is gone gets nothing added, and the wording falls back to the
+    clause's own words. Returns the same list.
+    """
+    req_ids = sorted({f["requirement_id"] for f in findings if f.get("requirement_id")})
+    fact_ids = sorted({f["fact_id"] for f in findings if f.get("fact_id")})
+    requirements: dict = {}
+    facts: dict = {}
+    conn = connect()
+    for start in range(0, len(req_ids), 500):
+        chunk = req_ids[start:start + 500]
+        marks = ",".join("?" for _ in chunk)
+        for r in conn.execute(
+                "SELECT id, subject, operator, raw_value, raw_unit, requirement_type,"
+                " source_text, requirement_text FROM standard_requirements"
+                f" WHERE id IN ({marks})", chunk):
+            requirements[r["id"]] = dict(r)
+    for start in range(0, len(fact_ids), 500):
+        chunk = fact_ids[start:start + 500]
+        marks = ",".join("?" for _ in chunk)
+        for r in conn.execute(
+                "SELECT id, field_label, field_value, raw_unit, is_blank"
+                f" FROM submittal_facts WHERE id IN ({marks})", chunk):
+            facts[r["id"]] = dict(r)
+    for f in findings:
+        fact = facts.get(f.get("fact_id"))
+        requirement = requirements.get(f.get("requirement_id"))
+        if requirement is not None:
+            governing = _unit_from_clause_text(requirement, fact)
+            f["requirement_limit"] = {k: governing.get(k) for k in
+                                      ("subject", "operator", "raw_value", "raw_unit",
+                                       "requirement_type")}
+        if fact is not None:
+            f["crs_field_label"] = fact.get("field_label")
+            f["crs_is_blank"] = bool(fact.get("is_blank"))
+    return findings
+
+
 def _store_run_outcome(review_run_id: str, recommendation: dict,
                        coverage: dict, *, page_coverage: dict | None = None,
                        missing_references: list[str] | None = None) -> None:
@@ -2352,10 +2782,13 @@ def record_engineer_code(
     # and reporting it as a missing reason sends the caller to fix the wrong
     # field - which is what this said until a test asked it for "Looks fine
     # to me" and was told to supply a reason.
-    if code not in DEFAULT_CODES:
+    # THE CONFIGURED LABELS (reference/review_codes.json), which default to
+    # DEFAULT_CODES: a client coding A/B/C/D is offered and stores A/B/C/D.
+    codes = review_codes()
+    if code not in codes:
         raise ComparisonError(
             f"{code!r} is not one of the review codes: "
-            + ", ".join(DEFAULT_CODES))
+            + ", ".join(codes))
     recommended = stored.get("recommended_code")
     if recommended and code != recommended and not (override_reason or "").strip():
         raise ComparisonError(

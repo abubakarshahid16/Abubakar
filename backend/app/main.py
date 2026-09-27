@@ -1717,6 +1717,9 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         # from the same stored counts.
         "recommended_reason": comparison_mod.plain_outcome(outcome)[0],
         "recommended_details": comparison_mod.plain_outcome(outcome)[1],
+        # The client's configured code labels, in policy order, so the screen
+        # offers exactly the labels `record_engineer_code` accepts.
+        "review_codes": list(comparison_mod.review_codes()),
         "failure_reason": outcome.get("error"),
         # THE ENGINEER'S DECISION BESIDE THE MACHINE'S, never instead of it.
         "engineer_final_code": run.get("engineer_final_code"),
@@ -1836,9 +1839,11 @@ def review_dashboard(
         code = run.get("engineer_final_code") or outcome.get("recommended_code")
         if (run.get("status") or "") == "failed":
             reasons["the run failed"] = reasons.get("the run failed", 0) + 1
-        elif code == comparison_mod.CODE_REJECTED:
+        # BY ROLE, not by label: the labels are the client's to configure
+        # (reference/review_codes.json, CRS quick wins 2026-09-27).
+        elif comparison_mod.code_role(code) == "revise_and_resubmit":
             reasons["rejected"] = reasons.get("rejected", 0) + 1
-        elif code == comparison_mod.CODE_MANUAL:
+        elif comparison_mod.code_role(code) == "manual_review":
             key = "not enough was read to recommend a code"
             reasons[key] = reasons.get(key, 0) + 1
 
@@ -3757,6 +3762,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     }
     for finding in findings:
         finding["standard_name"] = names.get(finding.get("standard_document_id"))
+    # CRS quick wins: the clause's parsed limit and the field as the datasheet
+    # printed it, for the engineer-voice comment (read-only lookups by id).
+    comparison_mod.attach_crs_context(findings)
     # Owner order 2d/2f: a confirmed AI engineering check item is printed
     # "confirmed by <name>" - the engineer's display name, never their id.
     # Section 3: an edited comment names its editor the same way. 2d-2: a

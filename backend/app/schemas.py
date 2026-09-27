@@ -2059,6 +2059,11 @@ class CrsPreviewRow(BaseModel):
     #: caller (this JSON preview, or the .xlsx's own fill colour) can tell the
     #: four kinds of row apart without parsing the comment text.
     row_kind: str = ""
+    #: CRS quick wins (2026-09-27): the standard and clause the comment rests
+    #: on ("SAES-D-901 cl. 4.3 (p.1)", "Datasheet check DS-M1"), printed in
+    #: its own "Standard Reference" column after the client's seven. Empty
+    #: for an engineer's own chat comment.
+    standard_reference: str = ""
     #: Owner decision 2026-09-27 (order 2f): an UNCONFIRMED AI engineering
     #: check item's text, printed in the last column "AI Review Comments" of
     #: the internal review copy, with `comment` left empty. Empty on every
@@ -2249,6 +2254,11 @@ class ReviewRunSummary(BaseModel):
     #: 2g: the technical sentence behind `recommended_reason` (the nominal
     #: field estimate, identifiers), shown under "Details". Null when none.
     recommended_details: str | None = None
+    #: The four review-code labels the client configured
+    #: (`reference/review_codes.json`), in policy order: approved, approved
+    #: with comments, revise and resubmit, manual review. Empty on a caller
+    #: that predates it; the screen then falls back to the default labels.
+    review_codes: list[str] = []
     #: 2e: {previous_run_id, added: [names], removed: [names]} against the
     #: previous run of the same submittal; null when there is none.
     standards_change: dict | None = None
