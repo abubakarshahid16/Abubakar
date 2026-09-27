@@ -18,16 +18,19 @@ from datetime import datetime, timezone
 
 import pymupdf  # PyMuPDF
 
+from . import ocr, states
 from .config import settings
 from .quality import normalise_text
 from .db import connect
 from .rates import Timer, rate
 
-# A page with less usable text than this is assumed to be scanned or
-# image-dominant. Detection only AT THIS STAGE: the flag is what ocr.py
-# later consumes via idx_pages_ocr. It used to say OCR was deliberately
-# not implemented, which stopped being true when recognition shipped.
-MIN_USABLE_CHARS = 100
+# Which pages go to recognition is decided HERE, per page, by
+# `ocr.route_page` (audit F6) - detection only at this stage; ocr.py later
+# consumes the flag via idx_pages_ocr. It used to be "fewer than 100 usable
+# characters" alone, which never read a scanned page carrying a digital
+# header, footer or DCC stamp (238 chars) and recorded nothing about it. The
+# character floor is now `settings.ocr_min_usable_chars`, one rule of several,
+# and the reason for every decision is stored on the page.
 # A page this dense in mathematical symbols extracts as prose ABOUT maths with
 # the maths missing. Flagged rather than silently degraded.
 EQUATION_MARKERS = set("∫∑∏√±≤≥≠≈∞∂∇αβγδεθλμπρσφψωΓΔΘΛΞΠΣΦΨΩ")
@@ -71,14 +74,14 @@ def page_count(pdf_path: str) -> int:
         return doc.page_count
 
 
-def extract_batch(pdf_path: str, first_page: int, last_page: int) -> list[tuple[int, str, bool]]:
+def extract_batch(pdf_path: str, first_page: int, last_page: int) -> list[tuple]:
     """Extract [first_page, last_page] inclusive, 1-based.
 
     Runs in a worker process. Opens the document itself - a pymupdf.Document
     cannot cross a process boundary. Returns plain tuples so the payload
-    pickles cheaply.
+    pickles cheaply: (page_no, text, needs_ocr, equation_heavy, ocr_route).
     """
-    out: list[tuple[int, str, bool]] = []
+    out: list[tuple] = []
     with pymupdf.open(pdf_path) as doc:
         for pno in range(first_page - 1, min(last_page, doc.page_count)):
             page = doc.load_page(pno)
@@ -87,10 +90,9 @@ def extract_batch(pdf_path: str, first_page: int, last_page: int) -> list[tuple[
             # reach chunking. Leaving them in made real content look like
             # gibberish to the quality gate and silently excluded it.
             text = normalise_text(text)
-            usable = len(text.strip())
-            needs_ocr = usable < MIN_USABLE_CHARS
+            route = ocr.route_page(page, text)
             eq_heavy = equation_density(text) >= EQUATION_PAGE_RATIO
-            out.append((pno + 1, text, needs_ocr, eq_heavy))
+            out.append((pno + 1, text, route.needs_ocr, eq_heavy, route.reason))
     return out
 
 
@@ -108,17 +110,26 @@ def _batches(total_pages: int, size: int, start_batch: int) -> list[tuple[int, i
     return result
 
 
-def _commit_batch(doc_id: str, job_id: str, batch_no: int, rows: list[tuple[int, str, bool]]) -> None:
-    """Persist one batch and advance the checkpoint atomically."""
+def _commit_batch(doc_id: str, job_id: str, batch_no: int, rows: list[tuple]) -> None:
+    """Persist one batch and advance the checkpoint atomically.
+
+    A row without a routing reason (a 4-tuple from an older caller) stores
+    NULL reason and version, which reads as "not decided by the current
+    rule" - stale, never as a decision nobody made.
+    """
     conn = connect()
+    payload = []
+    for p, t, o, e, *rest in rows:
+        reason = rest[0] if rest else None
+        payload.append((doc_id, p, t, len(t.strip()), int(o), int(e), batch_no, reason,
+                        ocr.OCR_ROUTE_VERSION if reason is not None else None))
     with conn:
         conn.executemany(
             """INSERT OR REPLACE INTO pages
                (document_id, page_no, text, char_count, needs_ocr, equation_heavy,
-                batch_no)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            [(doc_id, p, t, len(t.strip()), int(o), int(e), batch_no)
-             for p, t, o, e in rows],
+                batch_no, ocr_route, ocr_route_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            payload,
         )
         done = conn.execute(
             "SELECT COUNT(*) AS c, COALESCE(SUM(needs_ocr),0) AS o,"
@@ -228,3 +239,77 @@ def extract_document(doc_id: str, progress=None) -> dict:
         "pages_per_sec": rate(pages_this_run, elapsed),
         "resumed_from_batch": start_batch,
     }
+
+
+#: Statuses a re-route may send back through the pipeline when it finds a
+#: page that now needs recognition. READY and NO_SEARCHABLE_CONTENT may go to
+#: CHUNKING (states.py); chunking skips unchanged text by its signature, so
+#: the worker's cost is the new pages' recognition and whatever they change.
+_REROUTE_RESUMABLE = (states.READY, states.NO_SEARCHABLE_CONTENT)
+
+
+def reroute_document(doc_id: str, *, apply: bool = True) -> dict:
+    """Re-decide OCR routing for an ALREADY-EXTRACTED document.
+
+    Re-opens the stored PDF and runs `ocr.route_page` on each page against
+    the text already stored in `pages` - nothing is re-extracted, re-chunked
+    or re-embedded here. Pages whose decision is unchanged only get their
+    reason and version recorded. When a page newly needs recognition and has
+    none yet, a finished document is moved to CHUNKING so the ingestion
+    worker picks it up: chunking is skipped as unchanged, the keyword index
+    is rebuilt, and the OCR stage reads only the newly routed pages.
+
+    `apply=False` computes the same answer and writes nothing (the estimate
+    `scripts/reroute_ocr.py` prints by default). Counts only, never text.
+    """
+    conn = connect()
+    doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    if doc is None:
+        raise ValueError(f"unknown document {doc_id}")
+    result = {"document_id": doc_id, "pages": 0, "stale": 0, "newly_needs_ocr": 0,
+              "no_longer_needs_ocr": 0, "requeued": False, "routes": {}, "error": None}
+    if not doc["stored_path"] or not os.path.exists(doc["stored_path"]):
+        result["error"] = "stored file is missing"
+        return result
+    rows = conn.execute(
+        "SELECT page_no, text, needs_ocr, ocr_route_version FROM pages"
+        " WHERE document_id = ? ORDER BY page_no", (doc_id,)).fetchall()
+    recognised = {r["page_no"] for r in conn.execute(
+        "SELECT page_no FROM page_ocr WHERE document_id = ?", (doc_id,))}
+    updates = []
+    newly_pending = 0
+    with pymupdf.open(doc["stored_path"]) as pdf:
+        for r in rows:
+            if not 1 <= r["page_no"] <= pdf.page_count:
+                continue
+            route = ocr.route_page(pdf.load_page(r["page_no"] - 1), r["text"] or "")
+            result["pages"] += 1
+            result["routes"][route.code] = result["routes"].get(route.code, 0) + 1
+            if r["ocr_route_version"] != ocr.OCR_ROUTE_VERSION:
+                result["stale"] += 1
+            if route.needs_ocr and not r["needs_ocr"]:
+                result["newly_needs_ocr"] += 1
+                if r["page_no"] not in recognised:
+                    newly_pending += 1
+            elif r["needs_ocr"] and not route.needs_ocr:
+                result["no_longer_needs_ocr"] += 1
+            updates.append((int(route.needs_ocr), route.reason, ocr.OCR_ROUTE_VERSION,
+                            doc_id, r["page_no"]))
+    requeue = newly_pending > 0 and doc["status"] in _REROUTE_RESUMABLE
+    result["requeued"] = requeue
+    if not apply:
+        return result
+    with conn:
+        conn.executemany(
+            "UPDATE pages SET needs_ocr = ?, ocr_route = ?, ocr_route_version = ?"
+            " WHERE document_id = ? AND page_no = ?", updates)
+        conn.execute(
+            "UPDATE documents SET needs_ocr_pages ="
+            " (SELECT COALESCE(SUM(needs_ocr), 0) FROM pages WHERE document_id = ?)"
+            " WHERE id = ?", (doc_id, doc_id))
+        if requeue:
+            states.check_transition(doc["status"], states.CHUNKING)
+            conn.execute(
+                "UPDATE documents SET status = ?, error_code = NULL, error_message = NULL"
+                " WHERE id = ? AND status = ?", (states.CHUNKING, doc_id, doc["status"]))
+    return result

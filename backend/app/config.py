@@ -251,6 +251,22 @@ class Settings(BaseSettings):
     #: Characters outside this script in recognised text are a recognition
     #: failure, not a curiosity. Counted and flagged, never deleted.
     ocr_expected_script: str = "latin"
+    #: OCR ROUTING (audit F6), decided per page by `ocr.route_page`. A page is
+    #: recognised when its text layer is under `ocr_min_usable_chars`, OR when
+    #: raster images cover at least `ocr_image_coverage_min` of the page AND
+    #: the text layer is thin for it - under `ocr_max_text_density` characters
+    #: per square inch of page, or text blocks covering under
+    #: `ocr_max_text_to_image_area` of the image area. The second rule is the
+    #: scanned page carrying a digital header, footer or DCC stamp (238 chars,
+    #: never read under the old count-only rule). A normal text page has no
+    #: large image and never reaches it; a scan that already carries an
+    #: invisible OCR text layer is dense text over the image and is not
+    #: recognised again. Changing these changes which pages are read: bump
+    #: nothing, but run `scripts/reroute_ocr.py` so stored pages are re-decided.
+    ocr_min_usable_chars: int = 100
+    ocr_image_coverage_min: float = 0.5
+    ocr_max_text_density: float = 6.0
+    ocr_max_text_to_image_area: float = 0.10
 
     #: THE ANSWER MODEL'S ADDRESS, AND THE ONE OUTBOUND URL ON THE QUERY PATH
     #: THAT CARRIES DOCUMENT TEXT. Validated by `check_model_url`, at startup
