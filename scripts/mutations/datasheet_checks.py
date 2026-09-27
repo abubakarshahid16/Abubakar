@@ -63,9 +63,25 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1127", phase=94,
              description="the generic mandatory-fields fallback is skipped for an unknown equipment_type",
              path=_M,
-             anchor="    mandatory = rules[\"mandatory\"].get(equipment_type) if equipment_type else None\n"
-                    "    if mandatory is None:\n"
-                    "        mandatory = rules[\"mandatory\"].get(\"_generic\", [])\n",
+             anchor="    mandatory = rules[\"mandatory\"].get(mandatory_list_key(equipment_type, rules), [])\n",
              replacement="    mandatory = rules[\"mandatory\"].get(equipment_type or \"\", [])\n",
              target=_T, keyword="generic_mandatory_list", tags=("honesty", "critical")),
+
+    # A classifier label the mandatory table names only by FAMILY
+    # ("Centrifugal Compressor" -> "Compressor") silently fell to the 2-field
+    # generic list, because the lookup was verbatim.
+    Mutation(id="M1138", phase=94,
+             description="a compressor label is not resolved to its family's mandatory list",
+             path=_M, anchor="    family = sheet_kind_from_equipment_type(equipment_type)\n",
+             replacement="    family = None\n",
+             target=_T, keyword="every_label_the_classifier_can_emit or compressor_sheet",
+             tags=("honesty", "critical")),
+    Mutation(id="M1139", phase=94,
+             description="evaluate looks the equipment_type up verbatim again, bypassing the resolver",
+             path=_M,
+             anchor="    mandatory = rules[\"mandatory\"].get(mandatory_list_key(equipment_type, rules), [])\n",
+             replacement="    mandatory = (rules[\"mandatory\"].get(equipment_type or \"\")\n"
+                         "                 or rules[\"mandatory\"][\"_generic\"])\n",
+             target=_T, keyword="every_label_the_classifier_can_emit or compressor_sheet",
+             tags=("honesty", "critical")),
 )
