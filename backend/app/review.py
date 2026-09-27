@@ -172,6 +172,11 @@ def ensure_schema() -> None:
             # (chat_actions.file_comment). NULL for everything else, so every
             # existing row reads exactly as before.
             "origin": "TEXT",
+            # Owner order section 3: THE ENGINEER'S WORDING of the comment,
+            # when they edited it. NULL means the comment is printed as the
+            # review wrote it. The machine's own text (finding, rationale) is
+            # never overwritten, so both stay on record.
+            "engineer_comment": "TEXT",
         }.items():
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.
@@ -511,6 +516,9 @@ def update(finding_id: str, changes: dict, *, actor_user_id: str | None = None) 
     ensure_schema()
     allowed = {"owner_user_id", "due_date", "status", "approval_status",
                "escalation_level", "required_action", "severity", "response_text",
+               # Owner order section 3: Edit. The engineer's wording of the
+               # comment; the machine's text stays as it was.
+               "engineer_comment",
                "disposition", "approved_by", "approved_at",
                # NOT REACHABLE FROM A REQUEST BODY. `ReviewFindingUpdate` has
                # no `confirmed_by` field, so the only thing that can put one
@@ -536,7 +544,11 @@ def update(finding_id: str, changes: dict, *, actor_user_id: str | None = None) 
     with conn:
         if conn.execute(f"UPDATE review_findings SET {', '.join(sets)} WHERE id = ?", args).rowcount == 0:
             return None
-        _event(conn, finding_id, "updated", changed, actor_user_id, now)
+        # An edited comment keeps its earlier wording in the audit trail:
+        # the event says what the engineer changed FROM, not only to.
+        detail = ({**changed, "engineer_comment_before": current.get("engineer_comment")}
+                  if "engineer_comment" in changed else changed)
+        _event(conn, finding_id, "updated", detail, actor_user_id, now)
     return get(finding_id)
 
 

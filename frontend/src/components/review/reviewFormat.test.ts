@@ -11,8 +11,9 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  STATUS_ORDER, kindLabel, completenessLine, estimateDetail, standardsChangeLine, confidenceLabel, findingLabel, matchMethodLabel,
-  orNothing, pageCoverageLine, pageList, statusLabel, statusRank, statusTone,
+  STATUS_ORDER, groupRunsByDocument, kindCounts, kindLabel, completenessLine, estimateDetail,
+  pagesReadLine, standardsChangeLine, confidenceLabel, findingLabel, matchMethodLabel,
+  orNothing, pageCoverageLine, pageList, statusLabel, statusRank, statusTone, summaryTotals,
   withDenominator,
 } from "./reviewFormat";
 import type { ReviewRunSummary } from "../../types/api";
@@ -254,5 +255,67 @@ describe("2c: a datasheet check says what kind of comment it is", () => {
     expect(kindLabel({ origin: "datasheet_check" })).toBe("Datasheet check");
     expect(kindLabel({ origin: "ai_engineering_check" })).toBe("AI engineering check");
     expect(kindLabel({ origin: null })).toBe("");
+  });
+});
+
+describe("section 3: the run's four totals and counts by kind", () => {
+  it("maps each status to its total, and MISSING_INFORMATION is never a meet", () => {
+    const totals = summaryTotals([
+      { compliance_status: "COMPLIANT" },
+      { compliance_status: "NON_COMPLIANT" },
+      { compliance_status: "NEEDS_ENGINEER_REVIEW" },
+      { compliance_status: "CONDITIONAL" },
+      { compliance_status: "NOT_APPLICABLE" },
+      { compliance_status: "MISSING_INFORMATION" },
+      { compliance_status: "NOT_IN_DOCUMENT_SCOPE" },
+    ]);
+    expect(totals).toEqual({
+      meets: 1, doesNotMeet: 1, needsDecision: 2, couldNotCheck: 2, notApplicable: 1, counted: 7,
+    });
+  });
+
+  it("never counts an AI engineering check draft, a chat comment, or a rejected finding", () => {
+    const totals = summaryTotals([
+      { compliance_status: null, origin: "ai_engineering_check" },
+      { compliance_status: "NON_COMPLIANT", origin: "chat" },
+      { compliance_status: "NON_COMPLIANT", approval_status: "rejected" },
+      { compliance_status: "COMPLIANT" },
+    ]);
+    expect(totals).toEqual({
+      meets: 1, doesNotMeet: 0, needsDecision: 0, couldNotCheck: 0, notApplicable: 0, counted: 1,
+    });
+  });
+
+  it("counts comments by kind, splitting AI engineering check by confirmation", () => {
+    const counts = kindCounts([
+      { origin: null },
+      { origin: "datasheet_check" },
+      { origin: "ai_engineering_check", confirmed_by: null },
+      { origin: "ai_engineering_check", confirmed_by: "u1" },
+      { origin: "chat" },
+      { origin: "datasheet_check", approval_status: "rejected" },
+    ]);
+    expect(counts).toEqual({ a: 1, b: 1, cConfirmed: 1, cUnconfirmed: 1 });
+  });
+});
+
+describe("section 3: runs grouped per document, latest first", () => {
+  it("groups by submittal, sorts within a group and across groups by recency", () => {
+    const groups = groupRunsByDocument([
+      { review_run_id: "r1", submittal_document_id: "doc-a", created_at: "2026-09-20T00:00:00Z" },
+      { review_run_id: "r2", submittal_document_id: "doc-a", created_at: "2026-09-22T00:00:00Z" },
+      { review_run_id: "r3", submittal_document_id: "doc-b", created_at: "2026-09-21T00:00:00Z" },
+    ]);
+    expect(groups.map((g) => g.documentId)).toEqual(["doc-a", "doc-b"]);
+    expect(groups[0].latest.review_run_id).toBe("r2");
+    expect(groups[0].earlier.map((r) => r.review_run_id)).toEqual(["r1"]);
+    expect(groups[1].earlier).toEqual([]);
+  });
+});
+
+describe("section 3: the readiness strip's page line", () => {
+  it("says nothing when the page count is unknown, and states the denominator otherwise", () => {
+    expect(pagesReadLine({ pages_total: null, pages_read: 0 })).toBe("");
+    expect(pagesReadLine({ pages_total: 5, pages_read: 3 })).toBe("Pages read: 3 of 5");
   });
 });

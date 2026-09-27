@@ -18,16 +18,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import type {
-  CrsPreview, DocumentRecord, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard,
-  ReviewRunSummary,
+  CrsPreview, CrsReviewNote, DocumentRecord, ReviewFinding, ReviewReadiness,
+  ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary,
 } from "../types/api";
 import { FindingDetail } from "../components/review/FindingDetail";
 import { FindingsTable } from "../components/review/FindingsTable";
 import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
 import { StandardOverrideControl } from "../components/review/StandardOverrideControl";
 import {
-  STATUS_ORDER, completenessLine, pageCoverageLine, statusLabel, statusTone,
-  standardsChangeLine, whenLabel, withDenominator,
+  STATUS_ORDER, completenessLine, groupRunsByDocument, kindCounts, pageCoverageLine,
+  pageList, pagesReadLine, statusLabel, statusTone, standardsChangeLine, summaryTotals,
+  whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
 
 type Phase =
@@ -35,7 +36,9 @@ type Phase =
   | { kind: "ready" }
   | { kind: "error"; message: string };
 
-export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
+export function ReviewRunsView(
+  { openRunId, onOpenStandards }: { openRunId?: string; onOpenStandards?: () => void } = {},
+) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [runs, setRuns] = useState<ReviewRunSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
@@ -53,6 +56,10 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const findingsRef = useRef<HTMLElement | null>(null);
+  // Owner order section 3: the readiness strip, and the question asked when
+  // a re-run cannot say anything new.
+  const [readiness, setReadiness] = useState<ReviewReadiness | null>(null);
+  const [confirmRerun, setConfirmRerun] = useState(false);
 
   /** Fetch the CRS with the bearer token and hand it to the browser.
    *
@@ -246,6 +253,31 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
     [documents],
   );
 
+  const loadReadiness = useCallback(async (documentId: string) => {
+    if (!documentId) { setReadiness(null); return; }
+    const result = await reviewsApi.readiness(documentId);
+    // A readiness the server would not give is shown as nothing: the strip
+    // is a help before running, not a gate, and the run button still works.
+    setReadiness(result.ok ? result.data : null);
+  }, []);
+
+  useEffect(() => {
+    setConfirmRerun(false);
+    void loadReadiness(target);
+  }, [target, loadReadiness]);
+
+  /** Owner order section 3: "Nothing changed since the last run" is asked
+   *  about BEFORE running - the same inputs give the same result, and a
+   *  re-run the engineer expected to differ is time lost. */
+  function requestRun() {
+    if (readiness?.nothing_changed && !confirmRerun) {
+      setConfirmRerun(true);
+      return;
+    }
+    setConfirmRerun(false);
+    void start();
+  }
+
   async function start() {
     if (!target) return;
     setLaunch({ kind: "running" });
@@ -260,6 +292,7 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
     setLaunch({ kind: "idle" });
     await loadRuns();
     await openRun(result.data.review_run_id);
+    void loadReadiness(target);
   }
 
 
@@ -296,7 +329,7 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
             ))}
           </select>
           <button
-            type="button" onClick={() => void start()}
+            type="button" onClick={requestRun}
             disabled={!target || launch.kind === "running"}
             className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
           >
@@ -313,6 +346,30 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
           <p role="alert" className="mt-2 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
             {launch.message}
           </p>
+        )}
+        {target && readiness && readiness.submittal_document_id === target && (
+          <ReadinessStrip readiness={readiness} onOpenStandards={onOpenStandards} />
+        )}
+        {confirmRerun && (
+          <div role="alertdialog" aria-label="Nothing changed since the last run"
+            className="mt-3 space-y-2 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 p-3 text-sm">
+            <p className="font-medium text-slateish-100">Nothing changed since the last run.</p>
+            <p className="text-slateish-300">
+              No datasheet value was read and no standard was added since then,
+              so a new run will give the same result. Upload a missing standard
+              or re-read the unread pages first, or run it again anyway.
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={requestRun}
+                className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-slateish-100">
+                Run again anyway
+              </button>
+              <button type="button" onClick={() => setConfirmRerun(false)}
+                className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-slateish-300">
+                Cancel
+              </button>
+            </div>
+          </div>
         )}
       </section>
 
@@ -403,6 +460,10 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
 
           <ReviewCodePanel run={run} onDecided={() => { void loadRuns(); }} />
 
+          <RunSummary findings={findings} />
+
+          <ReviewNotes key={run.review_run_id} runId={run.review_run_id} />
+
           <FindingsTable
             findings={findings} selectedId={selectedFinding}
             standardNames={standardNames}
@@ -424,15 +485,37 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
           <h2 id="runs-list-title" className="text-lg font-semibold text-slateish-100">
             {runs.length.toLocaleString()} {runs.length === 1 ? "run" : "runs"}
           </h2>
+          {/* Owner order section 3: RUNS GROUPED PER DOCUMENT, latest first.
+              The earlier runs of a document are collapsed; each says what
+              changed from the one before it. */}
           <ul className="space-y-3">
-            {runs.map((item) => (
-              <li key={item.review_run_id} className="space-y-1">
+            {groupRunsByDocument(runs).map((group) => (
+              <li key={group.documentId} className="space-y-1">
                 <RunCard
-                  run={item}
-                  selected={item.review_run_id === selectedRun}
-                  onOpen={() => void openRun(item.review_run_id)}
+                  run={group.latest}
+                  selected={group.latest.review_run_id === selectedRun}
+                  onOpen={() => void openRun(group.latest.review_run_id)}
                 />
-                <ReviewJobControl run={item} onChanged={() => { void loadRuns(); }} />
+                <ReviewJobControl run={group.latest} onChanged={() => { void loadRuns(); }} />
+                {group.earlier.length > 0 && (
+                  <details className="ps-4" data-testid="earlier-runs">
+                    <summary className="cursor-pointer text-xs text-slateish-400">
+                      {group.earlier.length} earlier {group.earlier.length === 1 ? "run" : "runs"} of this document
+                    </summary>
+                    <ul className="mt-2 space-y-2">
+                      {group.earlier.map((item) => (
+                        <li key={item.review_run_id} className="space-y-1">
+                          <RunCard
+                            run={item}
+                            selected={item.review_run_id === selectedRun}
+                            onOpen={() => void openRun(item.review_run_id)}
+                          />
+                          <ReviewJobControl run={item} onChanged={() => { void loadRuns(); }} />
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </li>
             ))}
           </ul>
@@ -440,6 +523,117 @@ export function ReviewRunsView({ openRunId }: { openRunId?: string } = {}) {
       )}
 
     </main>
+  );
+}
+
+/** Owner order section 3: what the review can use, before it is run. Every
+ *  count carries its denominator and is about this caller's documents. */
+function ReadinessStrip({ readiness, onOpenStandards }: {
+  readiness: ReviewReadiness; onOpenStandards?: () => void;
+}) {
+  const pages = pagesReadLine(readiness);
+  const missing = readiness.standards_missing;
+  return (
+    <div data-testid="readiness-strip"
+      className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-[var(--radius-sm)] border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-slateish-200">
+      {pages && (
+        <span>
+          {pages}
+          {readiness.unread_pages.length > 0 && (
+            <span className="text-slateish-400"> (not read: {pageList(readiness.unread_pages)})</span>
+          )}
+        </span>
+      )}
+      {readiness.standards_cited > 0 && (
+        <span>
+          Standards cited: {readiness.standards_held.length} held, {missing.length} missing
+          {" "}(of {readiness.standards_cited})
+        </span>
+      )}
+      {missing.length > 0 && onOpenStandards && (
+        <button type="button" onClick={onOpenStandards}
+          className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs text-signal-300">
+          Upload missing standards
+        </button>
+      )}
+      {readiness.last_run_id && (
+        <span className="text-slateish-400" data-testid="readiness-changes">
+          {readiness.nothing_changed
+            ? "Nothing changed since the last run."
+            : readiness.changes.join(" · ")}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Owner order section 3: the run's four totals in plain words, and its
+ *  comments by kind. The boundary is printed with the numbers. */
+function RunSummary({ findings }: { findings: ReviewFinding[] }) {
+  const totals = summaryTotals(findings);
+  const kinds = kindCounts(findings);
+  if (totals.counted === 0 && kinds.cConfirmed + kinds.cUnconfirmed === 0) return null;
+  const cell = (label: string, value: number) => (
+    <div className="rounded-[var(--radius-sm)] border border-ink-700 bg-ink-850 px-3 py-2">
+      <p className="text-xs text-slateish-400">{label}</p>
+      <p className="text-lg font-semibold text-slateish-100">{value.toLocaleString()}</p>
+    </div>
+  );
+  return (
+    <section aria-label="Run summary" data-testid="run-summary" className="space-y-2">
+      <div className="grid gap-2 sm:grid-cols-4">
+        {cell("Meets", totals.meets)}
+        {cell("Does not meet", totals.doesNotMeet)}
+        {cell("Needs a decision", totals.needsDecision)}
+        {cell("Could not be checked", totals.couldNotCheck)}
+      </div>
+      <p className="text-xs text-slateish-400">
+        Of {totals.counted.toLocaleString()} requirement checks in this run
+        {totals.notApplicable ? `, ${totals.notApplicable.toLocaleString()} not applicable` : ""}.
+        {" "}AI engineering check items are drafts and are not counted here.
+      </p>
+      <p className="text-xs text-slateish-300" data-testid="kind-counts">
+        By kind: A - checked against a standard {kinds.a} · B - datasheet check {kinds.b} ·
+        {" "}C - AI engineering check {kinds.cConfirmed} confirmed, {kinds.cUnconfirmed} to confirm
+      </p>
+    </section>
+  );
+}
+
+/** Owner order section 3: the engineer's internal notes on screen,
+ *  collapsed. Fetched when opened - the same notes the internal CRS copy
+ *  carries on its "Review notes" sheet, from the same builder. */
+function ReviewNotes({ runId }: { runId: string }) {
+  const [notes, setNotes] = useState<CrsReviewNote[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <details className="text-sm" data-testid="review-notes"
+      onToggle={(event) => {
+        if (!(event.currentTarget as HTMLDetailsElement).open || notes !== null) return;
+        void reviewsApi.previewCrs(runId).then((r) => {
+          if (!r.ok) { setError(r.error.message); return; }
+          setNotes(r.data.review_notes ?? []);
+        });
+      }}>
+      <summary className="cursor-pointer text-slateish-200">Review notes - internal</summary>
+      {error && <p role="alert" className="mt-1 text-xs text-rose-300">{error}</p>}
+      {notes === null && !error && <p className="mt-1 text-xs text-slateish-400">Loading…</p>}
+      {notes !== null && notes.length === 0 && (
+        <p className="mt-1 text-xs text-slateish-400">No internal notes for this run.</p>
+      )}
+      {notes !== null && notes.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs text-slateish-300">
+          {notes.map((n, i) => (
+            <li key={i}>
+              <span className="font-medium text-slateish-200">{n.note}</span>
+              {n.standard ? ` - ${n.standard}` : ""}
+              {n.count != null ? ` (${n.count})` : ""}
+              {n.detail ? `: ${n.detail}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
   );
 }
 

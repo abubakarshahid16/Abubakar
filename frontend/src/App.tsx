@@ -336,7 +336,12 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {view === "analysis" && <AnalysisModeScreen />}
           {view === "reports" && <ReportsScreen />}
           {view === "deliverables" && <DeliverablesView />}
-          {view === "review" && <ReviewRunsView openRunId={route.kind === "view" ? route.recordId : undefined} />}
+          {view === "review" && (
+            <ReviewRunsView
+              openRunId={route.kind === "view" ? route.recordId : undefined}
+              onOpenStandards={() => onNavigate("standards")}
+            />
+          )}
           {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting
               the view to "admin" by any other means - a stale state value, a
               devtools poke - renders nothing at all. The server is the real

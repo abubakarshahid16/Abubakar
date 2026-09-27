@@ -12,6 +12,8 @@ const cancelJob = vi.fn();
 vi.mock("../api/client", () => ({
   api: { documents: () => Promise.resolve({ ok: true, data: [] }) },
   reviews: {
+    // Section 3's readiness strip; not what these tests are about.
+    readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
     list: () => Promise.resolve({ ok: true, data: { findings: [] } }),
     reviewRunStandards: () => Promise.resolve({ ok: true, data: { standards: [] } }),

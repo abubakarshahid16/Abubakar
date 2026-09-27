@@ -334,6 +334,9 @@ export interface ReviewFinding {
   /** Where the finding came from when not the comparison: "chat" or
    *  "ai_engineering_check" (a kind C draft, never a verdict). */
   origin?: string | null;
+  /** Owner order section 3: the engineer's own wording, when edited. The CRS
+   *  prints it in place of the review's text. */
+  engineer_comment?: string | null;
   standard_document_id?: string | null;
   standard_clause?: string | null;
   standard_page?: number | null;
@@ -405,6 +408,22 @@ export interface CrsReviewNote {
   standard: string;
   count: number | null;
   detail: string;
+}
+
+/** Owner order section 3: what a review of a submittal can use, before it
+ *  is run. Every count is about this caller's documents. */
+export interface ReviewReadiness {
+  submittal_document_id: string;
+  pages_total: number | null;
+  pages_read: number;
+  unread_pages: number[];
+  standards_cited: number;
+  standards_held: string[];
+  standards_missing: string[];
+  last_run_id: string | null;
+  /** True only when a completed run exists and nothing it used changed. */
+  nothing_changed: boolean;
+  changes: string[];
 }
 
 export interface CrsPreview {
@@ -616,6 +635,8 @@ export interface ReviewFindingUpdate {
   status?: ReviewStatus;
   approval_status?: ApprovalStatus;
   escalation_level?: number;
+  /** Owner order section 3: Edit. Saving it confirms the comment. */
+  engineer_comment?: string;
   /** B10: no approved_by / approved_at - the server records the caller. */
 }
 

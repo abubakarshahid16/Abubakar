@@ -2308,7 +2308,7 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
     with conn:
         conn.execute(
             "UPDATE review_runs SET status = ?, refusal_reason = ?,"
-            " updated_at = ? WHERE id = ?",
+            " updated_at = ?, completed_at = ? WHERE id = ?",
             ("completed", json.dumps({
                 "recommended_code": recommendation["code"],
                 "reason": recommendation["reason"],
@@ -2321,7 +2321,10 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 "missing_references": [
                     {"identifier": ref, "status": MISSING_LOCALLY}
                     for ref in (missing_references or [])],
-            }), _now(), review_run_id))
+            # completed_at: the readiness strip's "since the last run" is
+            # measured from here, not from updated_at (which the engineer's
+            # code decision moves later).
+            }), _now(), _now(), review_run_id))
 
 
 def record_engineer_code(

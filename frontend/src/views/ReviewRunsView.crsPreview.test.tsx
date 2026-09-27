@@ -32,6 +32,8 @@ const exportCrs = vi.fn();
 vi.mock("../api/client", () => ({
   api: { documents: (...args: unknown[]) => documents(...args) },
   reviews: {
+    // Section 3's readiness strip; not what these tests are about.
+    readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
     list: (...args: unknown[]) => list(...args),
     reviewRunStandards: (...args: unknown[]) => reviewRunStandards(...args),

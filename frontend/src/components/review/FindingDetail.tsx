@@ -39,6 +39,9 @@ export function FindingDetail(
 ) {
   const [action, setAction] = useState<Action>({ kind: "idle" });
   const [reason, setReason] = useState("");
+  // Owner order section 3: Edit - the engineer's own wording of the comment.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
   const [open, setOpen] = useState<{ doc: DocumentRecord; page: number | null } | null>(null);
 
   // THE CITED DOCUMENTS, FETCHED BY ID WHEN THEY ARE NOT ALREADY IN HAND.
@@ -79,6 +82,39 @@ export function FindingDetail(
       // SHOWN AS THE API RETURNED IT, never retried silently: a refusal
       // under scope is a real answer and hiding it would leave the engineer
       // clicking a button that appears to do nothing.
+      setAction({ kind: "error", message: result.error.message });
+      return;
+    }
+    setAction({ kind: "idle" });
+    onChanged();
+  }
+
+  /** Save the engineer's wording. The server confirms the comment under the
+   *  caller's name (an edit is a decision), and keeps the review's own text
+   *  on the finding - only the sheet prints the new words. */
+  async function saveEdit() {
+    const text = draft.trim();
+    if (!text) {
+      setAction({ kind: "error", message: "The comment cannot be empty." });
+      return;
+    }
+    setAction({ kind: "working" });
+    const result = await reviewsApi.update(finding.id, { engineer_comment: text });
+    if (!result.ok) {
+      setAction({ kind: "error", message: result.error.message });
+      return;
+    }
+    setEditing(false);
+    setAction({ kind: "idle" });
+    onChanged();
+  }
+
+  /** Leave this comment off the Comment Resolution Sheet. Recorded with the
+   *  caller's name; the finding itself is kept. */
+  async function rejectComment() {
+    setAction({ kind: "working" });
+    const result = await reviewsApi.update(finding.id, { approval_status: "rejected" });
+    if (!result.ok) {
       setAction({ kind: "error", message: result.error.message });
       return;
     }
@@ -187,6 +223,23 @@ export function FindingDetail(
         </div>
       )}
 
+      {finding.engineer_comment && !editing && (
+        <div data-testid="engineer-comment">
+          <h4 className="text-xs uppercase tracking-wide text-slateish-400">
+            Comment on the sheet - your wording
+          </h4>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-slateish-100">{finding.engineer_comment}</p>
+        </div>
+      )}
+
+      {finding.approval_status === "rejected" && (
+        <p className="rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200"
+          data-testid="comment-rejected">
+          Comment rejected - it is left off the Comment Resolution Sheet. A
+          re-run of this review proposes it again.
+        </p>
+      )}
+
       <div className="space-y-3 border-t border-ink-700 pt-3">
         <h4 className="text-xs uppercase tracking-wide text-slateish-400">Engineer actions</h4>
         <div className="flex flex-wrap items-center gap-3">
@@ -197,7 +250,44 @@ export function FindingDetail(
           >
             {finding.confirmed_by ? "Confirmed" : "Confirm this finding"}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(finding.engineer_comment ?? finding.finding ?? "");
+              setEditing((value) => !value);
+            }}
+            disabled={action.kind === "working"}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-slateish-100 disabled:opacity-50"
+          >
+            {editing ? "Cancel edit" : "Edit comment"}
+          </button>
+          <button
+            type="button" onClick={() => void rejectComment()}
+            disabled={action.kind === "working" || finding.approval_status === "rejected"}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-slateish-100 disabled:opacity-50"
+          >
+            {finding.approval_status === "rejected" ? "Comment rejected" : "Reject comment"}
+          </button>
         </div>
+        {editing && (
+          <div className="space-y-2">
+            <label className="block text-xs text-slateish-400" htmlFor="edit-comment">
+              The comment as it will read on the sheet. Saving confirms it under your name.
+            </label>
+            <textarea
+              id="edit-comment" value={draft} rows={3}
+              onChange={(event) => setDraft(event.target.value)}
+              className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100"
+            />
+            <button
+              type="button" onClick={() => void saveEdit()}
+              disabled={action.kind === "working"}
+              className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
+            >
+              Save comment
+            </button>
+          </div>
+        )}
         {canReject ? (
           <div className="space-y-2">
             <label className="block text-xs text-slateish-400" htmlFor="reject-reason">

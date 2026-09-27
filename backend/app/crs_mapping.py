@@ -131,7 +131,22 @@ def _citation(finding: dict) -> str:
     return " / ".join(parts)
 
 
+def _rejected(finding: dict) -> bool:
+    """Owner order section 3: an engineer rejected this comment - it is left
+    off the sheet. The finding and the rejection both stay on record."""
+    return finding.get("approval_status") == "rejected"
+
+
+def _edited_by(finding: dict) -> str:
+    who = finding.get("confirmed_by_name") or finding.get("confirmed_by") or "an engineer"
+    return f"AI Review, edited and confirmed by {who}"
+
+
 def _comment_text(finding: dict) -> str:
+    # Owner order section 3: THE ENGINEER'S WORDING, when they edited it, is
+    # the comment. The review's own text stays on the finding, not the sheet.
+    if finding.get("engineer_comment"):
+        return finding["engineer_comment"]
     lines = []
     req = finding.get("requirement_source_text")
     if req:
@@ -166,8 +181,11 @@ def _merge_same_rule(ordered: list[dict]) -> list[tuple[dict, list[dict]]]:
     order: list[tuple] = []
     for f in ordered:
         text = _fold(f.get("requirement_source_text"))
+        # An engineer's edited wording is theirs for THAT finding: two
+        # findings they worded differently are never printed as one.
         key = ((f.get("compliance_status"), text, _fold(f.get("contractor_evidence_text")),
-                f.get("contractor_page")) if text else ("__unique__", f.get("id") or id(f)))
+                f.get("contractor_page"), f.get("engineer_comment"))
+               if text else ("__unique__", f.get("id") or id(f)))
         if key not in groups:
             groups[key] = []
             order.append(key)
@@ -258,6 +276,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     (`unread_pages`, the run's stored page coverage).
     """
     rows = []
+    findings = [f for f in findings if not _rejected(f)]
     ordered = [f for f in findings
                if f.get("compliance_status") == "NON_COMPLIANT"]
     ordered += [f for f in findings
@@ -280,14 +299,17 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 # "Datasheet check: ..." - the finding's own words, which say
                 # the calculation ("Design pressure 20 barg (page 1) is not at
                 # least operating pressure 23.5 barg (page 1).").
-                "comment": f.get("finding") or "",
-                "comment_by": (f"AI Review, confirmed by {f['confirmed_by']}"
+                "comment": f.get("engineer_comment") or f.get("finding") or "",
+                "comment_by": (_edited_by(f) if f.get("engineer_comment")
+                               else f"AI Review, confirmed by {f['confirmed_by']}"
                                if f.get("confirmed_by") else "AI Review"),
                 "row_kind": ROW_KIND_DATASHEET_CHECK,
             })
             continue
         by = "AI Review"
-        if f.get("confirmed_by"):
+        if f.get("engineer_comment"):
+            by = _edited_by(f)
+        elif f.get("confirmed_by"):
             by = f"AI Review, confirmed by {f['confirmed_by']}"
         row_kind = (ROW_KIND_NON_COMPLIANT
                     if f.get("compliance_status") == "NON_COMPLIANT"
@@ -317,7 +339,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "finding_id": f.get("id") or "",
             "document_name": submittal_name,
             "page_section": "",
-            "comment": f.get("finding") or "",
+            "comment": f.get("engineer_comment") or f.get("finding") or "",
             "comment_by": f"{f.get('confirmed_by') or 'Engineer'} (filed from chat)",
             "row_kind": ROW_KIND_ENGINEER_COMMENT,
         })
@@ -328,9 +350,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     for f in findings:
         if f.get("origin") != _AI_ORIGIN or f.get("approval_status") == "rejected":
             continue
-        text = " ".join(p for p in (f.get("finding"), f.get("required_action")) if p)
+        text = f.get("engineer_comment") or " ".join(
+            p for p in (f.get("finding"), f.get("required_action")) if p)
         relates = _ai_relates_to(f)
-        if relates:
+        if relates and not f.get("engineer_comment"):
             text += f" (Relates to {relates}.)"
         where = " / ".join(p for p in (
             f"submittal p{f['contractor_page']}" if f.get("contractor_page") else "",
