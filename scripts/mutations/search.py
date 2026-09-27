@@ -41,8 +41,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M794", phase=67, description="B6: reranker broken - its scores are inverted",
         path=_S,
-        anchor='                c.rerank_score = by_id.get(c.chunk_id, float("-inf")) + c.boost\n',
-        replacement='                c.rerank_score = -by_id.get(c.chunk_id, float("inf")) + c.boost\n',
+        anchor='                c.rerank_score = by_id.get(c.chunk_id, float("-inf")) + c.numeric_boost\n',
+        replacement='                c.rerank_score = -by_id.get(c.chunk_id, float("inf")) + c.numeric_boost\n',
         target=_T, keyword="cross_encoder or recall",
     ),
     Mutation(
