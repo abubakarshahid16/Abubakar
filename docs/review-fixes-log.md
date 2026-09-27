@@ -269,7 +269,7 @@ Also fixed a pre-existing mutation-id collision on `main` between
   reaches `compare`. (Corrected 2026-09-27: as first shipped,
   `edition_differs` existed and was unit-tested but the check path never
   called it, so this line was not true. Now tested through `run_check`,
-  M1138/M1139.)
+  M1140/M1141.)
 - **Never counted.** Stored as a pending, unconfirmed draft
   (`origin = 'web_standard_check'`, kind D) exactly like the AI engineering
   check (kind C) - never seen by `comparison.recommend_code`, shown on the
