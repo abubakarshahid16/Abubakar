@@ -2094,6 +2094,26 @@ class ReviewReadiness(BaseModel):
     changes: list[str] = []
 
 
+class VisionReaderStatus(BaseModel):
+    """Whether the vision reader (Claude, page images) can be used right now,
+    and if not, what to change - shown beside "Read unread pages".
+
+    No document, no key, no exception message: a closed state, fixed plain
+    words, and at most an HTTP status or an error class name in `detail`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal["READY", "GEOMETRY_OFF", "PROVIDER_OFF", "EGRESS_OFF",
+                   "KEY_MISSING", "BUDGET_REACHED", "KEY_INVALID",
+                   "RATE_LIMITED", "NETWORK_BLOCKED", "HOST_REFUSED",
+                   "UNEXPECTED"]
+    ready: bool
+    reason: str
+    fix: str
+    detail: str | None = None
+    checked_at: str
+
+
 class CrsReviewNote(BaseModel):
     """Owner order 2f: one of the engineer's internal notes (the "Review
     notes" sheet) - never a contractor comment."""

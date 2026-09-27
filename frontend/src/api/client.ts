@@ -53,6 +53,7 @@ import type {
   ReviewDashboard,
   CrsPreview,
   ReviewReadiness,
+  VisionReaderStatus,
   ReviewRunStandard,
   ReviewRunMissingReference,
   ReviewRunSummary,
@@ -430,6 +431,15 @@ export const reviews = {
       `/reviews/readiness/${encodeURIComponent(submittalDocumentId)}/reread-pages`,
       { method: "POST" },
       hasArrayField("standards_missing"),
+    ),
+  /** Can "Read unread pages" use the vision reader right now, and if not,
+   *  what to change. About the service, not a document. */
+  visionReaderStatus: () =>
+    request<VisionReaderStatus>(
+      "/reviews/vision-reader-status",
+      undefined,
+      (b) => typeof b === "object" && b !== null
+        && typeof (b as Record<string, unknown>).state === "string",
     ),
   previewCrs: (runId: string) =>
     request<CrsPreview>(
