@@ -367,3 +367,30 @@ def test_module_imports_no_http_library():
             roots.add(node.module.split(".")[0])
     assert not roots & {"httpx", "requests", "urllib", "urllib3", "aiohttp",
                         "socket", "http", "websockets"}
+
+
+# --------------------------------------------- a limit stops the run (M1163)
+
+def test_recheck_run_keeps_the_findings_finished_before_a_usd_limit():
+    """Two calls per finding (rule 5). The limit refuses the third call, so
+    finding f1 - paid for - is kept, f2 is dropped and f3 never asked."""
+    from app import claude_spend
+    agree = _model(True)
+    n = {"n": 0}
+
+    def call(prompt):
+        if n["n"] >= 2:
+            raise claude_spend.BudgetExceeded("cap")
+        n["n"] += 1
+        return agree(prompt)
+    findings = [_finding(id="f1"), _finding(id="f2"), _finding(id="f3")]
+    out = cr.recheck_run("run-1", call, allowed_document_ids=frozenset(), findings=findings)
+    assert set(out["findings"]) == {"f1"} and out["agreed"] == 1
+    assert out["total"] == 3
+    assert out["stopped"] == {"reason": "usd_cap_reached", "done": 1, "left": 2}
+
+
+def test_recheck_run_that_finishes_is_not_stopped():
+    out = cr.recheck_run("run-1", _model(True), allowed_document_ids=frozenset(),
+                         findings=[_finding()])
+    assert out["stopped"] is None

@@ -47,6 +47,7 @@ import re
 from enum import Enum
 
 from . import claims, datasheets, submittal_review
+from .claude_spend import StopRun
 from .db import connect
 
 # --------------------------------------------------------------- vocabulary
@@ -457,7 +458,10 @@ def read_datasheet(document_id: str, *, allowed_document_ids: frozenset[str],
     Returns `{"document_id", "pages": [per-page read_page results],
     "accepted", "rejected", "counts", "errors"}`. Accepted and rejected
     proposals carry `page`, because a reason without the page it belongs to
-    cannot be acted on.
+    cannot be acted on. `stopped` is None, or - when a limit
+    (`claude_spend.StopRun`: call cap or USD cap) refused a call - the limit
+    and how many pages were left: pages read before it are kept, because they
+    were paid for.
     """
     by_page = _page_chunks(document_id, allowed_document_ids)
     if pages is None:
@@ -475,14 +479,19 @@ def read_datasheet(document_id: str, *, allowed_document_ids: frozenset[str],
     accepted: list[dict] = []
     rejected: list[dict] = []
     errors: list[dict] = []
-    for page_no in pages:
+    stopped = None
+    for done, page_no in enumerate(pages):
         text = page_text_of(page_no) or ""
         if not text.strip():
             per_page.append({"page": page_no, "accepted": [], "rejected": [],
                              "counts": {}, "skipped": "no text"})
             continue
-        out = read_page(text, page_no, known_by_page.get(page_no, []),
-                        model_call, second_call)
+        try:
+            out = read_page(text, page_no, known_by_page.get(page_no, []),
+                            model_call, second_call)
+        except StopRun as exc:
+            stopped = {"reason": exc.count_key, "done": done, "left": len(pages) - done}
+            break
         per_page.append({"page": page_no, "accepted": len(out["accepted"]),
                          "rejected": len(out["rejected"]), "counts": out["counts"],
                          **({"error": out["error"]} if out.get("error") else {})})
@@ -494,7 +503,8 @@ def read_datasheet(document_id: str, *, allowed_document_ids: frozenset[str],
     return {"document_id": document_id, "pages": per_page,
             "accepted": accepted, "rejected": rejected,
             "counts": rejection_counts(rejected),
-            "rejection_counts": rejection_counts(rejected), "errors": errors}
+            "rejection_counts": rejection_counts(rejected), "errors": errors,
+            "stopped": stopped}
 
 
 # ---------------------------------------------------------------- storage

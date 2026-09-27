@@ -65,9 +65,30 @@ MAX_RESPONSE_BYTES = 1 * 1024 * 1024
 
 
 class TransportRefused(RuntimeError):
-    """A request this module will not make. Distinct from an HTTP error: an
-    HTTP error means the request happened and failed; this means it never
-    happened."""
+    """A request this module will not make, or an answer it will not read.
+    Distinct from an HTTP error. `sent` is False when the request never
+    happened, True when it did and the ANSWER was refused (too large) - the
+    API may have billed for that one."""
+
+    def __init__(self, message: str = "", *, sent: bool = False):
+        super().__init__(message)
+        self.sent = sent
+
+
+def unbilled(exc: BaseException) -> bool:
+    """True only when `exc` proves the API did no billable work: refused here
+    before sending, a connection never made, or a 4xx rejection. Anything
+    else - a read timeout, a 5xx, an oversized answer - may have been billed,
+    and `claude_spend.metered` charges its worst case."""
+    if isinstance(exc, ReaderRefused):
+        return True
+    if isinstance(exc, TransportRefused):
+        return not exc.sent
+    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return 400 <= exc.response.status_code < 500
+    return False
 
 
 def available() -> bool:
@@ -150,7 +171,7 @@ def transport():
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise TransportRefused(
                 f"response from {host} is {len(response.content)} bytes, over "
-                f"the {MAX_RESPONSE_BYTES} limit")
+                f"the {MAX_RESPONSE_BYTES} limit", sent=True)
 
         decoded = response.json()
         counts = decoded.get("usage") if isinstance(decoded, dict) else None
@@ -248,7 +269,7 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
                 received += len(line)
                 if received > MAX_RESPONSE_BYTES:
                     raise TransportRefused(
-                        f"stream from {host} passed the {MAX_RESPONSE_BYTES} byte limit")
+                        f"stream from {host} passed the {MAX_RESPONSE_BYTES} byte limit", sent=True)
                 if not line.startswith("data:"):
                     continue
                 try:
@@ -346,7 +367,8 @@ def _gated(method: str, url: str, *, headers: Mapping[str, str], timeout: float,
         raise httpx.HTTPStatusError(f"{response.status_code} from {host}" + (f" ({kind})" if kind else ""),
                                     request=response.request, response=response)
     if len(response.content) > limit:
-        raise TransportRefused(f"response from {host} is {len(response.content)} bytes, over the {limit} limit")
+        raise TransportRefused(f"response from {host} is {len(response.content)} bytes, over the {limit} limit",
+                               sent=True)
     return response
 
 

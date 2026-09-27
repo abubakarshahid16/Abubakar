@@ -2,6 +2,10 @@
 
     backend/app/chat.py
     backend/app/chunker.py
+    backend/app/claude_api.py
+    backend/app/claude_crs_comments.py
+    backend/app/claude_datasheet.py
+    backend/app/claude_recheck.py
     backend/app/claude_spend.py
     backend/app/config.py
     backend/app/crs_export.py
@@ -431,5 +435,89 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor="            if _numbered_paragraph([ln.strip() for ln in lines], i):\n                keep.append(line)\n                continue\n",
         replacement="",
         target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="one_clause_per_paragraph",
+    ),
+    # ---- the four claude_api review routes under the USD caps (2026-09-27)
+    Mutation(
+        id="M1160", phase=96,
+        description="the claude_api routes reach the transport without the USD meter",
+        path=APP / "claude_api.py",
+        anchor=("        reader_api.model_call_via(claude_spend.metered(\n"
+                "            transport, step, unbilled=reader_transport_mod.unbilled)))"),
+        replacement="        reader_api.model_call_via(transport))",
+        target="tests/test_claude_spend_routes.py",
+        keyword=("refuses_before or total_cap_counts or written_to_the_ledger or "
+                 "stops_the_next_call or over_the_cap or under_the_cap or 409_helper or "
+                 "may_have_been_billed or mid_run_returns"),
+        tags=("safety", "budget"),
+    ),
+    Mutation(
+        id="M1161", phase=96,
+        description="the USD meter sends a call without checking its worst case against the caps",
+        path=APP / "claude_spend.py",
+        anchor="        ensure_affordable(step, worst)\n        digest = ",
+        replacement="        digest = ",
+        target="tests/test_claude_spend_routes.py",
+        keyword="refuses_before or total_cap_counts or stops_the_next_call or over_the_cap or 409_helper",
+        tags=("safety", "budget"),
+    ),
+    Mutation(
+        id="M1162", phase=96,
+        description="a failed call that may have been billed is left off the USD ledger",
+        path=APP / "claude_spend.py",
+        anchor="            if unbilled is None or not unbilled(exc):\n",
+        replacement="            if False:\n",
+        target="tests/test_claude_spend_routes.py",
+        keyword="may_have_been_billed or every_failure_is_charged",
+        tags=("budget", "honesty"),
+    ),
+    Mutation(
+        id="M1163", phase=96,
+        description="a limit mid-recheck throws away the findings already paid for",
+        path=APP / "claude_recheck.py",
+        anchor="            result = recheck_finding(finding, model_call, second_call)\n        except StopRun as exc:",
+        replacement="            result = recheck_finding(finding, model_call, second_call)\n        except ZeroDivisionError as exc:",
+        target="tests/test_claude_recheck.py",
+        keyword="finished_before_a_usd_limit",
+        tags=("budget",),
+    ),
+    Mutation(
+        id="M1164", phase=96,
+        description="a limit mid-draft throws away the CRS drafts already paid for",
+        path=APP / "claude_crs_comments.py",
+        anchor="            draft = draft_comment(finding, row, model_call, second_call)\n        except StopRun as exc:",
+        replacement="            draft = draft_comment(finding, row, model_call, second_call)\n        except ZeroDivisionError as exc:",
+        target="tests/test_claude_crs_comments.py",
+        keyword="finished_before_a_limit",
+        tags=("budget",),
+    ),
+    Mutation(
+        id="M1165", phase=96,
+        description="a limit mid-datasheet throws away the pages already paid for",
+        path=APP / "claude_datasheet.py",
+        anchor="                            model_call, second_call)\n        except StopRun as exc:",
+        replacement="                            model_call, second_call)\n        except ZeroDivisionError as exc:",
+        target="tests/test_claude_datasheet.py",
+        keyword="read_before_a_usd_limit",
+        tags=("budget",),
+    ),
+    Mutation(
+        id="M1166", phase=96,
+        description="a USD refusal of a run's first call answers 200 instead of 409",
+        path=APP / "claude_api.py",
+        anchor="    if stop == claude_spend.BudgetExceeded.count_key and _calls_before_refusal(model_call) == 0:",
+        replacement="    if False:",
+        target="tests/test_claude_spend_routes.py",
+        keyword="first_call_of_a_real_loop or over_the_cap or 409_helper",
+        tags=("budget",),
+    ),
+    Mutation(
+        id="M1167", phase=96,
+        description="an oversized answer is treated as never sent, so it escapes the USD ledger",
+        path=APP / "reader_transport.py",
+        anchor='                f"the {MAX_RESPONSE_BYTES} limit", sent=True)',
+        replacement='                f"the {MAX_RESPONSE_BYTES} limit")',
+        target="tests/test_reader_transport.py",
+        keyword="oversized_answer_is_marked_as_sent",
+        tags=("budget",),
     ),
 )

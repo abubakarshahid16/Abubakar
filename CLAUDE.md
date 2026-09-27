@@ -31,9 +31,12 @@ carries the client's name; only the owner can rename it.
    (local Ollama only — `ollama_url` validated by `config.check_model_url`),
    `reader_transport.py` (Claude API: the reasoning provider and the reader;
    off unless `REASONING_PROVIDER=claude` AND both `STANDARDS_READER_*` egress
-   flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`) and
+   flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
+   which the four `claude_api` review routes reach via `claude_spend.metered`) and
    `notifications.py` (SMTP, off by default). Known gap: the socket-containment
-   test does not yet cover `smtplib` (honesty audit entry 49). Call graph:
+   test does not yet cover `smtplib` (honesty audit entry 49). Known gap: the
+   `claude_api` review routes check the two egress flags but not
+   `REASONING_PROVIDER` (audit 2026-09-25 finding 1). Call graph:
    `docs/architecture-call-graph.md`.
 2. **Never** commit `backend/.env`. Never print, log, paste or commit a secret.
    Never put a token in a URL. Keys live only in `backend/.env`.

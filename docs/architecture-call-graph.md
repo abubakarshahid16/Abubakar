@@ -99,8 +99,12 @@ ms-marco-MiniLM-L-6-v2 int8 ONNX; OCR PP-OCRv6 tiny ONNX.
 **The Claude lane (revived 2026-09-25, #222):** `claude_api.router` is registered in `main.py`; its routes answer
 409 `model_disabled` unless both standards-reader egress flags are on. `reasoning_provider.get_provider()` picks
 `ClaudeProvider` only when `REASONING_PROVIDER=claude` AND both flags AND a key; otherwise `OllamaProvider`, with
-the reason logged. Every Claude call leaves through `reader_transport` (the one socket), is priced and capped by
-`claude_spend` (USD per step and total, ledger without text), and is cached by (model, prompt version, input hash). Page IMAGES (B4 vision reader, behind `GEOMETRY_READER_ENABLED`) ride in the same request: `Packet.images` -> `reader_api.build_request(images=...)` (PNG/JPEG only; same gates) -> `reader_transport`; the image digests are part of the prompt hash and cache key, and the worst-case cost counts image tokens.
+the reason logged. Every Claude call leaves through `reader_transport` (the one socket) and is priced and capped by
+`claude_spend` (USD per step and total, checked before the call, ledger without text). `ClaudeProvider` calls
+`ensure_affordable` itself and caches by (model, prompt version, input hash); the four `claude_api` review routes
+get the same check and ledger through `claude_spend.metered(transport, step)` inside `_model_call_or_409(step)`
+(one step per route, e.g. `claude-recheck`), plus `claude_budget`'s per-run call cap, and are NOT cached (fixed
+2026-09-27: before that they had only the call cap and their spend never reached the USD ledger). Page IMAGES (B4 vision reader, behind `GEOMETRY_READER_ENABLED`) ride in the same request: `Packet.images` -> `reader_api.build_request(images=...)` (PNG/JPEG only; same gates) -> `reader_transport`; the image digests are part of the prompt hash and cache key, and the worst-case cost counts image tokens.
 
 ## 4. Conversation
 
