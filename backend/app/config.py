@@ -628,6 +628,22 @@ class Settings(BaseSettings):
     #: +213 ms against 256, which keeps Tier 1 inside its 1-2 second target.
     rerank_max_tokens: int = 480
     rerank_batch: int = 16
+    #: ONNX intra-op threads for the RERANKER session only (the embedder has
+    #: its own setting). 0 = derive from the CPUs this process may run on
+    #: (`rerank_thread_count`). It used to be `num_thread` = 12, measured on
+    #: the 12-thread laptop - and on a 2-vCPU box the same 12 threads made a
+    #: 16-passage rerank 9.5x slower (8,979 ms vs 946 ms; retrieval audit L1).
+    #: Thread count changes scheduling, not arithmetic. Env: RERANK_THREADS.
+    rerank_threads: int = 0
+
+    #: THE ONE top-k. How many ranked passages an answer considers: the
+    #: lexical gate examines this many, the chat and /api/answer return this
+    #: many by default, and `scripts/eval_retrieval.py` reports recall at
+    #: exactly this k - so the benchmark's recall@k is the recall a chat user
+    #: actually gets. It was three places: the gate claimed 5, the chat asked
+    #: search for 3 (so the gate saw 3), and the benchmark reported r@5.
+    #: Retrieval still reranks `rerank_candidates` (16) before cutting to it.
+    answer_top_k: int = 5
 
     #: ONNX Runtime's CPU arena allocator reserves large per-thread blocks
     #: and never returns them. Measured on this machine (16 GB, 12 threads):
@@ -660,6 +676,26 @@ class Settings(BaseSettings):
     # to fit inside num_ctx alongside the prompt.
     answer_context_chars: int = 2400
     generated_context_chars: int = 1200
+    #: How many sources a LOCAL-model Tier 2 prompt carries. Three, as before:
+    #: the 4B model's num_ctx has to hold them (`context_budget` still guards
+    #: the token count). Chosen per provider - see the claude_context_* pair.
+    generated_context_passages: int = 3
+    #: The CLAUDE lane's Tier 2 packing. It was packed exactly like the local
+    #: model (3 x 1,200 chars inside the 4,096-token local window) although
+    #: nothing about Claude needs that. COST, stated rather than hidden: the
+    #: evidence grows from at most ~3,850 tokens (the local guard) to at most
+    #: `claude_context_tokens`; at claude-sonnet-5's USD 2 per million input
+    #: tokens that is at most +USD 0.016 per Claude Tier 2 answer (typically
+    #: ~+USD 0.004: 5 x 2,400 chars of prose is ~3,000 tokens against ~900).
+    #: Every call is still checked against the USD 5 per step / 20 total caps
+    #: by `claude_spend` before it leaves. Set these equal to the local values
+    #: to pay nothing extra. Env: CLAUDE_CONTEXT_PASSAGES / _CHARS / _TOKENS.
+    claude_context_passages: int = 5
+    claude_context_chars: int = 2400
+    #: Token guard for the Claude lane's evidence (estimate, `context_budget`),
+    #: in place of the local `num_ctx - max_output_tokens`. A CEILING on what
+    #: one answer's evidence can cost, not a target.
+    claude_context_tokens: int = 12000
     running_line_threshold: float = 0.03   # fraction of pages; a running head repeats per chapter, not book-wide
     # Only the top/bottom N lines of a page are considered for running
     # header/footer removal. NORSOK stacks four lines of furniture -
@@ -1011,6 +1047,8 @@ ANSWER_AFFECTING_SETTINGS = (
     "chunk_target_tokens", "chunk_overlap_tokens", "chunk_max_tokens",
     "search_candidates", "rerank_candidates", "rerank_max_tokens",
     "generated_context_chars", "answer_context_chars",
+    "answer_top_k", "generated_context_passages",
+    "claude_context_passages", "claude_context_chars", "claude_context_tokens",
     "ocr_rec_model", "ocr_expected_script",
 )
 
