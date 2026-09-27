@@ -653,9 +653,41 @@ def create_finding(
 
     `ai_rationale` is stored SEPARATELY from `finding`, so a reader can see why
     the system said what it said rather than only what it concluded.
+
+    One finding, one transaction. `run_comparison` does not come through here:
+    it prepares every finding of a run with `_prepare_finding` (the same gates)
+    and writes them together in ONE transaction (`_write_run_findings`).
     """
     submittal_review.ensure_schema()
+    row, unresolved = _prepare_finding(
+        review_run_id=review_run_id, submittal_document_id=submittal_document_id,
+        requirement=requirement, fact=fact, verdict=verdict, comment=comment,
+        model_opinion=model_opinion, severity=severity, category=category,
+        matched_phrase=matched_phrase, match_method=match_method)
+    conn = connect()
+    with conn:
+        _insert_findings(conn, [row])
+    return {**row, "unresolved_evidence": unresolved,
+            "citation_resolves": not unresolved}
 
+
+def _prepare_finding(
+    *, review_run_id: str, submittal_document_id: str, requirement: dict,
+    fact: dict | None, verdict: dict, comment: str | None = None,
+    model_opinion: str | None = None, severity: str = "major",
+    category: str = "requirement_deviation",
+    matched_phrase: str | None = None, match_method: str | None = None,
+    pending: dict | None = None, stored_replaced: bool = False,
+) -> tuple[dict, list[str]]:
+    """Every gate `create_finding` applies, and the row it would write. No write.
+
+    `pending` maps (requirement_id, fact_id) to the id of a finding already
+    prepared for the SAME run but not yet written - the duplicate gate must
+    see those as well as the stored rows, or a batch could hold two findings
+    for one pair. `stored_replaced` says the run's stored unconfirmed findings
+    are about to be deleted in the same transaction as this write, so they
+    cannot be duplicates of anything.
+    """
     # THE DUPLICATE GATE. A finding's identity within a run is the PAIR it is
     # about - which requirement, which fact (or no fact, for a
     # MISSING_INFORMATION verdict) - not the row id that will be minted for
@@ -668,10 +700,16 @@ def create_finding(
     # never deleted" note. This gate stops a SECOND unconfirmed row from
     # existing beside the first, not a re-run from proposing one at all.
     fact_id = (fact or {}).get("id")
-    duplicate = connect().execute(
+    duplicate = None if stored_replaced else connect().execute(
         "SELECT id FROM review_findings WHERE review_run_id = ?"
         " AND requirement_id = ? AND fact_id IS ? AND confirmed_by IS NULL",
         (review_run_id, requirement.get("id"), fact_id)).fetchone()
+    # The same test against the batch not yet written. `requirement_id = ?`
+    # never matches a NULL in SQL, so a requirement with no id is never a
+    # duplicate there, and is not one here either.
+    if (duplicate is None and pending and requirement.get("id") is not None
+            and (requirement.get("id"), fact_id) in pending):
+        duplicate = {"id": pending[(requirement.get("id"), fact_id)]}
     if duplicate is not None:
         raise ComparisonError(
             f"a finding already exists for this requirement and fact in this "
@@ -753,8 +791,12 @@ def create_finding(
         "created_at": now,
         "updated_at": now,
     }
-    conn = connect()
-    with conn:
+    return row, unresolved
+
+
+def _insert_findings(conn, rows: list[dict]) -> None:
+    """INSERT prepared findings and their first history event. Caller commits."""
+    for row in rows:
         conn.execute(
             """INSERT INTO review_findings
                (id, document_id, review_run_id, compliance_status, category,
@@ -782,9 +824,42 @@ def create_finding(
         review._event(conn, row["id"], "created_by_review", {
             "review_run_id": row["review_run_id"],
             "compliance_status": row["compliance_status"],
-            "approval_status": "pending"}, None, now)
-    return {**row, "unresolved_evidence": unresolved,
-            "citation_resolves": not unresolved}
+            "approval_status": "pending"}, None, row["created_at"])
+
+
+def _write_run_findings(review_run_id: str, rows: list[dict], *,
+                        replace: bool) -> None:
+    """A run's findings, written in ONE transaction - and, on a re-run, the
+    old unconfirmed findings deleted in that same transaction.
+
+    WHY ONE TRANSACTION. Each finding used to be its own commit, and with
+    `ensure_schema` re-checked per finding that was 8.7 ms a finding: 11.8 s
+    of a 1,355-requirement review spent on bookkeeping (perf audit item 1).
+    It also made a run ATOMIC, which it was not: a run that failed half way
+    left the old findings deleted and half of the new ones written, and the
+    review screen showed that half as the answer. Now a failure leaves the
+    previous findings exactly as they were.
+
+    Nothing slow happens inside it. The model tier, the matching and the
+    citation checks all run BEFORE this, while no write lock is held; only
+    the INSERTs are inside, so other writers wait milliseconds, not minutes.
+    """
+    conn = connect()
+    with conn:
+        if replace:
+            # CONFIRMED FINDINGS ARE NEVER DELETED. Re-running a comparison is
+            # how every fix to this engine reaches the corpus, so a finding an
+            # engineer has confirmed would otherwise survive only until the
+            # next maintenance action - destroyed by a routine re-run, with
+            # nothing on screen to say so.
+            #
+            # `standard_requirements` has followed this rule since 3B; findings
+            # are the same kind of artefact and now follow it too.
+            conn.execute(
+                "DELETE FROM review_findings WHERE review_run_id = ?"
+                " AND confirmed_by IS NULL",
+                (review_run_id,))
+        _insert_findings(conn, rows)
 
 
 def _required_action(status: str) -> str:
@@ -1206,21 +1281,9 @@ def run_comparison(
             f"({run['engineer_final_code']}); start a new review instead of "
             f"re-running the one the decision was made about")
 
-    if replace:
-        conn = connect()
-        with conn:
-            # CONFIRMED FINDINGS ARE NEVER DELETED. Re-running a comparison is
-            # how every fix to this engine reaches the corpus, so a finding an
-            # engineer has confirmed would otherwise survive only until the
-            # next maintenance action - destroyed by a routine re-run, with
-            # nothing on screen to say so.
-            #
-            # `standard_requirements` has followed this rule since 3B; findings
-            # are the same kind of artefact and now follow it too.
-            conn.execute(
-                "DELETE FROM review_findings WHERE review_run_id = ?"
-                " AND confirmed_by IS NULL",
-                (review_run_id,))
+    # A RE-RUN REPLACES THIS RUN'S UNCONFIRMED FINDINGS - in the same
+    # transaction that writes the new ones (`_write_run_findings`), so the
+    # run never shows an empty or half-written set while this one computes.
 
     applicable = submittal_review.list_applicable_standards(
         review_run_id, allowed_document_ids=allowed_document_ids,
@@ -1245,6 +1308,11 @@ def run_comparison(
     stored = classification_mod.of_document(submittal_id) or {}
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
     findings: list[dict] = []
+    # The run's findings, prepared and gated but NOT yet written: they go in
+    # one transaction after the loop. `pending` is the duplicate gate's view
+    # of them (see `_prepare_finding`).
+    prepared_rows: list[dict] = []
+    pending: dict = {}
     matches_attempted = matches_made = 0
     rule_refusals: dict[str, int] = {}
     model_matches = 0
@@ -1426,11 +1494,21 @@ def run_comparison(
                 f"(model tier: {model_reason})")}
             model_reasons[model_reason] = model_reasons.get(model_reason, 0) + 1
         opinion = (model_opinions or {}).get(requirement.get("id"))
-        findings.append(create_finding(
+        row, unresolved = _prepare_finding(
             review_run_id=review_run_id, submittal_document_id=submittal_id,
             requirement=requirement, fact=fact, verdict=verdict,
             model_opinion=opinion, matched_phrase=match["matched_phrase"],
-            match_method=match["method"]))
+            match_method=match["method"], pending=pending,
+            stored_replaced=replace)
+        pending[(row["requirement_id"], row["fact_id"])] = row["id"]
+        prepared_rows.append(row)
+        findings.append({**row, "unresolved_evidence": unresolved,
+                         "citation_resolves": not unresolved})
+
+    # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
+    # datasheet self-checks below, which add their own rows to this run and
+    # must not be deleted by it.
+    _write_run_findings(review_run_id, prepared_rows, replace=replace)
 
     # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against
     # itself, pure arithmetic, no standard needed. Written before the code is
@@ -1982,13 +2060,16 @@ def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, 
         "format": "json",
         # The answer path's reason: pay the cold load once for the run, not
         # once per requirement.
-        "keep_alive": "30m",
+        "keep_alive": settings.ollama_keep_alive,
         "options": {
             "temperature": 0,
             "seed": settings.match_seed,
             "num_ctx": settings.num_ctx,
             "num_predict": 120,
             "num_thread": settings.num_thread,
+            # The same runner as every other caller (model_transport.
+            # runner_options): a missing num_batch made Ollama reload the model.
+            "num_batch": settings.num_batch,
         },
     }
     try:
