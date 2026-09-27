@@ -811,6 +811,15 @@ class Settings(BaseSettings):
     #: sends nothing - it also needs the Claude lane (REASONING_PROVIDER=claude,
     #: both STANDARDS_READER_* egress flags and a key), within the USD caps.
     review_ai_check_enabled: bool = False
+    #: Owner order 2d-2: for a standard the datasheet cites but the library
+    #: does not hold, an OPTIONAL check against a PUBLIC web copy. OFF BY
+    #: DEFAULT. Never for a company standard (SAES/SAMSS/KOC-* and the like) -
+    #: those always read "Company standard - upload required" and nothing is
+    #: searched for them. On its own this flag sends nothing either: it also
+    #: needs the market lane's own two egress flags (`market_live_enabled`,
+    #: `market_allow_public_egress`) and a configured search tier, and goes
+    #: through that lane's host allowlist, rate limit and audit.
+    review_web_standards_enabled: bool = False
     #: Owner order 2a: let Claude turn a table/formula clause the code parser
     #: cannot read into rule_eval's structured form. Accepted ONLY when every
     #: number in the parse appears verbatim on the clause's page; the

@@ -337,6 +337,9 @@ export interface ReviewFinding {
   /** Owner order section 3: the engineer's own wording, when edited. The CRS
    *  prints it in place of the review's text. */
   engineer_comment?: string | null;
+  //  origin can also be "web_standard_check" (owner order 2d-2, kind D):
+  //  checked against a public web copy of a standard, never the contract
+  //  copy - shown only after an engineer confirms, never counted.
   standard_document_id?: string | null;
   standard_clause?: string | null;
   standard_page?: number | null;

@@ -48,6 +48,13 @@ _AI_ORIGIN = "ai_engineering_check"
 ROW_KIND_DATASHEET_CHECK = "datasheet_check"
 _DATASHEET_ORIGIN = "datasheet_check"
 _AI_CONFIRMED_BY = "AI engineering check, confirmed by "
+#: Owner order 2d-2: a public-web standards check item (kind D,
+#: `origin = 'web_standard_check'`). Same confirm-or-off-the-sheet rule as
+#: kind C - unconfirmed rides in "AI Review Comments", confirmed moves to
+#: COMPANY Comments under the engineer's name, rejected is not on the sheet.
+ROW_KIND_WEB_STANDARD_CHECK = "web_standard_check"
+_WEB_ORIGIN = "web_standard_check"
+_WEB_CONFIRMED_BY = "Web check, confirmed by "
 
 #: The compliance status a MISSING_INFORMATION finding carries. Compared as a
 #: literal, not imported from `comparison`, because this module stays pure
@@ -344,30 +351,35 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "row_kind": ROW_KIND_ENGINEER_COMMENT,
         })
 
-    # Owner order 2d/2f: AI engineering check items. Never a verdict - a
-    # question for the contractor once an engineer has confirmed it, and
-    # until then a draft in its own column that COMPANY Comments never holds.
+    # Owner order 2d/2f and 2d-2: AI engineering check (kind C) and public-web
+    # standards check (kind D) items. Neither is ever a verdict - a question
+    # for the contractor once an engineer has confirmed it, and until then a
+    # draft in its own column that COMPANY Comments never holds.
     for f in findings:
-        if f.get("origin") != _AI_ORIGIN or f.get("approval_status") == "rejected":
+        origin = f.get("origin")
+        if origin not in (_AI_ORIGIN, _WEB_ORIGIN) or f.get("approval_status") == "rejected":
             continue
         text = f.get("engineer_comment") or " ".join(
             p for p in (f.get("finding"), f.get("required_action")) if p)
-        relates = _ai_relates_to(f)
-        if relates and not f.get("engineer_comment"):
-            text += f" (Relates to {relates}.)"
+        if origin == _AI_ORIGIN:
+            relates = _ai_relates_to(f)
+            if relates and not f.get("engineer_comment"):
+                text += f" (Relates to {relates}.)"
         where = " / ".join(p for p in (
             f"submittal p{f['contractor_page']}" if f.get("contractor_page") else "",
             f.get("contractor_section") or "") if p)
         confirmed = bool(f.get("confirmed_by"))
+        confirmed_by_prefix = _AI_CONFIRMED_BY if origin == _AI_ORIGIN else _WEB_CONFIRMED_BY
+        row_kind = ROW_KIND_AI_ENGINEERING_CHECK if origin == _AI_ORIGIN else ROW_KIND_WEB_STANDARD_CHECK
         rows.append({
             "finding_id": f.get("id") or "",
             "document_name": submittal_name,
             "page_section": where,
             "comment": text if confirmed else "",
-            "comment_by": (f"{_AI_CONFIRMED_BY}{f.get('confirmed_by_name') or f['confirmed_by']}"
+            "comment_by": (f"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}"
                            if confirmed else ""),
             "ai_review_comment": "" if confirmed else text,
-            "row_kind": ROW_KIND_AI_ENGINEERING_CHECK,
+            "row_kind": row_kind,
         })
 
     # OWNER ORDER 2f: THE INTERNAL NOTES LEFT THIS SHEET. Requirements that

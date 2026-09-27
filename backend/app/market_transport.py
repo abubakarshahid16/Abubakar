@@ -151,3 +151,35 @@ def transport() -> market_providers.Fetch | None:
     if not available():
         return None
     return _fetch
+
+
+def fetch_text(url: str, *, timeout: float) -> str:
+    """Owner order 2d-2: the page text a web standards check verifies a
+    quote against. SAME GATES as `_fetch` (both egress flags, the host
+    allowlist, redirects off, no cookies, no ambient proxy, a size cap) -
+    this is the same socket this module already owns, reading text instead
+    of decoding JSON, not a second transport.
+    """
+    if not available():
+        raise TransportRefused(
+            "public egress is disabled; both market_live_enabled and "
+            "market_allow_public_egress must be true"
+        )
+    market_providers.check_host(url)
+    with httpx.Client(
+        timeout=httpx.Timeout(timeout), follow_redirects=False,
+        cookies=None, trust_env=False,
+    ) as client:
+        response = client.get(url, headers={"User-Agent": USER_AGENT})
+    if response.status_code >= 400:
+        raise httpx.HTTPStatusError(
+            f"{response.status_code} from {response.request.url.host}",
+            request=response.request, response=response,
+        )
+    if len(response.content) > MAX_RESPONSE_BYTES:
+        raise TransportRefused(
+            f"response from {response.request.url.host} is "
+            f"{len(response.content)} bytes, over the "
+            f"{MAX_RESPONSE_BYTES} limit"
+        )
+    return response.text
