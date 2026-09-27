@@ -295,7 +295,20 @@ describe("section 3: the run's four totals and counts by kind", () => {
       { origin: "chat" },
       { origin: "datasheet_check", approval_status: "rejected" },
     ]);
-    expect(counts).toEqual({ a: 1, b: 1, cConfirmed: 1, cUnconfirmed: 1 });
+    expect(counts).toEqual({
+      a: 1, b: 1, cConfirmed: 1, cUnconfirmed: 1, dConfirmed: 0, dUnconfirmed: 0,
+    });
+  });
+
+  it("counts a public web standards check as its own kind D, split by confirmation", () => {
+    const counts = kindCounts([
+      { origin: "web_standard_check", confirmed_by: null },
+      { origin: "web_standard_check", confirmed_by: "u1" },
+      { origin: "web_standard_check", confirmed_by: "u1", approval_status: "rejected" },
+    ]);
+    expect(counts).toEqual({
+      a: 0, b: 0, cConfirmed: 0, cUnconfirmed: 0, dConfirmed: 1, dUnconfirmed: 1,
+    });
   });
 });
 

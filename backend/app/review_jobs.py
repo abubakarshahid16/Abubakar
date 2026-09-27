@@ -153,6 +153,26 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
         logging.getLogger(__name__).warning("AI engineering check skipped: %s", type(exc).__name__)
 
 
+def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
+    """Owner order 2d-2: the public web standards check, AFTER the comparison
+    decided the code, only with its flag on. Drafts only (kind D); a failure
+    here (no transport, a fetch error, an unverifiable quote) never fails
+    the review - it is logged by kind, never with text or the identifier
+    that failed."""
+    from . import web_standards
+    if not settings.review_web_standards_enabled:
+        return
+    try:
+        from . import market_transport
+        web_standards.run_check(
+            run_id, allowed_document_ids=scope, missing_identifiers=missing,
+            fetch_search=market_transport.transport(),
+            fetch_text=lambda url, timeout: market_transport.fetch_text(url, timeout=timeout))
+    except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
+        import logging
+        logging.getLogger(__name__).warning("web standards check skipped: %s", type(exc).__name__)
+
+
 def run(job_id: str, worker_id: str) -> str:
     """Run one claimed review job to its end. Returns the job's final state."""
     from . import applicability, comparison, errors, submittal_review
@@ -177,6 +197,7 @@ def run(job_id: str, worker_id: str) -> str:
             reference_coverage=selection.get("reference_coverage"),
             missing_references=[m["identifier"] for m in selection["missing_references"]])
         _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+        _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
     except _Cancelled:
         with conn:
             conn.execute("DELETE FROM review_findings WHERE review_run_id = ?"

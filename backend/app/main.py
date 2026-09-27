@@ -3751,9 +3751,11 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         finding["standard_name"] = names.get(finding.get("standard_document_id"))
     # Owner order 2d/2f: a confirmed AI engineering check item is printed
     # "confirmed by <name>" - the engineer's display name, never their id.
-    # Section 3: an edited comment names its editor the same way.
+    # Section 3: an edited comment names its editor the same way. 2d-2: a
+    # confirmed web standards check item does too.
     confirmers = {f["confirmed_by"] for f in findings
-                  if (f.get("origin") == "ai_engineering_check" or f.get("engineer_comment"))
+                  if (f.get("origin") in ("ai_engineering_check", "web_standard_check")
+                      or f.get("engineer_comment"))
                   and f.get("confirmed_by")}
     if confirmers:
         marks = ",".join("?" for _ in confirmers)

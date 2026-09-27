@@ -326,3 +326,42 @@ def review_ai_check(
         raise HTTPException(status_code=409, detail=errors.safe_error(
             MODEL_DISABLED, f"the AI engineering check did not run: {type(exc).__name__}")) from None
     return {"review_run_id": review_run_id, **result}
+
+
+class WebCheckResult(BaseModel):
+    """What the public web standards check did: counts and reasons, never
+    text - the same shape as `AiCheckResult`, kind D beside kind C."""
+
+    review_run_id: str
+    ran: bool
+    reason: str | None = None
+    checked: int = 0
+    kept: int = 0
+
+
+@router.post("/api/reviews/runs/{review_run_id}/web-check", response_model=WebCheckResult)
+def review_web_check(
+    review_run_id: str, request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Owner order 2d-2: check the standards this run cites but the library
+    does not hold, against a PUBLIC web copy - a company standard is never
+    attempted. Drafts only - pending, unconfirmed, never counted in the
+    review code. 409 when the flag or the market lane is off; nothing is
+    sent then."""
+    from . import web_standards
+    from .main import _missing_references
+    reject_unknown_params(request, set())
+    _require_identity_to_write(scope)
+    run = _run_or_404(review_run_id, scope)
+    ok, why = web_standards.available()
+    if not ok:
+        raise HTTPException(status_code=409, detail=errors.safe_error(MODEL_DISABLED, why))
+    from . import market_transport
+    result = web_standards.run_check(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids,
+        missing_identifiers=_missing_references(
+            run["submittal_document_id"], scope.allowed_document_ids),
+        fetch_search=market_transport.transport(),
+        fetch_text=lambda url, timeout: market_transport.fetch_text(url, timeout=timeout))
+    return {"review_run_id": review_run_id, **result}
