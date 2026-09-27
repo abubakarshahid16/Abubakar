@@ -101,6 +101,13 @@ privacy ADR depends on, and once the product's headline promise itself:
 | 67 | `market_phrase._strip_filenames` (market screen, and chat web search from PR #269): **"Remove every corpus filename, with and without its extension"** | **Not a file name typed with spaces.** It removed the exact name, the stem and the stem with every separator deleted, but a reader names `coating-inspection-plan.pdf` as "coating inspection plan", and that form passed the whitelist word by word and reached the outbound phrase. Nothing had leaked - both web lanes are off by default and have never been switched on - but the guard's own description was false for the commonest way a person types a file name. Found 2026-09-26 while building chat web search. Fixed: each name also matches as its parts in order with any mix of spaces, hyphens, underscores or dots (or none) between them, with or without the extension, case-insensitive. Tests type each variant through both the market route and chat web search; a mutation removing the new pattern is detected. |
 | 68 | `page_ledger` / `datasheets._extract_facts` (B4): **a page's `facts_status` says whether it was read into fields** | **It said `no_facts` for pages that carried recorded, current facts.** B4 counted only the rule readers' facts toward the page outcome; a page filled only by the geometry or vision reader kept "no_facts" while its facts sat in `submittal_facts`. Found 2026-09-26 on an owner run of a real vessel datasheet (aggregate only: three pages with recorded facts read `no_facts`). Owner decision 2026-09-26, in two halves. (1) The ledger and the screen say a page with recorded current facts IS read, whichever reader wrote them: extraction counts every reader's facts for the page outcome (a page read only by the page reader carries a note saying so), and `refresh` promotes an older recorded `no_facts` while the page carries current facts (derived, so it drops back if they are superseded). (2) An ABSENCE on a page read only by the geometry/vision reader is still not the contractor's omission: `comparison.qualify_by_pages` keeps it NEEDS_ENGINEER_REVIEW with the reason "value not found by the page reader - engineer to check the page" (`PAGE_READER_ONLY`), because that reader is not known to find every field on a page; MISSING_INFORMATION from absence stays limited to pages the rule/text reader read (`page_ledger.TEXT_READER_METHODS`, an allow-list). Such findings are one summary row on the CRS, never a contractor comment each. M595's intent restored on the absence rule; M1021-M1025 added. |
 | 69 | `datasheets.states_a_value` (#179): **"A quantity, an explicit blank, or a closed categorical answer - anything else is a caption"** | **Not for a designation, and not for a value printed after its unit.** "Shell material: SA-516 GR.70", "Design code: ASME VIII DIV. 1" and "Radiography: FULL" are real fields and were refused as captions; a process-data row printed label / unit / value was paired as label -> unit, so the unit was refused and the number never paired. Found 2026-09-26 by the owner-ordered filter audit, after a real vessel sheet (aggregate only) recovered 10-44 pairs per page and kept none; reproduced on synthetic layouts (`tests/synthetic_vessel_sheet.py`). Fixed narrowly: designations (a family prefix and a number) and six closed engineering words are answers; a bare unit followed by a number is read as the value with its unit. Names, places and document numbers are still refused (tested); free text such as a service name remains unread and is named as a gap in `docs/extraction-filter-audit.md`. |
+| 70 | PR #285 (`93a78ae`): the page ledger carries a real, specific reason each page did or did not read into fields | **Computed, then thrown away before the readiness strip.** See the section "Readiness strip, 2026-09-27 (entry 70)" below. |
+| 71 | `crs_mapping.build_crs_rows`: every CRS row says who the comment is by | **Blank for an unconfirmed AI or web item.** See "CRS export, 2026-09-27 (entry 71)" below. |
+| 72 | `CLAUDE.md` rule 1: the Claude API lane runs only **"under the budget of USD 5 per step / USD 20 in total (enforced in `claude_spend`)"** | **Not for four of the five `claude_api` routes.** `claude_select_standards`, `claude_read_datasheet`, `claude_recheck_findings` and `claude_crs_draft` took their model call from `_model_call_or_409()`, capped only by `claude_budget`'s call count (200 per run). Their usage went to a separate `model_spend` table the USD total never read. Fixed on `fix/claude-dollar-cap-all-routes`: `claude_spend.metered` checks every call before it leaves and records it in the one ledger. |
+| 73 | Commit `419ef4c`: fixed "datasheet checks silently checking nothing" and added "Centrifugal Compressor" / "Reciprocating Compressor" to the classifier | **False for exactly those two labels.** The mandatory table's key was "Compressor" and the lookup was verbatim, so both fell to the 2-field generic list instead of the 4-field compressor list. No test tried the new labels. Fixed on `fix/compressor-mandatory-checks`: lookup by family (`match_rules.sheet_kind_from_equipment_type`) and a test over every label the classifier can emit. |
+| 74 | `rule_eval.judge`: **"<field> not stated on the datasheet"** means the datasheet does not state it | **Also said for a field stated twice with different values.** `_field` returned `None` for absence and for conflict alike, so a contradiction an engineer must reconcile was shown as a gap. Fixed on `fix/rule-eval-conflict-not-missing`: a conflict is `NEEDS_ENGINEER_REVIEW` with every value and its page. |
+| 75 | `web_standards` docstring: **"NEVER COMPARED ACROSS EDITIONS"** | **The guard was never called.** `edition_differs` was unit-tested only; `run_check` did not know the cited edition. Fixed on `fix/web-standards-edition-guard`: the cited edition is read locally from the submittal, and a differing or unconfirmed edition is never compared. |
+| 76 | `contracts/types.ts`: a null `disk_percent` renders as "not measured yet" | **It rendered as a green 0% bar and "0 B free".** The Disk card used `disk_percent ?? 0`; `WorkerPanel` likewise showed "pending 0" before worker data arrived. Fixed on `fix/disk-card-unmeasured`. |
 
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
@@ -1469,3 +1476,36 @@ decides which prefix a CONFIRMED row gets) and confirmed DETECTED.
    A test that asserts the blank as the intended shape (as this project's own test did)
    turns the defect into a specification; read what a test proves as carefully as what
    it merely permits to pass.
+
+## Follow-up audit, 2026-09-27 (honesty audit entries 72-76): five claims the code did not keep
+
+Recorded by Claude (Cowork) on 2026-09-27, from a static audit of `main` at `9ac07cf`
+whose five findings were each re-verified against the code before fixing. Each fix is
+on its own branch, with a test proven by mutation (the test fails with the fix
+reverted). Nothing here was run against the live database.
+
+- **72 - the USD cap.** The most serious: real money. Four Claude routes could spend
+  past the owner's USD 5 per step / USD 20 total limits, and their spend was booked in a
+  ledger the limit never read. Two ledgers for one budget is the defect; one wrapper
+  (`claude_spend.metered`) inside `_model_call_or_409(step)` now serves every route.
+  Still open and recorded in `CLAUDE.md`: these routes do not check
+  `REASONING_PROVIDER=claude` (audit of 2026-09-25, finding 1).
+- **73 - compressor checklists.** A fix for "a label the table does not know gets
+  nothing" introduced two labels the table did not know. The new test enumerates the
+  classifier's own vocabulary, so the two lists cannot drift apart without a failure.
+- **74 - conflict reported as absence.** Rule 4 ("not mentioned is never compliant")
+  has a mirror image: "contradicted is never not-mentioned".
+- **75 - the edition guard.** A safety guarantee written in a docstring and tested as a
+  helper, but not in the path. `edition_differs(None, ...)` returns False, meaning "not
+  proven different", which is not "same"; `edition_confirmed_same()` is now the only
+  way into `compare()`.
+- **76 - null as 0.** The CPU card beside it already had the guard; the Disk card did
+  not. The same `?? 0` sweep found `WorkerPanel`.
+
+### The rule this produces
+
+25. **A helper that exists and is tested is not a guarantee until the path calls it,
+   and a limit is not a limit until every caller meets it.** Three of these five
+   (72, 73, 75) are the same shape: the protective code was written, tested in
+   isolation, and not reached by the route that needed it. When recording a guarantee,
+   name the route that enforces it and test through that route.
