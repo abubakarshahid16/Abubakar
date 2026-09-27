@@ -753,20 +753,35 @@ def _cache_write(key: str, value: dict) -> None:
 
 # ------------------------------------------------------------------- selection
 
-def claude_available() -> tuple[bool, str]:
-    """Whether Claude may be used, and if not, why (never the key itself)."""
+#: Why Claude may not be used - a closed list, so a screen can say it in
+#: plain words without parsing `claude_available`'s message.
+UNAVAILABLE_PROVIDER_OFF = "PROVIDER_OFF"
+UNAVAILABLE_EGRESS_OFF = "EGRESS_OFF"
+UNAVAILABLE_KEY_MISSING = "KEY_MISSING"
+
+
+def claude_unavailable() -> tuple[str | None, str]:
+    """(code, why) - code is None when Claude may be used. The ONE place the
+    three local conditions are checked; `claude_available` is a view of it.
+    Never the key itself, only whether one is present."""
     from . import reader_api
 
     if (settings.reasoning_provider or "").strip().lower() != CLAUDE:
-        return False, f"REASONING_PROVIDER={settings.reasoning_provider!r}"
+        return UNAVAILABLE_PROVIDER_OFF, f"REASONING_PROVIDER={settings.reasoning_provider!r}"
     cfg = reader_api.ReaderSettings.from_env()
     if not (cfg.enabled and cfg.allow_public_egress):
-        return False, "standards-reader egress flags are off"
+        return UNAVAILABLE_EGRESS_OFF, "standards-reader egress flags are off"
     import os
     if not (str(os.environ.get(reader_api.API_KEY_ENV) or "").strip()
             or str(settings.anthropic_api_key or "").strip()):
-        return False, "no ANTHROPIC_API_KEY"
-    return True, "claude"
+        return UNAVAILABLE_KEY_MISSING, "no ANTHROPIC_API_KEY"
+    return None, "claude"
+
+
+def claude_available() -> tuple[bool, str]:
+    """Whether Claude may be used, and if not, why (never the key itself)."""
+    code, why = claude_unavailable()
+    return code is None, why
 
 
 def get_provider(role: str = "reasoning", *, step: str | None = None) -> ReasoningProvider:

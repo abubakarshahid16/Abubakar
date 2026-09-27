@@ -429,6 +429,23 @@ export interface ReviewReadiness {
   changes: string[];
 }
 
+/** Whether the vision reader (Claude, page images) can be used right now.
+ *  A closed state and fixed plain words - never a key, a document or an
+ *  exception message. Mirrors schemas.VisionReaderStatus. */
+export type VisionReaderState =
+  | "READY" | "GEOMETRY_OFF" | "PROVIDER_OFF" | "EGRESS_OFF" | "KEY_MISSING"
+  | "BUDGET_REACHED" | "KEY_INVALID" | "RATE_LIMITED" | "NETWORK_BLOCKED"
+  | "HOST_REFUSED" | "UNEXPECTED";
+
+export interface VisionReaderStatus {
+  state: VisionReaderState;
+  ready: boolean;
+  reason: string;
+  fix: string;
+  detail: string | null;
+  checked_at: string;
+}
+
 export interface CrsPreview {
   title: string;
   subtitle: string;

@@ -3954,6 +3954,26 @@ def review_reread_pages(
     return _readiness_payload(submittal_document_id, scope)
 
 
+@app.get("/api/reviews/vision-reader-status",
+         response_model=schemas.VisionReaderStatus,
+         responses=schemas.ERRORS_422)
+def review_vision_reader_status(
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Can the vision reader (Claude, page images) be used right now, and if
+    not, what to change - the line beside "Read unread pages".
+
+    ABOUT THE SERVICE, NOT ANYBODY'S DOCUMENTS: it names no document and
+    reads none, so it asks only for a resolved scope like every other review
+    route. At most one GET /v1/models a minute (cached in `vision_reader`),
+    which costs no tokens and carries no document content.
+    """
+    reject_unknown_params(request, set())
+    from . import vision_reader
+    return vision_reader.reader_status()
+
+
 @app.get("/api/reviews/runs/{review_run_id}/crs",
          response_class=Response,
          # A binary download still declares what it returns. Every other

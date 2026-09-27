@@ -277,10 +277,14 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
             " cancelled" if cancelled else "")
 
 
-def list_models() -> list[str]:
+def list_models(*, timeout: float | None = None) -> list[str]:
     """The model ids this key may use (GET /v1/models), through the same gates
     as `transport()`: both flags, https, allowed host. Ids only - nothing else
-    from the response is returned or logged."""
+    from the response is returned or logged.
+
+    `timeout` (seconds) overrides the reader's own for a quick reachability
+    check (`vision_reader.reader_status`): a status line must not hang for
+    the length of a page read. Costs no tokens either way."""
     from .reader_api import build_models_request  # the one request builder
 
     if not available():
@@ -290,7 +294,8 @@ def list_models() -> list[str]:
     if not request["url"].startswith("https://") or host not in ReaderSettings.from_env().allowed_hosts:
         raise ReaderRefused(f"reader transport refuses host {host!r}")
     sent_headers = {"User-Agent": USER_AGENT, "Accept": "application/json", **request["headers"]}
-    with httpx.Client(timeout=httpx.Timeout(request["timeout"]), follow_redirects=False,
+    with httpx.Client(timeout=httpx.Timeout(request["timeout"] if timeout is None else timeout),
+                      follow_redirects=False,
                       cookies=None, trust_env=False) as client:
         response = client.get(request["url"], headers=sent_headers)
     if response.status_code >= 400:

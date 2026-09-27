@@ -498,3 +498,137 @@ def provider():
     if not ok:
         return None, why
     return get_provider("reasoning", step=VISION_STEP), None
+
+
+# ------------------------------------------------------------ reader status
+#
+# WHY THIS EXISTS. "Read unread pages" used to fail page by page with a raw
+# error ("HTTPStatusError: 401 ...") or not run at all, and the screen could
+# not say why BEFORE the click. `reader_status` answers one question - can
+# the vision reader be used right now, and if not, what is the owner to
+# change - in the order the owner would fix things: local settings first
+# (free), the spend caps next (free), then one GET /v1/models through the
+# approved lane (no tokens, no document content, the key only in the header
+# `reader_api` already builds). Never the key, never a document, never an
+# exception message - only a closed state, fixed words and an HTTP status.
+
+STATUS_TTL_S = 60.0
+STATUS_TIMEOUT_S = 5.0
+
+#: state -> (what is wrong, what to change). Plain words for the screen.
+STATUS_TEXT: dict[str, tuple[str, str]] = {
+    "READY": ("Vision reader ready.", ""),
+    "GEOMETRY_OFF": (
+        "The page-image reader is switched off.",
+        "Set GEOMETRY_READER_ENABLED=true in backend/.env and restart the backend."),
+    "PROVIDER_OFF": (
+        "Claude is not the selected reasoning provider.",
+        "Set REASONING_PROVIDER=claude in backend/.env and restart the backend."),
+    "EGRESS_OFF": (
+        "Sending pages to Claude is not permitted in the settings.",
+        "Set STANDARDS_READER_ENABLED=true and STANDARDS_READER_ALLOW_PUBLIC_EGRESS=true "
+        "in backend/.env and restart the backend."),
+    "KEY_MISSING": (
+        "No Claude API key is configured.",
+        "Add ANTHROPIC_API_KEY to backend/.env and restart the backend."),
+    "BUDGET_REACHED": (
+        "The Claude spending cap is reached.",
+        "Raise CLAUDE_BUDGET_USD_PER_STEP or CLAUDE_BUDGET_USD_TOTAL in backend/.env only "
+        "if the owner approves, then restart the backend."),
+    "KEY_INVALID": (
+        "Claude rejected the API key.",
+        "Check the key in backend/.env is current and active, then restart the backend."),
+    "RATE_LIMITED": (
+        "Claude is busy or rate-limiting this key.",
+        "Wait a minute and try again."),
+    "NETWORK_BLOCKED": (
+        "Claude cannot be reached from this machine.",
+        "Check the internet connection, firewall or proxy for api.anthropic.com."),
+    "HOST_REFUSED": (
+        "The configured Claude address is not on the allowed list.",
+        "Remove or correct STANDARDS_READER_BASE_URL in backend/.env (only api.anthropic.com is allowed)."),
+    "UNEXPECTED": (
+        "Claude answered in an unexpected way.",
+        "Try again; if it repeats, check the backend log."),
+}
+
+_status_cache: dict[str, Any] = {}
+
+
+def _status(state: str, *, detail: str | None = None, now: float) -> dict:
+    from datetime import datetime, timezone
+    reason, fix = STATUS_TEXT[state]
+    return {"state": state, "ready": state == "READY", "reason": reason, "fix": fix,
+            "detail": detail,
+            "checked_at": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(timespec="seconds")}
+
+
+def _local_status(now: float) -> dict | None:
+    """The free checks, in fixing order. None when all pass."""
+    from . import claude_spend
+    from .config import settings
+    from .reasoning_provider import claude_unavailable
+
+    if not settings.geometry_reader_enabled:
+        return _status("GEOMETRY_OFF", now=now)
+    code, _why = claude_unavailable()
+    if code is not None:
+        return _status(code, now=now)
+    caps = claude_spend.Caps.from_settings()
+    step, total = claude_spend.spent(VISION_STEP), claude_spend.spent()
+    if step >= caps.per_step:
+        return _status("BUDGET_REACHED", now=now,
+                       detail=f"vision step: ${step:.2f} of ${caps.per_step:.2f}")
+    if total >= caps.total:
+        return _status("BUDGET_REACHED", now=now,
+                       detail=f"total: ${total:.2f} of ${caps.total:.2f}")
+    return None
+
+
+def _probe_status(now: float) -> dict:
+    """One GET /v1/models, turned into a state. Exception TYPE and HTTP
+    status only - an exception message can carry a URL or a header."""
+    import httpx
+
+    from . import reader_transport
+    from .reader_api import ReaderRefused
+
+    try:
+        reader_transport.list_models(timeout=STATUS_TIMEOUT_S)
+    except reader_transport.TransportRefused:
+        return _status("EGRESS_OFF", now=now)
+    except ReaderRefused:
+        return _status("HOST_REFUSED", now=now)
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code if exc.response is not None else None
+        detail = f"HTTP {code}" if code else None
+        if code in (401, 403):
+            return _status("KEY_INVALID", detail=detail, now=now)
+        if code in (429, 529):
+            return _status("RATE_LIMITED", detail=detail, now=now)
+        return _status("UNEXPECTED", detail=detail, now=now)
+    except (httpx.TimeoutException, httpx.TransportError) as exc:
+        return _status("NETWORK_BLOCKED", detail=type(exc).__name__, now=now)
+    except Exception as exc:  # noqa: BLE001 - a status line must answer, not raise
+        return _status("UNEXPECTED", detail=type(exc).__name__, now=now)
+    return _status("READY", now=now)
+
+
+def reader_status(*, force: bool = False, now: float | None = None) -> dict:
+    """Can the vision reader be used right now, and if not, why.
+
+    Returns {state, ready, reason, fix, detail, checked_at}. Cached for
+    STATUS_TTL_S so a screen that asks on every render makes at most one
+    network call a minute. The free local checks are never cached: a
+    setting flipped and restarted shows at once."""
+    import time
+    now = time.time() if now is None else now
+    local = _local_status(now)
+    if local is not None:
+        return local
+    cached = _status_cache.get("probe")
+    if not force and cached and now - cached[0] < STATUS_TTL_S:
+        return cached[1]
+    result = _probe_status(now)
+    _status_cache["probe"] = (now, result)
+    return result

@@ -21,6 +21,7 @@ const readiness = vi.fn();
 const rereadPages = vi.fn();
 const previewCrs = vi.fn();
 const startReviewRun = vi.fn();
+const visionReaderStatus = vi.fn();
 
 vi.mock("../api/client", () => ({
   api: { documents: (...args: unknown[]) => documents(...args) },
@@ -31,6 +32,7 @@ vi.mock("../api/client", () => ({
     rereadPages: (...args: unknown[]) => rereadPages(...args),
     previewCrs: (...args: unknown[]) => previewCrs(...args),
     startReviewRun: (...args: unknown[]) => startReviewRun(...args),
+    visionReaderStatus: (...args: unknown[]) => visionReaderStatus(...args),
     reviewRunStandards: async () => ({ ok: true, data: { standards: [] } }),
     exportCrs: vi.fn(),
     decideCode: vi.fn(),
@@ -73,7 +75,7 @@ function finding(over: Partial<ReviewFinding>): ReviewFinding {
 }
 
 beforeEach(() => {
-  for (const mock of [documents, reviewRuns, list, readiness, rereadPages, previewCrs, startReviewRun]) mock.mockReset();
+  for (const mock of [documents, reviewRuns, list, readiness, rereadPages, previewCrs, startReviewRun, visionReaderStatus]) mock.mockReset();
   documents.mockResolvedValue({
     ok: true,
     data: [{ id: "doc-sub", filename: "vessel.pdf", document_role: "CONTRACTOR_SUBMITTAL" }],
@@ -82,6 +84,9 @@ beforeEach(() => {
   list.mockResolvedValue({ ok: true, data: { findings: [] } });
   readiness.mockResolvedValue({ ok: true, data: ready() });
   startReviewRun.mockResolvedValue({ ok: true, data: { review_run_id: "run-3" } });
+  visionReaderStatus.mockResolvedValue({ ok: true, data: {
+    state: "READY", ready: true, reason: "Vision reader ready.", fix: "", detail: null,
+    checked_at: "2026-09-27T00:00:00+00:00" } });
 });
 
 async function pickSubmittal() {
@@ -233,5 +238,22 @@ describe("Read unread pages", () => {
 
     await userEvent.click(strip.getByRole("button", { name: "Read unread pages" }));
     expect(await strip.findByRole("alert")).toHaveTextContent("budget exceeded");
+  });
+});
+
+describe("vision reader status beside Read unread pages", () => {
+  it("shows the real reason and the fix when page images cannot be read", async () => {
+    visionReaderStatus.mockResolvedValue({ ok: true, data: {
+      state: "KEY_INVALID", ready: false, reason: "Claude rejected the API key.",
+      fix: "Check the key in backend/.env is current and active, then restart the backend.",
+      detail: "HTTP 401", checked_at: "2026-09-27T00:00:00+00:00" } });
+    render(<ReviewRunsView />);
+    const strip = within(await pickSubmittal());
+
+    const line = await strip.findByText(/Page images will not be read/);
+    expect(line).toHaveTextContent("Claude rejected the API key.");
+    expect(line).toHaveTextContent("HTTP 401");
+    // the text readers still run, so the button is not blocked
+    expect(strip.getByRole("button", { name: "Read unread pages" })).toBeEnabled();
   });
 });

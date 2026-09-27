@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, reviews as reviewsApi } from "../api/client";
 import type {
   CrsPreview, CrsReviewNote, DocumentRecord, ReviewFinding, ReviewReadiness,
-  ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary,
+  ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, VisionReaderStatus,
 } from "../types/api";
 import { FindingDetail } from "../components/review/FindingDetail";
 import { FindingsTable } from "../components/review/FindingsTable";
@@ -563,6 +563,7 @@ function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
 }) {
   const [rereading, setRereading] = useState(false);
   const [rereadError, setRereadError] = useState<string | null>(null);
+  const vision = useVisionReaderStatus(readiness.unread_pages.length > 0, rereading);
   const pages = pagesReadLine(readiness);
   const missing = readiness.standards_missing;
   return (
@@ -595,6 +596,7 @@ function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
           {rereadError && (
             <span role="alert" className="text-xs text-rose-300">{rereadError}</span>
           )}
+          <VisionReaderLine status={vision} />
         </span>
       )}
       {readiness.standards_cited > 0 && (
@@ -1001,5 +1003,57 @@ function EmptyRuns() {
         and set its role to contractor submittal.
       </p>
     </section>
+  );
+}
+
+type VisionLine =
+  | { kind: "checking" }
+  | { kind: "unknown"; message: string }
+  | { kind: "known"; status: VisionReaderStatus };
+
+/** Asks the backend whether the vision reader can be used, when there are
+ *  unread pages, and again after each re-read finishes (`busy` going false). */
+function useVisionReaderStatus(wanted: boolean, busy: boolean): VisionLine | null {
+  const [line, setLine] = useState<VisionLine | null>(null);
+  useEffect(() => {
+    if (!wanted || busy) return;
+    let live = true;
+    setLine({ kind: "checking" });
+    void reviewsApi.visionReaderStatus().then((result) => {
+      if (!live) return;
+      setLine(result.ok
+        ? { kind: "known", status: result.data }
+        : { kind: "unknown", message: result.error.message });
+    });
+    return () => { live = false; };
+  }, [wanted, busy]);
+  return wanted ? line : null;
+}
+
+/** One line beside "Read unread pages": whether page images will be read,
+ *  and if not, the real reason and what to change. The text readers still
+ *  run either way, so the button stays enabled. */
+function VisionReaderLine({ status }: { status: VisionLine | null }) {
+  if (!status) return null;
+  if (status.kind === "checking") {
+    return <span data-testid="vision-reader-status" className="text-xs text-slateish-400">Checking the vision reader…</span>;
+  }
+  if (status.kind === "unknown") {
+    return (
+      <span data-testid="vision-reader-status" className="text-xs text-amber-300">
+        Vision reader status unknown: {status.message}
+      </span>
+    );
+  }
+  const s = status.status;
+  if (s.ready) {
+    return <span data-testid="vision-reader-status" className="text-xs text-signal-300">Vision reader ready</span>;
+  }
+  return (
+    <span data-testid="vision-reader-status" role="status" className="text-xs text-amber-300"
+      title={s.detail ? `${s.state} (${s.detail})` : s.state}>
+      Page images will not be read: {s.reason} {s.fix}
+      {s.detail && <span className="text-slateish-400"> ({s.detail})</span>}
+    </span>
   );
 }
