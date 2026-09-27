@@ -811,6 +811,12 @@ class Settings(BaseSettings):
     #: sends nothing - it also needs the Claude lane (REASONING_PROVIDER=claude,
     #: both STANDARDS_READER_* egress flags and a key), within the USD caps.
     review_ai_check_enabled: bool = False
+    #: Output token cap per `review_ai_check` call. Raised from 4000 (2026-09-27):
+    #: every one of the 10 historical calls at that cap hit `finish_reason ==
+    #: "length"` and produced zero storable items - the check was truncating
+    #: silently on every single run. Still finite (a worst-case estimate feeds
+    #: `claude_spend.ensure_affordable` before the call leaves).
+    review_ai_check_max_output_tokens: int = 12000
     #: Owner order 2d-2: for a standard the datasheet cites but the library
     #: does not hold, an OPTIONAL check against a PUBLIC web copy. OFF BY
     #: DEFAULT. Never for a company standard (SAES/SAMSS/KOC-* and the like) -

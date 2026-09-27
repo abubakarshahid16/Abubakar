@@ -531,6 +531,23 @@ export interface ReviewRunSummary {
   /** B3: the page ledger's summary AS OF THE RUN. Null on a run made before
    *  the ledger existed - null renders as nothing, never "every page read". */
   page_coverage?: PageCoverage | null;
+  /** 2026-09-27: the AI engineering check's own outcome for this run. Null
+   *  when it never ran (off, or the Claude lane is off). `complete` is
+   *  false whenever a reply was truncated, only partially recovered after
+   *  the one capped retry, or refused outright - `plain` is the sentence to
+   *  show, and it always states its boundary (how many of how many). */
+  ai_check_status?: {
+    ran: boolean;
+    complete: boolean;
+    calls_made: number;
+    requested_items: number;
+    proposed_items: number;
+    kept_items: number;
+    rejected: Record<string, number>;
+    reason: string | null;
+    cost_usd: number | null;
+    plain: string;
+  } | null;
 }
 
 /** Which pages of a submittal were read into fields, and why the rest were

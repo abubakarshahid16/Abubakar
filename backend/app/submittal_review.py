@@ -284,6 +284,14 @@ def ensure_schema() -> None:
             ("override_reason", "TEXT"),
             ("decided_by", "TEXT REFERENCES users(id) ON DELETE SET NULL"),
             ("decided_at", "TEXT"),
+            # 2026-09-27, AI-check truncation fix: the AI engineering check's
+            # own outcome for this run - JSON, same style as `refusal_reason`
+            # above. NULL when the check never ran (off, or the Claude lane is
+            # off). Set whether the check finished cleanly, was completed
+            # after a capped retry, or is still incomplete - so a truncated
+            # reply is a fact on the run a reviewer can see, never a run that
+            # silently looks like it raised nothing to say.
+            ("ai_check_status", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
         conn.execute(

@@ -783,6 +783,15 @@ function RunCard({ run, selected, onOpen }: {
           {standardsChangeLine(run)}
         </p>
       )}
+      {/* AI engineering check truncation fix: an incomplete check is a fact
+          on the run, shown here rather than left for a reviewer to notice
+          only from an empty AI Review Comments column. Never shown for a
+          run where the check simply never ran. */}
+      {run.ai_check_status && !run.ai_check_status.complete && (
+        <p className="mt-1 text-xs text-amber-300" data-testid="ai-check-incomplete">
+          {run.ai_check_status.plain}
+        </p>
+      )}
     </button>
   );
 }

@@ -2248,6 +2248,12 @@ class ReviewRunSummary(BaseModel):
     #: 3) and whether cancellation was requested. Null for a run made before
     #: reviews were queued.
     job: ReviewJobState | None = None
+    #: 2026-09-27: the AI engineering check's own outcome for this run - null
+    #: when it never ran (off, or the Claude lane is off). NEVER silent when
+    #: it did: `complete` is false and `plain` states the boundary (how many
+    #: of how many, cut off by what) whenever a reply was truncated, only
+    #: partially recovered after the one capped retry, or refused outright.
+    ai_check_status: dict | None = None
 
 
 class PageLedgerRow(BaseModel):
