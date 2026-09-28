@@ -367,6 +367,40 @@ RECORDS = "records"
 #: question they cannot speak to at all is answered from general knowledge.
 EITHER = "either"
 
+#: FOUND 2026-09-28 (real machine, real Claude, 3 reproductions): an EITHER
+#: question that asks for a NUMBER, LIMIT or REQUIREMENT - "what is the
+#: hafnium concentration limit" - reached Claude-first and the EITHER-to-
+#: general fallback on equal footing with a plain definitional question
+#: ("what is ABAP"), and Claude answered it from its own training data,
+#: labelled "general knowledge" but still a GUESS about a real engineering
+#: limit. NORTH-STAR: "never reconstruct requirements from model memory".
+#:
+#: `is_spec_shaped` is what chat.py checks BEFORE either fallback: a
+#: spec-shaped EITHER question goes through the deterministic document
+#: pipeline first and MUST NOT fall back to general knowledge when the
+#: documents come up empty - insufficient_evidence, not a guess. A plain
+#: definitional EITHER question is unaffected (the client asked this chat to
+#: also handle general discussion, 2026-09-24).
+#:
+#: HEURISTIC, STATED PLAINLY: a keyword cue, not a certainty. A false
+#: positive only costs one extra documents-first check - it never on its own
+#: decides refuse-vs-answer; the document pipeline still does. A false
+#: negative is the failure to keep narrowing; this list is not claimed complete.
+_SPEC_SHAPED_CUES = re.compile(
+    r"\b(?:limit|maximum|minimum|allowable|allowed|permitted|requirement|"
+    r"specification|spec|threshold|tolerance|rating|rated|concentration|"
+    r"pressure|temperature|thickness|diameter|clearance|torque|capacity|"
+    r"voltage|current|frequency|grade|value|percentage|dimension|"
+    r"class(?:ification)?|shall\s+(?:be|not)|must\s+(?:be|not)|"
+    r"not\s+exceed|minimum\s+of|maximum\s+of)\b", re.IGNORECASE)
+
+
+def is_spec_shaped(text: str) -> bool:
+    """True when a question asks for a number, limit or requirement rather
+    than a definition. See the comment above `_SPEC_SHAPED_CUES`."""
+    return bool(_SPEC_SHAPED_CUES.search(text or ""))
+
+
 #: Small talk: answered naturally, never searched, never a model call.
 SMALL_TALK = ("greeting", "thanks", "acknowledgement", "farewell", "about_the_assistant",
               "empty", "not_a_question")

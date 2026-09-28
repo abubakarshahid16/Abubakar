@@ -228,9 +228,28 @@ def test_a_real_question_is_never_classified_as_advice(text):
     assert intent.classify(text) == intent.DOCUMENT_QUESTION
 
 
-def test_the_unknown_term_refusal_is_unchanged():
+def _no_model_reachable(monkeypatch):
+    """Simulate a machine with no reachable model, so a definitional EITHER
+    question ("what is ABAP") cannot be answered as general knowledge.
+
+    Without this the two ABAP tests below pass only where no model happens to
+    be reachable (a clean sandbox, CI) and fail - while spending real API
+    money - on a machine with Ollama up or Claude configured, where the
+    documents-first refusal is correctly followed by a labelled
+    general-knowledge answer (2026-09-24 requirement)."""
+    from app import chat_answers, chat_claude_first
+
+    monkeypatch.setattr(chat_claude_first, "answer", lambda *a, **k: None)
+    monkeypatch.setattr(
+        chat_answers, "general",
+        lambda question, **k: {"answer_type": "model_unavailable", "answer": None,
+                               "reason": "no model reachable in this test"})
+
+
+def test_the_unknown_term_refusal_is_unchanged(monkeypatch):
     """The refusal this fix is modelled on must still fire for its own case,
     with its own wording and its own answer_type."""
+    _no_model_reachable(monkeypatch)
     client = TestClient(app)
     upload(client)
     body = ask(client, "what is ABAP")
@@ -242,6 +261,59 @@ def test_the_unknown_term_refusal_is_unchanged():
     assert "ABAP" in reason
     assert "does not appear anywhere in the indexed documents" in reason
     assert "If it is an abbreviation, try the full term" in reason
+
+
+def test_a_spec_shaped_either_question_never_reaches_general_knowledge(monkeypatch):
+    """FOUND 2026-09-28, on a real machine with Claude actually configured:
+    "what is the hafnium concentration limit" was classified `either`,
+    reached Claude-first, and came back answered from the model's own
+    training data - honestly labelled, but still a guess about a real
+    engineering limit. NORTH-STAR: "never reconstruct requirements from
+    model memory". See intent.is_spec_shaped.
+
+    Must hold even when chat_claude_first is fully willing to answer -
+    monkeypatched to prove it, so the test fails if the gate is ever removed
+    rather than only when a real Claude key is absent."""
+    from app import chat_answers, chat_claude_first
+
+    called = []
+
+    def _claude_first_would_have_guessed(*args, **kwargs):
+        called.append("claude_first")
+        return None  # the assertion below must be what fails, not a schema error
+
+    def _general_would_have_guessed(question, **kwargs):
+        called.append("general_fallback")
+        return {"answer_type": "model_unavailable", "answer": None,
+                "reason": "test double"}
+
+    monkeypatch.setattr(chat_claude_first, "answer", _claude_first_would_have_guessed)
+    monkeypatch.setattr(chat_answers, "general", _general_would_have_guessed)
+
+    client = TestClient(app)
+    upload(client)
+    body = ask(client, "what is the hafnium concentration limit")
+
+    assert called == [], (
+        f"a spec-shaped question absent from the corpus reached {called} - "
+        "the gate should have kept it on the document pipeline"
+    )
+    assert body["answer_type"] == "insufficient_evidence"
+    assert body["answer"] is None
+
+
+def test_a_definitional_either_question_is_unaffected(monkeypatch):
+    """The gate above must not become a blanket EITHER refusal. "what is
+    ABAP" carries no spec-shaped cue and must still reach the normal
+    Claude-first / general-knowledge path exactly as before."""
+    _no_model_reachable(monkeypatch)
+
+    client = TestClient(app)
+    upload(client)
+    body = ask(client, "what is ABAP")
+
+    assert body["answer_type"] == "insufficient_evidence"
+    assert "ABAP" in body["reason"]
 
 
 def test_the_greeting_reply_is_natural():
