@@ -63,7 +63,17 @@ DocumentRole = Literal[
 #: `not_reviewed` is a real answer and NOT null: the question "has this been
 #: reviewed" has a definite answer for every document, and it is "no".
 #: The remaining values mirror `review_runs.status` exactly, so the two cannot
-#: drift into two vocabularies.
+#: drift into two vocabularies. That mirror had gone stale: `review_jobs.py`
+#: sets `review_runs.status` to `queued` on insert and again when a job is
+#: restored to the queue after a retry, and to `cancelled` on cancellation,
+#: but neither value was listed here - `review_status_for()` passes the raw
+#: `review_runs.status` straight through with no translation, so either value
+#: made `GET /api/documents` fail its own response validation for every
+#: caller, not just the one document in that state (2026-09-28, found live
+#: while uploading standards: a review run had gone back to `queued`).
+#: `pending` is the column's DEFAULT and is kept even though nothing sets it
+#: explicitly today (`review_jobs.py` inserts a row with status already
+#: `queued`) - it is a real state, not the same as an empty documents list.
 #: Named apart from the guided-review finding status on purpose - that one is
 #: where a single FINDING stands (`open`, `resolved`...). Two different
 #: questions about two different things; one name for both is how a finding's
@@ -72,7 +82,9 @@ DocumentRole = Literal[
 DocumentReviewStatus = Literal[
     "not_reviewed",
     "pending",
+    "queued",
     "running",
+    "cancelled",
     "completed",
     "failed",
 ]

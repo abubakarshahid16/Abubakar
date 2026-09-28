@@ -38,6 +38,12 @@ export type DocumentRole =
  *  ANSWER and not a null: "has this been reviewed" has a definite answer for
  *  every document, and it is no.
  *
+ *  Mirrors `review_runs.status` on the backend - kept in sync with
+ *  `backend/app/schemas.py`'s `DocumentReviewStatus`. `queued` and
+ *  `cancelled` were missing here (2026-09-28): the backend sets both on a
+ *  real run, and the mismatch broke `GET /api/documents` for every document,
+ *  not just the one in that state, the moment any run reached either value.
+ *
  *  Named apart from `ReviewStatus` (line 181) deliberately: that one is where
  *  a single FINDING stands in the guided-review workflow (`open`,
  *  `resolved`...). Two different questions about two different things, and
@@ -46,7 +52,9 @@ export type DocumentRole =
 export type DocumentReviewStatus =
   | "not_reviewed"
   | "pending"
+  | "queued"
   | "running"
+  | "cancelled"
   | "completed"
   | "failed";
 
