@@ -269,6 +269,17 @@ class Settings(BaseSettings):
     ocr_max_text_density: float = 6.0
     ocr_max_text_to_image_area: float = 0.10
 
+    #: A per-page mean/min confidence hides a SINGLE badly-read word inside an
+    #: otherwise good page: one wrong digit in a pressure rating can sit next
+    #: to 40 confidently-read words and the page average still looks fine.
+    #: RapidOCR already scores every individual word box (`res.scores`); this
+    #: is the threshold below which a box counts toward `page_ocr.low_conf_boxes`
+    #: instead of being discarded after the mean/min are taken. RapidOCR's
+    #: recognition score is 0-1; 0.70 is a starting point, not a measured
+    #: number - `ocr.recognise_batch` stores it as data (like mean/min already
+    #: are) so it can be tuned from real counts later, never hidden.
+    ocr_low_conf_threshold: float = 0.70
+
     #: THE ANSWER MODEL'S ADDRESS, AND THE ONE OUTBOUND URL ON THE QUERY PATH
     #: THAT CARRIES DOCUMENT TEXT. Validated by `check_model_url`, at startup
     #: (below) and again immediately before every request

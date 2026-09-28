@@ -90,7 +90,7 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
     # page that exists anywhere must be accounted for.
     numbers = set(range(1, page_count + 1)) | set(pages)
     ocr = {r["page_no"]: r for r in conn.execute(
-        "SELECT page_no, engine, mean_conf, seconds, error FROM page_ocr"
+        "SELECT page_no, engine, mean_conf, low_conf_boxes, seconds, error FROM page_ocr"
         " WHERE document_id = ?",
         (document_id,))}
     covered: dict[int, list[bool]] = {}
@@ -223,7 +223,8 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
         vision_recorded_by = "extraction" if p in recorded_vision else None
         rows.append((document_id, p, doc["sha256"], native_status, native_chars,
                      ocr_status, ocr_reason, o["engine"] if o else None,
-                     o["mean_conf"] if o else None, o["seconds"] if o else None,
+                     o["mean_conf"] if o else None,
+                     o["low_conf_boxes"] if o else None, o["seconds"] if o else None,
                      index_status, index_reason, vision_status, vision_reason,
                      vision_recorded_by, *facts, now))
 
@@ -232,12 +233,13 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
         conn.executemany(
             """INSERT INTO page_ledger
                    (document_id, page_no, file_sha256, native_status, native_chars,
-                    ocr_status, ocr_reason, ocr_engine, ocr_mean_conf, ocr_seconds,
+                    ocr_status, ocr_reason, ocr_engine, ocr_mean_conf,
+                    ocr_low_conf_boxes, ocr_seconds,
                     index_status, index_reason, vision_status, vision_reason,
                     vision_recorded_by,
                     facts_status, facts_count, facts_reason, facts_recorded_by,
                     extractor_version, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
     return len(rows)
 
 

@@ -208,6 +208,34 @@ def test_extraction_records_the_decision_and_its_reason_on_every_page(tmp_path):
     assert ledger[1]["ocr_reason"].startswith("text_layer:")
 
 
+def test_low_conf_boxes_survives_storage_and_reaches_the_ledger(tmp_path, monkeypatch):
+    """The count is not just computed - it is PERSISTED and SURFACED.
+
+    Goes through the real `_commit_batch` (page_ocr) and `page_ledger.refresh`
+    (page_ledger), not just the in-memory tuple `recognise_batch` returns.
+    """
+    doc_id = upload(make_pdf(tmp_path / "s.pdf", add_dense_text, add_stamped_scan))
+    extract.extract_document(doc_id)
+    monkeypatch.setattr(ocr.cf, "ProcessPoolExecutor", _InlinePool)
+
+    def fake_batch(stored_path, sha256, page_nos):
+        # page 2 is the scanned one; give it 3 low-confidence boxes.
+        return [(p, "some recognised text", 0.6, 0.05, 10, 3, 0.5, 0, "", None)
+                if p == 2 else (p, "", None, None, 0, 0, 0.1, 0, "", None)
+                for p in page_nos]
+    monkeypatch.setattr(ocr, "recognise_batch", fake_batch)
+    ocr.recognise_document(doc_id)
+
+    stored = connect().execute(
+        "SELECT low_conf_boxes FROM page_ocr WHERE document_id = ? AND page_no = 2",
+        (doc_id,)).fetchone()
+    assert stored["low_conf_boxes"] == 3
+
+    page_ledger.refresh(doc_id)
+    ledger = {r["page_no"]: r for r in page_ledger.rows(doc_id)}
+    assert ledger[2]["ocr_low_conf_boxes"] == 3
+
+
 # -------------------------------------------------------------------- merge
 
 def test_merge_keeps_the_text_layer_and_adds_only_the_scanned_body():
@@ -227,8 +255,10 @@ def test_merge_keeps_the_text_layer_and_adds_only_the_scanned_body():
 
 
 class _FakeEngine:
-    def __init__(self, texts, boxes):
-        self._res = SimpleNamespace(txts=texts, scores=[0.9] * len(texts), boxes=boxes)
+    def __init__(self, texts, boxes, scores=None):
+        self._res = SimpleNamespace(
+            txts=texts, scores=scores if scores is not None else [0.9] * len(texts),
+            boxes=boxes)
 
     def __call__(self, image):
         return self._res
@@ -266,6 +296,39 @@ def test_recognition_that_adds_nothing_leaves_the_text_layer_in_charge(tmp_path,
     assert row[4] == 2          # the boxes it did find are still recorded
 
 
+def test_low_confidence_boxes_are_counted_not_just_averaged_away(tmp_path, monkeypatch):
+    """A page-level mean/min hides ONE bad word among many good ones.
+
+    Four boxes: three confident (0.95+), one at 0.10 - a wrong digit in a
+    tag number, say. mean_conf still looks fine (0.71); this is the count
+    those two numbers cannot give: exactly how many boxes were actually bad.
+    """
+    path = make_pdf(tmp_path / "s.pdf", add_stamped_scan)
+    texts = [HEADER, "7.6 Cathodic Protection Continuity",
+             "The resistance shall not exceed 0.01 ohm.", FOOTER]
+    boxes = [_box(40, 22), _box(150, 200), _box(150, 230), _box(40, 807)]
+    scores = [0.97, 0.95, 0.10, 0.99]
+    monkeypatch.setattr(settings, "ocr_low_conf_threshold", 0.70)
+    monkeypatch.setattr(ocr, "_build_engine", lambda: _FakeEngine(texts, boxes, scores))
+    (row,) = ocr.recognise_batch(path, "sha-lowconf", [1])
+    pno, text, mean_c, min_c, box_count, low_conf, *_rest = row
+    assert low_conf == 1, "exactly one of the four boxes is below threshold"
+    assert min_c == pytest.approx(0.10)
+    assert mean_c > 0.70, "the average alone would look acceptable"
+
+
+def test_no_boxes_below_threshold_counts_zero_not_none(tmp_path, monkeypatch):
+    """Zero is a real, checked answer here - never confused with 'not measured'."""
+    path = make_pdf(tmp_path / "s.pdf", add_stamped_scan)
+    texts = [HEADER, "7.6 Cathodic Protection Continuity",
+             "The resistance shall not exceed 0.01 ohm.", FOOTER]
+    boxes = [_box(40, 22), _box(150, 200), _box(150, 230), _box(40, 807)]
+    monkeypatch.setattr(ocr, "_build_engine",
+                        lambda: _FakeEngine(texts, boxes, [0.95, 0.96, 0.97, 0.98]))
+    (row,) = ocr.recognise_batch(path, "sha-clean", [1])
+    assert row[5] == 0
+
+
 # ----------------------------------------------------- one page fails, not all
 
 class _InlineFuture:
@@ -292,11 +355,11 @@ class _InlinePool:
 
 def _one_page_fails(stored_path, sha256, page_nos):
     return [
-        (p, "", None, None, 0, 0.2, 0, "", "RuntimeError: onnx session died")
+        (p, "", None, None, 0, 0, 0.2, 0, "", "RuntimeError: onnx session died")
         if p == 1 else
         (p, "Coating system no. 1 shall achieve a nominal dry film thickness of "
             "80 micrometres measured in accordance with the referenced standard.",
-         0.95, 0.91, 6, 0.8, 0, "", None)
+         0.95, 0.91, 6, 0, 0.8, 0, "", None)
         for p in page_nos
     ]
 
@@ -344,7 +407,7 @@ def test_pages_with_text_counts_this_round_only(tmp_path, monkeypatch):
 
     def reads_page_one_only(stored_path, sha256, page_nos):
         return [(p, "recognised words on page one" if p == 1 else "",
-                 None, None, 1 if p == 1 else 0, 0.1, 0, "", None) for p in page_nos]
+                 None, None, 1 if p == 1 else 0, 0, 0.1, 0, "", None) for p in page_nos]
     monkeypatch.setattr(ocr, "recognise_batch", reads_page_one_only)
     first = ocr.recognise_document(doc_id, max_pages=1)
     second = ocr.recognise_document(doc_id, max_pages=1)

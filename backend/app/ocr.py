@@ -329,6 +329,7 @@ class PageOCR:
     mean_conf: float | None
     min_conf: float | None
     box_count: int
+    low_conf_boxes: int
     seconds: float
     violations: int
     violation_sample: str
@@ -400,7 +401,7 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
             boxes = list(boxes) if boxes is not None else []
             native = _native_lines(stored_path, pno, scale)
         except Exception as exc:  # noqa: BLE001 - one bad page must not kill a batch
-            out.append((pno, "", None, None, 0, round(time.perf_counter() - t0, 3), 0, "",
+            out.append((pno, "", None, None, 0, 0, round(time.perf_counter() - t0, 3), 0, "",
                         f"{type(exc).__name__}: {exc}"[:500]))
             continue
         if any(t.strip() for _, _, t in native):
@@ -415,11 +416,16 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
         # control characters cannot reach chunking.
         text = normalise_text(raw)
         viol, sample = alphabet_violations(text, settings.ocr_expected_script)
+        # mean/min collapse a whole page to one number each; a page with one
+        # bad word among 200 and a page with fifty bad words can share the
+        # same min. This counts individual boxes below the threshold, which
+        # neither the mean nor the min can tell apart (settings.ocr_low_conf_threshold).
+        low_conf = sum(1 for s in scores if s < settings.ocr_low_conf_threshold)
         out.append((
             pno, text,
             round(sum(scores) / len(scores), 4) if scores else None,
             round(min(scores), 4) if scores else None,
-            len(texts), round(time.perf_counter() - t0, 3), viol, sample, None,
+            len(texts), low_conf, round(time.perf_counter() - t0, 3), viol, sample, None,
         ))
     return out
 
@@ -462,23 +468,23 @@ def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
     now = _now()
     payload = []
     with_text = failed = 0
-    for (pno, text, mean_c, min_c, boxes, secs, viol, sample, err) in rows:
+    for (pno, text, mean_c, min_c, boxes, low_conf, secs, viol, sample, err) in rows:
         if err is not None:
             failed += 1
-            text, mean_c, min_c, boxes, viol, sample = "", None, None, 0, 0, ""
+            text, mean_c, min_c, boxes, low_conf, viol, sample = "", None, None, 0, 0, 0, ""
         elif text.strip():
             with_text += 1
         payload.append((doc_id, pno, text, len(text.strip()), ENGINE, model,
-                        settings.ocr_dpi, mean_c, min_c, boxes, viol, sample,
+                        settings.ocr_dpi, mean_c, min_c, boxes, low_conf, viol, sample,
                         secs or 0.0, now, batch_no, err))
     with conn:
         if payload:
             conn.executemany(
                 """INSERT OR REPLACE INTO page_ocr
                    (document_id, page_no, text, char_count, engine, model, dpi,
-                    mean_conf, min_conf, box_count, alphabet_violations,
+                    mean_conf, min_conf, box_count, low_conf_boxes, alphabet_violations,
                     alphabet_sample, seconds, recognised_at, batch_no, error)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 payload,
             )
         # Only pages that actually produced text count as recognised. A blank

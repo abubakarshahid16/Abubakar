@@ -103,6 +103,12 @@ CREATE TABLE IF NOT EXISTS page_ocr (
     mean_conf     REAL,
     min_conf      REAL,
     box_count     INTEGER NOT NULL,
+    -- How many of THIS page's individual word boxes scored below
+    -- `settings.ocr_low_conf_threshold`. mean_conf/min_conf are one number
+    -- for the whole page; a page with one bad word among 200 and a page with
+    -- fifty bad words can show the same min_conf. This is the count the
+    -- other two cannot give (`ocr.recognise_batch`).
+    low_conf_boxes INTEGER NOT NULL DEFAULT 0,
     -- Characters outside the document's expected script. Non-zero means the
     -- recogniser emitted something it should not be able to - under a
     -- Latin-only recogniser this should never fire, which makes it a guard on
@@ -214,6 +220,7 @@ CREATE TABLE IF NOT EXISTS page_ledger (
     ocr_reason      TEXT,
     ocr_engine      TEXT,
     ocr_mean_conf   REAL,
+    ocr_low_conf_boxes INTEGER,
     ocr_seconds     REAL,
     -- 'retrievable' | 'excluded' | 'not_retrievable' | 'no_chunk' | 'not_chunked'
     index_status    TEXT    NOT NULL DEFAULT 'unknown',
@@ -1013,6 +1020,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         add_column_if_missing(conn, "pages", "ocr_route_version", "TEXT")
     add_column_if_missing(conn, "page_ocr", "error", "TEXT")
     add_column_if_missing(conn, "page_ledger", "ocr_reason", "TEXT")
+    # Per-box low-confidence count (2026-09-29): an existing row was recognised
+    # before this counter existed, so it defaults to 0 rather than an unknown
+    # NULL - the same choice already made for box_count/alphabet_violations on
+    # this table, not a claim that the page truly had zero low-confidence boxes.
+    add_column_if_missing(conn, "page_ocr", "low_conf_boxes", "INTEGER NOT NULL DEFAULT 0")
+    add_column_if_missing(conn, "page_ledger", "ocr_low_conf_boxes", "INTEGER")
     # --------------------------------------------- AI submittal review, phase 1
     # The submittal-review vocabulary on an existing classification row. Every
     # column is nullable with no default, so an existing row keeps every value
