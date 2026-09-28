@@ -2,7 +2,7 @@
 fastapi==0.141.1
 uvicorn[standard]==0.38.0
 pydantic==2.13.5
-pydantic-settings==2.13.0
+pydantic-settings==2.15.0
 python-multipart==0.0.20
 
 # Password hashing. A cffi package: it needs a matching wheel for the platform,
