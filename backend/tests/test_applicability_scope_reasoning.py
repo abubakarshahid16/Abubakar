@@ -233,3 +233,54 @@ def test_heartbeat_is_called_once_per_standard_checked(monkeypatch):
     applicability.select(sub, allowed_document_ids=_scope(std, sub), persist=False,
                         heartbeat=lambda: beats.append(1))
     assert len(beats) == 2
+
+
+# ----------------------------------------- B5 cache: the evidence-backfill gap
+#
+# Caught by Claude Code (2026-09-28) verifying the first version of the
+# quote/page fix against real cached data: the fix backfilled the quote
+# INSIDE `applicability_reasoning.decide_by_reasoning`, whose result is
+# exactly what gets written into `applicability_scope_decision_cache`. That
+# means only decisions computed AFTER the fix got a quote - the review's own
+# ~828 already-cached rows, written before the fix existed, would keep
+# returning quote=None on every cache hit, forever, since a hit never calls
+# `decide_by_reasoning` again. The real fix moved the backfill to
+# `with_covered_evidence`, applied by `_cached_scope_decision` to every
+# decision it returns, cache hit or miss.
+
+def test_a_pre_existing_cached_decision_with_no_quote_is_backed_on_read(monkeypatch):
+    """THE MUTATION TARGET for the cache-gap fix. Simulates exactly what the
+    real bug looked like: a row already sitting in
+    `applicability_scope_decision_cache` from before the evidence fix
+    existed - decision APPLICABLE, quote=None - because that is what
+    `decide_by_reasoning` used to store. `select()` must return this
+    standard's evidence_quote backed from the record, on a CACHE HIT, with
+    NO provider call at all. Reverting `_cached_scope_decision` to return the
+    cached row unchanged makes this fail with evidence_quote=None."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", equipment_type="Centrifugal Pump")
+    applicability.store_scope_record(std, RECORD_EXCLUDES_DOMESTIC)
+
+    from app import applicability_reasoning
+    record, _confirmed = applicability.scope_record(std)
+    record_hash = applicability._scope_decision_record_hash(record)
+    stale_decision = {"decision": applicability_v2.APPLICABLE, "basis": "answered before the fix shipped",
+                      "quote": None, "page": None, "term": "Centrifugal Pump", "confirmations": None}
+    with db.connect() as conn:
+        conn.execute(
+            """INSERT INTO applicability_scope_decision_cache
+               (standard_document_id, equipment_type, record_hash, prompt_version,
+                decision_json, created_at) VALUES (?,?,?,?,?,?)""",
+            (std, "Centrifugal Pump", record_hash, applicability_reasoning.PROMPT_VERSION,
+             json.dumps(stale_decision), "2026-09-28T00:00:00Z"))
+
+    provider = FakeProvider([_answer(applicability_v2.APPLICABLE, basis="should never be asked")])
+    monkeypatch.setattr(rp, "get_provider", lambda *a, **k: provider)
+
+    result = applicability.select(sub, allowed_document_ids=_scope(std, sub), persist=False)
+
+    assert provider.calls == 0, "a cache hit must never call the model"
+    row = next(s for s in result["selected"] if s["standard_document_id"] == std)
+    assert row["scope_decision"] == applicability_v2.APPLICABLE
+    assert row["evidence_quote"] == "covers centrifugal pumps"
+    assert row["evidence_page"] == 2

@@ -447,6 +447,19 @@ def _cached_scope_decision(standard_document_id: str, equipment_type: str,
     `prompt_version` changes the moment the reasoning prompt itself changes
     (`applicability_reasoning.PROMPT_VERSION`) - either miss recomputes and
     overwrites the row, so a stale answer is never returned, only re-asked.
+
+    THE EVIDENCE BACKFILL RUNS HERE, ON EVERY RETURN - cache hit or miss -
+    never inside what gets STORED. `applicability_reasoning.with_covered_
+    evidence` is applied to the decision right before it is handed back,
+    whichever path produced it. This is deliberate (bug fix 2026-09-28,
+    caught verifying the first version of this fix against real cached
+    data): baking the backfill into what `decide_with_confirmation_by_
+    reasoning` returns would freeze it into the cache row at write time, so
+    every row cached before that fix shipped would keep coming back with no
+    quote forever, since a cache hit never recomputes anything. Applying it
+    here instead - after the SELECT, after the INSERT - costs nothing extra
+    (`record` is already an argument) and fixes every already-cached row the
+    moment this ships, not only ones computed after it.
     """
     from . import applicability_reasoning
     record_hash = _scope_decision_record_hash(record)
@@ -460,9 +473,11 @@ def _cached_scope_decision(standard_document_id: str, equipment_type: str,
         (standard_document_id, equipment_type, record_hash, prompt_version)).fetchone()
     if row is not None:
         try:
-            return json.loads(row["decision_json"])
+            cached = json.loads(row["decision_json"])
         except ValueError:
-            pass  # corrupt row - fall through and recompute rather than crash
+            cached = None  # corrupt row - fall through and recompute rather than crash
+        if cached is not None:
+            return applicability_reasoning.with_covered_evidence(cached, record)
     decision = applicability_reasoning.decide_with_confirmation_by_reasoning(
         record, equipment_type, provider, step=step)
     with conn:
@@ -472,7 +487,7 @@ def _cached_scope_decision(standard_document_id: str, equipment_type: str,
             "  decision_json, created_at) VALUES (?,?,?,?,?,?)",
             (standard_document_id, equipment_type, record_hash, prompt_version,
              json.dumps(decision), _now()))
-    return decision
+    return applicability_reasoning.with_covered_evidence(decision, record)
 
 
 def scope_decisions_by_reasoning(library: list[dict], profile: dict,
