@@ -55,6 +55,114 @@ def test_applicable_passes_through():
     assert out["term"] == "Centrifugal Pump"
 
 
+# --------------------------------- bug fix, 2026-09-28: APPLICABLE evidence
+#
+# THE BUG (found reviewing a real review of EF1975-DAS-M-03). The INSTRUCTIONS
+# prompt tells the model quote/page are null unless it cites an exclusion or
+# limit, so an APPLICABLE/APPLICABLE_CANDIDATE decision always arrived with
+# quote=None - a claim rendered with no citation behind it, on a standard
+# whose scope record actually holds a verified quote for the covered
+# equipment. `test_applicable_passes_through` above never asserted on
+# `quote`/`page` at all, so this shipped and stayed green.
+#
+# THE FIX'S OWN BUG, caught next (by Claude Code, verifying the first version
+# of this fix against real cached data): the first version backfilled the
+# quote INSIDE `decide_by_reasoning`, whose result is exactly what
+# `applicability._cached_scope_decision` stores in the B5 cache table. That
+# freezes the backfill into a row at write time - fine for a standard read
+# fresh, but every one of the ~828 rows already cached before the fix shipped
+# would keep coming back with quote=None forever, since a cache HIT never
+# calls `decide_by_reasoning` again. The real fix is `with_covered_evidence`,
+# a separate function the CALLER applies to every decision it reads back -
+# cache hit or miss - never baked into what gets written. `decide_by_
+# reasoning` itself must therefore return the RAW model quote (None, for a
+# normal APPLICABLE), and `with_covered_evidence` is what backs it - proven
+# below on both.
+
+def test_decide_by_reasoning_returns_the_raw_quote_unbacked():
+    """`decide_by_reasoning`'s own result must stay exactly what the model
+    said - None for a normal APPLICABLE - because that result is what gets
+    written into the cache table. If this function backfilled the quote
+    itself, every already-cached row would be stuck with whatever quote
+    existed at the moment it was cached, forever."""
+    prov = FakeProvider([_answer(applicability_v2.APPLICABLE, basis="covered equipment matches")])
+    out = ar.decide_by_reasoning(RECORD, "Centrifugal Pump", prov, step="t")
+    assert out["quote"] is None
+    assert out["page"] is None
+
+
+def test_with_covered_evidence_backs_an_applicable_decision():
+    """The actual fix: reading a decision back through `with_covered_evidence`
+    fills in the record's own verified quote when the decision has none.
+    Deleting `_covered_evidence` / its call here makes this fail with
+    quote=None, page=None - and unlike a fix inside `decide_by_reasoning`,
+    this same call also repairs a decision that came from the cache."""
+    prov = FakeProvider([_answer(applicability_v2.APPLICABLE, basis="covered equipment matches")])
+    raw = ar.decide_by_reasoning(RECORD, "Centrifugal Pump", prov, step="t")
+    out = ar.with_covered_evidence(raw, RECORD)
+    assert out["quote"] == "covers centrifugal pumps"
+    assert out["page"] == 2
+
+
+def test_with_covered_evidence_backs_an_applicable_candidate_too():
+    prov = FakeProvider([_answer(applicability_v2.APPLICABLE_CANDIDATE, basis="plausibly covered")])
+    raw = ar.decide_by_reasoning(RECORD, "Centrifugal Pump", prov, step="t")
+    out = ar.with_covered_evidence(raw, RECORD)
+    assert out["quote"] == "covers centrifugal pumps"
+    assert out["page"] == 2
+
+
+def test_with_covered_evidence_repairs_a_decision_that_came_from_the_cache():
+    """THE MUTATION TARGET for the fix's own bug fix. A decision shaped
+    exactly like a row already sitting in `applicability_scope_decision_
+    cache` from before this fix existed - quote=None, no model call involved
+    at all - must still come out backed. This is what a fix living only
+    inside `decide_by_reasoning` could never do."""
+    stale_cached_row = {"decision": applicability_v2.APPLICABLE, "basis": "old answer",
+                        "quote": None, "page": None, "term": "Centrifugal Pump"}
+    out = ar.with_covered_evidence(stale_cached_row, RECORD)
+    assert out["quote"] == "covers centrifugal pumps"
+    assert out["page"] == 2
+
+
+def test_with_covered_evidence_keeps_a_model_supplied_quote():
+    """If the model DOES supply a quote (not required by the prompt, but not
+    forbidden either), that quote is trusted as-is - the record is only a
+    fallback for what the prompt told the model to leave out."""
+    decision = {"decision": applicability_v2.APPLICABLE, "basis": "because",
+               "quote": "its own quote", "page": 9, "term": "Centrifugal Pump"}
+    out = ar.with_covered_evidence(decision, RECORD)
+    assert out["quote"] == "its own quote"
+    assert out["page"] == 9
+
+
+def test_with_covered_evidence_on_a_generic_scope_record_has_no_quote_not_an_empty_one():
+    """A record with no covered_equipment/covered_activities items (a
+    `generic_scope` one) has no evidence to fall back to. The result says so
+    with None, never with an empty string standing in for a citation."""
+    generic_record = {"covered_equipment": [], "covered_activities": [],
+                      "explicit_exclusions": [], "explicit_limits": [],
+                      "generic_scope": True}
+    decision = {"decision": applicability_v2.APPLICABLE, "basis": "generic scope covers everything",
+               "quote": None, "page": None, "term": "Centrifugal Pump"}
+    out = ar.with_covered_evidence(decision, generic_record)
+    assert out["quote"] is None
+    assert out["page"] is None
+
+
+def test_with_covered_evidence_leaves_not_applicable_and_unknown_alone():
+    """Only APPLICABLE/APPLICABLE_CANDIDATE are backfilled. NOT_APPLICABLE
+    already has its own citation requirement (`_cites_a_verified_item`); a
+    quote does not belong on UNKNOWN at all."""
+    not_applicable = {"decision": applicability_v2.NOT_APPLICABLE, "basis": "excluded",
+                      "quote": "does not apply to pumps in domestic water service",
+                      "page": 2, "term": "Centrifugal Pump"}
+    assert ar.with_covered_evidence(not_applicable, RECORD) == not_applicable
+    unknown = {"decision": applicability_v2.UNKNOWN, "basis": "no idea",
+              "quote": None, "page": None, "term": "Centrifugal Pump"}
+    assert ar.with_covered_evidence(unknown, RECORD) == unknown
+
+
 def test_not_applicable_with_a_fabricated_quote_is_rejected_to_unknown():
     """THE SAFETY ANCHOR: the model claims NOT_APPLICABLE but the quote it
     gives does not match any of the record's own verified exclusion/limit

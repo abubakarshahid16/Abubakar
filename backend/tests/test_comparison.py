@@ -143,6 +143,8 @@ def test_a_numeric_breach_is_caught_with_both_citations():
         requirement=requirement, fact=fact, verdict=verdict)
 
     assert finding["compliance_status"] == comparison.NON_COMPLIANT
+    # CONTROL for the severity fix below: a real breach still reads "major".
+    assert finding["severity"] == "major"
     # BOTH CITATIONS, and both resolve.
     assert finding["standard_clause"] == "5.3.3"
     assert finding["standard_page"] == 1
@@ -274,6 +276,10 @@ def test_a_blank_by_contractor_field_is_missing_information_never_non_compliant(
     assert "provide" in finding["required_action"].lower()
     # The sheet's own words survive so a reader can see what it said.
     assert "Contractor" in finding["contractor_evidence_text"]
+    # BUG FIX, 2026-09-28: a blank field is "a question, not a failure" (see
+    # BLOCKING's own comment above) and must not carry the same "major"
+    # severity as a real breach.
+    assert finding["severity"] == "minor"
 
 
 def test_a_requirement_with_no_matching_field_is_missing_information():
@@ -294,6 +300,55 @@ def test_missing_information_does_not_block_approval():
     result = comparison.recommend_code(findings, complete)
     assert result["code"] == comparison.CODE_APPROVED_WITH_COMMENTS
     assert result["code"] != comparison.CODE_REJECTED
+
+
+# ============================================= THE SEVERITY BUG, 2026-09-28
+#
+# Found reviewing a real review of EF1975-DAS-M-03: `_prepare_finding`'s
+# `severity` parameter defaulted to the literal string "major" and nothing
+# in this file ever passed anything else, so EVERY finding - including the
+# 1,223 NOT_IN_DOCUMENT_SCOPE rows on that run, a status this file's own
+# comment calls "NOT a failure" - was written and reported as "major",
+# identical to a real NON_COMPLIANT breach. `SEVERITY_BY_STATUS` /
+# `_default_severity` fix this by deriving severity from the finding's own
+# final status. Deleting the `if severity is None: severity =
+# _default_severity(status)` line in `_prepare_finding` makes every test in
+# this section fail back to "major".
+
+@pytest.mark.parametrize("status,expected", [
+    (comparison.NOT_IN_DOCUMENT_SCOPE, "observation"),
+    (comparison.MISSING_LOCALLY, "observation"),
+    (comparison.COMPLIANT, "observation"),
+    (comparison.MISSING_INFORMATION, "minor"),
+    (comparison.NEEDS_ENGINEER_REVIEW, "minor"),
+    (comparison.CONDITIONAL, "minor"),
+    (comparison.NON_COMPLIANT, "major"),
+])
+def test_default_severity_by_status(status, expected):
+    assert comparison._default_severity(status) == expected
+
+
+def test_an_unlisted_status_defaults_to_major_not_silently_to_something_softer():
+    """The safe side when this table has no opinion about a status - a future
+    status, or a typo - is "major", never a quieter value that could hide a
+    real problem from an engineer."""
+    assert comparison._default_severity("SOME_FUTURE_STATUS") == "major"
+    assert comparison._default_severity(None) == "major"
+
+
+def test_an_explicit_severity_override_is_still_respected():
+    """A caller that names a severity keeps it - the fix only supplies a
+    default when nobody said, it never overrides a stated choice."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL")
+    sc = _chunk("sc", std); fc = _chunk("fc", sub)
+    run = _run(sub)
+    requirement = _requirement(std, sc)
+    fact = _fact(sub, fc)
+    finding = comparison.create_finding(
+        review_run_id=run, submittal_document_id=sub, requirement=requirement,
+        fact=fact, verdict=comparison.compare(requirement, fact), severity="critical")
+    assert finding["severity"] == "critical"
 
 
 # ================================================= citations must both resolve
@@ -618,6 +673,13 @@ def test_a_requirement_naming_other_evidence_never_reaches_compliant_end_to_end(
     finding = result["findings"][0]
     assert finding["compliance_status"] == comparison.NOT_IN_DOCUMENT_SCOPE
     assert comparison.REQUIRES_OTHER_DOCUMENT in finding["ai_rationale"]
+    # BUG FIX, 2026-09-28 (found reviewing EF1975-DAS-M-03): this status is
+    # documented above (NOT_IN_DOCUMENT_SCOPE's own comment) as "NOT a
+    # contractor omission and NOT a failure", yet every finding used to be
+    # written with the hardcoded default severity "major" regardless of
+    # status - the same bucket as a real NON_COMPLIANT breach. It must not
+    # read "major" end to end.
+    assert finding["severity"] == "observation"
 
 
 def test_an_excluded_standards_requirements_produce_no_findings_at_all():

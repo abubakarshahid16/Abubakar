@@ -16,8 +16,12 @@ the worst error - enforced by the same `applicability_v2.confirm_not_applicable`
 gate: NOT_APPLICABLE needs 3 independent re-reads to agree, each with a
 verified quote, or it falls back to UNKNOWN.
 
-PROPOSAL STAGE: not called by any live route. Ready for review before
-activation, same as every other piece of this feature.
+LIVE as of PR #310 (2026-09-28), behind `APPLICABILITY_REASONING_ENABLED`:
+`applicability.select` calls `scope_decisions_by_reasoning`, which calls
+`decide_with_confirmation_by_reasoning` below, through a per-(standard,
+equipment type) cache. Not a proposal any more - correct this docstring
+again if that ever stops being true, per this project's own rule that a
+stale claim in a comment is a defect, not a nitpick.
 """
 
 from __future__ import annotations
@@ -125,6 +129,34 @@ def _cites_a_verified_item(quote: str | None, record: dict) -> bool:
     return quote in verified
 
 
+def _covered_evidence(record: dict) -> tuple[str | None, int | None]:
+    """The (quote, page) that backs an APPLICABLE/APPLICABLE_CANDIDATE
+    decision, taken from the record's own verified `covered_equipment` or
+    `covered_activities` items - never from the model.
+
+    THE BUG THIS FIXES (found reviewing EF1975-DAS-M-03, 2026-09-28): the
+    INSTRUCTIONS prompt above tells the model "quote"/"page" are null UNLESS
+    it cites a specific exclusion or limit, so an APPLICABLE decision comes
+    back with quote=None, page=None by design - the model was never asked to
+    cite what makes it applicable. `applicability.select` then rendered that
+    as `covers this equipment: "" (page None)`, a claim with no citation
+    behind it, on a standard whose record actually holds a verified quote
+    naming the equipment. This reads that quote from the record instead,
+    which `scope_records.verify` already confirmed sits on the page it
+    names - the same evidence bar `_cites_a_verified_item` holds NOT_APPLICABLE
+    to, applied to the other side of the same decision.
+
+    Returns (None, None) when the record names no specific covered item (a
+    `generic_scope` record, say) - that is reported as no quote, never as an
+    empty string standing in for one."""
+    for key in ("covered_equipment", "covered_activities"):
+        for item in record.get(key) or []:
+            quote = item.get("quote")
+            if quote and quote.strip():
+                return quote, item.get("page")
+    return None, None
+
+
 def decide_by_reasoning(record: dict | None, equipment_type: str | None, provider, *, step: str,
                         seed: int | None = None) -> dict:
     """One AI-reasoning decision. Same return shape as `applicability_v2.decide`:
@@ -144,8 +176,52 @@ def decide_by_reasoning(record: dict | None, equipment_type: str | None, provide
     if decision == applicability_v2.NOT_APPLICABLE and not _cites_a_verified_item(quote, record):
         return empty("model's NOT_APPLICABLE did not cite one of the standard's own "
                      "verified exclusion/limit quotes - held back rather than trusted")
+    # NOT backfilled from the record here - see `with_covered_evidence` below.
+    # This function's return value is exactly what
+    # `applicability._cached_scope_decision` stores in
+    # `applicability_scope_decision_cache`. Filling the quote in HERE would
+    # freeze it into the row at the moment it is written: a standard read
+    # fresh today would get it, but the ~828 rows already cached before this
+    # fix shipped would keep returning quote=None forever, because a cache
+    # HIT never calls this function again. The backfill has to happen on
+    # every READ of a decision, not on write - hence it lives in the caller.
     return {"decision": decision, "basis": parsed.get("basis"), "quote": quote, "page": page,
            "term": equipment_type}
+
+
+def with_covered_evidence(decision: dict, record: dict | None) -> dict:
+    """`decision`, with its quote/page backed by the record's own verified
+    covered-item evidence when it has none (see `_covered_evidence`).
+
+    BUG FIX, 2026-09-28 (caught by Claude Code verifying the first version of
+    this fix against real cached data): the evidence backfill must be applied
+    by the CALLER after every read of a scope decision - cache hit or fresh
+    compute - never baked into `decide_by_reasoning`'s own return value,
+    which is what gets written into `applicability_scope_decision_cache`. A
+    fix inside `decide_by_reasoning` only reaches decisions computed AFTER
+    the fix shipped; the ~828 already-cached rows from before it existed
+    would keep coming back with quote=None on every cache hit, since a hit
+    never calls that function again. Applying it here instead costs nothing
+    (`record` is already in memory - no model call) and fixes every
+    already-cached row the moment this ships, not only new ones.
+
+    `applicability._cached_scope_decision` is the one caller: it calls this
+    on the decision it is about to return, whether that decision came from
+    the cache table or was just computed and is about to be stored. A model-
+    supplied quote is trusted as-is; this only fills in what the reasoning
+    prompt told the model to leave out for APPLICABLE/APPLICABLE_CANDIDATE.
+    """
+    if decision.get("decision") not in (applicability_v2.APPLICABLE, applicability_v2.APPLICABLE_CANDIDATE):
+        return decision
+    quote = decision.get("quote")
+    if quote and quote.strip():
+        return decision
+    if not record:
+        return decision
+    covered_quote, covered_page = _covered_evidence(record)
+    if not covered_quote:
+        return decision
+    return {**decision, "quote": covered_quote, "page": covered_page}
 
 
 def decide_with_confirmation_by_reasoning(record: dict | None, equipment_type: str | None, provider, *,
