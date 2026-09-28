@@ -756,14 +756,37 @@ def ask(
     # rewrite, action, records) are untouched. Returns None to mean "use the
     # pipeline below exactly as it always has" (Model=Local, Claude
     # unavailable, or the very first call of the loop could not run at all).
+    # FOUND 2026-09-28: a spec-shaped EITHER question ("what is the hafnium
+    # concentration limit") reached Claude-first below on the same footing as
+    # a plain definitional one ("what is ABAP") and was answered from the
+    # model's own memory - honestly labelled, but still a guess about a real
+    # engineering limit. NORTH-STAR forbids reconstructing a requirement from
+    # model memory (see intent.is_spec_shaped). Decided BEFORE Claude-first
+    # runs, so this closes that path AND the EITHER-to-general fallback
+    # further down in one place.
+    spec_shaped_result = None
+    if (explain_of is None and route_kind == intent_mod.EITHER
+            and intent_mod.is_spec_shaped(original)):
+        spec_shaped_result, resolved = _document_answer(
+            conversation_id, resolved, understood, tier=tier, document_id=document_id,
+            selected_document=selected_document, limit=limit,
+            allowed_document_ids=retrieval_allowed, progress_id=progress_id,
+            model=model, history=memory())
+
     claude_first_result = None
-    if explain_of is None and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL):
+    if (spec_shaped_result is None and explain_of is None
+            and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
         from . import chat_claude_first
         claude_first_result = chat_claude_first.answer(
             original, history=memory(always=True), allowed_document_ids=retrieval_allowed,
             web_enabled=web, preference=model)
 
-    if claude_first_result is not None:
+    if spec_shaped_result is not None:
+        # Never falls to chat_answers.general below, even when this came back
+        # insufficient_evidence - that fallback is exactly the guess this
+        # gate exists to stop.
+        result = spec_shaped_result
+    elif claude_first_result is not None:
         result = claude_first_result
         if routed.get("small_talk") and result.get("answer_type") == "general" and not result.get("passages"):
             result["examples"] = intent_mod.example_questions(allowed_document_ids=retrieval_allowed)
