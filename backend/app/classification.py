@@ -1491,6 +1491,18 @@ def confirm(document_id: str, *, doc_type: str | None,
                 "INSERT OR IGNORE INTO document_subjects (document_id,"
                 " subject_id, suggested_by, confirmed_by) VALUES (?,?,?,?)",
                 (document_id, subject_id, SOURCE_NONE, confirmed_by))
+    # THE OTHER HOME OF THE SAME CLAIM (rule 8, CLAUDE.md). `set_role` queues
+    # extraction the moment a document BECOMES a COMPANY_STANDARD via the bulk
+    # role action; this PUT is the other place `document_role` can become
+    # COMPANY_STANDARD - the per-document "Details" form an administrator uses
+    # one document at a time - and it had no such hook. Found 2026-09-28: a
+    # document confirmed here as COMPANY_STANDARD after it finished ingesting
+    # sat fully indexed with zero requirements extracted, forever, with
+    # nothing on screen to say why. `_queue_extraction_if_ready` is the same
+    # helper `set_role` already calls; it is READY-gated and idempotent, so
+    # calling it again here for a document already queued costs nothing.
+    if metadata is not None and metadata.get("document_role") == "COMPANY_STANDARD":
+        _queue_extraction_if_ready(document_id)
     return of_document(document_id) or {}
 
 

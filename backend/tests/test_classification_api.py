@@ -755,6 +755,38 @@ def test_a_role_that_is_not_the_standard_one_queues_nothing(corpus):
     assert _extraction_jobs("doc_submittal") == 0
 
 
+def test_confirming_the_standard_role_through_the_put_form_also_queues_its_rules(corpus):
+    """THE OTHER HOME OF THE SAME CLAIM (CLAUDE.md rule 8).
+
+    `set_role` (the bulk action) already queues extraction the moment a
+    document becomes COMPANY_STANDARD - the test above proves it. `confirm`
+    is the OTHER place `document_role` can become COMPANY_STANDARD: the
+    per-document "Details" form an administrator uses one document at a time.
+    Before this test the fix, that form had no such hook: a document
+    confirmed as a standard through it stayed indexed, searchable, and
+    ruleless forever - the exact defect the docstring above describes,
+    reachable a second way. Found 2026-09-28 on a real upload."""
+    _document("doc_confirm_standard", "API-520-I.pdf", None)
+    assert _extraction_jobs("doc_confirm_standard") == 0
+
+    classification.confirm(
+        "doc_confirm_standard", doc_type=None, discipline=None, doc_class=None,
+        subject_ids=(), confirmed_by=None,
+        metadata={"document_role": "COMPANY_STANDARD"})
+
+    assert _extraction_jobs("doc_confirm_standard") == 1, \
+        "confirming the standard role through the PUT form left no extraction job"
+
+
+def test_confirming_a_non_standard_role_through_the_put_form_queues_nothing(corpus):
+    _document("doc_confirm_submittal", "vendor-sheet-2.pdf", None)
+    classification.confirm(
+        "doc_confirm_submittal", doc_type=None, discipline=None, doc_class=None,
+        subject_ids=(), confirmed_by=None,
+        metadata={"document_role": "CONTRACTOR_SUBMITTAL"})
+    assert _extraction_jobs("doc_confirm_submittal") == 0
+
+
 def test_a_document_still_ingesting_is_left_to_the_ingestion_hook(corpus):
     """Queuing extraction for a document with no chunks yet would extract
     nothing and record a job that succeeded at doing so. It reaches the
