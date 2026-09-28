@@ -180,3 +180,39 @@ def test_a_schema_that_never_settles_still_fails_loudly(fresh_db):
     with pytest.raises(sqlite3.OperationalError, match="kept changing"):
         db.add_column_if_missing(_SchemaChangedOnce(conn, failures=99), "t_race2", "extra", "TEXT")
     assert "extra" not in db.columns_of(conn, "t_race2")
+
+
+class _SchemaVersionChangedOnce:
+    """A connection whose first PRAGMA schema_version read fails as SQLite
+    fails it when another connection's ALTER lands between this statement's
+    prepare and its step."""
+
+    def __init__(self, conn, failures: int = 1):
+        self._conn, self.failures = conn, failures
+
+    def execute(self, sql, *args):
+        if sql.startswith("PRAGMA schema_version") and self.failures:
+            self.failures -= 1
+            raise sqlite3.OperationalError("database schema has changed")
+        return self._conn.execute(sql, *args)
+
+
+def test_schema_version_itself_is_retried_not_raised(fresh_db):
+    """THE MUTATION TARGET (M1056). Found 2026-09-28: `schema_once` reads
+    `db._schema_version` around every migration it memoises, at a call site
+    `add_column_if_missing`'s own retry does not cover - the exact race
+    M1055 already fixed, at a new call site. `test_two_threads_can_migrate_
+    the_same_database` and `test_access_routes` both failed on this in CI
+    before the fix."""
+    db.init_db()
+    conn = db.connect()
+    assert db._schema_version(_SchemaVersionChangedOnce(conn)) == db._schema_version(conn)
+
+
+def test_schema_version_that_never_settles_still_fails_loudly(fresh_db):
+    """Bounded here too: never an infinite retry, never a silent wrong answer."""
+    db.init_db()
+    conn = db.connect()
+    with pytest.raises(sqlite3.OperationalError, match="kept changing"):
+        db._schema_version(_SchemaVersionChangedOnce(conn, failures=99))
+

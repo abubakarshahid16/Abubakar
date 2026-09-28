@@ -793,7 +793,25 @@ _schema_memo: dict[tuple[str, str], int] = {}
 
 
 def _schema_version(conn: sqlite3.Connection) -> int:
-    return conn.execute("PRAGMA schema_version").fetchone()[0]
+    """`PRAGMA schema_version`, safe against a concurrent migrator.
+
+    THE SAME RACE `add_column_if_missing` ALREADY HANDLES, at a call site
+    that one's retry does not cover (found 2026-09-28,
+    test_migration_race + test_access_routes both failing on
+    'database schema has changed' after `schema_once` started reading this
+    around every migration). A plain read of this PRAGMA can itself be told
+    the schema changed while another connection's ALTER is mid-flight - the
+    fix is the one this codebase already uses for that exact SQLite answer:
+    re-read, bounded, never swallowed past the limit.
+    """
+    for _attempt in range(_SCHEMA_CHANGED_RETRIES):
+        try:
+            return conn.execute("PRAGMA schema_version").fetchone()[0]
+        except sqlite3.OperationalError as exc:
+            if "schema has changed" not in str(exc).lower():
+                raise
+    raise sqlite3.OperationalError(
+        "database schema kept changing while reading schema_version")
 
 
 def schema_once(fn):
@@ -832,8 +850,25 @@ def reset_schema_memo() -> None:
 
 
 def columns_of(conn: sqlite3.Connection, table: str) -> set[str]:
-    """The column names of `table`, empty when there is no such table."""
-    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    """The column names of `table`, empty when there is no such table.
+
+    Retried the same way `_schema_version` is: this is `add_column_if_
+    missing`'s OWN loop-top check, called again on every retry attempt, and
+    it is a raw `PRAGMA table_info` read - unprotected until 2026-09-28,
+    when `schema_once` widened the concurrent-migration race window enough
+    for SQLite to answer 'database schema has changed' here specifically,
+    not just on the ALTER the loop below already retries (confirmed with a
+    real two-thread race, not guessed: `test_two_threads_can_migrate_the_
+    same_database[submittal_review-ensure_schema]`, 1 failure in 24 calls,
+    traceback rooted exactly at this line)."""
+    for _attempt in range(_SCHEMA_CHANGED_RETRIES):
+        try:
+            return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        except sqlite3.OperationalError as exc:
+            if "schema has changed" not in str(exc).lower():
+                raise
+    raise sqlite3.OperationalError(
+        f"database schema kept changing while reading columns of {table}")
 
 
 def add_column_if_missing(conn: sqlite3.Connection, table: str, column: str,
