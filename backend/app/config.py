@@ -379,6 +379,17 @@ class Settings(BaseSettings):
     #: the live review records that the scope decision was not run rather than
     #: deciding with an unapproved one. Env: APPLICABILITY_TAXONOMY_PATH.
     applicability_taxonomy_path: Path | None = None
+    #: Owner request 2026-09-28: the scope decision by AI reasoning instead
+    #: of `applicability_taxonomy_path` - no manual equipment lexicon. When
+    #: True, `applicability.select()` decides scope with
+    #: `applicability_reasoning.decide_with_confirmation_by_reasoning` against
+    #: each standard's stored, verified scope record (`standard_scope_records`,
+    #: written only by the explicit `scripts/generate_scope_records.py` step) and
+    #: the submittal's own classified equipment type - no taxonomy needed. Same
+    #: asymmetric safety rule as the taxonomy path: an unconfirmed
+    #: NOT_APPLICABLE is still reported as UNKNOWN. OFF by default. Env:
+    #: APPLICABILITY_REASONING_ENABLED.
+    applicability_reasoning_enabled: bool = False
     #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
     #: grid read cell by cell under its column heading ("N1 Size 4", "N1
     #: Flange Rating CL-150"). A schedule is one row per item across many

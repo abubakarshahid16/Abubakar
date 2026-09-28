@@ -402,6 +402,53 @@ def scope_decisions(library: list[dict], profile: dict) -> tuple[dict[str, dict]
     return out, None
 
 
+#: Step name for the reasoning-based scope decision (owner request
+#: 2026-09-28), so its Claude-lane spend, if any, is attributed separately
+#: from every other step.
+SCOPE_REASONING_STEP = "scope-reasoning-decide"
+
+
+def scope_decisions_by_reasoning(library: list[dict], profile: dict,
+                                 provider=None) -> tuple[dict[str, dict], str | None]:
+    """`scope_decisions`, without a taxonomy: the AI reads a standard's
+    already-verified scope record directly against the submittal's own
+    classified equipment type (`applicability_reasoning.py`, owner request
+    2026-09-28 - no manual equipment lexicon).
+
+    Same shape and same safety rule as `scope_decisions`: {standard id:
+    decision}, and why the step did not run (None when it ran). A
+    NOT_APPLICABLE the reader did not confirm three times is reported as
+    UNKNOWN - a wrong exclusion hides a standard from the engineer, the
+    worst error.
+
+    A standard with no stored scope record is skipped exactly like the
+    taxonomy path skips one - `scripts/generate_scope_records.py` is the
+    explicit step that creates them; this function only reads.
+    """
+    equipment_type = profile.get("equipment_type")
+    if not equipment_type:
+        return {}, "scope clauses not checked: the submittal's equipment type is unknown"
+    out: dict[str, dict] = {}
+    ran_any = False
+    for entry in library:
+        stored = scope_record(entry["id"])
+        if stored is None:
+            continue
+        record, _confirmed = stored
+        ran_any = True
+        try:
+            from . import applicability_reasoning, reasoning_provider as rp
+            engine = provider or rp.get_provider("reasoning", step=SCOPE_REASONING_STEP)
+            decision = applicability_reasoning.decide_with_confirmation_by_reasoning(
+                record, equipment_type, engine, step=SCOPE_REASONING_STEP)
+        except Exception:  # noqa: BLE001 - budget cap, refusal or a down model:
+            # stays with an engineer as "not decided", never crashes the review.
+            continue
+        out[entry["id"]] = decision
+    if not ran_any:
+        return {}, "scope clauses not checked: no standard in the library has a verified scope record yet"
+    return out, None
+
 # --------------------------------------------------------------- selection
 
 def _match_referenced(library: list[dict], referenced: list[str]) -> dict[str, dict]:
@@ -648,9 +695,16 @@ def select(
             if page is not None:
                 row["reason"] = f"{row['reason']} (page {page})"
 
-    # B5: THE SCOPE DECISION (applicability_v2) on every standard that has a
-    # stored, verified scope record - only with an approved taxonomy.
-    decisions, scope_not_run = scope_decisions(library, profile)
+    # B5: THE SCOPE DECISION on every standard that has a stored, verified
+    # scope record. Owner request 2026-09-28: by AI reasoning
+    # (`applicability_reasoning_enabled`), no manual taxonomy - or, while
+    # that stays off, the older taxonomy-matched path (`applicability_v2`),
+    # which already reports "not run" when no taxonomy is approved.
+    from .config import settings as _settings
+    if _settings.applicability_reasoning_enabled:
+        decisions, scope_not_run = scope_decisions_by_reasoning(library, profile)
+    else:
+        decisions, scope_not_run = scope_decisions(library, profile)
     from . import applicability_v2 as v2
     for standard_id, decision in decisions.items():
         verdict = decision.get("decision")
