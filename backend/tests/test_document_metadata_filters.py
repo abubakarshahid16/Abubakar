@@ -277,6 +277,35 @@ def test_review_status_follows_the_latest_run(client):
     assert row["review_status"] == "completed"
 
 
+def test_review_status_reports_queued_and_cancelled_runs(client):
+    """2026-09-28: `review_runs.status` reaches `queued` on insert and again
+    after a retry, and `cancelled` on cancellation (`review_jobs.py`), but
+    neither value was in the `DocumentReviewStatus` response schema. That
+    mismatch didn't just misreport the one document in that state - FastAPI's
+    response validation failed the WHOLE `/api/documents` list for every
+    caller the moment any run reached either value. Caught live while
+    uploading standards through the running app.
+    """
+    import uuid
+
+    from app import submittal_review
+    doc_q = _doc("doc_q", "q.pdf", "sha-q")
+    doc_c = _doc("doc_c", "c.pdf", "sha-c")
+    submittal_review.ensure_schema()
+    with db.connect() as conn:
+        for doc, status in ((doc_q, "queued"), (doc_c, "cancelled")):
+            conn.execute("""INSERT INTO review_runs
+                (id,submittal_document_id,status,created_at,updated_at)
+                VALUES (?,?,?,?,?)""",
+                (str(uuid.uuid4()), doc, status, "2026-09-28T00:00:00Z",
+                 "2026-09-28T00:00:00Z"))
+    r = client.get("/api/documents")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert next(d for d in body if d["id"] == doc_q)["review_status"] == "queued"
+    assert next(d for d in body if d["id"] == doc_c)["review_status"] == "cancelled"
+
+
 def test_review_status_is_not_a_stored_column():
     """It is DERIVED. A column would be a second home for the same claim."""
     columns = [r[1] for r in db.connect().execute(

@@ -23,7 +23,9 @@ import { ROLE_OPTIONS } from "./classification/MetadataEditor";
 const REVIEW_STATUS_LABEL: Record<DocumentReviewStatus, string> = {
   not_reviewed: "Not reviewed",
   pending: "Review queued",
+  queued: "Review queued",
   running: "Review running",
+  cancelled: "Review cancelled",
   completed: "Review complete",
   failed: "Review failed",
 };
