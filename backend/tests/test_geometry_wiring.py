@@ -276,6 +276,64 @@ def test_a_page_no_reader_read_still_reads_no_facts(tmp_path, on):
     assert page_ledger.coverage(doc)["pages_not_read_into_fields"] == [1]
 
 
+# -------------------------------------------------- needs_ocr page distrust
+
+def test_a_page_flagged_needs_ocr_routes_its_geometry_reading_to_review(
+        tmp_path, monkeypatch, on):
+    """THE MUTATION TARGET: this project's OWN `pages.needs_ocr` verdict for
+    a page (it already judged the native text layer too unreliable to trust
+    and ran RapidOCR as a replacement) must reach the geometry reader's call
+    site so a reading built from that SAME distrusted text layer is flagged
+    for an engineer, not written as an ordinary confident fact. Reverting the
+    `page_needs_ocr` wiring in `_geometry_rows_from_pdf_page`/the write loop
+    makes this fail: the reading comes back `validation_state=None`."""
+    doc = _store(tmp_path, items=[(50, 220, "BEARING TYPE"), (220, 220, "___BALL___")],
+                 doc_id="doc_geo_needs_ocr")
+    with db.connect() as conn:
+        conn.execute("UPDATE pages SET needs_ocr = 1 WHERE document_id = ? AND page_no = 1",
+                     (doc,))
+    _extract(doc)
+    geo = [f for f in _current(doc) if f["extraction_method"] == "geometry"]
+    assert geo and geo[0]["field_name"] == "bearing type"
+    assert geo[0]["validation_state"] == "needs_engineer_review"
+    box = json.loads(geo[0]["bbox"])
+    assert box["page_needs_ocr"] is True
+
+
+def test_a_page_not_flagged_needs_ocr_is_unaffected(tmp_path, on):
+    """Negative for the mutation target: the same page, `needs_ocr = 0` (the
+    default `_store` writes), is written as an ordinary confident reading."""
+    doc = _store(tmp_path, items=[(50, 220, "BEARING TYPE"), (220, 220, "___BALL___")],
+                 doc_id="doc_geo_no_ocr_flag")
+    _extract(doc)
+    geo = [f for f in _current(doc) if f["extraction_method"] == "geometry"]
+    assert geo and geo[0]["field_name"] == "bearing type"
+    assert geo[0]["validation_state"] is None
+    box = json.loads(geo[0]["bbox"])
+    assert box["page_needs_ocr"] is False
+
+
+def test_needs_ocr_page_flag_is_secondary_to_a_rule_reader_conflict(
+        tmp_path, monkeypatch, on):
+    """When BOTH apply - the page is `needs_ocr` AND the geometry reading
+    conflicts with a rule-reader fact - the conflict flag wins (it is the
+    more informative of the two and already names the fact in dispute); the
+    needs_ocr signal still travels in the provenance box rather than being
+    lost."""
+    doc = _store(tmp_path)
+    with db.connect() as conn:
+        conn.execute("UPDATE pages SET needs_ocr = 1 WHERE document_id = ? AND page_no = 1",
+                     (doc,))
+    monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", lambda *_a: [
+        {**_row("SPEED", "3000 rpm", value="3000", unit="rpm"), "page_needs_ocr": True}])
+    _extract(doc)
+    geo = [f for f in _current(doc)
+           if f["field_name"] == "speed" and f["extraction_method"] == "geometry"]
+    assert len(geo) == 1
+    assert geo[0]["validation_state"] == datasheets.GEOMETRY_CONFLICT == "conflict"
+    assert json.loads(geo[0]["bbox"])["page_needs_ocr"] is True
+
+
 def test_a_non_quantity_value_keeps_the_unit_the_reader_split_off(tmp_path, monkeypatch, on):
     """THE MUTATION TARGET (M596): "<85" + "dBA" is stored as the value "<85"
     with the printed unit "dBA" - not glued back into "<85 dBA" with the

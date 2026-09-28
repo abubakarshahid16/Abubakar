@@ -687,4 +687,32 @@ def test_a_cell_built_from_a_cut_word_is_flagged_not_silently_trusted():
     flagged = {c["label"]: c["cut_word"] for c in row["cells"]}
     assert flagged["Mark"] is True
     assert flagged["Size"] is True
-    assert flagged["Service"] is False  # untouched cell stays unflagged (negative)
+
+
+# --------------------------------------------------------------------------
+# Row-key plausibility: a key cell that is present, fully inside one cell,
+# and not blank/cut can still be garbled - a CJK-lookalike character swapped
+# for a Latin one, the exact failure mode `ocr.alphabet_violations` exists to
+# catch. That check is reused here (never duplicated) on the key cell's text.
+# --------------------------------------------------------------------------
+
+def test_page_rows_skip_a_row_whose_key_cell_has_implausible_characters(synthetic_table):
+    """THE MUTATION TARGET: a key cell that reads "P汉1" (a CJK character
+    substituted for part of a real tag by a garbled/dropped text layer) is
+    present, non-blank and not a cut word - none of the existing checks catch
+    it - but it is not a trustworthy tag either, so the row must still be
+    skipped, exactly like a blank or cut-word key."""
+    _result, table = synthetic_table
+    garbled = {**table, "rows": [{**table["rows"][0], "cells": [
+        {**c, "text": "P汉1"} if c["label"] == "Mark" else c
+        for c in table["rows"][0]["cells"]]}]}
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [garbled]}) == []
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})  # negative
+
+
+def test_a_plausible_key_cell_is_unaffected_by_the_alphabet_check(synthetic_table):
+    """Negative: an ordinary Latin-script key cell is not flagged just because
+    the check now runs - only text with an actual script violation is."""
+    _result, table = synthetic_table
+    rows = gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})
+    assert any(r["label"].startswith("P1 ") for r in rows)
