@@ -320,6 +320,17 @@ class IngestionWorker:
             self.last_error = errors.record_failure(exc, stage="standard_extraction")
             return False
 
+    def _beat(self) -> None:
+        """Bump this worker's own heartbeat mid-job, not just between jobs.
+
+        Exists for one caller: a review job's scope-reasoning pass, which can
+        run for many minutes on this same thread (see `_drain_review_jobs`
+        below). Without it, `self.last_beat` only advances at the outer
+        `_run` loop boundary, so a long single job reads as a hung worker on
+        the Documents page even while it is actively working.
+        """
+        self.last_beat = time.time()
+
     def _drain_review_jobs(self) -> bool:
         """Run one queued review, if any. True when one was run."""
         from . import job_queue, review_jobs
@@ -328,7 +339,7 @@ class IngestionWorker:
             job_id = review_jobs.claim_next(job_queue.worker_id())
             if job_id is None:
                 return False
-            review_jobs.run(job_id, job_queue.worker_id())
+            review_jobs.run(job_id, job_queue.worker_id(), heartbeat=self._beat)
             return True
         except Exception as exc:  # noqa: BLE001
             self.last_error = errors.record_failure(exc, stage="review_run")

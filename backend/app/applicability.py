@@ -40,6 +40,7 @@ keyword-only, so access filters before ranking rather than after.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import uuid
@@ -408,8 +409,74 @@ def scope_decisions(library: list[dict], profile: dict) -> tuple[dict[str, dict]
 SCOPE_REASONING_STEP = "scope-reasoning-decide"
 
 
+def _scope_decision_record_hash(record: dict) -> str:
+    """A content fingerprint of a scope record, for the cache below.
+
+    Not the record's `created_at` or any row id - the CONTENT. Two rows
+    written at different times with identical verified items must hash the
+    same, so a harmless re-run of `generate_scope_records.py` that produces
+    an unchanged record does not invalidate a cache that is still correct.
+    """
+    blob = json.dumps(record, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _cached_scope_decision(standard_document_id: str, equipment_type: str,
+                           record: dict, provider, step: str) -> dict:
+    """`applicability_reasoning.decide_with_confirmation_by_reasoning`,
+    memoised per (standard, equipment type, exact scope-record content,
+    prompt version) - B5 cost fix, owner request 2026-09-28.
+
+    WHY THIS EXISTS. Before it, `scope_decisions_by_reasoning` asked the
+    reasoning model "does this standard apply to equipment type X" fresh on
+    EVERY review, for every standard in the library that has a scope record -
+    hundreds of live API calls per review, most of them asking a question
+    already answered on a previous review with the same answer. That made
+    review cost and latency scale with library size, not with the submittal,
+    and blocked the server's other background work while it ran (see
+    `docs/code-review/` applicability-reasoning-cost finding, 2026-09-28).
+
+    The fix is a cache, not a shortcut: nothing here is skipped or guessed.
+    The full reasoning call (with its 3x NOT_APPLICABLE re-read confirmation,
+    unchanged) still runs, exactly once, the FIRST time a given
+    (standard, equipment type) pair is asked about with a given scope-record
+    content and prompt version. Every review after that reads the stored
+    answer instead of re-asking. A cache row can only ever be SKIPPED, never
+    served when stale: `record_hash` changes the moment the standard's scope
+    record changes (re-read via `generate_scope_records.py`), and
+    `prompt_version` changes the moment the reasoning prompt itself changes
+    (`applicability_reasoning.PROMPT_VERSION`) - either miss recomputes and
+    overwrites the row, so a stale answer is never returned, only re-asked.
+    """
+    from . import applicability_reasoning
+    record_hash = _scope_decision_record_hash(record)
+    prompt_version = applicability_reasoning.PROMPT_VERSION
+    submittal_review.ensure_schema()
+    conn = connect()
+    row = conn.execute(
+        "SELECT decision_json FROM applicability_scope_decision_cache"
+        " WHERE standard_document_id = ? AND equipment_type = ?"
+        " AND record_hash = ? AND prompt_version = ?",
+        (standard_document_id, equipment_type, record_hash, prompt_version)).fetchone()
+    if row is not None:
+        try:
+            return json.loads(row["decision_json"])
+        except ValueError:
+            pass  # corrupt row - fall through and recompute rather than crash
+    decision = applicability_reasoning.decide_with_confirmation_by_reasoning(
+        record, equipment_type, provider, step=step)
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO applicability_scope_decision_cache"
+            " (standard_document_id, equipment_type, record_hash, prompt_version,"
+            "  decision_json, created_at) VALUES (?,?,?,?,?,?)",
+            (standard_document_id, equipment_type, record_hash, prompt_version,
+             json.dumps(decision), _now()))
+    return decision
+
+
 def scope_decisions_by_reasoning(library: list[dict], profile: dict,
-                                 provider=None) -> tuple[dict[str, dict], str | None]:
+                                 provider=None, heartbeat=None) -> tuple[dict[str, dict], str | None]:
     """`scope_decisions`, without a taxonomy: the AI reads a standard's
     already-verified scope record directly against the submittal's own
     classified equipment type (`applicability_reasoning.py`, owner request
@@ -424,6 +491,18 @@ def scope_decisions_by_reasoning(library: list[dict], profile: dict,
     A standard with no stored scope record is skipped exactly like the
     taxonomy path skips one - `scripts/generate_scope_records.py` is the
     explicit step that creates them; this function only reads.
+
+    `heartbeat`, optional: called after EVERY standard, cache hit or miss
+    (`ingest.IngestionWorker` passes its own `_beat`). Before the B5 cache,
+    this loop's own single-worker `_run` never got a turn between iterations
+    while it ran - the worker's heartbeat only ticks at its OUTER loop
+    boundary, and this ONE call could run for 15-20+ minutes making 200+
+    sequential reasoning calls. That read as "no heartbeat for Ns" / the
+    worker "not moving" on the Documents page, even though it was actively
+    working - and starved real ingestion of its turn for the same span. The
+    B5 cache fixes almost all of this by making repeat calls free; this
+    keeps the worker's OWN reported liveness honest for the case that
+    still remains - the first, uncached run for a new equipment type.
     """
     equipment_type = profile.get("equipment_type")
     if not equipment_type:
@@ -437,13 +516,16 @@ def scope_decisions_by_reasoning(library: list[dict], profile: dict,
         record, _confirmed = stored
         ran_any = True
         try:
-            from . import applicability_reasoning, reasoning_provider as rp
+            from . import reasoning_provider as rp
             engine = provider or rp.get_provider("reasoning", step=SCOPE_REASONING_STEP)
-            decision = applicability_reasoning.decide_with_confirmation_by_reasoning(
-                record, equipment_type, engine, step=SCOPE_REASONING_STEP)
+            decision = _cached_scope_decision(
+                entry["id"], equipment_type, record, engine, SCOPE_REASONING_STEP)
         except Exception:  # noqa: BLE001 - budget cap, refusal or a down model:
             # stays with an engineer as "not decided", never crashes the review.
             continue
+        finally:
+            if heartbeat is not None:
+                heartbeat()
         out[entry["id"]] = decision
     if not ran_any:
         return {}, "scope clauses not checked: no standard in the library has a verified scope record yet"
@@ -640,7 +722,7 @@ def _semantic_cannot_cover_a_missing_reference(
 def select(
     submittal_document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, persist: bool = True,
-    actor: dict | None = None,
+    actor: dict | None = None, heartbeat=None,
 ) -> dict:
     """Which standards apply to this submittal, why, and what is missing.
 
@@ -702,7 +784,7 @@ def select(
     # which already reports "not run" when no taxonomy is approved.
     from .config import settings as _settings
     if _settings.applicability_reasoning_enabled:
-        decisions, scope_not_run = scope_decisions_by_reasoning(library, profile)
+        decisions, scope_not_run = scope_decisions_by_reasoning(library, profile, heartbeat=heartbeat)
     else:
         decisions, scope_not_run = scope_decisions(library, profile)
     from . import applicability_v2 as v2

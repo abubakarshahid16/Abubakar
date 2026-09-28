@@ -527,6 +527,38 @@ def ensure_schema() -> None:
                 not_applicable_confirmed INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             )""")
+        # B5 cost fix (owner request 2026-09-28, `docs/code-review/`
+        # applicability-reasoning-cost finding). Before this table,
+        # `applicability.scope_decisions_by_reasoning` asked the reasoning
+        # model "does this standard apply to a Pump" FRESH on every single
+        # review - once per standard in the WHOLE library that has a scope
+        # record (hundreds), even though the same standard/equipment-type
+        # pair had already been answered on a previous review. That made a
+        # review's cost and latency scale with library size, not with how
+        # many standards the submittal actually cites, and blocked the
+        # server's other background work (ingestion) while it ran.
+        #
+        # This is the answer, memoised. `record_hash` ties a cached answer to
+        # the EXACT scope-record content it was computed from - if a standard
+        # is re-read (`generate_scope_records.py` run again) and its record
+        # changes, the hash changes, the old row simply never matches, and a
+        # fresh decision is computed and stored. Likewise `prompt_version`:
+        # ship a new reasoning prompt and every old row stops matching. A row
+        # is never edited to "fix" a stale answer - it is only ever replaced
+        # by a fresh (hash, prompt_version) pair that matches what is asked
+        # now. So this can never serve a stale answer silently; it can only
+        # ever skip asking again when nothing has changed.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS applicability_scope_decision_cache (
+                standard_document_id TEXT NOT NULL
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                equipment_type TEXT NOT NULL,
+                record_hash TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                decision_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (standard_document_id, equipment_type)
+            )""")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_review_applicable_standards_run "
             "ON review_applicable_standards(review_run_id, included, created_at DESC)")

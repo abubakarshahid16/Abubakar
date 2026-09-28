@@ -147,3 +147,89 @@ def test_a_model_exception_is_held_back_not_crashed(monkeypatch):
     monkeypatch.setattr(rp, "get_provider", _boom)
     result = applicability.select(sub, allowed_document_ids=_scope(std, sub), persist=False)
     assert result is not None  # did not raise
+
+
+# --------------------------------------------------------- B5 cost fix: cache
+
+def test_a_second_review_reuses_the_cached_decision_without_asking_again(monkeypatch):
+    """THE FIX THIS FILE EXISTS FOR. Before the cache, every review asked the
+    model fresh, so two reviews of the same equipment type against the same
+    standard made two calls. Now the second review must make ZERO."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub1 = _doc("sub1", "d1.pdf", "CONTRACTOR_SUBMITTAL", equipment_type="Centrifugal Pump")
+    sub2 = _doc("sub2", "d2.pdf", "CONTRACTOR_SUBMITTAL", equipment_type="Centrifugal Pump")
+    applicability.store_scope_record(std, RECORD_EXCLUDES_DOMESTIC)
+    provider = FakeProvider([_answer(applicability_v2.APPLICABLE, basis="covered equipment matches")])
+    monkeypatch.setattr(rp, "get_provider", lambda *a, **k: provider)
+
+    first = applicability.select(sub1, allowed_document_ids=_scope(std, sub1, sub2), persist=False)
+    assert provider.calls == 1
+    row1 = next(s for s in first["selected"] if s["standard_document_id"] == std)
+    assert row1["scope_decision"] == applicability_v2.APPLICABLE
+
+    second = applicability.select(sub2, allowed_document_ids=_scope(std, sub1, sub2), persist=False)
+    assert provider.calls == 1  # NOT 2 - the second review read the cache
+    row2 = next(s for s in second["selected"] if s["standard_document_id"] == std)
+    assert row2["scope_decision"] == applicability_v2.APPLICABLE
+
+
+def test_the_cache_is_recomputed_when_the_scope_record_changes(monkeypatch):
+    """A stale answer must never survive a real change to the standard's
+    scope record (re-read via generate_scope_records.py). Changed content -
+    even under the same standard id and equipment type - must be a cache
+    MISS, not a reuse of the old answer."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", equipment_type="Centrifugal Pump")
+    applicability.store_scope_record(std, RECORD_EXCLUDES_DOMESTIC)
+    provider = FakeProvider([_answer(applicability_v2.APPLICABLE, basis="first read")])
+    monkeypatch.setattr(rp, "get_provider", lambda *a, **k: provider)
+    applicability.select(sub, allowed_document_ids=_scope(std, sub), persist=False)
+    assert provider.calls == 1
+
+    changed_record = {**RECORD_EXCLUDES_DOMESTIC,
+                      "covered_activities": [{"activity": "new-build only", "quote": "new-build only", "page": 3}]}
+    applicability.store_scope_record(std, changed_record)
+    provider.answers.append(_answer(applicability_v2.APPLICABLE, basis="second read"))
+    applicability.select(sub, allowed_document_ids=_scope(std, sub), persist=False)
+    assert provider.calls == 2  # the changed record forced a fresh call
+
+
+def test_the_cache_is_recomputed_when_the_prompt_version_changes(monkeypatch):
+    """Ship a new reasoning prompt and every cached row must stop matching -
+    an old answer to a DIFFERENT question must never be served as today's."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", equipment_type="Centrifugal Pump")
+    applicability.store_scope_record(std, RECORD_EXCLUDES_DOMESTIC)
+    provider = FakeProvider([_answer(applicability_v2.APPLICABLE, basis="v1 prompt")])
+    monkeypatch.setattr(rp, "get_provider", lambda *a, **k: provider)
+    applicability.select(sub, allowed_document_ids=_scope(std, sub), persist=False)
+    assert provider.calls == 1
+
+    from app import applicability_reasoning
+    monkeypatch.setattr(applicability_reasoning, "PROMPT_VERSION", "scope-reasoning-v2")
+    provider.answers.append(_answer(applicability_v2.APPLICABLE, basis="v2 prompt"))
+    applicability.select(sub, allowed_document_ids=_scope(std, sub), persist=False)
+    assert provider.calls == 2  # the new prompt version forced a fresh call
+
+
+def test_heartbeat_is_called_once_per_standard_checked(monkeypatch):
+    """Ingestion-worker-freeze fix (2026-09-28). `select(heartbeat=...)` must
+    reach every standard actually processed in the scope-reasoning loop, so
+    the worker's own liveness stays honest across a slow, uncached pass -
+    not just between whole review jobs. One standard with a stored scope
+    record must mean exactly one heartbeat call, cache hit or miss."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", equipment_type="Centrifugal Pump")
+    applicability.store_scope_record(std, RECORD_EXCLUDES_DOMESTIC)
+    provider = FakeProvider([_answer(applicability_v2.APPLICABLE, basis="because")])
+    monkeypatch.setattr(rp, "get_provider", lambda *a, **k: provider)
+    beats = []
+    applicability.select(sub, allowed_document_ids=_scope(std, sub), persist=False,
+                        heartbeat=lambda: beats.append(1))
+    assert len(beats) == 1  # one standard processed -> one heartbeat call
+
+    # And again on a CACHE HIT - the point is liveness during the loop, not
+    # only while a real API call is in flight.
+    applicability.select(sub, allowed_document_ids=_scope(std, sub), persist=False,
+                        heartbeat=lambda: beats.append(1))
+    assert len(beats) == 2
