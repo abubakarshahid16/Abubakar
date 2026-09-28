@@ -84,10 +84,10 @@ TITLES = (
     "Chemical Injection Skid Datasheet",
     "Methanol Injection Philosophy",
     "HVAC Design Criteria",
-    "Gas Detection Layout Al-Khafji",
-    "Fire Alarm Cause and Effect Al-Zour",
-    "Pipeline Route Drawing KJO",
-    "Dorra Field Overall Block Diagram",
+    "Gas Detection Layout Example Field",
+    "Fire Alarm Cause and Effect North Terminal",
+    "Pipeline Route Drawing JV-DEMO",
+    "South Ridge Field Overall Block Diagram",
     "Onshore Receiving Facility Scope of Work",
     "Offshore Platform Topside Layout",
     "Wellhead Platform Structural Calculation",
@@ -147,11 +147,20 @@ def register_rows() -> list[tuple[str, str, str]]:
     return out
 
 
+#: Facility names are the client's, read at import time from a local,
+#: git-ignored config (scripts/register_facilities.local.json) that will not
+#: exist on every machine this suite runs on. Fixed here so the suite is
+#: deterministic regardless of what, if anything, that file contains.
+FAKE_FACILITIES = ("Example Field", "North Terminal", "JV-DEMO", "South Ridge",
+                    "onshore", "offshore")
+
+
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
+    monkeypatch.setattr(import_register, "CANDIDATE_FACILITIES", FAKE_FACILITIES)
     db.reset_connection()
     db.init_db()
     yield
@@ -216,7 +225,7 @@ def test_a_title_is_kept_whole_across_column_clustering(register_pdf):
     titles = {r["title"] for r in rows}
     for expected in ("Hot Oil System P&ID",
                      "Condensate Stabilisation Overall Block Diagram",
-                     "Fire Alarm Cause and Effect Al-Zour"):
+                     "Fire Alarm Cause and Effect North Terminal"):
         assert expected in titles, (expected, sorted(titles)[:5])
 
 
@@ -242,7 +251,7 @@ def test_the_subject_vocabulary_is_derived_and_contains_project_wide(
 
     # Facilities, kinded separately - they are places, not systems, and gap
     # analysis treats them differently.
-    for facility in ("Al-Khafji", "KJO", "Dorra", "onshore", "offshore"):
+    for facility in ("Example Field", "JV-DEMO", "South Ridge", "onshore", "offshore"):
         assert facility in names, (facility, sorted(names))
         assert kinds[facility] == "facility"
 
@@ -256,7 +265,7 @@ def test_a_term_absent_from_every_title_is_not_emitted():
         ["Hot Oil System P&ID", "Firewater Ring Main Layout"], [])
     names = {s["name"] for s in subjects}
     assert "hot oil" in names and "firewater" in names
-    for absent in ("MEG", "flare", "Dorra", "nitrogen"):
+    for absent in ("MEG", "flare", "South Ridge", "nitrogen"):
         assert absent not in names, (
             f"{absent!r} was emitted although no title mentions it")
 

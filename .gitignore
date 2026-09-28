@@ -113,17 +113,25 @@ Claude outputs/
 gold/*.csv
 !gold/TEMPLATE.csv
 !gold/PAIRS-TEMPLATE.csv
-# EXCEPTIONS, tracked although this rule forbids them - listed so that the rule
-# and the repository agree about what is in Git. Both were committed before
-# anyone checked them against the rule (99591dd, cdf156b) and are already on
-# GitHub. Owner decision 2026-09-21: ACCEPTED RISK (private repository, content
-# already published, and untracking would not remove it from history). Recorded
-# as B27 in .cowork/CURRENT_STATE_AND_BLOCKERS.md, left open to be revisited.
-# Every OTHER filled sheet stays ignored. Do not add to this list.
-!gold/SAES-A-105.csv
-!gold/PAIRS-216400C.csv
+# The two filled sheets that used to be tracked as an EXCEPTION here (B27,
+# owner-accepted 2026-09-21 while the repository was private) were untracked
+# on 2026-09-25 when the repository went public. No exception remains: every
+# filled sheet stays ignored, kept locally beside the database.
 
 # Client identifiers the pre-commit hook blocks in added lines. LOCAL ONLY:
 # the list is itself a list of client identifiers, so it never enters git.
 # One regex per line; see .githooks/pre-commit section 2b.
 .githooks/client-identifiers.local
+
+# Facility names/codes for the register importer's subject derivation - also
+# client identifiers, kept out of git the same way. See
+# scripts/register_facilities.local.example.json for the shape.
+scripts/register_facilities.local.json
+
+# UI screenshots. Section 9's rule above already named "screenshots" and
+# "prompts or answers" as forbidden; these were tracked anyway (B29,
+# owner-accepted 2026-09-21 while the repository was private) and several
+# show real questions, cited filenames and an account email. Untracked
+# 2026-09-25 when the repository went public; kept locally.
+docs/screenshots/
+docs/ui-redesign/**/*.png
