@@ -79,13 +79,12 @@ from typing import Literal, Protocol
 
 from . import assertions, context_budget
 
-#: Sources are numbered for the model and cited back by number. Same marker
-#: syntax as answer.py, deliberately re-stated rather than imported: this
-#: module must stay free of the retrieval stack (httpx, search, db) to be a
-#: pure engine, and answer.py may want to import this one later.
-_CITATION = re.compile(r"\[S(\d+)\]")
-#: A marker the output-token cap cut in half at the very end of the text.
-_HALF_CITATION = re.compile(r"\s*\[S?\d*$")
+#: Sources are numbered for the model and cited back by number. Shared with
+#: answer.py via citations.py (zero dependencies beyond re), so this module
+#: stays free of the retrieval stack (httpx, search, db) and remains a pure
+#: engine, without re-stating the same regex twice.
+from .citations import _CITATION, _HALF_CITATION, strip_half_citation, validate_citations
+
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 #: A fragment that is nothing but citation markers belongs to the sentence in
 #: front of it: "...280 um. [S1]" is one cited sentence, not one uncited
@@ -432,23 +431,6 @@ class Recommendation:
 
 
 # ------------------------------------------------------------------ citations
-
-
-def strip_half_citation(text: str) -> str:
-    """Remove a citation marker the output cap cut in half.
-
-    Text that stops inside `[S2` reads as a malformed citation system rather
-    than as a length limit. Same rule and same machinery as answer.py.
-    """
-    return _HALF_CITATION.sub("", text).rstrip()
-
-
-def validate_citations(text: str, source_count: int) -> tuple[list[int], list[int]]:
-    """Split cited source numbers into those that exist and those invented."""
-    cited = [int(n) for n in _CITATION.findall(text)]
-    valid = sorted({n for n in cited if 1 <= n <= source_count})
-    invented = sorted({n for n in cited if not 1 <= n <= source_count})
-    return valid, invented
 
 
 def _strip_invented(text: str, invented: Iterable[int]) -> str:

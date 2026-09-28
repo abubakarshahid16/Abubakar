@@ -115,12 +115,8 @@ SECOND_PASSAGE_MAX_GAP = 6.0
 #: Used when reranking is unavailable and only RRF is present.
 MIN_RRF_SCORE = 0.012
 
-_CITATION = re.compile(r"\[S(\d+)\]")
-#: A citation marker the generator started and did not finish, because the
-#: token budget ran out inside it: "[", "[S", "[S1" with no closing bracket,
-#: at the very end of the text. Anchored to the end on purpose - a bare "["
-#: mid-sentence is ordinary prose and must survive.
-_HALF_CITATION = re.compile(r"\s*\[S?\d*$")
+from .citations import _CITATION, _HALF_CITATION, strip_half_citation, validate_citations
+
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 _REVIEW_REQUEST = re.compile(
     r"\b(?:review|critique|criteque|assess|evaluate|audit|commentary|criticism)\b",
@@ -783,34 +779,11 @@ def _finish_generated(raw: dict, passages: list[dict], *, base: dict, timer: Tim
             "cost_usd": raw.get("cost_usd"), "seconds": timer.seconds()}
 
 
-def strip_half_citation(text: str) -> str:
-    """Remove a citation marker the budget cut in half.
-
-    An answer that stops inside `[S2` shows the reader literal broken text and
-    reads as a malformed citation system rather than as a length limit. A
-    broken citation is worse than a missing one - the same reasoning that makes
-    an invented citation get stripped below, and the same machinery.
-
-    Only the trailing fragment goes. The sentence it was attached to is left
-    alone: it is still the model's text and still supported by the citations
-    that did survive.
-    """
-    return _HALF_CITATION.sub("", text).rstrip()
-
-
 def drop_citations(text: str) -> str:
     """Every [S#] removed, and the space it leaves before punctuation closed:
     "the wall [S1]." becomes "the wall.", not "the wall .". For text that may
     cite nothing (a general answer)."""
     return re.sub(r"[ \t]+([.,;:!?])", r"\1", _CITATION.sub("", text)).strip()
-
-
-def validate_citations(text: str, passage_count: int) -> tuple[list[int], list[int]]:
-    """Split the citations into those that exist and those the model invented."""
-    cited = [int(n) for n in _CITATION.findall(text)]
-    valid = sorted({n for n in cited if 1 <= n <= passage_count})
-    invented = sorted({n for n in cited if not 1 <= n <= passage_count})
-    return valid, invented
 
 
 # ------------------------------------------------------------------- entry
