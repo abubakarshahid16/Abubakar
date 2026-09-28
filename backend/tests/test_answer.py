@@ -239,6 +239,63 @@ def test_the_system_prompt_forbids_outside_knowledge_and_embedded_instructions()
     assert "Cite every factual claim" in p
 
 
+def test_the_claude_lane_prompt_always_carries_the_exact_quote_rule():
+    """The Claude variant used to be made by `str.replace` on one exact line
+    of the local prompt. Rewording that line made the replace match nothing
+    and the Claude lane silently lost its quote rule - after which
+    `verify_claims` strips every unquoted claim. Both halves are held here:
+    Claude must be told to quote, the local 4B model must not be (it cannot
+    quote reliably, and its answers claim no verification)."""
+    verified, local = answer.SYSTEM_PROMPT_VERIFIED, answer.SYSTEM_PROMPT
+    assert '[S1 "exact words"]' in verified
+    assert "character for character" in verified
+    assert '[S1 "exact words"]' not in local
+    assert "[S1], [S2] matching the source numbers" in local
+    assert "[S1], [S2] matching the source numbers" not in verified
+
+
+def test_every_shared_answer_rule_reaches_both_lanes():
+    """A rule added for one lane must reach the other; only the citation
+    rule may differ, and it is the only line that does."""
+    local = answer.SYSTEM_PROMPT.splitlines()
+    verified = answer.SYSTEM_PROMPT_VERIFIED.splitlines()
+    for rule in answer._ANSWER_RULES:
+        for line in rule.splitlines():
+            assert line in local and line in verified, line
+    only_local = set(local) - set(verified)
+    assert only_local == {answer._CITE_BY_NUMBER}
+
+
+def test_the_answer_prompt_asks_for_exact_numbers_and_stated_conditions():
+    """Engineering review rules (roadmap item 19). Numbers: the local lane
+    deletes a sentence whose figure is not on its page (`ground_numbers`), so
+    a converted unit costs the reader the sentence. Conditions: a clause
+    binding only carbon steel, quoted without that, is wrong for a stainless
+    vessel."""
+    for p in (answer.SYSTEM_PROMPT, answer.SYSTEM_PROMPT_VERIFIED):
+        assert "exactly as written. Do not convert or round." in p
+        assert "applies only under a condition" in p
+
+
+def test_a_partial_answer_never_uses_the_refusal_phrase():
+    """`_finish` and `_finish_generated` discard an answer that contains
+    INSUFFICIENT EVIDENCE anywhere. So the partial-answer rule must name the
+    gap in other words, and the refusal phrase must appear exactly once -
+    in the none-at-all rule."""
+    for p in (answer.SYSTEM_PROMPT, answer.SYSTEM_PROMPT_VERIFIED):
+        assert "answer only part" in p and '"The sources do not state ..."' in p
+        assert p.count(answer.INSUFFICIENT) == 1
+        partial = next(l for l in p.splitlines() if "answer only part" in l)
+        assert answer.INSUFFICIENT not in partial
+
+
+def test_the_claude_first_chat_prompt_asks_for_exact_numbers_and_conditions():
+    from app import chat_claude_first
+    p = chat_claude_first.SYSTEM_PROMPT
+    assert "never convert or round" in p
+    assert "state the condition with it" in p
+
+
 def test_the_prompt_labels_every_source_with_its_document_and_page():
     passages = [
         {"filename": "spec.pdf", "page_start": 12, "page_end": 12, "text": "Alpha."},

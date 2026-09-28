@@ -70,6 +70,12 @@ text layer (look_at_page will say so), write it in your own words and cite it as
 tool result must be clearly marked as general knowledge, in its own short section if the \
 answer mixes both.
 
+ENGINEERING PRECISION: copy numbers, units and identifiers exactly as the page writes \
+them - never convert or round, because the reader checks them against the page. When a \
+requirement applies only under a condition (a material, service, size or temperature \
+range), state the condition with it: a requirement quoted without its condition can be \
+wrong for the equipment in front of the reader.
+
 You never decide whether a submittal complies with a standard - that is an engineer's \
 judgement, not yours. Describe what the documents say and let the reader (or the \
 existing review workflow) draw that conclusion. If the documents do not contain \
@@ -193,7 +199,7 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
             packet = rp.Packet(
                 prompt="", num_ctx=200_000, num_predict=max_tokens,
                 temperature=settings.chat_temperature_document,
-                system=system, step=CHAT_STEP, prompt_version="chat-claude-first-v1",
+                system=system, step=CHAT_STEP, prompt_version="chat-claude-first-v2",
                 messages=tuple(messages), tools=offer_tools, thinking_budget=thinking_budget,
                 images=tuple(_images_for_accounting(sources)),
             )
