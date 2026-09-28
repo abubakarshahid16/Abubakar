@@ -181,8 +181,18 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
         logging.getLogger(__name__).warning("web standards check skipped: %s", type(exc).__name__)
 
 
-def run(job_id: str, worker_id: str) -> str:
-    """Run one claimed review job to its end. Returns the job's final state."""
+def run(job_id: str, worker_id: str, heartbeat=None) -> str:
+    """Run one claimed review job to its end. Returns the job's final state.
+
+    `heartbeat`, optional: forwarded to `applicability.select()`. This job
+    runs on the SAME single worker thread as document ingestion
+    (`ingest.IngestionWorker._drain_review_jobs`) - see that module for why
+    the two share one thread. Without this, the worker's own heartbeat only
+    ticks at its outer loop boundary, so a slow, uncached scope-reasoning
+    pass (hundreds of standards, no cached answer yet) reads on the
+    Documents page as the worker having no heartbeat / "not moving", when it
+    is in fact still working through this one job.
+    """
     from . import applicability, comparison, errors, submittal_review
     conn = connect()
     job = conn.execute("SELECT * FROM jobs WHERE id = ? AND state = 'running' AND claimed_by = ?",
@@ -198,7 +208,7 @@ def run(job_id: str, worker_id: str) -> str:
         submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
         _step(conn, job_id, 1)
         selection = applicability.select(submittal, allowed_document_ids=scope,
-                                         review_run_id=run_id, persist=True)
+                                         review_run_id=run_id, persist=True, heartbeat=heartbeat)
         _step(conn, job_id, 2)
         comparison.run_comparison(
             run_id, allowed_document_ids=scope,
