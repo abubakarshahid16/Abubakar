@@ -2311,11 +2311,21 @@ GEOMETRY_CONFLICT = "conflict"
 GEOMETRY_METHOD = "geometry"
 
 
-def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int) -> list[dict]:
+def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int,
+                                 page_needs_ocr: bool = False) -> list[dict]:
     """`geometry_reader.read_page_rows` for one page; [] when it cannot be read.
 
     A failure here never touches the rule readers' facts - the geometry
-    reader only ever ADDS rows."""
+    reader only ever ADDS rows.
+
+    `page_needs_ocr` is this project's OWN `pages.needs_ocr` verdict for this
+    page - it has already judged the page's native text layer too sparse or
+    unreliable to trust for retrieval and ran RapidOCR as a replacement. The
+    geometry reader still runs on that same distrusted text layer (RapidOCR's
+    output never reaches it - the two pipelines don't share data), but every
+    row it returns is tagged with that page-level distrust signal so the
+    write loop can flag it rather than write it as an ordinary confident
+    reading (flag, not hide - see `GEOMETRY_CONFLICT`)."""
     if not stored_path:
         return []
     try:
@@ -2325,9 +2335,12 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int) -> list[
         with pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
-            return geometry_reader.read_page_rows(doc[page_no - 1])
+            rows = geometry_reader.read_page_rows(doc[page_no - 1])
     except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
         return []
+    if page_needs_ocr:
+        rows = [{**row, "page_needs_ocr": True} for row in rows]
+    return rows
 
 
 #: B7: a page with NO word on its own text layer (a scanned image) cannot
@@ -2821,6 +2834,16 @@ def _extract_facts(
     # flag.
     geometry_tables = geometry_on or bool(settings.geometry_table_reader_enabled)
     geometry_by_page: dict[int, list[dict]] = {}
+    # This project's OWN pipeline (`ocr.route_page`, recorded in
+    # `pages.needs_ocr`) has already judged some pages' native text layer too
+    # sparse/unreliable to trust and run RapidOCR as a replacement for them.
+    # The geometry reader has no such awareness on its own - it reads the
+    # same distrusted text layer regardless - so that verdict is fetched here,
+    # once per extraction, and threaded into every geometry row read below.
+    ocr_flagged_pages: frozenset[int] = frozenset(
+        r["page_no"] for r in connect().execute(
+            "SELECT page_no FROM pages WHERE document_id = ? AND needs_ocr = 1",
+            (document_id,)).fetchall()) if geometry_tables else frozenset()
     # B4 item 1: THE VISION READER, same flag, and only where Claude may be
     # used (it is the only provider that reads an image). Unavailable is a
     # recorded reason, never a silent skip.
@@ -2846,7 +2869,8 @@ def _extract_facts(
         grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)
         if geometry_tables:
             # B4 (#193 5.5): read, not yet written - see the write loop.
-            rows = _geometry_rows_from_pdf_page(stored_path, page)
+            rows = _geometry_rows_from_pdf_page(
+                stored_path, page, page in ocr_flagged_pages)
             geometry_by_page[page] = (
                 rows if geometry_on else [r for r in rows if r["source"] == "table"])
         if not found and not grid_by_page[page]:
@@ -3183,6 +3207,7 @@ def _extract_facts(
                     dropped["duplicate"] = dropped.get("duplicate", 0) + 1
                     continue
                 seen.add(key)
+                page_needs_ocr = bool(row.get("page_needs_ocr"))
                 provenance_box = {
                     "reader": "geometry_reader", "source": row["source"],
                     "value_bbox": row["bbox"], "label_bbox": row["label_bbox"],
@@ -3192,6 +3217,12 @@ def _extract_facts(
                     # A DISAGREEMENT IS RECORDED, NOT RESOLVED: the rule
                     # facts this reading contradicts, by id.
                     "conflicts_with": [f["id"] for f in same_label] or None,
+                    # FLAG, DON'T HIDE: this page's own `pages.needs_ocr`
+                    # verdict already distrusts its native text layer - the
+                    # very layer this reading came from - so that verdict
+                    # travels with the reading even when it does not conflict
+                    # with a rule-reader fact.
+                    "page_needs_ocr": page_needs_ocr,
                 }
                 try:
                     geometry_row = create_fact(
@@ -3201,7 +3232,14 @@ def _extract_facts(
                         source_text=row["value_text"], review_run_id=review_run_id,
                         confidence=0.6, extraction_method=GEOMETRY_METHOD,
                         equipment_tag=row_tag or tags.get(page), commit=False,
-                        validation_state=GEOMETRY_CONFLICT if same_label else None,
+                        # A rule-reader conflict is the more informative flag
+                        # when both apply; otherwise a page this project's own
+                        # OCR routing already distrusts still routes its
+                        # geometry reading to an engineer, not silently as a
+                        # confident one (see `_geometry_rows_from_pdf_page`).
+                        validation_state=(GEOMETRY_CONFLICT if same_label
+                                          else NEEDS_ENGINEER_REVIEW if page_needs_ocr
+                                          else None),
                         extractor_version=geometry_version, input_hash=inputs,
                         value_column=row["column_label"],
                         # The reader's own blank evidence; a filled reading

@@ -932,13 +932,19 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
     <column label>", the row key being the row's LEFTMOST LABELLED cell (a
     tag or mark such as N1) - which is itself not emitted. That key column is
     fixed by position, never "whichever cell has text first": if the row's
-    own key cell is blank, unreadable, or built from a word too ambiguously
-    split across cells to trust (`cut_word`), the row has NO reliable key and
-    none of its cells are emitted - a neighbouring data column is NEVER
-    substituted as the key, which would silently mislabel every other cell in
-    that row under the wrong tag. An EMPTY table cell is not emitted: an
-    empty cell is not evidence of a blank field (addendum 3.7;
-    `datasheets.extract_facts` makes the same rule for its readers).
+    own key cell is blank, unreadable, built from a word too ambiguously
+    split across cells to trust (`cut_word`), OR holds characters implausible
+    for the expected script (a CJK-lookalike substituted for a Latin letter -
+    the same `ocr.alphabet_violations` check the OCR pipeline already runs on
+    its own output, reused here rather than duplicated), the row has NO
+    reliable key and none of its cells are emitted - a neighbouring data
+    column is NEVER substituted as the key, which would silently mislabel
+    every other cell in that row under the wrong tag. This catches a
+    different class of garbled text than the blank/cut-word checks: text that
+    IS present and IS fully inside one cell, but is not what it appears to
+    be. An EMPTY table cell is not emitted: an empty cell is not evidence of
+    a blank field (addendum 3.7; `datasheets.extract_facts` makes the same
+    rule for its readers).
 
     DE-DUPLICATED (B4): a second row with the same page, label and answer as
     an earlier one is the same reading twice and is dropped - the first one,
@@ -948,6 +954,11 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
     value's box and the label's box (forms), and table id / row / column /
     column label (tables).
     """
+    # Lazy import: geometry_reader is documented as pure/no-database, and
+    # `ocr` pulls in `db.connect`; only the one function needed is used, and
+    # only when a table is actually being keyed.
+    from .ocr import alphabet_violations
+
     form = form if form is not None else read_form(page)
     tables = tables if tables is not None else read_tables(page)
     rows: list[dict[str, Any]] = []
@@ -979,7 +990,8 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
             key_cell = cells[0]
             is_ambiguous_key = (not key_cell["text"]
                                 or not re.search(r"[^\W_]", key_cell["text"])
-                                or key_cell.get("cut_word", False))
+                                or key_cell.get("cut_word", False)
+                                or alphabet_violations(key_cell["text"])[0] > 0)
             if is_ambiguous_key:
                 continue
             for c in cells:

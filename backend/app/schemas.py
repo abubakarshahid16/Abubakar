@@ -2318,6 +2318,11 @@ class PageLedgerRow(BaseModel):
     ocr_reason: str | None = None
     ocr_engine: str | None = None
     ocr_mean_conf: float | None = None
+    #: Individual word boxes on this page scored below
+    #: `settings.ocr_low_conf_threshold`. mean/min are one number for the
+    #: whole page; this is the count neither can give - a page with one bad
+    #: word among 200 and a page with fifty bad words can share the same min.
+    ocr_low_conf_boxes: int | None = None
     index_status: str
     index_reason: str | None = None
     layout_status: str
