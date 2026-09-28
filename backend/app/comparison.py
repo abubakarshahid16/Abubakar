@@ -99,6 +99,39 @@ NO_FIELD_MATCHED = "no_field_matched"
 #: the code through completeness rather than by masquerading as a breach.
 BLOCKING = frozenset({NON_COMPLIANT})
 
+#: THE SEVERITY BUG (found reviewing EF1975-DAS-M-03, 2026-09-28). Every call
+#: to `create_finding`/`_prepare_finding` left `severity` at its hardcoded
+#: default of "major" - nobody ever passed a status-aware value in. That put
+#: a NOT_IN_DOCUMENT_SCOPE finding, which the comment above says explicitly
+#: is "NOT a failure" and "never counts toward with comments", in the exact
+#: same "major" bucket as a real NON_COMPLIANT breach. On that run, 1,223 of
+#: 7,803 findings were NOT_IN_DOCUMENT_SCOPE and still read "major" - the
+#: "unmeasured says unmeasured" rule, broken.
+#:
+#: NON_COMPLIANT is the only status this file calls a breach (`BLOCKING`
+#: above); it is the only one that keeps "major" by default. Anything not
+#: listed here (a future status, or a caller's own explicit override) still
+#: gets "major" - the safe side when the status is not one this table has an
+#: opinion about, never the silent side.
+SEVERITY_BY_STATUS: dict[str, str] = {
+    NOT_IN_DOCUMENT_SCOPE: "observation",   # not the contractor's to answer
+    MISSING_LOCALLY: "observation",         # the standard was never read
+    MISSING_INFORMATION: "minor",           # a blank to fill in, not a breach
+    NEEDS_ENGINEER_REVIEW: "minor",         # unresolved, not yet a finding
+    COMPLIANT: "observation",               # nothing wrong to flag
+    CONDITIONAL: "minor",
+}
+
+
+def _default_severity(status: str | None) -> str:
+    """The honest default severity for a verdict status, used whenever a
+    caller does not name one explicitly (every caller in this file, today).
+    Computed from the FINAL status - after `_reconcile` and the
+    unresolved-evidence downgrade - never the verdict's original one, so a
+    finding downgraded to NEEDS_ENGINEER_REVIEW is scored for what it became,
+    not for what it started as."""
+    return SEVERITY_BY_STATUS.get(status, "major")
+
 # -------------------------------------------------------------- review codes
 #
 # CONFIGURABLE, because the client may use different names or numbers
@@ -735,7 +768,7 @@ def _citation_resolves(chunk_id: str | None, document_id: str | None,
 def create_finding(
     *, review_run_id: str, submittal_document_id: str, requirement: dict,
     fact: dict | None, verdict: dict, comment: str | None = None,
-    model_opinion: str | None = None, severity: str = "major",
+    model_opinion: str | None = None, severity: str | None = None,
     category: str = "requirement_deviation",
     matched_phrase: str | None = None, match_method: str | None = None,
 ) -> dict:
@@ -770,7 +803,7 @@ def create_finding(
 def _prepare_finding(
     *, review_run_id: str, submittal_document_id: str, requirement: dict,
     fact: dict | None, verdict: dict, comment: str | None = None,
-    model_opinion: str | None = None, severity: str = "major",
+    model_opinion: str | None = None, severity: str | None = None,
     category: str = "requirement_deviation",
     matched_phrase: str | None = None, match_method: str | None = None,
     pending: dict | None = None, stored_replaced: bool = False,
@@ -843,6 +876,12 @@ def _prepare_finding(
         confidence = CONFIDENCE_MODEL_ASSISTED
     else:
         confidence = CONFIDENCE_DETERMINISTIC
+
+    # THE SEVERITY FIX. A caller that named a severity explicitly keeps it;
+    # every caller in this file today does not, so this is what actually
+    # decides every finding's severity - see `SEVERITY_BY_STATUS` above.
+    if severity is None:
+        severity = _default_severity(status)
 
     now = _now()
     finding_id = str(uuid.uuid4())

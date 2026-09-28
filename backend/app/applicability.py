@@ -492,8 +492,11 @@ def scope_decisions_by_reasoning(library: list[dict], profile: dict,
     taxonomy path skips one - `scripts/generate_scope_records.py` is the
     explicit step that creates them; this function only reads.
 
-    `heartbeat`, optional: called after EVERY standard, cache hit or miss
-    (`ingest.IngestionWorker` passes its own `_beat`). Before the B5 cache,
+    `heartbeat`, optional: called after every standard THAT HAS A STORED
+    SCOPE RECORD, cache hit or miss (a standard with none is skipped above
+    this call and never ticks it - `scope_record()` is a fast indexed read,
+    not the cost this exists to cover) (`ingest.IngestionWorker` passes its
+    own `_beat`). Before the B5 cache,
     this loop's own single-worker `_run` never got a turn between iterations
     while it ran - the worker's heartbeat only ticks at its OUTER loop
     boundary, and this ONE call could run for 15-20+ minutes making 200+
@@ -793,25 +796,33 @@ def select(
         evidence = {"evidence_page": decision.get("page"),
                     "evidence_quote": decision.get("quote"),
                     "scope_decision": verdict}
+        # HONEST RENDERING (bug found reviewing EF1975-DAS-M-03, 2026-09-28):
+        # `decision.get('quote') or ''` used to print `""` as though an empty
+        # string were a citation - a claim with nothing behind it, on the
+        # honesty-invariant rule that no claim renders without a resolving
+        # citation. `applicability_reasoning.decide_by_reasoning` now backs
+        # every APPLICABLE/APPLICABLE_CANDIDATE with the record's own
+        # verified covered-item quote when the model gave none; a NULL that
+        # survives that (a `generic_scope` record naming no specific item)
+        # says so in plain words instead of showing an empty pair of quotes.
+        cited = (f"\"{decision.get('quote')}\" (page {decision.get('page')})"
+                 if decision.get("quote") else "no specific quoted clause")
         row = selected.get(standard_id)
         if verdict == v2.APPLICABLE and (row is None or row["method"] not in INCLUDING_METHODS):
             selected[standard_id] = {
                 "method": METHOD_SCOPE, "identifier": None, **evidence,
-                "reason": f"its scope clause covers this equipment: "
-                          f"\"{decision.get('quote') or ''}\" (page {decision.get('page')})"}
+                "reason": f"its scope clause covers this equipment: {cited}"}
         elif verdict == v2.NOT_APPLICABLE and row is not None:
             if row["method"] == METHOD_REFERENCED:
                 # CITED STANDARDS ARE NEVER EXCLUDED BY A SCOPE READING: the
                 # datasheet says it governs. The disagreement is shown.
                 row["scope_decision"] = verdict
                 row["reason"] = (f"{row['reason']}; its scope clause reads as not "
-                                 f"covering this equipment (\"{decision.get('quote') or ''}\", "
-                                 f"page {decision.get('page')}) - engineer to confirm")
+                                 f"covering this equipment ({cited}) - engineer to confirm")
             else:
                 row.update(evidence)
                 row["excluded_by_scope"] = (
-                    f"its scope clause excludes this equipment: "
-                    f"\"{decision.get('quote') or ''}\" (page {decision.get('page')})")
+                    f"its scope clause excludes this equipment: {cited}")
         elif row is not None:
             row["scope_decision"] = verdict
 

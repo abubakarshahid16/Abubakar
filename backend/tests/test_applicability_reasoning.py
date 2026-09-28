@@ -55,6 +55,59 @@ def test_applicable_passes_through():
     assert out["term"] == "Centrifugal Pump"
 
 
+# --------------------------------- bug fix, 2026-09-28: APPLICABLE evidence
+#
+# THE BUG (found reviewing a real review of EF1975-DAS-M-03). The INSTRUCTIONS
+# prompt tells the model quote/page are null unless it cites an exclusion or
+# limit, so an APPLICABLE/APPLICABLE_CANDIDATE decision always arrived with
+# quote=None - a claim rendered with no citation behind it, on a standard
+# whose scope record actually holds a verified quote for the covered
+# equipment. `test_applicable_passes_through` above never asserted on
+# `quote`/`page` at all, so this shipped and stayed green.
+
+def test_an_applicable_decision_is_backed_by_the_records_own_covered_quote():
+    """The fix: when the model gives no quote for APPLICABLE (the normal
+    case, per the prompt's own instructions), the record's own verified
+    `covered_equipment` quote backs the decision instead of an empty one.
+    Deleting `_covered_evidence` / its call in `decide_by_reasoning` makes
+    this fail with quote=None, page=None."""
+    prov = FakeProvider([_answer(applicability_v2.APPLICABLE, basis="covered equipment matches")])
+    out = ar.decide_by_reasoning(RECORD, "Centrifugal Pump", prov, step="t")
+    assert out["quote"] == "covers centrifugal pumps"
+    assert out["page"] == 2
+
+
+def test_an_applicable_candidate_decision_is_also_backed_by_record_evidence():
+    prov = FakeProvider([_answer(applicability_v2.APPLICABLE_CANDIDATE, basis="plausibly covered")])
+    out = ar.decide_by_reasoning(RECORD, "Centrifugal Pump", prov, step="t")
+    assert out["quote"] == "covers centrifugal pumps"
+    assert out["page"] == 2
+
+
+def test_a_model_supplied_applicable_quote_is_kept_not_overwritten():
+    """If the model DOES supply a quote (not required by the prompt, but not
+    forbidden either), that quote is trusted as-is - the record is only a
+    fallback for what the prompt told the model to leave out."""
+    prov = FakeProvider([_answer(applicability_v2.APPLICABLE, quote="its own quote", page=9,
+                                 basis="because")])
+    out = ar.decide_by_reasoning(RECORD, "Centrifugal Pump", prov, step="t")
+    assert out["quote"] == "its own quote"
+    assert out["page"] == 9
+
+
+def test_applicable_on_a_generic_scope_record_has_no_quote_not_an_empty_one():
+    """A record with no covered_equipment/covered_activities items (a
+    `generic_scope` one) has no evidence to fall back to. The result says so
+    with None, never with an empty string standing in for a citation."""
+    generic_record = {"covered_equipment": [], "covered_activities": [],
+                      "explicit_exclusions": [], "explicit_limits": [],
+                      "generic_scope": True}
+    prov = FakeProvider([_answer(applicability_v2.APPLICABLE, basis="generic scope covers everything")])
+    out = ar.decide_by_reasoning(generic_record, "Centrifugal Pump", prov, step="t")
+    assert out["quote"] is None
+    assert out["page"] is None
+
+
 def test_not_applicable_with_a_fabricated_quote_is_rejected_to_unknown():
     """THE SAFETY ANCHOR: the model claims NOT_APPLICABLE but the quote it
     gives does not match any of the record's own verified exclusion/limit

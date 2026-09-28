@@ -1,9 +1,10 @@
-"""The three rules that decide which containment hit may be paired.
+"""The rules that decide which containment hit may be paired.
 
-Each rule is tested on the false pairing that motivated it, from
-gold/PAIRS-216400C.csv, and on the case where it must NOT refuse - because a
-rule that refuses when unsure turns a correct pairing into silence, and silence
-does not show up on anybody's screen.
+Each rule is tested on the false pairing that motivated it - the first three
+from gold/PAIRS-216400C.csv, the fourth (`compound_term`) from a real review
+of EF1975-DAS-M-03, 2026-09-28 - and on the case where it must NOT refuse -
+because a rule that refuses when unsure turns a correct pairing into silence,
+and silence does not show up on anybody's screen.
 """
 
 from __future__ import annotations
@@ -259,6 +260,54 @@ class TestTableLookupInput:
         assert result["reason"] == comparison.REFUSED_BY_RULE
 
 
+# ---------------------------------------------------------- rule 4: compound
+#
+# THE FALSE PAIRING (real review of EF1975-DAS-M-03, a pump datasheet,
+# 2026-09-28): a civil clause on allowable SOIL bearing pressure, paired by
+# whole-word containment with the pump sheet's blank "Bearing" field, because
+# "bearing" is a real word inside "soil bearing pressure" AND a real pump
+# field name. Rule 2 (equipment domain) does not catch this - the clause
+# names no equipment noun at all, so there is nothing for it to conflict
+# with.
+class TestCompoundTerm:
+    def test_soil_bearing_pressure_does_not_pair_with_a_mechanical_bearing_field(self):
+        """THE MUTATION TARGET. Deleting `compound_term_conflict`'s call in
+        `refusal` makes this pair, wrongly, on `bearing` alone."""
+        req = requirement(
+            "the allowable soil bearing pressure shall not be exceeded by "
+            "the foundation loading", requirement_type="statement", value=None,
+            raw_value=None, unit=None, raw_unit=None)
+        result = comparison.match_by_containment(req, [fact("Bearing", is_blank=True, raw_value=None)])
+        assert result["fact"] is None
+        assert result["reason"] == comparison.REFUSED_BY_RULE
+        assert result["refused"] == [{"name": "bearing", "reason": match_rules.COMPOUND_TERM}]
+
+    def test_a_genuine_mechanical_bearing_sentence_still_pairs(self):
+        """CONTROL. The rule refuses the OTHER sense, never the word itself -
+        a sentence that is actually about the equipment's own bearing must
+        keep matching."""
+        req = requirement(
+            "the pump bearing temperature shall be monitored continuously",
+            requirement_type="statement", value=None, raw_value=None,
+            unit=None, raw_unit=None)
+        result = comparison.match_by_containment(req, [fact("Bearing", is_blank=True, raw_value=None)])
+        assert result["fact"]["field_name"] == "Bearing"
+        assert result["refused"] == []
+
+    def test_the_rule_is_silent_for_every_other_field_name(self):
+        """Deliberately short and hand-picked (see the dict's own comment):
+        an ordinary field name never triggers this rule at all."""
+        assert match_rules.compound_term_conflict(
+            "internal design pressure",
+            requirement("soil bearing pressure shall not be exceeded")) is False
+
+    def test_compound_term_conflict_directly(self):
+        assert match_rules.compound_term_conflict(
+            "bearing", requirement("soil bearing pressure shall not be exceeded")) is True
+        assert match_rules.compound_term_conflict(
+            "bearing", requirement("the pump bearing shall be greased")) is False
+
+
 # ------------------------------------------------------------ together
 class TestRefusal:
     def test_the_first_refusing_rule_names_itself(self):
@@ -278,7 +327,7 @@ class TestRefusal:
     def test_every_reason_is_listed(self):
         assert set(match_rules.REASONS) == {
             match_rules.UNIT_DIMENSION, match_rules.EQUIPMENT_DOMAIN,
-            match_rules.TABLE_LOOKUP_INPUT}
+            match_rules.TABLE_LOOKUP_INPUT, match_rules.COMPOUND_TERM}
 
     def test_no_rule_fires_on_the_plain_case(self):
         """The existing containment behaviour is untouched when nothing is
