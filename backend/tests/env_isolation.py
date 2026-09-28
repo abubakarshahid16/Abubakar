@@ -72,6 +72,7 @@ EGRESS_SAFE: dict[str, object] = {
     "rule_parse_model_enabled": False,
     "geometry_reader_enabled": False,      # also gates the Claude vision reader
     "answer_judge_enabled": False,          # a model call per answer
+    "applicability_reasoning_enabled": False,  # a model call per standard per review
     # --- the market lane (market_transport)
     "market_live_enabled": False,
     "market_allow_public_egress": False,
