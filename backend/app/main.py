@@ -563,6 +563,11 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     B38: deleting a STANDARD cascades into its requirement rows. If review
     findings cite them, the attempt is recorded and refused (409) unless
     acknowledge_orphaned_findings=true.
+
+    Deleting a SUBMITTAL (a contractor's datasheet) cascades directly over
+    `review_findings.document_id ... ON DELETE CASCADE` (review.py) - every
+    CRS finding ever recorded against it. Same guard, same flag, checked
+    over that column instead of `standard_requirements`.
     """
     reject_unknown_params(request, {"confirm", "acknowledge_orphaned_findings"})
     doc = require_document(document_id, scope)
@@ -580,6 +585,12 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     orphan_guard.check(
         "document_delete", requirement_where="standard_document_id = ?",
         params=(document_id,), document_id=document_id,
+        acknowledge=acknowledge_orphaned_findings,
+        actor={"id": scope.user_id} if scope.user_id else None)
+    # Same guard, the SUBMITTAL side: review_findings.document_id cascades
+    # directly, not through standard_requirements - see orphan_guard.py.
+    orphan_guard.check_submittal_delete(
+        "submittal_delete", document_id=document_id,
         acknowledge=acknowledge_orphaned_findings,
         actor={"id": scope.user_id} if scope.user_id else None)
 
