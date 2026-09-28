@@ -114,6 +114,12 @@ def main(argv: list[str] | None = None) -> int:
     from app import chunker, db, extract, orphan_guard
 
     db.reset_connection()
+    db.init_db(path)  # additive: adds any missing schema/columns (e.g. pages.ocr_route
+                       # from fix/ocr-trigger-per-page) before this script writes to them.
+                       # Without this, a live DB that has never had the server started
+                       # against the merged schema crashes on the first write with
+                       # "table pages has no column named ocr_route" - reindex_chunking
+                       # must not depend on run order against other scripts or the server.
     conn = db.connect()
     stale = _survey(conn, args.doc)
     done, skipped = [], []
