@@ -1523,7 +1523,10 @@ reverted). Nothing here was run against the live database.
   `crs_numbers` gives an engineer's comment `CRS-<submittal no>-001` in Item No (minted
   by the write routes, never the export, which still writes nothing), and Final
   Resolution prints its Open/Closed status, closed only by a signed-in reviewer. Every
-  home of the old claim was corrected (rule 8).
+  home of the old claim was corrected (rule 8). The on-screen preview repeated the
+  claim in markup: it hard-coded both reply columns as empty cells, so a reply or a
+  closure would never have shown on screen even once the data existed. It now
+  renders what the server's sheet says, like every other column.
 
 ### The rule this produces
 

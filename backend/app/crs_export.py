@@ -54,6 +54,9 @@ ROW_FILLS = {
     # Entry 68: an absence on a page only the page reader read - engineer
     # work, the same pale amber.
     "page_reader_only": PatternFill("solid", fgColor="FFFDF2E9"),
+    # 2026-09-29: an Open comment carried forward from an earlier review - a
+    # cool grey-blue, so it reads as history the reviewer still has to close.
+    "carried_forward": PatternFill("solid", fgColor="FFEAF0F6"),
 }
 HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
            "Comment By", "Contractor's Response", "Final Resolution"]
@@ -150,6 +153,14 @@ CODE_NOT_YET_DECIDED = ("AI recommendation - NOT yet decided by an engineer. "
 #: reviewer closes a comment - and a numbered comment prints its status there
 #: ("Open" until a reviewer closes it). It stays empty on an unnumbered row.
 CONTRACTOR_COLUMNS = ("contractor_response", "final_resolution")
+
+
+#: The tip shown on each Contractor's Response cell (Excel limits: title 32,
+#: prompt 255 characters).
+RESPONSE_PROMPT_TITLE = "Start with a response code"
+RESPONSE_PROMPT = ("Begin your reply with one of: Accepted / Accepted with comment / "
+                   "Rejected / Clarification needed. Then your explanation, e.g. "
+                   "\"Rejected - the rating on p.4 is per the vendor's standard.\"")
 
 
 def crs_numbers_open() -> str:
@@ -300,9 +311,13 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             "comment": (comment if crs_ref else
                         f"{ROW_REF_LABEL}: {ref}" + (f"\n{comment}" if comment else "")),
             "comment_by": finding.get("comment_by", ""),
-            "contractor_response": "",
+            # The contractor's reply, as imported or recorded
+            # (`crs_numbers.response_cell`) - empty until they answer.
+            "contractor_response": (str(finding.get("crs_response") or "")
+                                    if crs_ref else ""),
             # THE COMPANY'S COLUMN, NOT THE CONTRACTOR'S: only the reviewer
-            # closes a comment. "Open" from the moment it is numbered.
+            # closes a comment. "Open" from the moment it is numbered, then
+            # "Closed" (with the reviewer's note, if any).
             "final_resolution": (str(finding.get("crs_status") or crs_numbers_open())
                                  if crs_ref else ""),
             # NEVER PRINTED - read by `build_crs` alone to pick a row's fill.
@@ -436,6 +451,21 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                 cell.fill = fill
         ws.row_dimensions[row].height = max(
             15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
+
+    # THE REPLY CONVENTION, ON THE SHEET ITSELF. A tip on every Contractor's
+    # Response cell asks for one of the four response codes first, which is
+    # what the reply import reads (`crs_numbers.parse_response`). A prompt,
+    # not a restriction: any text is still accepted, and a reply without a
+    # code imports with no code rather than being refused or guessed.
+    if view["rows"]:
+        from openpyxl.worksheet.datavalidation import DataValidation
+        tip = DataValidation(type="textLength", operator="greaterThanOrEqual",
+                             formula1="0", allow_blank=True, showErrorMessage=False,
+                             showInputMessage=True, promptTitle=RESPONSE_PROMPT_TITLE,
+                             prompt=RESPONSE_PROMPT)
+        first = COLUMN_HEADER_ROW + 1
+        tip.add(f"F{first}:F{COLUMN_HEADER_ROW + len(view['rows'])}")
+        ws.add_data_validation(tip)
 
     # Recommended review code, when the caller supplies one: a bold merged
     # summary row two rows below the table, so the seven-column layout the

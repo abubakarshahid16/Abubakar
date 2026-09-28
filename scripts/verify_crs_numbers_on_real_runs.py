@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Completed review runs checked: {len(runs)}")
 
     failures = 0
-    totals = {"rows": 0, "confirmed": 0, "numbered": 0}
+    totals = {"rows": 0, "confirmed": 0, "numbered": 0, "carried": 0}
     for run in runs:
         try:
             before, _m, _n, _s = app_main._crs_content(run, scope, "internal")
@@ -71,10 +71,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {run[:14]}  EXCEPTION {type(exc).__name__}: {exc}")
             continue
         confirmed = [r for r in first if r.get("engineer_confirmed")]
+        carried = sum(1 for r in first if r.get("row_kind") == "carried_forward")
         refs = [r["crs_ref"] for r in first if r.get("crs_ref")]
         problems = []
-        if len(before) != len(first):
-            problems.append(f"row count changed {len(before)} -> {len(first)}")
+        # Minting may ADD carried-forward rows (open comments from an earlier
+        # run of the same submittal); it must never lose one of this run's.
+        own = [r for r in first if r.get("row_kind") != "carried_forward"]
+        if len(before) - sum(1 for r in before if r.get("row_kind") == "carried_forward") != len(own):
+            problems.append(f"this run's row count changed {len(before)} -> {len(own)}")
         if len(refs) != len(set(refs)):
             problems.append("two rows share one number")
         if [r.get("crs_ref") for r in first] != [r.get("crs_ref") for r in second]:
@@ -86,14 +90,16 @@ def main(argv: list[str] | None = None) -> int:
         totals["rows"] += len(first)
         totals["confirmed"] += len(confirmed)
         totals["numbered"] += len(refs)
+        totals["carried"] += carried
         shown = "" if args.counts_only else (f"  e.g. {refs[0]}" if refs else "")
         print(f"  {run[:14]}  rows={len(first)} confirmed={len(confirmed)} "
-              f"numbered={len(refs)}{shown}  {'PROBLEM: ' + '; '.join(problems) if problems else 'ok'}")
+              f"numbered={len(refs)} carried_forward={carried}{shown}  {'PROBLEM: ' + '; '.join(problems) if problems else 'ok'}")
 
     db.reset_connection()
     print("\nSUMMARY (counts only)")
     print(f"  Runs: {len(runs)}  Rows: {totals['rows']}  Engineer-confirmed rows: "
-          f"{totals['confirmed']}  Numbered: {totals['numbered']}  Runs with a problem: {failures}")
+          f"{totals['confirmed']}  Numbered: {totals['numbered']}  Carried forward: {totals['carried']}"
+          f"  Runs with a problem: {failures}")
     if runs and not totals["confirmed"]:
         print("  NOTE: no row on these runs is engineer-confirmed yet, so none is numbered -"
               " that is the rule (drafts get no number), not a failure. Confirm one comment"

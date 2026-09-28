@@ -57,6 +57,10 @@ _AI_CONFIRMED_BY = "AI engineering check, confirmed by "
 #: kind C - unconfirmed rides in "AI Review Comments", confirmed moves to
 #: COMPANY Comments under the engineer's name, rejected is not on the sheet.
 ROW_KIND_WEB_STANDARD_CHECK = "web_standard_check"
+#: An Open comment from an earlier run or revision of this submittal that the
+#: current run no longer raises. Industry practice carries it forward until a
+#: reviewer closes it (`crs_numbers.open_elsewhere`); never dropped silently.
+ROW_KIND_CARRIED_FORWARD = "carried_forward"
 _WEB_ORIGIN = "web_standard_check"
 _WEB_CONFIRMED_BY = "Web check, confirmed by "
 #: Honesty audit entry 70: an unconfirmed kind C/D item left "Comment By"

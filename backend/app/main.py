@@ -3779,11 +3779,18 @@ def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> N
         rows, meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
         submittal_id = run["submittal_document_id"]
         crs_scope, label = crs_numbers_mod.scope_for(meta["submittal_number"], submittal_id)
-        keys = [row["crs_row_key"] for row in rows
-                if row.get("engineer_confirmed") and row.get("crs_row_key")]
-        if keys:
-            crs_numbers_mod.assign(crs_scope, label, keys, document_id=submittal_id,
-                                   review_run_id=review_run_id)
+        # Carried-forward rows are already numbered and are not this run's to
+        # re-snapshot; every other confirmed row is numbered (if new) and its
+        # snapshot refreshed, so a later carry-forward prints what it last said.
+        mine = [row for row in rows
+                if row.get("engineer_confirmed") and row.get("crs_row_key")
+                and row.get("row_kind") != crs_mapping_mod.ROW_KIND_CARRIED_FORWARD]
+        if mine:
+            crs_numbers_mod.assign(
+                crs_scope, label, [row["crs_row_key"] for row in mine],
+                document_id=submittal_id, review_run_id=review_run_id,
+                snapshots={row["crs_row_key"]: row for row in mine},
+                user_id=scope.user_id)
     except HTTPException:
         return
     except Exception:  # noqa: BLE001 - see docstring: never fail a saved decision
@@ -3893,8 +3900,36 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     for row, key in zip(rows, crs_keys):
         row["crs_row_key"] = key
         if key in numbered:
-            row["crs_ref"] = numbered[key]["ref"]
-            row["crs_status"] = numbered[key]["status"]
+            record = numbered[key]
+            row["crs_ref"] = record["ref"]
+            row["crs_status"] = crs_numbers_mod.resolution_cell(record)
+            row["crs_response"] = crs_numbers_mod.response_cell(record)
+            # A NUMBER IS AN ENGINEER'S CONFIRMATION, CARRIED. It is only ever
+            # minted for a comment an engineer made theirs, and the key is the
+            # comment's subject including the value the sheet states - so the
+            # same comment raised again by a re-run or on a resubmittal is the
+            # one already confirmed, and is issued as such.
+            row["engineer_confirmed"] = True
+    # CARRY-FORWARD (industry practice): an Open comment from an earlier run
+    # or revision of this submittal that this run no longer raises stays on
+    # the sheet until a reviewer closes it - never dropped because a later
+    # run stopped producing it. Read only, from what the comment last said.
+    for record in crs_numbers_mod.open_elsewhere(crs_scope, set(crs_keys)):
+        rows.append({
+            "finding_id": "",
+            "document_name": record.get("document_name") or submittal_name,
+            "page_section": record.get("page_section") or "",
+            "comment": record.get("comment") or "",
+            "comment_by": " - ".join(p for p in (
+                record.get("comment_by"), "carried forward from an earlier review") if p),
+            "standard_reference": record.get("standard_reference") or "",
+            "row_kind": crs_mapping_mod.ROW_KIND_CARRIED_FORWARD,
+            "engineer_confirmed": True,
+            "crs_row_key": record["row_key"],
+            "crs_ref": record["ref"],
+            "crs_status": crs_numbers_mod.resolution_cell(record),
+            "crs_response": crs_numbers_mod.response_cell(record),
+        })
     stamp = _now_date()
     meta = {
         "document_title": submittal_name,
@@ -4195,8 +4230,43 @@ def preview_review_crs(
     return crs_export_mod.build_crs_view(rows, meta)
 
 
+def _crs_run_scope(review_run_id: str, scope: access.AccessScope) -> tuple[str, str, str]:
+    """(crs scope key, printed label, submittal id) for a run the caller may
+    read, or 404 - the same 404 for a run that is not there."""
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids)
+    if run is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    submittal_id = run["submittal_document_id"]
+    crs_scope, label = crs_numbers_mod.scope_for(_submittal_number(submittal_id), submittal_id)
+    return crs_scope, label, submittal_id
+
+
+def _crs_comment(review_run_id: str, crs_ref: str, scope: access.AccessScope) -> tuple[str, int]:
+    """(crs scope key, seq) of a numbered comment that belongs to THIS run's
+    submittal, or 404. A number from another submittal is 404,
+    indistinguishable from one that is not there, exactly as an unreadable
+    run is."""
+    crs_scope, label, _submittal = _crs_run_scope(review_run_id, scope)
+    parsed = crs_numbers_mod.parse_ref(crs_ref)
+    if parsed is None or parsed[0] != label or crs_numbers_mod.get(crs_scope, parsed[1]) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no CRS comment with that number on this run"))
+    return crs_scope, parsed[1]
+
+
+def _require_named_reviewer(scope: access.AccessScope, what: str) -> None:
+    """A decision nobody signed is not a decision - the rule the finding route
+    applies to a confirmation."""
+    _require_identity_to_write(scope)
+    if scope.user_id is None:
+        raise HTTPException(status_code=401, detail=errors.safe_error(
+            errors.UNAUTHENTICATED, f"{what} must name the person who did it"))
+
+
 @app.post("/api/reviews/runs/{review_run_id}/crs/comments/{crs_ref}/status",
-          response_model=schemas.CrsCommentStatus,
+          response_model=schemas.CrsComment,
           responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def set_crs_comment_status(
     review_run_id: str,
@@ -4209,31 +4279,124 @@ def set_crs_comment_status(
 
     ONLY THE REVIEWER CLOSES A COMMENT (industry practice): a signed-in
     caller who may read this run's submittal, recorded by name from the
-    session, never from the body. The comment must belong to this run's
-    submittal - its number's label must be this submittal's - so a number
-    from another submittal is 404, indistinguishable from one that is not
-    there, exactly as an unreadable run is.
+    session, never from the body, with an optional closing note.
     """
-    _require_identity_to_write(scope)
-    if scope.user_id is None:
-        # A CLOSURE NOBODY SIGNED IS NOT A CLOSURE - the same rule the
-        # finding route applies to a confirmation.
-        raise HTTPException(status_code=401, detail=errors.safe_error(
-            errors.UNAUTHENTICATED, "closing a comment must name the reviewer"))
+    _require_named_reviewer(scope, "closing a comment")
     reject_unknown_params(request, set())
-    run = submittal_review_mod.get_review_run(
-        review_run_id, allowed_document_ids=scope.allowed_document_ids)
-    parsed = crs_numbers_mod.parse_ref(crs_ref)
-    not_found = HTTPException(status_code=404, detail=errors.safe_error(
-        errors.NOT_FOUND, "no CRS comment with that number on this run"))
-    if run is None or parsed is None:
-        raise not_found
-    submittal_id = run["submittal_document_id"]
-    crs_scope, label = crs_numbers_mod.scope_for(_submittal_number(submittal_id), submittal_id)
-    if parsed[0] != label:
-        raise not_found
-    updated = crs_numbers_mod.set_status(crs_scope, parsed[1], body.status,
-                                         user_id=scope.user_id)
-    if updated is None:
-        raise not_found
-    return updated
+    crs_scope, seq = _crs_comment(review_run_id, crs_ref, scope)
+    return crs_numbers_mod.set_status(crs_scope, seq, body.status,
+                                      user_id=scope.user_id, note=body.note)
+
+
+@app.post("/api/reviews/runs/{review_run_id}/crs/comments/{crs_ref}/response",
+          response_model=schemas.CrsComment,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def record_crs_comment_response(
+    review_run_id: str,
+    crs_ref: str,
+    body: schemas.CrsCommentResponseUpdate,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Record the contractor's reply to one comment when it arrived some
+    other way than the returned sheet. Recorded as entered by the signed-in
+    engineer, so nobody reads it as the contractor's own entry. A reply with
+    no code keeps none."""
+    _require_named_reviewer(scope, "recording a reply")
+    reject_unknown_params(request, set())
+    crs_scope, seq = _crs_comment(review_run_id, crs_ref, scope)
+    return crs_numbers_mod.set_response(
+        crs_scope, seq, code=body.code, text=body.text, user_id=scope.user_id,
+        source=crs_numbers_mod.SOURCE_RECORDED)
+
+
+@app.get("/api/reviews/runs/{review_run_id}/crs/comments/{crs_ref}/history",
+         response_model=schemas.CrsCommentHistory,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def crs_comment_history(
+    review_run_id: str,
+    crs_ref: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Everything that happened to one numbered comment, oldest first: when
+    it was numbered, every reply recorded or imported, every close and
+    re-open - who and when. READ ONLY; read access suffices."""
+    reject_unknown_params(request, set())
+    crs_scope, seq = _crs_comment(review_run_id, crs_ref, scope)
+    record = crs_numbers_mod.get(crs_scope, seq)
+    events = crs_numbers_mod.history(crs_scope, seq)
+    # A PERSON'S NAME, NEVER THEIR ID - the rule the sheet's "confirmed by"
+    # already follows. An id with no user row left is shown as it is.
+    ids = {e["by"] for e in events if e.get("by")}
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        names = {r["id"]: r["display_name"] for r in connect().execute(
+            f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(ids))}
+        for e in events:
+            e["by"] = names.get(e.get("by"), e.get("by"))
+    return {"ref": record["ref"], "events": events}
+
+
+#: A returned CRS is a small spreadsheet; anything larger is not one.
+CRS_REPLY_MAX_BYTES = 10 * 1024 * 1024
+
+
+@app.post("/api/reviews/runs/{review_run_id}/crs/reply",
+          response_model=schemas.CrsReplyImport,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def import_crs_reply(
+    review_run_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Import the contractor's returned Comment Resolution Sheet.
+
+    Each row is matched ONLY by its permanent number ("CRS-<no>-NNN" in Item
+    No) - never by position - and must belong to this run's submittal. Its
+    "Contractor's Response" is stored with the response code it leads with
+    (Accepted / Accepted with comment / Rejected / Clarification needed), or
+    with NO code when it leads with none: a reply is never read as agreement.
+    Every row with an Item No is accounted for in exactly one count.
+
+    Recorded as imported by the signed-in engineer. Statuses are NOT changed:
+    a reply is not a closure - only the reviewer closes a comment.
+    """
+    from . import crs_reply
+    _require_named_reviewer(scope, "importing a reply sheet")
+    reject_unknown_params(request, set())
+    crs_scope, label, _submittal = _crs_run_scope(review_run_id, scope)
+    data = file.file.read(CRS_REPLY_MAX_BYTES + 1)
+    if len(data) > CRS_REPLY_MAX_BYTES:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "the file is larger than 10 MB; a CRS is not"))
+    try:
+        replies = crs_reply.read_replies(data)
+    except crs_reply.ReplySheetError as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc))) from exc
+
+    counts = {"updated": 0, "updated_without_code": 0, "no_response": 0,
+              "not_a_crs_number": 0, "other_submittal": 0, "unknown_number": 0}
+    rows = []
+    for reply in replies:
+        parsed = crs_numbers_mod.parse_ref(reply["item"])
+        if parsed is None:
+            key, outcome = "not_a_crs_number", "not a CRS number"
+        elif parsed[0] != label:
+            key, outcome = "other_submittal", "another submittal's number"
+        elif crs_numbers_mod.get(crs_scope, parsed[1]) is None:
+            key, outcome = "unknown_number", "no such number"
+        elif not reply["response"]:
+            key, outcome = "no_response", "no response"
+        else:
+            code, text = crs_numbers_mod.parse_response(reply["response"])
+            crs_numbers_mod.set_response(
+                crs_scope, parsed[1], code=code, text=text, user_id=scope.user_id,
+                source=crs_numbers_mod.SOURCE_IMPORT)
+            key = "updated" if code else "updated_without_code"
+            outcome = "updated" if code else "updated, no response code stated"
+        counts[key] += 1
+        rows.append({"row": reply["row"], "item": reply["item"][:80], "outcome": outcome})
+    return {"rows_read": len(replies), **counts, "rows": rows}

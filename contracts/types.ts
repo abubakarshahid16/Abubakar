@@ -386,6 +386,52 @@ export interface CrsHeaderField {
  * belong to the contractor, and they are carried rather than omitted because
  * the sheet has seven columns whether or not anyone has answered yet.
  */
+/** The contractor's per-comment response codes (industry CRS practice). */
+export type CrsResponseCode =
+  | "Accepted" | "Accepted with comment" | "Rejected" | "Clarification needed";
+
+/** One numbered CRS comment after a status change or a recorded reply. */
+export interface CrsComment {
+  ref: string;
+  seq: number;
+  status: string;
+  status_by?: string | null;
+  status_at?: string | null;
+  status_note?: string | null;
+  /** null when the contractor's reply stated no code - never guessed. */
+  response_code?: string | null;
+  response_text?: string | null;
+  response_by?: string | null;
+  response_at?: string | null;
+  response_source?: string | null;
+}
+
+export interface CrsCommentEvent {
+  at: string;
+  by?: string | null;
+  /** "numbered", "response", "open" or "closed". */
+  event: string;
+  detail?: string | null;
+}
+
+export interface CrsCommentHistory {
+  ref: string;
+  events: CrsCommentEvent[];
+}
+
+/** What importing a returned CRS did. Every row with an Item No is in
+ *  exactly one count. */
+export interface CrsReplyImport {
+  rows_read: number;
+  updated: number;
+  updated_without_code: number;
+  no_response: number;
+  not_a_crs_number: number;
+  other_submittal: number;
+  unknown_number: number;
+  rows: { row: number; item: string; outcome: string }[];
+}
+
 export interface CrsPreviewRow {
   /** The permanent comment number "CRS-<submittal no>-001" once an engineer
    *  has made the comment theirs (never reused, kept across re-exports, re-runs

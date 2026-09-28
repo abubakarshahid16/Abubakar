@@ -51,7 +51,11 @@ import type {
   ReportRecord,
   ReportVerification,
   ReviewDashboard,
+  CrsComment,
+  CrsCommentHistory,
   CrsPreview,
+  CrsReplyImport,
+  CrsResponseCode,
   ReviewReadiness,
   VisionReaderStatus,
   ReviewRunStandard,
@@ -447,6 +451,41 @@ export const reviews = {
       undefined,
       hasArrayField("rows"),
     ),
+  /** Close or re-open one numbered comment (its Final Resolution). Only a
+   *  signed-in reviewer can; the server records who from the session. */
+  setCrsCommentStatus: (runId: string, ref: string, status: "Open" | "Closed", note?: string) =>
+    request<CrsComment>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/comments/${encodeURIComponent(ref)}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, note: note?.trim() || null }),
+      }),
+  /** Record the contractor's reply to one comment, when it came by email or
+   *  letter rather than the returned sheet. `code` null = they stated none. */
+  recordCrsResponse: (runId: string, ref: string, code: CrsResponseCode | null, text: string) =>
+    request<CrsComment>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/comments/${encodeURIComponent(ref)}/response`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, text }),
+      }),
+  crsCommentHistory: (runId: string, ref: string) =>
+    request<CrsCommentHistory>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/comments/${encodeURIComponent(ref)}/history`,
+      undefined,
+      hasArrayField("events"),
+    ),
+  /** Import the contractor's returned CRS (.xlsx). Rows are matched by their
+   *  permanent number only; statuses are not changed. */
+  importCrsReply: (runId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<CrsReplyImport>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/reply`,
+      { method: "POST", body: form },
+      hasArrayField("rows"),
+    );
+  },
   /** The run's findings as a Comment Resolution Sheet.
    *
    *  NOT `request()`, because the body is a spreadsheet rather than JSON -

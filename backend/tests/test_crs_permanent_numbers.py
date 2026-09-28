@@ -183,3 +183,150 @@ def test_a_text_item_number_is_written_on_the_rows_own_line():
     assert sheet.cell(first, 7).value == "Open"
     assert sheet.cell(first + 1, 1).value == 2
     assert str(sheet.cell(first + 1, 4).value).startswith("Ref: RF-")
+
+
+# ================================================= after issue: the reply loop
+
+def _ref(run) -> str:
+    return _noise_rows(run)[0]["crs_ref"]
+
+
+def test_a_recorded_reply_prints_code_and_words_and_is_attributed(world, monkeypatch):
+    _sub, run, scope = world
+    _confirm(run, scope, monkeypatch)
+    ref = _ref(run)
+    response = TestClient(app).post(
+        f"/api/reviews/runs/{run}/crs/comments/{ref}/response",
+        json={"code": "Rejected", "text": "Vendor rating governs."})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["response_by"] == "eng-1" and body["response_source"] == crs_numbers.SOURCE_RECORDED
+    [row] = _noise_rows(run)
+    assert row["contractor_response"] == "Rejected: Vendor rating governs."
+    assert row["final_resolution"] == "Open", "a reply is not a closure"
+
+
+def test_the_returned_sheet_imports_by_number_and_never_guesses_a_code(world, monkeypatch):
+    _sub, run, scope = world
+    _confirm(run, scope, monkeypatch)
+    ref = _ref(run)
+    label = crs_numbers.parse_ref(ref)[0]
+    client = TestClient(app)
+
+    # The contractor's copy: the sheet we issued, with their reply typed in,
+    # plus rows that must NOT be matched by position or guessed.
+    book = openpyxl.load_workbook(io.BytesIO(client.get(f"/api/reviews/runs/{run}/crs").content))
+    sheet = book.active
+    first = crs_export.COLUMN_HEADER_ROW + 1
+    assert sheet.cell(first, 1).value == ref
+    sheet.cell(first, 6).value = "Accepted with comments - will revise on Rev 1"
+    extra = first + 40
+    for offset, (item, reply) in enumerate((
+            ("CRS-SOMEONEELSE-001", "Accepted"),
+            (f"CRS-{label}-999", "Accepted"),
+            ("7", "Accepted"))):
+        sheet.cell(extra + offset, 1).value = item
+        sheet.cell(extra + offset, 6).value = reply
+    buffer = io.BytesIO()
+    book.save(buffer)
+
+    result = client.post(f"/api/reviews/runs/{run}/crs/reply",
+                         files={"file": ("reply.xlsx", buffer.getvalue(),
+                                         "application/octet-stream")})
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["updated"] == 1
+    assert body["other_submittal"] == 1 and body["unknown_number"] == 1
+    assert body["not_a_crs_number"] >= 1
+    # Every row with an Item No is in exactly one count.
+    assert body["rows_read"] == sum(body[k] for k in (
+        "updated", "updated_without_code", "no_response", "not_a_crs_number",
+        "other_submittal", "unknown_number"))
+    [row] = _noise_rows(run)
+    assert row["contractor_response"] == "Accepted with comment: will revise on Rev 1"
+
+
+def test_a_reply_that_states_no_code_is_stored_without_one():
+    code, text = crs_numbers.parse_response("We will revise the datasheet.")
+    assert code is None and text == "We will revise the datasheet."
+    assert crs_numbers.parse_response("Rejected - see p.4") == ("Rejected", "see p.4")
+    assert crs_numbers.parse_response("Accepted with comments") == ("Accepted with comment", "")
+
+
+def test_a_file_that_is_not_a_crs_is_refused(world, monkeypatch):
+    _sub, run, scope = world
+    _confirm(run, scope, monkeypatch)
+    response = TestClient(app).post(f"/api/reviews/runs/{run}/crs/reply",
+                                    files={"file": ("x.xlsx", b"not a workbook", "text/plain")})
+    assert response.status_code == 422
+
+
+def test_an_open_comment_is_carried_forward_until_a_reviewer_closes_it(world, monkeypatch):
+    """A run that no longer raises an issued comment must not drop it."""
+    _sub, run, scope = world
+    finding_id = _confirm(run, scope, monkeypatch)
+    ref = _ref(run)
+    client = TestClient(app)
+    # The finding stops being raised (here: rejected, so the mapping drops it).
+    assert client.patch(f"/api/reviews/findings/{finding_id}",
+                        json={"approval_status": "rejected"}).status_code == 200
+    rows = client.get(f"/api/reviews/runs/{run}/crs/preview").json()["rows"]
+    carried = [r for r in rows if r["crs_ref"] == ref]
+    assert len(carried) == 1 and carried[0]["row_kind"] == "carried_forward"
+    assert carried[0]["final_resolution"] == "Open"
+    assert "95 dB(A)" in carried[0]["comment"], "it prints what the comment last said"
+    issue = client.get(f"/api/reviews/runs/{run}/crs/preview?copy=issue")
+    assert issue.status_code == 200
+    assert ref in [r["crs_ref"] for r in issue.json()["rows"]], "an issued comment stays issued"
+
+    assert client.post(f"/api/reviews/runs/{run}/crs/comments/{ref}/status",
+                       json={"status": "Closed", "note": "withdrawn"}).status_code == 200
+    rows = client.get(f"/api/reviews/runs/{run}/crs/preview").json()["rows"]
+    assert ref not in [r["crs_ref"] for r in rows], "a closed comment is not carried"
+
+
+def test_the_closing_note_prints_and_the_history_says_who_did_what(world, monkeypatch):
+    _sub, run, scope = world
+    _confirm(run, scope, monkeypatch)
+    ref = _ref(run)
+    client = TestClient(app)
+    client.post(f"/api/reviews/runs/{run}/crs/comments/{ref}/response",
+                json={"code": "Accepted", "text": ""})
+    client.post(f"/api/reviews/runs/{run}/crs/comments/{ref}/status",
+                json={"status": "Closed", "note": "verified on Rev 1 p.4"})
+    [row] = _noise_rows(run)
+    assert row["final_resolution"] == "Closed: verified on Rev 1 p.4"
+
+    history = client.get(f"/api/reviews/runs/{run}/crs/comments/{ref}/history")
+    assert history.status_code == 200
+    events = [(e["event"], e["by"]) for e in history.json()["events"]]
+    assert [e for e, _by in events] == ["numbered", "response", "closed"]
+    # Names, not ids: `_signed_in` names its engineer "Engineer".
+    assert all(by == "Engineer" for _e, by in events)
+
+
+def test_the_issued_sheet_asks_for_a_response_code_on_every_reply_cell():
+    rows = [{"document_name": "d", "page_section": "p", "comment": "c",
+             "comment_by": "e", "crs_ref": "CRS-X-001"}] * 3
+    sheet = openpyxl.load_workbook(io.BytesIO(crs_export.build_crs(rows, {}))).active
+    [tip] = sheet.data_validations.dataValidation
+    first = crs_export.COLUMN_HEADER_ROW + 1
+    assert str(tip.sqref) == f"F{first}:F{first + 2}"
+    assert "Accepted" in tip.prompt and "Clarification needed" in tip.prompt
+    assert tip.showErrorMessage is False, "a prompt, never a restriction"
+
+
+def test_a_numbered_comment_raised_again_unconfirmed_is_still_issued(world, monkeypatch):
+    """A resubmittal, or a re-run that writes a fresh finding, raises the SAME
+    comment (same subject, same stated value) without the engineer's
+    confirmation on the new finding. It already holds a number, which is only
+    ever minted for a comment an engineer confirmed - so it is issued, under
+    that number, rather than silently dropped from the contractor's copy."""
+    _sub, run, scope = world
+    finding_id = _confirm(run, scope, monkeypatch)
+    ref = _ref(run)
+    with db.connect() as conn:  # the new finding: same subject, not confirmed
+        conn.execute("UPDATE review_findings SET confirmed_by = NULL, confirmed_at = NULL"
+                     " WHERE id = ?", (finding_id,))
+    issue = TestClient(app).get(f"/api/reviews/runs/{run}/crs/preview?copy=issue").json()
+    assert ref in [r["crs_ref"] for r in issue["rows"]]
