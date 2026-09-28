@@ -764,8 +764,16 @@ def ask(
     # model memory (see intent.is_spec_shaped). Decided BEFORE Claude-first
     # runs, so this closes that path AND the EITHER-to-general fallback
     # further down in one place.
+    # FOUND 2026-09-29: the same guard only checked route_kind == EITHER, so a
+    # spec-shaped question that ALSO carries a document signal ("what is the
+    # hafnium limit in our spec", routed DOCUMENT per intent.route rule 6)
+    # skipped this gate entirely and reached Claude-first on its own judgement
+    # whether to search - the same guess this gate exists to stop, just
+    # reached through the route intent.py itself says must "never" be
+    # answered from general knowledge (see intent.py's ONE ASYMMETRY comment).
+    # DOCUMENT joins EITHER here for exactly that reason.
     spec_shaped_result = None
-    if (explain_of is None and route_kind == intent_mod.EITHER
+    if (explain_of is None and route_kind in (intent_mod.EITHER, intent_mod.DOCUMENT)
             and intent_mod.is_spec_shaped(original)):
         spec_shaped_result, resolved = _document_answer(
             conversation_id, resolved, understood, tier=tier, document_id=document_id,

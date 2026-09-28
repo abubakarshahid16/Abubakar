@@ -302,6 +302,48 @@ def test_a_spec_shaped_either_question_never_reaches_general_knowledge(monkeypat
     assert body["answer"] is None
 
 
+def test_a_spec_shaped_document_question_never_reaches_general_knowledge(monkeypatch):
+    """FOUND 2026-09-29: the gate above only checked route_kind == EITHER. A
+    spec-shaped question that ALSO carries a document signal ("what is the
+    hafnium concentration limit in our spec" - "our spec" routes it DOCUMENT
+    per intent.route rule 6, not EITHER) skipped the gate entirely and
+    reached Claude-first on its own judgement whether to search - the exact
+    guess the EITHER gate exists to stop, reached through the one route
+    intent.py itself says must "never" be answered from general knowledge.
+
+    Must hold even when chat_claude_first is fully willing to answer -
+    monkeypatched to prove it, so the test fails if the DOCUMENT half of the
+    gate is ever removed rather than only when a real Claude key is absent."""
+    from app import chat_answers, chat_claude_first
+
+    called = []
+
+    def _claude_first_would_have_guessed(*args, **kwargs):
+        called.append("claude_first")
+        return None  # the assertion below must be what fails, not a schema error
+
+    def _general_would_have_guessed(question, **kwargs):
+        called.append("general_fallback")
+        return {"answer_type": "model_unavailable", "answer": None,
+                "reason": "test double"}
+
+    monkeypatch.setattr(chat_claude_first, "answer", _claude_first_would_have_guessed)
+    monkeypatch.setattr(chat_answers, "general", _general_would_have_guessed)
+
+    client = TestClient(app)
+    upload(client)
+    question = "what is the hafnium concentration limit in our spec"
+    assert intent.route(question)["kind"] == intent.DOCUMENT  # confirms this IS the DOCUMENT route
+    body = ask(client, question)
+
+    assert called == [], (
+        f"a spec-shaped DOCUMENT question absent from the corpus reached {called} - "
+        "the gate should have kept it on the document pipeline"
+    )
+    assert body["answer_type"] == "insufficient_evidence"
+    assert body["answer"] is None
+
+
 def test_a_definitional_either_question_is_unaffected(monkeypatch):
     """The gate above must not become a blanket EITHER refusal. "what is
     ABAP" carries no spec-shaped cue and must still reach the normal
