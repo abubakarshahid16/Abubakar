@@ -2049,18 +2049,21 @@ class CrsHeaderField(BaseModel):
 class CrsPreviewRow(BaseModel):
     """One comment row of the CRS, exactly as the workbook writes it.
 
-    `contractor_response` and `final_resolution` are ALWAYS empty. They belong
-    to the contractor, and they are carried rather than omitted because the
-    sheet has seven columns whether or not anyone has answered yet - a reader
-    has to see the space the contractor will fill.
+    `contractor_response` is empty until the contractor answers.
+    `final_resolution` is the COMPANY's column (only the reviewer closes a
+    comment): "Open" or "Closed" on a row with a permanent number, empty on an
+    unnumbered draft. Both are carried rather than omitted because the sheet
+    has seven columns whether or not anyone has answered yet.
     """
 
-    item_no: int
-    #: The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
-    #: across re-exports of the same review, so a contractor can quote it
-    #: back. It is carried here as its own field AND printed as the comment's
-    #: first line - the client's template has seven columns and this adds no
-    #: eighth one.
+    #: The permanent comment number "CRS-<submittal no>-001" once an engineer
+    #: has made the comment theirs (`crs_numbers`), else the row's position.
+    item_no: int | str
+    #: The permanent number alone, "" on an unnumbered row.
+    crs_ref: str = ""
+    #: The digest reference, e.g. "RF-4A2C1B", stable across re-exports of one
+    #: review. Printed as the comment's first line ONLY on an unnumbered row;
+    #: a numbered row's Item No is the one ID a contractor quotes back.
     row_ref: str = ""
     document_name: str
     page_section: str
@@ -2340,6 +2343,25 @@ class PageLedger(BaseModel):
     document_id: str
     pages: list[PageLedgerRow]
     coverage: dict
+
+
+class CrsCommentStatusUpdate(BaseModel):
+    """Open or close one numbered CRS comment. Only the reviewer closes a
+    comment (industry practice); the name recorded is always the signed-in
+    caller's and is never read from the body."""
+
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["Open", "Closed"]
+
+
+class CrsCommentStatus(BaseModel):
+    """One numbered CRS comment's status after the change."""
+
+    ref: str
+    seq: int
+    status: str
+    status_by: str | None = None
+    status_at: str | None = None
 
 
 class ReviewCodeDecision(BaseModel):

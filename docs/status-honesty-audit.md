@@ -1509,3 +1509,24 @@ reverted). Nothing here was run against the live database.
    (72, 73, 75) are the same shape: the protective code was written, tested in
    isolation, and not reached by the route that needed it. When recording a guarantee,
    name the route that enforces it and test through that route.
+
+## Entry 77, 2026-09-29: the CRS said two things about its own columns that practice contradicts
+
+- **77 - "Final Resolution belongs to the contractor", and "Item No" as a reference.**
+  `crs_export.CONTRACTOR_COLUMNS`, both `build_crs` docstrings, the preview route and
+  `schemas.CrsPreviewRow` all stated that Contractor's Response AND Final Resolution
+  "belong to the contractor" and are "ALWAYS empty". Checked against CRS guides and
+  document-control systems: only the reviewer closes a comment, so Final Resolution is
+  the company's column. Separately, Item No was 1..N and renumbered on every export,
+  and the digest reference changed with every review run, so neither was the
+  "permanent and never reused" comment ID the practice requires. Fixed together:
+  `crs_numbers` gives an engineer's comment `CRS-<submittal no>-001` in Item No (minted
+  by the write routes, never the export, which still writes nothing), and Final
+  Resolution prints its Open/Closed status, closed only by a signed-in reviewer. Every
+  home of the old claim was corrected (rule 8).
+
+### The rule this produces
+
+26. **A claim about what a column MEANS is a claim about the domain, and needs a
+   source.** "Belongs to the contractor" was written as fact and repeated in five
+   places without anyone checking how the industry uses the column.

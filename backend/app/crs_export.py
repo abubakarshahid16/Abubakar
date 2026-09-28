@@ -142,10 +142,19 @@ CODE_DECIDED_BY_ENGINEER = "Decided by the reviewing engineer."
 CODE_NOT_YET_DECIDED = ("AI recommendation - NOT yet decided by an engineer. "
                         "An engineer must record the final code before issue.")
 
-#: The two columns that belong to the contractor. They are carried as empty
-#: strings rather than left out, because the sheet has seven columns whether
-#: or not anyone has answered yet - a reader must see the space they will fill.
+#: The columns filled after issue. Carried as empty strings rather than left
+#: out, because the sheet has seven columns whether or not anyone has
+#: answered yet - a reader must see the space they will fill.
+#: CORRECTED 2026-09-29: only "Contractor's Response" is the contractor's.
+#: "Final Resolution" is the COMPANY's - industry practice is that only the
+#: reviewer closes a comment - and a numbered comment prints its status there
+#: ("Open" until a reviewer closes it). It stays empty on an unnumbered row.
 CONTRACTOR_COLUMNS = ("contractor_response", "final_resolution")
+
+
+def crs_numbers_open() -> str:
+    from .crs_numbers import OPEN
+    return OPEN
 
 #: Prefix of the per-row system-generated number the client asked for, and
 #: the label it prints under. "Ref:" reads as what it is - a handle to quote
@@ -219,8 +228,10 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
       recommended_code_reason  "" when there is none
       recommended_code_status  whether an engineer decided the code, "" if none
 
-    The response and resolution columns are ALWAYS empty - they belong to the
-    contractor, and pre-filling them would put words in their mouth.
+    Contractor's Response is ALWAYS empty - it belongs to the contractor, and
+    pre-filling it would put words in their mouth. Final Resolution is the
+    COMPANY's (only the reviewer closes a comment): a numbered comment's
+    "Open"/"Closed", and empty on an unnumbered row.
     """
     company = meta.get("company_name", default_company())
     project = meta.get("project", "")
@@ -264,9 +275,21 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             salt += 1
             ref = row_reference(run_id, finding, salt)
         seen.add(ref)
+        # PERMANENT NUMBER (`crs_numbers`, 2026-09-29): a comment an engineer
+        # has made their own carries "CRS-<submittal no>-001" in the client's
+        # own Item No column, and its Open/Closed status in Final Resolution -
+        # industry practice, and still seven columns. The caller looked it up
+        # (read only); this builder never mints one. A row without one - an
+        # unconfirmed draft, or a caller from before numbers existed - keeps
+        # the old shape: its position, and the digest reference as the
+        # comment's first line. A numbered row does not ALSO print the digest:
+        # two different IDs on one comment is exactly what a contractor
+        # quoting it back cannot resolve.
+        crs_ref = str(finding.get("crs_ref") or "")
         rows.append({
-            "item_no": n,
+            "item_no": crs_ref or n,
             "row_ref": ref,
+            "crs_ref": crs_ref,
             "document_name": finding.get("document_name", ""),
             "page_section": finding.get("page_section", ""),
             # The reference is the comment's FIRST LINE rather than an eighth
@@ -274,11 +297,14 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             # without their sign-off is what the project's own audits warned
             # against. Same shape as the Requirement/Submitted/Equipment lines
             # `crs_mapping._comment_text` already writes.
-            "comment": f"{ROW_REF_LABEL}: {ref}" + (f"\n{comment}" if comment
-                                                    else ""),
+            "comment": (comment if crs_ref else
+                        f"{ROW_REF_LABEL}: {ref}" + (f"\n{comment}" if comment else "")),
             "comment_by": finding.get("comment_by", ""),
             "contractor_response": "",
-            "final_resolution": "",
+            # THE COMPANY'S COLUMN, NOT THE CONTRACTOR'S: only the reviewer
+            # closes a comment. "Open" from the moment it is numbered.
+            "final_resolution": (str(finding.get("crs_status") or crs_numbers_open())
+                                 if crs_ref else ""),
             # NEVER PRINTED - read by `build_crs` alone to pick a row's fill.
             # Carried through the view (not read straight off `findings` by
             # the renderer) so the preview route and the workbook agree on
@@ -337,8 +363,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     """Render a CRS workbook and return its bytes.
 
     findings: dicts with document_name, page_section, comment, comment_by.
-    The response and resolution columns are ALWAYS left empty - they belong
-    to the contractor, and pre-filling them would put words in their mouth.
+    Contractor's Response is ALWAYS left empty - it belongs to the
+    contractor. Final Resolution is the company's: "Open"/"Closed" on a
+    numbered comment, empty otherwise (`build_crs_view`).
 
     meta keys (all optional strings; a missing one renders as NOTHING, never
     as "None"): company_name, project, document_title, company_transmittal,
@@ -389,8 +416,11 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
             bold=True, center=True, wrap=True).border = BOX
 
     # Data rows, from the row after the column headers.
-    for entry in view["rows"]:
-        row = COLUMN_HEADER_ROW + entry["item_no"]
+    # The sheet row is the entry's POSITION, never its Item No: a permanent
+    # number ("CRS-XYZ-004") is text, and even a numeric one need not match
+    # the row it lands on.
+    for position, entry in enumerate(view["rows"], start=1):
+        row = COLUMN_HEADER_ROW + position
         comment = entry["comment"]
         values = [entry["item_no"], entry["document_name"],
                   entry["page_section"], comment, entry["comment_by"],

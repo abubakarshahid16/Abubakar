@@ -16,6 +16,7 @@ from . import applicability as applicability_mod
 from . import comparison as comparison_mod
 from . import crs_export as crs_export_mod
 from . import crs_mapping as crs_mapping_mod
+from . import crs_numbers as crs_numbers_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import extract as extract_mod
@@ -1828,6 +1829,9 @@ def decide_review_code(
     except comparison_mod.ComparisonError as exc:
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, str(exc))) from exc
+    # The final code is the moment a sheet can be issued: every comment an
+    # engineer has confirmed must carry its permanent number by then.
+    _mint_crs_numbers(review_run_id, scope)
     run = submittal_review_mod.get_review_run(
         review_run_id, allowed_document_ids=scope.allowed_document_ids)
     return _run_summary(run, scope)
@@ -2204,6 +2208,9 @@ def update_review_finding(
     if updated is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id"))
+    # A confirmed, accepted or re-worded comment is the engineer's: it gets
+    # its permanent CRS number now, not at export (which writes nothing).
+    _mint_crs_numbers(current.get("review_run_id"), scope)
     return updated
 
 
@@ -2712,9 +2719,12 @@ def file_chat_comment(conversation_id: str, message_id: str, body: schemas.FileC
     from . import chat_actions
     _require_identity_to_write(scope)
     _require_owned_conversation(conversation_id, scope)
-    return _chat_action_errors(lambda: chat_actions.file_comment(
+    filed = _chat_action_errors(lambda: chat_actions.file_comment(
         conversation_id, message_id, text=body.text, user_id=scope.user_id,
         allowed_document_ids=scope.allowed_document_ids))
+    # An engineer's own comment: numbered the moment it is filed.
+    _mint_crs_numbers((filed or {}).get("review_run_id"), scope)
+    return filed
 
 
 @app.delete("/api/conversations/{conversation_id}/messages/{message_id}/comment/{finding_id}",
@@ -3736,6 +3746,52 @@ def admin_db_rows(
 # be worse than no preview at all.
 
 
+def _submittal_number(submittal_id: str) -> str:
+    """The submittal's own number as captured at upload, "" when it had none."""
+    row = connect().execute(
+        "SELECT transmittal_number FROM document_classification WHERE document_id = ?",
+        (submittal_id,)).fetchone()
+    return (row["transmittal_number"] if row is not None else None) or ""
+
+
+def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> None:
+    """Give every CRS comment an engineer has made their own its permanent
+    number (`crs_numbers`). Called by the WRITE routes that make a comment an
+    engineer's - a finding edited, confirmed or accepted, a comment filed from
+    chat, the final code recorded - never by the export or preview.
+
+    The rows are composed exactly as the export composes them, so the keys
+    minted here are the keys the export looks up. An unconfirmed machine draft
+    gets no number: it is not a comment yet, and may never be issued.
+
+    NEVER FAILS THE CALLER'S SAVE. The engineer's decision is already stored
+    when this runs; a failure here is logged and the numbers are minted by the
+    next write on the run, rather than answering 500 about a saved decision.
+    """
+    if not review_run_id:
+        return
+    import logging
+    try:
+        run = submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids)
+        if run is None:
+            return
+        rows, meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+        submittal_id = run["submittal_document_id"]
+        crs_scope, label = crs_numbers_mod.scope_for(meta["submittal_number"], submittal_id)
+        keys = [row["crs_row_key"] for row in rows
+                if row.get("engineer_confirmed") and row.get("crs_row_key")]
+        if keys:
+            crs_numbers_mod.assign(crs_scope, label, keys, document_id=submittal_id,
+                                   review_run_id=review_run_id)
+    except HTTPException:
+        return
+    except Exception:  # noqa: BLE001 - see docstring: never fail a saved decision
+        logging.getLogger(__name__).warning(
+            "CRS numbers not minted for run %s; the next write will retry",
+            review_run_id, exc_info=True)
+
+
 def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "internal"
                  ) -> tuple[list[dict], dict, str, str]:
     """One run's CRS rows and meta, with the scope question asked once.
@@ -3828,6 +3884,17 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     missing = _missing_references(submittal_id, allowed)
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
                                           unread_pages=unread)
+    # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
+    # make a comment an engineer's (`_mint_crs_numbers`); this composition
+    # serves the export and the preview, which write nothing.
+    crs_scope, _crs_label = crs_numbers_mod.scope_for(submittal_number, submittal_id)
+    crs_keys = crs_numbers_mod.row_keys(rows)
+    numbered = crs_numbers_mod.lookup(crs_scope, crs_keys)
+    for row, key in zip(rows, crs_keys):
+        row["crs_row_key"] = key
+        if key in numbered:
+            row["crs_ref"] = numbered[key]["ref"]
+            row["crs_status"] = numbered[key]["status"]
     stamp = _now_date()
     meta = {
         "document_title": submittal_name,
@@ -4118,10 +4185,55 @@ def preview_review_crs(
     the export asks: may this caller read this submittal. A run they may not
     read is 404, indistinguishable from one that is not there.
 
-    The contractor's two columns come back EMPTY rather than missing. They
-    belong to the contractor; the sheet has seven columns whether or not
-    anyone has answered yet, and a reader has to see the space they will fill.
+    Contractor's Response comes back EMPTY rather than missing - it belongs
+    to the contractor. Final Resolution is the company's: "Open"/"Closed" on
+    a numbered comment (`crs_numbers`), empty on an unnumbered draft. The
+    sheet has seven columns whether or not anyone has answered yet.
     """
     reject_unknown_params(request, {"copy"})
     rows, meta, _submittal_name, _stamp = _crs_content(review_run_id, scope, copy)
     return crs_export_mod.build_crs_view(rows, meta)
+
+
+@app.post("/api/reviews/runs/{review_run_id}/crs/comments/{crs_ref}/status",
+          response_model=schemas.CrsCommentStatus,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def set_crs_comment_status(
+    review_run_id: str,
+    crs_ref: str,
+    body: schemas.CrsCommentStatusUpdate,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Close (or re-open) one numbered CRS comment - its Final Resolution.
+
+    ONLY THE REVIEWER CLOSES A COMMENT (industry practice): a signed-in
+    caller who may read this run's submittal, recorded by name from the
+    session, never from the body. The comment must belong to this run's
+    submittal - its number's label must be this submittal's - so a number
+    from another submittal is 404, indistinguishable from one that is not
+    there, exactly as an unreadable run is.
+    """
+    _require_identity_to_write(scope)
+    if scope.user_id is None:
+        # A CLOSURE NOBODY SIGNED IS NOT A CLOSURE - the same rule the
+        # finding route applies to a confirmation.
+        raise HTTPException(status_code=401, detail=errors.safe_error(
+            errors.UNAUTHENTICATED, "closing a comment must name the reviewer"))
+    reject_unknown_params(request, set())
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids)
+    parsed = crs_numbers_mod.parse_ref(crs_ref)
+    not_found = HTTPException(status_code=404, detail=errors.safe_error(
+        errors.NOT_FOUND, "no CRS comment with that number on this run"))
+    if run is None or parsed is None:
+        raise not_found
+    submittal_id = run["submittal_document_id"]
+    crs_scope, label = crs_numbers_mod.scope_for(_submittal_number(submittal_id), submittal_id)
+    if parsed[0] != label:
+        raise not_found
+    updated = crs_numbers_mod.set_status(crs_scope, parsed[1], body.status,
+                                         user_id=scope.user_id)
+    if updated is None:
+        raise not_found
+    return updated

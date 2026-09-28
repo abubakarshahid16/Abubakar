@@ -387,18 +387,23 @@ export interface CrsHeaderField {
  * the sheet has seven columns whether or not anyone has answered yet.
  */
 export interface CrsPreviewRow {
-  item_no: number;
-  /** The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
-   *  across re-exports of the same review, so a contractor can quote it back -
-   *  unlike item_no, which is 1..N and renumbers on every export. It is also
-   *  printed as the first line of `comment`, because the client's template has
-   *  seven columns and this adds no eighth one. */
+  /** The permanent comment number "CRS-<submittal no>-001" once an engineer
+   *  has made the comment theirs (never reused, kept across re-exports, re-runs
+   *  and an unchanged resubmittal), else the row's position 1..N. */
+  item_no: number | string;
+  /** The permanent number alone; "" on an unnumbered row. */
+  crs_ref?: string;
+  /** The digest reference, e.g. "RF-4A2C1B". Printed as the first line of
+   *  `comment` ONLY on an unnumbered row; a numbered row's item_no is the one
+   *  ID a contractor quotes back. */
   row_ref: string;
   document_name: string;
   page_section: string;
   comment: string;
   comment_by: string;
   contractor_response: string;
+  /** The COMPANY's column (only the reviewer closes a comment): "Open" or
+   *  "Closed" on a numbered comment, "" on an unnumbered draft. */
   final_resolution: string;
   /** CRS quick wins: the standard and clause the comment rests on, in the
    *  "Standard Reference" column after the client's seven. */

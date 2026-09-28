@@ -193,6 +193,39 @@ CREATE TABLE IF NOT EXISTS exclusions (
     created_at    TEXT NOT NULL
 );
 
+-- PERMANENT CRS COMMENT NUMBERS (2026-09-29). Industry practice for a
+-- Comment Resolution Sheet: every comment carries an ID that is "permanent and
+-- never reused" and follows the comment to the next revision. The sheet used
+-- to print Item No 1..N (renumbered on every export) plus a digest reference
+-- that changed with every review run - neither survives a resubmittal.
+--
+-- `scope_key` is the submittal's own number (so a revision uploaded as a new
+-- document but carrying the same submittal number continues ONE sequence and
+-- never reuses a number), or the document id when the submittal carried none.
+-- `row_key` is what the comment is ABOUT (`crs_mapping.comment_key`), not
+-- where it landed or which run produced it, so the same comment keeps its
+-- number across re-exports, re-runs and an unchanged resubmittal.
+--
+-- DELIBERATELY NO FOREIGN KEY AND NO CASCADE: deleting a document must not
+-- free its numbers for reuse. Numbers are minted only by write routes
+-- (`crs_numbers.mint_for_run`), never by the export or preview, which stay
+-- read-only. `status` is the Final Resolution column: 'Open' when minted,
+-- 'Closed' only by an authenticated reviewer, who is recorded.
+CREATE TABLE IF NOT EXISTS crs_comment_numbers (
+    scope_key       TEXT    NOT NULL,
+    row_key         TEXT    NOT NULL,
+    seq             INTEGER NOT NULL,
+    label           TEXT    NOT NULL,
+    first_document_id TEXT,
+    first_review_run_id TEXT,
+    assigned_at     TEXT    NOT NULL,
+    status          TEXT    NOT NULL DEFAULT 'Open',
+    status_by       TEXT,
+    status_at       TEXT,
+    PRIMARY KEY (scope_key, row_key),
+    UNIQUE (scope_key, seq)
+);
+
 -- THE PAGE LEDGER (master order B3). One row per page of every document, so a
 -- page never disappears silently: what its native text was, whether OCR was
 -- needed and ran, whether any retrievable chunk covers it (and if not, which
