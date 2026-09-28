@@ -314,9 +314,15 @@ def _table_cell_value(text: str) -> dict[str, Any]:
 
 
 def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
-               grid: tuple | None = None) -> dict[str, Any]:
+               grid: tuple | None = None, words: list[tuple] | None = None) -> dict[str, Any]:
     texts, rects = grid or _grid(table)
     nrows, ncols = len(texts), (len(texts[0]) if texts else 0)
+    # A word whose box is ambiguously split across two cells (an imprecise
+    # scanned/OCR text layer) is a quality signal already used to penalise a
+    # whole page's `table_score`; it must ALSO reach the per-cell text that
+    # ends up used downstream, not just the aggregate score, so a cell built
+    # from a cut word is flagged rather than silently trusted.
+    cut_cells: set[tuple[int, int]] = _split_words(table, rects, words)[2] if words else set()
     spans = _column_spans(rects, ncols)
     gutter = _gutter_columns(texts)
     usable = [spans[j] for j in range(ncols) if j not in gutter and spans[j][1] > spans[j][0]]
@@ -384,6 +390,7 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
                 "source": "table", "page": page_no, "table_id": table_id,
                 "row": r, "column": j, "label": label, "text": text,
                 **_table_cell_value(text), "bbox": _bbox(rects[r][j]),
+                "cut_word": (r, j) in cut_cells,
             })
         data_rows.append({"row": r, "cells": cells})
 
@@ -430,7 +437,7 @@ def read_tables(page: Any) -> dict[str, Any]:
                             "tables": len(tables), "per_table": per}
     winner = max(STRATEGIES, key=lambda s: (scores[s]["score"], s == "lines"))
     tables = [_structure(t, page_no=page_no, table_id=f"p{page_no}-t{i + 1}",
-                         strategy=winner, grid=g)
+                         strategy=winner, grid=g, words=words)
               for i, (t, g) in enumerate(found[winner])]
     return {"source": "table", "page": page_no, "strategy": winner,
             "score": scores[winner]["score"], "scores": scores, "tables": tables}
@@ -922,10 +929,16 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
     """Every label/value the two readers found on `page`, one row each.
 
     FORM pairs as `read_form` pairs them. TABLE cells labelled "<row key>
-    <column label>", the row key being the row's first filled cell (a tag or
-    mark such as N1) - which is itself not emitted. An EMPTY table cell is
-    not emitted: an empty cell is not evidence of a blank field (addendum
-    3.7; `datasheets.extract_facts` makes the same rule for its readers).
+    <column label>", the row key being the row's LEFTMOST LABELLED cell (a
+    tag or mark such as N1) - which is itself not emitted. That key column is
+    fixed by position, never "whichever cell has text first": if the row's
+    own key cell is blank, unreadable, or built from a word too ambiguously
+    split across cells to trust (`cut_word`), the row has NO reliable key and
+    none of its cells are emitted - a neighbouring data column is NEVER
+    substituted as the key, which would silently mislabel every other cell in
+    that row under the wrong tag. An EMPTY table cell is not emitted: an
+    empty cell is not evidence of a blank field (addendum 3.7;
+    `datasheets.extract_facts` makes the same rule for its readers).
 
     DE-DUPLICATED (B4): a second row with the same page, label and answer as
     an earlier one is the same reading twice and is dropped - the first one,
@@ -951,10 +964,23 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
     for table in tables["tables"]:
         for data in table["rows"]:
             cells = sorted(data["cells"], key=lambda c: c["column"])
-            key_cell = next((c for c in cells if c["text"]), None)
-            if key_cell is None or not re.search(r"[^\W_]", key_cell["text"]):
-                # A row whose first filled cell is a mark ("*", "-") has no
-                # key: its cells cannot be told apart from another row's.
+            if not cells:
+                continue
+            # THE KEY COLUMN IS THE ROW'S LEFTMOST LABELLED CELL - the tag/mark
+            # column this table format uses (see `gr._TAG`, `_is_data_like`),
+            # NEVER "whichever cell happens to be filled first in column
+            # order". If that column's own cell is blank or unreadable
+            # (garbled OCR, a dropped text layer, or a word so ambiguously
+            # split across cells - `cut_word` - that its text cannot be
+            # trusted), the row is FLAGGED as having no reliable key and its
+            # cells are skipped - never silently keyed off a neighbouring
+            # data column instead (that would mislabel every cell in the row
+            # under the wrong tag, e.g. a value pairing under "Fittings").
+            key_cell = cells[0]
+            is_ambiguous_key = (not key_cell["text"]
+                                or not re.search(r"[^\W_]", key_cell["text"])
+                                or key_cell.get("cut_word", False))
+            if is_ambiguous_key:
                 continue
             for c in cells:
                 if c is key_cell or not c["text"]:

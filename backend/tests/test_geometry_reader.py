@@ -594,3 +594,97 @@ def test_page_rows_skip_a_row_whose_key_is_only_a_mark(synthetic_table):
         for c in table["rows"][0]["cells"]]}]}
     assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [starred]}) == []
     assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})  # negative
+
+
+# --------------------------------------------------------------------------
+# Row-key confidence: a blank/unreadable key cell must never be silently
+# replaced by a neighbouring data column (the real "Fittings" mispairing
+# defect - garbled/blank OCR on the tag column let a data column's text
+# become the row's key).
+# --------------------------------------------------------------------------
+
+def _blank_key_table_page():
+    """Mark | Inspection | Rating, ruled. Row N1 has a normal key. Row 2's
+    Mark cell is left BLANK (as garbled/dropped OCR would produce) while its
+    Inspection cell still reads "FITTINGS" - the exact real-world shape that
+    mispaired a value under the wrong field."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    xs, ys = [50, 110, 250, 330], [60, 80, 100, 120]
+    for y in ys:
+        _hline(page, y, xs[0], xs[-1])
+    for x in xs:
+        _vline(page, x, ys[0], ys[-1])
+    for j, text in enumerate(["Mark", "Inspection", "Rating"]):
+        _text(page, xs[j], ys[0], text)
+    for j, text in enumerate(["N1", "WITNESS", "150"]):
+        _text(page, xs[j], ys[1], text)
+    for j, text in enumerate(["", "FITTINGS", "300"]):  # Mark left blank
+        if text:
+            _text(page, xs[j], ys[2], text)
+    return doc, page
+
+
+def test_a_blank_key_cell_never_lets_a_neighbor_column_become_the_key():
+    """THE MUTATION TARGET (root-cause fix): reverting the key-cell selection
+    back to "first non-empty cell in column order" makes this fail - the
+    blank-Mark row would then be keyed "FITTINGS" and emit a "FITTINGS
+    Rating" = "300" reading instead of being dropped as unreliable."""
+    doc, page = _blank_key_table_page()
+    try:
+        # Read the ruled grid directly (bypassing the lines/text strategy
+        # contest, which is not what this test is about: a sparse column
+        # with only one data word can make PyMuPDF's "text" strategy drop it
+        # entirely, an unrelated artifact of that heuristic).
+        raw = page.find_tables(strategy="lines").tables[0]
+        texts, rects = gr._grid(raw)
+        table = gr._structure(raw, page_no=1, table_id="p1-t1", strategy="lines",
+                              grid=(texts, rects))
+    finally:
+        doc.close()
+    assert len(table["rows"]) == 2
+    assert table["rows"][0]["cells"][0]["text"] == "N1"
+    assert table["rows"][1]["cells"][0]["text"] == ""  # the key cell IS blank
+    rows = gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})
+    assert not any(r["label"].startswith("FITTINGS") for r in rows)
+    assert not any(r["column_label"] == "Rating" and r["value"] == "300" for r in rows)
+    assert {r["label"] for r in rows} == {"N1 Inspection", "N1 Rating"}  # only the good row
+
+
+def test_page_rows_skip_a_row_whose_key_cell_is_a_cut_word(synthetic_table):
+    """A key cell built from a word ambiguously split across two cells
+    (`cut_word`) is not reliable evidence of the row's tag either - it must
+    be treated the same as a blank/mark-only key, not trusted."""
+    _result, table = synthetic_table
+    cut = {**table, "rows": [{**table["rows"][0], "cells": [
+        {**c, "cut_word": True} if c["label"] == "Mark" else c
+        for c in table["rows"][0]["cells"]]}]}
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [cut]}) == []
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})  # negative
+
+
+def test_a_cell_built_from_a_cut_word_is_flagged_not_silently_trusted():
+    """THE MUTATION TARGET: `_split_words` already penalises a whole page's
+    `table_score` for a word whose box straddles two cells, but that signal
+    used to stop there - the actual per-cell text built from the cut word
+    was kept, unflagged, in whichever cell PyMuPDF happened to assign it.
+    Now the signal reaches the cell itself as `cut_word`."""
+    doc, page = _table_page()
+    try:
+        table = page.find_tables(strategy="lines").tables[0]
+        texts, rects = gr._grid(table)
+        # A fabricated word straddling the Mark/Size column boundary (x=110)
+        # on the P1 data row (row index 3): x=[80,130] overlaps col0 [50,110]
+        # by 30pt and col1 [110,170] by 20pt, both well over the 1pt
+        # threshold, fully inside the row's height.
+        fake_word = (80.0, 122.0, 130.0, 138.0)
+        structured = gr._structure(table, page_no=1, table_id="p1-t1",
+                                   strategy="lines", grid=(texts, rects),
+                                   words=[fake_word])
+    finally:
+        doc.close()
+    row = next(r for r in structured["rows"] if r["cells"][0]["text"] == "P1")
+    flagged = {c["label"]: c["cut_word"] for c in row["cells"]}
+    assert flagged["Mark"] is True
+    assert flagged["Size"] is True
+    assert flagged["Service"] is False  # untouched cell stays unflagged (negative)
