@@ -439,6 +439,10 @@ export interface CrsPreviewRow {
   item_no: number | string;
   /** The permanent number alone; "" on an unnumbered row. */
   crs_ref?: string;
+  /** What kind of row this is ("non_compliant", "needs_engineer_review",
+   *  "carried_forward", ...). Never printed; read so the screen can mark a
+   *  comment carried forward from an earlier review. */
+  row_kind?: string;
   /** The digest reference, e.g. "RF-4A2C1B". Printed as the first line of
    *  `comment` ONLY on an unnumbered row; a numbered row's item_no is the one
    *  ID a contractor quotes back. */

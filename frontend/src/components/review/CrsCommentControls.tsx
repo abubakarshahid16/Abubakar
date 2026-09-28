@@ -19,7 +19,7 @@ import type {
   CrsCommentEvent, CrsPreviewRow, CrsReplyImport, CrsResponseCode,
 } from "../../types/api";
 
-export const RESPONSE_CODES: CrsResponseCode[] = [
+const RESPONSE_CODES: CrsResponseCode[] = [
   "Accepted", "Accepted with comment", "Rejected", "Clarification needed",
 ];
 

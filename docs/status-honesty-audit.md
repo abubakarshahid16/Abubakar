@@ -1533,3 +1533,19 @@ reverted). Nothing here was run against the live database.
 26. **A claim about what a column MEANS is a claim about the domain, and needs a
    source.** "Belongs to the contractor" was written as fact and repeated in five
    places without anyone checking how the industry uses the column.
+
+## Entry 78, 2026-09-29: "tsc clean" was reported from a check that checks nothing
+
+- **78 - the wrong typecheck, reported as passing.** The CRS reply-loop commit
+  (`7ba3da5`) and its VS Code prompt reported "`tsc --noEmit -p .` clean". That command
+  checks ZERO files here - `frontend/tsconfig.json` is a solution file with `"files": []`
+  - which `.github/workflows/tests.yml` already says in a comment. CI's `npx tsc -b`
+  failed PR #327 at once on a real error: `CrsCommentControls.tsx` read `row_kind`, a
+  field `contracts/types.ts` never declared. Fixed in the next commit, with `tsc -b`, the
+  lint, the production build and the bundle budget all run locally first - the CI job's
+  own steps, not a remembered shortcut.
+
+### The rule this produces
+
+27. **Run the CI job's own commands, copied from the workflow file, before calling a
+   change clean.** A check from memory can pass because it checks nothing.
