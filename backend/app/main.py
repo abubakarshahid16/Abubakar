@@ -1284,9 +1284,17 @@ def bulk_set_document_role(
 
 # ----------------------------------------------------------------- market
 #
-# No network call exists in this build. Both routes are scoped like every
-# other, not because a sample is sensitive, but so that adding a real provider
-# later cannot introduce an unscoped route by inheriting this shape.
+# No network call happens with the market lane's egress flags off (the
+# shipped default) - `market_transport.transport()` below returns None in
+# that state, so `search_all` reports "no transport supplied" rather than
+# silently calling out. With both flags on, `market_search` DOES call a real
+# provider over the phrase the caller previewed and approved. Every route
+# here is scoped like every other, not because a sample is sensitive, but so
+# that this flag-gated provider call inherits that shape rather than
+# introducing an unscoped route the day it is turned on (corrected 2026-09-28,
+# code-review audit finding #45 - the previous comment said no network call
+# "exists in this build" at all, which the gated call below already
+# contradicted).
 
 
 @app.get("/api/market/findings", response_model=schemas.MarketFindings)
