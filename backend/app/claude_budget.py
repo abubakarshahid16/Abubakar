@@ -41,7 +41,7 @@ import os
 from datetime import datetime, timezone
 
 from . import claude_spend
-from .db import connect
+from .db import connect, schema_once
 
 ENV_MAX_CALLS = "STANDARDS_READER_MAX_CALLS_PER_RUN"
 DEFAULT_MAX_CALLS = 200
@@ -99,6 +99,7 @@ class Budget:
 
 
 # ------------------------------------------------------------------ the total
+@schema_once
 def ensure_schema() -> None:
     conn = connect()
     with conn:

@@ -311,6 +311,57 @@ def test_a_tag_number_is_not_mistaken_for_a_standard():
     assert found == ["API 610"]
 
 
+def test_two_tag_columns_carry_the_tag_and_the_unit_column_is_never_a_fact():
+    """CRS quick wins (audit crs.md defect 4), THE MUTATION TARGET (M1315).
+    "ITEM | UNIT | P-101A | P-101B" used to read every value column as
+    "<label> - <column header>" - the tag became part of the FIELD NAME
+    (`equipment_tag` NULL) and the UNIT column became a fact of its own.
+    Now a tag column's value carries its tag and the unit column joins the
+    unit onto a bare number instead of being emitted as a fact."""
+    shape = [
+        ["ITEM", "UNIT", "P-101A", "P-101B"],
+        ["NOISE LEVEL", "dB(A)", "88", "*"],
+        ["VIBRATION", "mm/s", "3.5", "3.5"],
+    ]
+    pairs = datasheets.pairs_from_table_shape(shape)
+    fields = {label: value for label, value in pairs}
+    # No fact was ever emitted FOR the unit column itself.
+    assert not any(datasheets.split_column_tag(label)[0].strip().upper() == "UNIT"
+                  for label, _ in pairs)
+    noise_a = next(v for k, v in pairs
+                   if datasheets.split_column_tag(k)[0].strip().upper() == "NOISE LEVEL"
+                   and datasheets.split_column_tag(k)[1] == "P-101A")
+    assert noise_a == "88 dB(A)"  # the bare number picked up its unit column
+    vib_b = next(v for k, v in pairs
+                 if datasheets.split_column_tag(k)[0].strip().upper() == "VIBRATION"
+                 and datasheets.split_column_tag(k)[1] == "P-101B")
+    assert vib_b == "3.5 mm/s"
+    noise_b_label = next(k for k, v in pairs
+                         if datasheets.split_column_tag(k)[0].strip().upper() == "NOISE LEVEL"
+                         and datasheets.split_column_tag(k)[1] == "P-101B")
+    # A blank ("*") is not given a unit - it is still the printed marker.
+    assert dict(pairs)[noise_b_label] == "*"
+
+
+def test_the_widened_citation_grammar_catches_common_spellings():
+    """CRS quick wins (audit crs.md defect 6), THE MUTATION TARGET (M1314):
+    the audit measured 14 of 34 common spellings missed, including the
+    repo's own synthetic vessel sheet's "ASME VIII DIV. 1" (no "SEC")."""
+    text = (
+        "Design code: ASME VIII DIV. 1. Also applicable: API 6D, API-610, "
+        "NFPA 20, ISO 15156, NACE MR0175, MSS SP-25, IEEE 841, UL 1709, "
+        "DIN 2501, TEMA CLASS R."
+    )
+    found = {s.upper().replace(" ", "").replace(".", "") for s in
+             datasheets.referenced_standards(text)}
+    for expected in ("ASMEVIIIDIV1", "API6D", "API-610", "NFPA20", "ISO15156",
+                     "NACEMR0175", "MSSSP-25", "IEEE841", "UL1709", "DIN2501",
+                     "TEMACLASSR"):
+        assert any(f.startswith(expected.replace("-", "")) or
+                  f.replace("-", "") == expected.replace("-", "") for f in found), \
+            f"{expected} was not detected; found {sorted(found)}"
+
+
 # ========================================== same-unit comparison (claims.py)
 
 def test_same_unit_dba_values_compare():

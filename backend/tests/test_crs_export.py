@@ -184,13 +184,15 @@ def test_the_row_reference_is_the_first_line_of_the_comment_cell():
     """ITEM 3, AND NO EIGHTH COLUMN. The client's template has seven columns;
     the reference rides in the COMPANY Comments text, above the comment
     itself, in the shape the Requirement/Submitted lines already use."""
-    ws = load([FINDING], {**SUB, "copy": "issue"})
+    ws = load([dict(FINDING, engineer_confirmed=True)], {**SUB, "copy": "issue"})
     lines = _comment(ws).split("\n")
     assert lines[0].startswith("Ref: RF-"), lines[0]
     assert lines[1] == "Requirement: 6,900 kPa"
-    # The issued copy is the template; only the internal copy carries the
-    # owner's "AI Review Comments" column (2026-09-27), and never the reference.
-    assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value is None
+    # The issued copy is the template plus "Standard Reference" (CRS quick
+    # wins); only the internal copy carries the owner's "AI Review Comments"
+    # column (2026-09-27), and neither carries the reference as a column.
+    assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value == "Standard Reference"
+    assert ws.cell(row=COLUMN_HEADER_ROW, column=9).value is None
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
             for c in range(1, 8)] == HEADERS
 

@@ -59,6 +59,13 @@ HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
            "Comment By", "Contractor's Response", "Final Resolution"]
 WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0,
           "G": 15.0}
+#: CRS QUICK WINS (2026-09-27, audit crs.md defect 8): the standard and
+#: clause a comment rests on, in a column of their own, after the client's
+#: seven (none of which moves or is renamed). Page No./Section is the
+#: DATASHEET's page and field; it used to carry "SAES-D-901.pdf clause 4.3 p1
+#: / submittal p1", which is not where the contractor looks.
+STANDARD_COLUMN = "Standard Reference"
+STANDARD_COLUMN_WIDTH = 26.0
 #: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI
 #: engineering check's unconfirmed items, so the engineer sees them on the
 #: sheet before confirming. No existing column moves or is renamed.
@@ -126,6 +133,9 @@ FIRST_DATA_ROW = COLUMN_HEADER_ROW + 1
 #: Printed beside the code on the summary row. One definition, read by
 #: both renderings, so the workbook and the preview name it identically.
 RECOMMENDED_CODE_LABEL = "Recommended Review Code:"
+#: The same row in the issue-to-contractor copy, which carries the
+#: ENGINEER's final code (the export refuses the issue copy without one).
+ISSUED_CODE_LABEL = "Review Code:"
 #: B10: printed under the code, so a CRS never passes off the AI's
 #: recommendation as an engineer's decision.
 CODE_DECIDED_BY_ENGINEER = "Decided by the reviewing engineer."
@@ -228,9 +238,17 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     if copy not in COPIES:
         raise ValueError(f"unknown CRS copy {copy!r}")
     if copy == COPY_ISSUE:
-        # ISSUE TO CONTRACTOR: an unconfirmed AI item is a draft, and a draft
-        # never leaves the building - its row goes, not just its column.
-        findings = [f for f in findings if not str(f.get("ai_review_comment") or "").strip()]
+        # ISSUE TO CONTRACTOR: ENGINEER-CONFIRMED ROWS ONLY (CRS quick wins,
+        # audit crs.md defect 9). An unconfirmed AI item is a draft, and a
+        # draft never leaves the building - its row goes, not just its
+        # column. The same now holds for every row: an unconfirmed
+        # NEEDS_ENGINEER_REVIEW question ("the requirement is in no unit ...
+        # were not compared") was issued to the contractor as a comment. A
+        # row without the flag (a caller from before it existed) is treated
+        # as unconfirmed - the safe reading. The internal copy keeps them all.
+        findings = [f for f in findings
+                    if not str(f.get("ai_review_comment") or "").strip()
+                    and f.get("engineer_confirmed") is True]
 
     rows = []
     seen: set[str] = set()
@@ -266,6 +284,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             # the renderer) so the preview route and the workbook agree on
             # what kind a row is, same as every other field here.
             "row_kind": finding.get("row_kind", ""),
+            "standard_reference": str(finding.get("standard_reference") or ""),
             "ai_review_comment": (str(finding.get("ai_review_comment") or "")
                                   if copy == COPY_INTERNAL else ""),
         })
@@ -279,12 +298,20 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # a plausible-looking transmittal number lies about its own provenance.
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
-        "columns": list(HEADERS) + ([AI_COLUMN] if copy == COPY_INTERNAL else []),
+        "columns": list(HEADERS) + [STANDARD_COLUMN]
+                   + ([AI_COLUMN] if copy == COPY_INTERNAL else []),
         "crs_copy": copy,
         "rows": rows,
         "recommended_code": meta.get("recommended_code") or "",
-        "recommended_code_label": RECOMMENDED_CODE_LABEL,
-        "recommended_code_reason": meta.get("recommended_code_reason") or "",
+        # THE ISSUE COPY CARRIES THE ENGINEER'S CODE, NOT THE MACHINE'S
+        # REASONING (quick wins, defect 9): "2 standards the datasheet cites
+        # are not in your library ... a review code can't be suggested yet"
+        # and an engineer's override note are internal. The code and who
+        # decided it are what the contractor receives.
+        "recommended_code_label": (ISSUED_CODE_LABEL if copy == COPY_ISSUE
+                                   else RECOMMENDED_CODE_LABEL),
+        "recommended_code_reason": ("" if copy == COPY_ISSUE
+                                    else meta.get("recommended_code_reason") or ""),
         "recommended_code_status": meta.get("recommended_code_status") or "",
         # B5: WHICH STANDARDS THE REVIEW APPLIED, AND WHY - each with its
         # method, reason and evidence, plus the ones considered and not
@@ -331,8 +358,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     for col, width in WIDTHS.items():
         ws.column_dimensions[col].width = width
     internal = view["crs_copy"] == COPY_INTERNAL
+    ws.column_dimensions["H"].width = STANDARD_COLUMN_WIDTH
     if internal:
-        ws.column_dimensions["H"].width = AI_COLUMN_WIDTH
+        ws.column_dimensions["I"].width = AI_COLUMN_WIDTH
 
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
         cell = ws.cell(row=row, column=col, value=value)
@@ -366,12 +394,13 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         comment = entry["comment"]
         values = [entry["item_no"], entry["document_name"],
                   entry["page_section"], comment, entry["comment_by"],
-                  entry["contractor_response"], entry["final_resolution"]]
+                  entry["contractor_response"], entry["final_resolution"],
+                  entry["standard_reference"]]
         if internal:
             values.append(entry["ai_review_comment"])
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i in (4, 8)), center=(i == 1))
+            cell = put(row, i, value, wrap=(i in (3, 4, 8, 9)), center=(i == 1))
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill

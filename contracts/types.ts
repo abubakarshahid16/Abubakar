@@ -392,6 +392,9 @@ export interface CrsPreviewRow {
   comment_by: string;
   contractor_response: string;
   final_resolution: string;
+  /** CRS quick wins: the standard and clause the comment rests on, in the
+   *  "Standard Reference" column after the client's seven. */
+  standard_reference?: string;
   /** Owner order 2f: an unconfirmed AI engineering check item's text, shown
    *  in the "AI Review Comments" column of the internal copy only. */
   ai_review_comment?: string;
@@ -527,6 +530,10 @@ export interface ReviewRunSummary {
   /** 2g: the technical sentence behind the plain reason, shown under
    *  "Details" (the nominal field estimate, engine identifiers). */
   recommended_details?: string | null;
+  /** The client's configured review-code labels (backend
+   *  reference/review_codes.json), in policy order. Absent or empty: the
+   *  default `REVIEW_CODES`. */
+  review_codes?: string[];
   /** 2e: standards added to / removed from scope since the previous run of
    *  the same submittal; null when there is no earlier run. */
   standards_change?: { previous_run_id: string; added: string[]; removed: string[] } | null;
@@ -582,8 +589,9 @@ export interface PageCoverage {
   facts_source?: string | null;
 }
 
-/** The four codes of master plan section 15. Configurable there, fixed here
- *  until the client asks for different ones. */
+/** The four DEFAULT codes of master plan section 15. The labels a run offers
+ *  come from `ReviewRunSummary.review_codes` (configured server-side); these
+ *  are the fallback when a response carries none. */
 export const REVIEW_CODES = [
   "Approved",
   "Approved with Comments",
@@ -1938,6 +1946,27 @@ export interface ModelStatus {
   ollama_error: string | null;
 }
 
+/** The dense-search backend (backend/app/vector_store.py). Both backends are
+ *  EXACT: which one runs changes latency, never which passages rank. */
+export interface VectorStoreStatus {
+  /** VECTOR_BACKEND as configured: auto | sqlite_vec | numpy */
+  requested: string;
+  active: "sqlite_vec" | "numpy";
+  /** why the exact numpy fallback is active; null when sqlite-vec is */
+  fallback_reason: string | null;
+  sqlite_vec_version: string | null;
+  exact: boolean;
+  /** model file + passage input format a vector must carry to be searched */
+  embedding_tag: string;
+  /** the last run-time failure of the sqlite-vec index (answered from numpy) */
+  last_error: string | null;
+  /** corpus-wide counts: null (withheld) without the admin capability */
+  current_vectors: number | null;
+  /** vectors from another model or input format - not searched until
+   *  re-embedded */
+  stale_vectors: number | null;
+}
+
 export interface DocumentFailure {
   id: string;
   filename: string;
@@ -1998,6 +2027,9 @@ export interface Metrics {
    *  false. */
   system?: SystemMetrics | null;
   models: ModelStatus;
+  /** Which dense-search backend is active, and why when it is the fallback.
+   *  Absent from an older backend. */
+  vector_store?: VectorStoreStatus | null;
   worker: WorkerStatus;
   warnings: MetricWarning[];
 }

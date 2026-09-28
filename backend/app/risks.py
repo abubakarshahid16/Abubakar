@@ -2,13 +2,14 @@
 from __future__ import annotations
 import uuid
 from datetime import datetime, timezone, timedelta
-from .db import connect
+from .db import connect, schema_once
 
 RISK_TYPES = frozenset({"schedule", "review", "dependency", "compliance"})
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
+@schema_once
 def ensure_schema() -> None:
     with connect() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS risks (

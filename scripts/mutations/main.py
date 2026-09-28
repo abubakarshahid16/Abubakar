@@ -394,4 +394,16 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="the_four_routes_are_registered",
         tags=("gate",),
     ),
+    # ---- from KEYWORD_TOKENIZER (2026-09-27) ------------------------------
+    Mutation(
+        id="M1215", phase=97,
+        description="skip the startup keyword-index migration, so a live DB "
+                    "indexed by older code is never rebuilt",
+        path=APP / "main.py",
+        anchor="    _fts = keyword_mod.migrate_index()\n",
+        replacement='    _fts = {"rebuilt": False}\n',
+        target="tests/test_keyword_tokenizer.py",
+        keyword="startup",
+        tags=("honesty",),
+    ),
 )

@@ -187,6 +187,18 @@ def is_followup(question: str) -> bool:
     return not is_complete_question(lowered)
 
 
+def soft_identifiers(carried: list[str]) -> list[str]:
+    """The carried terms that are IDENTIFIERS (`API 610`, `5.3.2`).
+
+    resolve_followup carries an identifier only when the new question does not
+    already name it, so every one of these came from an earlier turn - up to
+    FOLLOWUP_WINDOW turns back - and is made soft downstream: it steers
+    retrieval and is never a requirement. Designators ("system 1") are not
+    here: the conflict rule already governs which one a follow-up keeps.
+    """
+    return [c for c in carried if keyword.IDENTIFIER.findall(c) == [c]]
+
+
 def _designator_words(question: str) -> set[str]:
     """The designator NOUNS present, e.g. {"system"} for "system 4"."""
     return {d.partition(" ")[0] for d in keyword.find_designators(question)}
@@ -606,7 +618,7 @@ def ask(
     question: str,
     tier: str = "extract",
     document_id: str | None = None,
-    limit: int = 3,
+    limit: int | None = None,
     explain_of: str | None = None,
     *,
     allowed_document_ids: frozenset[str],
@@ -622,6 +634,9 @@ def ask(
     rather than asking a new question, so the conversation does not grow a
     duplicate user turn every time the reader presses Explain, and the
     already-resolved question is reused rather than resolved a second time.
+
+    `limit` defaults to `settings.answer_top_k` (answer.gate_candidates): the
+    chat considers the same top-k the benchmark reports recall at.
     """
     conversation = get_conversation(conversation_id)
     selected_document = document_id
@@ -684,18 +699,26 @@ def ask(
             resolved, carried = resolve_followup(
                 routed["text"], prior_user_questions(conversation_id)
             )
+            # Identifiers carried from earlier turns are SOFT: context that
+            # steers retrieval, never a requirement (search._keyword_candidates)
+            # and never a named document that narrows the scope. The reader
+            # makes one hard again by typing it (then it is not carried).
+            soft = soft_identifiers(carried)
             # B6C: what the question is about - document scope, clause,
             # ambiguity. Retrieval input only; never an answer. The resolved
             # query is stored and shown, as the follow-up rewrite already was.
             understanding = understanding_mod.understand(
-                resolved,
+                search_mod.without_terms(resolved, soft) if soft else resolved,
                 allowed_document_ids=retrieval_allowed,
                 documents=understanding_mod.document_names(retrieval_allowed),
                 conversation_document_id=conversation["document_id"],
                 context=understanding_mod.prior_context(conversation_id),
             )
             understood = understanding.to_dict()
+            understood["soft_identifiers"] = soft
             resolved = understanding.retrieval_query
+            if soft:
+                resolved = f"{resolved} {' '.join(soft)}"
         user_message = _insert_message(
             conn,
             conversation_id,
@@ -856,7 +879,7 @@ def _previous_user_question(conversation_id: str, *, before: int) -> str | None:
 
 
 def _document_answer(conversation_id: str, resolved: str, understood: dict | None, *, tier: str,
-                     document_id: str | None, selected_document: str | None, limit: int,
+                     document_id: str | None, selected_document: str | None, limit: int | None,
                      allowed_document_ids: frozenset[str], progress_id: str | None,
                      model: str | None, history: str) -> tuple[dict, str]:
     """The document pipeline, as it was before the router: scope, retrieve,
@@ -882,6 +905,9 @@ def _document_answer(conversation_id: str, resolved: str, understood: dict | Non
         progress_id=progress_id,
         history=history,
         model=model,
+        # Carried with the understanding, so an Explain of this answer
+        # (which reuses the stored understanding) keeps them soft too.
+        soft_identifiers=tuple((understood or {}).get("soft_identifiers") or ()),
     )
     if understood is not None:
         result["understanding"] = understood

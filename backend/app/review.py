@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pymupdf
 
-from .db import add_column_if_missing, connect
+from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 
 
@@ -26,6 +26,7 @@ def _now() -> str:
 now_iso = _now
 
 
+@schema_once
 def ensure_schema() -> None:
     conn = connect()
     with conn:
@@ -191,6 +192,13 @@ def ensure_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_run "
                      "ON review_findings(review_run_id, compliance_status, "
                      "updated_at DESC)")
+        # THE DUPLICATE GATE'S INDEX. `comparison.create_finding` asks for an
+        # unconfirmed finding with this run AND this requirement; with only
+        # the index above, SQLite read every earlier finding of the run to
+        # answer, so writing a run of N findings cost O(N^2) row reads.
+        # Idempotent, so an existing database gains it on the next start.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_run_requirement "
+                     "ON review_findings(review_run_id, requirement_id)")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS review_finding_events (
                 id TEXT PRIMARY KEY,

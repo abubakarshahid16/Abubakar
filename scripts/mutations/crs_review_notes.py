@@ -17,8 +17,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              target="tests/test_crs_mapping.py", keyword="review_note_by_standard", tags=("crs",)),
     Mutation(id="M1051", phase=88, description="the same rule from two standards prints as two comments",
              path=APP / "crs_mapping.py",
-             anchor="                f.get(\"contractor_page\")) if text else (\"__unique__\", f.get(\"id\") or id(f)))\n",
-             replacement="                f.get(\"contractor_page\"), id(f)) if text else (\"__unique__\", f.get(\"id\") or id(f)))\n",
+             # Re-anchored 2026-09-27 (CRS quick wins): `_group_key`.
+             anchor="            f.get(\"origin\") == _DATASHEET_ORIGIN)\n",
+             replacement="            f.get(\"origin\") == _DATASHEET_ORIGIN, id(f))\n",
              target="tests/test_crs_mapping.py", keyword="same_rule_from_two_standards", tags=("crs",)),
     Mutation(id="M1052", phase=88, description="the run no longer says which standards left scope",
              path=APP / "main.py",

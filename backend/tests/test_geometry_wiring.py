@@ -153,7 +153,8 @@ def test_on_adds_geometry_facts_with_their_provenance(tmp_path, on):
     assert (bearing["field_value"], bearing["is_blank"], bearing["page"]) == ("BALL", 0, 1)
     assert bearing["source_text"] == "___BALL___"
     assert bearing["validation_state"] is None
-    assert bearing["extractor_version"].startswith("datasheets+tables+geometry_reader@")
+    assert bearing["extractor_version"].startswith(
+        "datasheets+tables+geometry_reader+blank_markers@")
     box = json.loads(bearing["bbox"])
     assert box["source"] == "form" and box["reader"] == "geometry_reader"
     assert len(box["value_bbox"]) == 4 and len(box["label_bbox"]) == 4

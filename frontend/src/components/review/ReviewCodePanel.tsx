@@ -142,7 +142,7 @@ export function ReviewCodePanel({ run, onDecided }: ReviewCodePanelProps) {
           className="min-w-[18rem] rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100"
         >
           <option value="">Choose a code…</option>
-          {REVIEW_CODES.map((value) => (
+          {(run.review_codes?.length ? run.review_codes : REVIEW_CODES).map((value) => (
             <option key={value} value={value}>{value}</option>
           ))}
         </select>

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pymupdf
 
-from .db import add_column_if_missing, connect
+from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 from . import notifications
 
@@ -17,7 +17,8 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def ensure_schema() -> None:
+@schema_once
+def _ensure_tables() -> None:
     with connect() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS deliverables (
             id TEXT PRIMARY KEY,
@@ -72,11 +73,6 @@ def ensure_schema() -> None:
             PRIMARY KEY (deliverable_id, user_id, role)
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverable_stakeholders_role ON deliverable_stakeholders(deliverable_id, role)")
-        # Preserve the pre-stakeholder schema's single owner during migration.
-        conn.execute("""INSERT OR IGNORE INTO deliverable_stakeholders
-            (deliverable_id, user_id, role, created_at)
-            SELECT id, owner_user_id, 'owner', updated_at
-            FROM deliverables WHERE owner_user_id IS NOT NULL""")
         conn.execute("""CREATE TABLE IF NOT EXISTS reminder_events (
             id TEXT PRIMARY KEY,
             deliverable_id TEXT NOT NULL REFERENCES deliverables(id) ON DELETE CASCADE,
@@ -100,6 +96,25 @@ def ensure_schema() -> None:
         ]
         for level, days, role, action in defaults:
             conn.execute("INSERT OR IGNORE INTO escalation_rules(level, trigger_days, recipient_role, action) VALUES (?,?,?,?)", (level, days, role, action))
+
+
+def ensure_schema() -> None:
+    """The tables (memoised - see `db.schema_once`), then the owner sync.
+
+    THE OWNER SYNC RUNS ON EVERY CALL, AS IT ALWAYS DID. It reads like a
+    one-off migration ("preserve the pre-stakeholder schema's single owner")
+    but `create` writes `owner_user_id` without a stakeholder row, so it is
+    this statement, run by the next read, that makes a new item's owner a
+    stakeholder. Memoising it with the DDL would have silently stopped that.
+    One statement, not the ~40 the table checks cost.
+    """
+    _ensure_tables()
+    with connect() as conn:
+        # Preserve the pre-stakeholder schema's single owner during migration.
+        conn.execute("""INSERT OR IGNORE INTO deliverable_stakeholders
+            (deliverable_id, user_id, role, created_at)
+            SELECT id, owner_user_id, 'owner', updated_at
+            FROM deliverables WHERE owner_user_id IS NOT NULL""")
 
 
 def escalation_rules() -> list[dict]:
