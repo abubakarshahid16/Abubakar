@@ -30,7 +30,7 @@ from app.datasheets import referenced_standards
 # ------------------------------------------------------- citation: shapes
 
 @pytest.mark.parametrize("text,expected", [
-    # Saudi Aramco material system specifications. This corpus's own submittal
+    # The client's own material system specifications. This corpus's own submittal
     # cites 32-SAMSS-004 ten times and the pattern could not see it at all.
     ("Vessels shall comply with 32-SAMSS-004 throughout.", ["32-SAMSS-004"]),
     ("per 01-SAMSS-016 and 02-SAMSS-014", ["01-SAMSS-016", "02-SAMSS-014"]),

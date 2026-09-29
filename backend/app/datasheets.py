@@ -118,7 +118,7 @@ _REFERENCED_STANDARD = re.compile(
     # `\d{3,4}` so a four-digit series (SAES-R-1101) is a citation. The
     # two-digit form is deliberately NOT here - see `library_identifier`.
     r"|SAES-[A-Z]-\d{3,4}"
-    # Saudi Aramco material system specifications, which this corpus's own
+    # The client's own material system specifications, which this corpus's own
     # submittal cites ten times and which were invisible to every rule that
     # reads this pattern.
     r"|\d{2}-SAMSS-\d{3}"

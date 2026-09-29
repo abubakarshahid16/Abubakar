@@ -1613,3 +1613,35 @@ reverted). Nothing here was run against the live database.
 
 30. **A test that orders by a timestamp must control the timestamps.** Two steps inside
    one second are a tie, and a tie is a coin toss that usually lands the easy way.
+
+## Entry 82, 2026-09-29: the client's company name was in shipped code and docs - the naming rule was not checked before merge
+
+- **82 - CLAUDE.md's standing rule ("the client's name must not appear in code, docs or
+  UI") was violated by a feature that merged the same day it was written.** Commit
+  `474926c` (Cowork, `feat/standards-acquisition`, 2026-09-29) introduced
+  `backend/app/standards_acquisition.py` and its test with the client's company name
+  in their module docstrings, and the commit's own message and the PR title repeated
+  it. Neither the PR's own CI (gitleaks scans for secrets, not names) nor the reviewing
+  session's read of the diff caught it before merge; it was found afterward, by grep,
+  while investigating an unrelated gitleaks false positive on the same branch. A wider
+  sweep of the whole repository (`git grep -i`) found the name already present, as prose,
+  in 38 more files predating this commit - a standing, unenforced gap, not a one-off.
+  Fixed in `fix/remove-client-name`: every prose/docstring occurrence found by the sweep
+  replaced with neutral wording ("the client", "the client's own"); the small set that
+  must keep the literal string to function - the GitHub repository slug (owner-only to
+  rename, per this same rule), a weak-password blocklist entry, a market-search
+  allow-list token, a privacy leak-check test, and the page-footer regex that matches
+  the client's own real, literally-printed document boilerplate - kept and named, with
+  its reason, in that PR's description. History was NOT rewritten: `474926c` and every
+  commit built on it (through the four-pieces and last-lines merges) still carry the
+  name in git history; no force-push. `.githooks/pre-commit`'s client-identifier scan
+  (section 2b) could have caught this in NEW lines at commit time, but ships disabled
+  by default (no `.githooks/client-identifiers.local` on this machine) and was silent
+  throughout.
+
+### The rule this produces
+
+31. **A naming or privacy rule stated in CLAUDE.md is not enforced by being stated.**
+   Either a CI gate checks it on every PR, or it is found later by someone reading for
+   something else - as this one was. `.githooks/client-identifiers.local` existing and
+   being populated is the difference between those two, and it does not exist yet.

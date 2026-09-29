@@ -5,7 +5,7 @@ the page/section of the reviewed document, the comment, who made it, and the
 recommended review code on the summary row. Today the comment column is
 machine text - `crs_mapping._comment_text` concatenates "Requirement: ...",
 "Submitted: ..." and the rationale - which is TRUE but reads like a log line.
-A reviewer at Saudi Aramco or the client writes something else: two or three
+A reviewer at the client writes something else: two or three
 sentences that cite the clause, state what was submitted against what is
 required, and tell the contractor what to do. This module asks the model for
 that voice and then refuses every draft it cannot prove is honest.
@@ -192,7 +192,7 @@ def draft_inputs(finding: dict, row: dict) -> dict:
 #: THE STYLE RULES ARE IN THE PROMPT AND THE GATE ENFORCES THEM. Asking for the
 #: right thing is cheaper than rejecting the wrong thing twice; the gate is
 #: still what decides.
-PROMPT = """You are a senior document reviewer at a Saudi Aramco-style operating \
+PROMPT = """You are a senior document reviewer at a major industrial operating \
 company, writing ONE comment for a Comment Resolution Sheet (CRS) on a \
 contractor's submittal. The review has ALREADY been decided by the engineering \
 comparison below. You do not decide compliance; you state the finding well.
