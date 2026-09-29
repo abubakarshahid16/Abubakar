@@ -306,3 +306,64 @@ def test_other_migration_errors_are_not_retried(fresh_db):
     with pytest.raises(sqlite3.OperationalError, match="syntax error"):
         broken()
     assert calls["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# ISSUE #325, THE READER HALF (honesty audit entry 80). PR #332's lock stops
+# two migrators overlapping; it does not protect a READER. On main 35e4c2c a
+# plain SELECT in access.scope_for_user (access.py:147) was told "database
+# schema has changed" while the other request thread ran a first-time
+# migration. Every statement now gets the retry SQLite asks for, once, at the
+# connection.
+
+
+class _FailsFirst(sqlite3.Connection):
+    """Below SchemaRetryConnection in the MRO: its first `n` executes answer
+    as SQLite does when another connection's DDL lands before the step."""
+
+    fail = 1
+    calls = 0
+
+    def execute(self, sql, parameters=(), /):
+        _FailsFirst.calls += 1
+        if _FailsFirst.fail:
+            _FailsFirst.fail -= 1
+            raise sqlite3.OperationalError("database schema has changed")
+        return super().execute(sql, parameters)
+
+
+class _Probe(db.SchemaRetryConnection, _FailsFirst):
+    pass
+
+
+def test_every_connection_the_app_opens_retries_a_schema_change(fresh_db):
+    db.init_db()
+    assert isinstance(db.connect(), db.SchemaRetryConnection)
+
+
+def test_a_reader_told_the_schema_changed_runs_its_statement_again():
+    _FailsFirst.fail = 1
+    conn = sqlite3.connect(":memory:", factory=_Probe)
+    conn.execute("CREATE TABLE t (id TEXT)")          # the retried statement
+    conn.execute("INSERT INTO t VALUES ('a')")
+    assert conn.execute("SELECT id FROM t").fetchall() == [("a",)]
+
+
+def test_a_schema_that_never_settles_still_raises_for_a_reader():
+    _FailsFirst.fail = 99
+    conn = sqlite3.connect(":memory:", factory=_Probe)
+    with pytest.raises(sqlite3.OperationalError, match="schema has changed"):
+        conn.execute("SELECT 1")
+    _FailsFirst.fail = 0
+
+
+def test_a_reader_is_not_retried_on_any_other_error():
+    """A locked database or a missing table is not a schema change: one
+    attempt, raised at once. Retrying "database is locked" would multiply the
+    30-second busy timeout."""
+    _FailsFirst.fail = 0
+    conn = sqlite3.connect(":memory:", factory=_Probe)
+    _FailsFirst.calls = 0
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        conn.execute("SELECT * FROM missing")
+    assert _FailsFirst.calls == 1
