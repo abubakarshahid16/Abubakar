@@ -272,11 +272,21 @@ def test_a_file_that_is_not_a_crs_is_refused(world, monkeypatch):
 
 
 def test_an_open_comment_is_carried_forward_until_a_reviewer_closes_it(world, monkeypatch):
-    """A run that no longer raises an issued comment must not drop it."""
+    """A run that no longer raises an issued comment must not drop it.
+
+    CHANGED 2026-09-30 (audit): this test used to reject a comment that was
+    never issued and assert it was still printed as carried forward - the
+    defect itself (a rejected comment must never be issued). The comment is
+    now ISSUED first - the contractor's reply is on record - so it stays on
+    the sheet after the rejection until a reviewer closes it. The unissued
+    case is `test_audit_crs_fixes.test_a_confirmed_then_rejected_comment_*`.
+    """
     _sub, run, scope = world
     finding_id = _confirm(run, scope, monkeypatch)
     ref = _ref(run)
     client = TestClient(app)
+    assert client.post(f"/api/reviews/runs/{run}/crs/comments/{ref}/response",
+                       json={"code": "Rejected", "text": "we disagree"}).status_code == 200
     # The finding stops being raised (here: rejected, so the mapping drops it).
     assert client.patch(f"/api/reviews/findings/{finding_id}",
                         json={"approval_status": "rejected"}).status_code == 200

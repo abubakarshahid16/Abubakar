@@ -244,7 +244,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="DELETE CONFIRMED FINDINGS ON RE-RUN, destroying an "
                     "engineer's decision with a routine maintenance action",
         path=APP / "comparison.py",
-        anchor='                "DELETE FROM review_findings WHERE review_run_id = ?"\n                " AND confirmed_by IS NULL",',
+        # Re-anchored 2026-09-30 (audit): any engineer decision is kept.
+        anchor='                "DELETE FROM review_findings WHERE review_run_id = ?"\n                f" AND {review_mod.UNDECIDED_SQL}",',
         replacement='                "DELETE FROM review_findings WHERE review_run_id = ?",',
         target="tests/test_comparison.py",
         keyword="confirmed",

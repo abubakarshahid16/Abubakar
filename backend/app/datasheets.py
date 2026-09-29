@@ -1625,15 +1625,56 @@ def pairs_from_blocks(page_text_blocks: list[tuple[float, float, str]]) -> list[
     """
     out: list[tuple[str, str]] = []
     for _y, _x, text in sorted(page_text_blocks, key=lambda b: (round(b[0], 1), b[1])):
-        cells = [piece for c in (text or "").split("\n") if c.strip()
-                 for piece in split_drawn_slots(c.strip())]
-        if len(cells) < 2:
-            continue
-        match = _NUMBERED_LABEL.match(cells[0])
-        if match and re.fullmatch(r"\d{1,3}", cells[0].strip()):
-            cells = cells[1:]
-        out.extend(split_label_value(cells))
+        lines = [c.strip() for c in (text or "").split("\n") if c.strip()]
+        # A LINE THAT IS ITS OWN PAIR - "Design Pressure : 10 barg" - is read
+        # as (label, value) by itself (audit 2026-09-30). The one-field-per-
+        # line layout puts every such line in ONE block, and pairing the
+        # block's lines left to right filed each whole line under the line
+        # before it: 2 of 15 fields read, one of them mispaired. Lines that
+        # are not self-contained keep the left-to-right pairing, in runs
+        # between the self-contained ones.
+        run: list[str] = []
+        for line in lines:
+            own = _self_contained_pair(line)
+            if own is None:
+                run.extend(split_drawn_slots(line))
+                continue
+            out.extend(_pairs_from_cells(run))
+            run = []
+            out.append(own)
+        out.extend(_pairs_from_cells(run))
     return out
+
+
+#: "Label : value" on one line. The label starts with a letter, holds no
+#: colon, and ends in a letter, digit or closing bracket ("Wall thickness
+#: (inlet pipe)"); at least one space follows the colon, so a time "10:30", a
+#: ratio "1:2" or a URL is never split. A value that itself holds " : " is two
+#: pairs or a sentence - not decided here, left to the left-to-right pairing.
+_SELF_PAIR = re.compile(
+    r"^(?P<label>[A-Za-z][^:]{0,79}?[A-Za-z0-9)\]])\s*:\s+(?P<value>\S.*)$")
+
+
+def _self_contained_pair(line: str) -> tuple[str, str] | None:
+    """(label, value) for a one-line "Label : value", else None."""
+    match = _SELF_PAIR.match(line)
+    if not match or " : " in match.group("value"):
+        return None
+    label = match.group("label").strip()
+    if len(label.split()) > 10:
+        return None     # a sentence with a colon in it, not a field label
+    return label, match.group("value").strip()
+
+
+def _pairs_from_cells(cells: list[str]) -> list[tuple[str, str]]:
+    """One run of a block's cells, paired left to right (the pre-existing
+    rule): a leading bare line number dropped, nothing from a lone cell."""
+    if len(cells) < 2:
+        return []
+    match = _NUMBERED_LABEL.match(cells[0])
+    if match and re.fullmatch(r"\d{1,3}", cells[0].strip()):
+        cells = cells[1:]
+    return split_label_value(cells)
 
 
 #: B4: ONE QUANTITY WRITTEN IN TWO UNIT SYSTEMS WITH A SLASH - "150 °C / 302

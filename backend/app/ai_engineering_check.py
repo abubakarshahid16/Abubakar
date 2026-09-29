@@ -558,10 +558,18 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     _store_status(review_run_id, status)
 
     conn = connect()
+    # An engineer's decision survives a re-run (`review.UNDECIDED_SQL`), and an
+    # item they rejected is not proposed again word for word beside it.
+    rejected_items = {_item_identity(r.get("finding"), r.get("required_action"),
+                                     r.get("contractor_page"), r.get("contractor_section"))
+                      for r in review_mod.rejected_in_run(review_run_id, ORIGIN)}
     with conn:
         conn.execute("DELETE FROM review_findings WHERE review_run_id = ? AND origin = ?"
-                     " AND confirmed_by IS NULL", (review_run_id, ORIGIN))
+                     f" AND {review_mod.UNDECIDED_SQL}", (review_run_id, ORIGIN))
     for item in all_kept:
+        if _item_identity(str(item["observation"])[:4000], str(item["action"])[:4000],
+                          item["page"], str(item["field"])[:400]) in rejected_items:
+            continue
         verified = _held_clause(item, held)
         finding = review_mod.create({
             "document_id": submittal,
@@ -588,6 +596,13 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     return {"ran": True, "reason": reason, "proposed": proposed_total, "kept": len(all_kept),
             "rejected": rejected, "cost_usd": round(cost_total, 6), "complete": complete,
             "calls_made": calls_made}
+
+
+def _item_identity(finding, action, page, section) -> tuple:
+    """What makes two AI check items the same comment - the fields
+    `crs_mapping` keys its permanent number on, folded."""
+    fold = lambda v: " ".join(str(v or "").lower().split())  # noqa: E731
+    return (fold(finding), fold(action), page, fold(section))
 
 
 def relates_to(finding: dict) -> str:

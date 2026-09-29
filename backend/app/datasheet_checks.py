@@ -189,10 +189,25 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
     # here - tests/test_datasheet_checks.py enumerates them all.
     mandatory = rules["mandatory"].get(mandatory_list_key(equipment_type, rules), [])
     equipment_phrase = f"a {equipment_type}" if equipment_type else "any datasheet"
+    # UNTAGGED FIELDS ARE THE SHEET'S COMMON SECTION (audit 2026-09-30). A
+    # two-pump sheet states design pressure once, for both pumps, and rated
+    # flow per pump. Grouping strictly by tag reported design pressure missing
+    # for P-101A AND P-101B and rated flow missing for "no tag". Now an
+    # untagged value counts for every tag on the sheet; a tag's OWN value is
+    # never lent to another tag or to the common section.
+    common = by_tag.get(None, {})
+    tagged = any(tag is not None for tag in by_tag)
     for tag, roles in by_tag.items():
+        # The common section of a sheet that has tags: absences are judged per
+        # tag (below), not here; its own placeholders and units still are.
+        shared_section = tag is None and tagged
         # ---- mandatory fields: present, and not a placeholder
         for role in mandatory:
             found = roles.get(role, [])
+            if not found and (shared_section or (tag is not None and common.get(role))):
+                # Stated once in the common section - its placeholder, if any,
+                # is reported there, once, not repeated per tag.
+                continue
             if not found:
                 out.append(_result("DS-M1", MISSING_INFORMATION,
                                    f"{_pretty(role)} is a mandatory field for {equipment_phrase}.",
@@ -231,6 +246,12 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
         # ---- consistency: pure arithmetic, same scale only
         for rule in rules["consistency"]:
             left, right = roles.get(rule["left"], []), roles.get(rule["right"], [])
+            if tag is not None:
+                if not left and not right:
+                    continue    # both sides common: judged once, in the common section
+                # A side this tag does not state is the common section's.
+                left = left or common.get(rule["left"], [])
+                right = right or common.get(rule["right"], [])
             if len({_shown(f) for f in left}) != 1 or len({_shown(f) for f in right}) != 1:
                 continue    # absent, or two different values under one name: not chosen
             a, b = _number(left[0]), _number(right[0])
@@ -268,6 +289,13 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     from . import review as review_mod
     from .db import connect
     written = []
+    # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete
+    # (`review.UNDECIDED_SQL`) and not written again beside it (audit
+    # 2026-09-30): same rule, same field, same tag, same value.
+    fold = lambda v: " ".join(str(v or "").lower().split())  # noqa: E731
+    rejected = {(fold(f.get("requirement_source_text")), f.get("fact_id"),
+                 fold(f.get("equipment_tag")), fold(f.get("contractor_section")))
+                for f in review_mod.rejected_in_run(review_run_id, ORIGIN)}
     # A PASS IS NOT A COMMENT. Only what the engineer must act on is written;
     # a check that held adds no row (it would only pad every count).
     for r in (x for x in results if x["status"] != COMPLIANT):
@@ -278,6 +306,9 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
             verdict = comparison.qualify_by_pages(
                 {"status": status, "rationale": detail}, pages_read)
             status, detail = verdict["status"], verdict["rationale"]
+        if (fold(f"{LABEL} {r['rule_id']}: {r['text']}"), r["fact_id"],
+                fold(r["equipment_tag"]), fold(r["field"])) in rejected:
+            continue
         finding = review_mod.create({
             "document_id": submittal_id, "category": "technical_query",
             "severity": "major" if status == NON_COMPLIANT else "minor",

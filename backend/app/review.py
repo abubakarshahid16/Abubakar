@@ -17,6 +17,37 @@ from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 
 
+#: A FINDING NO ENGINEER HAS DECIDED - the only kind a re-run may delete.
+#:
+#: Audit 2026-09-30: every re-run path deleted `confirmed_by IS NULL`, and an
+#: engineer's rejection or acceptance is written to `approval_status` /
+#: `approved_by`, not `confirmed_by`. So a rejected comment was deleted by the
+#: next run and came back as a fresh draft, and the rejection was lost. Any
+#: human act on a finding - confirmation, approval decision, disposition or
+#: re-worded comment - now keeps it. Used by every path that clears a run's
+#: machine rows (`comparison._write_run_findings`, `review_jobs` cancel,
+#: `ai_engineering_check`, `web_standards`).
+UNDECIDED_SQL = ("(confirmed_by IS NULL AND approved_by IS NULL"
+                 " AND COALESCE(approval_status, 'pending') = 'pending'"
+                 " AND disposition IS NULL AND engineer_comment IS NULL)")
+
+
+def rejected_in_run(review_run_id: str, origin: str | None = None) -> list[dict]:
+    """The findings of one run an engineer REJECTED (optionally of one origin).
+
+    A re-run keeps them (`UNDECIDED_SQL`) and must not propose the same comment
+    again beside them - that is the rejected comment returning as a new draft.
+    Each caller compares on its own identity of "the same comment"."""
+    ensure_schema()
+    sql = ("SELECT * FROM review_findings WHERE review_run_id = ?"
+           " AND approval_status = 'rejected'")
+    args: list = [review_run_id]
+    if origin is not None:
+        sql += " AND origin = ?"
+        args.append(origin)
+    return [dict(r) for r in connect().execute(sql, args)]
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 

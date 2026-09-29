@@ -44,7 +44,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              tags=("honesty", "critical")),
     Mutation(id="M1036", phase=86, description="a rerun deletes an engineer's confirmed item",
              path=APP / "ai_engineering_check.py",
-             anchor='                     " AND confirmed_by IS NULL", (review_run_id, ORIGIN))\n',
+             # Re-anchored 2026-09-30 (audit): any engineer decision is kept.
+             anchor='                     f" AND {review_mod.UNDECIDED_SQL}", (review_run_id, ORIGIN))\n',
              replacement='                     "", (review_run_id, ORIGIN))\n',
              target=_T, keyword="never_an_engineers_confirmation", tags=("honesty",)),
     Mutation(id="M1033", phase=86, description="the review job drafts with the flag off",

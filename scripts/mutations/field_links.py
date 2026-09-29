@@ -52,8 +52,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a categorical comparison always reports COMPLIANT, "
                     "regardless of the datasheet's answer",
         path=APP / "field_links.py",
-        anchor='    if rule["operator"] == ">=":\n        ok = got >= rule["value"]\n    else:\n        ok = got == rule["value"]\n',
-        replacement='    ok = True\n',
+        # Re-anchored 2026-09-30 (audit): five operators now; ok is forced
+        # after they are all computed.
+        anchor='    shown = " ".join((provided or "").split())\n    required = {',
+        replacement='    ok = True\n    shown = " ".join((provided or "").split())\n    required = {',
         target="tests/test_field_links.py",
         keyword="test_cl150_fails_a_minimum_class_300_requirement",
         tags=("honesty", "critical"),

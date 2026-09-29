@@ -23,6 +23,7 @@ import hashlib
 from io import BytesIO
 
 from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 ARIAL = "Arial"
@@ -375,6 +376,38 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     }
 
 
+def safe_cell_text(value):
+    """A value made safe to write into a workbook cell. Non-strings pass.
+
+    Audit 2026-09-30, two defects in one place:
+      * CONTROL CHARACTERS (\\x00-\\x08, \\x0b, \\x0c, \\x0e-\\x1f) made
+        openpyxl raise IllegalCharacterError and the WHOLE export failed on
+        one stray byte in a datasheet value or a contractor reply. Each is
+        replaced by a space - the text around it is kept.
+      * FORMULA INJECTION is handled by `_write`, which stores every string
+        as TEXT; this function only cleans the characters.
+    """
+    if not isinstance(value, str):
+        return value
+    return ILLEGAL_CHARACTERS_RE.sub(" ", value)
+
+
+def _write(ws, row: int, col: int, value):
+    """Write one cell: control characters cleaned, and every string stored as
+    TEXT (data type "s"), never as a formula. openpyxl stores a string that
+    begins with "=" as a formula, so a contractor reply or a datasheet value
+    reading `=HYPERLINK(...)` or `=cmd|...` became a live formula in the
+    engineer's Excel (audit 2026-09-30). OWASP's guidance is that such cells
+    be treated as data; a text cell is exactly that, and the words printed
+    are the words received - nothing is prefixed onto them."""
+    cell = ws.cell(row=row, column=col)
+    clean = safe_cell_text(value)
+    cell.value = clean
+    if isinstance(clean, str):
+        cell.data_type = "s"
+    return cell
+
+
 def build_crs(findings: list[dict], meta: dict) -> bytes:
     """Render a CRS workbook and return its bytes.
 
@@ -406,7 +439,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.column_dimensions["I"].width = AI_COLUMN_WIDTH
 
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
-        cell = ws.cell(row=row, column=col, value=value)
+        cell = _write(ws, row, col, value)
         cell.font = Font(name=ARIAL, bold=bold, size=size)
         cell.alignment = Alignment(
             horizontal="center" if center else "left",
@@ -492,12 +525,12 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     # B5: the applied standards and their reasons, on their own sheet.
     standards_sheet = wb.create_sheet(STANDARDS_SHEET)
     for col, header in enumerate(STANDARDS_COLUMNS, start=1):
-        cell = standards_sheet.cell(row=1, column=col, value=header)
+        cell = _write(standards_sheet, 1, col, header)
         cell.font = Font(bold=True)
     for r, entry in enumerate(view["applicable_standards"], start=2):
         for col, key in enumerate(("standard", "status", "method", "reason", "evidence"),
                                   start=1):
-            standards_sheet.cell(row=r, column=col, value=entry[key]).alignment = \
+            _write(standards_sheet, r, col, entry[key]).alignment = \
                 Alignment(wrap_text=True, vertical="top")
     for col, width in zip("ABCDE", (38, 22, 16, 70, 60)):
         standards_sheet.column_dimensions[col].width = width
@@ -506,10 +539,10 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     if internal:
         notes_sheet = wb.create_sheet(REVIEW_NOTES_SHEET)
         for col, header in enumerate(REVIEW_NOTES_COLUMNS, start=1):
-            notes_sheet.cell(row=1, column=col, value=header).font = Font(bold=True)
+            _write(notes_sheet, 1, col, header).font = Font(bold=True)
         for r, entry in enumerate(view["review_notes"], start=2):
             for col, key in enumerate(("note", "standard", "count", "detail"), start=1):
-                notes_sheet.cell(row=r, column=col, value=entry[key]).alignment = \
+                _write(notes_sheet, r, col, entry[key]).alignment = \
                     Alignment(wrap_text=True, vertical="top")
         for col, width in zip("ABCD", (44, 30, 8, 90)):
             notes_sheet.column_dimensions[col].width = width
