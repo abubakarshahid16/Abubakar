@@ -12,7 +12,7 @@
  */
 import { useCallback, useRef, useState } from "react";
 
-import { authorize } from "../api/client";
+import { authorize, reportResponseStatus } from "../api/client";
 
 export type UploadState =
   | { phase: "uploading"; percent: number }
@@ -70,6 +70,10 @@ function uploadOne(
           awaitingGrant: body.awaiting_grant === true,
         });
       } else {
+        // A 401 here signs the reader out exactly as it does on every other
+        // request (audit 2026-09-30) - the upload cannot succeed on a dead
+        // session, and "Upload failed" alone leaves them on a dead screen.
+        reportResponseStatus(xhr.status);
         const detail = (body.detail ?? body) as { code?: string; message?: string };
         resolve({
           phase: "error",
