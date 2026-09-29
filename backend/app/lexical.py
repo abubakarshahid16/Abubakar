@@ -86,6 +86,18 @@ COMMON_TERM_FRACTION = 0.25
 #: the corpus does not transfer to a corpus too small to take fractions of.
 MIN_CORPUS_FOR_COMMONNESS = 20
 
+#: A question naming this many distinctive terms or more must share at least
+#: two of them (see SHARED_TERMS_REQUIRED_LONG) rather than one. Refusal
+#: calibration on the real corpus (2026-09-29) found four absent-topic
+#: questions answered confidently, each sharing exactly one distinctive term
+#: with an unrelated passage - a single coincidental match was enough to pass
+#: a longer, more specific question. A short question has less to share in
+#: the first place, so the one-term rule (SHARED_TERMS_REQUIRED_SHORT) stays
+#: for it.
+LONG_QUESTION_TERM_COUNT = 3
+SHARED_TERMS_REQUIRED_LONG = 2
+SHARED_TERMS_REQUIRED_SHORT = 1
+
 #: Shorter than this and a word is not a subject term.
 MIN_TERM_LENGTH = 3
 
@@ -234,7 +246,7 @@ def assess(
     absent: list[str] = []
     corrections: dict[str, str] = {}
     present: list[str] = []
-    covered_distinguishing = False
+    distinguishing_count = 0
 
     for term in terms:
         # Every way this corpus writes the same thing. A document that spells
@@ -286,7 +298,7 @@ def assess(
         if any(form.lower() in body for form in forms):
             covered.append(term)
             if not judge_commonness or occurrences <= common_cutoff:
-                covered_distinguishing = True
+                distinguishing_count += 1
 
     named_absent = [t for t in absent if looks_like_a_named_subject(t, question)]
     if named_absent:
@@ -323,16 +335,23 @@ def assess(
     coverage = len(covered) / len(present)
     # Coverage is reported, not gated on - see MIN_COVERAGE for the sweep that
     # showed the fraction cost two correct answers and bought nothing.
-    ok = covered_distinguishing
+    required = (SHARED_TERMS_REQUIRED_LONG if len(terms) >= LONG_QUESTION_TERM_COUNT
+               else SHARED_TERMS_REQUIRED_SHORT)
+    ok = distinguishing_count >= required
 
     reason = None
     if not ok:
         if not covered:
             reason = "the closest passage shares no distinctive term with the question"
-        else:
+        elif distinguishing_count == 0:
             reason = (
                 "the closest passage matches only terms common to the whole "
                 "document, not the specific subject of the question"
+            )
+        else:
+            reason = (
+                f"the closest passage shares only {distinguishing_count} of the "
+                f"{required} distinctive terms this question needs"
             )
 
     return {
