@@ -45,7 +45,11 @@ TOKENIZER = "unicode61 remove_diacritics 2 tokenchars '.-/_'"
 #:   (none) raw chunk text, trailing sentence punctuation glued onto tokens
 #:   "2"    `index_text`: edge punctuation stripped, identifier / thousands /
 #:          compound-word aliases appended (2026-09-27, audit R1/R3/R4, F3)
-INDEX_VERSION = "2"
+#:   "3"    the section column carries the chunk's heading CHAIN
+#:          (`chunks.context`) when it has one, else its section as before
+#:          (2026-09-30, context notes). A chunk made before CHUNKER_VERSION 8
+#:          has no context, so its row is identical to version 2's.
+INDEX_VERSION = "3"
 
 META_SCHEMA = """
 CREATE TABLE IF NOT EXISTS keyword_index_meta (
@@ -272,15 +276,18 @@ def index_is_stale(conn: sqlite3.Connection | None = None) -> bool:
 def _index_rows(conn: sqlite3.Connection, document_id: str) -> int:
     """(Re)write one document's rows. The caller owns the transaction."""
     rows = conn.execute(
-        """SELECT id, text, section, filename FROM chunks
+        """SELECT id, text, section, context, filename FROM chunks
            WHERE document_id = ? AND retrievable = 1 ORDER BY ordinal""",
         (document_id,),
     ).fetchall()
     conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
+    # The heading chain ends with the section itself, so it replaces the
+    # section in this column rather than repeating it. Index-only: search
+    # returns chunk ids and the quoted text is read from `chunks`.
     conn.executemany(
         """INSERT INTO chunks_fts (text, section, filename, chunk_id, document_id)
            VALUES (?, ?, ?, ?, ?)""",
-        [(index_text(r["text"]), index_text(r["section"] or ""),
+        [(index_text(r["text"]), index_text(r["context"] or r["section"] or ""),
           index_text(r["filename"]), r["id"], document_id) for r in rows],
     )
     return len(rows)

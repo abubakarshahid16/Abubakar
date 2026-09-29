@@ -1,5 +1,11 @@
 # Reindex + re-calibration rehearsal plan (Part C, refusal-calibration-2026-09-29)
 
+> **Version 8 note (2026-09-30).** The run started on 2026-09-29 measures
+> CHUNKER_VERSION 7. `feat/context-notes-and-tables` moves the chunker to 8
+> (heading chains for search; see `docs/limitations.md`). Once it merges,
+> repeat this plan on version 8 with the SAME questions, so 7 and 8 are
+> compared like for like, before the live re-process.
+
 **Status: not run yet. Waiting for the other session to report "LAST-LINES
 MERGED" (CHUNKER_VERSION 7).** This file only records the plan and the exact
 commands - written and stopped per owner instruction (2026-09-29), not

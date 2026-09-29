@@ -49,7 +49,7 @@ import numpy as np
 
 from .config import settings
 from .db import connect
-from .embedder import EMBEDDING_DIM, embedding_tag
+from .embedder import EMBEDDING_DIM, embedding_tag, searchable_tags
 
 _lock = threading.Lock()
 
@@ -90,16 +90,18 @@ def _read_from_db(token: int | None = None) -> Matrix:
 
     Joined to `chunks` on id AND document, so an orphaned vector (its chunk
     re-chunked away) or one filed under another document is never served. A
-    vector whose `model` tag is not today's `embedding_tag()` is STALE and is
-    left out: its cosine against a query embedded by the current model means
-    nothing (P2-11). `vector_store.status()` counts those.
+    vector whose `model` tag is not one of `searchable_tags()` is STALE and
+    is left out: its cosine against a query embedded by the current model
+    means nothing (P2-11). `vector_store.status()` counts those.
     """
+    tags = searchable_tags()
     rows = connect().execute(
-        """SELECT v.chunk_id, v.document_id, v.vector FROM chunk_vectors v
+        f"""SELECT v.chunk_id, v.document_id, v.vector FROM chunk_vectors v
            JOIN chunks c ON c.id = v.chunk_id AND c.document_id = v.document_id
-           WHERE c.retrievable = 1 AND v.model = ? AND length(v.vector) = ?
+           WHERE c.retrievable = 1 AND v.model IN ({",".join("?" * len(tags))})
+             AND length(v.vector) = ?
            ORDER BY v.rowid""",
-        (embedding_tag(), EMBEDDING_DIM * 4),
+        (*tags, EMBEDDING_DIM * 4),
     ).fetchall()
     if not rows:
         return Matrix([], np.zeros(0, dtype=np.int32), [],

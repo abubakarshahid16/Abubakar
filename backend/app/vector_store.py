@@ -52,7 +52,8 @@ every path, and each returned row's document is checked again on the way out:
                                      user granted a handful of documents.
 
 MODEL-VERSION TAGGING (P2-11). A vector is indexed only when its
-`chunk_vectors.model` equals `embedding_tag()`; the rest are STALE, counted
+`chunk_vectors.model` is one of `searchable_tags()` (today's tag, or a legacy
+input format of the same model); the rest are STALE, counted
 per document in the index and on System Health, and re-embedded by
 `IngestionWorker.embed_pending`. A change of tag rebuilds the index.
 """
@@ -71,7 +72,7 @@ import numpy as np
 from . import vectorcache
 from .config import settings
 from .db import connect
-from .embedder import EMBEDDING_DIM, embedding_tag
+from .embedder import EMBEDDING_DIM, embedding_tag, searchable_tags
 
 log = logging.getLogger("uvicorn.error")
 
@@ -252,7 +253,7 @@ def sync() -> dict:
         have = {r[0]: r[1] for r in idx.execute("SELECT document_id, token FROM index_docs")}
         dropped = [d for d in have if d not in want]
         todo = [d for d, t in want.items() if have.get(d) != t]
-        tag = embedding_tag()
+        tags = set(searchable_tags())
         with idx:
             for d in dropped:
                 _remove(idx, d, [])
@@ -263,7 +264,7 @@ def sync() -> dict:
                        JOIN chunks c ON c.id = v.chunk_id AND c.document_id = v.document_id
                        WHERE v.document_id = ? AND c.retrievable = 1""", (d,)).fetchall()
                 fresh = [(r[0], r[1], d) for r in rows
-                         if r[2] == tag and r[1] is not None
+                         if r[2] in tags and r[1] is not None
                          and len(r[1]) == EMBEDDING_DIM * 4]
                 _remove(idx, d, [f[0] for f in fresh])
                 idx.executemany(
@@ -413,10 +414,12 @@ def status(include_counts: bool = False) -> dict:
         "stale_vectors": None,
     }
     if include_counts:
+        tags = searchable_tags()
         row = connect().execute(
-            """SELECT COUNT(*), COALESCE(SUM(v.model = ?), 0) FROM chunk_vectors v
+            f"""SELECT COUNT(*), COALESCE(SUM(v.model IN ({",".join("?" * len(tags))})), 0)
+               FROM chunk_vectors v
                JOIN chunks c ON c.id = v.chunk_id AND c.document_id = v.document_id
-               WHERE c.retrievable = 1""", (embedding_tag(),)).fetchone()
+               WHERE c.retrievable = 1""", tags).fetchone()
         out["current_vectors"] = int(row[1])
         out["stale_vectors"] = int(row[0]) - int(row[1])
     return out
