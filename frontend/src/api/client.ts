@@ -1203,7 +1203,8 @@ export const api = {
   /** Stop an answer being written. The server closes the provider call and
    *  stores the turn as stopped, with what the reader had been shown. */
   /** "Search once": run the one web search a consent turn offered. Sends
-   *  no text - the server rebuilds the phrase from the stored question. */
+   *  no text - the server sends exactly the phrase the consent turn showed
+   *  and stored, after re-checking it against the whitelist. */
   webSearch: (conversationId: string, messageId: string) =>
     request<Message>(
       `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/web-search`,
