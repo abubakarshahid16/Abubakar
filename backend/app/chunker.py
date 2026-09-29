@@ -1482,6 +1482,37 @@ def segment_document(
             return False
         return "." in number or not number.isdigit() or int(number) > last_bare_integer
 
+    # A HEADING WITH NOTHING UNDER IT WAS KEPT NOWHERE. A heading's words live
+    # in its chunks' `section`, not their text - so a heading followed straight
+    # by the next heading ("5 GENERAL" / "5.1 Scope") produced no chunk at all
+    # and its words reached neither search nor the exclusion ledger. Measured
+    # on the owner's corpus (2026-09-29, counts only): 282 documents, about
+    # 224,000 lines, ~200 heading lines in no chunk and no exclusion, in 150
+    # documents. Such a heading is now CARRIED into the text of the next block
+    # (a chapter title above its first subclause: "8 Thermally sprayed metallic
+    # coatings" then "8.1 General" - the title reads with 8.1's text), never
+    # made a passage of its own: a title alone answers nothing and, measured,
+    # a title-only chunk took a retrieval slot from a real passage. Only at
+    # the very end, with no block left to carry it, is it a block by itself.
+    pending_heading: tuple[list[str], int, str] | None = None
+    pending_mark = 0
+    carry: list[str] = []
+    carry_at: tuple[int, str | None] = (0, None)
+
+    def settle_heading() -> None:
+        nonlocal pending_heading, carry_at
+        if pending_heading is not None and len(blocks) == pending_mark:
+            head_lines, head_page, head_section = pending_heading
+            if not carry:
+                carry_at = (head_page, head_section)
+            carry.extend(line.strip() for line in head_lines if line.strip())
+        pending_heading = None
+
+    def take_carry() -> list[str]:
+        taken = list(carry)
+        carry.clear()
+        return taken
+
     for page_no, raw in pages:
         page_kind = kinds.get(page_no, "prose")
         cleaned, removed = strip_running_lines(raw, running, page_no)
@@ -1527,6 +1558,7 @@ def segment_document(
             nonlocal buf
             body = "\n".join(buf).strip()
             if body:
+                body = "\n".join([*take_carry(), body])
                 blocks.append(Block("prose", body, page_no, page_no, current_section))
             buf = []
 
@@ -1548,6 +1580,7 @@ def segment_document(
                 prev.page_end = page_no
                 prev.text = "\n".join(prev.lead + prev.rows)
                 return
+            lead = [*take_carry(), *lead]
             blocks.append(Block(
                 "table", "\n".join(lead + rows), page_no, page_no, current_section,
                 lead=list(lead), rows=list(rows), row_pages=[page_no] * len(rows),
@@ -1568,6 +1601,7 @@ def segment_document(
                         rest.append(rest_line)
                 body = "\n".join(rest).strip()
                 if body:
+                    body = "\n".join([*take_carry(), body])
                     blocks.append(Block("prose", body, page_no, page_no, history_title))
                 break
 
@@ -1649,6 +1683,7 @@ def segment_document(
                 # line of such a requirement too ("4.2.1 Stud bolts for
                 # flanges" / "shall be ASTM A193 ...").
                 flush_prose(section)
+                settle_heading()
                 if not contents_page:
                     section = _heading_number(head)
                 buf.extend(lines[i:i + consumed])
@@ -1657,9 +1692,17 @@ def segment_document(
 
             if head:
                 flush_prose(section)
-                if not contents_page:
+                settle_heading()
+                if contents_page:
+                    # A contents page sets no heading state, but its lines are
+                    # still text: they used to be consumed here and kept
+                    # nowhere (backlog item 3, the chapter-opener list).
+                    buf.extend(lines[i:i + consumed])
+                else:
                     # heading state persists across pages until the next heading
                     section = head
+                    pending_heading = (lines[i:i + consumed], page_no, head)
+                    pending_mark = len(blocks)
                 i += consumed
                 continue
 
@@ -1668,6 +1711,7 @@ def segment_document(
                 flush_prose(section)
                 body = "\n".join(lines[i:i + run]).strip()
                 if body:
+                    body = "\n".join([*take_carry(), body])
                     blocks.append(Block("table", body, page_no, page_no, section))
                 i += run
                 continue
@@ -1677,6 +1721,10 @@ def segment_document(
 
         flush_prose(section)
 
+    settle_heading()
+    if carry:
+        blocks.append(Block("prose", "\n".join(take_carry()), carry_at[0], carry_at[0],
+                            carry_at[1]))
     return blocks, removed_total
 
 
@@ -2186,7 +2234,7 @@ def chunk_id(doc_sha: str, page_start: int, ordinal: int, chash: str) -> str:
 #: numbered requirements keep their clause; sentences joined across page
 #: breaks; line-break hyphens repaired; runts merged below 40 tokens;
 #: duplicate chunks in one section kept once for search.
-CHUNKER_VERSION = "5"
+CHUNKER_VERSION = "6"
 
 
 def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]],
