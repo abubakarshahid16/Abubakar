@@ -139,12 +139,32 @@ export interface StandardClause {
   chunk_id: string;
 }
 
+/** What kind of thing a requirement states (phase 3B). Mirrors the backend's
+ *  `schemas.RequirementType` exactly. Nothing is invented for text the parser
+ *  did not understand: an obligation with no recognisable limit is a
+ *  `statement`, never a `numeric_limit` carrying a null value. */
+export type RequirementType = "numeric_limit" | "statement" | "table_value";
+
+/** One carve-out of a requirement, as `requirements_3b.parse_exceptions`
+ *  records it. `applies_to` is always written; the limit keys only when the
+ *  exception states a limit of its own. Stored as JSON, so every key is read
+ *  defensively - a malformed entry renders as nothing. */
+export interface RequirementException {
+  applies_to?: string | null;
+  operator?: string | null;
+  value?: number | null;
+  unit?: string | null;
+  raw_value?: string | null;
+  raw_unit?: string | null;
+}
+
 /** One atomic requirement, with its resolving citation.
  *
- *  Phase 3A carries no requirement_type, operator, value, unit, condition or
- *  exceptions. Those are 3B: half a numeric limit is worse than none, because
- *  a row carrying `value: 90` with no operator reads as a limit and is not
- *  one. */
+ *  The phase-3B structured fields below are MACHINE-EXTRACTED from the quoted
+ *  clause and stay a guess until `confirmed_by` is set. Half a numeric limit
+ *  is worse than none: a row carrying `value: 90` with no operator reads as a
+ *  limit and is not one - so every one of them is nullable and null renders
+ *  as nothing. */
 export interface StandardRequirement {
   id: string;
   standard_document_id: string;
@@ -167,6 +187,33 @@ export interface StandardRequirement {
   confirmed_by: string | null;
   confirmed_at: string | null;
   needs_verification: boolean;
+  // ------------------------------------------------------------ phase 3B
+  /** Always present in the response (the backend defaults every one), and
+   *  null on every row extracted before phase 3B. */
+  requirement_type: RequirementType | null;
+  /** What is being limited. From a table this is the column header the
+   *  document wrote; from a sentence it is null rather than guessed. */
+  field: string | null;
+  /** "<=", ">=", "<", ">" as the backend writes them. Null when none. */
+  operator: string | null;
+  /** The NORMALISED number, or null. NULL WHEN THE UNIT IS UNKNOWN - never 0,
+   *  which would read as a limit of zero. */
+  value: number | null;
+  /** The canonical unit, or null when the spelling is not recognised. */
+  unit: string | null;
+  /** Exactly as the document wrote it - still quotable when un-normalisable. */
+  raw_value: string | null;
+  raw_unit: string | null;
+  /** ON `table_value` ROWS THIS IS THE TABLE'S ROW LABEL, NOT A CONDITION
+   *  (see backend `conditions.py`). On every other type it is the
+   *  circumstance the requirement holds under, parsed conservatively and null
+   *  when unclear. */
+  condition: string | null;
+  /** Carve-outs with their own limits. Empty means none recorded. */
+  exceptions: RequirementException[];
+  discipline: string | null;
+  /** The table row a `table_value` came from. */
+  table_row: number | null;
   /** False when the cited chunk is gone - re-extract. Shown rather than the
    *  row being silently dropped. */
   citation_resolves: boolean;
@@ -959,8 +1006,6 @@ export interface Passage {
   section: string | null;
   text: string;              // exact source text, never paraphrased
   score: number;             // post-rerank
-  /** char offsets into `text` for the answer span, when Tier 1 can locate one */
-  highlight: [number, number] | null;
 }
 
 // ---------- answers (two-tier) ----------
