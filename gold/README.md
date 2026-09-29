@@ -26,3 +26,18 @@ them from history. `.gitignore` names them as exceptions, so the rule and the
 repository agree. Do not add a third.
 
 Nothing in the test suite depends on a filled sheet existing.
+
+## Question sets for the real corpus (`QUESTIONS-TEMPLATE.csv`)
+
+The shipped `eval/questions.json` was written against a reference corpus that is
+not in the owner's database: on 2026-09-29 only 4 of its 18 questions could run
+there. A set for the real documents is built in two steps:
+
+1. Candidates are pulled from the documents (a page, a clause and the verbatim
+   line holding a value; plus commercial terms checked to appear in no chunk).
+2. An engineer writes each question in their own words, corrects the expected
+   answer, and sets `engineer_verified` to `yes`. Unverified lines are left out.
+
+`python scripts/questions_from_csv.py gold/QUESTIONS-real.csv gold/QUESTIONS-real.json`
+then `python eval/run_eval.py --questions gold/QUESTIONS-real.json --tier generated`.
+Filled sheets and the JSON quote client documents and stay out of git.
