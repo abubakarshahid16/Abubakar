@@ -215,6 +215,16 @@ NOTE_OTHER_DOCUMENT = "Requires another document"
 #: the note claimed 9, 2 were true).
 NOTE_NO_FIELD = "No datasheet field found - engineer to check"
 _NO_FIELD_MARKER = "no_field_matched"
+#: Review conditions (2026-09-30): a requirement the datasheet's own facts
+#: put OUTSIDE its condition ("for pipes larger than 2 inch" against NPS 1).
+#: NOT a contractor comment and NOT a breach - there is nothing for the
+#: contractor to do - but never silently dropped either: the engineer sees
+#: each one, with the condition and the value that excused it, and can
+#: overrule it. One note per finding, because each has its own evidence.
+NOTE_CONDITION_NOT_MET = "Not applicable - datasheet is outside the requirement's condition"
+#: `comparison.CONDITION_NOT_MET`, as a literal for the reason given above.
+_CONDITION_NOT_MET_MARKER = "condition_not_met"
+_NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 def build_review_notes(findings: list[dict], missing_references: list[str],
@@ -228,6 +238,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     apart from them, the statements no datasheet field was found for, which
     name no document (quick wins; they were counted as the first kind). Every
     count states its boundary: "of this run's requirements from <standard>".
+    Last, one note per requirement found NOT APPLICABLE because the
+    datasheet's own facts put it outside the requirement's condition, quoting
+    the condition and the value (and page) that decided it.
     """
     notes: list[dict] = []
     for ref in missing_references:
@@ -277,6 +290,14 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "was found for them. They do not name another document; "
                                  "check each against the datasheet, or the document "
                                  "that governs it.")})
+    for f in findings:
+        if (f.get("compliance_status") == _NOT_APPLICABLE
+                and (f.get("ai_rationale") or "").startswith(_CONDITION_NOT_MET_MARKER)):
+            ref = _standard_reference(f)
+            notes.append({"note": NOTE_CONDITION_NOT_MET,
+                          "standard": ref, "count": None,
+                          "detail": (f"{_clause_sentence(f, 160)}. Not checked: "
+                                     f"{_reason_words(f)}")})
     return notes
 
 

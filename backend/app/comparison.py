@@ -93,6 +93,10 @@ REQUIRES_OTHER_DOCUMENT = "requires_other_document"
 #: class, PWHT...) named nothing of the kind. Only a clause whose own sentence
 #: names a document (`required_evidence_type`) carries the first token now.
 NO_FIELD_MATCHED = "no_field_matched"
+#: The reason code a NOT_APPLICABLE finding leads with when the requirement's
+#: condition was established as NOT holding by a datasheet fact (B24 and the
+#: condition reader in `conditions`). Read by `crs_mapping` as a literal.
+CONDITION_NOT_MET = "condition_not_met"
 
 #: Statuses that block approval. `MISSING_INFORMATION` is deliberately NOT
 #: here: a field nobody filled in is a question, not a failure, and it steers
@@ -646,7 +650,9 @@ def _compare(requirement: dict, fact: dict | None, *,
     # carrying a real condition, so every other requirement type - including the
     # 4,246 `table_value` rows whose `condition` column holds a table row label
     # like "Arsenic" or "100" - reaches the code below unchanged.
-    condition = conditions.evaluate(requirement, submittal_facts)
+    # `about=fact`: only facts about the same tag / nozzle as the compared
+    # value may establish the condition (review conditions, 2026-09-30).
+    condition = conditions.evaluate(requirement, submittal_facts, about=fact)
     if condition is not None and condition["state"] != conditions.SATISFIED:
         if condition["state"] == conditions.NOT_SATISFIED:
             return {
@@ -654,8 +660,12 @@ def _compare(requirement: dict, fact: dict | None, *,
                 # fact was read and states something the condition is not, and
                 # that fact travels with the finding.
                 "status": NOT_APPLICABLE,
+                # CONDITION_NOT_MET leads, so the CRS can list the excused
+                # requirement - with the condition and the datasheet value
+                # that excused it - on the engineer's Review notes rather than
+                # dropping it or printing it as a breach (`crs_mapping`).
                 "rationale": (
-                    f"this requirement is conditional on "
+                    f"{CONDITION_NOT_MET}: this requirement is conditional on "
                     f"{condition['condition']!r} and the submittal establishes "
                     f"otherwise: {condition['reason']}"),
                 "limit": None,
