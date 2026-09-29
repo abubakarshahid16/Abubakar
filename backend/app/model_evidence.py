@@ -51,6 +51,69 @@ def quote_verified(quote: str | None, source_text: str | None) -> bool:
     return needle in _collapse(source_text)
 
 
+# ------------------------------------------- a quote offered as a CLAIM's proof
+#
+# `quote_verified` answers "are these characters on the page?" and is right
+# for a VALUE the model read off a page (a tag, "10", a unit), where a short
+# needle is the whole point. A generated SENTENCE that cites
+# [S1 "the"] is a different question: is this quote evidence for the
+# sentence? A bare substring test said yes - "the" is inside every page, and
+# inside "theory" too - so "The design pressure is 999 barg [S1 "the"]" was
+# shown as verified (audit 2026-09-30). The rule below is what a quote must
+# be before it can stand behind a claim.
+
+#: The fewest words a claim's quote may have. Three is the shortest span that
+#: can carry a relation ("design pressure 10", "shall be galvanised"); one
+#: and two-word spans ("the", "shall be", "10 barg") occur on nearly every
+#: engineering page, so finding one there proves nothing about the sentence.
+#: A "word" is a whitespace-separated token holding a letter or digit, so
+#: "3.0 mm/s RMS" is three words and a stray "-" is none.
+MIN_CLAIM_QUOTE_WORDS = 3
+
+_TOKEN_WITH_SUBSTANCE = re.compile(r"[^\W_]")
+#: A word broken across a line by a hyphen in the PDF text layer ("thick-\n
+#: ness"). Letters on both sides only, so "10-\n20" and "P-\n1001" are never
+#: joined.
+_LINE_BREAK_HYPHEN = re.compile(r"(?<=[^\W\d_])-[ \t]*\r?\n[ \t]*(?=[^\W\d_])")
+
+
+def _source_variants(source_text: str | None) -> tuple[str, ...]:
+    """The page as stored, plus the two ways a line-break hyphen can be read
+    back (a split word joined; a real compound kept with its hyphen). Layout
+    only: no character the page printed on one line is ever changed."""
+    text = source_text or ""
+    if not _LINE_BREAK_HYPHEN.search(text):
+        return (_collapse(text),)
+    return (_collapse(text), _collapse(_LINE_BREAK_HYPHEN.sub("", text)),
+            _collapse(_LINE_BREAK_HYPHEN.sub("-", text)))
+
+
+def claim_quote_verified(quote: str | None, source_text: str | None) -> bool:
+    """True when `quote` is MEANINGFUL evidence found on the page:
+
+    - at least MIN_CLAIM_QUOTE_WORDS words (see there for why three);
+    - found in the page after the owner's closed normalisation list
+      (`_collapse`), on WORD BOUNDARIES: a quote that starts or ends with a
+      letter or digit must not start or end inside a longer word or number
+      on the page ("design pressure 10" is not found in "design pressure
+      100");
+    - a word the PDF text layer hyphenated across a line break matches the
+      unbroken word, and a compound broken at its hyphen matches with the
+      hyphen (`_source_variants`) - the model re-types the word as printed.
+
+    Case, digits and every other character still compare exactly, as in
+    `quote_verified`. This proves the words are on the page; whether the
+    sentence's FIGURES are is checked separately (`answer.verify_claims`)."""
+    needle = _collapse(quote)
+    words = [w for w in needle.split(" ") if _TOKEN_WITH_SUBSTANCE.search(w)]
+    if len(words) < MIN_CLAIM_QUOTE_WORDS:
+        return False
+    pattern = re.compile(
+        (r"(?<!\w)" if re.match(r"\w", needle) else "") + re.escape(needle)
+        + (r"(?!\w)" if re.search(r"\w$", needle) else ""))
+    return any(pattern.search(page) for page in _source_variants(source_text))
+
+
 # ------------------------------------------ STATED via approved vocabulary
 #
 # Owner decision 2026-09-25 (the wrong-field gap: "SOUR WATER DRUMS" was put

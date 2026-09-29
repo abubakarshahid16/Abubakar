@@ -250,6 +250,33 @@ The case that motivates it is a silent unit conversion — "0.28 mm [S1]" over a
 source that says "280 um" cites a real page for a number that page does not
 contain.
 
+**Where this check runs, and exactly what it accepts (2026-09-30).**
+
+- It runs on every lane: the cross-document summary (`synthesis._cite`), the
+  local chat lane (`answer.ground_numbers`) and the Claude chat lanes
+  (`answer.verify_claims`, used by the one-shot answer, the streamed answer and
+  Claude-first chat). On the Claude lanes a quote found on the page is NOT
+  enough: every figure in the sentence must also be in a passage the sentence
+  cites. Until 2026-09-30 "6 mm [S1 "minimum wall thickness"]" over a page
+  saying 3 mm was shown as verified.
+- Clause, table, page, revision and standard numbers are removed from the
+  sentence AND from the cited passage before comparing, so a page's "clause 6"
+  never supports an answer's "6 mm".
+- The summary lane accepts exact figures only, so "279.6 µm" restated as
+  "280 µm" is still lost there. The chat lanes also accept a genuine rounding:
+  fewer decimals than the page, and equal to the page's value rounded to that
+  precision ("17.2" or "17" for 17.24). "17.4" for 17.24 is removed. A figure
+  written in words ("six millimetres") is not checked at all.
+- A Claude quote must be at least three words, found on word boundaries
+  (`model_evidence.claim_quote_verified`). One- and two-word quotes ("the",
+  "10 barg") are on nearly every page and prove nothing. A word the PDF
+  hyphenated across a line break matches the unbroken word; this layout rule
+  goes beyond the owner's closed normalisation list for B5 values and applies
+  to chat claim quotes only.
+- A point read from a page image with no text layer cannot be checked. It is
+  kept, labelled "read from image - check the page", and never counted as
+  verified.
+
 ## Public market information is a fixture and can never become one by accident
 
 **There is no provider and this machine makes no network call.** Every row on

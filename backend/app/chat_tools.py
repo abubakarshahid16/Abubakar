@@ -281,8 +281,9 @@ def run_look_at_page(input: dict, *, allowed_document_ids: frozenset[str],
     """Returns (ToolRun, PageImage|None). The image rides back to the caller
     so it can be embedded in the tool_result Claude actually sees; the
     ToolRun's `sources_added` carries the SAME entry text-only, for
-    "How I got this" and for `verify_claims` (an image citation is labelled
-    differently there - see `chat_claude_first.CITED_FROM_IMAGE`)."""
+    "How I got this" and for `verify_claims` (an image-only citation is kept
+    unverified there, then labelled by
+    `chat_claude_first._relabel_image_only_citations`)."""
     from . import vision_reader
     from .config import settings
 

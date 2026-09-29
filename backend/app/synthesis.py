@@ -120,9 +120,13 @@ _UNIT_AHEAD = (
 #: measurement 17.0, found no span containing it, and deleted a true, cited
 #: sentence - observed live: a Focused summary over two passages reduced to a
 #: single fragment beginning "It also mandates...". The pattern is applied to
-#: the SENTENCE only, never to the spans, so it can only ever remove a claimed
-#: number, and a measurement written next to a reference ("Section 4 requires
-#: 50 mm") is still checked.
+#: BOTH sides - the sentence (`claimed_numbers`) and the cited spans
+#: (`span_numbers`) - so a reference numeral can neither be demanded of a span
+#: nor SUPPLY a figure: "wall is 6 mm [S1]" over a span saying "in accordance
+#: with clause 6" is unsupported (audit 2026-09-30; spans used to be left
+#: whole, and the clause number vouched for the invented 6 mm). A measurement
+#: written next to a reference ("Section 4 requires 50 mm") is still a
+#: measurement on either side.
 _REFERENCE_NUMERAL = re.compile(
     r"""
     (?:
@@ -507,16 +511,24 @@ def strip_reference_numerals(sentence: str) -> str:
     table and figure numbers, revisions, pages, source numbers.
 
     Applied to generated prose BEFORE its numbers are compared with the cited
-    spans, and never to the spans themselves. So it can only ever shrink the set
-    of numbers a sentence is held to; a measurement standing next to a
-    reference - "Section 4 requires 50 mm" - is still checked, and still
-    dropped when no cited span contains 50.
+    spans, AND to the spans (`span_numbers`): a clause, table or page number
+    in a span is not a measurement the span states, so it must not support
+    one in the sentence. A measurement standing next to a reference -
+    "Section 4 requires 50 mm" - is still checked, and still dropped when no
+    cited span contains 50.
 
     Standard numbers (B34) are removed by `_STANDARD_IDENTIFIER`, a closed
     grammar, AFTER the reference patterns - so "SAES-H-001.pdf" is taken whole
     as a filename and "SAES-H-001" alone as a standard name.
     """
     return _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))
+
+
+def span_numbers(text: str) -> set[str]:
+    """The numbers a cited span can SUPPORT: its measurements, with reference
+    numerals removed exactly as they are from the sentence (`claimed_numbers`),
+    so both sides of the comparison mean the same thing by "a figure"."""
+    return _numbers(strip_reference_numerals(text))
 
 
 def claimed_numbers(sentence: str) -> set[str]:
@@ -637,12 +649,13 @@ def _cite(
         spans = " ".join(str(s.get("text") or "") for s in cited)
         # Reference numerals - "Document 17", "clause 6.1", "Table 1", "page
         # 183", "doc17.pdf" - name a place, not a quantity, and are taken out
-        # of the SENTENCE before the comparison. The spans are left whole.
-        span_numbers = _numbers(spans)
-        unsupported = claimed_numbers(sentence) - span_numbers
+        # of BOTH sides before the comparison: a span's "clause 6" must not
+        # vouch for a sentence's "6 mm".
+        supported = span_numbers(spans)
+        unsupported = claimed_numbers(sentence) - supported
         if unsupported:
             # Named as the reader sees it: "value 300 not in cited passage".
-            value = first_unsupported_value(sentence, span_numbers) or sorted(unsupported)[0]
+            value = first_unsupported_value(sentence, supported) or sorted(unsupported)[0]
             dropped.append((sentence, f"value {value} not in cited passage"))
             continue
         # The third form, and the one an engineering reader is least able to
