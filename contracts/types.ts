@@ -143,7 +143,8 @@ export interface StandardClause {
  *  `schemas.RequirementType` exactly. Nothing is invented for text the parser
  *  did not understand: an obligation with no recognisable limit is a
  *  `statement`, never a `numeric_limit` carrying a null value. */
-export type RequirementType = "numeric_limit" | "statement" | "table_value";
+export type RequirementType = "numeric_limit" | "statement" | "table_value"
+  | "applicability_trigger" | "relative_limit" | "table_row";
 
 /** One carve-out of a requirement, as `requirements_3b.parse_exceptions`
  *  records it. `applies_to` is always written; the limit keys only when the

@@ -97,4 +97,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="        if False:\n",
              target="tests/test_access_audit_security.py",
              keyword="risk_citing_a_hidden_finding", tags=("security", "critical")),
+    Mutation(id='M1615', phase=1615,
+             description='the API response model drops the requirement types the extractor also stores (500 on the requirements list)',
+             path=APP / 'schemas.py',
+             anchor='RequirementType = Literal["numeric_limit", "statement", "table_value",\n                          "applicability_trigger", "relative_limit", "table_row"]',
+             replacement='RequirementType = Literal["numeric_limit", "statement", "table_value"]',
+             target='tests/test_requirement_types_contract.py', tags=('reliability',)),
 )

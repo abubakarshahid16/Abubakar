@@ -1684,3 +1684,5 @@ Each finding below was reproduced by running code before it was fixed on `fix/au
 ### The rule this produces
 
 33. **An audit of the whole system finds what feature-by-feature tests do not.** Every entry above had passing tests. Run the end-to-end synthetic run and the full mutation registry before a release, not only the tests of the feature being changed.
+
+- **91 - the requirements API could not return what the extractor stores.** `schemas.RequirementType` (and `contracts/types.ts`) listed three requirement types while `requirements_3b` also stores `applicability_trigger`, `relative_limit` and `table_row`; `requirements_3b`'s own comment pointed at the schema as its vocabulary. A standard holding any such row would fail its requirements list with a 500 (found 2026-09-30 by the frontend contract-drift test; not reproduced against the live database). Fixed: the schema, the TypeScript type and a new `STORED_REQUIREMENT_TYPES` agree, pinned by `tests/test_requirement_types_contract.py` (M1615) and the frontend contract test.

@@ -805,6 +805,11 @@ def parse_condition(sentence: str) -> str | None:
 #: A requirement whose number belongs to a LOOKUP TABLE, not to a limit.
 TABLE_ROW = "table_row"
 
+#: EVERY requirement_type this module writes - what the API must be able to
+#: return (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core
+#: three the parser may classify an obligation as; these are all of them.
+STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW)
+
 
 def classify(sentence: str, limit: dict | None) -> str:
     """What kind of requirement this is. Never invented.

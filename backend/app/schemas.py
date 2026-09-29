@@ -292,7 +292,15 @@ class StandardRequirement(BaseModel):
 #: with no recognisable limit is a `statement`, which is a true description of
 #: it - not a `numeric_limit` carrying a null value, a shape that reads as a
 #: limit nobody bothered to record.
-RequirementType = Literal["numeric_limit", "statement", "table_value"]
+#: Every type `requirements_3b` can STORE - the three core types plus the
+#: three it writes for shapes it will not force into a limit
+#: (`APPLICABILITY_TRIGGER`, `RELATIVE_LIMIT`, `TABLE_ROW`). The response model
+#: listed only three, so a standard holding any of the others failed its
+#: requirements list with a 500 (found 2026-09-30 by the frontend contract
+#: check). `requirements_3b.STORED_REQUIREMENT_TYPES` is the other home;
+#: tests/test_requirement_types_contract.py keeps them equal.
+RequirementType = Literal["numeric_limit", "statement", "table_value",
+                          "applicability_trigger", "relative_limit", "table_row"]
 
 #: An engineer's decision on an extracted requirement.
 RequirementDecision = Literal["confirm", "edit", "reject"]
