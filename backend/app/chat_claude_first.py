@@ -91,15 +91,18 @@ def _is_complex(question: str) -> bool:
 
 
 #: [Sn "quote"] (quote optional) - the same shape `answer.verify_claims` reads,
-#: reused here only to relabel an IMAGE-ONLY citation before verify_claims
-#: ever sees it (see module docstring and `chat_tools.run_look_at_page`).
+#: reused here only to relabel an IMAGE-ONLY citation AFTER verify_claims has
+#: run (see module docstring and `chat_tools.run_look_at_page`).
 _ANY_CITATION = re.compile(r'\[S(\d+)(?:\s*[:,]?\s*["“]([^"”\]]+)["”])?\]')
 
 
 def _relabel_image_only_citations(text: str, sources: list[dict]) -> tuple[str, int]:
-    """A citation naming a page `look_at_page` read with no text layer is not
-    run through `verify_claims` (there is no page text to check a quote
-    against) - it is relabelled here, kept, never silently dropped."""
+    """A citation naming a page `look_at_page` read with no text layer is
+    relabelled here, kept, never silently dropped. Run AFTER
+    `answer.verify_claims`, which already kept such a sentence unverified
+    (`verification["image_only"]`): relabelling first put "page 4" into the
+    sentence, verify_claims read the 4 as an uncited figure and dropped the
+    point the notice said was kept (audit 2026-09-30)."""
     relabelled = 0
 
     def repl(match: re.Match) -> str:
@@ -314,8 +317,11 @@ def _finish(response, sources: list[dict], steps: list[dict], started: float,
     removed = 0
     image_relabelled = 0
     if used_tools:
-        text, image_relabelled = _relabel_image_only_citations(text, sources)
         text, verification, claims, removed = answer_mod.verify_claims(text, sources)
+        text, _labels = _relabel_image_only_citations(text, sources)
+        # The notice counts the POINTS that were kept unverified, not the
+        # labels written - so it can never announce a point that was removed.
+        image_relabelled = verification.get("image_only", 0)
     else:
         text = answer_mod.drop_citations(text)
     if used_tools and not text:

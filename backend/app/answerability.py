@@ -39,7 +39,7 @@ from . import understanding as understanding_mod
 from .config import settings
 from .datasheets import referenced_standards
 from .db import connect
-from .model_evidence import quote_verified
+from .model_evidence import claim_quote_verified
 
 log = logging.getLogger(__name__)
 
@@ -239,7 +239,7 @@ def judge(question: str, result: dict, current: dict, provider) -> dict:
                           + (out.get("reason") or "no reason given") + ")",
                 "evidence": [], "judge": {"accepted": True, "answers": False}}
     n = out["passage"]
-    if not (1 <= n <= len(passages)) or not quote_verified(out["quote"], passages[n - 1].get("text")):
+    if not (1 <= n <= len(passages)) or not claim_quote_verified(out["quote"], passages[n - 1].get("text")):
         return {**current, "judge": {"accepted": False,
                                      "why": "output rejected: the quote is not verbatim in the passage it names"}}
     chosen = passages[n - 1]
