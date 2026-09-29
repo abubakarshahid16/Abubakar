@@ -245,6 +245,20 @@ CREATE TABLE IF NOT EXISTS crs_comment_numbers (
     UNIQUE (scope_key, seq)
 );
 
+-- WHICH SEQUENCE A DOCUMENT'S COMMENTS ARE NUMBERED IN, fixed the first time
+-- one of its comments is numbered (`crs_numbers.assign`). The sequence is the
+-- document NUMBER's (stable across revisions), but a document number can be
+-- edited later; without this, an edit would silently move every existing
+-- comment of the document to a new sequence and a contractor quoting
+-- CRS-X-004 would find nothing. No foreign key, deliberately, like the
+-- numbers themselves.
+CREATE TABLE IF NOT EXISTS crs_document_scope (
+    document_id     TEXT    PRIMARY KEY,
+    scope_key       TEXT    NOT NULL,
+    label           TEXT    NOT NULL,
+    fixed_at        TEXT    NOT NULL
+);
+
 -- One line per thing that happened to a numbered comment: numbered, a reply
 -- recorded or imported, opened or closed. Who and when, never inferred.
 CREATE TABLE IF NOT EXISTS crs_comment_events (

@@ -666,7 +666,8 @@ def test_the_preview_rejects_a_parameter_it_does_not_understand():
 
 
 def _number(doc_id: str, number: str) -> None:
-    """Record the submittal's own transmittal number where upload puts it."""
+    """Record the submittal's own number the way an engineer does - the
+    metadata editor's field. (No upload captures it; see `_crs_submittal_label`.)"""
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO document_classification (document_id, suggested_by,"
@@ -847,3 +848,34 @@ def test_the_issue_copy_is_refused_until_an_engineer_decides():
                      " WHERE id = ?", (run_id,))
     assert _client(doc).get(f"/api/reviews/runs/{run_id}/crs",
                             params={"copy": "issue"}).status_code == 200
+
+
+def _document_number(doc_id: str, number: str, revision: str | None = None) -> None:
+    """What the classifier records from the datasheet's own page."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_classification (document_id, suggested_by,"
+            " document_number, revision) VALUES (?,'classifier',?,?)"
+            " ON CONFLICT(document_id) DO UPDATE SET"
+            " document_number = excluded.document_number,"
+            " revision = excluded.revision", (doc_id, number, revision))
+
+
+def test_with_no_recorded_number_the_sheet_prints_the_documents_own_number_and_revision():
+    """2026-09-29: every real submittal had its document number read from its
+    own page and NO recorded submittal number, and the sheet printed a blank
+    beside a number it already held."""
+    doc = _submittal()
+    _document_number(doc, "EF1975-DAS-M-03", "Rev. 1")
+    run_id = _run(doc)
+    ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
+    assert _submittal_no(ws) == "EF1975-DAS-M-03 Rev 1"
+
+
+def test_a_number_an_engineer_recorded_wins_over_the_page():
+    doc = _submittal()
+    _document_number(doc, "EF1975-DAS-M-03", "1")
+    _number(doc, "EOC-SUB-2024-0417")
+    run_id = _run(doc)
+    ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
+    assert _submittal_no(ws) == "EOC-SUB-2024-0417"
