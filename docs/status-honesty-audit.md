@@ -1549,3 +1549,24 @@ reverted). Nothing here was run against the live database.
 
 27. **Run the CI job's own commands, copied from the workflow file, before calling a
    change clean.** A check from memory can pass because it checks nothing.
+
+## Entry 79, 2026-09-29: "the submittal number, captured at upload" - nothing captured it
+
+- **79 - the CRS's "Submittal No." read a field no upload fills.** `_crs_content`'s
+  docstring, `crs_export.HEADER_FIELDS`' comment and a test helper all said the number
+  came from `transmittal_number` "captured at upload". No upload captures it: the only
+  place it is set is an optional field in the metadata editor. Measured on the owner's
+  real database (counts only): 0 of 3 submittals had it, while 3 of 3 had a
+  `document_number` the classifier had read from the datasheet's own page (matching the
+  filename every time). The sheet printed a blank beside a number it already held, and
+  the permanent comment numbers of PR #327 were keyed on the same empty field. Worse,
+  a transmittal number changes with every submission, so even when filled it would have
+  started a new comment sequence on every resubmittal and broken carry-forward.
+  Fixed: comments are numbered by the DOCUMENT number (fixed per document once its
+  first comment is numbered, so a later edit cannot renumber an issued comment); the
+  header prints a number an engineer recorded, else the document number and revision.
+
+### The rule this produces
+
+28. **Before building on a field, count how often it is actually filled on real data.**
+   A field that exists in the schema is not a field anything populates.

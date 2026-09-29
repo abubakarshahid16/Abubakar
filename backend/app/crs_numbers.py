@@ -10,11 +10,17 @@ each comment with a response code (Accepted / Accepted with comment / Rejected
 "carry forward automatically between revisions". The sheet used to print Item
 No 1..N - renumbered on every export - and had no reply or closure at all.
 
-THE SHAPE. `CRS-<submittal no>-001`, printed in the client's own "Item No"
+THE SHAPE. `CRS-<document no>-001`, printed in the client's own "Item No"
 column, so the seven-column template is unchanged. The sequence runs per
-submittal NUMBER, so a revision uploaded as a new document with the same
-submittal number continues it rather than restarting at 001. A submittal that
-carried no number is sequenced by its document id instead, never by a guess.
+DOCUMENT NUMBER - the contractor's own number printed on the datasheet, which
+the classifier reads from the page (`classification._document_number_hits`)
+and which stays the same across revisions. So Rev 1, uploaded as a new
+document, continues Rev 0's sequence and its open comments carry forward. NOT
+the transmittal number, which changes with every submission and would start a
+new sequence each time. A submittal with no document number is sequenced by
+its document id, never by a guess. Once a document's first comment is
+numbered its sequence is FIXED (`crs_document_scope`), so a later edit of the
+document number cannot renumber comments already issued.
 
 WHEN A NUMBER IS MINTED. Only when a comment becomes an engineer's: an edit,
 a confirmation, an acceptance, a comment filed from chat, or the final code
@@ -97,6 +103,18 @@ def scope_for(submittal_number: str | None, document_id: str) -> tuple[str, str]
             return "no:" + label.lower(), label
     short = re.sub(r"[^A-Za-z0-9]+", "", document_id.removeprefix("doc_"))[:8].upper()
     return "doc:" + document_id, short or "DOC"
+
+
+def scope_of_document(document_id: str, document_number: str | None) -> tuple[str, str]:
+    """READ ONLY. (scope_key, label) for one submittal document: the sequence
+    it was fixed to when its first comment was numbered, else the one its
+    document number gives now."""
+    row = connect().execute(
+        "SELECT scope_key, label FROM crs_document_scope WHERE document_id = ?",
+        (document_id,)).fetchone()
+    if row is not None:
+        return row["scope_key"], row["label"]
+    return scope_for(document_number, document_id)
 
 
 def format_ref(label: str, seq: int) -> str:
@@ -215,6 +233,14 @@ def assign(scope_key: str, label: str, keys: list[str], *,
     all the keys afterwards."""
     conn = connect()
     snapshots = snapshots or {}
+    if any(keys):
+        # Fix this document to this sequence before its first number exists,
+        # so the number and the sequence it belongs to can never disagree.
+        with conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO crs_document_scope"
+                " (document_id, scope_key, label, fixed_at) VALUES (?, ?, ?, ?)",
+                (document_id, scope_key, label, _now()))
     for key in dict.fromkeys(k for k in keys if k):
         for _ in range(_ATTEMPTS):
             if lookup(scope_key, [key]):

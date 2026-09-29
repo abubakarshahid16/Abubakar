@@ -330,3 +330,39 @@ def test_a_numbered_comment_raised_again_unconfirmed_is_still_issued(world, monk
                      " WHERE id = ?", (finding_id,))
     issue = TestClient(app).get(f"/api/reviews/runs/{run}/crs/preview?copy=issue").json()
     assert ref in [r["crs_ref"] for r in issue["rows"]]
+
+
+# ============================================ numbered by the DOCUMENT number
+
+def _classify(doc_id: str, **fields) -> None:
+    cols = ", ".join(fields)
+    marks = ", ".join("?" for _ in fields)
+    updates = ", ".join(f"{k} = excluded.{k}" for k in fields)
+    with db.connect() as conn:
+        conn.execute(
+            f"INSERT INTO document_classification (document_id, suggested_by, {cols})"
+            f" VALUES (?, 'classifier', {marks})"
+            f" ON CONFLICT(document_id) DO UPDATE SET {updates}",
+            (doc_id, *fields.values()))
+
+
+def test_comments_are_numbered_by_the_document_number_never_the_transmittal(world, monkeypatch):
+    """A transmittal number changes with every submission; the document number
+    printed on the datasheet does not. Numbering by the transmittal would
+    start a new sequence on every resubmittal and break carry-forward."""
+    sub, run, scope = world
+    _classify(sub, document_number="KJO-DS-0007", transmittal_number="T-0001")
+    _confirm(run, scope, monkeypatch)
+    assert _ref(run).startswith("CRS-KJO-DS-0007-")
+
+
+def test_editing_the_document_number_later_never_renumbers_an_issued_comment(world, monkeypatch):
+    sub, run, scope = world
+    _classify(sub, document_number="KJO-DS-0007")
+    _confirm(run, scope, monkeypatch)
+    ref = _ref(run)
+    _classify(sub, document_number="KJO-DS-9999")   # corrected after issue
+    assert _ref(run) == ref, "the comment keeps the number the contractor was given"
+    response = TestClient(app).post(f"/api/reviews/runs/{run}/crs/comments/{ref}/status",
+                                    json={"status": "Closed"})
+    assert response.status_code == 200, "and it can still be closed under it"

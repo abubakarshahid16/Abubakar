@@ -1,4 +1,5 @@
 import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -3746,12 +3747,31 @@ def admin_db_rows(
 # be worse than no preview at all.
 
 
-def _submittal_number(submittal_id: str) -> str:
-    """The submittal's own number as captured at upload, "" when it had none."""
+def _crs_submittal_label(document) -> str:
+    """The CRS header's "Submittal No.": a recorded number if an engineer
+    entered one, else the document's own number with its revision, else ""."""
+    if document is None:
+        return ""
+    recorded = (document["transmittal_number"] or "").strip()
+    if recorded:
+        return recorded
+    number = (document["document_number"] or "").strip()
+    if not number:
+        return ""
+    revision = re.sub(r"(?i)^rev(ision)?\.?\s*", "", (document["revision"] or "").strip())
+    return f"{number} Rev {revision}" if revision else number
+
+
+def _crs_scope_of(submittal_id: str) -> tuple[str, str]:
+    """(crs scope key, printed label) for one submittal: its DOCUMENT NUMBER's
+    sequence (read from its own page by the classifier, stable across
+    revisions), or the sequence it was fixed to when its first comment was
+    numbered. Never the transmittal number, which changes every submission."""
     row = connect().execute(
-        "SELECT transmittal_number FROM document_classification WHERE document_id = ?",
+        "SELECT document_number FROM document_classification WHERE document_id = ?",
         (submittal_id,)).fetchone()
-    return (row["transmittal_number"] if row is not None else None) or ""
+    number = (row["document_number"] if row is not None else None) or ""
+    return crs_numbers_mod.scope_of_document(submittal_id, number)
 
 
 def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> None:
@@ -3778,7 +3798,7 @@ def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> N
             return
         rows, meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
         submittal_id = run["submittal_document_id"]
-        crs_scope, label = crs_numbers_mod.scope_for(meta["submittal_number"], submittal_id)
+        crs_scope, label = _crs_scope_of(submittal_id)
         # Carried-forward rows are already numbered and are not this run's to
         # re-snapshot; every other confirmed row is numbered (if new) and its
         # snapshot refreshed, so a later carry-forward prints what it last said.
@@ -3813,8 +3833,10 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     left BLANK:
 
       document_title          the submittal's own filename
-      submittal_number        the submittal's own transmittal number from
-                              `document_classification`, captured at upload,
+      submittal_number        the submittal's own number: one an engineer
+                              recorded in the metadata editor, else its
+                              document number and revision read from its page
+                              (`_crs_submittal_label`),
                               and BLANK when it carried none
       date_issued             today - the date this file was exported, which
                               is the only date this system actually knows
@@ -3838,17 +3860,22 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # LEFT JOIN, not an inner one: a submittal that was never classified has
     # no metadata row, and it must still export - with its number blank.
     document = connect().execute(
-        "SELECT d.filename AS filename, c.transmittal_number AS transmittal_number"
+        "SELECT d.filename AS filename, c.transmittal_number AS transmittal_number,"
+        " c.document_number AS document_number, c.revision AS revision"
         " FROM documents d"
         " LEFT JOIN document_classification c ON c.document_id = d.id"
         " WHERE d.id = ?", (submittal_id,)).fetchone()
     submittal_name = document["filename"] if document else submittal_id
-    # THE SUBMITTAL'S OWN NUMBER, as captured on its metadata at upload. Not
-    # the company's transmittal and not the contractor's - those name the
-    # covering transmittals and are blank below. A submittal that carried no
-    # number leaves this blank; it is never filled with a placeholder.
-    submittal_number = (document["transmittal_number"]
-                        if document is not None else None) or ""
+    # THE SUBMITTAL'S OWN NUMBER. Not the company's transmittal and not the
+    # contractor's - those name the covering transmittals and are blank below.
+    # A number an engineer RECORDED for it (the metadata editor's field) wins;
+    # otherwise the document's own number and revision as printed on its page
+    # (read by the classifier, `_document_number_hits`). CORRECTED 2026-09-29:
+    # this used to read the recorded field alone, described as "captured at
+    # upload" - no upload captures it, it was empty on every real submittal,
+    # and the sheet printed a blank while the document number sat unused.
+    # A submittal with neither leaves this blank; never a placeholder.
+    submittal_number = _crs_submittal_label(document)
 
     findings = submittal_review_mod.list_run_findings(
         review_run_id, allowed_document_ids=allowed)
@@ -3894,7 +3921,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
     # make a comment an engineer's (`_mint_crs_numbers`); this composition
     # serves the export and the preview, which write nothing.
-    crs_scope, _crs_label = crs_numbers_mod.scope_for(submittal_number, submittal_id)
+    crs_scope, _crs_label = _crs_scope_of(submittal_id)
     crs_keys = crs_numbers_mod.row_keys(rows)
     numbered = crs_numbers_mod.lookup(crs_scope, crs_keys)
     for row, key in zip(rows, crs_keys):
@@ -4239,7 +4266,7 @@ def _crs_run_scope(review_run_id: str, scope: access.AccessScope) -> tuple[str, 
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review run with that id"))
     submittal_id = run["submittal_document_id"]
-    crs_scope, label = crs_numbers_mod.scope_for(_submittal_number(submittal_id), submittal_id)
+    crs_scope, label = _crs_scope_of(submittal_id)
     return crs_scope, label, submittal_id
 
 

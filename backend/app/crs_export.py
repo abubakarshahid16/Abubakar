@@ -116,7 +116,8 @@ STATUS_NOT_IN_LIBRARY = "Not in your library - upload required"
 HEADER_FIELDS = (
     ("COMPANY Transmittal No.:", "company_transmittal"),
     ("CONTRACTOR  Transmittal No.:", "contractor_transmittal"),
-    # The submittal's OWN number, from `documents.transmittal_number`. A
+    # The submittal's OWN number (`main._crs_submittal_label`: a number an
+    # engineer recorded, else its document number and revision). A
     # THIRD thing, beside the two transmittal numbers above and never a reuse
     # of either: those name the covering transmittals, this names the document
     # being reviewed. Blank when the upload carried none - see the rule below.
