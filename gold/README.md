@@ -5,11 +5,14 @@ engineer, so the extractor can be measured against it.
 
 - **Filling one in:** `docs/gold-set.md`. Written for the engineer; no code.
 - **Scoring:** `python scripts/gold_score.py <database> gold/*.csv`
+- **Blind test of the review's findings:** `FINDINGS-TEMPLATE.csv`, filled BEFORE the
+  upload, scored with `python scripts/blind_score.py <review_run_id> <key.csv>`.
+  Procedure: `docs/blind-test.md`.
 
 ## Why the filled files are not committed
 
-`.gitignore` keeps `gold/*.csv` out of the repository except the two templates
-(`TEMPLATE.csv`, `PAIRS-TEMPLATE.csv`).
+`.gitignore` keeps `gold/*.csv` out of the repository except the three templates
+(`TEMPLATE.csv`, `PAIRS-TEMPLATE.csv`, `FINDINGS-TEMPLATE.csv`).
 The format asks for a clause number and a page rather than the sentence, so a
 filled sheet holds no standard text - but it is still a description of a
 client's standards, and this project's rule is that such material lives in the
