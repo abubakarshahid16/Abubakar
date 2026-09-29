@@ -55,6 +55,14 @@ PREFIX = "CRS"
 OPEN = "Open"
 CLOSED = "Closed"
 STATUSES = (OPEN, CLOSED)
+#: A NUMBERED COMMENT AN ENGINEER REJECTED BEFORE THE CONTRACTOR ANSWERED IT
+#: (audit 2026-09-30). Confirming a comment numbers it; rejecting it afterwards
+#: left the number Open, so the issue copy printed the rejected comment as
+#: "carried forward". Withdrawn is never carried forward, never marks a
+#: re-raised draft as confirmed, and is not one of the reviewer's `STATUSES`:
+#: only a rejection sets it, and the engineer making the comment theirs again
+#: (`assign`) re-opens it. The number is kept - never reused.
+WITHDRAWN = "Withdrawn"
 
 #: The contractor's per-comment response codes, as industry CRS practice uses
 #: them. Order matters for parsing: the longer "Accepted with comment" must be
@@ -242,6 +250,19 @@ def assign(scope_key: str, label: str, keys: list[str], *,
                 " (document_id, scope_key, label, fixed_at) VALUES (?, ?, ?, ?)",
                 (document_id, scope_key, label, _now()))
     for key in dict.fromkeys(k for k in keys if k):
+        # AN ENGINEER MAKING A WITHDRAWN COMMENT THEIRS AGAIN re-opens it: the
+        # same subject, confirmed again, is the same comment with its number.
+        with conn:
+            reopened = conn.execute(
+                "UPDATE crs_comment_numbers SET status = ?, status_by = ?, status_at = ?,"
+                " status_note = NULL WHERE scope_key = ? AND row_key = ? AND status = ?",
+                (OPEN, user_id, _now(), scope_key, key, WITHDRAWN)).rowcount
+            if reopened:
+                seq = conn.execute(
+                    "SELECT seq FROM crs_comment_numbers WHERE scope_key = ? AND row_key = ?",
+                    (scope_key, key)).fetchone()["seq"]
+                _event(conn, scope_key, seq, user_id, "reopened",
+                       f"confirmed again in review run {review_run_id}")
         for _ in range(_ATTEMPTS):
             if lookup(scope_key, [key]):
                 break
@@ -281,6 +302,36 @@ def assign(scope_key: str, label: str, keys: list[str], *,
                     (*(str(snap.get(f) or "") for f in _SNAPSHOT_FIELDS),
                      review_run_id, scope_key, key))
     return lookup(scope_key, keys)
+
+
+def withdraw(scope_key: str, keys: set[str] | list[str], *,
+             user_id: str | None) -> list[int]:
+    """Withdraw the numbered comments behind these keys: an engineer rejected
+    them. Only a comment still Open and with NO contractor reply - a reply is
+    proof it was issued, and an issued comment is the reviewer's to close, not
+    to make disappear. Returns the numbers withdrawn."""
+    wanted = [k for k in dict.fromkeys(keys) if k]
+    done: list[int] = []
+    if not wanted:
+        return done
+    conn = connect()
+    with conn:
+        for key in wanted:
+            row = conn.execute(
+                "SELECT seq FROM crs_comment_numbers WHERE scope_key = ? AND row_key = ?"
+                " AND status = ? AND response_code IS NULL"
+                " AND COALESCE(response_text, '') = ''", (scope_key, key, OPEN)).fetchone()
+            if row is None:
+                continue
+            conn.execute(
+                "UPDATE crs_comment_numbers SET status = ?, status_by = ?, status_at = ?,"
+                " status_note = ? WHERE scope_key = ? AND seq = ?",
+                (WITHDRAWN, user_id, _now(), "rejected by the engineer before issue",
+                 scope_key, row["seq"]))
+            _event(conn, scope_key, row["seq"], user_id, "withdrawn",
+                   "the engineer rejected the comment")
+            done.append(row["seq"])
+    return done
 
 
 def set_status(scope_key: str, seq: int, status: str, *, user_id: str,

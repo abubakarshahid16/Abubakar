@@ -3887,6 +3887,11 @@ def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> N
                 document_id=submittal_id, review_run_id=review_run_id,
                 snapshots={row["crs_row_key"]: row for row in mine},
                 user_id=scope.user_id)
+        # A comment confirmed (so numbered) and then rejected is withdrawn -
+        # never issued, never carried forward (audit 2026-09-30).
+        if meta.get("rejected_row_keys"):
+            crs_numbers_mod.withdraw(crs_scope, meta["rejected_row_keys"],
+                                     user_id=scope.user_id)
     except HTTPException:
         return
     except Exception:  # noqa: BLE001 - see docstring: never fail a saved decision
@@ -3973,16 +3978,17 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # "confirmed by <name>" - the engineer's display name, never their id.
     # Section 3: an edited comment names its editor the same way. 2d-2: a
     # confirmed web standards check item does too.
-    confirmers = {f["confirmed_by"] for f in findings
-                  if (f.get("origin") in ("ai_engineering_check", "web_standard_check")
-                      or f.get("engineer_comment"))
-                  and f.get("confirmed_by")}
+    # Audit 2026-09-30: EVERY confirmed comment, not only AI/web items and
+    # edits - a plain confirmed requirement comment printed the raw user id.
+    confirmers = {f["confirmed_by"] for f in findings if f.get("confirmed_by")}
     if confirmers:
         marks = ",".join("?" for _ in confirmers)
         people = {r["id"]: r["display_name"] for r in connect().execute(
             f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(confirmers))}
         for finding in findings:
-            if finding.get("confirmed_by") in people:
+            # A name only when one is on record - never invented; the id
+            # stays the fallback in `crs_mapping`.
+            if people.get(finding.get("confirmed_by")):
                 finding["confirmed_by_name"] = people[finding["confirmed_by"]]
 
     outcome = comparison_mod.run_outcome(
@@ -4000,8 +4006,18 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     crs_scope, _crs_label = _crs_scope_of(submittal_id)
     crs_keys = crs_numbers_mod.row_keys(rows)
     numbered = crs_numbers_mod.lookup(crs_scope, crs_keys)
+    # A REJECTED COMMENT IS NEVER ISSUED (audit 2026-09-30). Its key is not a
+    # row of this sheet, so the carry-forward below printed it as "carried
+    # forward from an earlier review". Its keys go to `_mint_crs_numbers`
+    # (the write that follows every rejection), which withdraws the number.
+    meta_rejected_keys = sorted(
+        crs_mapping_mod.rejected_comment_keys(findings) - set(crs_keys))
     for row, key in zip(rows, crs_keys):
         row["crs_row_key"] = key
+        if key in numbered and numbered[key].get("status") == crs_numbers_mod.WITHDRAWN:
+            # A draft re-raising a comment an engineer rejected: it keeps no
+            # number and is NOT an engineer's confirmation.
+            continue
         if key in numbered:
             record = numbered[key]
             row["crs_ref"] = record["ref"]
@@ -4017,6 +4033,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # or revision of this submittal that this run no longer raises stays on
     # the sheet until a reviewer closes it - never dropped because a later
     # run stopped producing it. Read only, from what the comment last said.
+    # A comment an engineer rejected before issue is WITHDRAWN (not Open) by
+    # `_mint_crs_numbers`, so `open_elsewhere` never returns it.
     for record in crs_numbers_mod.open_elsewhere(crs_scope, set(crs_keys)):
         rows.append({
             "finding_id": "",
@@ -4061,6 +4079,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
         "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread),
+        # Never printed: the keys of this run's rejected comments, for
+        # `_mint_crs_numbers` to withdraw.
+        "rejected_row_keys": meta_rejected_keys,
     }
     return rows, meta, submittal_name, stamp
 

@@ -141,6 +141,29 @@ def _rejected(finding: dict) -> bool:
     return finding.get("approval_status") == "rejected"
 
 
+def finding_comment_key(f: dict) -> str:
+    """The permanent-number key of the comment one finding makes - the same
+    key `build_crs_rows` gives the row it leads. One home for all three
+    shapes (a requirement comment, a chat comment, an AI/web check item)."""
+    origin = f.get("origin")
+    if origin == "chat":
+        return comment_key(
+            "chat", f.get("engineer_comment") or f.get("finding"),
+            f.get("contractor_page"), f.get("contractor_section"))
+    if origin in (_AI_ORIGIN, _WEB_ORIGIN):
+        return comment_key(
+            origin, f.get("finding"), f.get("required_action"),
+            f.get("contractor_page"), f.get("contractor_section"))
+    return _subject_key(f)
+
+
+def rejected_comment_keys(findings: list[dict]) -> set[str]:
+    """The comment keys of the findings an engineer rejected. A rejected
+    comment is never issued: `main._crs_content` never carries these forward
+    and `main._mint_crs_numbers` withdraws their numbers."""
+    return {finding_comment_key(f) for f in findings if _rejected(f)}
+
+
 def _edited_by(finding: dict) -> str:
     who = finding.get("confirmed_by_name") or finding.get("confirmed_by") or "an engineer"
     return f"AI Review, edited and confirmed by {who}"
@@ -566,14 +589,15 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "document_name": submittal_name,
             "page_section": "",
             "comment": f.get("engineer_comment") or f.get("finding") or "",
-            "comment_by": f"{f.get('confirmed_by') or 'Engineer'} (filed from chat)",
+            # The engineer's DISPLAY NAME, never their user id (audit
+            # 2026-09-30); the id only when no name is on record.
+            "comment_by": (f"{f.get('confirmed_by_name') or f.get('confirmed_by') or 'Engineer'}"
+                           " (filed from chat)"),
             "standard_reference": "",
             "row_kind": ROW_KIND_ENGINEER_COMMENT,
             "engineer_confirmed": True,
             # An engineer's own free-text comment IS its subject.
-            "comment_key": comment_key(
-                "chat", f.get("engineer_comment") or f.get("finding"),
-                f.get("contractor_page"), f.get("contractor_section")),
+            "comment_key": finding_comment_key(f),
         })
 
     # Owner order 2d/2f and 2d-2: AI engineering check (kind C) and public-web
@@ -614,9 +638,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "engineer_confirmed": confirmed,
             # The machine's finding text, not the engineer's edit of it, so
             # confirming or re-wording an AI/web item keeps its number.
-            "comment_key": comment_key(
-                origin, f.get("finding"), f.get("required_action"),
-                f.get("contractor_page"), f.get("contractor_section")),
+            "comment_key": finding_comment_key(f),
         })
 
     # OWNER ORDER 2f: THE INTERNAL NOTES LEFT THIS SHEET. Requirements that
