@@ -159,8 +159,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1240", phase=97,
         description="CHUNKER_VERSION not bumped: old chunks are not detected stale",
         path=_CH,
-        anchor='CHUNKER_VERSION = "5"',
-        replacement='CHUNKER_VERSION = "4"',
+        anchor='CHUNKER_VERSION = "6"',
+        replacement='CHUNKER_VERSION = "5"',
         target=_T, keyword="previous_chunker_are_stale",
     ),
     Mutation(

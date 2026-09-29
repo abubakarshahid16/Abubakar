@@ -7,6 +7,9 @@ labels survive numbering gaps. A document's chunks are rebuilt only when
 `chunk_document` runs for it, and nothing re-runs it for a document that is
 already READY. This script finds the stale ones and rebuilds them.
 
+Version 6 (2026-09-29): a heading with nothing under it, and the heading lines
+of a contents page, are kept in chunk text instead of nowhere. Same script.
+
 WHAT "STALE" MEANS: `documents.chunk_signature` differs from the signature the
 current chunker computes (`chunker.is_stale`) - an older CHUNKER_VERSION, or
 different extracted text/tables. After the version bump, every document chunked
