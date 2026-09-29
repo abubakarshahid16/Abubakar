@@ -88,7 +88,7 @@ def sanitise_filename(raw: str, kind: str = KIND_PDF) -> str:
     return name[:200]
 
 
-def validate_xlsx(temp_path: Path) -> None:
+def validate_xlsx(temp_path: "Path | BinaryIO") -> None:
     """Prove a zip is really a workbook, and that opening it is bounded.
 
     `PK\\x03\\x04` says "zip" and nothing more; `.docx`, `.pptx` and `.jar`
@@ -104,6 +104,11 @@ def validate_xlsx(temp_path: Path) -> None:
 
     Raises `UploadError`; the caller deletes the temp file, so a file that
     fails any check is never partially stored.
+
+    Also accepts an in-memory file (`io.BytesIO`): `crs_reply.read_replies`
+    DOES open the workbook, so it runs these same limits first. There the
+    declared size is what bounds the expansion - CPython's zip reader stops
+    at each entry's declared `file_size` - so checking the sum is sufficient.
     """
     import zipfile
 
