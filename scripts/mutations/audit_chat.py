@@ -158,9 +158,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1538", phase=90,
              description="the done answer drops text streamed before a tool call",
              path=APP / "chat_claude_first.py",
+             # re-anchored at integration: the spend batch added turn_cost
              anchor="                return _finish(response, sources, steps, started, thinking_seconds,\n"
-                    '                               text="\\n\\n".join(round_texts))\n',
-             replacement="                return _finish(response, sources, steps, started, thinking_seconds)\n",
+                    '                               turn_cost, text="\\n\\n".join(round_texts))\n',
+             replacement="                return _finish(response, sources, steps, started, thinking_seconds,\n"
+                         "                               turn_cost)\n",
              target=_T, keyword="keeps_text_written_before_a_tool_call",
              tags=("honesty",)),
 )
