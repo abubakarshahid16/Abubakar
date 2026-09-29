@@ -21,7 +21,7 @@ sources the tools returned, so a citation that does not resolve is removed
 and counted, never displayed; Claude never decides a compliance verdict (the
 system prompt says so, and the caller still adds `intent.ENGINEER_NOTICE`
 exactly as before for a compliance-shaped question); the budget is checked
-by `claude_spend.ensure_affordable` before EVERY Claude call in the loop,
+by `claude_spend.reserve` before EVERY Claude call in the loop,
 including each tool round-trip, because that check lives inside
 `ClaudeProvider.reason`, not here - this module cannot bypass it by
 constructing a Packet, only by not calling `reason` at all; Stop cancels the
@@ -163,6 +163,10 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
     tool_calls_made = 0
     started = time.time()
     thinking_seconds: float | None = None
+    #: USD for the WHOLE turn: every Claude call this loop made, including
+    #: tool rounds and a call that failed but was charged - never the last
+    #: call alone.
+    turn_cost = 0.0
     used_thinking = _is_complex(question) and settings.chat_thinking_budget_tokens > 0
 
     system = SYSTEM_PROMPT
@@ -185,7 +189,7 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
     try:
         while True:
             if cancelled():
-                return _cancelled(turn, sources, steps, started)
+                return _cancelled(turn, sources, steps, started, turn_cost)
             offer_tools = tools if tool_calls_made < settings.chat_tool_max_calls else ()
             thinking_budget = (settings.chat_thinking_budget_tokens
                               if used_thinking and tool_calls_made == 0 else None)
@@ -207,11 +211,13 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                 # pipeline uses, verified against `sources` as they arrive.
                 response = engine.stream(packet, on_text, turn.cancel if turn else None)
             except (rp.ProviderRefused, claude_spend.BudgetExceeded) as exc:
+                turn_cost += float(getattr(exc, "cost_usd", 0.0) or 0.0)
                 if tool_calls_made == 0 and not sources:
                     raise _Fallback(str(exc)) from exc
-                return _budget_or_provider_failure(str(exc), sources, steps, started)
+                return _budget_or_provider_failure(exc, sources, steps, started, turn_cost)
+            turn_cost += float(response.cost_usd or 0.0)
             if response.finish_reason == "cancelled":
-                return _cancelled(turn, sources, steps, started)
+                return _cancelled(turn, sources, steps, started, turn_cost)
 
             if thinking_budget:
                 # `or 0.0`, never a falsy skip: a fast answer that still
@@ -225,12 +231,12 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
             if response.finish_reason != "tool_use" or not tool_uses:
                 if turn is not None:
                     turn.flush()
-                return _finish(response, sources, steps, started, thinking_seconds)
+                return _finish(response, sources, steps, started, thinking_seconds, turn_cost)
 
             tool_results = []
             for block in tool_uses:
                 if cancelled():
-                    return _cancelled(turn, sources, steps, started)
+                    return _cancelled(turn, sources, steps, started, turn_cost)
                 tool_calls_made += 1
                 try:
                     run, image = chat_tools.dispatch(
@@ -240,6 +246,9 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                     from . import chat_web
                     result = chat_web.consent(consent.query, allowed_document_ids=allowed_document_ids)
                     result["route"] = "web"
+                    # The Claude calls before the consent question were made
+                    # and paid for; the turn reports them.
+                    result["cost_usd"] = round(turn_cost, 6)
                     return result
                 first_n = len(sources) + 1
                 sources.extend(run.sources_added)
@@ -286,28 +295,41 @@ _REQUIRED_DEFAULTS = {"retrieval_mode": "claude_tools", "reranked": False,
                      "candidates_considered": 0, "timings": {}}
 
 
-def _cancelled(turn, sources: list[dict], steps: list[dict], started: float) -> dict:
+def _cancelled(turn, sources: list[dict], steps: list[dict], started: float,
+               turn_cost: float = 0.0) -> dict:
     # THE SAME RULE `answer.stopped` uses: what the reader was already shown
     # (sentences that already passed the quote-verification gate), never more.
     partial = " ".join(turn.shown).strip() if turn is not None else ""
     return {**_REQUIRED_DEFAULTS, "answer_type": "cancelled", "answer": partial or None,
            "reason": "stopped by the reader",
            "cancelled": True, "passages": sources, "steps": steps, "cited": [], "claims": [],
-           "seconds": round(time.time() - started, 3)}
+           "cost_usd": round(turn_cost, 6), "seconds": round(time.time() - started, 3)}
 
 
-def _budget_or_provider_failure(message: str, sources: list[dict], steps: list[dict],
-                                started: float) -> dict:
+def _failure_reason(exc: Exception) -> str:
+    """Say what actually stopped the answer. Only a `BudgetExceeded` is the
+    spending cap; a `ProviderRefused` is the call itself failing (network,
+    timeout, an HTTP 4xx/5xx, egress off) and must not be blamed on the cap."""
+    if isinstance(exc, claude_spend.BudgetExceeded):
+        return f"the spending cap would be exceeded partway through this answer: {exc}"
+    return f"the Claude call failed partway through this answer: {exc}"
+
+
+def _budget_or_provider_failure(exc: Exception, sources: list[dict], steps: list[dict],
+                                started: float, turn_cost: float = 0.0) -> dict:
     return {**_REQUIRED_DEFAULTS, "answer_type": "model_unavailable", "answer": None,
-           "reason": f"the spending cap would be exceeded partway through this answer: {message}",
+           "reason": _failure_reason(exc),
            "passages": sources, "steps": steps, "cited": [], "claims": [],
-           "seconds": round(time.time() - started, 3)}
+           "cost_usd": round(turn_cost, 6), "seconds": round(time.time() - started, 3)}
 
 
 def _finish(response, sources: list[dict], steps: list[dict], started: float,
-           thinking_seconds: float | None) -> dict:
+           thinking_seconds: float | None, turn_cost: float | None = None) -> dict:
+    """`turn_cost`: USD for every call of the turn; the last call's own cost
+    only when no total is given."""
     from . import answer as answer_mod
 
+    cost = round(turn_cost, 6) if turn_cost is not None else response.cost_usd
     text = (response.text or "").strip()
     used_tools = bool(sources)
     verification = claims = None
@@ -324,7 +346,7 @@ def _finish(response, sources: list[dict], steps: list[dict], started: float,
                "passages": sources, "steps": steps, "verification": verification,
                "claims_removed": removed, "cited": [], "claims": [],
                "provider": response.provider, "model": response.model_tag,
-               "cost_usd": response.cost_usd, "seconds": round(time.time() - started, 3),
+               "cost_usd": cost, "seconds": round(time.time() - started, 3),
                "candidates_considered": len(sources)}
     cited = sorted({c["n"] for c in (claims or [])})
     base = {
@@ -335,7 +357,7 @@ def _finish(response, sources: list[dict], steps: list[dict], started: float,
         "claims_removed": removed, "verification": verification,
         "steps": steps, "input_kind": "document" if used_tools else "general",
         "provider": response.provider, "model": response.model_tag,
-        "cost_usd": response.cost_usd, "seconds": round(time.time() - started, 3),
+        "cost_usd": cost, "seconds": round(time.time() - started, 3),
         "candidates_considered": len(sources),
         "truncated": response.truncated, "rejected_citations": [],
     }

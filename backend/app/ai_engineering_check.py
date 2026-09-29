@@ -32,8 +32,9 @@ run reports "5 proposed, 3 kept: 1 value not on page, 1 pass/fail word".
 OFF BY DEFAULT (`settings.review_ai_check_enabled`), and even on it needs the
 Claude lane (`reasoning_provider.claude_available`: REASONING_PROVIDER=claude,
 both reader egress flags and a key). The call goes through `ClaudeProvider`,
-so `claude_spend.ensure_affordable` refuses it BEFORE it leaves if it could
-cross the USD caps; the spend is booked to the step `review_ai_check`.
+so `claude_spend.reserve` refuses it BEFORE it leaves if it could cross the
+USD caps (and holds its worst case until it is settled); the spend is booked
+to the step `review_ai_check`.
 
 The provider is injectable, so every test runs against a fake - no socket.
 """

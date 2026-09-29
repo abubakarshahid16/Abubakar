@@ -942,7 +942,7 @@ class Settings(BaseSettings):
     #: every one of the 10 historical calls at that cap hit `finish_reason ==
     #: "length"` and produced zero storable items - the check was truncating
     #: silently on every single run. Still finite (a worst-case estimate feeds
-    #: `claude_spend.ensure_affordable` before the call leaves).
+    #: `claude_spend.reserve` before the call leaves).
     review_ai_check_max_output_tokens: int = 12000
     #: Owner order 2d-2: for a standard the datasheet cites but the library
     #: does not hold, an OPTIONAL check against a PUBLIC web copy. OFF BY

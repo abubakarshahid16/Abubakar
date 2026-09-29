@@ -60,7 +60,26 @@ class ProviderRefused(RuntimeError):
     for an unreadable file and B50 for an unparseable response: "it did not
     happen, here is the reason" and "it happened and produced nothing" are
     different facts, and only one of them is about the model.
+
+    `cost_usd` is what the failed call was charged in the spend ledger: 0
+    when it provably cost nothing, otherwise its reported usage or its worst
+    case (`claude_spend.settle_failure`) - a caller adding up a turn's cost
+    must count it.
     """
+
+    cost_usd: float = 0.0
+
+
+def _unbilled(exc: BaseException) -> bool:
+    """`reader_transport.unbilled`: only a failure that PROVES the API did no
+    billable work releases a reservation; everything else is charged."""
+    from . import reader_transport
+
+    return reader_transport.unbilled(exc)
+
+
+def _charged(entry: dict | None) -> float:
+    return float(entry["cost_usd"]) if entry else 0.0
 
 
 @dataclass(frozen=True)
@@ -381,9 +400,11 @@ class ClaudeProvider:
     The request is built by `reader_api.build_request` - both egress flags,
     https, allowed host and key are checked there - and this class only adds
     the model (from configuration), max_tokens, a CACHED system block and the
-    schema instruction. Before the call leaves, `claude_spend.ensure_affordable`
-    refuses it if its worst case could cross a USD cap; after it returns, the
-    ledger records tokens and cost (never text, never the key).
+    schema instruction. Before the call leaves, `claude_spend.reserve` holds
+    its worst case in the ledger, or refuses it if that could cross a USD cap;
+    after it returns - or fails - the reservation is settled to tokens and
+    cost (never text, never the key), and a failure that may have been billed
+    is charged, never dropped.
     """
 
     name = CLAUDE
@@ -480,7 +501,7 @@ class ClaudeProvider:
             cost_usd=0.0)
 
     def _answered(self, payload: dict | None, packet: Packet, key: str, step: str, wall: float,
-                  *, batch: bool = False, cacheable: bool = True) -> Response:
+                  *, batch: bool = False, cacheable: bool = True, reservation=None) -> Response:
         """Ledger, cache and Response for one Messages answer."""
         from . import claude_spend, reader_api
 
@@ -493,9 +514,13 @@ class ClaudeProvider:
         reported = str((payload or {}).get("model") or "")
         stop = str((payload or {}).get("stop_reason") or "")
         finish = _STOP.get(stop, stop or "error")
-        entry = claude_spend.record(step=step, model=reported or self.requested_model, usage=usage,
-                                    prompt_sha256=packet.sha256, wall_time_s=wall, finish_reason=finish,
-                                    batch=batch)
+        if reservation is not None:
+            entry = claude_spend.settle(reservation, model=reported or self.requested_model,
+                                        usage=usage, wall_time_s=wall, finish_reason=finish)
+        else:
+            entry = claude_spend.record(step=step, model=reported or self.requested_model, usage=usage,
+                                        prompt_sha256=packet.sha256, wall_time_s=wall,
+                                        finish_reason=finish, batch=batch)
         if cacheable and finish == "stop":   # a truncated answer is not worth keeping
             _cache_write(key, {"text": text, "model_tag": reported or self.requested_model,
                                "finish_reason": finish, "tokens_in": (usage or {}).get("input_tokens"),
@@ -515,8 +540,10 @@ class ClaudeProvider:
         """Many packets through the Message Batches API at half price, one
         Response per packet in order. Cached packets are answered from disk
         and never sent. Before the batch is created, the WORST CASE of every
-        uncached request together (batch-priced) must fit the caps
-        (`claude_spend.ensure_affordable`) - one refusal, nothing sent. A
+        uncached request together (batch-priced) must fit the caps, and is
+        reserved in one locked step (`claude_spend.reserve_all`) - one
+        refusal, nothing sent. A failure to create or finish the batch is
+        charged by `claude_spend.settle_failure`. A
         request that errored or expired comes back as an empty "error"
         Response, which a caller's validity check rejects."""
         from . import claude_spend
@@ -529,7 +556,7 @@ class ClaudeProvider:
             client = reader_transport
         out: list[Response | None] = [None] * len(packets)
         todo: dict[str, tuple[int, Packet, str, str]] = {}
-        batch_requests, worst, request = [], 0.0, None
+        batch_requests, worsts, request = [], [], None
         for i, packet in enumerate(packets):
             step = self._step or packet.step
             key = cache_key(self.requested_model, packet)
@@ -538,23 +565,29 @@ class ClaudeProvider:
                 out[i] = hit
                 continue
             request, body, prompt = self._request(packet)
-            worst += claude_spend.worst_case_usd(self.requested_model, len(packet.system) + len(prompt),
-                                                 packet.num_predict,
-                                                 image_tokens=sum(i.tokens for i in packet.images),
-                                                 batch=True)
+            worsts.append((step, claude_spend.worst_case_usd(
+                self.requested_model, len(packet.system) + len(prompt), packet.num_predict,
+                image_tokens=sum(i.tokens for i in packet.images), batch=True)))
             todo[f"r{i}"] = (i, packet, key, step)
             batch_requests.append({"custom_id": f"r{i}", "params": body})
         if batch_requests:
-            steps = {s for _, _, _, s in todo.values()}
-            for step in steps:
-                claude_spend.ensure_affordable(step, worst)
+            held = dict(zip(todo, claude_spend.reserve_all(
+                worsts, model=self.requested_model, batch=True)))
             started = time.time()
-            batch = client.batch_create(request["url"], headers=request["headers"], requests=batch_requests)
-            while batch.get("processing_status") != "ended":
-                if time.time() - started > max_wait_s:
-                    raise ProviderRefused(f"{self.name}: batch not ended after {max_wait_s:.0f} s")
-                sleep(poll_seconds)
-                batch = client.batch_retrieve(request["url"], str(batch.get("id")), headers=request["headers"])
+            try:
+                batch = client.batch_create(request["url"], headers=request["headers"],
+                                            requests=batch_requests)
+                while batch.get("processing_status") != "ended":
+                    if time.time() - started > max_wait_s:
+                        # Still running at the API, so still billable.
+                        raise ProviderRefused(f"{self.name}: batch not ended after {max_wait_s:.0f} s")
+                    sleep(poll_seconds)
+                    batch = client.batch_retrieve(request["url"], str(batch.get("id")),
+                                                  headers=request["headers"])
+            except BaseException as exc:
+                for reservation in held.values():
+                    claude_spend.settle_failure(reservation, exc, unbilled=_unbilled)
+                raise
             wall = time.time() - started
             for row in client.batch_results(str(batch.get("results_url")), headers=request["headers"]):
                 slot = todo.pop(str(row.get("custom_id")), None)
@@ -563,9 +596,12 @@ class ClaudeProvider:
                 i, packet, key, step = slot
                 result = row.get("result") or {}
                 message = result.get("message") if result.get("type") == "succeeded" else None
-                out[i] = self._answered(message, packet, key, step, wall, batch=True)
-            for i, packet, key, step in todo.values():      # no result row at all
-                out[i] = self._answered(None, packet, key, step, wall, batch=True)
+                out[i] = self._answered(message, packet, key, step, wall, batch=True,
+                                        reservation=held[str(row.get("custom_id"))])
+            for cid, (i, packet, key, step) in todo.items():      # no result row at all
+                # Errored and expired batch requests are not billed.
+                out[i] = self._answered(None, packet, key, step, wall, batch=True,
+                                        reservation=held[cid])
         return out  # type: ignore[return-value]
 
     def reason(self, packet: Packet) -> Response:
@@ -590,27 +626,39 @@ class ClaudeProvider:
         prompt_chars = len(packet.system) + len(prompt) + sum(
             len(json.dumps(m, default=str)) for m in (packet.messages or ()))
         max_tokens = packet.num_predict + (packet.thinking_budget or 0)
-        claude_spend.ensure_affordable(
+        send = self._send()     # egress off refuses here, before anything is held
+        held = claude_spend.reserve(
             step, claude_spend.worst_case_usd(self.requested_model, prompt_chars,
-                                              max_tokens, image_tokens=image_tokens))
+                                              max_tokens, image_tokens=image_tokens),
+            model=self.requested_model, prompt_sha256=packet.sha256)
         started = time.time()
         try:
-            payload = self._send()(request["url"], headers=request["headers"], body=body,
-                                   timeout=request["timeout"])
-        except ProviderRefused:
-            raise
-        except Exception as exc:
+            payload = send(request["url"], headers=request["headers"], body=body,
+                           timeout=request["timeout"])
+        except BaseException as exc:
+            # MAY HAVE BEEN BILLED (a read timeout after the API did the
+            # work): charged its worst case unless it provably was not.
+            charged = _charged(claude_spend.settle_failure(held, exc, unbilled=_unbilled))
+            if isinstance(exc, (ProviderRefused, claude_spend.StopRun)) or not isinstance(exc, Exception):
+                if isinstance(exc, ProviderRefused):
+                    exc.cost_usd = charged
+                raise
             # The type and the transport's own message (status + host + error
             # TYPE only - reader_transport never puts headers in it).
-            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc
-        return self._answered(payload, packet, key, step, time.time() - started, cacheable=cacheable)
+            refused = ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}")
+            refused.cost_usd = charged
+            raise refused from exc
+        return self._answered(payload, packet, key, step, time.time() - started, cacheable=cacheable,
+                              reservation=held)
 
 
 def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) -> Response:
     """The Messages API, streamed through `reader_transport.stream` - the
-    same gates, the same spend check BEFORE the call, and a ledger line
-    AFTER it whether it finished or was stopped (a stopped call still cost
-    what it produced). Never cached: a stream is a conversation turn."""
+    same gates, the same worst-case RESERVATION before the call, and that
+    reservation settled AFTER it whether it finished, was stopped (a stopped
+    call still cost what it produced) or failed (a dropped stream, or one cut
+    at the 1 MB cap, may have been billed: charged its reported final usage,
+    else its worst case). Never cached: a stream is a conversation turn."""
     from . import claude_spend
 
     step = provider._step or packet.step
@@ -618,8 +666,6 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
     prompt_chars = len(packet.system) + len(prompt) + sum(
         len(json.dumps(m, default=str)) for m in (packet.messages or ()))
     max_tokens = packet.num_predict + (packet.thinking_budget or 0)
-    claude_spend.ensure_affordable(
-        step, claude_spend.worst_case_usd(provider.requested_model, prompt_chars, max_tokens))
     send = provider._stream_transport
     if send is None:
         from . import reader_transport
@@ -627,9 +673,15 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
             raise ProviderRefused("claude: egress is disabled (STANDARDS_READER_ENABLED / "
                                   "STANDARDS_READER_ALLOW_PUBLIC_EGRESS)")
         send = reader_transport.stream
+    held = claude_spend.reserve(
+        step, claude_spend.worst_case_usd(provider.requested_model, prompt_chars, max_tokens),
+        model=provider.requested_model, prompt_sha256=packet.sha256)
     started = time.time()
     parts: list[str] = []
     usage: dict = {}
+    #: True once `message_delta` has reported the call's final output count -
+    #: only then is `usage` the whole bill rather than a partial one.
+    final_usage = False
     model = provider.requested_model
     stop = ""
     #: Tool-loop streaming (2026-09-27): `content_block_start`/`_delta`/`_stop`
@@ -684,11 +736,18 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
                         block["input"] = {}
             elif kind == "message_delta":
                 usage.update(event.get("usage") or {})
+                final_usage = final_usage or "output_tokens" in (event.get("usage") or {})
                 stop = str((event.get("delta") or {}).get("stop_reason") or stop)
-    except ProviderRefused:
-        raise
-    except Exception as exc:
-        raise ProviderRefused(f"{provider.name}: {type(exc).__name__}: {exc}") from exc
+    except BaseException as exc:
+        charged = _charged(claude_spend.settle_failure(
+            held, exc, unbilled=_unbilled, usage=usage if final_usage else None, model=model))
+        if isinstance(exc, (ProviderRefused, claude_spend.StopRun)) or not isinstance(exc, Exception):
+            if isinstance(exc, ProviderRefused):
+                exc.cost_usd = charged
+            raise
+        refused = ProviderRefused(f"{provider.name}: {type(exc).__name__}: {exc}")
+        refused.cost_usd = charged
+        raise refused from exc
     text = "".join(parts).strip()
     stopped = cancel is not None and cancel.is_set()
     if stopped and not usage.get("output_tokens"):
@@ -696,7 +755,7 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
         # estimate of what was produced, so the ledger errs towards spent.
         usage["output_tokens"] = len(text) // 3 + 1
     finish = "cancelled" if stopped else _STOP.get(stop, stop or "error")
-    entry = claude_spend.record(step=step, model=model, usage=usage, prompt_sha256=packet.sha256,
+    entry = claude_spend.settle(held, model=model, usage=usage,
                                 wall_time_s=time.time() - started, finish_reason=finish)
     content_blocks = tuple(blocks[i] for i in order if i in blocks)
     thinking_text = "".join(

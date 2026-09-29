@@ -80,7 +80,8 @@ def test_a_call_records_model_tokens_cost_and_no_text(tmp_path):
     assert (r.provider, r.model_tag, r.finish_reason) == ("claude", "claude-sonnet-5", "stop")
     assert r.cost_usd == pytest.approx((1000 * 2.0 + 100 * 10.0) / 1e6)
     ledger = settings.claude_spend_log.read_text(encoding="utf-8")
-    assert json.loads(ledger)["step"] == "test-step"
+    # One call, one settled entry (the reservation line it replaced is folded away).
+    assert [e["step"] for e in claude_spend.entries()] == ["test-step"]
     assert "SECRET DOCUMENT" not in ledger and "STANDARD TEXT" not in ledger
     assert seen[0]["body"]["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert seen[0]["body"]["model"] == "claude-sonnet-5"
