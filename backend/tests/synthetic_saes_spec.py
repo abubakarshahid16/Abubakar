@@ -171,7 +171,7 @@ def build_coating_standard(path: Path) -> Path:
     w.heading("1", "Scope")
     w.para(_para(1, 3) + " This standard covers carbon-|steel and low alloy steel surfaces.")
     w.heading("2", "Conflicts and Deviations")
-    w.para("Any conflicts between this standard and other applicable Saudi Aramco "
+    w.para("Any conflicts between this standard and other applicable client "
            "Engineering Standards shall be resolved in writing by the Company. " + _para(2, 2))
     w.heading("3", "References")
     w.para("ISO 8501-1 Preparation of steel substrates before application of paints. "
@@ -283,7 +283,7 @@ def build_piping_standard(path: Path) -> Path:
     w.para("ASME B31.3 Process Piping. API 5L Specification for Line Pipe. "
            "ASTM A106 Seamless Carbon Steel Pipe for High-Temperature Service.")
     w.heading("3", "Definitions")
-    w.para("Company : Saudi Aramco. Contractor : the party performing the work. "
+    w.para("Company : the client. Contractor : the party performing the work. "
            "Shall : indicates a mandatory requirement.")
     w.heading("4", "Materials")
     w.heading("4.1", "Pipe")

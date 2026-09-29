@@ -1,4 +1,4 @@
-"""Standards beyond Saudi Aramco's: where to obtain a missing one (a fixed
+"""Standards beyond the client's own: where to obtain a missing one (a fixed
 publisher page, never a download), a request recorded under an engineer's
 name, and an uploaded copy marked as obtained externally with its hash."""
 from __future__ import annotations

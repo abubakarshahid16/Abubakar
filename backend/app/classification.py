@@ -1339,7 +1339,7 @@ def set_discipline(document_id: str, discipline: str, *,
     role column has five legal values; `discipline` holds whatever the client's
     register and the standards' own covers say, which measured 52 distinct
     committee names across this corpus and will grow. An allowlist here would
-    have to be edited every time Saudi Aramco renames a committee, and the
+    have to be edited every time the client renames a committee, and the
     failure mode would be a standard silently left unclassified.
     """
     if not (discipline or "").strip():

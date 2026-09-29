@@ -35,7 +35,7 @@ The initial applicability matrix should cover, where relevant:
 - hazardous-area electrical equipment: IEC 60079 and applicable NFPA rules;
 - functional safety and instrumentation: IEC 61508, IEC 61511 and ISA rules;
 - HAZOP: IEC 61882;
-- Saudi Aramco, KOC, project and contract requirements whenever applicable.
+- the client's own, KOC, project and contract requirements whenever applicable.
 
 These are candidate families, not automatic requirements for every submission.
 The system must store the reason each standard was selected or excluded. A
@@ -50,7 +50,7 @@ and cited. Model knowledge alone is never an acceptable clause source.
 ## 1. Standards coverage
 
 The system must review against every applicable requirement source, not only
-Saudi Aramco SAES/SAMSS documents. Supported source families may include API,
+the client's own SAES/SAMSS documents. Supported source families may include API,
 ASME, ASTM, ISO, IEC, NFPA, NACE, KOC, project specifications, contract
 articles, FEED/design-basis documents, and other standards explicitly cited by
 the project.
@@ -193,7 +193,7 @@ CRS, HAZOP actions, letters, deliverable register, and schedule views.
 
 This addendum is complete only when tests prove:
 
-- a non-Aramco standard is cited and appears in the CRS correctly;
+- a standard from outside the client's own family is cited and appears in the CRS correctly;
 - a missing required standard is reported without hallucinated content;
 - every visible comment has valid source quotes and page/clause references;
 - CRS text wraps and remains readable after reopening the workbook;

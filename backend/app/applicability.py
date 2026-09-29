@@ -135,7 +135,7 @@ def normalise_identifier(identifier: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", (identifier or "").upper())
 
 
-#: A Saudi Aramco standard number inside a LIBRARY FILENAME. Filenames are not
+#: A client standard number inside a LIBRARY FILENAME. Filenames are not
 #: citations - they carry revision notes, dates and draft markers - so this is
 #: anchored at the start and reads only the number.
 _FILENAME_NUMBER = re.compile(r"^\s*(SAES)[-\s]*([A-Z])[-\s]*(\d{1,4})", re.IGNORECASE)
@@ -145,7 +145,7 @@ def library_identifier(filename: str) -> str | None:
     """The standard number a library filename carries, zero-padded. Or None.
 
     `SAES-B-14 -Final Draft 01-29-23.pdf` is SAES-B-014. The series number is
-    written three digits wide everywhere Saudi Aramco prints it, and one file
+    written three digits wide everywhere the client prints it, and one file
     in this corpus was saved with the leading zero dropped - so the document
     was in the library, was cited as SAES-B-014, and could not be matched to
     itself.

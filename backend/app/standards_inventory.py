@@ -76,7 +76,7 @@ FAMILIES = (FAMILY_SAES, FAMILY_SAMSS, FAMILY_API, FAMILY_ASME, FAMILY_ASTM,
             FAMILY_OTHER)
 
 #: Families this project's own client issues - present in the library
-#: because Saudi Aramco (or KOC) wrote them, not because a third party's
+#: because the client (or KOC) wrote them, not because a third party's
 #: copyrighted text was licensed.
 _OWN_STANDARD_FAMILIES = frozenset({FAMILY_SAES, FAMILY_SAMSS, FAMILY_KOC})
 
@@ -182,7 +182,7 @@ class CoverMetadata:
     effective_date: CoverField | None
 
 
-#: A Saudi Aramco standard's own number, as its cover page prints it. NOT
+#: A client standard's own number, as its cover page prints it. NOT
 #: zero-padded here - `applicability.library_identifier` reads FILENAMES and
 #: normalises for matching; this reads the document's own printed text and
 #: keeps it as printed, because a backfilled field is a transcription, not a
@@ -224,7 +224,7 @@ _COVER_REVISION = re.compile(
 #: older-format "Effective Date: ...". Deliberately NOT "Previous Issue"
 #: (the date the PRIOR revision took effect - a real date, but the wrong
 #: one) and NOT "Next Planned Update" (a future date that has not happened
-#: yet). A newer Aramco cover format states Issue Date/Previous Issue/Next
+#: yet). A newer client cover format states Issue Date/Previous Issue/Next
 #: Planned Update instead of a bare "Revision: N" (found while sampling the
 #: real corpus's UNKNOWN revisions - these covers are not missing wording a
 #: reader failed to catch; they are a genuinely different, date-based

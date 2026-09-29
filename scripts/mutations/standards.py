@@ -260,7 +260,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor=r"(shall|must\s+not|must|is",
         replacement=r"(shall|should|must\s+not|must|is",
         target="tests/test_standards_library.py",
-        keyword="mandatory_vocabulary_is_saudi_aramcos_own",
+        keyword="mandatory_vocabulary_is_the_clients_own",
         tags=("honesty", "critical"),
     ),
     # ---- from EXTRACTION --------------------------------------------------

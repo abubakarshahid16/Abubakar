@@ -1,4 +1,4 @@
-"""Standards beyond Saudi Aramco's: WHERE to get a missing one, and a record
+"""Standards beyond the client's own: WHERE to get a missing one, and a record
 of getting it.
 
 THE CLIENT'S REQUIREMENT (.cowork/CLIENT_FEEDBACK_REQUIREMENTS_ADDENDUM.md

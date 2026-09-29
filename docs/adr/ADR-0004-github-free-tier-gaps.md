@@ -30,7 +30,7 @@ PATCH /repos/... secret_scanning -> HTTP 422  "Secret scanning is not available 
 
 - **`.githooks/pre-commit`** — blocks secrets and client documents *before* they enter git history. This is **stronger than GHAS**, which only alerts after a push.
 - **`secret-scan` workflow** — gitleaks 8.30.1 pinned by version **and** verified by SHA-256 checksum, rather than a wrapper action. `actions/checkout` pinned to full commit SHA. `permissions: contents: read`.
-- **`no-client-data` CI job** — not required by the plan. Fails any PR tracking `.pdf`, `.onnx`, `.gguf`, `.safetensors`, `.sqlite`, `.db`, `.lance` or `.env` outside `tests/fixtures/synthetic/`. The highest-consequence leak here is a committed Aramco PDF, not an API key.
+- **`no-client-data` CI job** — not required by the plan. Fails any PR tracking `.pdf`, `.onnx`, `.gguf`, `.safetensors`, `.sqlite`, `.db`, `.lance` or `.env` outside `tests/fixtures/synthetic/`. The highest-consequence leak here is a committed client PDF, not an API key.
 - **`.gitignore`** reproducing §9 verbatim plus platform additions.
 - **CODEOWNERS** — retained, annotated as advisory-only on this tier.
 
@@ -45,4 +45,5 @@ PATCH /repos/... secret_scanning -> HTTP 422  "Secret scanning is not available 
 
 - ⚠️ **These four gaps must appear in the client limitations register.**
 - ⚠️ **They must not be described to the client as enforced.**
-- If this work ever moves to an Aramco-owned GitHub organisation, all four become available and the compensating controls should be kept alongside, not replaced.
+- If this work ever moves to a client-owned GitHub organisation, all four become available and the compensating controls should be kept alongside, not replaced.
+- ⚠️ **Known gap, not yet explained:** push-triggered CI (`secret-scan` and `tests`, both `on: push: branches: [main]`) did not dispatch at all for two `main` merge commits (`d13d5ef`, `7658cfc`) on 2026-09-29 - not failed, no run of any status exists for either SHA in the Actions API. Both commits' content had already passed the same checks at the PR level (`pull_request` trigger) before merge. Dispatch worked normally again for the very next merge (`55a96c9`), unprompted. Investigate only if it recurs; until then this is a recorded gap, not a claimed cause.

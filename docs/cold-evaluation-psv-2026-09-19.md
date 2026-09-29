@@ -46,7 +46,7 @@ Exactly two CONTRACTOR_SUBMITTAL rows now exist. ✅
 `API RP 520 Pt-1`, `KOC-MP-027`, `ASTM A216`, `ASTM A193`, `API RP 578`,
 `NACE MR-0175`, `ISO 15156`, `ASTM B633`.
 
-The library is 272 Saudi Aramco (SAES) standards. This is a client
+The library is 272 of the client's own (SAES) standards. This is a client
 sheet citing API/ASTM/NACE/ISO and its own company standards. Identical to the figure §55 recorded for
 this sheet in Phase 5A. **Not a defect** - the system reports it correctly.
 

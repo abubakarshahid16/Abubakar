@@ -149,7 +149,7 @@ _REFERENCE_NUMERAL = re.compile(
 #: B34: STANDARD NUMBERS ARE NAMES, NOT MEASUREMENTS - AND ONLY THESE SHAPES
 #: ARE. "SAES-H-004 requires 150 micrometers [S4]" was deleted because "004"
 #: was read as the quantity 4.0, no cited span contains 4, and the check
-#: removed a true sentence. This corpus is Saudi Aramco standards, so the
+#: removed a true sentence. This corpus is the client's own standards, so the
 #: model names one in almost every sentence and almost every good answer was
 #: emptied - while "doc17.pdf" had been exempt all along.
 #:
