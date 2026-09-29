@@ -51,6 +51,7 @@ extraction checkpoint the same job row carries.)
 
 from __future__ import annotations
 
+import bisect
 import concurrent.futures as cf
 import re
 from dataclasses import dataclass
@@ -213,6 +214,102 @@ def _norm(line: str) -> str:
     return _NON_ALNUM.sub(" ", line.casefold()).strip()
 
 
+#: Lines whose tops are this close (image pixels) are one visual row. A
+#: fixed 6-pixel BUCKET used to split a row at every bucket edge (99 and 100
+#: landed in different rows); rows are now grouped by distance to the row's
+#: first line.
+_ROW_TOLERANCE = 6.0
+#: A column must hold at least this many lines, and its lines must be at
+#: least this many words long at the median, to be read as a column of TEXT.
+#: A label/value data sheet has the same two x positions, but short cells -
+#: it must keep reading row by row ("Design pressure" then "15 barg").
+_MIN_COLUMN_LINES = 3
+_MIN_COLUMN_WORDS = 4
+#: The gap between the two x clusters must be this share of the x span.
+_COLUMN_GAP_SHARE = 0.25
+
+
+def _rows(items: list[tuple[float, float, str]]) -> list[list[tuple[float, float, str]]]:
+    """`items` grouped into visual rows, top to bottom, each left to right."""
+    rows: list[list[tuple[float, float, str]]] = []
+    anchor = None
+    for it in sorted(items, key=lambda it: (it[0], it[1])):
+        if anchor is None or it[0] - anchor > _ROW_TOLERANCE:
+            rows.append([])
+            anchor = it[0]
+        rows[-1].append(it)
+    return [sorted(row, key=lambda it: it[1]) for row in rows]
+
+
+def _median(values: list[int]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _reading_order(items: list[tuple[float, float, str]]) -> list[str]:
+    """Lines in reading order, column-aware.
+
+    AUDIT 2026-09-30 (reading finding 6): sorting by row then column read a
+    two-column page ACROSS the gutter - left line 1, right line 1, left line
+    2 - so every sentence was interleaved with the other column's. The x
+    positions are now split at their widest gap; when both sides hold
+    `_MIN_COLUMN_LINES` lines of running text, the page is read as two
+    columns: lines above the right column (a full-width header, a stamp) and
+    below it (a footer) stay where they are, the left column is read top to
+    bottom, then the right. Anything else - a single column, a label/value
+    sheet, a stamp in the margin - keeps the row order.
+    """
+    xs = sorted({round(x, 1) for _, x, _ in items})
+    if len(xs) >= 2 and xs[-1] > xs[0]:
+        gap, cut = max((b - a, (a + b) / 2) for a, b in zip(xs, xs[1:]))
+        left = [it for it in items if it[1] < cut]
+        right = [it for it in items if it[1] >= cut]
+        if gap >= (xs[-1] - xs[0]) * _COLUMN_GAP_SHARE and len(right) >= _MIN_COLUMN_LINES:
+            top = min(it[0] for it in right) - _ROW_TOLERANCE
+            bottom = max(it[0] for it in right) + _ROW_TOLERANCE
+            body_left = [it for it in left if top <= it[0] <= bottom]
+            if (len(body_left) >= _MIN_COLUMN_LINES
+                    and _median([len(t.split()) for _, _, t in body_left]) >= _MIN_COLUMN_WORDS
+                    and _median([len(t.split()) for _, _, t in right]) >= _MIN_COLUMN_WORDS):
+                head = [it for it in left if it[0] < top]
+                foot = [it for it in left if it[0] > bottom]
+                ordered = [*_rows(head), *_rows(body_left), *_rows(right), *_rows(foot)]
+                return [t for row in ordered for _, _, t in row]
+    return [t for row in _rows(items) for _, _, t in row]
+
+
+def _near_duplicate(n: str, y: float, native: list[tuple[float, str]],
+                    window: float) -> bool:
+    """Is recognised line `n` a misreading of a text-layer line near it?
+
+    AUDIT 2026-09-30 (reading finding 6): every recognised line was compared
+    with EVERY text-layer line by `SequenceMatcher.ratio()`, quadratic in
+    lines and in characters - 2.2 s for one 150-line page. A misread line sits
+    where the line it misreads sits, so only text-layer lines within `window`
+    pixels vertically are compared (all of them when the recognised line has
+    no position), and the cheap upper bounds (length, then
+    real_quick_ratio/quick_ratio) reject before the full ratio is computed.
+    """
+    if y == float("inf") or y != y:
+        candidates = [m for _, m in native]
+    else:
+        ys = [ny for ny, _ in native]
+        lo = bisect.bisect_left(ys, y - window)
+        hi = bisect.bisect_right(ys, y + window)
+        candidates = [m for _, m in native[lo:hi]]
+    for m in candidates:
+        la, lb = len(n), len(m)
+        if 2 * min(la, lb) / (la + lb) < _DUP_RATIO:
+            continue
+        sm = SequenceMatcher(None, n, m)
+        if sm.real_quick_ratio() < _DUP_RATIO or sm.quick_ratio() < _DUP_RATIO:
+            continue
+        if sm.ratio() >= _DUP_RATIO:
+            return True
+    return False
+
+
 def merge_page_text(native: list[tuple[float, float, str]],
                     recognised: list[tuple[float, float, str]]) -> tuple[str, int]:
     """Merge a page's text layer with what recognition read from its image.
@@ -220,15 +317,23 @@ def merge_page_text(native: list[tuple[float, float, str]],
     Both lists are (y, x, line) in the SAME image coordinates. The text layer
     is kept whole - it is exact where OCR is a guess - and a recognised line
     is added only when the text layer does not already say it: its words
-    appear there in order, or it is a near-identical misreading of one of its
-    lines. Lines are then laid out top to bottom, left to right, so a digital
-    header stays above the scanned body and a footer or stamp below it.
+    appear there in order, or it is a near-identical misreading of a line
+    near it. Lines are then laid out in reading order (`_reading_order`: top
+    to bottom, left to right, one column after the other on a two-column
+    page), so a digital header stays above the scanned body and a footer or
+    stamp below it.
 
     Returns (merged text, number of recognised lines added). Zero added means
     recognition contributed nothing new on this page.
     """
     native_norms = [n for n in (_norm(t) for _, _, t in native) if n]
     haystack = f" {' '.join(native_norms)} "
+    placed = sorted((y, n) for y, n in ((y, _norm(t)) for y, _, t in native) if n)
+    ys = sorted({y for y, _ in placed})
+    gaps = [b - a for a, b in zip(ys, ys[1:]) if b - a > _ROW_TOLERANCE]
+    # Two line spacings either way; at least 4 rows' tolerance on a page
+    # with too few lines to measure a spacing.
+    window = max(2 * (sorted(gaps)[len(gaps) // 2] if gaps else 0.0), 4 * _ROW_TOLERANCE)
     added: list[tuple[float, float, str]] = []
     for y, x, line in recognised:
         n = _norm(line)
@@ -236,12 +341,11 @@ def merge_page_text(native: list[tuple[float, float, str]],
             continue
         if f" {n} " in haystack:
             continue
-        if any(SequenceMatcher(None, n, m).ratio() >= _DUP_RATIO for m in native_norms):
+        if _near_duplicate(n, y, placed, window):
             continue
         added.append((y, x, line))
     items = [(y, x, t) for y, x, t in native if t.strip()] + added
-    items.sort(key=lambda it: (round(it[0] / 6.0), it[1]))
-    return "\n".join(t for _, _, t in items), len(added)
+    return "\n".join(_reading_order(items)), len(added)
 
 
 def _native_lines(stored_path: str, page_no: int, scale: float) -> list[tuple[float, float, str]]:

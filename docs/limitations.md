@@ -51,6 +51,17 @@ with a noise band, not a sharp line.
   - **NOT repaired:** an `ff -> ?` substitution on 37 pages (50 hits) has no clean reference in that document, so there is nothing to validate a rule against. Left alone rather than guessed at.
   - The other three documents carry no ligature corruption.
 
+## Document reading - what the 2026-09-30 reading audit fixed, and what it did not
+
+Fixed (CHUNKER_VERSION 9, TABLE_READER_VERSION 2; tests `backend/tests/test_audit_reading.py`, mutations M1540-M1553). Documents chunked before this read the old way until re-processed (`scripts/reindex_chunking.py`).
+
+- **Rotated pages keep their ruled tables.** A table on a page rotated 90/180/270 is read in the unrotated space the text is read in. Only rotation by page `/Rotate` is handled; text drawn sideways on an unrotated page is not.
+- **Unruled data sheets are read as rows.** Label and value on alternate lines, at least 4 pairs, most values carrying a digit. Not handled: a sheet with a blank value (the alternation breaks, and the rows around the gap are read separately - a run shorter than 4 pairs can still be misread as a clause heading); a label that starts with a digit; three or more columns without ruling.
+- **A contents page needs contents evidence.** Dot leaders on half its lines, or page numbers that fit the document (ascending, unless at the back as an index). Not handled: a contents page of an EXCERPT without dot leaders, whose page numbers exceed the PDF's page count, is now read as prose.
+- **2-4 page documents strip their page header** when a line at the top or bottom of every page has the same shape and one of its numbers moves with the page number. A header without a page number on a short document is still read as text.
+- **Quality gate:** rpm, kW, kV, m3/h, Hz, psig, barg are measured values. A line of three or more equipment tags (P-101A) is KEPT as searchable, by decision: a tag is what an engineer searches for.
+- **OCR merge reads two columns one after the other**, when both sides of the widest x gap hold at least 3 lines of 4+ words. Not handled: three or more columns; a two-column page of short lines (read row by row, as a data sheet is). A misread duplicate is only recognised within two line spacings of the line it misreads.
+
 ## Known false refusals - phrasing sensitivity
 
 - **6 of 10 facts cite the same page across all three phrasings; 4 do not.** Measured by `eval/run_phrasings.py` and recorded fact by fact in `docs/demo-readiness-table.md`, which asks each fact as originally written, as the document words it, and as a user loosely types it.

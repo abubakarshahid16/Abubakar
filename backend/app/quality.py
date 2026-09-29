@@ -152,10 +152,37 @@ _REQUIREMENT_WORD = re.compile(
     r"maximum|min\.|max\.|approved|prohibited|permitted)\b")
 #: A measured value: a number followed by a unit or a ratio - "35°C",
 #: "125 - 150 um", "4:1", "15 minutes", "Sa 2.5". "Page 3 of 26" is not one.
+#: AUDIT 2026-09-30 (reading finding 5): rotating-equipment and electrical
+#: units were missing, so "Speed 2980 rpm Power 75 kW Voltage 6.6 kV" had no
+#: measured value and was dropped as debris. Added: rpm, kW, kV, m3/h (and
+#: m³/h), Hz, psig, barg/bara.
 _VALUE = re.compile(
-    r"(?i)(?:\d\s*(?:°\s*[CF]\b|%|mm\b|um\b|µm\b|micron|mils?\b|MPa\b|kPa\b|bar\b|"
-    r"psi\b|hours?\b|hrs?\b|min(?:ute)?s?\b|days?\b|ppm\b|V\b|volts?\b|kg\b|m2\b|"
-    r"litres?\b|liters?\b)|\b\d+\s*:\s*\d+\b|\b(?:RAL|Sa|St|SSPC|ISO|ASTM|NACE)\s*[-\d])")
+    r"(?i)(?:\d\s*(?:°\s*[CF]\b|%|mm\b|um\b|µm\b|micron|mils?\b|MPa\b|kPa\b|"
+    r"bar[ga]?\b|psi[ga]?\b|hours?\b|hrs?\b|min(?:ute)?s?\b|days?\b|ppm\b|V\b|volts?\b|"
+    r"kg\b|m2\b|litres?\b|liters?\b|rpm\b|kW\b|kV\b|m3/h(?:r)?\b|m³/h(?:r)?\b|Hz\b)"
+    r"|\b\d+\s*:\s*\d+\b|\b(?:RAL|Sa|St|SSPC|ISO|ASTM|NACE)\s*[-\d])")
+#: An equipment tag: "P-101A", "E-201", "PSV-3101", "10-P-101".
+_EQUIPMENT_TAG = re.compile(r"^(?:\d{1,3}-)?[A-Z]{1,4}-\d{2,5}[A-Z]?$")
+#: A tag list must have at least this many tags to count as one.
+_MIN_TAGS = 3
+
+
+def tag_list(text: str) -> bool:
+    """Is `text` a list of equipment tags ("P-101A P-101B E-201 ...")?
+
+    DECIDED 2026-09-30 (reading finding 5): a tags-only line is KEPT. It has
+    no word, no requirement and no unit, so the gate dropped it as debris -
+    but a tag is exactly what an engineer searches for ("which document
+    covers P-102B?"), and the chunk's section and heading chain say what the
+    list is (applicable equipment, a tag register). Dropping it made the
+    only place a tag appears unsearchable. At least `_MIN_TAGS` tags making
+    up 80% or more of the tokens; symbol debris and number walls never match
+    the tag shape.
+    """
+    tokens = [t.strip(_EDGE_PUNCT) for t in text.split()]
+    tokens = [t for t in tokens if t]
+    tags = sum(1 for t in tokens if _EQUIPMENT_TAG.match(t))
+    return tags >= _MIN_TAGS and tags >= len(tokens) * 0.8
 
 
 def data_rows(text: str) -> int:
@@ -300,6 +327,8 @@ def assess(text: str, kind: str = "prose") -> dict:
     if words and (data_rows(text) or _REQUIREMENT_WORD.search(cleaned)
                   or _VALUE.search(cleaned)):
         return {"ok": True, "reasons": [], "clause": clause, "kind": "data"}
+    if tag_list(cleaned):
+        return {"ok": True, "reasons": [], "clause": clause, "kind": "tags"}
 
     return {
         "ok": False,

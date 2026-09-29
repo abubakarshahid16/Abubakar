@@ -16,6 +16,10 @@ for the keyword index, the embedder and the reranker. Chunk text and ids are
 unchanged; the documents' vectors are re-embedded when the worker processes
 them (a chunk whose chain changed loses its vector at the re-chunk, and a
 heading-v1 vector is upgraded by `embed_pending`). Same script.
+Version 9 (2026-09-30, reading audit): unruled data sheets are read as rows
+instead of fake clauses; a tab-aligned data sheet is no longer excluded as a
+contents page; the page header of a 2-4 page document is stripped. Chunk text
+changes for such documents. Same script.
 
 WHAT "STALE" MEANS: `documents.chunk_signature` differs from the signature the
 current chunker computes (`chunker.is_stale`) - an older CHUNKER_VERSION, or
