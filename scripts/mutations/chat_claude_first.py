@@ -36,7 +36,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=APP / "chat_claude_first.py",
              anchor="                if tool_calls_made == 0 and not sources:\n"
                    "                    raise _Fallback(str(exc)) from exc\n"
-                   "                return _budget_or_provider_failure(str(exc), sources, steps, started)\n",
+                   "                return _budget_or_provider_failure(exc, sources, steps, started, turn_cost)\n",
              replacement="                raise _Fallback(str(exc)) from exc\n",
              target="tests/test_chat_claude_first.py",
              keyword="a_budget_refusal_mid_loop_is_answered_honestly_not_swallowed",
