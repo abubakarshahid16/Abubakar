@@ -30,7 +30,7 @@ import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
 import { StandardOverrideControl } from "../components/review/StandardOverrideControl";
 import {
   STATUS_ORDER, completenessLine, groupFindingsByTopic, groupRunsByDocument, kindCounts,
-  pageCoverageLine, pageList, pagesReadLine, statusLabel, statusTone, standardsChangeLine,
+  pageCoverageLine, pageList, pagesReadLine, runStatusLabel, statusLabel, statusTone, standardsChangeLine,
   summaryTotals, whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
 
@@ -49,6 +49,10 @@ export function ReviewRunsView(
   const [findings, setFindings] = useState<ReviewFinding[]>([]);
   const [standards, setStandards] = useState<ReviewRunStandard[] | null>(null);
   const [missingStandards, setMissingStandards] = useState<ReviewRunMissingReference[]>([]);
+  // A FAILED LIST IS NOT AN EMPTY ONE (audit 2026-09-30). Both lists used to
+  // become [] on failure, so the panel said "No standards were selected for
+  // this run." and hid the not-held-locally warning.
+  const [standardsError, setStandardsError] = useState<string | null>(null);
   const [showStandards, setShowStandards] = useState(false);
   const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
   const [launch, setLaunch] = useState<{ kind: "idle" } | { kind: "running" } | { kind: "error"; message: string }>({ kind: "idle" });
@@ -189,6 +193,7 @@ export function ReviewRunsView(
     setSelectedRun(runId);
     setSelectedFinding(null);
     setShowStandards(false);
+    setStandardsError(null);
     // THE SHEET BELONGS TO THE RUN THAT WAS OPEN. Leaving it on screen while
     // a different run loads shows one submittal's comments under another
     // submittal's name - the reader has no way to tell it is stale.
@@ -202,8 +207,15 @@ export function ReviewRunsView(
       loadFindings(runId),
       reviewsApi.reviewRunStandards(runId),
     ]);
-    setStandards(listed.ok ? listed.data.standards : []);
-    setMissingStandards(listed.ok ? listed.data.missing_references ?? [] : []);
+    if (listed.ok) {
+      setStandards(listed.data.standards);
+      setMissingStandards(listed.data.missing_references ?? []);
+      setStandardsError(null);
+    } else {
+      setStandards(null);
+      setMissingStandards([]);
+      setStandardsError(listed.error.message);
+    }
   }, [loadFindings]);
 
   // THE FINDINGS ARE WHY THE READER CLICKED. With a dozen runs listed the
@@ -512,7 +524,7 @@ export function ReviewRunsView(
           )}
 
           {showStandards && (
-            <StandardsInScope standards={standards} missing={missingStandards} />
+            <StandardsInScope standards={standards} missing={missingStandards} error={standardsError} />
           )}
           {showStandards && run && (
             <StandardOverrideControl
@@ -521,6 +533,7 @@ export function ReviewRunsView(
               onChanged={(changed, missing) => {
                 setStandards(changed);
                 setMissingStandards(missing);
+                setStandardsError(null);
                 void loadFindings(run.review_run_id);
                 void loadRuns();
               }}
@@ -820,7 +833,7 @@ function RunCard({ run, selected, onOpen }: {
         <span className="ml-auto text-xs text-slateish-400">{whenLabel(run.created_at)}</span>
       </div>
       <p className="mt-1 text-xs text-slateish-400">
-        {run.standards_in_scope} standards in scope · status {run.status}
+        {run.standards_in_scope} standards in scope · {runStatusLabel(run.status)}
       </p>
       {run.job && (run.status === "queued" || run.status === "running") && (
         <p className="mt-1 text-xs text-signal-400" data-testid="review-progress">
@@ -842,10 +855,24 @@ function RunCard({ run, selected, onOpen }: {
           This run failed — {run.failure_reason}
         </p>
       )}
+      {/* A GUESS IS SHOWN AS A GUESS (CLAUDE.md rule 4, audit 2026-09-30).
+          The AI's code is labelled as the AI's and as not confirmed until an
+          engineer decides; the engineer's code is shown beside it, never
+          instead of it - the same pair the CRS preview shows. */}
       {run.recommended_code && (
-        <p className="mt-3 text-sm text-slateish-200">
+        <p className="mt-3 text-sm text-slateish-200" data-testid="run-card-recommended">
+          <span className="text-slateish-400">AI recommended: </span>
           <span className="font-semibold">{run.recommended_code}</span>
           {run.recommended_reason ? <span className="text-slateish-400"> — {run.recommended_reason}</span> : null}
+          {!run.engineer_final_code && (
+            <span className="block text-xs text-warn-500">Not confirmed by an engineer yet.</span>
+          )}
+        </p>
+      )}
+      {run.engineer_final_code && (
+        <p className="mt-1 text-sm text-slateish-200" data-testid="run-card-final">
+          <span className="text-slateish-400">Engineer's final code: </span>
+          <span className="font-semibold">{run.engineer_final_code}</span>
         </p>
       )}
       {/* ONCE, NOT TWICE: shown whenever the reason does not already say
@@ -1028,9 +1055,21 @@ function CrsPreviewSheet(
   );
 }
 
-function StandardsInScope({ standards, missing }: {
+function StandardsInScope({ standards, missing, error }: {
   standards: ReviewRunStandard[] | null; missing: ReviewRunMissingReference[];
+  error: string | null;
 }) {
+  // Before the loading check: a failed load leaves `standards` null, and a
+  // spinner that never stops is its own false statement.
+  if (error !== null) {
+    return (
+      <p role="alert" className="rounded-[var(--radius-md)] border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
+        The standards for this run could not be loaded - {error}. It is not
+        known which standards were selected, or which cited standards are not
+        held locally.
+      </p>
+    );
+  }
   if (standards === null) return <p className="text-sm text-slateish-400">Loading standards…</p>;
   // B5: a cited standard the library does not hold was NOT checked. Shown
   // whether or not anything else was selected, so "no standards" never

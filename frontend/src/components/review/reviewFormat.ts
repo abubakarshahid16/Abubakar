@@ -77,6 +77,25 @@ export const STATUS_TONE: Record<ComplianceStatus, string> = {
   NOT_IN_DOCUMENT_SCOPE: "border-dashed border-ink-600 bg-ink-900 text-slateish-400",
 };
 
+/** A review RUN's lifecycle status in plain words (audit 2026-09-30: the raw
+ *  database value was printed). The five values the backend writes are
+ *  `queued`, `running`, `completed`, `failed` and `cancelled`
+ *  (review_jobs.py, comparison.py). Null renders as nothing; a value this
+ *  list does not know is shown as itself rather than guessed at. */
+export const RUN_STATUS_LABEL: Record<string, string> = {
+  queued: "Waiting to start",
+  running: "Running",
+  completed: "Finished",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+export function runStatusLabel(status: string | null | undefined): string {
+  if (!status) return "";
+  return Object.prototype.hasOwnProperty.call(RUN_STATUS_LABEL, status)
+    ? RUN_STATUS_LABEL[status] : status;
+}
+
 export function statusLabel(status: string | null | undefined): string {
   if (!status) return "";
   return STATUS_LABEL[status as ComplianceStatus] ?? status;

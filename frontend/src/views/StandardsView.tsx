@@ -244,17 +244,34 @@ function asDocument(standard: StandardSummary): DocumentRecord {
   };
 }
 
+/** A tab whose list could not be loaded says so - to everyone who can see the
+ *  tab, not only to admins - instead of spinning forever (audit 2026-09-30).
+ *  A failed load is not an empty list. */
+function TabLoadError({ what, message }: { what: string; message: string }) {
+  return (
+    <p role="alert" className="rounded border border-danger-500/40 bg-danger-500/10 p-2 text-xs text-danger-500">
+      The {what} of this standard could not be loaded - {message}. This is not
+      an empty list.
+    </p>
+  );
+}
+
 function RequirementsTab({
   standard, isAdmin, onExtracted,
 }: { standard: StandardSummary; isAdmin: boolean; onExtracted: () => void }) {
   const [rows, setRows] = useState<StandardRequirement[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const result = await api.standardRequirements(standard.id);
-    if (result.ok) setRows(result.data);
-    else setError(result.error.message);
+    if (result.ok) {
+      setRows(result.data);
+      setLoadError(null);
+    } else {
+      setLoadError(result.error.message);
+    }
   }, [standard.id]);
 
   useEffect(() => { void load(); }, [load]);
@@ -268,10 +285,15 @@ function RequirementsTab({
     onExtracted();
   };
 
-  if (rows === null) return <Spinner />;
+  if (rows === null) {
+    return loadError !== null
+      ? <TabLoadError what="requirements" message={loadError} />
+      : <Spinner />;
+  }
 
   return (
     <div className="flex flex-col gap-3">
+      {loadError !== null && <TabLoadError what="requirements" message={loadError} />}
       {isAdmin && (
         <div className="flex items-center gap-3">
           <button
@@ -333,11 +355,16 @@ function RevisionsTab({
 }: { standard: StandardSummary; isAdmin: boolean; onChanged: () => void }) {
   const [rows, setRows] = useState<StandardSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const result = await api.standardRevisions(standard.id);
-    if (result.ok) setRows(result.data);
-    else setError(result.error.message);
+    if (result.ok) {
+      setRows(result.data);
+      setLoadError(null);
+    } else {
+      setLoadError(result.error.message);
+    }
   }, [standard.id]);
 
   useEffect(() => { void load(); }, [load]);
@@ -350,12 +377,17 @@ function RevisionsTab({
     onChanged();
   };
 
-  if (rows === null) return <Spinner />;
+  if (rows === null) {
+    return loadError !== null
+      ? <TabLoadError what="revisions" message={loadError} />
+      : <Spinner />;
+  }
 
   const others = rows.filter((r) => r.id !== standard.id);
 
   return (
     <div className="flex flex-col gap-3">
+      {loadError !== null && <TabLoadError what="revisions" message={loadError} />}
       {rows.length <= 1 && (
         <p className="text-xs opacity-70">
           No other revisions of this standard number are in the library.

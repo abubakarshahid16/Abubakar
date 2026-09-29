@@ -41,7 +41,10 @@ beforeEach(() => {
     const href = String(url);
     if (href.includes("/image")) {
       imageRequests.push(href);
-      return new Response(new Blob([new Uint8Array([137, 80, 78, 71])]), { status: 200 });
+      // A byte array, not `new Blob([...])`: jsdom's Blob is not one Node's
+      // Response can stream, so `.blob()` rejected and the test failed on
+      // the mock rather than on the code under test.
+      return new Response(new Uint8Array([137, 80, 78, 71]), { status: 200 });
     }
     return new Response(JSON.stringify({
       pages: Array.from({ length: 3 }, (_, i) => ({

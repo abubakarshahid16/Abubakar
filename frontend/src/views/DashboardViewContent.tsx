@@ -14,12 +14,15 @@ export function DashboardView({
   onRetryConnection,
   onOpenReview,
   onOpenDocuments,
+  onOpenDeliverables,
 }: {
   connection: Connection;
   onRetryConnection: () => void;
   /** Rule 10's primary workflow: the Dashboard's one button leads here. */
   onOpenReview?: (runId?: string) => void;
   onOpenDocuments?: () => void;
+  /** The app's router, not a `#deliverables` hash the router never reads. */
+  onOpenDeliverables?: () => void;
 }) {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState<{ error: ApiError; disconnected: boolean } | null>(null);
@@ -124,11 +127,13 @@ export function DashboardView({
             {metrics.corpus_wide ? (
               <>
                 <span className="font-semibold text-slateish-300">
-                  Corpus-wide figures.
+                  Corpus-wide system figures.
                 </span>{" "}
-                These counts cover every document in the corpus, including
-                documents you cannot open. You are seeing them because you hold
-                the admin capability.
+                The system counts on this screen cover every document in the
+                corpus, including documents you cannot open. You are seeing
+                them because you hold the admin capability. The AI Submittal
+                Review counts are not corpus-wide: they cover only the
+                documents you can open, and say so on their own block.
               </>
             ) : (
               <>
@@ -166,7 +171,9 @@ export function DashboardView({
               <h2 className="text-sm font-semibold text-slateish-200">EPC delivery overview</h2>
               <p className="mt-1 text-xs text-slateish-500">Live WBS, review, and overdue-risk counts for your accessible project scope.</p>
             </div>
-            <a href="#deliverables" className="text-xs font-medium text-signal-400 hover:underline">Open deliverables</a>
+            {onOpenDeliverables && (
+              <button type="button" onClick={onOpenDeliverables} className="text-xs font-medium text-signal-400 hover:underline">Open deliverables</button>
+            )}
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
             <Stat label="Deliverables" value={delivery.deliverables_total} hint="registered in WBS" />
@@ -198,7 +205,7 @@ export function DashboardView({
           <>
             Ready to answer questions about{" "}
             <span className="font-semibold">{nf.format(corpus.documents)} document{corpus.documents === 1 ? "" : "s"}</span>
-            . Nothing needs attention.
+            . No system warnings.
           </>
         )}
       </p>
@@ -275,8 +282,12 @@ export function DashboardView({
         >
           {corpus.documents > 0 && <TypeCounts byType={byType} />}
         </Headline>
+        {/* NOT THE REVIEW BLOCK'S "Needs attention". That tile counts review
+            runs; this one counts the system's own warnings. Two tiles with
+            one name and two numbers read as a contradiction (audit
+            2026-09-30), so this one is named for what it counts. */}
         <Headline
-          label="Needs attention"
+          label="System warnings"
           value={String(metrics.warnings.length)}
           tone={metrics.warnings.length === 0 ? "good" : "warn"}
           note={
