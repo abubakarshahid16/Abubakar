@@ -877,6 +877,19 @@ def sqlite_synchronous() -> str:
 # touched since the last proof. One PRAGMA per call remains.
 _schema_memo: dict[tuple[str, str], int] = {}
 
+#: ONE MIGRATOR AT A TIME IN THIS PROCESS (issue #325). Each retry above
+#: (`add_column_if_missing`, `_schema_version`, `columns_of`) patched the ONE
+#: statement a failure had been seen on, and the race moved to the next
+#: statement: on 2026-09-29 it was a plain `CREATE TABLE IF NOT EXISTS` in
+#: `review.ensure_schema`, 1-2 calls in 24 in CI. Any statement in any
+#: `ensure_schema` can be told "database schema has changed" while another
+#: connection's DDL lands, so the fix is not a retry per statement but no
+#: concurrent DDL at all: the server is one process, and inside it only one
+#: thread migrates. Reentrant because `ensure_schema`s call each other
+#: (`submittal_review` -> `review`). The unlocked fast path - memo hit, one
+#: PRAGMA - is unchanged, so reads never wait on this.
+_migration_lock = threading.RLock()
+
 
 def _schema_version(conn: sqlite3.Connection) -> int:
     """`PRAGMA schema_version`, safe against a concurrent migrator.
@@ -900,6 +913,29 @@ def _schema_version(conn: sqlite3.Connection) -> int:
         "database schema kept changing while reading schema_version")
 
 
+def _run_migration(fn, name: str, args, kwargs):
+    """Run one `ensure_schema`, re-running the WHOLE function when SQLite
+    says another connection changed the schema under it.
+
+    The lock serialises migrators inside this process; a second PROCESS (a
+    script beside the server) can still land DDL mid-migration. Every
+    `ensure_schema` is idempotent by construction - `IF NOT EXISTS`,
+    `add_column_if_missing`, backfills written to be re-run, because they
+    ran on every read path before `schema_once` existed - so the answer to
+    "schema has changed" from ANY of its statements is to run it again, not
+    to find and wrap each statement. Bounded, and never swallowed: past the
+    limit it raises, naming the migration."""
+    for _attempt in range(_SCHEMA_CHANGED_RETRIES):
+        try:
+            return fn(*args, **kwargs)
+        except sqlite3.OperationalError as exc:
+            if "schema has changed" not in str(exc).lower():
+                raise
+            last = exc
+    raise sqlite3.OperationalError(
+        f"database schema kept changing while running {name}") from last
+
+
 def schema_once(fn):
     """Decorate an `ensure_schema`: skip it while the schema is unchanged.
 
@@ -920,11 +956,17 @@ def schema_once(fn):
         key = (name, str(settings.db_path))
         if _schema_memo.get(key) == _schema_version(conn):
             return None
-        result = fn(*args, **kwargs)
-        # Recorded AFTER the function, so its own DDL is part of the proven
-        # state. A function that raised records nothing and runs again.
-        _schema_memo[key] = _schema_version(conn)
-        return result
+        with _migration_lock:
+            # Re-checked under the lock: the thread that held it may have
+            # just done this exact migration.
+            if _schema_memo.get(key) == _schema_version(conn):
+                return None
+            result = _run_migration(fn, name, args, kwargs)
+            # Recorded AFTER the function, so its own DDL is part of the
+            # proven state. A function that raised records nothing and runs
+            # again.
+            _schema_memo[key] = _schema_version(conn)
+            return result
 
     wrapper.uncached = fn
     return wrapper
