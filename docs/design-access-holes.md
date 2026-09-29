@@ -314,7 +314,9 @@ document, repeated). Closed on `fix/audit-security`; tests in
 
 ### Still not fixed
 
-- `POST /api/risks` does not check `source_finding_id` against the scope.
+- ~~`POST /api/risks` does not check `source_finding_id` against the scope.~~
+  Fixed 2026-09-30 (audit leftovers): a finding on a document the caller may
+  not read answers 404, the same as one that does not exist (M1612).
 - The identifier check sees ADDED lines of text files only. Identifiers already
   tracked, and anything inside a binary file, are not reported - removing them
   is the owner's history clean-up.

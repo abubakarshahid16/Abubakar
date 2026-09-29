@@ -286,7 +286,12 @@ contain.
   to chat claim quotes only.
 - A point read from a page image with no text layer cannot be checked. It is
   kept, labelled "read from image - check the page", and never counted as
-  verified.
+  verified. The label is the same while the answer streams (it used to show
+  as a bare `[S1]` until the answer finished; M1610).
+- A chat turn whose first Claude call fails after it was sent (so it is
+  charged) and falls back to the local pipeline shows that charge in the
+  answer's cost, with a notice saying so - the ledger and the answer agree
+  (M1611, M1614).
 
 ## Public market information is a fixture and can never become one by accident
 
@@ -312,6 +317,17 @@ builds the object that *would* be sent and returns it with `sent: false`. It is
 assembled from the caller's own words and two public fields, never from
 retrieved document text - a query built from a client's specification would
 exfiltrate that specification to a search engine one phrase at a time.
+
+**The phrase is built by whitelist, word by word.** Besides public standard
+designators, a word reaches the phrase only if the bundled English vocabulary
+vouches for it: `backend/app/reference/english_words.txt.gz` (lower-case words
+from SCOWL's en_US dictionary - so no proper noun, place or company name - built
+by `scripts/build_english_words.py`; British spellings accepted by ending) plus
+a short reviewed list of public engineering abbreviations
+(`reference/market_extra_words.txt`). An unknown word ("zqx", a project code, a
+facility's name) is dropped (M1608-M1609, M1613). Limit, stated: a genuine
+technical word missing from both lists is dropped too - the phrase gets
+blunter, never wider.
 
 **What this does not claim:** nothing here is market research, and no figure in
 it is real. The panel exists so the shape of the feature - where verification
@@ -463,11 +479,11 @@ Corrected 2026-09-30 after an audit of the CRS path (`backend/tests/test_audit_c
   - **Not done**: no synonym or grade tables, no location conditions, no "operating" vs "design" choice when a condition names neither beyond defaulting to design, and the model tier is not told about conditions.
 - **Datasheet self-checks treat untagged fields as the sheet's common section.** A value stated once for P-101A and P-101B counts for both tags. A value stated under one tag is never used for another.
 - **"Label : value" one-per-line sheets are read line by line.** Inside a text block of several lines, a line of that shape with no drawn answer slot is a pair by itself; other lines are paired left to right as before. A one-line block is still left to the geometry reader, and a line with a drawn slot is still cut by the slot rule.
-- **A breach resting on an untrusted value is held for the engineer.** A datasheet value with `validation_state` `needs_engineer_review` (below the confidence threshold, including the OCR fallback) or `conflict`, or read by the model reader, and not confirmed by an engineer, never produces NON_COMPLIANT: the finding is NEEDS_ENGINEER_REVIEW with reason `LOW_TRUST_VALUE` and the arithmetic kept in its words. A COMPLIANT result on such a value is not held (not yet decided whether it should be).
-- **A re-run keeps every engineer decision.** Confirmed, accepted, rejected, dispositioned or re-worded findings survive any re-run (`review.UNDECIDED_SQL`, used by the comparison, the job cancel path, the AI engineering check and the web standards check). A pair the engineer rejected is not proposed again in that run; identical AI/web items and datasheet checks the engineer rejected are not re-proposed either. A NEW run of the same submittal can still raise the same comment as an unconfirmed draft.
+- **No verdict rests on an untrusted value.** A datasheet value with `validation_state` `needs_engineer_review` (below the confidence threshold, including the OCR fallback) or `conflict`, or read by the model reader, and not confirmed by an engineer, produces neither NON_COMPLIANT nor COMPLIANT: the finding is NEEDS_ENGINEER_REVIEW with reason `LOW_TRUST_VALUE`, the arithmetic kept in its words, and the CRS question row says why ("Engineer to check: the value was read with validation state ... so no verdict (neither compliant nor a breach) is stated ..."). Corrected 2026-09-30 (leftovers, `test_audit_leftovers.py`, M1600-M1601): a COMPLIANT on such a value used to be accepted.
+- **A re-run keeps every engineer decision.** Confirmed, accepted, rejected, dispositioned or re-worded findings survive any re-run (`review.UNDECIDED_SQL`, used by the comparison, the job cancel path, the AI engineering check and the web standards check). A pair the engineer rejected is not proposed again in that run; identical AI/web items and datasheet checks the engineer rejected are not re-proposed either. A NEW run of the same submittal can still raise the same comment as an unconfirmed draft - kept, never silently dropped, but its "Comment By" ends "previously rejected by <display name> on <date>" (from the rejection on record, on any run of that submittal the caller may read), so the engineer is not asked twice blind (M1606-M1607). A confirmed row is never marked.
 - **A rejected comment is never issued.** A numbered comment rejected before the contractor replied is *Withdrawn*: not carried forward, not issued, and a later draft of the same comment is not treated as confirmed. Confirming or accepting it again re-opens the same number. A comment the contractor has already answered was issued, so a rejection does not withdraw it; the reviewer closes it.
-- **CRS workbook cells are written as text.** A value beginning with `=`, `+`, `-` or `@` (a contractor reply included) is stored as a text cell, never a formula; control characters that Excel cannot store are replaced by a space rather than failing the export. The bylines print the engineer's display name; comments snapshotted for carry-forward before 2026-09-30 may still carry a user id.
-- **"Could not be read as a number" is said as that.** A value like "see note" is reported as unreadable, not as a unit mismatch between two identical units. Two values with no unit at all are still reported with the unit sentence (not changed here).
+- **CRS workbook cells are written as text.** A value beginning with `=`, `+`, `-` or `@` (a contractor reply included) is stored as a text cell, never a formula; control characters that Excel cannot store are replaced by a space rather than failing the export. The bylines print the engineer's display name. A carried-forward comment snapshotted before that change is resolved to the display name when it is printed (M1605); an id with no display name on record is printed as the id - a name is never invented.
+- **"Could not be read as a number" is said as that.** A value like "see note" is reported as unreadable, not as a unit mismatch between two identical units. Two values with no unit at all are reported as that ("neither the submitted value nor the requirement states a unit ..."), and one missing unit names only the unit that exists (M1602-M1603); the Claude recheck still reads these as "not compared" (M1604).
 
 ## Security and governance
 
@@ -485,7 +501,8 @@ Corrected 2026-09-30 after an audit of the CRS path (`backend/tests/test_audit_c
   - `/docs`, `/redoc` and `/openapi.json` answer 404 unless `AUTH_MODE=disabled` or `API_DOCS_ENABLED=true`.
   - The summary schedule, escalation rules, baseline rules and review templates are global settings and need the admin capability (their only UI is the admin screen, `AdminView.tsx`; the server now agrees with it). A non-admin calling the API directly gets the admin surface's silent 404.
   - A password reset (issued by an admin, and again when redeemed) ends every session the user had.
-  - Still open, not addressed here: `POST /api/risks` does not check `source_finding_id` against the caller's scope; rate limits exist only for login.
+  - `POST /api/risks` checks `source_finding_id`: a finding on a document the caller may not read answers 404, the same as one that does not exist (leftover fixed 2026-09-30, M1612).
+  - Still open, not addressed here: rate limits exist only for login.
 - "No document content leaves the machine" reduces exfiltration exposure. It does **not** remove malicious-PDF, local-account, disk-theft, dependency, or privilege-escalation risk.
 - **The client's security architecture and data-classification review remains a production gate.**
 
