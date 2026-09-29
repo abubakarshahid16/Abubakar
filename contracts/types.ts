@@ -1716,7 +1716,10 @@ export interface CorpusFact {
  *  code can check - never by the reranker score, never "high" confidence. */
 export type AnswerabilityVerdict =
   | "supported" | "insufficient_evidence" | "conflicting_evidence"
-  | "ambiguous_evidence" | "requires_another_document" | "requires_engineer_review";
+  | "ambiguous_evidence" | "requires_another_document" | "requires_engineer_review"
+  /** the answer lists clauses (or lines) for different conditions and the
+   *  question named none: no single supported answer until the reader says */
+  | "depends_on_condition";
 
 export interface EvidenceRef {
   document_id: string | null;
@@ -1759,6 +1762,10 @@ export interface ConditionOption {
   page_start: number | null;
   page_end: number | null;
   conditions: string[];
+  /** within_passage only: the line written for this condition, as written */
+  line?: string | null;
+  /** within_passage only: [start, end] of that line in the passage text */
+  highlight?: [number, number] | null;
 }
 
 /** Plan step 4: clauses near the top set different values for different
@@ -1769,6 +1776,9 @@ export interface ConditionOption {
 export interface ConditionChoice {
   mode: "options" | "matched";
   reason: string;
+  /** the cases are lines (or table rows) of ONE passage: every option is the
+   *  same chunk, each with its own `line` */
+  within_passage?: boolean;
   kinds: string[];
   question_names: string[];
   options: ConditionOption[];
