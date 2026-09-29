@@ -236,4 +236,6 @@ def test_chunks_made_before_context_notes_are_detected_stale():
     carry CHUNKER_VERSION; a test that only compared the version with itself
     minus one (test_chunking_quality) passed whatever the number was - M1240
     was vacuous (status-honesty-audit entry 83). This pins the floor."""
-    assert int(ch.CHUNKER_VERSION) >= 8
+    # 9 since the reading audit (2026-09-30) changed data-sheet, contents-page
+    # and short-document running-line chunking, which must also read as stale.
+    assert int(ch.CHUNKER_VERSION) >= 9

@@ -91,7 +91,7 @@ def detect_running_lines(pages: list[tuple[int, str]]) -> set[str]:
     that merely shares a digit-masked shape is not taken for furniture.
     """
     if len(pages) < 5:
-        return set()
+        return _short_document_running_lines(pages)
     n = settings.running_line_scan_lines * 2
     counts: Counter[str] = Counter()
     exact: Counter[str] = Counter()
@@ -121,6 +121,59 @@ def detect_running_lines(pages: list[tuple[int, str]]) -> set[str]:
     found = {line for line, c in counts.items() if c >= floor}
     found |= {_EXACT_MARK + form for form, c in exact.items() if c >= floor}
     found |= {f"{_PAGENO_MARK}{off}" for off, c in offsets.items() if c >= floor}
+    return found
+
+
+#: On a short document only this many lines at each page edge are looked at.
+_SHORT_DOC_EDGE_LINES = 3
+
+
+def _short_document_running_lines(pages: list[tuple[int, str]]) -> set[str]:
+    """Running lines of a document too short for the repeat count (2-4 pages).
+
+    AUDIT 2026-09-30 (reading finding 4): below five pages nothing was ever
+    furniture, so a two-page standard's header - "SAES-X-901 Process Piping
+    Design Issue 2 Page 2 of 2" - was read as text: the last chunk of page 1
+    swallowed it with the clauses of page 2, and two issues of the same
+    standard then "conflicted" on "Issue 2 Page" against "Issue 3 Page".
+
+    Two pages that merely repeat a line prove nothing (a title and a real
+    clause both repeat), so the evidence here is stricter than on a long
+    document. A line counts only when ALL of these hold:
+      - it sits within the first or last `_SHORT_DOC_EDGE_LINES` lines of
+        EVERY page, with the same digit-masked shape;
+      - its exact text DIFFERS between pages, and one of its numbers moves in
+        step with the page number (Page 1 / Page 2) - a page header, not a
+        sentence that happens to recur.
+    Real clause text repeated on two pages has no page-tracking number and is
+    kept.
+    """
+    if len(pages) < 2:
+        return set()
+    shapes: list[dict[str, str]] = []
+    for _page_no, text in pages:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        edge = lines[:_SHORT_DOC_EDGE_LINES] + lines[-_SHORT_DOC_EDGE_LINES:]
+        by_shape: dict[str, str] = {}
+        for line in edge:
+            norm = normalise_line(line)
+            if norm and len(norm) <= 120 and _HAS_LETTER.search(line):
+                by_shape.setdefault(norm, line)
+        shapes.append(by_shape)
+    found: set[str] = set()
+    for norm in set.intersection(*(set(s) for s in shapes)):
+        exact = [s[norm] for s in shapes]
+        if len({_exact_line(e) for e in exact}) < 2:
+            continue
+        numbers = [[int(d) for d in _DIGITS.findall(e)] for e in exact]
+        width = len(numbers[0])
+        if width == 0 or any(len(ns) != width for ns in numbers):
+            continue
+        tracks_page = any(
+            len({ns[k] - page_no for ns, (page_no, _t) in zip(numbers, pages)}) == 1
+            for k in range(width))
+        if tracks_page:
+            found.add(norm)
     return found
 
 
@@ -340,6 +393,43 @@ def _is_page_number_column(lines: list[str], total_pages: int) -> bool:
     return ascending >= (len(in_range) - 1) * 0.75
 
 
+#: Dot leaders between a contents title and its page number:
+#: "5.3.1 Identity Theft ........ 257" or ". . . . 257".
+_DOT_LEADER = re.compile(r"(?:\.\s*){4,}\d{1,4}\s*$|\u2026\s*\d{1,4}\s*$")
+_TRAILING_NUMBER = re.compile(r"(\d{1,4})\s*$")
+
+
+def _contents_evidence(toc: list[str], page_no: int, total_pages: int) -> bool:
+    """Is a page of "text ... number" lines a contents or index page?
+
+    AUDIT 2026-09-30 (reading finding 3): the shape alone was the test, so a
+    tab-aligned data sheet - "Rated flow (m3/h) 250", "Speed (rpm) 2980" -
+    was a contents page wherever it sat and every row was excluded from
+    search. A contents or index page gives itself away by what its numbers
+    ARE, so one of these is now required:
+      - dot leaders on at least half of the lines (a typeset contents page);
+      - the numbers are page numbers: nearly all fit the document, and on a
+        contents page (not at the back) they run in ascending order. An index
+        at the back is alphabetical by term, so its numbers need only fit.
+    A data sheet's values - flows, speeds, diameters - neither fit a short
+    document nor ascend. The bound is the same one `_is_page_number_column`
+    uses for a two-column contents page.
+    """
+    if sum(1 for line in toc if _DOT_LEADER.search(line)) >= len(toc) * 0.5:
+        return True
+    numbers = [int(m.group(1)) for line in toc if (m := _TRAILING_NUMBER.search(line))]
+    if len(numbers) < 2:
+        return False
+    ceiling = max(total_pages, 1) * 1.2
+    in_range = [n for n in numbers if 1 <= n <= ceiling]
+    if len(in_range) < len(numbers) * 0.9:
+        return False
+    if page_no > total_pages * 0.85:
+        return True
+    ascending = sum(1 for a, b in zip(in_range, in_range[1:]) if b >= a)
+    return ascending >= (len(in_range) - 1) * 0.75
+
+
 _REFERENCE_HEADING = re.compile(
     r"(?i)\b(?:references|bibliography|works\s+cited|further\s+reading|"
     r"selected\s+readings)\b"
@@ -450,8 +540,10 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
     if _TABLE_CAPTION.search(text):
         return "prose"
 
-    toc_lines = sum(1 for line in lines if _TOC_LINE.match(line))
-    if len(lines) >= 6 and toc_lines >= len(lines) * 0.4 and toc_lines >= 5:
+    toc = [line for line in lines if _TOC_LINE.match(line)]
+    toc_lines = len(toc)
+    if (len(lines) >= 6 and toc_lines >= len(lines) * 0.4 and toc_lines >= 5
+            and _contents_evidence(toc, page_no, total_pages)):
         # An index has the same shape but sits at the back of the book.
         if page_no > total_pages * 0.85:
             return "index"
@@ -912,13 +1004,90 @@ def _field_row(lines: list[str], i: int) -> tuple[str | None, int]:
     return " ".join(parts), j - i
 
 
+# UNRULED DATA SHEETS (audit 2026-09-30, reading finding 2). A data sheet
+# printed without ruling extracts one CELL per line and no colon at all:
+#     Speed (rpm)
+#     2980
+#     Number of stages
+#     2
+#     Impeller diameter (mm)
+#     310
+# "2" above "Impeller diameter (mm)" is exactly the split-line clause-heading
+# shape, so the value became clause 2, "Number of stages" lost its value to a
+# heading, and the rows after it were filed under a fake clause and dropped by
+# the quality gate as a 'no_clause' fragment. The same class as audit F1 for
+# ruled tables. A run of at least `_MIN_PAIRED_ROWS` strictly alternating
+# label / value lines is read as data-sheet rows instead, before any heading
+# detector sees it.
+
+#: Fewer pairs than this is not evidence of a data sheet: two headings with
+#: one-line bodies alternate too.
+_MIN_PAIRED_ROWS = 4
+#: A value cell is short: "2980", "A216 WCB", "15 barg", "Carbon steel".
+_MAX_VALUE_CHARS = 40
+_MAX_VALUE_WORDS = 5
+
+
+def _value_like(line: str) -> bool:
+    t = line.strip()
+    return (
+        0 < len(t) <= _MAX_VALUE_CHARS and len(t.split()) <= _MAX_VALUE_WORDS
+        and not t.endswith((".", ",", ";", ":"))
+        and not t.startswith(_TABLE_SENTINEL)
+    )
+
+
+def _pair_label(line: str) -> bool:
+    """The label column: a label that does not open with a number, so a value
+    ("2", "310") is never taken for the next label and the pairing cannot
+    slip by one line."""
+    t = line.strip()
+    return _label_like(t) and not t[:1].isdigit() and t[:1] not in "+-"
+
+
+def _paired_run(lines: list[str], i: int) -> tuple[list[str], int]:
+    """An unruled data sheet from line i: (rows, lines consumed), or ([], 0).
+
+    Pairs are read while the lines strictly alternate label, value. The run is
+    kept only when (a) it has `_MIN_PAIRED_ROWS` pairs, (b) most values carry
+    a digit - a data sheet states quantities - and (c) the values are NOT an
+    increasing column of clause numbers, which is what a stack of split-line
+    headings with nothing under them ("Scope" / "2" / "References" / "3")
+    would look like read from the title side.
+    """
+    pairs: list[tuple[str, str]] = []
+    j = i
+    while j + 1 < len(lines):
+        label, value = lines[j].strip(), lines[j + 1].strip()
+        if not (_pair_label(label) and _value_like(value)):
+            break
+        pairs.append((label, value))
+        j += 2
+    if len(pairs) < _MIN_PAIRED_ROWS:
+        return [], 0
+    values = [v for _, v in pairs]
+    if sum(1 for v in values if _DIGITS.search(v)) < len(values) * 0.6:
+        return [], 0
+    numbers = [v for v in values if _CLAUSE_NUMBER_ONLY.match(v)]
+    if len(numbers) >= len(values) * 0.8:
+        keys = [tuple(int(p) for p in n.rstrip(".").split(".") if p.isdigit())
+                for n in numbers]
+        if all(a < b for a, b in zip(keys, keys[1:])):
+            return [], 0
+    return [_md_row([label, value], 2) for label, value in pairs], j - i
+
+
 def _field_run(lines: list[str], i: int) -> tuple[list[str], int]:
     """A run of data-sheet rows from line i: (rows, lines consumed).
 
     A short label between rows ("4 Mixing and Curing") is a GROUP label and
     stays in the run as a row of its own, so one sheet stays one block. Empty
-    when line i does not start a run.
+    when line i does not start a run. An UNRULED sheet - label and value on
+    alternate lines, no colon - is read by `_paired_run`.
     """
+    paired = _paired_run(lines, i)
+    if paired[0]:
+        return paired
     rows: list[str] = []
     j = i
     while j < len(lines):
@@ -2320,7 +2489,13 @@ def chunk_id(doc_sha: str, page_start: int, ordinal: int, chash: str) -> str:
 #: 8 (2026-09-30, context notes): every chunk records its heading chain in
 #: `chunks.context` ("4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1"),
 #: used only to index it. Chunk text and chunk ids are unchanged.
-CHUNKER_VERSION = "8"
+#:
+#: 9 (2026-09-30, reading audit): an unruled data sheet (label and value on
+#: alternate lines) is read as data-sheet rows, not as "2 Impeller diameter"
+#: clauses; a page of "text  number" lines is a contents page only with
+#: contents evidence (dot leaders or page numbers), not a tab-aligned data
+#: sheet; a 2-4 page document's page header is stripped as a running line.
+CHUNKER_VERSION = "9"
 
 
 def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]],
