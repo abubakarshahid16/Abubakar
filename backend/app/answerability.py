@@ -17,9 +17,17 @@ can check, in this order, and carries the passages it rests on:
   requires_another_document the passage that matches the question only points
                             to another standard ("shall be in accordance with
                             X") and X is not among the reader's documents
-  conflicting_evidence      the two leading passages come from different
-                            documents, both are about the question, and they
-                            state different values in the same unit
+  conflicting_evidence      the leading passage and another one about the
+                            question state different values in the same unit,
+                            and they come from different documents - or from
+                            different clauses of ONE document that the
+                            condition reader (condition_choice.py) cannot
+                            tell apart by a size, class, temperature, ...
+  depends_on_condition      the answer lists clauses (or lines of one clause)
+                            that set different values for different conditions
+                            and the question named none of them
+                            (`condition_choice` in options mode): there is no
+                            single supported answer until the reader says which
   supported                 none of the above. Never "high" confidence
                             (CLAUDE.md rule 4): supported means the evidence
                             passed every check, not that it is certainly right.
@@ -34,6 +42,7 @@ import re
 import json
 import logging
 
+from . import condition_choice as cc
 from . import lexical
 from . import understanding as understanding_mod
 from .config import settings
@@ -49,7 +58,9 @@ CONFLICTING = "conflicting_evidence"
 AMBIGUOUS = "ambiguous_evidence"
 ANOTHER_DOCUMENT = "requires_another_document"
 ENGINEER_REVIEW = "requires_engineer_review"
-VERDICTS = (SUPPORTED, INSUFFICIENT, CONFLICTING, AMBIGUOUS, ANOTHER_DOCUMENT, ENGINEER_REVIEW)
+CONDITIONAL = "depends_on_condition"
+VERDICTS = (SUPPORTED, INSUFFICIENT, CONFLICTING, AMBIGUOUS, ANOTHER_DOCUMENT, ENGINEER_REVIEW,
+            CONDITIONAL)
 
 #: A question asking for a compliance JUDGEMENT, not for what a document says.
 _JUDGEMENT = re.compile(
@@ -102,6 +113,22 @@ def _quantities(sentence: str) -> dict[str, set[str]]:
     return found
 
 
+def _other_clause(top: dict, p: dict) -> bool:
+    """A different clause of the same document: both passages carry a
+    section and the sections differ. Without a section the clause is unknown,
+    and two chunks of one clause are not a conflict."""
+    return bool(top.get("section") and p.get("section") and top["section"] != p["section"])
+
+
+def _condition_explains(top: dict, p: dict) -> bool:
+    """The condition reader sees the two passages written for different
+    cases (a size, class, temperature, ...): different values are expected,
+    and `condition_choice` is what shows them."""
+    def read(x: dict) -> list:
+        return cc.extract(f"{x.get('section') or ''}\n{x.get('text') or ''}")
+    return bool(cc.differing_kinds(read(top), read(p)))
+
+
 def _held(allowed: frozenset[str]) -> set[str]:
     """Normalised designations of the documents the reader can open."""
     names = understanding_mod.document_names(allowed)
@@ -143,17 +170,40 @@ def assess(question: str, result: dict, *, allowed_document_ids: frozenset[str])
     # "... 5 bar" in two standards ARE near-copies: one token differs. So the
     # dropped copies of the leading passage are read back and compared too;
     # otherwise a real disagreement between two standards would vanish.
-    others = [p for p in shown[1:] if p.get("document_id") != top.get("document_id")
+    #
+    # SAME DOCUMENT TOO, clause against clause - unless the condition reader
+    # explains the difference (different sizes, classes, ...), which is what
+    # `condition_choice` shows instead. Clauses listed as condition options
+    # are explained by definition.
+    choice = result.get("condition_choice") or {}
+    optioned = ({o.get("chunk_id") for o in choice.get("options") or []}
+                if choice.get("mode") == "options" else set())
+    others = [p for p in shown[1:] if p.get("chunk_id") not in optioned
+              and (p.get("document_id") != top.get("document_id") or _other_clause(top, p))
               and lexical.assess(question, p.get("text") or "", None,
                                  allowed_document_ids=allowed_document_ids)["ok"]]
     others += _dropped_copies(result, top, allowed_document_ids)
     a = _quantities(sentence)
     for other in others:
+        same_document = other.get("document_id") == top.get("document_id")
+        if same_document and _condition_explains(top, other):
+            continue
         b = _quantities(_best_sentence(other.get("text") or "", terms))
         clash = sorted(u for u in a.keys() & b.keys() if a[u].isdisjoint(b[u]))
         if clash:
+            if same_document:
+                return verdict(CONFLICTING, "two clauses of the same document state different "
+                               "values (" + ", ".join(clash) + ") for what was asked, and no "
+                               "condition the system can read separates them", [top, other])
             return verdict(CONFLICTING, "two documents state different values ("
                            + ", ".join(clash) + ") for what was asked", [top, other])
+
+    # OPTIONS ARE NOT ONE ANSWER. The card lists clauses (or lines) for
+    # different conditions and asks which applies; "supported" would claim
+    # the top one answers.
+    if choice.get("mode") == "options":
+        return verdict(CONDITIONAL, choice.get("reason") or "the value depends on a condition "
+                       "the question does not state", choice.get("options") or [top])
 
     understood = result.get("understanding") or {}
     if result.get("scope_ambiguity") or understood.get("ambiguous_documents"):

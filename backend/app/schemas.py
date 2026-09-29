@@ -2780,7 +2780,7 @@ class Answerability(BaseModel):
     code can check, never by the reranker score; never "high" confidence."""
     verdict: Literal["supported", "insufficient_evidence", "conflicting_evidence",
                      "ambiguous_evidence", "requires_another_document",
-                     "requires_engineer_review"]
+                     "requires_engineer_review", "depends_on_condition"]
     reason: str
     evidence: list[EvidenceRef] = []
 
@@ -2821,6 +2821,11 @@ class ConditionOption(BaseModel):
     page_end: int | None = None
     conditions: list[str] = Field(
         [], description="the conditions as the clause writes them, e.g. 'larger than 2 inch'")
+    line: str | None = Field(
+        None, description="within_passage only: the line of the passage written for this "
+        "condition, exactly as the passage writes it")
+    highlight: list[int] | None = Field(
+        None, description="within_passage only: [start, end] of that line in the passage text")
 
 
 class ConditionChoice(BaseModel):
@@ -2828,9 +2833,12 @@ class ConditionChoice(BaseModel):
     conditions. `options`: the question named none of them, so every clause is
     shown with its condition and the reader is asked which applies - none is
     picked for them. `matched`: the question named one, and the one clause
-    that holds under it answers instead of a higher-ranked clause."""
+    that holds under it answers instead of a higher-ranked clause.
+    `within_passage`: the cases are lines (or table rows) of ONE passage -
+    every option points at the same chunk, each with its own line."""
     mode: Literal["options", "matched"]
     reason: str
+    within_passage: bool = False
     kinds: list[str] = Field([], description="size, class, temperature, pressure, service, material, location")
     question_names: list[str] = Field([], description="conditions the question itself named")
     options: list[ConditionOption] = []

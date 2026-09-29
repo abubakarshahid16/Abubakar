@@ -520,6 +520,7 @@ def _condition_choice(
         named = cc.describe(asked, kinds)
         return {
             "mode": "matched",
+            "within_passage": False,
             "winner": winner,
             "kinds": sorted(kinds),
             "question_names": named,
@@ -531,6 +532,7 @@ def _condition_choice(
     shown = group[:CONDITION_OPTIONS]
     return {
         "mode": "options",
+        "within_passage": False,
         "kinds": sorted(kinds),
         "question_names": [],
         "options": [_option(h, c, kinds) for h, c in shown],
@@ -540,6 +542,116 @@ def _condition_choice(
                    "applies - each is shown with its condition; name the "
                    f"{' / '.join(sorted(kinds))} to get one answer"),
     }
+
+
+#: How many lines of ONE passage an options notice lists. A table with more
+#: size ranges than this is still quoted whole; the notice names the first.
+CASE_OPTIONS = 8
+
+
+def _passage_cases(question: str, payload: dict) -> dict | None:
+    """ONE passage (a clause or a table) that sets a different value for each
+    of several cases - "pipes 2 inch and smaller: 3 mm; pipes larger than 2
+    inch: 6 mm", or rows that are size ranges (`condition_choice.cases`).
+
+    The passage is quoted whole, as before; its TEXT IS NEVER CHANGED. What
+    changes is the highlight, which used to follow shared vocabulary and so
+    ignored the numbers that tell the lines apart:
+      * the question names a condition of the kind the lines differ on, and
+        exactly one line holds under it -> that line is highlighted and
+        {"mode": "matched", "within_passage": True} says so;
+      * it names none of that kind -> every line is listed with its condition
+        ({"mode": "options", "within_passage": True}, each option the SAME
+        chunk with its own condition, line and offsets), and the highlight
+        spans all the lines rather than landing on one;
+      * it names one that no line (or several lines) meets -> None.
+    Only when the highlighted sentence is part of (or leads straight into)
+    the lines - a table listing sizes is not the answer to every question
+    its passage happens to answer."""
+    text = payload.get("text") or ""
+    found = cc.cases(text)
+    if not found:
+        return None
+    hl = payload.get("highlight")
+    if hl:
+        overlaps = any(hl[0] < c.end and hl[1] > c.start for c in found)
+        leads_in = hl[1] <= found[0].start and not text[hl[1]:found[0].start].strip(" \n:;,.-")
+        if not (overlaps or leads_in):
+            return None
+    kind = found[0].condition.kind
+    kinds = {kind}
+
+    def option(case: cc.Case) -> dict:
+        return {**_option(payload, [case.condition], kinds),
+                "line": case.text, "highlight": [case.start, case.end]}
+
+    asked = cc.extract(question, question=True)
+    named = cc.describe(asked, kinds)
+    if named:
+        holds = [c for c in found if cc.verdict(asked, [c.condition], kinds)]
+        if len(holds) != 1:
+            return None
+        case = holds[0]
+        payload["highlight"] = [case.start, case.end]
+        return {
+            "mode": "matched",
+            "within_passage": True,
+            "kinds": [kind],
+            "question_names": named,
+            "options": [option(case)],
+            "reason": (f"this passage sets a value for each {kind}; the question names "
+                       f"{', '.join(named)}, so the line for {case.condition.text} is "
+                       "highlighted - the passage is quoted whole"),
+        }
+    payload["highlight"] = [found[0].start, found[-1].end]
+    return {
+        "mode": "options",
+        "within_passage": True,
+        "kinds": [kind],
+        "question_names": [],
+        "options": [option(c) for c in found[:CASE_OPTIONS]],
+        "reason": (f"this passage sets different values for different {kind}, and the "
+                   "question does not say which applies - each line is listed with its "
+                   f"condition; name the {kind} to get one line"),
+    }
+
+
+def _holding_first(question: str, hits: list[dict], choice: dict) -> list[dict]:
+    """Tier 2, a question that named a condition: the clause that holds
+    under it leads, and a clause WRITTEN FOR a different case of the same
+    kind is not sent to the model at all. A clause stating no condition of
+    that kind (a general clause) is kept - it contradicts nothing."""
+    winner = choice.pop("winner")
+    asked = cc.extract(question, question=True)
+    kinds = set(choice["kinds"])
+    kept = [winner]
+    for hit in hits:
+        if hit["chunk_id"] == winner["chunk_id"]:
+            continue
+        conditions = cc.extract(_searchable_text(hit))
+        if any(c.kind in kinds for c in conditions) and cc.verdict(asked, conditions, kinds) is False:
+            continue
+        kept.append(hit)
+    return kept
+
+
+def _choice_for_sent(choice: dict | None, passages: list[dict]) -> dict | None:
+    """Tier 2: the condition notice, narrowed to the passages the model was
+    actually given. Options need two of them; a match needs its clause."""
+    if choice is None:
+        return None
+    sent = {p["chunk_id"] for p in passages}
+    options = [o for o in choice["options"] if o["chunk_id"] in sent]
+    if len(options) < (2 if choice["mode"] == "options" else 1):
+        return None
+    out = {k: v for k, v in choice.items() if k not in ("hits", "winner")}
+    out["options"] = options
+    if choice["mode"] == "options":
+        out["reason"] = (f"the passages this answer was written from set different values for "
+                         f"different {' / '.join(choice['kinds'])}, and the question does not say "
+                         "which applies - the answer may mix them; name the "
+                         f"{' / '.join(choice['kinds'])} to get one answer")
+    return out
 
 
 # ------------------------------------------------------------------ tier 2
@@ -1206,8 +1318,11 @@ def _answer_from_documents(
             # the clause that ranked first stays visible, as supporting
             demoted, lead = lead, choice.pop("winner")
         primary = _passage_payload(lead, question)
+        if choice is None:
+            # no clause competed: does the ONE quoted passage list cases?
+            choice = _passage_cases(gate_question, primary)
         answers = [primary]
-        if choice is not None and choice["mode"] == "options":
+        if choice is not None and choice["mode"] == "options" and not choice["within_passage"]:
             # every competing clause IS part of the answer, each with its own
             # condition; none is demoted to "supporting"
             answers += [_passage_payload(h, question) for h in choice.pop("hits")[1:]]
@@ -1260,6 +1375,15 @@ def _answer_from_documents(
     # sufficient evidence; keeping another digit-heavy near-duplicate can
     # push the prompt over the practical context budget (or make generation
     # appear to hang). Keep the normal multi-source behaviour for prose.
+    # WHICH CLAUSE APPLIES, for the generated answer too. The model's prose
+    # is not touched and its checks below are not changed: a question naming
+    # a condition is given the clause that holds first and not the clause
+    # written for another case; a question naming none gets the notice the
+    # quoted answer gets, narrowed to the passages the model saw.
+    choice = _condition_choice(gate_question, hits, lead, document_id, allowed_document_ids)
+    model_hits, model_gate = hits, gate_index
+    if choice is not None and choice["mode"] == "matched":
+        model_hits, model_gate = _holding_first(gate_question, hits, choice), 0
     decimal_lookup = bool(re.search(r"(?<![\w.])\d+\.\d+(?![\w.])", question))
     # PER PROVIDER: the local 4B model and Claude were packed identically.
     budget = context_budget_for_lane()
@@ -1270,13 +1394,13 @@ def _answer_from_documents(
         # on its own and avoids feeding a second digit-heavy OCR page to the
         # local model. Keep a second page only when the lead page lacks it.
         target = re.search(r"(?<![\w.])\d+\.\d+(?![\w.])", question).group(0)
-        lead_text = hits[0].get("text", "") if hits else ""
+        lead_text = model_hits[0].get("text", "") if model_hits else ""
         passage_limit = 1 if re.search(
             r"(?<![\w.])" + re.escape(target) + r"(?![\w.])", lead_text
         ) else min(passage_limit, 2)
     passages = [
         _passage_payload(h, question, budget=budget["chars"])
-        for h in with_gating_passage(hits, gate_index, passage_limit)
+        for h in with_gating_passage(model_hits, model_gate, passage_limit)
     ]
 
     # The character budget above is a stand-in for a token budget, and the
@@ -1528,6 +1652,9 @@ def _answer_from_documents(
         # cited passage does not contain them (values only, never sentences).
         "numbers_unsupported": [r["value"] for r in numbers_removed],
         "notices": _numbers_notice(numbers_removed),
+        # Which clause applies, for the passages the model was given - a
+        # warning beside the prose, never a change to it.
+        "condition_choice": _choice_for_sent(choice, passages),
         # How many sentences had a count of documents re-bounded to the
         # passages retrieved. Reported so a screen can say so, and a test can.
         "counts_bounded": counts_bounded,
