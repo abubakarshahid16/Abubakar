@@ -1633,11 +1633,19 @@ def pairs_from_blocks(page_text_blocks: list[tuple[float, float, str]]) -> list[
         # before it: 2 of 15 fields read, one of them mispaired. Lines that
         # are not self-contained keep the left-to-right pairing, in runs
         # between the self-contained ones.
+        # ONLY INSIDE A BLOCK OF SEVERAL LINES, and only for a line with no
+        # drawn answer slot. A one-line block was never read by this path (the
+        # geometry reader reads it, test_geometry_wiring), and a slot line
+        # ("ELEVATION (MSL):  5 - 150 M____") is cut by `split_drawn_slots`,
+        # which keeps the range readable (test_b4_pump_layouts).
+        several = len(lines) >= 2
         run: list[str] = []
         for line in lines:
-            own = _self_contained_pair(line)
+            pieces = split_drawn_slots(line)
+            own = (_self_contained_pair(line)
+                   if several and pieces == [line] else None)
             if own is None:
-                run.extend(split_drawn_slots(line))
+                run.extend(pieces)
                 continue
             out.extend(_pairs_from_cells(run))
             run = []
