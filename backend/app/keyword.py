@@ -31,6 +31,7 @@ import sqlite3
 
 from .db import connect, schema_once
 from .rates import Timer, rate
+from . import states
 
 #: Keep `.`, `-`, `/` and `_` inside tokens so identifiers survive intact.
 #: The tokenizer cannot say "only between two alphanumerics", which is why
@@ -888,6 +889,10 @@ def search(
     `dropped`, so the signature stays a list of hits for every caller that
     does not care what was corrected.
     """
+    # A document that stopped without being answerable (failed, ...) is not
+    # searched - states.NOT_SEARCHABLE_STATES. Narrowing only, and first, so
+    # the acronym and spelling variants below read the same scope.
+    allowed_document_ids = states.searchable_scope(allowed_document_ids)
     question = normalise_query(question)
     variants = _acronym_variants(
         question, document_id, allowed_document_ids=allowed_document_ids
