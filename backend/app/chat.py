@@ -597,6 +597,9 @@ _PAYLOAD_KEYS = (
     # B6C: what the question was understood to be about, and any document
     # ambiguity - reopened without them, a scoped answer would look unscoped.
     "understanding", "scope_ambiguity",
+    # Plan step 4: which clause applies when clauses differ by condition -
+    # reopened without it, an options answer would look like one answer.
+    "condition_choice",
     # B8: the answer-level verdict, reopened exactly as it was given.
     "answerability",
     # Chat redesign (2026-09-26): what the answer says about itself - see

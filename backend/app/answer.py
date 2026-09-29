@@ -23,6 +23,7 @@ import re
 from . import corpus as corpus_mod
 from . import intent as intent_mod
 from . import keyword
+from . import condition_choice as cc
 from . import context_budget
 from . import coverage
 from . import progress
@@ -206,11 +207,13 @@ def _searchable_text(hit: dict) -> str:
     """Heading plus body, the same shape Candidate.searchable_text returns.
 
     The heading is not decoration: it carries the clause number and the
-    designator, which is exactly what a question tends to name.
+    designator, which is exactly what a question tends to name. It is the
+    chunk's heading CHAIN when it has one (CHUNKER_VERSION 8), as in
+    Candidate.searchable_text - one shape in both homes.
     """
-    section = (hit.get("section") or "").strip()
+    heading = (hit.get("context") or hit.get("section") or "").strip()
     body = hit.get("text") or ""
-    return f"{section}\n{body}" if section else body
+    return f"{heading}\n{body}" if heading else body
 
 
 #: How many ranked candidates the lexical gate may examine. Bounded rather than
@@ -420,6 +423,118 @@ def _second_passage(
         if any(term in hit["text"].lower() for term in missing):
             return hit
     return None
+
+
+#: How many passages a conditional answer may show: the top one and up to two
+#: rivals. More would bury the answer; a clause family with more conditions
+#: than this is named in the notice and the rest stay in `supporting`.
+CONDITION_OPTIONS = 3
+
+
+def _close_enough(hit: dict, first: dict) -> bool:
+    """The rule `_second_passage` uses for "near the top": a fraction of the
+    query's own spread, or the measured absolute gap on a field too small."""
+    apart = hit.get("separation")
+    if apart is not None:
+        return apart <= SUPPORTING_SEPARATION
+    primary, score = first.get("rerank_score"), hit.get("rerank_score")
+    if primary is None or score is None:
+        return _is_semantically_credible(hit)
+    return primary - score <= SECOND_PASSAGE_MAX_GAP
+
+
+def _option(hit: dict, conditions: list, kinds: set[str]) -> dict:
+    return {
+        "chunk_id": hit["chunk_id"], "document_id": hit["document_id"],
+        "filename": hit.get("filename"), "section": hit.get("section"),
+        "page_start": hit.get("page_start"), "page_end": hit.get("page_end"),
+        "conditions": cc.describe(conditions, kinds),
+    }
+
+
+def _condition_choice(
+    question: str,
+    hits: list[dict],
+    lead: dict,
+    document_id: str | None,
+    allowed_document_ids: frozenset[str],
+) -> dict | None:
+    """Rival clauses that set a different value under a different condition.
+
+    A rival is near the top (`_close_enough`), from a different clause,
+    lexically plausible for the question in its own right, states different
+    values from `lead`, and differs from it on a condition both passages
+    state (`condition_choice.differing_kinds`). With no rival: None, and the
+    answer is exactly what it was.
+
+    With rivals, the question decides:
+      * it names a condition of a kind they differ on, and exactly ONE of them
+        holds under it -> {"mode": "matched", "winner": that passage}; None
+        when the winner is `lead` already (nothing changed, nothing to say);
+      * it names none of those kinds -> {"mode": "options"}: every rival is
+        shown with its condition and the reader is asked which applies;
+      * it names one but no single passage holds (none, or several) -> None:
+        the top passage stands, as before. Never a guess.
+    """
+    lead_conditions = cc.extract(_searchable_text(lead))
+    if not lead_conditions:
+        return None
+    lead_values = cc.stated_values(lead.get("text"))
+    rivals: list[tuple[dict, list, set[str]]] = []
+    for hit in hits[:gate_candidates()]:
+        if hit["chunk_id"] == lead["chunk_id"]:
+            continue
+        if (hit["document_id"] == lead["document_id"] and hit.get("section")
+                and hit.get("section") == lead.get("section")):
+            continue
+        if not _close_enough(hit, lead):
+            continue
+        conditions = cc.extract(_searchable_text(hit))
+        kinds = cc.differing_kinds(lead_conditions, conditions)
+        if not kinds:
+            continue
+        values = cc.stated_values(hit.get("text"))
+        if not values or not lead_values or values == lead_values:
+            continue
+        if not lexical.assess(question, _searchable_text(hit), document_id,
+                              allowed_document_ids=allowed_document_ids)["ok"]:
+            continue
+        rivals.append((hit, conditions, kinds))
+    if not rivals:
+        return None
+
+    kinds = set().union(*(k for _, _, k in rivals))
+    asked = cc.extract(question, question=True)
+    group = [(lead, lead_conditions), *((h, c) for h, c, _ in rivals)]
+    verdicts = [(h, c, cc.verdict(asked, c, kinds)) for h, c in group]
+    if any(v is not None for _, _, v in verdicts):
+        holds = [(h, c) for h, c, v in verdicts if v]
+        if len(holds) != 1 or holds[0][0]["chunk_id"] == lead["chunk_id"]:
+            return None
+        winner, conditions = holds[0]
+        named = cc.describe(asked, kinds)
+        return {
+            "mode": "matched",
+            "winner": winner,
+            "kinds": sorted(kinds),
+            "question_names": named,
+            "options": [_option(winner, conditions, kinds)],
+            "reason": (f"the question names {', '.join(named)}; this clause applies to "
+                       f"{', '.join(cc.describe(conditions, kinds))}, so it answers "
+                       "rather than a higher-ranked clause written for a different case"),
+        }
+    shown = group[:CONDITION_OPTIONS]
+    return {
+        "mode": "options",
+        "kinds": sorted(kinds),
+        "question_names": [],
+        "options": [_option(h, c, kinds) for h, c in shown],
+        "hits": [h for h, _ in shown],
+        "reason": ("these clauses set different values for different "
+                   f"{' / '.join(sorted(kinds))}, and the question does not say which "
+                   "applies - each is shown with its condition; name the "
+                   f"{' / '.join(sorted(kinds))} to get one answer"),
+    }
 
 
 # ------------------------------------------------------------------ tier 2
@@ -1023,16 +1138,30 @@ def _answer_from_documents(
         }
 
     if tier == "extract":
+        # Which clause applies, when near-equal clauses set different values
+        # for different conditions - see _condition_choice. None leaves the
+        # answer exactly as it was.
+        choice = _condition_choice(
+            gate_question, hits, lead, document_id, allowed_document_ids)
+        demoted = None
+        if choice is not None and choice["mode"] == "matched":
+            # the clause that ranked first stays visible, as supporting
+            demoted, lead = lead, choice.pop("winner")
         primary = _passage_payload(lead, question)
         answers = [primary]
-        second = _second_passage(
-            gate_question, hits, lead, document_id, allowed_document_ids)
-        if second is not None:
-            answers.append(_passage_payload(second, question))
+        if choice is not None and choice["mode"] == "options":
+            # every competing clause IS part of the answer, each with its own
+            # condition; none is demoted to "supporting"
+            answers += [_passage_payload(h, question) for h in choice.pop("hits")[1:]]
+        else:
+            second = _second_passage(
+                gate_question, hits, lead, document_id, allowed_document_ids)
+            if second is not None:
+                answers.append(_passage_payload(second, question))
         used = {p["chunk_id"] for p in answers}
         supporting = [
             _passage_payload(h, question)
-            for h in hits[1:limit]
+            for h in ([demoted] if demoted else []) + hits[1:limit]
             if h["chunk_id"] not in used
         ]
         return {
@@ -1046,6 +1175,10 @@ def _answer_from_documents(
             # appears only when the first cannot cover the question alone.
             "answer_passages": answers,
             "supporting": supporting,
+            # Which clause applies, when clauses differ by condition: the
+            # options shown and why, or the condition that chose. Absent
+            # (None) when no clause competed - the ordinary case.
+            "condition_choice": choice,
             # Which documents the question was about, and which of them this
             # answer used. Report-only: it describes what happened above it
             # and changes none of it.

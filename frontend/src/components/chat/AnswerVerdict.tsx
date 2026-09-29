@@ -1,4 +1,4 @@
-import type { AnswerabilityVerdict, EvidenceRef, ScopeAmbiguity, Understanding } from "../../types/api";
+import type { AnswerabilityVerdict, ConditionChoice, EvidenceRef, ScopeAmbiguity, Understanding } from "../../types/api";
 
 /**
  * B8/B9: what the answer-level safety gate said, in the reader's words.
@@ -63,6 +63,43 @@ export function ScopeNotice({ understanding, ambiguity }: {
           {ambiguity.reason}{names.length > 0 ? ` (${names.join(", ")})` : ""}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * Plan step 4: which clause applies. "options" is a warning the reader must
+ * act on - the clauses set different values for different conditions and the
+ * question did not say which; each is listed with its condition. "matched"
+ * says why a clause other than the top-ranked one answers.
+ */
+export function ConditionNotice({ choice }: { choice?: ConditionChoice | null }) {
+  if (!choice || choice.options.length === 0) return null;
+  const where = (o: ConditionChoice["options"][number]) =>
+    [o.section, o.page_start != null ? `page ${o.page_start}` : null].filter(Boolean).join(", ");
+  if (choice.mode === "matched") {
+    return (
+      <p className="text-xs text-slateish-400" data-testid="condition-matched">
+        Answered for {choice.question_names.join(", ")}: the clause written for{" "}
+        {choice.options[0].conditions.join(", ")} applies, not a higher-ranked clause for a different case.
+      </p>
+    );
+  }
+  return (
+    <div role="status" data-testid="condition-options"
+      className="rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-3">
+      <p className="text-sm font-semibold text-warn-500">
+        Different values apply to different {choice.kinds.join(" / ")} - which applies to you?
+      </p>
+      <ul className="mt-1 space-y-0.5 text-sm text-slateish-300">
+        {choice.options.map((o) => (
+          <li key={o.chunk_id}>
+            <span className="font-medium">{o.conditions.join(", ")}</span>
+            {where(o) && <span className="text-slateish-400"> - {where(o)}</span>}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-xs text-slateish-400">Ask again naming the {choice.kinds.join(" / ")} to get one answer.</p>
     </div>
   );
 }

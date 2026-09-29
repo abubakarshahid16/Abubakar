@@ -2809,6 +2809,31 @@ class ScopeAmbiguity(BaseModel):
     documents: list[ScopeDocument]
 
 
+class ConditionOption(BaseModel):
+    """One clause competing to answer, and the condition it is written for."""
+    chunk_id: str
+    document_id: str
+    filename: str | None = None
+    section: str | None = None
+    page_start: int | None = None
+    page_end: int | None = None
+    conditions: list[str] = Field(
+        [], description="the conditions as the clause writes them, e.g. 'larger than 2 inch'")
+
+
+class ConditionChoice(BaseModel):
+    """Plan step 4: clauses near the top set different values for different
+    conditions. `options`: the question named none of them, so every clause is
+    shown with its condition and the reader is asked which applies - none is
+    picked for them. `matched`: the question named one, and the one clause
+    that holds under it answers instead of a higher-ranked clause."""
+    mode: Literal["options", "matched"]
+    reason: str
+    kinds: list[str] = Field([], description="size, class, temperature, pressure, service, material, location")
+    question_names: list[str] = Field([], description="conditions the question itself named")
+    options: list[ConditionOption] = []
+
+
 AnswerKind = Literal["general", "document", "web", "mixed", "rewrite", "action", "records"]
 
 
@@ -2933,6 +2958,8 @@ class AnswerResult(ChatPresentation):
         None, description="B6C: document scope, clause and notes the question was understood with")
     scope_ambiguity: ScopeAmbiguity | None = Field(
         None, description="B6C: the answer's own text is in more than one document")
+    condition_choice: ConditionChoice | None = Field(
+        None, description="which clause applies when near-equal clauses differ by condition")
     answerability: Answerability | None = Field(
         None, description="B8: whether the evidence answers the question, and why")
 
