@@ -472,7 +472,7 @@ def test_chunks_from_the_previous_chunker_are_stale(corpus, monkeypatch):
     conn = db.connect()
     doc = corpus["saes_l_910.pdf"]["id"]
     assert not ch.is_stale(conn, doc)
-    monkeypatch.setattr(ch, "CHUNKER_VERSION", "4")
+    monkeypatch.setattr(ch, "CHUNKER_VERSION", str(int(ch.CHUNKER_VERSION) - 1))
     old = ch._chunk_signature(
         conn.execute("SELECT sha256 FROM documents WHERE id = ?", (doc,)).fetchone()[0],
         *ch._load_pages(conn, doc)[:2])
