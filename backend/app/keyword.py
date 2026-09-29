@@ -851,6 +851,7 @@ def search(
     *,
     allowed_document_ids: frozenset[str],
     corrections: dict[str, str] | None = None,
+    synonyms: dict[str, list[str]] | None = None,
 ) -> list[dict]:
     """Keyword search over retrievable chunks. bm25: lower is better.
 
@@ -881,12 +882,17 @@ def search(
     does not care what was corrected.
     """
     question = normalise_query(question)
-    match = build_match_query(
-        question,
-        _acronym_variants(
-            question, document_id, allowed_document_ids=allowed_document_ids
-        ),
+    variants = _acronym_variants(
+        question, document_id, allowed_document_ids=allowed_document_ids
     )
+    # Engineering synonyms (app/glossary.py): the typed word OR-ed with the
+    # phrasings documents print for it. Additive, keyword side only, and
+    # reported through `synonyms` - never a silent substitution.
+    for word, phrases in _glossary_variants(question).items():
+        variants[word] = list(dict.fromkeys([*variants.get(word, word_forms(word)), *phrases]))
+        if synonyms is not None:
+            synonyms[word] = list(phrases)
+    match = build_match_query(question, variants)
     if not match:
         return []
 
@@ -981,6 +987,13 @@ def _run_match(
         }
         for r in rows
     ]
+
+
+def _glossary_variants(question: str) -> dict[str, tuple[str, ...]]:
+    """{typed word (lowercase): document phrasings} - app/glossary.py."""
+    from . import glossary
+
+    return glossary.expansions(question)
 
 
 def _acronym_variants(

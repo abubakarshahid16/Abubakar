@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 
 from . import acronyms
+from . import glossary
 from . import keyword
 
 #: Words that carry no subject. A question is not ABOUT "what" or "required".
@@ -228,6 +229,7 @@ def assess(
     judge_commonness = indexed >= MIN_CORPUS_FOR_COMMONNESS
 
     body = passage_text.lower()
+    expanded = glossary.expansions(question)
     covered: list[str] = []
     absent: list[str] = []
     corrections: dict[str, str] = {}
@@ -243,6 +245,12 @@ def assess(
         # acronym. See app/acronyms.py - the map is built FROM the documents.
         forms = [term, *acronyms.equivalents(
             term, document_id, allowed_document_ids=allowed_document_ids)]
+        # ...and the phrasings a standard prints for a lay word (app/
+        # glossary.py): "humid" is covered by a passage about "relative
+        # humidity". The same argument as the acronyms, from a curated list
+        # an engineer reviews rather than from the corpus. It can only make a
+        # term COUNT as present; the reranker's floor still decides.
+        forms.extend(expanded.get(term.lower(), ()))
 
         # ...and the spelling the corpus uses, when the reader's spelling is
         # not in it at all. Issue #85: "sumbittal requirements" refused with

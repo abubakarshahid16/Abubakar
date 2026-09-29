@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from . import glossary
 from . import keyword
 from . import progress
 from . import scores
@@ -940,6 +941,10 @@ def search(
     # retried against the spelling the index does have. Reported, never
     # hidden: the reader is told what was actually searched.
     corrections: dict[str, str] = {}
+    # The engineering synonyms keyword.search OR-s in for this question
+    # (app/glossary.py). Reported like the corrections, never hidden.
+    synonyms = {word: list(phrases)
+                for word, phrases in glossary.expansions(question).items()}
     keyword_hits = _keyword_candidates(
         question, candidates, document_id, allowed_document_ids,
         corrections, soft_identifiers,
@@ -1044,6 +1049,18 @@ def search(
         scored = reranker.rerank(
             question, [(c.chunk_id, c.searchable_text) for c in shortlist]
         )
+        # ENGINEERING SYNONYMS, ON THE RERANK SCALE (app/glossary.py). The
+        # cross-encoder scores meaning against WORDING: "how humid" scored
+        # below the credibility floor against the relative-humidity clause it
+        # was about. The question is also scored as the document words it and
+        # each passage keeps the HIGHER of the two - a passage that fits
+        # neither wording still scores low, so an absent answer stays absent.
+        # Only when an entry fired; reported as `synonyms_searched`.
+        worded = glossary.rewrite(question) if synonyms else None
+        if scored and worded:
+            also = dict(reranker.rerank(
+                worded, [(c.chunk_id, c.searchable_text) for c in shortlist]))
+            scored = [(cid, max(score, also.get(cid, score))) for cid, score in scored]
         timings["rerank_ms"] = round(t.elapsed * 1000, 2)
         if scored:
             reranked = True
@@ -1157,6 +1174,7 @@ def search(
         # {word as typed: word as the corpus spells it}, when a keyword miss
         # was retried tolerantly. Empty for a query that needed no help.
         "spelling_corrections": corrections,
+        "synonyms_searched": synonyms,
         # A dropped candidate now has a reason attached. `total` still counts
         # what survived, so a candidate below `limit` is accounted for by the
         # difference between `total` and the number of hits, not by this list:
