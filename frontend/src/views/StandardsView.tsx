@@ -26,6 +26,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { DocumentPreview } from "../components/DocumentPreview";
+import { MissingStandards } from "../components/standards/MissingStandards";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
 import type {
   ApiError, DocumentRecord, StandardRequirement, StandardSummary,
@@ -94,6 +95,8 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
           ))}
         </ul>
       )}
+
+      <MissingStandards />
 
       {selected && (
         <StandardDetail

@@ -13,6 +13,7 @@ import type {
   DeletedConversation,
   DeletedDocument,
   ApiError,
+  MissingStandard,
   AskRequest,
   AskResult,
   CancelledTurn,
@@ -1102,6 +1103,20 @@ export const api = {
       `/standards/${encodeURIComponent(id)}/requirements/extract`,
       { method: "POST" }),
   /** Mark a standard as replaced, or clear the mark with null. ADMIN, audited. */
+  /** Standards cited but not in the library, with the publisher's catalogue
+   *  page and whether each has been requested. Nothing is fetched. */
+  missingStandards: () =>
+    request<MissingStandard[]>("/standards/missing", undefined, isArrayBody),
+  /** Record, under the signed-in engineer's name, that a missing standard
+   *  has been asked for. */
+  requestMissingStandard: (identifier: string, note: string | null) =>
+    request<{ identifier: string; status: string; requested_by: string; requested_at: string }>(
+      "/standards/missing/request",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier, note }),
+      }),
   supersedeStandard: (id: string, superseded_by: string | null) =>
     request<{ superseded_by: string | null }>(
       `/standards/${encodeURIComponent(id)}/supersede`,

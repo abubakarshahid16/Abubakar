@@ -493,6 +493,67 @@ class CitedButNotHeld(BaseModel):
     cited_by: list[StandardCitation]
 
 
+class StandardObtainPointer(BaseModel):
+    """Where a missing standard is obtained. A fixed publisher catalogue page,
+    never a search URL carrying the identifier; no url for a company standard
+    or an unrecognised publisher - never a guessed site."""
+
+    publisher: str | None = None
+    url: str | None = None
+    note: str
+
+
+class MissingStandard(CitedButNotHeld):
+    """A cited-but-not-held standard, with where to get it and what has been
+    done about it: MISSING_LOCALLY (nothing recorded), REQUESTED, OBTAINED."""
+
+    status: str
+    note: str | None = None
+    requested_by: str | None = None
+    requested_at: str | None = None
+    obtain: StandardObtainPointer
+
+
+class StandardRequestBody(BaseModel):
+    identifier: str = Field(min_length=1, max_length=200)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class StandardRequestResult(BaseModel):
+    identifier: str
+    status: str
+    requested_by: str
+    requested_at: str
+
+
+class ExternalCopyBody(BaseModel):
+    identifier: str = Field(min_length=1, max_length=200,
+                            description="the standard's number, as cited")
+    obtained_from: str = Field(min_length=1, max_length=500,
+                               description="publisher, order or licence reference")
+
+
+class StandardProvenance(BaseModel):
+    """A held standard recorded as obtained externally. `current` is false
+    when the file was replaced after the record was made."""
+
+    document_id: str
+    source_type: str
+    identifier: str
+    obtained_from: str
+    sha256: str
+    recorded_by: str
+    recorded_at: str
+    current: bool
+
+
+class StandardProvenanceRead(BaseModel):
+    """GET provenance: `provenance` is null when nothing was recorded - not
+    claimed either way, never read as "company"."""
+
+    provenance: StandardProvenance | None = None
+
+
 class ApplicabilityStatus(BaseModel):
     """One standard, classified for one submittal (B5, per the master
     order): applicable and assessable, applicable but needs another

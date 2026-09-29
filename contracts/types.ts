@@ -2374,3 +2374,35 @@ export interface BackgroundJob {
   config_version: string | null;
 }
 export interface BackgroundJobList { jobs: BackgroundJob[] }
+
+/** Where a missing standard is obtained: the publisher's own catalogue page,
+ *  never a download. No url for a company standard or an unrecognised
+ *  publisher. `standards_acquisition.where_to_obtain`. */
+export interface StandardObtainPointer {
+  publisher: string | null;
+  url: string | null;
+  note: string;
+}
+
+/** One place a missing standard was cited. */
+export interface MissingStandardCitation {
+  source_type: string;
+  document_id: string;
+  filename: string;
+  clause?: string | null;
+  page?: number | null;
+}
+
+/** GET /api/standards/missing: cited but not held, with where to get it.
+ *  status: MISSING_LOCALLY (nothing recorded) | REQUESTED | OBTAINED. */
+export interface MissingStandard {
+  identifier: string;
+  standard_family: string;
+  licence_status: string;
+  cited_by: MissingStandardCitation[];
+  status: "MISSING_LOCALLY" | "REQUESTED" | "OBTAINED" | string;
+  note: string | null;
+  requested_by: string | null;
+  requested_at: string | null;
+  obtain: StandardObtainPointer;
+}

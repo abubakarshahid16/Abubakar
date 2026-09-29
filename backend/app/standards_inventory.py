@@ -38,10 +38,15 @@ the owner asked for to take to the standards body - the CRS's own
 per-submittal rows are unchanged and remain accurate to what that one
 submittal actually cites.
 
-NOT YET BUILT (tracked, not silently skipped):
-  - the licensed-lookup transport (never fetches copyrighted text; records
-    provenance only for freely published, authorized sources).
-  - the Standards Library page addition.
+BUILT SINCE (2026-09-29, `standards_acquisition.py`): the lookup, as the
+publisher's own catalogue page for each missing standard (every family here
+is sold under licence, NORSOK included, so nothing is fetched), a request
+recorded under an engineer's name, and an uploaded copy marked as obtained
+externally with its hash; shown on the Standards Library page.
+
+NOT BUILT (the client's open decision 3, "Is online lookup permitted, and who
+approves retrieved documents?"): automatically fetching a FREELY published
+source. Nothing in this system downloads a standard.
 """
 from __future__ import annotations
 
