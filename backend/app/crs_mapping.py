@@ -169,6 +169,44 @@ def _edited_by(finding: dict) -> str:
     return f"AI Review, edited and confirmed by {who}"
 
 
+#: The shapes a stored "Comment By" names one person in, as `_by`, the
+#: AI/web rows and chat comments write them: (prefix, the person, suffix).
+_BYLINE_SHAPES = (
+    re.compile(r"^(AI Review, (?:edited and )?confirmed by )(?P<who>.+?)()$"),
+    re.compile("^(" + re.escape(_AI_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
+    re.compile("^(" + re.escape(_WEB_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
+    re.compile(r"^()(?P<who>.+?)( \(filed from chat\))$"),
+)
+
+
+def byline_person(byline: str | None) -> str | None:
+    """The person a stored "Comment By" names, or None when it names nobody
+    ("AI Review", an unconfirmed draft's label)."""
+    for shape in _BYLINE_SHAPES:
+        match = shape.match(byline or "")
+        if match:
+            return match.group("who")
+    return None
+
+
+def resolve_byline(byline: str | None, names: dict[str, str]) -> str:
+    """A stored "Comment By" with a raw user id replaced by that user's
+    display name. Audit leftover 2026-09-30: carry-forward snapshots written
+    before bylines printed names still say "confirmed by eng-1". Only an id
+    that `names` maps to a non-empty display name is replaced - a name is
+    never invented, and a byline that already names a person, or names an
+    unknown one, is returned unchanged."""
+    text = byline or ""
+    for shape in _BYLINE_SHAPES:
+        match = shape.match(text)
+        if match:
+            name = names.get(match.group("who"))
+            if name:
+                return f"{match.group(1)}{name}{match.group(3)}"
+            return text
+    return text
+
+
 def _fold(text) -> str:
     return " ".join(str(text or "").lower().split())
 
@@ -403,9 +441,10 @@ def _provided(finding: dict) -> str:
 
 def _reason_words(finding: dict) -> str:
     """An engineer-review reason without its machine code: "unit_mismatch:
-    the requirement is in ..." -> "the requirement is in ..."."""
+    the requirement is in ..." -> "the requirement is in ...", and
+    "LOW_TRUST_VALUE: the value was read ..." -> "the value was read ..."."""
     text = " ".join(str(finding.get("ai_rationale") or "").split())
-    return re.sub(r"^[a-z_]+:\s*", "", text)
+    return re.sub(r"^(?:[a-z_]+|[A-Z][A-Z_]+):\s*", "", text)
 
 
 def _action(finding: dict, field: str) -> str:
