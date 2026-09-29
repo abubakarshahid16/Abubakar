@@ -462,7 +462,15 @@ def _grouped(ordered: list[dict]) -> list[list[dict]]:
             groups[key] = []
             order.append(key)
         groups[key].append(f)
-    return [groups[k] for k in order]
+    # A CONFIRMED FINDING LEADS ITS GROUP. A re-run keeps the engineer's
+    # confirmed finding and writes a fresh machine proposal about the same
+    # field beside it; both land in one row, and the row's "Comment By" and
+    # text come from group[0]. The findings arrive `ORDER BY updated_at DESC`,
+    # so the NEWER draft led and the row read "AI Review" - under the
+    # engineer's permanent number - on every re-run done a second or more
+    # after the confirmation (honesty audit entry 81). Stable sort: otherwise
+    # the order the caller gave is kept.
+    return [sorted(groups[k], key=lambda f: not f.get("confirmed_by")) for k in order]
 
 
 def _by(group: list[dict]) -> str:

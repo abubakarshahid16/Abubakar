@@ -81,6 +81,16 @@ def test_the_number_survives_a_re_export_and_a_re_run(world, monkeypatch):
 
     # A re-run keeps the confirmed comment AND writes a fresh machine proposal
     # about the same field beside it. The confirmed one keeps the number.
+    #
+    # THE CONFIRMATION IS MADE OLDER THAN THE RE-RUN, as it is in real use.
+    # Timestamps have one-second resolution, and this test used to confirm and
+    # re-run inside the same second: the tie left the order to chance, so it
+    # passed about 19 times in 20 while every real re-run - always a second or
+    # more later - printed the draft's "AI Review" (honesty audit entry 81).
+    db.connect().execute(
+        "UPDATE review_findings SET updated_at = '2000-01-01T00:00:00Z'"
+        " WHERE confirmed_by IS NOT NULL")
+    db.connect().commit()
     comparison.run_comparison(run, allowed_document_ids=scope)
     rows = _noise_rows(run)
     numbered = [r for r in rows if r["crs_ref"]]
@@ -366,3 +376,19 @@ def test_editing_the_document_number_later_never_renumbers_an_issued_comment(wor
     response = TestClient(app).post(f"/api/reviews/runs/{run}/crs/comments/{ref}/status",
                                     json={"status": "Closed"})
     assert response.status_code == 200, "and it can still be closed under it"
+
+
+def test_a_confirmed_finding_leads_a_row_it_shares_with_a_newer_draft():
+    """Order-independent: whichever of the two the caller lists first, the
+    row speaks for the engineer's confirmed finding."""
+    base = {"compliance_status": "NON_COMPLIANT", "requirement_source_text": "noise not above 90 dB(A)",
+            "crs_field_label": "Noise", "contractor_evidence_text": "95 dB(A)", "contractor_page": 1,
+            "fact_id": "f1", "requirement_id": "r1", "origin": None}
+    draft = {**base, "id": "new-draft"}
+    confirmed = {**base, "id": "old-confirmed", "confirmed_by": "eng-1", "confirmed_by_name": "Eng One"}
+    for order in ([draft, confirmed], [confirmed, draft]):
+        rows = [r for r in crs_mapping.build_crs_rows(order, [], "S.pdf")
+                if r["row_kind"] == crs_mapping.ROW_KIND_NON_COMPLIANT]
+        assert len(rows) == 1
+        assert rows[0]["comment_by"] == "AI Review, confirmed by Eng One"
+        assert rows[0]["finding_id"] == "old-confirmed"
