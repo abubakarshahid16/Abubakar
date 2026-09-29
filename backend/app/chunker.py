@@ -28,6 +28,7 @@ from .rates import Timer, rate
 from . import states
 from . import keyword
 from . import orphan_guard
+from .ocr import failed_page_reason
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
 from . import tables as tables_mod
 
@@ -2670,7 +2671,7 @@ def chunk_document(doc_id: str, force: bool = False,
                           "has not run")
             elif rec["error"]:
                 rule = "ocr_failed"
-                reason = f"recognition failed on this page: {rec['error']}"
+                reason = failed_page_reason(rec["error"])
             elif rec["box_count"] == 0:
                 # Measured: 5 of 12 flagged pages return zero boxes at both 150
                 # and 300 dpi. Those pages are BLANK, not unreadable, and
@@ -2734,17 +2735,16 @@ def chunk_document(doc_id: str, force: bool = False,
         # The keyword index is keyed on chunk ids, so a rebuild invalidates
         # it. Dropped here and rebuilt by the indexing stage.
         conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (doc_id,))
+        # What each OLD chunk's vector was computed from besides its text (the
+        # text is in the id, through content_hash): read before the delete so
+        # a kept id whose heading changed is not mistaken for an unchanged one.
+        old_inputs = {
+            r["id"]: (r["section"], r["context"])
+            for r in conn.execute(
+                "SELECT id, section, context FROM chunks WHERE document_id = ?",
+                (doc_id,))
+        }
         conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
-        # Vectors are keyed on chunk id. Re-chunking changes those ids, so any
-        # vector whose chunk no longer exists is an orphan - and embedded_count
-        # counts vector ROWS, so leaving them made progress read above 100%
-        # (1448 embedded against 1356 chunks). Same failure as every other
-        # count derived from something adjacent to the thing it claims.
-        conn.execute(
-            """DELETE FROM chunk_vectors WHERE document_id = ?
-               AND chunk_id NOT IN (SELECT id FROM chunks WHERE document_id = ?)""",
-            (doc_id, doc_id),
-        )
         conn.executemany(
             """INSERT OR REPLACE INTO chunks
                (id, document_id, filename, ordinal, page_start, page_end,
@@ -2753,6 +2753,29 @@ def chunk_document(doc_id: str, force: bool = False,
                 ocr_alphabet_violations, ocr_alphabet_sample, context)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
+        )
+        # ORPHANED VECTORS ONLY, and only AFTER the new chunks exist. Vectors
+        # are keyed on chunk id; a vector whose chunk is gone is an orphan and
+        # must go (embedded_count once read 1448 against 1356 chunks). This
+        # delete used to run BEFORE the insert above, when the document had no
+        # chunks at all, so it deleted EVERY vector on every re-chunk - an OCR
+        # round that changed one chunk of 45 re-embedded all 45 (audit
+        # 2026-09-30). A vector is kept when its chunk id survives, the chunk
+        # is still retrievable, and its heading inputs (section, chain) are
+        # unchanged - i.e. when it was computed from exactly what the new
+        # chunk would be embedded from.
+        stale = [
+            r[0] for r in rows
+            if r[0] in old_inputs and (not r[12] or old_inputs[r[0]] != (r[6], r[18]))
+        ]
+        conn.executemany(
+            "DELETE FROM chunk_vectors WHERE chunk_id = ? AND document_id = ?",
+            [(cid, doc_id) for cid in stale],
+        )
+        conn.execute(
+            """DELETE FROM chunk_vectors WHERE document_id = ?
+               AND chunk_id NOT IN (SELECT id FROM chunks WHERE document_id = ?)""",
+            (doc_id, doc_id),
         )
         # chunk_count is the RETRIEVABLE count - what search can actually see.
         # chunk_count_total is every row, including the ones kept only for

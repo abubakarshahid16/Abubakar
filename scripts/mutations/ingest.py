@@ -132,12 +132,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a document with nothing searchable finishes with its pages "
                     "unaccounted for - the pages most at risk of vanishing (B3)",
         path=APP / "ingest.py",
-        anchor="                    (_now(), doc_id),\n"
-               "                )\n"
+        # Re-anchored 2026-09-30: the jobs update became
+        # `_finish_ingestion_jobs` (M1469).
+        anchor="                _finish_ingestion_jobs(conn, doc_id)\n"
                "            _refresh_page_ledger(doc_id)\n"
                "            return\n",
-        replacement="                    (_now(), doc_id),\n"
-                    "                )\n"
+        replacement="                _finish_ingestion_jobs(conn, doc_id)\n"
                     "            return\n",
         target=_B3_TEST, keyword="nothing_searchable_still_has_its_pages",
         tags=("honesty",),

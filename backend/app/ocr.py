@@ -28,6 +28,12 @@ Three things about this module are architectural rather than tuning:
     recogniser cannot process is stored with its error and empty text, so it
     is consumed, shown as `ocr_failed`, and the rest of the document goes on
     to be embedded. It used to stay pending forever and fail the document.
+    The same holds when the ENGINE fails rather than a page: a missing or
+    corrupt model (`_build_engine` raising) or a killed worker process
+    (`BrokenProcessPool`) records every page it was given as failed, with
+    the reason, and the document finishes on its extracted text. Both used
+    to raise out of `recognise_document` and mark a readable document
+    `failed` (audit 2026-09-30). `retry_failed` is the way back.
 
   * **Recognised text goes to `page_ocr`, which extraction cannot reach.**
     `pages` is written with INSERT OR REPLACE, so a re-extraction - which
@@ -35,8 +41,12 @@ Three things about this module are architectural rather than tuning:
     otherwise overwrite recognition with the empty extraction that triggered
     it. See ADR-0006.
 
-Batches are committed strictly in order so `jobs.last_completed_batch` stays a
-contiguous high-water mark a restart can trust, exactly as extraction does.
+Batches are committed strictly in order. The resume point is `page_ocr`
+itself: a page with a row there is never recognised again (`pending_pages`),
+so a restart re-reads only the pages no committed batch covered. (This used
+to say `jobs.last_completed_batch` was the high-water mark, as in extraction;
+nothing ever wrote it for recognition, and writing it would clobber the
+extraction checkpoint the same job row carries.)
 """
 
 from __future__ import annotations
@@ -386,7 +396,10 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
 
     import time
 
-    ocr = _build_engine()
+    try:
+        ocr = _build_engine()
+    except Exception as exc:  # noqa: BLE001 - a missing model is every page failing, not the document
+        return failed_rows(page_nos, f"engine_unavailable: {type(exc).__name__}: {exc}")
     out: list[tuple] = []
     doc = {"sha256": sha256, "stored_path": stored_path}
     scale = settings.ocr_dpi / 72.0
@@ -430,6 +443,24 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
     return out
 
 
+def failed_page_reason(error: str) -> str:
+    """The exclusion-ledger reason for a page recognition failed on. One home:
+    the chunker writes it when it rebuilds the ledger, `_commit_batch` when a
+    round fails pages without a re-chunk following it."""
+    return f"recognition failed on this page: {error}"
+
+
+def failed_rows(page_nos: list[int], reason: str) -> list[tuple]:
+    """`recognise_batch`'s row shape for pages recognition could not run on.
+
+    Stored by `_commit_batch` as consumed-and-failed (empty text, `error` set),
+    so the ledger reports each page as `ocr_failed` with `reason` and the
+    document goes on without them. Never document text: the reason is an
+    exception type and message about the engine or the worker.
+    """
+    return [(p, "", None, None, 0, 0, 0.0, 0, "", reason[:500]) for p in page_nos]
+
+
 # ------------------------------------------------------------------ stage
 
 def pending_pages(doc_id: str) -> list[int]:
@@ -451,9 +482,9 @@ def pending_pages(doc_id: str) -> list[int]:
     return [r["page_no"] for r in rows]
 
 
-def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
+def _commit_batch(doc_id: str, batch_no: int,
                   rows: list[tuple], model: str) -> dict:
-    """Persist one batch and advance the checkpoint atomically.
+    """Persist one batch and the document's recognised-page count atomically.
 
     A page whose recognition raised is stored too - empty text, `error` set -
     so it is CONSUMED: `pending_pages` no longer returns it, the ledger shows
@@ -467,10 +498,12 @@ def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
     conn = connect()
     now = _now()
     payload = []
+    failed_pages = []
     with_text = failed = 0
     for (pno, text, mean_c, min_c, boxes, low_conf, secs, viol, sample, err) in rows:
         if err is not None:
             failed += 1
+            failed_pages.append((failed_page_reason(err), doc_id, pno))
             text, mean_c, min_c, boxes, low_conf, viol, sample = "", None, None, 0, 0, 0, ""
         elif text.strip():
             with_text += 1
@@ -487,6 +520,16 @@ def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 payload,
             )
+        # THE EXCLUSION LEDGER TOO. A round that only FAILED pages is not
+        # followed by a re-chunk (nothing new to chunk), so the rows the last
+        # chunk pass wrote would keep saying "recognition has not run" about
+        # pages it ran on and failed. Corrected in place, with the reason.
+        conn.executemany(
+            "UPDATE exclusions SET rule = 'ocr_failed', reason = ?"
+            " WHERE document_id = ? AND scope = 'page' AND page_start = ?"
+            " AND rule = 'ocr_not_run'",
+            failed_pages,
+        )
         # Only pages that actually produced text count as recognised. A blank
         # page is not a recognised page, and conflating them would put a false
         # number on the document record.
@@ -496,10 +539,6 @@ def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
         ).fetchone()["c"]
         conn.execute(
             "UPDATE documents SET recognised_pages = ? WHERE id = ?", (n, doc_id))
-        if job_id is not None:
-            conn.execute(
-                "UPDATE jobs SET last_completed_batch = ?, updated_at = ? WHERE id = ?",
-                (batch_no, now, job_id))
     return {"stored": len(payload) - failed, "with_text": with_text, "failed": failed}
 
 
@@ -560,22 +599,44 @@ def recognise_document(doc_id: str, progress=None, max_pages: int | None = None)
     model = model_signature()
     recognised = with_text = failed = 0
 
-    with cf.ProcessPoolExecutor(max_workers=settings.ocr_processes) as pool:
-        inflight: dict[int, cf.Future] = {}
-        queue = list(enumerate(batches))
-        while queue or inflight:
-            while queue and len(inflight) < settings.ocr_processes:
-                bno, pages = queue.pop(0)
-                inflight[bno] = pool.submit(
-                    recognise_batch, doc["stored_path"], doc["sha256"], pages)
-            nxt = min(inflight)
-            rows = inflight.pop(nxt).result()
-            counts = _commit_batch(doc_id, None, nxt, rows, model)
-            recognised += counts["stored"]
-            with_text += counts["with_text"]
-            failed += counts["failed"]
-            if progress:
-                progress(recognised, len(todo))
+    queue = list(enumerate(batches))
+    while queue:
+        # A killed worker breaks the WHOLE pool: every in-flight future then
+        # raises BrokenProcessPool and every later submit is refused. So the
+        # batches that were in flight are recorded as failed and the rest go
+        # to a fresh pool - one dead child costs the pages it held, never the
+        # document.
+        with cf.ProcessPoolExecutor(max_workers=settings.ocr_processes) as pool:
+            inflight: dict[int, tuple[list[int], cf.Future]] = {}
+            broken = False
+            while (queue and not broken) or inflight:
+                while queue and not broken and len(inflight) < settings.ocr_processes:
+                    bno, pages = queue.pop(0)
+                    try:
+                        future = pool.submit(
+                            recognise_batch, doc["stored_path"], doc["sha256"], pages)
+                    except cf.BrokenExecutor as exc:
+                        # refused outright: this batch is recorded as failed
+                        # below, so even a pool that never starts makes progress
+                        broken = True
+                        future = cf.Future()
+                        future.set_exception(exc)
+                    inflight[bno] = (pages, future)
+                nxt = min(inflight)
+                pages, future = inflight.pop(nxt)
+                try:
+                    rows = future.result()
+                except Exception as exc:  # noqa: BLE001 - the worker, not the document, failed
+                    if isinstance(exc, cf.BrokenExecutor):
+                        broken = True
+                    rows = failed_rows(
+                        pages, f"worker_failed: {type(exc).__name__}: {exc}")
+                counts = _commit_batch(doc_id, nxt, rows, model)
+                recognised += counts["stored"]
+                with_text += counts["with_text"]
+                failed += counts["failed"]
+                if progress:
+                    progress(recognised, len(todo))
 
     remaining = len(pending_pages(doc_id))
     stats = conn.execute(

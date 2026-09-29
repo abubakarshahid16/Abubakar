@@ -102,7 +102,10 @@ from whatever state it is currently in (`app/ingest.py:389`) - the same
 method the test suite calls directly (e.g. `tests/test_correctness_fixes.py`'s
 `upload()` helper), not a simulation of the worker. This is the step with the
 real, currently-unmeasured cost: keyword indexing plus re-embedding every
-chunk in the corpus.
+chunk in the corpus. (Since 2026-09-30 a re-chunk keeps a vector whose chunk
+id, section and heading chain are unchanged; for the CHUNKER_VERSION 8
+re-process that is still nearly every chunk, because the chain goes from NULL
+to set and every heading-v1 vector is upgraded - so the estimate stands.)
 
 **Step 4 - re-run the calibration against the reindexed copy:**
 ```powershell
