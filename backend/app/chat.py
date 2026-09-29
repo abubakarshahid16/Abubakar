@@ -532,19 +532,24 @@ def _insert_message(conn, conversation_id: str, **fields) -> dict:
     now = _now()
     mid = f"msg_{uuid.uuid4().hex[:12]}"
     with conn:
-        ordinal = conn.execute(
-            "SELECT COALESCE(MAX(ordinal), 0) + 1 FROM messages WHERE conversation_id = ?",
-            (conversation_id,),
-        ).fetchone()[0]
+        # THE NEXT ORDINAL IS CHOSEN INSIDE THE INSERT, NOT BEFORE IT. It used
+        # to be read by a SELECT that ran before the INSERT took the write
+        # lock, so two requests in one conversation could both read the same
+        # MAX(ordinal) and the second INSERT failed the (conversation_id,
+        # ordinal) unique index - HTTP 500 at 20 concurrent engineers, and
+        # when it hit the answer turn the question was left without its
+        # answer (scripts/load_test.py, 2026-09-29). One INSERT ... SELECT is
+        # one write statement: SQLite holds the write lock from the read of
+        # MAX to the insert, so no other writer can take the same number.
         conn.execute(
             """INSERT INTO messages
                  (id, conversation_id, ordinal, role, text, resolved_question,
                   carried_terms, answer_type, reason, explains_id, payload, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               SELECT ?, ?, COALESCE(MAX(ordinal), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?
+               FROM messages WHERE conversation_id = ?""",
             (
                 mid,
                 conversation_id,
-                ordinal,
                 fields["role"],
                 fields.get("text"),
                 fields.get("resolved_question"),
@@ -554,6 +559,7 @@ def _insert_message(conn, conversation_id: str, **fields) -> dict:
                 fields.get("explains_id"),
                 json.dumps(fields["payload"]) if fields.get("payload") is not None else None,
                 now,
+                conversation_id,
             ),
         )
         conn.execute(
