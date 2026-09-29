@@ -1456,14 +1456,59 @@ def _pop_caption(buf: list[str], accept, most: int) -> list[str]:
     return taken
 
 
+#: A heading number whose depth can be read: "4", "4.2", "4.2.1", "A.1".
+_CHAIN_NUMBER = re.compile(r"^(?:[A-Z]\.)?\d+(?:\.\d+)*\.?$")
+
+
 def segment_document(
     pages: list[tuple[int, str]],
     running: set[str],
     page_kinds: dict[int, str] | None = None,
+    paths_out: dict[str, str | None] | None = None,
 ) -> tuple[list[Block], int]:
-    """Flatten pages into blocks, carrying heading state across page boundaries."""
+    """Flatten pages into blocks, carrying heading state across page boundaries.
+
+    `paths_out`, when given, receives the HEADING CHAIN of every section this
+    document sets: "4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1". A
+    chunk's `section` is only the nearest heading - for a numbered
+    requirement only its number - so "4.2.1" alone never said that the clause
+    is about pipes larger than 2 inch, and a question about a 6 inch pipe had
+    nothing to match it on. The chain is written to `chunks.context` and used
+    ONLY to index the chunk (keyword and embedding); the chunk's text, which
+    every answer and CRS row quotes, is never changed. A section string that
+    two different chains set (a clause number reused in an annex) maps to
+    None: no context is better than the wrong one.
+    """
     blocks: list[Block] = []
     section: str | None = None
+    #: (heading number, label) from the outermost heading in force inwards.
+    chain: list[tuple[str, str]] = []
+    paths: dict[str, str | None] = paths_out if paths_out is not None else {}
+
+    def enter(label: str, number: str, key: str) -> None:
+        """Record where `key` (the section just set) sits in the document.
+
+        A numbered heading keeps only the headings whose number is a dotted
+        PREFIX of its own: "4.2.2" sits under "4.2" and "4", never under an
+        "8.2" that happened to come before it on an earlier page. Depth alone
+        was not enough - measured on a synthetic page, "4.4 Ambient
+        conditions" was filed under "8 Thermally sprayed metallic coatings".
+        An unnumbered heading ("GENERAL REQUIREMENTS") starts a new chain,
+        and a numbered one drops it: nothing can be assumed to still apply.
+        """
+        label = " ".join(label.split())
+        if _CHAIN_NUMBER.match(number):
+            own = number.rstrip(".")
+            chain[:] = [(n, text) for n, text in chain
+                        if n and own != n and own.startswith(n + ".")]
+            chain.append((own, label))
+        else:
+            chain[:] = [("", label)]
+        path = " > ".join(text for _, text in chain)
+        if key in paths and paths[key] != path:
+            paths[key] = None
+        else:
+            paths[key] = path
     removed_total = 0
     #: The highest top-level clause number accepted so far. Clause numbering
     #: only increases through a document, so anything at or below this is a
@@ -1721,6 +1766,7 @@ def segment_document(
                 settle_heading()
                 if not contents_page:
                     section = _heading_number(head)
+                    enter(section, section, section)
                 buf.extend(lines[i:i + consumed])
                 i += consumed
                 continue
@@ -1736,6 +1782,7 @@ def segment_document(
                 else:
                     # heading state persists across pages until the next heading
                     section = head
+                    enter(head, _heading_number(head), head)
                     pending_heading = (lines[i:i + consumed], page_no, head)
                     pending_mark = len(blocks)
                 i += consumed
@@ -2269,7 +2316,11 @@ def chunk_id(doc_sha: str, page_start: int, ordinal: int, chash: str) -> str:
 #: numbered requirements keep their clause; sentences joined across page
 #: breaks; line-break hyphens repaired; runts merged below 40 tokens;
 #: duplicate chunks in one section kept once for search.
-CHUNKER_VERSION = "7"
+#:
+#: 8 (2026-09-30, context notes): every chunk records its heading chain in
+#: `chunks.context` ("4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1"),
+#: used only to index it. Chunk text and chunk ids are unchanged.
+CHUNKER_VERSION = "8"
 
 
 def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]],
@@ -2458,7 +2509,8 @@ def chunk_document(doc_id: str, force: bool = False,
     # BEFORE segmentation, so no cell is read as a heading, stripped as a
     # running line, or published twice (as the table and as shredded prose).
     masked = mask_tables(pages, _decode_tables(raw_tables), running)
-    blocks, removed = segment_document(masked, running, page_kinds)
+    paths: dict[str, str | None] = {}
+    blocks, removed = segment_document(masked, running, page_kinds, paths_out=paths)
     chunks = build_chunks(blocks, document_vocabulary(pages))
 
     ceiling = settings.chunk_max_tokens
@@ -2522,6 +2574,7 @@ def chunk_document(doc_id: str, force: bool = False,
                      else None)),
                 *chunk_provenance(c.page_start, c.page_end, recognised_pages,
                                   page_conf, page_viol),
+                paths.get(c.section) if c.section else None,
             )
         )
 
@@ -2697,8 +2750,8 @@ def chunk_document(doc_id: str, force: bool = False,
                (id, document_id, filename, ordinal, page_start, page_end,
                 section, parent_id, kind, text, token_count, content_hash,
                 retrievable, quality_flags, text_source, ocr_min_conf,
-                ocr_alphabet_violations, ocr_alphabet_sample)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ocr_alphabet_violations, ocr_alphabet_sample, context)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         # chunk_count is the RETRIEVABLE count - what search can actually see.

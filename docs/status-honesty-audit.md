@@ -1645,3 +1645,26 @@ reverted). Nothing here was run against the live database.
    Either a CI gate checks it on every PR, or it is found later by someone reading for
    something else - as this one was. `.githooks/client-identifiers.local` existing and
    being populated is the difference between those two, and it does not exist yet.
+
+## Entry 83, 2026-09-30: "old chunks are detected stale" - the mutation meant to prove it never could
+
+- **83 - M1240 ("CHUNKER_VERSION not bumped: old chunks are not detected stale") was
+  NOT DETECTED, and could not be.** Its target,
+  `test_chunking_quality.py::test_chunks_from_the_previous_chunker_are_stale`,
+  computes a signature with `CHUNKER_VERSION - 1` and asserts it differs from the
+  stored one. Whatever number the file holds, that number minus one differs from it,
+  so the test passes when the version is NOT bumped - exactly the defect M1240
+  describes. Measured 2026-09-30 by running the harness on `main` (`fa4bd28`):
+  `M1240 [NOT DETECTED] ... 1 passed`. The entry was re-anchored from "6" to "7" in
+  `fix/chunking-last-lines` (Cowork, 2026-09-29) without the record showing it was
+  re-run and detected. Found while bumping the version to 8 for context notes.
+  Fixed in `feat/context-notes-and-tables`: a new test pins the floor the feature
+  needs (`int(CHUNKER_VERSION) >= 8` - a chunk made before the chain existed must
+  read as stale), M1240 re-targeted to it and re-run: DETECTED. The old test is kept:
+  it still proves the signature carries the version.
+
+### The rule this produces
+
+32. **A mutation re-anchored is a mutation not yet proven.** Changing an anchor or a
+   replacement is a new claim; run `scripts/mutation_check.py --only <id>` and record
+   DETECTED before saying it holds.

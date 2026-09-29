@@ -158,7 +158,12 @@ CREATE TABLE IF NOT EXISTS chunks (
     -- a substitution rather than an opinion about one: two chunks can both sit
     -- at 0.95 confidence and one of them contains a CJK ideograph.
     ocr_alphabet_violations INTEGER NOT NULL DEFAULT 0,
-    ocr_alphabet_sample     TEXT
+    ocr_alphabet_sample     TEXT,
+    -- Where the chunk sits: its heading chain ("4 Piping > 4.2 Pipes larger
+    -- than 2 inch > 4.2.1"). INDEX-ONLY - keyword and embedding input, never
+    -- quoted. NULL for chunks made before CHUNKER_VERSION 8, and for a
+    -- section two different chains set (chunker.segment_document).
+    context                 TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chunk_vectors (
@@ -1147,6 +1152,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
                      " INTEGER NOT NULL DEFAULT 0")
     if have and "ocr_alphabet_sample" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN ocr_alphabet_sample TEXT")
+    if have and "context" not in have:
+        add_column_if_missing(conn, "chunks", "context", "TEXT")
     if docs and "recognised_pages" not in docs:
         # A count, not a boolean, matching needs_ocr_pages and equation_pages.
         # A 546-page document with 12 recognised pages must never read as

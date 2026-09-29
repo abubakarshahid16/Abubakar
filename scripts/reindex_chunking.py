@@ -11,6 +11,10 @@ Version 6 (2026-09-29): a heading with nothing under it, and the heading lines
 of a contents page, are kept in chunk text instead of nowhere. Same script.
 Version 7 (2026-09-29): a table read as all header, and a note inside a table's
 border in no cell, are kept too. Same script.
+Version 8 (2026-09-30): each chunk records its heading chain (`chunks.context`)
+for the keyword index, the embedder and the reranker. Chunk text and ids are
+unchanged; the documents' vectors are re-embedded when the worker processes
+them. Same script.
 
 WHAT "STALE" MEANS: `documents.chunk_signature` differs from the signature the
 current chunker computes (`chunker.is_stale`) - an older CHUNKER_VERSION, or

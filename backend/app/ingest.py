@@ -25,7 +25,7 @@ from .db import connect
 from . import keyword
 from . import ocr
 from .extract import extract_document
-from .embedder import Embedder, EmbedderConfig, embedding_tag
+from .embedder import Embedder, EmbedderConfig, embedding_tag, searchable_tags
 
 # A worker with no heartbeat for this long has died or hung.
 STALL_AFTER_SECONDS = 120
@@ -85,6 +85,24 @@ def _stuck_reason(conn, doc_id: str, row, status: str) -> str:
     except Exception:  # noqa: BLE001 - a diagnostic must never mask the failure
         pass
     return detail
+
+
+def _tag_marks() -> str:
+    """SQL placeholders for `searchable_tags()` - one per tag."""
+    return ",".join("?" * len(searchable_tags()))
+
+
+def _passage_text(embedder, row) -> str:
+    """What one chunk is embedded from (context-v1): its heading chain and
+    body; the section and body when the chain would push the input over the
+    model's limit; the body alone when even that would. Never a cut body."""
+    body = row["text"]
+    chain = row["context"] if "context" in row.keys() else None
+    if chain:
+        text = embedder.passage_input(chain, body)
+        if text != body:
+            return text
+    return embedder.passage_input(row["section"], body)
 
 
 class IngestionWorker:
@@ -613,11 +631,13 @@ class IngestionWorker:
         A vector whose `model` tag is not today's `embedding_tag()` is STALE
         (another model, or another input format) and is re-embedded here: the
         vector store already leaves it out of dense search, so without this
-        the chunk would be keyword-only for ever (P2-11).
+        the chunk would be keyword-only for ever (P2-11). A LEGACY input
+        format of the same model (`searchable_tags`) is still searched, and
+        is upgraded here too - the only place it ever is.
         """
         conn = connect()
         rows = conn.execute(
-            """SELECT c.id, c.section, c.text FROM chunks c
+            """SELECT c.id, c.section, c.context, c.text FROM chunks c
                LEFT JOIN chunk_vectors v ON v.chunk_id = c.id
                WHERE c.document_id = ? AND c.retrievable = 1
                  AND (v.chunk_id IS NULL OR v.model IS NOT ?)
@@ -639,8 +659,10 @@ class IngestionWorker:
             window = rows[start:start + batch]
             # B6B E1: heading + body, never the body cut for the heading -
             # see Embedder.passage_input. The stored chunk text is untouched.
+            # context-v1: the heading is the chunk's heading chain when it has
+            # one; if the chain would not fit, the section alone, as before.
             vectors = embedder.embed_passages(
-                [embedder.passage_input(r["section"], r["text"]) for r in window])
+                [_passage_text(embedder, r) for r in window])
             with conn:
                 conn.executemany(
                     """INSERT OR REPLACE INTO chunk_vectors
@@ -653,12 +675,12 @@ class IngestionWorker:
                     ],
                 )
                 conn.execute(
-                    """UPDATE documents SET embedded_count =
+                    f"""UPDATE documents SET embedded_count =
                        (SELECT COUNT(*) FROM chunk_vectors v
                         JOIN chunks c ON c.id = v.chunk_id
-                        WHERE v.document_id = ? AND v.model = ?)
+                        WHERE v.document_id = ? AND v.model IN ({_tag_marks()}))
                        WHERE id = ?""",
-                    (doc_id, embedding_tag(), doc_id),
+                    (doc_id, *searchable_tags(), doc_id),
                 )
             done += len(window)
             now = time.time()
@@ -740,10 +762,10 @@ class IngestionWorker:
         """
         conn = connect()
         actual = conn.execute(
-            """SELECT COUNT(*) FROM chunk_vectors v
+            f"""SELECT COUNT(*) FROM chunk_vectors v
                JOIN chunks c ON c.id = v.chunk_id
-               WHERE v.document_id = ? AND v.model = ?""",
-            (doc_id, embedding_tag()),
+               WHERE v.document_id = ? AND v.model IN ({_tag_marks()})""",
+            (doc_id, *searchable_tags()),
         ).fetchone()[0]
         with conn:
             conn.execute(
@@ -788,13 +810,13 @@ class IngestionWorker:
                 # we expect, so the terminal stamp can never be applied on the
                 # strength of a count that changed underneath it.
                 conn.execute(
-                    """UPDATE documents SET
+                    f"""UPDATE documents SET
                          embedded_count = (SELECT COUNT(*) FROM chunk_vectors v
                                            JOIN chunks c ON c.id = v.chunk_id
-                                           WHERE v.document_id = ? AND v.model = ?),
+                                           WHERE v.document_id = ? AND v.model IN ({_tag_marks()})),
                          status = ?, indexed_at = ?
                        WHERE id = ? AND status = ?""",
-                    (doc_id, embedding_tag(), states.READY, _now(), doc_id,
+                    (doc_id, *searchable_tags(), states.READY, _now(), doc_id,
                      states.PARTIALLY_SEARCHABLE),
                 )
                 conn.execute(

@@ -178,12 +178,21 @@ class Candidate:
     #: Distance below the winner as a fraction of the whole field's spread.
     #: None when the field is too small for the fraction to mean anything.
     separation: float | None = None
+    #: The chunk's heading chain (`chunks.context`, CHUNKER_VERSION 8): where
+    #: it sits, e.g. "4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1". Used
+    #: only for matching and reranking; never shown or quoted.
+    context: str | None = None
 
     @property
     def searchable_text(self) -> str:
         """Heading plus body. What the passage actually is, for matching and
-        reranking - the heading carries the clause number and designator."""
-        return self.section + "\n" + self.text if self.section else self.text
+        reranking - the heading carries the clause number and designator.
+
+        The heading is the chunk's heading CHAIN when it has one (it ends
+        with the section itself), so a clause filed only as "4.2.1" is read
+        with the "4.2 Pipes larger than 2 inch" above it."""
+        heading = self.context or self.section
+        return heading + "\n" + self.text if heading else self.text
 
     @property
     def score(self) -> float:
@@ -724,7 +733,7 @@ def _hydrate(chunk_ids: list[str]) -> dict[str, sqlite3.Row]:
     rows = conn.execute(
         f"""SELECT id, document_id, filename, section, page_start, page_end,
                    text, retrievable, text_source, ocr_min_conf,
-                   ocr_alphabet_violations, ocr_alphabet_sample
+                   ocr_alphabet_violations, ocr_alphabet_sample, context
             FROM chunks WHERE id IN ({marks})""",
         chunk_ids,
     ).fetchall()
@@ -1003,6 +1012,9 @@ def search(
                 ocr_min_conf=row["ocr_min_conf"],
                 ocr_alphabet_violations=row["ocr_alphabet_violations"] or 0,
                 ocr_alphabet_sample=row["ocr_alphabet_sample"],
+                # rows from a caller that selects no context (older fakes,
+                # older databases) simply carry none
+                context=row["context"] if "context" in row.keys() else None,
                 keyword_rank=meta.get("keyword_rank"),
                 dense_rank=meta.get("dense_rank"),
                 bm25=meta.get("bm25"),
