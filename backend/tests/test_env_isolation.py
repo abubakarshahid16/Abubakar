@@ -216,8 +216,11 @@ def test_every_risky_setting_is_classified():
     unclassified = sorted(f for f in fields if pattern.search(f) and f not in classified)
     assert unclassified == [], f"classify these in env_isolation: {unclassified}"
     # The safe value IS the code default: a default flipped on is caught here.
+    # A OneOf entry's FIRST value is the code default; the others are values
+    # the test configuration itself sets (`allowed_hosts` <- "testserver").
     for name, safe in env_isolation.EGRESS_SAFE.items():
-        assert Settings.model_fields[name].default == safe, name
+        default = safe[0] if isinstance(safe, env_isolation.OneOf) else safe
+        assert Settings.model_fields[name].default == default, name
 
 
 # ------------------------------------------------------------ network guard

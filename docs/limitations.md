@@ -471,6 +471,14 @@ Corrected 2026-09-30 after an audit of the CRS path (`backend/tests/test_audit_c
   - Required status checks before merge
   - GitHub Advanced Security secret scanning
 - Compensating controls are in place: gitleaks in CI **and** as a pre-commit hook, plus a CI guard rejecting client documents. These are verified by deliberate failure tests.
+  - **Corrected 2026-09-30.** The CI guard checked file EXTENSIONS only, and its synthetic-fixture exception (`^tests/fixtures/synthetic/`) matched nothing because the tests live under `backend/`. It now also fails a pull request or push that ADDS a client-identifier-shaped token (`scripts/check_client_identifiers.py`, patterns in `.github/client-identifier-patterns.txt`). **Limits, stated:** it scans the diff only, so identifiers ALREADY tracked (screenshots, CSV, JSON - pending the owner's history clean-up) are not reported; the tracked patterns are generic SHAPES (equipment tags, document and datasheet numbers), because a tracked list of the client's names would publish them - the names are checked only on a machine holding `.githooks/client-identifiers.local`, never in CI; binary files (images, PDFs) are not read at all.
+  - gitleaks allowlisted the WHOLE of `.env.example`, so a real key pasted into it was invisible (verified with gitleaks 8.30.1 and a planted key). Only its empty `KEY=` placeholder lines are allowlisted now.
+- **Access-control hardening, 2026-09-30** (tests in `backend/tests/test_access_audit_security.py`):
+  - The API refuses any `Host` header other than localhost, 127.0.0.1, ::1, a named `HOST`, or a name listed in `ALLOWED_HOSTS` (DNS rebinding). The server refuses to START with a non-loopback `HOST` under `AUTH_MODE=disabled` unless `ALLOW_UNAUTHENTICATED_NETWORK_BIND=true`.
+  - `/docs`, `/redoc` and `/openapi.json` answer 404 unless `AUTH_MODE=disabled` or `API_DOCS_ENABLED=true`.
+  - The summary schedule, escalation rules, baseline rules and review templates are global settings and need the admin capability (their only UI is the admin screen, `AdminView.tsx`; the server now agrees with it). A non-admin calling the API directly gets the admin surface's silent 404.
+  - A password reset (issued by an admin, and again when redeemed) ends every session the user had.
+  - Still open, not addressed here: `POST /api/risks` does not check `source_finding_id` against the caller's scope; rate limits exist only for login.
 - "No document content leaves the machine" reduces exfiltration exposure. It does **not** remove malicious-PDF, local-account, disk-theft, dependency, or privilege-escalation risk.
 - **The client's security architecture and data-classification review remains a production gate.**
 

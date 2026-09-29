@@ -254,6 +254,50 @@ from . import claude_api as claude_api_mod  # noqa: E402
 app.include_router(claude_api_mod.router)
 
 
+#: The interactive API description. A map of every route, every parameter and
+#: every error code - useful on a developer's machine, reconnaissance anywhere
+#: else. `docs_url` is fixed when FastAPI() is built, and the auth mode can be
+#: changed afterwards (the tests do), so this is decided per request.
+_API_DOC_PATHS = frozenset({"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"})
+
+
+def _api_docs_served() -> bool:
+    return settings.auth_mode == access.AUTH_DISABLED or settings.api_docs_enabled
+
+
+@app.middleware("http")
+async def api_docs_gate(request: Request, call_next):
+    """404 for /docs, /redoc and /openapi.json unless `_api_docs_served()`.
+
+    The same 404 an unknown route gets, so the answer does not say the
+    description exists. `app.openapi()` in-process is unaffected."""
+    if request.url.path in _API_DOC_PATHS and not _api_docs_served():
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def trusted_host_gate(request: Request, call_next):
+    """Refuse any Host header this server was not configured to answer to.
+
+    DNS REBINDING (audit 2026-09-30): a page on a hostile domain re-points its
+    own name at 127.0.0.1 and reads this API as same-origin, so CORS never
+    applies - and under AUTH_MODE=disabled every document is served. The
+    browser still sends the hostile name in `Host`, which is what this checks.
+    The set is read per request (`config.trusted_host_names`), so a test can
+    change it and the Vite dev proxy - which forwards the browser's own
+    `127.0.0.1:5173` / `localhost:5173` - passes unchanged.
+
+    Registered AFTER `api_docs_gate`, so Starlette runs it FIRST.
+    """
+    from .config import host_header_name, trusted_host_names
+
+    if host_header_name(request.headers.get("host", "")) not in trusted_host_names(settings):
+        return JSONResponse(status_code=400, content={"detail": errors.safe_error(
+            errors.INVALID_PARAMETER, "this server does not answer to that host name")})
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     """Minimal hardening. The server banner is noise an attacker does not need."""
@@ -1566,8 +1610,13 @@ def list_review_templates(
 def create_review_template(
     body: schemas.ReviewTemplateCreate,
     scope: access.AccessScope = Depends(access.current_scope),
+    _actor: dict | None = Depends(admin_mod.current_admin),
 ):
-    """Register a client-approved review template; versions never overwrite."""
+    """Register a client-approved review template; versions never overwrite.
+
+    THE ADMIN CAPABILITY IS REQUIRED: a template governs every reviewer's
+    checklist, not only the author's.
+    """
     _require_identity_to_write(scope)
     return review_mod.create_template(body.model_dump(), created_by=scope.user_id)
 
@@ -1580,7 +1629,11 @@ def list_review_baseline_rules(scope: access.AccessScope = Depends(access.curren
 @app.post("/api/reviews/baseline-rules", response_model=schemas.ReviewBaselineRule,
           responses=schemas.ERRORS_401)
 def create_review_baseline_rule(body: schemas.ReviewBaselineRuleCreate,
-                                scope: access.AccessScope = Depends(access.current_scope)):
+                                scope: access.AccessScope = Depends(access.current_scope),
+                                _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     payload = body.model_dump()
     return review_mod.create_baseline_rule(payload)
@@ -1589,7 +1642,11 @@ def create_review_baseline_rule(body: schemas.ReviewBaselineRuleCreate,
 @app.patch("/api/reviews/baseline-rules/{rule_id}", response_model=schemas.ReviewBaselineRule,
            responses=schemas.ERRORS_404)
 def update_review_baseline_rule(rule_id: str, body: schemas.ReviewBaselineRuleCreate,
-                                scope: access.AccessScope = Depends(access.current_scope)):
+                                scope: access.AccessScope = Depends(access.current_scope),
+                                _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     item = review_mod.update_baseline_rule(rule_id, body.model_dump())
     if item is None:
@@ -2309,10 +2366,30 @@ def finding_traceability(finding_id: str, scope: access.AccessScope = Depends(ac
     return item
 
 
-@app.post("/api/risks", response_model=schemas.Risk)
+@app.post("/api/risks", response_model=schemas.Risk,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(access.current_scope)):
+    """Record a risk. The same rules as every other writer (audit 2026-09-30):
+
+    an identity is required, anything it points at must be readable by the
+    caller (a risk on a hidden document or deliverable is a write into
+    somebody else's record), and an ordinary user may only name themselves as
+    owner. Length limits live on `schemas.RiskCreate`.
+    """
+    _require_identity_to_write(scope)
     if body.risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
+    if body.document_id:
+        require_document(body.document_id, scope)
+    if body.deliverable_id:
+        linked = deliverables_mod.get(body.deliverable_id)
+        if linked is None or (linked.get("document_id")
+                              and not scope.may_read(linked["document_id"])):
+            raise HTTPException(status_code=404, detail=errors.safe_error(
+                errors.NOT_FOUND, "no deliverable with that id"))
+    if body.owner_user_id and not scope.is_admin and body.owner_user_id != scope.user_id:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "risk owner not found"))
     return risks_mod.create(body.model_dump())
 
 
@@ -2333,6 +2410,14 @@ def create_deliverable(body: schemas.DeliverableCreate,
 def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
                        scope: access.AccessScope = Depends(access.current_scope)):
     _require_identity_to_write(scope)
+    # AUTHORISE BEFORE WRITING. The read check used to run on the row
+    # `update` RETURNED, so a caller without a grant on the deliverable's
+    # document got a 404 while their change had already been committed
+    # (audit 2026-09-30). The existing row is checked first, then written.
+    existing = deliverables_mod.get(deliverable_id)
+    if existing is None or (existing.get("document_id")
+                            and not scope.may_read(existing["document_id"])):
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     changes = body.model_dump(exclude_unset=True)
     if changes.get("document_id"):
         require_document(changes["document_id"], scope)
@@ -2451,7 +2536,12 @@ def get_summary_schedule(scope: access.AccessScope = Depends(access.current_scop
 
 
 @app.put("/api/management/summary/schedule", response_model=schemas.SummarySchedule)
-def set_summary_schedule(body: schemas.SummarySchedule, scope: access.AccessScope = Depends(access.current_scope)):
+def set_summary_schedule(body: schemas.SummarySchedule,
+                         scope: access.AccessScope = Depends(access.current_scope),
+                         _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     settings.summary_schedule = body.schedule
     settings.summary_weekday_utc = body.weekday_utc
@@ -2475,7 +2565,11 @@ def management_report(scope: access.AccessScope = Depends(access.current_scope))
 @app.put("/api/management/escalation-rules/{level}", response_model=schemas.EscalationRule,
          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def update_escalation_rule(level: int, body: schemas.EscalationRule,
-                           scope: access.AccessScope = Depends(access.current_scope)):
+                           scope: access.AccessScope = Depends(access.current_scope),
+                           _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     item = deliverables_mod.update_escalation_rule(level, body.model_dump(exclude={"level"}))
     if item is None:

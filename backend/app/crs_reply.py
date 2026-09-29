@@ -44,6 +44,22 @@ def read_replies(data: bytes) -> list[dict]:
     file is not a workbook or has no recognisable header."""
     import openpyxl
 
+    from .upload import UploadError, validate_xlsx
+
+    # THE UPLOAD LIMITS, BEFORE openpyxl DECOMPRESSES ANYTHING. The 10 MB cap
+    # on the request is a cap on COMPRESSED bytes; a zip that declares
+    # gigabytes of XML fits in it. `validate_xlsx` reads only the central
+    # directory and refuses too many parts, too large a declared expansion,
+    # macros and non-workbooks (audit 2026-09-30).
+    try:
+        validate_xlsx(io.BytesIO(data))
+    except UploadError as exc:
+        # `not_pdf` is the upload route's word for "not a zip at all"; here
+        # the only thing expected was a workbook.
+        raise ReplySheetError(
+            "the file is not a readable .xlsx workbook" if exc.code == "not_pdf"
+            else exc.message) from exc
+
     try:
         workbook = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 - any parse failure is "not a workbook"
