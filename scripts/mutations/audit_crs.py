@@ -59,8 +59,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="never_lent_to_another_tag", tags=("honesty", "critical")),
     # 4. "Label : value" one per line
     Mutation(id="M1439", phase=_P, description="a 'Label : value' line is paired with the next line",
-             path=APP / "datasheets.py", anchor="            own = _self_contained_pair(line)\n",
-             replacement="            own = None\n",
+             path=APP / "datasheets.py", anchor="            own = (_self_contained_pair(line)\n",
+             replacement="            own = (None and _self_contained_pair(line)\n",
              target=_T, keyword="one_field_per_line", tags=("critical",)),
     # 5. export safety and a truthful rationale
     Mutation(id="M1440", phase=_P, description="a string beginning '=' is written as a formula",

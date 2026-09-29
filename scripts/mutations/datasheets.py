@@ -831,8 +831,8 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "unlabelled cell again (issue #179, pump sheet recall)",
         path=APP / "datasheets.py",
         # Re-anchored 2026-09-30 (audit): blocks are read line by line.
-        anchor="                run.extend(split_drawn_slots(line))\n",
-        replacement="                run.append(line)\n",
+        anchor="            pieces = split_drawn_slots(line)\n",
+        replacement="            pieces = [line]\n",
         target="tests/test_179_layouts.py",
         keyword="each_drawn_slot_on_a_line_is_its_own_field",
         tags=("honesty",),
