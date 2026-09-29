@@ -27,6 +27,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { DocumentPreview } from "../components/DocumentPreview";
 import { MissingStandards } from "../components/standards/MissingStandards";
+import { StructuredReading } from "../components/standards/StructuredReading";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
 import type {
   ApiError, DocumentRecord, StandardRequirement, StandardSummary,
@@ -341,7 +342,10 @@ function RequirementsTab({
                   </span>
                 )}
               </div>
+              {/* The quoted clause stays the primary content; the structured
+                  reading below it is secondary and labelled a machine guess. */}
               <p className="mt-1">{row.requirement_text}</p>
+              <StructuredReading row={row} />
             </li>
           ))}
         </ul>
