@@ -433,7 +433,11 @@ CONDITION_OPTIONS = 3
 
 def _close_enough(hit: dict, first: dict) -> bool:
     """The rule `_second_passage` uses for "near the top": a fraction of the
-    query's own spread, or the measured absolute gap on a field too small."""
+    query's own spread, or the measured absolute gap on a field too small.
+    And ALWAYS above the credibility floor: a clause chosen by its condition
+    is quoted as the answer, so it must pass the gate the top one passed."""
+    if not _is_semantically_credible(hit):
+        return False
     apart = hit.get("separation")
     if apart is not None:
         return apart <= SUPPORTING_SEPARATION

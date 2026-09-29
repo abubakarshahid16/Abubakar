@@ -9,7 +9,7 @@ Now: the question names a condition -> the clause that holds under it answers.
 It names none -> every competing clause is shown with its condition and the
 reader is asked which applies. Values are never merged; none is guessed.
 
-Synthetic text only. Mutations M1407-M1415 (backend), M1416-M1418 (UI).
+Synthetic text only. Mutations M1407-M1415 and M1419-M1425 (backend), M1416-M1418 (UI).
 """
 from __future__ import annotations
 
@@ -245,3 +245,70 @@ def test_the_answer_quotes_the_clause_the_condition_chose(monkeypatch, plausible
     assert r["answer"] == LARGE["text"]
     assert r["condition_choice"]["mode"] == "matched"
     assert "c-small" in {p["chunk_id"] for p in r["supporting"]}
+
+
+# ------------------------------------- audit 2026-09-30: shapes that were misread
+
+@pytest.mark.parametrize(("question", "section"), [
+    ("larger than 2 inch", "4.3 Pipes larger than 2 inch"),
+    ("over 2 inch", "4.3 Pipes larger than 2 inch"),
+    ("above 2 inches", "4.3 Pipes larger than 2 inch"),
+    ("2 inch", "4.2 Pipes 2 inch and smaller"),
+])
+def test_a_question_stated_as_a_range_gets_the_clause_whose_range_contains_it(piping, question, section):
+    """Found by the audit: "larger than 2 inch" matched "2 inch and smaller"
+    through the shared endpoint 2 and quoted 3 mm. An open end is respected:
+    the question's interval must lie WHOLLY inside the clause's."""
+    r = answer_mod.answer(
+        f"what is the minimum wall thickness of carbon steel process pipe {question}",
+        allowed_document_ids=piping)
+    assert r["passage"]["section"] == section
+
+
+def _only(text: str, question: bool = False):
+    got = cc.extract(text, question=question)
+    assert len(got) == 1, got
+    return got[0]
+
+
+def test_a_mixed_fraction_is_one_size_not_a_range():
+    c = _only("1-1/2 inch pipe")
+    assert (c.low, c.high) == (1.5, 1.5)
+    assert cc.extract("pipes 1 inch and smaller")[0].holds_for(
+        _only("a 1-1/4 inch pipe", question=True)) is False
+
+
+def test_a_minus_sign_is_kept():
+    below = _only("below 0 °C")
+    assert below.holds_for(_only("at -30 °C", question=True))
+    assert not _only("0 to 100 °C").holds_for(_only("at -30 °C", question=True))
+    assert (_only("-20 to 60 °C").low, _only("below -29 °C").high) == (-20, -29)
+
+
+@pytest.mark.parametrize(("dn", "nps"), [(15, 0.5), (40, 1.5), (65, 2.5), (80, 3), (150, 6), (400, 16)])
+def test_dn_maps_to_nps_by_the_standard_table(dn, nps):
+    assert _only(f"a DN {dn} line", question=True).low == nps
+
+
+def test_an_nps_range_is_a_range():
+    c = _only("NPS 3 and larger")
+    assert (c.low, c.high) == (3, None)
+
+
+@pytest.mark.parametrize("text", [
+    "dry film thickness", "atmospheric pressure", "steam out the line", "weight 1500 lb",
+    "see Table 3 C", "wall thickness not less than 1/4 inch", "a maximum of 3 mm",
+    "SAES-L-310 applies",
+])
+def test_ordinary_words_and_values_are_not_conditions(text):
+    assert cc.extract(text) == []
+
+
+def test_a_value_in_the_question_does_not_become_a_second_size():
+    got = cc.extract("is 5 mm the minimum for a 6 inch pipe", question=True)
+    assert [(c.kind, c.text) for c in got] == [("size", "6 inch")]
+
+
+def test_a_rival_below_the_credibility_floor_never_answers(plausible):
+    weak = dict(LARGE, rerank_score=-5.0)
+    assert _choose("minimum wall thickness for a 6 inch process pipe", [SMALL, weak]) is None

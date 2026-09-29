@@ -30,38 +30,60 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-#: A number as specifications print it: 6, 0.5, 1/2, 1 1/2, 1-1/2, 150.
-_NUM = r"(\d+(?:[.,]\d+)?(?:[\s-]+\d+/\d+)?|\d+/\d+)"
+#: A number as specifications print it: 6, 0.5, -29, 1/2, 1 1/2, 1-1/2, 150.
+#: Never preceded by a letter, digit or point, so "SAES-L-310" yields no -310.
+#: A hyphen followed by a fraction is a mixed number ("1-1/2"), never a range.
+_N = r"(?<![\w.])-?\d+/\d+|(?<![\w.])-?\d+(?:[.,]\d+)?(?:(?:\s+|-)\d+/\d+(?![\d/]))?"
 
 _INCH = r"(?:inch(?:es)?\b|in\.(?=\s|$)|\"|”|″)"
 _MM = r"(?:mm\b|millimet(?:er|re)s?\b)"
-_DEG_C = r"(?:°\s*C\b|deg(?:rees?)?\.?\s*C\b|ºC\b|(?<=\d)\s*C\b)"
-_DEG_F = r"(?:°\s*F\b|deg(?:rees?)?\.?\s*F\b|ºF\b)"
-_PSI = r"(?:psig?\b)"
-_BAR = r"(?:barg?\b)"
-_KPA = r"(?:kpa\b)"
-_MPA = r"(?:mpa\b)"
+_DEG_C = r"(?:°\s*C\b|º\s*C\b|deg(?:rees?)?\.?\s*C\b|C\b)"
+_DEG_F = r"(?:°\s*F\b|º\s*F\b|deg(?:rees?)?\.?\s*F\b)"
+_PRESSURE = r"(?:psig?\b|barg?\b|kpa\b|mpa\b)"
 
 _ABOVE = r"(?:larger|greater|bigger|more|higher|over|above|exceeding|in excess of)"
 _BELOW = r"(?:smaller|less|lower|under|below|up to|not exceeding|not more than|maximum of|max\.?)"
 
-#: kind -> [(unit pattern, factor to the kind's base unit)]
-_UNITS: dict[str, list[tuple[str, float]]] = {
-    "size": [(_INCH, 1.0), (_MM, 1 / 25.4)],
-    "temperature": [(_DEG_C, 1.0), (_DEG_F, None)],   # F converted below
-    "pressure": [(_PSI, 1.0), (_BAR, 14.5038), (_KPA, 0.145038), (_MPA, 145.038)],
+#: One quantity of each kind, captured whole. Size also reads the prefix
+#: forms NPS 6 and DN 150.
+_Q = {
+    "size": rf"(?:\bnps\s*(?:{_N})|\bdn\s*\d{{2,4}}\b|(?:{_N})\s*-?\s*(?:{_INCH}|{_MM}))",
+    "temperature": rf"(?:(?:{_N})\s*(?:{_DEG_C}|{_DEG_F}))",
+    "pressure": rf"(?:(?:{_N})\s*{_PRESSURE})",
 }
 
-_BASE_UNIT = {"size": "in", "temperature": "°C", "pressure": "psi"}
+#: DN (nominal millimetres) to NPS (nominal inches) as ASME B36.10 pairs them.
+#: DN / 25 is only right from DN 350 up (NPS 14 and larger).
+_DN_TO_NPS = {6: 0.125, 8: 0.25, 10: 0.375, 15: 0.5, 20: 0.75, 25: 1, 32: 1.25, 40: 1.5,
+              50: 2, 65: 2.5, 80: 3, 90: 3.5, 100: 4, 125: 5, 150: 6, 200: 8, 250: 10,
+              300: 12}
 
-#: Named, closed vocabularies. Order matters only for display.
+#: Around a size, the words that make it a NOMINAL size - the case a clause
+#: applies to ("6 inch pipe", "pipes larger than 2 inch") - rather than a
+#: measured value ("thickness of 1/4 inch", "a gap of 3 mm").
+_NOMINAL = r"(?:pipes?|piping|lines?|nozzles?|valves?|flanges?|branch(?:es)?|fittings?|headers?|sizes?|diameters?|bore|nb|nps|dn|tubing|tubes?)"
+_NOMINAL_AFTER = re.compile(rf"^\s*(?:nominal\s+)?{_NOMINAL}\b", re.I)
+_NOMINAL_WORD = re.compile(rf"\b{_NOMINAL}\b", re.I)
+_MEASURE_WORD = re.compile(
+    r"\b(?:thick(?:ness)?|wall|gap|clearance|allowance|length|width|height|depth|distance"
+    r"|spacing|radius|overlap|weld|reinforcement|penetration|dft|coating|film|tolerance)\b", re.I)
+#: A bare "C" after a number is a temperature unless the number names a table,
+#: figure or clause ("Table 3 C").
+_NOT_A_TEMPERATURE = re.compile(
+    r"\b(?:table|figure|fig\.?|clause|section|annex|appendix|note|item|grade|class|type|part)\s*$", re.I)
+
+#: Named, closed vocabularies. A bare "wet"/"dry"/"steam"/"atmospheric" is not a
+#: service or location ("dry film thickness", "atmospheric pressure").
 _CATEGORIES: dict[str, list[tuple[str, str]]] = {
     "service": [
         (r"\bsour\b|\bh2s\b|\bhydrogen sulfide|\bhydrogen sulphide", "sour"),
         (r"\bsea ?water\b", "seawater"), (r"\bfresh ?water\b", "fresh water"),
-        (r"\bpotable water\b", "potable water"), (r"\bsteam\b", "steam"),
+        (r"\bpotable water\b", "potable water"),
+        (r"\bsteam (?:service|piping|lines?|systems?)\b", "steam"),
         (r"\bcaustic\b", "caustic"), (r"\bcryogenic\b", "cryogenic"),
-        (r"\bhydrogen service\b", "hydrogen"), (r"\bwet\b", "wet"), (r"\bdry\b", "dry"),
+        (r"\bhydrogen service\b", "hydrogen"),
+        (r"\bwet (?:service|gas|h2s|sour|environments?|conditions?)\b", "wet"),
+        (r"\bdry (?:service|gas|air|environments?|conditions?)\b", "dry"),
     ],
     "material": [
         (r"\bcarbon steel\b", "carbon steel"), (r"\blow[- ]alloy steel\b", "low-alloy steel"),
@@ -71,25 +93,28 @@ _CATEGORIES: dict[str, list[tuple[str, str]]] = {
     ],
     "location": [
         (r"\bburied\b|\bunderground\b", "buried"), (r"\bsubmerged\b|\bimmersed\b", "submerged"),
-        (r"\bsplash zone\b", "splash zone"), (r"\batmospheric\b", "atmospheric"),
+        (r"\bsplash zone\b", "splash zone"),
+        (r"\batmospheric (?:service|exposure|environments?|zones?|corrosion)\b", "atmospheric"),
         (r"\babove ?ground\b", "above ground"), (r"\bonshore\b", "onshore"),
         (r"\boffshore\b", "offshore"), (r"\bindoors?\b", "indoor"), (r"\boutdoors?\b", "outdoor"),
     ],
 }
 
-_CLASS = re.compile(r"\bclass\s*(\d{3,4})\b|\b(\d{3,4})\s*#|\b(\d{3,4})\s*lbs?\b", re.I)
+#: ASME pressure classes and PN ratings - a bare "1500 lb" is a weight.
+_CLASS = re.compile(r"\bclass\s*(\d{3,4})\b|(?<![\w.])(\d{3,4})\s*#", re.I)
 _PN = re.compile(r"\bpn\s*(\d{1,3})\b", re.I)
-_NPS = re.compile(r"\bnps\s*" + _NUM, re.I)
-_DN = re.compile(r"\bdn\s*(\d{2,4})\b", re.I)
+
+_EPS = 1e-6
 
 
 @dataclass(frozen=True)
 class Condition:
     """One condition, as written and as a comparable value.
 
-    Numeric kinds (size, temperature, pressure) carry a range in the kind's
-    base unit: `low`/`high` None mean unbounded, and `*_open` marks a strict
-    bound ("larger than 2 inch" excludes 2). Categorical kinds carry `value`.
+    Numeric kinds (size, temperature, pressure) carry an interval in the
+    kind's base unit (inch, °C, psi): `low`/`high` None mean unbounded, and
+    `*_open` marks a strict bound ("larger than 2 inch" excludes 2).
+    Categorical kinds carry `value`.
     """
     kind: str
     text: str
@@ -100,32 +125,42 @@ class Condition:
     value: str | None = None
 
     def holds_for(self, other: Condition) -> bool | None:
-        """Does `other` (from a question) fall under this condition? None
-        when the two are different kinds - nothing is decided."""
+        """Does the question's condition `other` fall WHOLLY under this one?
+        None when the two are different kinds - nothing is decided.
+
+        Interval inside interval, with open ends respected: "larger than 2
+        inch" (2, inf) is inside "larger than 2 inch" and "2 inch and larger"
+        [2, inf), and NOT inside "2 inch and smaller" (-inf, 2] - it shares
+        only the endpoint the question excludes."""
         if other.kind != self.kind:
             return None
         if self.value is not None or other.value is not None:
             return self.value == other.value
-        # a question states a point (or a range): every point it states must
-        # lie inside this condition's range
-        points = [p for p in (other.low, other.high) if p is not None]
-        if not points:
+        if other.low is None and other.high is None:
             return None
-        return all(self._contains(p) for p in points)
+        return self._lower_ok(other) and self._upper_ok(other)
 
-    def _contains(self, x: float) -> bool:
-        eps = 1e-6
-        if self.low is not None:
-            if self.low_open and x <= self.low + eps:
-                return False
-            if not self.low_open and x < self.low - eps:
-                return False
-        if self.high is not None:
-            if self.high_open and x >= self.high - eps:
-                return False
-            if not self.high_open and x > self.high + eps:
-                return False
-        return True
+    def _lower_ok(self, q: Condition) -> bool:
+        if self.low is None:
+            return True
+        if q.low is None:
+            return False
+        if q.low > self.low + _EPS:
+            return True
+        if abs(q.low - self.low) <= _EPS:
+            return q.low_open or not self.low_open
+        return False
+
+    def _upper_ok(self, q: Condition) -> bool:
+        if self.high is None:
+            return True
+        if q.high is None:
+            return False
+        if q.high < self.high - _EPS:
+            return True
+        if abs(q.high - self.high) <= _EPS:
+            return q.high_open or not self.high_open
+        return False
 
     def same_as(self, other: Condition) -> bool:
         return (self.kind, self.value, self._r(self.low), self._r(self.high),
@@ -140,108 +175,160 @@ class Condition:
 
 def _number(raw: str) -> float | None:
     raw = raw.strip().replace(",", ".")
-    parts = re.split(r"[\s-]+", raw)
+    negative = raw.startswith("-")
+    raw = raw.lstrip("-")
+    parts = re.split(r"\s+|-(?=\d+/\d)", raw)
     total = 0.0
     try:
         for part in parts:
             if "/" in part:
                 num, den = part.split("/", 1)
                 total += float(num) / float(den)
-            else:
+            elif part:
                 total += float(part)
     except (ValueError, ZeroDivisionError):
         return None
-    return total
+    return -total if negative else total
 
 
-def _convert(kind: str, value: float, unit_text: str) -> float | None:
+def _quantity(kind: str, text: str, unit_from: str | None = None) -> tuple[float, str] | None:
+    """(value in the kind's base unit, unit family) for one quantity, or None.
+    `unit_from` lends a unit to a bare number ("2 to 6 inch": the 2)."""
+    t = " ".join(text.split())
+    if kind == "size":
+        m = re.fullmatch(rf"nps\s*({_N})", t, re.I)
+        if m:
+            v = _number(m.group(1))
+            return (v, "in") if v is not None and v > 0 else None
+        m = re.fullmatch(r"dn\s*(\d{2,4})", t, re.I)
+        if m:
+            dn = int(m.group(1))
+            v = _DN_TO_NPS.get(dn, dn / 25 if dn >= 350 else None)
+            return (float(v), "in") if v else None
+    m = re.match(rf"({_N})\s*-?\s*(.*)$", t, re.I)
+    if not m:
+        return None
+    v = _number(m.group(1))
+    unit = m.group(2).strip() or (unit_from or "")
+    if v is None or not unit:
+        return None
+    if kind == "size":
+        if v <= 0:
+            return None
+        if re.fullmatch(_INCH, unit, re.I):
+            return v, "in"
+        if re.fullmatch(_MM, unit, re.I):
+            return v / 25.4, "mm"
+        return None
     if kind == "temperature":
-        if re.fullmatch(_DEG_F, unit_text.strip(), re.I):
-            return (value - 32) * 5 / 9
-        return value
-    for pattern, factor in _UNITS[kind]:
-        if re.fullmatch(pattern, unit_text.strip(), re.I):
-            return value * factor
-    return None
+        if re.fullmatch(_DEG_F, unit, re.I):
+            return (v - 32) * 5 / 9, "F"
+        return v, "C"
+    factor = {"psi": 1.0, "psig": 1.0, "bar": 14.5038, "barg": 14.5038,
+              "kpa": 0.145038, "mpa": 145.038}.get(unit.lower())
+    return (v * factor, "p") if factor else None
 
 
-#: After a bare size in a PASSAGE, the words that make it a nominal size (a
-#: condition: "6 inch pipe") rather than a measured value ("a gap of 1/2 inch").
-_NOMINAL_AFTER = re.compile(
-    r"^\s*(?:nominal\s+)?(?:pipes?|piping|lines?|nozzles?|valves?|flanges?|branch(?:es)?"
-    r"|fittings?|headers?|size|diameter|bore|nb)\b", re.I)
+def _unit_of(text: str) -> str:
+    m = re.match(rf"({_N})\s*-?\s*(.*)$", " ".join(text.split()), re.I)
+    return m.group(2) if m else ""
+
+
+def _counts(kind: str, text: str, start: int, end: int, family: str, question: bool,
+            comparative: bool) -> bool:
+    """Is this quantity a CONDITION here, or a value? See module docstring.
+
+    A passage's bare point is always a value ("shall be 5 mm"). A size is a
+    condition only as a NOMINAL size: NPS/DN, or next to a pipe word and not
+    after a measuring word ("thickness of 1/4 inch"). A bare "C" after a table
+    or clause number is not a temperature."""
+    before = text[max(0, start - 40):start]
+    after = text[end:]
+    if kind == "temperature":
+        if re.search(r"\d\s*C\b$", text[start:end]) and not re.search(r"[°º]|deg", text[start:end], re.I):
+            if _NOT_A_TEMPERATURE.search(before):
+                return False
+        return question or comparative
+    if kind == "pressure":
+        return question or comparative
+    # size
+    head = text[start:end].lower()
+    if head.startswith(("nps", "dn")):
+        return True
+    nominal_after = bool(_NOMINAL_AFTER.match(after))
+    nominal_before = [m.end() for m in _NOMINAL_WORD.finditer(before)]
+    measure_before = [m.end() for m in _MEASURE_WORD.finditer(before)]
+    if _MEASURE_WORD.match(after.strip()) and not nominal_after:
+        return False
+    if nominal_after:
+        return True
+    if nominal_before and (not measure_before or max(nominal_before) > max(measure_before)):
+        return comparative or question
+    if family == "in" and not measure_before and (question or comparative):
+        return True       # "for a 6 inch?", "2 inch and smaller:" - nominal inch sizes
+    if question and family == "in" and re.search(r"\b(?:for|on|in)\s+(?:an?\s+|the\s+)?$", before, re.I):
+        return True       # "thickness for 6 inch" - the preposition names the case
+    return False
 
 
 def _numeric(kind: str, text: str, question: bool) -> list[Condition]:
-    """Ranges first, then points not already inside a range.
+    """Ranges first, then comparisons, then points not already inside one.
 
-    A POINT IS A CONDITION ONLY IN A QUESTION. "5 mm" in a passage is the
-    value the clause sets, not the case it applies to - reading it as a
-    condition made every pair of clauses with different values look like
-    different conditions. In a passage only a comparison or range ("larger
-    than 2 inch", "above 60 °C") is a condition, plus a nominal pipe size
-    ("6 inch pipe").
+    A POINT IS A CONDITION ONLY IN A QUESTION, and a size only as a nominal
+    size - see `_counts`. Reading "shall be 5 mm" as a condition made every
+    two clauses with different values look like different cases.
     """
+    q = _Q[kind]
     out: list[Condition] = []
     taken: list[tuple[int, int]] = []
-    unit = "(" + "|".join(u for u, _ in _UNITS[kind]) + ")"
 
     def free(m: re.Match) -> bool:
         return all(m.end() <= a or m.start() >= b for a, b in taken)
 
-    def add(m: re.Match, **kw) -> None:
-        taken.append((m.start(), m.end()))
-        out.append(Condition(kind, " ".join(m.group(0).split()), **kw))
-
     shapes = [
-        # "between 2 and 6 inch"; "2 to 6 inch", "2 - 6 inch" ("and" only
-        # after "between": "5 mm and 3 mm" is a list, not a range)
-        (rf"between\s+{_NUM}\s*{unit}?\s*and\s*{_NUM}\s*{unit}", "range"),
-        (rf"{_NUM}\s*{unit}?\s*(?:-|–|to|through)\s*{_NUM}\s*{unit}", "range"),
-        # "larger than 2 inch", "above 60 °C"
-        (rf"{_ABOVE}\s+(?:than\s+)?{_NUM}\s*{unit}", "above"),
-        # "2 inch and larger"
-        (rf"{_NUM}\s*{unit}\s+(?:and|or)\s+(?:larger|greater|bigger|above|over|more|higher)",
-         "from"),
-        # "2 inch and smaller"
-        (rf"{_NUM}\s*{unit}\s+(?:and|or)\s+(?:smaller|less|below|under|lower)", "upto"),
-        # "smaller than 2 inch", "up to 80 °C"
-        (rf"{_BELOW}\s+(?:than\s+)?{_NUM}\s*{unit}", "below"),
-        (rf"{_NUM}\s*{unit}", "point"),
+        (rf"between\s+(?P<a>{q}|{_N})\s+and\s+(?P<b>{q})", "range"),
+        (rf"(?P<a>{q}|{_N})\s*(?:–|to|through|-(?!\s*\d+/\d))\s*(?P<b>{q})", "range"),
+        (rf"{_ABOVE}\s+(?:than\s+)?(?P<a>{q})", "above"),
+        (rf"(?P<a>{q})\s+(?:and|or)\s+(?:larger|greater|bigger|above|over|more|higher)", "from"),
+        (rf"(?P<a>{q})\s+(?:and|or)\s+(?:smaller|less|below|under|lower)", "upto"),
+        (rf"{_BELOW}\s+(?:than\s+)?(?P<a>{q})", "below"),
+        (rf"(?P<a>{q})", "point"),
     ]
     for pattern, shape in shapes:
         for m in re.finditer(pattern, text, re.I):
             if not free(m):
                 continue
-            g = [x for x in m.groups() if x is not None]
             if shape == "range":
-                a, b = _number(m.group(1)), _number(m.group(3))
-                u = m.group(4)
-                lo, hi = _convert(kind, a, u) if a is not None else None, \
-                    _convert(kind, b, u) if b is not None else None
-                if lo is None or hi is None:
+                b = _quantity(kind, m.group("b"))
+                a = _quantity(kind, m.group("a"), unit_from=_unit_of(m.group("b")))
+                if a is None or b is None:
                     continue
-                add(m, low=min(lo, hi), high=max(lo, hi))
+                if not _counts(kind, text, m.start(), m.end(), b[1], question, True):
+                    continue
+                taken.append((m.start(), m.end()))
+                out.append(Condition(kind, " ".join(m.group(0).split()),
+                                     low=min(a[0], b[0]), high=max(a[0], b[0])))
                 continue
-            value, u = _number(g[0]), g[1]
-            if value is None:
+            got = _quantity(kind, m.group("a"))
+            if got is None:
                 continue
-            v = _convert(kind, value, u)
-            if v is None:
+            v, family = got
+            if not _counts(kind, text, m.start(), m.end(), family, question, shape != "point"):
                 continue
+            taken.append((m.start(), m.end()))
+            label = " ".join(m.group(0).split())
             if shape == "above":
-                add(m, low=v, low_open=True)
+                out.append(Condition(kind, label, low=v, low_open=True))
             elif shape == "from":
-                add(m, low=v)
+                out.append(Condition(kind, label, low=v))
             elif shape == "upto":
-                add(m, high=v)
+                out.append(Condition(kind, label, high=v))
             elif shape == "below":
                 strict = bool(re.search(r"smaller|less|lower|under|below", m.group(0), re.I)) \
                     and not re.search(r"up to|not exceeding|not more than|maximum", m.group(0), re.I)
-                add(m, high=v, high_open=strict)
-            elif question or (kind == "size" and _NOMINAL_AFTER.match(text[m.end():])
-                              and re.fullmatch(_INCH, u.strip(), re.I)):
-                add(m, low=v, high=v)
+                out.append(Condition(kind, label, high=v, high_open=strict))
+            else:
+                out.append(Condition(kind, label, low=v, high=v))
     return out
 
 
@@ -249,19 +336,11 @@ def extract(text: str, *, question: bool = False) -> list[Condition]:
     """Every condition this module can read in `text`, in no particular
     order. Duplicates (the same condition written twice) are kept once.
     `question=True` also reads bare points ("a 6 inch pipe", "at 90 °C") -
-    see `_numeric` for why a passage's bare points are values instead."""
-    text = text or ""
+    see `_counts` for why a passage's bare points are values instead."""
+    text = (text or "").replace("−", "-").replace("–", "–")
     found: list[Condition] = []
     for kind in ("size", "temperature", "pressure"):
         found.extend(_numeric(kind, text, question))
-    for m in _NPS.finditer(text):
-        v = _number(m.group(1))
-        if v is not None:
-            found.append(Condition("size", " ".join(m.group(0).split()), low=v, high=v))
-    for m in _DN.finditer(text):
-        # DN is nominal millimetres; NPS = DN / 25 by the standard pairing
-        v = float(m.group(1)) / 25
-        found.append(Condition("size", m.group(0), low=v, high=v))
     for m in _CLASS.finditer(text):
         n = next(g for g in m.groups() if g)
         found.append(Condition("class", " ".join(m.group(0).split()), value=f"class {n}"))
