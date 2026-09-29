@@ -113,6 +113,7 @@ Claude outputs/
 gold/*.csv
 !gold/TEMPLATE.csv
 !gold/PAIRS-TEMPLATE.csv
+!gold/FINDINGS-TEMPLATE.csv
 # EXCEPTIONS, tracked although this rule forbids them - listed so that the rule
 # and the repository agree about what is in Git. Both were committed before
 # anyone checked them against the rule (99591dd, cdf156b) and are already on
