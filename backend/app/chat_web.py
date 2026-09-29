@@ -10,12 +10,22 @@ held to its promise (market_phrase, market_providers, market_transport):
     per-question choice by the reader; it can only turn the lane off.
   * ASK FIRST. A web question produces a CONSENT turn, and nothing leaves:
     it shows the exact phrase that would be sent. Only "Search once" sends it.
-  * THE PHRASE IS THE READER'S OWN WORDS, WHITELISTED, AND NOTHING ELSE. It
-    is rebuilt on the server from the one stored user message the consent
-    answers - never from a client-supplied string, never from the history,
-    never from a passage - by `market_phrase`, which strips the caller's
-    corpus filenames and drops any word it cannot vouch for. None means "do
-    not search", and then nothing is offered.
+  * THE PHRASE SENT IS THE PHRASE APPROVED, WHITELISTED, AND NOTHING ELSE.
+    The consent turn builds it on the server - from the reader's question
+    (router path) or from the query Claude asked the web_search tool for
+    (Claude-first path) - through `market_phrase`, which strips the caller's
+    corpus filenames and drops any word it cannot vouch for, and STORES that
+    exact phrase with the consent. "Search once" sends exactly the stored
+    phrase, never a client-supplied string and never a phrase rebuilt from
+    something else (FOUND 2026-09-30: it used to rebuild the phrase from the
+    stored user question, so on the Claude-first path the reader approved
+    one phrase and a different one was sent). The stored phrase is put
+    through the whitelist again before it leaves and must come back
+    unchanged, or nothing is sent. None means "do not search", and then
+    nothing is offered.
+  * A CONSENT IS USED ONCE, ATOMICALLY: it is claimed by one conditional
+    UPDATE before anything is sent, so two quick "Search once" clicks cannot
+    both send.
   * EVERY QUERY IS AUDITED in `audit_events`, as the market route does.
   * THE ANSWER CITES THE WEB AS THE WEB: site, title, date, link, and
     "unverified" - never a document chip, never a finding.
@@ -69,9 +79,26 @@ def filenames(allowed_document_ids: frozenset[str]) -> list[str]:
         f"SELECT filename FROM documents WHERE id IN ({marks})", ids)]
 
 
+def sendable_phrase(text: str, *, allowed_document_ids: frozenset[str]) -> str | None:
+    """The whitelisted phrase for `text`, or None when nothing may be sent.
+
+    A phrase that the whitelist would change again is refused rather than
+    offered: what the reader approves must be exactly what "Search once"
+    can send, and `search` re-checks the stored phrase the same way."""
+    names = filenames(allowed_document_ids)
+    phrase = market_phrase.market_phrase(text, names)
+    if phrase is None or market_phrase.market_phrase(phrase, names) != phrase:
+        return None
+    return phrase
+
+
 def consent(question: str, *, allowed_document_ids: frozenset[str]) -> dict:
-    """The consent turn: what would be sent, and nothing sent."""
-    phrase = market_phrase.market_phrase(question, filenames(allowed_document_ids))
+    """The consent turn: the exact phrase that would be sent, and nothing sent.
+
+    `question` is the text the phrase is built from - the reader's message on
+    the router path, Claude's web_search query on the Claude-first path. The
+    phrase is stored with the turn (`web_phrase`) and is what `search` sends."""
+    phrase = sendable_phrase(question, allowed_document_ids=allowed_document_ids)
     ok, why = available()
     base = {**_not_searched(question), "answer_type": CONSENT, "reason": None,
             "cited": [], "rejected_citations": [], "seconds": 0.0,
@@ -107,6 +134,14 @@ def _consent_turn(conversation_id: str, message_id: str) -> tuple[dict, str]:
     return payload, asked["text"]
 
 
+def _release(message_id: str) -> None:
+    conn = connect()
+    with conn:
+        conn.execute(
+            "UPDATE messages SET payload = json_set(payload, '$.web_searched', json('false')) WHERE id = ?",
+            (message_id,))
+
+
 def search(conversation_id: str, consent_message_id: str, *,
            allowed_document_ids: frozenset[str]) -> tuple[dict, list[dict]]:
     """Run the one approved search. Returns (answer result, audit rows)."""
@@ -116,26 +151,42 @@ def search(conversation_id: str, consent_message_id: str, *,
     ok, why = available()
     if not ok:
         raise Refused(why or "web search is switched off")
-    # REBUILT HERE from the stored question, never taken from the client or
-    # from the consent turn's stored copy - the same re-scrub the market
-    # route performs, so the only text that can leave is text this server
-    # derived from the reader's own words.
-    phrase = market_phrase.market_phrase(question, filenames(allowed_document_ids))
-    if phrase is None:
+    # THE PHRASE THE READER APPROVED, exactly - stored with the consent turn
+    # by this server, never taken from the client. It goes through the
+    # whitelist once more against the caller's CURRENT filenames and must
+    # come back unchanged: a phrase that would now be altered (a document
+    # granted since, a stored value that is not whitelist-clean) is refused,
+    # because sending anything but the approved phrase breaks the consent.
+    approved = payload.get("web_phrase")
+    if not isinstance(approved, str) or not approved:
         raise Refused("nothing in the question is safe to send")
+    if sendable_phrase(approved, allowed_document_ids=allowed_document_ids) != approved:
+        raise Refused("the approved phrase is no longer safe to send - ask again")
+    phrase = approved
+    # CLAIMED BEFORE ANYTHING IS SENT, in one conditional UPDATE: of two
+    # quick clicks only one changes the row, and the other is refused. The
+    # old read-check-then-write let both pass the check and both send.
+    conn = connect()
+    with conn:
+        claimed = conn.execute(
+            """UPDATE messages SET payload = json_set(COALESCE(payload, '{}'), '$.web_searched', json('true'))
+               WHERE id = ? AND COALESCE(json_extract(payload, '$.web_searched'), 0) = 0""",
+            (consent_message_id,)).rowcount
+    if claimed != 1:
+        raise Refused("this search has already been run")
     started = time.monotonic()
-    result = market_providers.search_all(phrase, fetch=market_transport.transport())
+    try:
+        result = market_providers.search_all(phrase, fetch=market_transport.transport())
+    except BaseException:
+        _release(consent_message_id)
+        raise
     seconds = round(time.monotonic() - started, 3)
-    if result.get("tiers_answered"):
+    if not result.get("tiers_answered"):
         # USED ONCE IT ANSWERED. A search every provider refused (a rate
-        # limit, the network) leaves the consent usable, so the reader can
-        # try again rather than being locked out by a failure that sent
+        # limit, the network) releases the claim, so the reader can try
+        # again rather than being locked out by a failure that sent
         # nothing useful.
-        conn = connect()
-        with conn:
-            conn.execute(
-                "UPDATE messages SET payload = ? WHERE id = ?",
-                (json.dumps({**payload, "web_searched": True}), consent_message_id))
+        _release(consent_message_id)
     rows = [r for r in (result.get("rows") or []) if not r.get("is_sample")][:5]
     sources = [{
         "n": i, "kind": "web", "document_id": None,

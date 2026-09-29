@@ -108,13 +108,30 @@ def general(question: str, *, styles: list[str], history: str, preference: str |
 # ------------------------------------------------------------- rewrite
 
 def _previous_passages(previous: dict) -> list[dict]:
+    """The passages the previous answer's [S#] numbers refer to.
+
+    Any answer type, not only generated/extract: a STOPPED document answer
+    (`answer_type` "cancelled") keeps the passages it was writing from, and
+    its partial text is just as document-derived as a finished one."""
     payload = previous.get("payload") or {}
-    if previous.get("answer_type") == "generated":
-        return list(payload.get("passages") or [])
     if previous.get("answer_type") == "extract":
         return list(payload.get("answer_passages") or
                     ([payload["passage"]] if payload.get("passage") else []))
-    return []
+    return [p for p in (payload.get("passages") or []) if isinstance(p, dict) and p.get("text")]
+
+
+def derived_document_ids(previous: dict | None) -> list[str]:
+    """Every document the previous turn drew on (`chat.referenced_document_ids`).
+
+    A turn derived from it - a rewrite, an action draft - carries these, so
+    that when a grant is revoked the derived copy is withheld on reopen exactly
+    like the original (FOUND 2026-09-30, audit: "in points" after a stopped
+    document answer was stored with no document ids and labelled general
+    knowledge, and stayed readable after the grant was revoked)."""
+    if not previous:
+        return []
+    from .chat import referenced_document_ids
+    return sorted(referenced_document_ids(previous.get("payload") or {}))
 
 
 def rewrite(previous: dict | None, *, styles: list[str], history: str, preference: str | None,
@@ -129,6 +146,19 @@ def rewrite(previous: dict | None, *, styles: list[str], history: str, preferenc
                 "seconds": timer.seconds()}
     how = " and ".join(p for p in (instruction(styles), extra) if p) or "more clearly"
     passages = _previous_passages(previous)
+    derived = derived_document_ids(previous)
+    if derived:
+        base["derived_document_ids"] = derived
+    if derived and not passages:
+        # Document-derived text with no passages to check a rewrite against:
+        # it may not go down the general path (that path would label it
+        # general knowledge and send it out with nothing tying it to its
+        # documents). Nothing is sent; the reader is told how to get it.
+        return {**base, "answer_type": "guidance", "reason": None,
+                "answer": ("That answer came from your documents, and its sources were not "
+                           "kept, so I can't rework it without searching again. Use \"Check "
+                           "against my documents\" to ask it again."),
+                "rewrite_of": previous["id"], "seconds": timer.seconds()}
     if not passages:
         prompt = (f"{history}Previous answer:\n{previous['text']}\n\n"
                   f"Rewrite the previous answer {how}. Keep its meaning; add nothing it did not say.")

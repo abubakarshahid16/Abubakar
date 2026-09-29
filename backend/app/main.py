@@ -2684,10 +2684,11 @@ def chat_web_search(conversation_id: str, message_id: str,
                     scope: access.AccessScope = Depends(access.current_scope)):
     """ "Search once": run the one web search a consent turn offered.
 
-    Takes NO text from the client. The phrase is rebuilt from the reader's
-    stored question through the market lane's whitelist (chat_web.search),
-    sent through the market transport, audited like every market query, and
-    answered as a new turn citing the web as the web."""
+    Takes NO text from the client. The phrase sent is exactly the one the
+    consent turn showed and stored, re-checked against the market lane's
+    whitelist before it leaves (chat_web.search), claimed atomically so it
+    runs once, sent through the market transport, audited like every market
+    query, and answered as a new turn citing the web as the web."""
     from . import chat_web
     _require_identity_to_write(scope)
     _require_owned_conversation(conversation_id, scope)

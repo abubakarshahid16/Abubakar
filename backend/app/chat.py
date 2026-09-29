@@ -204,6 +204,28 @@ def _designator_words(question: str) -> set[str]:
     return {d.partition(" ")[0] for d in keyword.find_designators(question)}
 
 
+#: A pressure-class rating written the way engineers type it: "150#", "600 lb".
+#: It names the same thing as the designator "class 150".
+_RATING = re.compile(r"\b\d+\s*(?:#|lbs?\b)", re.IGNORECASE)
+
+#: A bare number, as `_content_words` yields it ("600", "4.5").
+_NUMBER = re.compile(r"^\d+(?:\.\d+)*$")
+
+
+def identifier_family(ident: str) -> str:
+    """What KIND of identifier this is: "API 682" and "API 610" are both API
+    standards, "ASME B31.1" and "ASME B31.3" both ASME codes, "5.3.2" and
+    "5.3.4" both clause numbers.
+
+    THE CONFLICT RULE FOR IDENTIFIERS (FOUND 2026-09-30, audit): "and API
+    610?" after a question about API 682 used to resolve to "and API 610? API
+    682" - the old standard carried in beside the new one, the same wrong
+    answer the designator conflict rule below exists to prevent. A newly
+    named identifier of a family REPLACES the carried one of that family."""
+    lead = re.match(r"[A-Za-z]+", ident)
+    return lead.group(0).upper() if lead else "#number"
+
+
 def resolve_followup(
     question: str, prior_questions: list[str]
 ) -> tuple[str, list[str]]:
@@ -230,17 +252,33 @@ def resolve_followup(
         return question, []
 
     have_identifiers = set(keyword.IDENTIFIER.findall(question))
+    have_families = {identifier_family(i) for i in have_identifiers}
     have_designator_words = _designator_words(question)
+    # "150#" / "600 lb" is a class designator by another spelling, and a bare
+    # clause number ("5.3.4") is a clause/section designator: either one
+    # replaces the carried designator of that kind.
+    if _RATING.search(question):
+        have_designator_words.add("class")
+    if "#number" in have_families:
+        have_designator_words |= keyword.STRUCTURAL_DESIGNATORS
     have_words = set(_content_words(question))
+    # A question that names a value of its own ("150#") does not borrow the
+    # earlier value ("600") as a loose topic word: the new value replaces it.
+    has_own_number = any(_NUMBER.match(w) for w in have_words)
 
     carried: list[str] = []
 
     # Most recent first: the nearest question is the one being followed up.
     for prior in reversed(prior_questions[-FOLLOWUP_WINDOW:]):
         for ident in keyword.IDENTIFIER.findall(prior):
-            if ident not in have_identifiers and ident not in carried:
-                carried.append(ident)
-                have_identifiers.add(ident)
+            if ident in have_identifiers or ident in carried:
+                continue
+            family = identifier_family(ident)
+            if family in have_families:
+                continue      # the new question named its own of this family
+            carried.append(ident)
+            have_identifiers.add(ident)
+            have_families.add(family)
         for des in keyword.find_designators(prior):
             word = des.partition(" ")[0]
             # The conflict rule, and the reason this module exists in this
@@ -282,6 +320,8 @@ def resolve_followup(
         topics: list[str] = []
         for w in _content_words(borrowed_from):
             if w in skip or w in topics or w in designator_tokens:
+                continue
+            if has_own_number and _NUMBER.match(w):
                 continue
             topics.append(w)
             if len(topics) >= MAX_TOPIC_TERMS:
@@ -424,7 +464,7 @@ def _lifted(raw: str | None) -> dict:
 WITHHELD_TEXT = (
     "This answer cited a document you no longer have access to, so it is not shown."
 )
-_ID_LIST_KEYS = frozenset({"scope_ids", "document_ids"})
+_ID_LIST_KEYS = frozenset({"scope_ids", "document_ids", "derived_document_ids"})
 
 
 def referenced_document_ids(value) -> set[str]:
@@ -608,6 +648,10 @@ _PAYLOAD_KEYS = (
     "answer_kind", "used_line", "sources", "verification", "steps",
     "suggestions", "draft", "provider", "cost_usd", "history_turns",
     "route", "notices", "claims", "claims_removed", "rewrite_of", "records", "cancelled",
+    # A rewrite/action of a DOCUMENT turn carries that turn's document ids
+    # (chat_answers.rewrite), so a revoked grant withholds the reworded copy
+    # exactly as it withholds the original.
+    "derived_document_ids",
     # Chat redesign PR 6: the web lane's consent and what it sent.
     "web_phrase", "web_available", "web_searched",
 )
@@ -795,7 +839,9 @@ def ask(
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
         from . import chat_claude_first
         claude_first_result = chat_claude_first.answer(
-            original, history=memory(always=True), allowed_document_ids=retrieval_allowed,
+            original, history=memory(always=True),
+            allowed_document_ids=claude_scope(retrieval_allowed, document_id=document_id,
+                                              picked=bool(document_ids)),
             web_enabled=web, preference=model)
 
     if spec_shaped_result is not None:
@@ -840,7 +886,9 @@ def ask(
         result, resolved = _document_answer(
             conversation_id, asked or original, None, tier="generated", document_id=document_id,
             selected_document=selected_document, limit=limit,
-            allowed_document_ids=allowed_document_ids, progress_id=progress_id,
+            # the @-picked documents narrow this search too (intersection,
+            # CLAUDE.md rule 5) - it used to search every readable document
+            allowed_document_ids=retrieval_allowed, progress_id=progress_id,
             model=model, history=memory(always=True))
     elif route_kind == intent_mod.REWRITE:
         result = chat_answers.rewrite(previous, styles=routed["styles"], history=memory(always=True),
@@ -898,6 +946,22 @@ def ask(
         "resolved_question": resolved,
         "carried_terms": user_message["carried_terms"],
     }
+
+
+def claude_scope(retrieval_allowed: frozenset[str], *, document_id: str | None,
+                 picked: bool) -> frozenset[str]:
+    """What the Claude-first tools may read this turn: ONLY EVER NARROWER than
+    `retrieval_allowed` (intersection, CLAUDE.md rule 5).
+
+    FOUND 2026-09-30 (audit): the Claude lane got `retrieval_allowed` alone,
+    so a conversation opened on one document - or a request that selected one
+    - let Claude's tools search every document the caller may read, while the
+    old pipeline answered from that one document. Now: documents the reader
+    @-picked are the scope (already intersected into `retrieval_allowed`);
+    otherwise the selected or conversation document narrows it to itself."""
+    if picked or not document_id:
+        return retrieval_allowed
+    return retrieval_allowed & frozenset({document_id})
 
 
 def last_answer(conversation_id: str, *, allowed_document_ids: frozenset[str]) -> dict | None:

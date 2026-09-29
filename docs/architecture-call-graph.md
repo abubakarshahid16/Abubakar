@@ -111,8 +111,12 @@ get the same check and ledger through `claude_spend.metered(transport, step)` in
 - Routes: `GET /api/answer` (`main.py:710`) → `answer.answer` (`answer.py:475`);
   `POST /api/conversations/{id}/ask` (`main.py:2374`) → `chat.ask` → `answer.answer`.
 - History: `chat.resolve_followup` uses up to `FOLLOWUP_WINDOW` prior **user questions**;
-  prior answers never reach retrieval or the prompt. The rewritten query is not stored
-  (B9A work).
+  prior answers never reach retrieval. The rewritten query is not stored
+  (B9A work). (Since 2026-09-26 the MODEL sees the permission-filtered conversation as
+  labelled context, `chat_model.history`; on the Claude-first lane it is sent in the first
+  USER message inside `<prior_conversation>` delimiters, never in the system prompt -
+  `chat_claude_first._first_message`, 2026-09-30.) Claude-first tools are scoped by
+  `chat.claude_scope` (the conversation's/selected document, intersection only).
 - Retrieval: `search.search` (`search.py:797`) = FTS5 BM25 + exact cosine through
   `vector_store.search` (sqlite-vec `vec0`, numpy `vectorcache` fallback), scope applied
   **before** top-k inside the KNN, fused by RRF

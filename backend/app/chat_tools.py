@@ -176,9 +176,30 @@ def _display_name(doc: dict) -> str:
     return stem
 
 
+def _id_list(value) -> list[str] | None:
+    """A model-supplied list of document ids, or None when it is not one.
+    Checked, never trusted: `[["x"]]` used to reach `frozenset()` and raise
+    out of the chat (audit 2026-09-30)."""
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return value
+    return None
+
+
+def _page_list(value) -> list[int] | None:
+    """A model-supplied list of 1-based page numbers, or None when it is not one."""
+    if (isinstance(value, list)
+            and all(isinstance(v, int) and not isinstance(v, bool) and v >= 1 for v in value)):
+        return value
+    return None
+
+
 def run_search_documents(input: dict, *, allowed_document_ids: frozenset[str]) -> ToolRun:
     query = str(input.get("query") or "").strip()
-    picked = input.get("document_ids") or None
+    raw_picked = input.get("document_ids")
+    if raw_picked not in (None, []) and _id_list(raw_picked) is None:
+        return ToolRun("search_documents", input, "Searched your documents", False,
+                       note="invalid input: document_ids must be a list of document id strings")
+    picked = raw_picked or None
     scope = (allowed_document_ids & frozenset(picked)) if picked else allowed_document_ids
     if not query:
         return ToolRun("search_documents", input, "Searched your documents", False,
@@ -198,7 +219,11 @@ def run_read_document(input: dict, *, allowed_document_ids: frozenset[str]) -> T
     doc = _readable(document_id, allowed_document_ids=allowed_document_ids)
     if doc is None:
         return ToolRun("read_document", input, "Read the document", False, note="not found")
-    pages = input.get("pages") or None
+    raw_pages = input.get("pages")
+    if raw_pages not in (None, []) and _page_list(raw_pages) is None:
+        return ToolRun("read_document", input, "Read the document", False,
+                       note="invalid input: pages must be a list of page numbers (1-based integers)")
+    pages = raw_pages or None
     rows = connect().execute(
         "SELECT id, ordinal, page_start, page_end, section, text FROM chunks "
         "WHERE document_id = ? AND retrievable = 1 ORDER BY ordinal", (document_id,)).fetchall()
@@ -322,7 +347,13 @@ def run_look_at_page(input: dict, *, allowed_document_ids: frozenset[str],
 
 def dispatch(name: str, input: dict, *, allowed_document_ids: frozenset[str],
              pages_used: list) -> tuple[ToolRun, object | None]:
-    """One tool call, permission-checked, to (ToolRun, image|None)."""
+    """One tool call, permission-checked, to (ToolRun, image|None).
+
+    A malformed input (not an object, a wrong type inside it) comes back as a
+    failed ToolRun the model is told about - never an exception."""
+    if not isinstance(input, dict):
+        return ToolRun(str(name), {}, "Used a tool", False,
+                       note="invalid input: the tool input must be an object"), None
     if name == "search_documents":
         return run_search_documents(input, allowed_document_ids=allowed_document_ids), None
     if name == "read_document":
