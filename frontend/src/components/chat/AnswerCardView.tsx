@@ -5,7 +5,7 @@ import { ComparisonScopeNotice as ComparisonScopeNoticeView } from "./Comparison
 import { type AnswerView, type UpgradeFailure, asksForComparison, documentsAnsweredFrom, sourcesOf, asSentence, formatDuration, Chip, ChipMark, CitedProse, Label, ReportAction, UpgradeFailureNotice } from "./AnswerCardContent";
 import { CorpusPart, CountsBoundedNote, GuidanceAnswer, MetadataAnswer } from "./AnswerNonDocument";
 import { InsufficientAnswer } from "./AnswerInsufficient";
-import { ScopeNotice, VerdictNotice, WithheldNotice } from "./AnswerVerdict";
+import { ConditionNotice, ScopeNotice, VerdictNotice, WithheldNotice } from "./AnswerVerdict";
 import type { AnswerPassage, ChatSource } from "../../types/api";
 import { GeneratedAnswer } from "./GeneratedAnswer";
 
@@ -43,6 +43,7 @@ export function AnswerCard(props: Parameters<typeof AnswerCardBody>[0]) {
       {/* A refusal card already says it cannot determine this; saying it twice is noise. */}
       {verdict && view.answer_type !== "insufficient_evidence" && <VerdictNotice verdict={verdict.verdict} reason={verdict.reason} evidence={verdict.evidence} />}
       <ScopeNotice understanding={view.understanding} ambiguity={view.scope_ambiguity} />
+      <ConditionNotice choice={view.condition_choice} />
     </>
   );
   if (!twoPart && !bounded) {

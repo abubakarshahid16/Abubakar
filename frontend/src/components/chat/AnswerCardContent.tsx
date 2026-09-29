@@ -1,4 +1,4 @@
-import type { AnswerPassage, Answerability, CorpusFact, EvidenceRemoved, AnswerType, Message, ScopeAmbiguity, Understanding } from "../../types/api";
+import type { AnswerPassage, Answerability, ConditionChoice, CorpusFact, EvidenceRemoved, AnswerType, Message, ScopeAmbiguity, Understanding } from "../../types/api";
 import { PassageLocation } from "./EvidencePanel";
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
@@ -26,6 +26,8 @@ export interface AnswerView {
   /** B6C: how the question was scoped. */
   understanding?: Understanding | null;
   scope_ambiguity?: ScopeAmbiguity | null;
+  /** Plan step 4: which clause applies when clauses differ by condition. */
+  condition_choice?: ConditionChoice | null;
   /** B9: reopened turn citing a document the reader can no longer read. */
   withheld?: boolean;
 }
@@ -79,6 +81,7 @@ export function viewFromMessage(m: Message): AnswerView {
     answerability: p.answerability ?? null,
     understanding: p.understanding ?? null,
     scope_ambiguity: p.scope_ambiguity ?? null,
+    condition_choice: p.condition_choice ?? null,
     withheld: p.withheld === true,
   };
 }

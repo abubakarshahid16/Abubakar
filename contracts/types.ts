@@ -1749,6 +1749,31 @@ export interface ScopeAmbiguity {
   documents: { document_id: string; filename: string | null }[];
 }
 
+/** Plan step 4: one clause competing to answer, and the condition it is
+ *  written for (as the clause writes it, e.g. "larger than 2 inch"). */
+export interface ConditionOption {
+  chunk_id: string;
+  document_id: string;
+  filename: string | null;
+  section: string | null;
+  page_start: number | null;
+  page_end: number | null;
+  conditions: string[];
+}
+
+/** Plan step 4: clauses near the top set different values for different
+ *  conditions. "options": the question named none, so every clause is shown
+ *  with its condition and the reader is asked which applies - none is picked
+ *  for them. "matched": the question named one, and the one clause that holds
+ *  under it answers instead of a higher-ranked clause. */
+export interface ConditionChoice {
+  mode: "options" | "matched";
+  reason: string;
+  kinds: string[];
+  question_names: string[];
+  options: ConditionOption[];
+}
+
 export interface AnswerResult extends ChatPresentation {
   /** chat redesign PR 6, web turns only: the whitelisted phrase that would
    *  be (or was) sent; null means nothing was safe to send */
@@ -1798,6 +1823,8 @@ export interface AnswerResult extends ChatPresentation {
   understanding?: Understanding | null;
   /** B6C */
   scope_ambiguity?: ScopeAmbiguity | null;
+  /** Plan step 4: which clause applies when clauses differ by condition */
+  condition_choice?: ConditionChoice | null;
   /** B8 */
   answerability?: Answerability | null;
   /** The LIBRARY's answer, counted from the database. On a metadata answer it

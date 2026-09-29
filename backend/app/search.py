@@ -232,6 +232,8 @@ class Candidate:
             "defines_term": self.defines_term,
             "heading_declares": self.heading_declares,
             "separation": self.separation,
+            # index-only heading chain; read by answer._searchable_text
+            "context": self.context,
         }
 
 
