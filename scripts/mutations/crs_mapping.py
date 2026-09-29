@@ -99,4 +99,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="the_comment_is_an_engineers_with_a_contractor_action",
         tags=("honesty", "critical"),
     ),
+    Mutation(
+        id="M1370", phase=1370,
+        description="a newer machine draft leads a row it shares with the "
+                    "engineer's confirmed finding (re-run prints 'AI Review')",
+        path=APP / "crs_mapping.py",
+        anchor='    return [sorted(groups[k], key=lambda f: not f.get("confirmed_by")) for k in order]',
+        replacement="    return [groups[k] for k in order]",
+        target="tests/test_crs_permanent_numbers.py",
+        keyword="confirmed_finding_leads_a_row or survives_a_re_export",
+        tags=("honesty",),
+    ),
 )

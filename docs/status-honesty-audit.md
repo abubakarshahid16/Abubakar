@@ -1592,3 +1592,24 @@ reverted). Nothing here was run against the live database.
 29. **A concurrency fix is tested against every kind of party to the race, not only the
    kind that was seen failing.** "Migrators cannot overlap" is not "no statement can be
    told the schema changed".
+
+## Entry 81, 2026-09-29: "a confirmed comment always keeps its number and its name over a re-run's draft" - a test that passed by landing in the same second
+
+- **81 - after a re-run, a confirmed CRS comment was printed as the machine's draft.**
+  PR #327's `test_the_number_survives_a_re_export_and_a_re_run` confirmed a comment and
+  re-ran the review inside one second. Finding timestamps have one-second resolution and
+  the CRS reads findings `ORDER BY updated_at DESC`, so the confirmed finding and the
+  re-run's fresh draft about the same field TIED, and the row that merges them took its
+  "Comment By" from whichever SQLite returned first. The test passed about 19 times in 20
+  (it failed once on CI, 2026-09-29, and 1 in 20 locally). Every REAL re-run happens a
+  second or more later, where the order is not a tie: the newer draft always led, and
+  the engineer's permanent number was printed beside "AI Review" instead of "AI Review,
+  confirmed by <name>" - reproduced deterministically by making the confirmation older.
+  Fixed: a confirmed finding leads its group whatever the order; the test now makes the
+  confirmation older than the re-run, as in real use, and fails every time without the
+  fix (M1370). An edited comment was never affected: its own wording is never grouped.
+
+### The rule this produces
+
+30. **A test that orders by a timestamp must control the timestamps.** Two steps inside
+   one second are a tie, and a tie is a coin toss that usually lands the easy way.
