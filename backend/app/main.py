@@ -62,6 +62,7 @@ from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import standards as standards_mod
 from . import standards_inventory as standards_inventory_mod
+from . import standards_acquisition as standards_acquisition_mod
 from . import submittal_review as submittal_review_mod
 from . import workbook as workbook_mod
 from . import vector_store as vector_store_mod
@@ -3081,6 +3082,81 @@ def standards_cited_but_not_held(
     reject_unknown_params(request, set())
     return standards_inventory_mod.cited_but_not_held(
         allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.get("/api/standards/missing",
+         response_model=list[schemas.MissingStandard],
+         responses=schemas.ERRORS_422)
+def standards_missing(
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Standards beyond the library - API, ASME, ASTM, ISO, IEC, NFPA, NACE,
+    NORSOK, and the client's own - that a submittal or a SAES requirement
+    cites and the library does not hold, each with the publisher's own
+    catalogue page and whether it has been requested. Nothing is fetched:
+    every one of these is sold under licence (standards_acquisition.py).
+    Scope: exactly the cited-but-not-held list's (CLAUDE.md rule 5)."""
+    reject_unknown_params(request, set())
+    return standards_acquisition_mod.missing_standards(
+        allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.post("/api/standards/missing/request",
+          response_model=schemas.StandardRequestResult,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def request_missing_standard(
+    body: schemas.StandardRequestBody,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Record that a missing standard has been asked for, under the signed-in
+    engineer's name. Only a standard on the caller's own missing list."""
+    _require_named_reviewer(scope, "requesting a standard")
+    try:
+        return standards_acquisition_mod.mark_requested(
+            body.identifier, user_id=scope.user_id, note=body.note,
+            allowed_document_ids=scope.allowed_document_ids)
+    except standards_acquisition_mod.AcquisitionError as exc:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, str(exc)))
+
+
+@app.post("/api/standards/{document_id}/provenance",
+          response_model=schemas.StandardProvenance,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def record_standard_provenance(
+    document_id: str,
+    body: schemas.ExternalCopyBody,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Mark an uploaded standard as a copy obtained externally - the client's
+    "stored, hashed, cited and marked as externally obtained" - recording
+    where it came from, the file's hash, and who recorded it."""
+    _require_named_reviewer(scope, "recording where a standard came from")
+    try:
+        return standards_acquisition_mod.record_external_copy(
+            document_id, identifier=body.identifier,
+            obtained_from=body.obtained_from, user_id=scope.user_id,
+            allowed_document_ids=scope.allowed_document_ids)
+    except standards_acquisition_mod.AcquisitionError as exc:
+        status = 404 if "no such" in str(exc) else 422
+        raise HTTPException(status_code=status, detail=errors.safe_error(
+            errors.NOT_FOUND if status == 404 else errors.INVALID_PARAMETER, str(exc)))
+
+
+@app.get("/api/standards/{document_id}/provenance",
+         response_model=schemas.StandardProvenanceRead,
+         responses={**schemas.ERRORS_404})
+def get_standard_provenance(
+    document_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Where a held standard's copy came from, or null when nothing was
+    recorded (not claimed either way)."""
+    if document_id not in scope.allowed_document_ids:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no such standard"))
+    return {"provenance": standards_acquisition_mod.provenance_of(document_id)}
 
 
 @app.get("/api/standards/{document_id}/clauses",

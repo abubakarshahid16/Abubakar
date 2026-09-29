@@ -56,6 +56,7 @@ function mockApi(opts: {
       }
       return json({ superseded_by: null });
     }
+    if (href.includes("/standards/missing")) return json([]);
     if (href.includes("/requirements")) return json(opts.requirements ?? []);
     if (href.includes("/revisions")) return json(opts.revisions ?? [base]);
     if (href.includes("/clauses")) return json([]);

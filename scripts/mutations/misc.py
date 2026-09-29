@@ -12,6 +12,7 @@
     backend/app/disciplines.py
     backend/app/hooks_check.py
     backend/app/job_queue.py
+    backend/app/lexical.py
     backend/app/metrics.py
     backend/app/quotes.py
     backend/run.py
@@ -519,5 +520,21 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="tests/test_reader_transport.py",
         keyword="oversized_answer_is_marked_as_sent",
         tags=("budget",),
+    ),
+    # ---- from REFUSAL_CALIBRATION_2026_09_29 ------------------------------
+    #: Refusal calibration on the real corpus found four absent-topic
+    #: questions answered confidently, each sharing exactly one distinctive
+    #: term with an unrelated passage - one match was enough for any question
+    #: length. This mutation restores that behaviour for long questions too.
+    Mutation(
+        id="M1390", phase=1390,
+        description="a long question needs only one shared distinctive term "
+                    "again, not two - the false-answer shape calibration found",
+        path=APP / "lexical.py",
+        anchor="    required = (SHARED_TERMS_REQUIRED_LONG if len(terms) >= LONG_QUESTION_TERM_COUNT\n"
+               "               else SHARED_TERMS_REQUIRED_SHORT)",
+        replacement="    required = SHARED_TERMS_REQUIRED_SHORT",
+        target="tests/test_lexical_shared_terms.py",
+        keyword="sharing_only_one_term_is_now_refused",
     ),
 )
