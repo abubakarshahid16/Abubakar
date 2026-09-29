@@ -817,6 +817,37 @@ CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 """
 
 
+class SchemaRetryConnection(sqlite3.Connection):
+    """A connection whose `execute` survives a concurrent schema change.
+
+    WHY AT THE CONNECTION, AND NOT PER STATEMENT (issue #325, 2026-09-29).
+    Every earlier fix wrapped the one statement a failure had been seen on -
+    the ALTER, `PRAGMA schema_version`, `PRAGMA table_info`, then (PR #332) the
+    migrators themselves, serialised by a lock. The next failure was a READER:
+    a plain `SELECT` in `access.scope_for_user` (access.py:147), told
+    "database schema has changed" while another request thread ran a
+    first-time migration (about 40 CREATE/ALTER statements on a fresh
+    database). The lock cannot help there - a reader takes no migration lock,
+    and must not. So the answer SQLite asks for is given once, for every
+    statement: re-prepare and run it again.
+
+    SAFE TO RETRY because SQLITE_SCHEMA is returned before the statement
+    executes: nothing was read or written, and an enclosing transaction is
+    untouched. Only `execute` is retried - an `executemany` can fail after
+    some rows are in, so re-running it could write them twice. Bounded: past
+    the limit the error is raised, never swallowed.
+    """
+
+    def execute(self, sql, parameters=(), /):
+        for _attempt in range(_SCHEMA_CHANGED_RETRIES - 1):
+            try:
+                return super().execute(sql, parameters)
+            except sqlite3.OperationalError as exc:
+                if "schema has changed" not in str(exc).lower():
+                    raise
+        return super().execute(sql, parameters)
+
+
 def connect() -> sqlite3.Connection:
     """Thread-local connection. WAL lets one writer and many readers coexist."""
     conn = getattr(_local, "conn", None)
@@ -826,7 +857,8 @@ def connect() -> sqlite3.Connection:
         # live_guard.prepare_live_write (verified backup + restore drill).
         live_guard.check_connect(settings.db_path)
         settings.ensure_dirs()
-        conn = sqlite3.connect(settings.db_path, timeout=30.0)
+        conn = sqlite3.connect(settings.db_path, timeout=30.0,
+                               factory=SchemaRetryConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA foreign_keys = ON")
@@ -883,11 +915,14 @@ _schema_memo: dict[tuple[str, str], int] = {}
 #: statement: on 2026-09-29 it was a plain `CREATE TABLE IF NOT EXISTS` in
 #: `review.ensure_schema`, 1-2 calls in 24 in CI. Any statement in any
 #: `ensure_schema` can be told "database schema has changed" while another
-#: connection's DDL lands, so the fix is not a retry per statement but no
-#: concurrent DDL at all: the server is one process, and inside it only one
-#: thread migrates. Reentrant because `ensure_schema`s call each other
-#: (`submittal_review` -> `review`). The unlocked fast path - memo hit, one
-#: PRAGMA - is unchanged, so reads never wait on this.
+#: connection's DDL lands. This lock stops two MIGRATORS overlapping: inside
+#: the one server process only one thread migrates. It does NOT protect a
+#: READER from a migration landing mid-statement - that is what
+#: `SchemaRetryConnection` is for (honesty audit entry 80: PR #332 claimed
+#: the lock closed the race; a plain SELECT failed on main an hour later).
+#: Reentrant because `ensure_schema`s call each other (`submittal_review` ->
+#: `review`). The unlocked fast path - memo hit, one PRAGMA - is unchanged,
+#: so reads never wait on this.
 _migration_lock = threading.RLock()
 
 

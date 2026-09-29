@@ -1570,3 +1570,25 @@ reverted). Nothing here was run against the live database.
 
 28. **Before building on a field, count how often it is actually filled on real data.**
    A field that exists in the schema is not a field anything populates.
+
+## Entry 80, 2026-09-29: "only one thread migrates, so no statement can be told the schema changed" - a reader was
+
+- **80 - PR #332 said its lock closed the migration race (#325).** Its commit message
+  and the comment on `db._migration_lock` said that with one migrator at a time "no
+  statement can be told the schema changed by a sibling thread". It was measured only
+  against migrators racing migrators (`test_migration_race`, 1,500 calls, 0 failures).
+  An hour after merge, `main` 35e4c2c failed on `test_access_routes.py::
+  test_two_concurrent_requests_never_share_scope`: a plain `SELECT` in
+  `access.scope_for_user` (access.py:147) told "database schema has changed" while the
+  other request thread ran a first-time migration (traced: about 40 CREATE/ALTER
+  statements on a fresh database). A reader takes no migration lock, and must not.
+  Fixed: every connection the app opens is a `SchemaRetryConnection`, whose `execute`
+  re-runs a statement SQLite rejected with SQLITE_SCHEMA - safe because the statement
+  had not run - bounded, and raising past the limit. The lock stays: it keeps two
+  migrators apart, which it does.
+
+### The rule this produces
+
+29. **A concurrency fix is tested against every kind of party to the race, not only the
+   kind that was seen failing.** "Migrators cannot overlap" is not "no statement can be
+   told the schema changed".
