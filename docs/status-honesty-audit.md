@@ -1509,3 +1509,43 @@ reverted). Nothing here was run against the live database.
    (72, 73, 75) are the same shape: the protective code was written, tested in
    isolation, and not reached by the route that needed it. When recording a guarantee,
    name the route that enforces it and test through that route.
+
+## Entry 77, 2026-09-29: the CRS said two things about its own columns that practice contradicts
+
+- **77 - "Final Resolution belongs to the contractor", and "Item No" as a reference.**
+  `crs_export.CONTRACTOR_COLUMNS`, both `build_crs` docstrings, the preview route and
+  `schemas.CrsPreviewRow` all stated that Contractor's Response AND Final Resolution
+  "belong to the contractor" and are "ALWAYS empty". Checked against CRS guides and
+  document-control systems: only the reviewer closes a comment, so Final Resolution is
+  the company's column. Separately, Item No was 1..N and renumbered on every export,
+  and the digest reference changed with every review run, so neither was the
+  "permanent and never reused" comment ID the practice requires. Fixed together:
+  `crs_numbers` gives an engineer's comment `CRS-<submittal no>-001` in Item No (minted
+  by the write routes, never the export, which still writes nothing), and Final
+  Resolution prints its Open/Closed status, closed only by a signed-in reviewer. Every
+  home of the old claim was corrected (rule 8). The on-screen preview repeated the
+  claim in markup: it hard-coded both reply columns as empty cells, so a reply or a
+  closure would never have shown on screen even once the data existed. It now
+  renders what the server's sheet says, like every other column.
+
+### The rule this produces
+
+26. **A claim about what a column MEANS is a claim about the domain, and needs a
+   source.** "Belongs to the contractor" was written as fact and repeated in five
+   places without anyone checking how the industry uses the column.
+
+## Entry 78, 2026-09-29: "tsc clean" was reported from a check that checks nothing
+
+- **78 - the wrong typecheck, reported as passing.** The CRS reply-loop commit
+  (`7ba3da5`) and its VS Code prompt reported "`tsc --noEmit -p .` clean". That command
+  checks ZERO files here - `frontend/tsconfig.json` is a solution file with `"files": []`
+  - which `.github/workflows/tests.yml` already says in a comment. CI's `npx tsc -b`
+  failed PR #327 at once on a real error: `CrsCommentControls.tsx` read `row_kind`, a
+  field `contracts/types.ts` never declared. Fixed in the next commit, with `tsc -b`, the
+  lint, the production build and the bundle budget all run locally first - the CI job's
+  own steps, not a remembered shortcut.
+
+### The rule this produces
+
+27. **Run the CI job's own commands, copied from the workflow file, before calling a
+   change clean.** A check from memory can pass because it checks nothing.

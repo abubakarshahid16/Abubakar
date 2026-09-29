@@ -22,6 +22,7 @@ the standard and clause ride in `standard_reference`, and every row carries
 kind its own colour without re-deciding what the sheet says.
 """
 
+import hashlib
 import re
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
@@ -56,6 +57,10 @@ _AI_CONFIRMED_BY = "AI engineering check, confirmed by "
 #: kind C - unconfirmed rides in "AI Review Comments", confirmed moves to
 #: COMPANY Comments under the engineer's name, rejected is not on the sheet.
 ROW_KIND_WEB_STANDARD_CHECK = "web_standard_check"
+#: An Open comment from an earlier run or revision of this submittal that the
+#: current run no longer raises. Industry practice carries it forward until a
+#: reviewer closes it (`crs_numbers.open_elsewhere`); never dropped silently.
+ROW_KIND_CARRIED_FORWARD = "carried_forward"
 _WEB_ORIGIN = "web_standard_check"
 _WEB_CONFIRMED_BY = "Web check, confirmed by "
 #: Honesty audit entry 70: an unconfirmed kind C/D item left "Comment By"
@@ -143,6 +148,38 @@ def _edited_by(finding: dict) -> str:
 
 def _fold(text) -> str:
     return " ".join(str(text or "").lower().split())
+
+
+def comment_key(*parts) -> str:
+    """WHAT A CRS COMMENT IS ABOUT, as a stable key for its permanent number.
+
+    Industry practice (CRS guides, document-control systems): a comment's ID
+    is permanent, never reused, and follows the comment to the next revision.
+    So the key is built from the comment's SUBJECT - the requirement, the
+    datasheet field, the value the sheet states, the page - and never from
+    the review run, a finding's database id, the row's position, who
+    confirmed it, its status, or the wording template. A re-run of the same
+    datasheet, a re-export, or an engineer re-wording the comment keeps the
+    number; a different requirement or a different stated value is a
+    different comment and gets a new one. Case and spacing are folded so a
+    re-extraction that only changes whitespace does not renumber.
+    """
+    joined = "\x1f".join(_fold(p) for p in parts)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:32]
+
+
+def _subject_key(f: dict) -> str:
+    """`comment_key` for a finding paired against a requirement: the
+    requirement's own words, the datasheet field, the stated value, the page,
+    and whether it is a datasheet self-check."""
+    return comment_key(
+        "requirement",
+        f.get("requirement_source_text") or f.get("finding"),
+        f.get("crs_field_label") or f.get("matched_phrase") or f.get("contractor_section"),
+        f.get("contractor_evidence_text"),
+        f.get("contractor_page"),
+        f.get("origin") == _DATASHEET_ORIGIN,
+    )
 
 
 #: The "Review notes" sheet (owner order 2f): the engineer's internal list.
@@ -507,6 +544,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     r for r in (_standard_reference(g) for g in group) if r)),
                 "row_kind": kind,
                 "engineer_confirmed": all(_confirmed(g) for g in group),
+                # Never printed: what the permanent CRS number is keyed on.
+                "comment_key": _subject_key(f),
             })
 
     # An engineer's own comments, filed from chat: individual comments to the
@@ -523,6 +562,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "standard_reference": "",
             "row_kind": ROW_KIND_ENGINEER_COMMENT,
             "engineer_confirmed": True,
+            # An engineer's own free-text comment IS its subject.
+            "comment_key": comment_key(
+                "chat", f.get("engineer_comment") or f.get("finding"),
+                f.get("contractor_page"), f.get("contractor_section")),
         })
 
     # Owner order 2d/2f and 2d-2: AI engineering check (kind C) and public-web
@@ -561,6 +604,11 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "standard_reference": relates if origin == _AI_ORIGIN and not f.get("engineer_comment") else "",
             "row_kind": row_kind,
             "engineer_confirmed": confirmed,
+            # The machine's finding text, not the engineer's edit of it, so
+            # confirming or re-wording an AI/web item keeps its number.
+            "comment_key": comment_key(
+                origin, f.get("finding"), f.get("required_action"),
+                f.get("contractor_page"), f.get("contractor_section")),
         })
 
     # OWNER ORDER 2f: THE INTERNAL NOTES LEFT THIS SHEET. Requirements that

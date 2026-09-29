@@ -2049,18 +2049,21 @@ class CrsHeaderField(BaseModel):
 class CrsPreviewRow(BaseModel):
     """One comment row of the CRS, exactly as the workbook writes it.
 
-    `contractor_response` and `final_resolution` are ALWAYS empty. They belong
-    to the contractor, and they are carried rather than omitted because the
-    sheet has seven columns whether or not anyone has answered yet - a reader
-    has to see the space the contractor will fill.
+    `contractor_response` is empty until the contractor answers.
+    `final_resolution` is the COMPANY's column (only the reviewer closes a
+    comment): "Open" or "Closed" on a row with a permanent number, empty on an
+    unnumbered draft. Both are carried rather than omitted because the sheet
+    has seven columns whether or not anyone has answered yet.
     """
 
-    item_no: int
-    #: The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
-    #: across re-exports of the same review, so a contractor can quote it
-    #: back. It is carried here as its own field AND printed as the comment's
-    #: first line - the client's template has seven columns and this adds no
-    #: eighth one.
+    #: The permanent comment number "CRS-<submittal no>-001" once an engineer
+    #: has made the comment theirs (`crs_numbers`), else the row's position.
+    item_no: int | str
+    #: The permanent number alone, "" on an unnumbered row.
+    crs_ref: str = ""
+    #: The digest reference, e.g. "RF-4A2C1B", stable across re-exports of one
+    #: review. Printed as the comment's first line ONLY on an unnumbered row;
+    #: a numbered row's Item No is the one ID a contractor quotes back.
     row_ref: str = ""
     document_name: str
     page_section: str
@@ -2340,6 +2343,89 @@ class PageLedger(BaseModel):
     document_id: str
     pages: list[PageLedgerRow]
     coverage: dict
+
+
+class CrsCommentStatusUpdate(BaseModel):
+    """Open or close one numbered CRS comment. Only the reviewer closes a
+    comment (industry practice); the name recorded is always the signed-in
+    caller's and is never read from the body. `note` is the reviewer's
+    closing remark ("verified on Rev 1, p.4"), printed after the status."""
+
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["Open", "Closed"]
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class CrsCommentResponseUpdate(BaseModel):
+    """The contractor's reply to one comment, recorded by an engineer when it
+    arrived some other way than the returned sheet (an email, a letter).
+    `code` is null when the contractor's reply stated none - it is never
+    guessed. The engineer who recorded it is taken from the session."""
+
+    model_config = ConfigDict(extra="forbid")
+    code: Literal["Accepted", "Accepted with comment", "Rejected",
+                  "Clarification needed"] | None = None
+    text: str = Field(default="", max_length=4000)
+
+
+class CrsComment(BaseModel):
+    """One numbered CRS comment: its number, the reviewer's status, and the
+    contractor's reply as recorded - who and when for both."""
+
+    ref: str
+    seq: int
+    status: str
+    status_by: str | None = None
+    status_at: str | None = None
+    status_note: str | None = None
+    response_code: str | None = None
+    response_text: str | None = None
+    response_by: str | None = None
+    response_at: str | None = None
+    response_source: str | None = None
+
+
+#: Kept as the name the status route answered with before replies existed.
+CrsCommentStatus = CrsComment
+
+
+class CrsCommentEvent(BaseModel):
+    at: str
+    by: str | None = None
+    #: "numbered", "response", "open" or "closed".
+    event: str
+    detail: str | None = None
+
+
+class CrsCommentHistory(BaseModel):
+    """Everything that happened to one numbered comment, oldest first."""
+
+    ref: str
+    events: list[CrsCommentEvent]
+
+
+class CrsReplyRow(BaseModel):
+    #: The row number in the returned workbook, so an engineer can find it.
+    row: int
+    #: The Item No as the contractor's copy has it.
+    item: str
+    #: "updated", "updated, no response code stated", "no response",
+    #: "not a CRS number", "another submittal's number" or "no such number".
+    outcome: str
+
+
+class CrsReplyImport(BaseModel):
+    """What importing a returned CRS did, row by row, WITH ITS DENOMINATOR:
+    every row that carried an Item No is accounted for in exactly one count."""
+
+    rows_read: int
+    updated: int
+    updated_without_code: int
+    no_response: int
+    not_a_crs_number: int
+    other_submittal: int
+    unknown_number: int
+    rows: list[CrsReplyRow]
 
 
 class ReviewCodeDecision(BaseModel):

@@ -169,7 +169,12 @@ def test_edit_is_the_crs_comment_confirmed_and_the_audit_keeps_both(world, monke
     assert body["confirmed_by"], "saving an edit confirms it, so a re-run keeps it"
 
     [row] = _noise_rows(run)
-    assert row["comment"].endswith("\n" + EDITED)
+    # Saving the edit confirmed it, so it is now an engineer's comment with
+    # its permanent number in Item No - and no second ("Ref: RF-...") ID in
+    # the comment text (crs_numbers, 2026-09-29).
+    assert row["comment"] == EDITED
+    assert str(row["item_no"]).startswith("CRS-") and row["item_no"] == row["crs_ref"]
+    assert row["final_resolution"] == "Open"
     assert "95 dB(A)" not in row["comment"], "the review's wording is replaced, not appended to"
     assert row["comment_by"].startswith("AI Review, edited and confirmed by ")
 

@@ -23,6 +23,9 @@ import type {
 } from "../types/api";
 import { FindingDetail } from "../components/review/FindingDetail";
 import { FindingsTable } from "../components/review/FindingsTable";
+import {
+  CrsItemCell, CrsReplyImportControl, CrsResolutionCell, CrsResponseCell,
+} from "../components/review/CrsCommentControls";
 import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
 import { StandardOverrideControl } from "../components/review/StandardOverrideControl";
 import {
@@ -118,6 +121,14 @@ export function ReviewRunsView(
       return;
     }
     setPreview(result.data);
+  }
+
+  /** Re-read the sheet after a reply, import, close or reopen - from the
+   *  server, so the table shows what the file will say, never a local guess. */
+  async function refreshPreview(runId: string) {
+    const result = await reviewsApi.previewCrs(runId);
+    if (result.ok) setPreview(result.data);
+    else setPreviewError(result.error.message);
   }
 
   const loadRuns = useCallback(async () => {
@@ -493,7 +504,12 @@ export function ReviewRunsView(
             </p>
           )}
 
-          {preview && <CrsPreviewSheet preview={preview} />}
+          {preview && (
+            <CrsPreviewSheet
+              preview={preview} runId={run.review_run_id}
+              onChanged={() => void refreshPreview(run.review_run_id)}
+            />
+          )}
 
           {showStandards && (
             <StandardsInScope standards={standards} missing={missingStandards} />
@@ -869,7 +885,9 @@ function RunCard({ run, selected, onOpen }: {
  *  comes from the route verbatim - the labels are the client's wording, not
  *  this screen's, so nothing here re-types what their document says.
  */
-function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
+function CrsPreviewSheet(
+  { preview, runId, onChanged }: { preview: CrsPreview; runId: string; onChanged: () => void },
+) {
   return (
     <section
       aria-label="Comment Resolution Sheet preview"
@@ -895,6 +913,10 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
         ))}
       </dl>
 
+      {/* AFTER ISSUE: the contractor's returned sheet, matched by each
+          comment's permanent number (never by position). */}
+      <CrsReplyImportControl runId={runId} onChanged={onChanged} />
+
       <table className="w-full min-w-[56rem] border-collapse text-xs">
         <thead>
           <tr>
@@ -912,7 +934,7 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
           {preview.rows.map((row) => (
             <tr key={row.item_no}>
               <td className="border border-ink-600 px-2 py-1 text-center align-top text-slateish-300">
-                {row.item_no}
+                <CrsItemCell runId={runId} row={row} />
               </td>
               <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
                 {row.document_name}
@@ -926,12 +948,18 @@ function CrsPreviewSheet({ preview }: { preview: CrsPreview }) {
               <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
                 {row.comment_by}
               </td>
-              {/* THE CONTRACTOR'S TWO COLUMNS, EMPTY AND PRESENT. They are
-                  theirs to fill in the file they receive; dropping them here
-                  would hide the shape of the document, and writing anything
-                  in them would put words in their mouth. */}
-              <td className="border border-ink-600 px-2 py-1 align-top" />
-              <td className="border border-ink-600 px-2 py-1 align-top" />
+              {/* CONTRACTOR'S RESPONSE is theirs: empty until they reply,
+                  then their reply as imported or recorded - never written
+                  here by the machine. FINAL RESOLUTION is the COMPANY's:
+                  Open until a reviewer closes it (2026-09-29, industry
+                  practice). Both come from the server's sheet, so this cell
+                  shows exactly what the file says. */}
+              <td className="border border-ink-600 px-2 py-1 align-top">
+                <CrsResponseCell runId={runId} row={row} onChanged={onChanged} />
+              </td>
+              <td className="border border-ink-600 px-2 py-1 align-top">
+                <CrsResolutionCell runId={runId} row={row} onChanged={onChanged} />
+              </td>
               {/* CRS quick wins: the standard and clause, in their own column
                   after the client's seven (Page/Section is the datasheet's). */}
               {preview.columns.includes("Standard Reference") && (

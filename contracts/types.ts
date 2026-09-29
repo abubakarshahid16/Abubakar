@@ -386,19 +386,74 @@ export interface CrsHeaderField {
  * belong to the contractor, and they are carried rather than omitted because
  * the sheet has seven columns whether or not anyone has answered yet.
  */
+/** The contractor's per-comment response codes (industry CRS practice). */
+export type CrsResponseCode =
+  | "Accepted" | "Accepted with comment" | "Rejected" | "Clarification needed";
+
+/** One numbered CRS comment after a status change or a recorded reply. */
+export interface CrsComment {
+  ref: string;
+  seq: number;
+  status: string;
+  status_by?: string | null;
+  status_at?: string | null;
+  status_note?: string | null;
+  /** null when the contractor's reply stated no code - never guessed. */
+  response_code?: string | null;
+  response_text?: string | null;
+  response_by?: string | null;
+  response_at?: string | null;
+  response_source?: string | null;
+}
+
+export interface CrsCommentEvent {
+  at: string;
+  by?: string | null;
+  /** "numbered", "response", "open" or "closed". */
+  event: string;
+  detail?: string | null;
+}
+
+export interface CrsCommentHistory {
+  ref: string;
+  events: CrsCommentEvent[];
+}
+
+/** What importing a returned CRS did. Every row with an Item No is in
+ *  exactly one count. */
+export interface CrsReplyImport {
+  rows_read: number;
+  updated: number;
+  updated_without_code: number;
+  no_response: number;
+  not_a_crs_number: number;
+  other_submittal: number;
+  unknown_number: number;
+  rows: { row: number; item: string; outcome: string }[];
+}
+
 export interface CrsPreviewRow {
-  item_no: number;
-  /** The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
-   *  across re-exports of the same review, so a contractor can quote it back -
-   *  unlike item_no, which is 1..N and renumbers on every export. It is also
-   *  printed as the first line of `comment`, because the client's template has
-   *  seven columns and this adds no eighth one. */
+  /** The permanent comment number "CRS-<submittal no>-001" once an engineer
+   *  has made the comment theirs (never reused, kept across re-exports, re-runs
+   *  and an unchanged resubmittal), else the row's position 1..N. */
+  item_no: number | string;
+  /** The permanent number alone; "" on an unnumbered row. */
+  crs_ref?: string;
+  /** What kind of row this is ("non_compliant", "needs_engineer_review",
+   *  "carried_forward", ...). Never printed; read so the screen can mark a
+   *  comment carried forward from an earlier review. */
+  row_kind?: string;
+  /** The digest reference, e.g. "RF-4A2C1B". Printed as the first line of
+   *  `comment` ONLY on an unnumbered row; a numbered row's item_no is the one
+   *  ID a contractor quotes back. */
   row_ref: string;
   document_name: string;
   page_section: string;
   comment: string;
   comment_by: string;
   contractor_response: string;
+  /** The COMPANY's column (only the reviewer closes a comment): "Open" or
+   *  "Closed" on a numbered comment, "" on an unnumbered draft. */
   final_resolution: string;
   /** CRS quick wins: the standard and clause the comment rests on, in the
    *  "Standard Reference" column after the client's seven. */
