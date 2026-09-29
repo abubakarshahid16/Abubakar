@@ -1204,6 +1204,26 @@ def _raw_table_lines(lines: list[str]) -> list[str]:
     return out
 
 
+_CELL_WORD = re.compile(r"[a-z0-9]+")
+
+
+def _raw_lines_in_no_cell(table: dict) -> list[str]:
+    """The table area's text lines whose words are mostly in no cell - a note
+    printed inside the border, which the geometry reader assigned to no cell.
+    Half the words is the bar: a cell split across two lines still counts as
+    covered, a sentence the cells never hold does not."""
+    cells = set()
+    for row in table.get("rows") or []:
+        for cell in row:
+            cells.update(_CELL_WORD.findall((cell or "").lower()))
+    kept = []
+    for raw in table.get("raw") or []:
+        words = _CELL_WORD.findall(raw.lower())
+        if len(words) >= 2 and sum(w in cells for w in words) / len(words) < 0.5:
+            kept.append(raw.strip())
+    return kept
+
+
 def mask_tables(pages: list[tuple[int, str]],
                 page_tables: dict[int, list[dict]] | None,
                 running: set[str]) -> list[tuple[int, str]]:
@@ -1617,6 +1637,21 @@ def segment_document(
                     lead = caption + lead
                 if rows:
                     emit_structured(lead, rows, header, section)
+                elif lead:
+                    # A TABLE READ AS ALL HEADER WAS KEPT NOWHERE. When the
+                    # header fold takes every row, `rows` is empty and the
+                    # table - caption included - used to be dropped without a
+                    # trace: measured on the owner's corpus (2026-09-29), 35
+                    # of one standard's 132 tables, about 285 lines. Its text
+                    # is kept as a table block of its own.
+                    blocks.append(Block("table", "\n".join([*take_carry(), *lead]),
+                                        page_no, page_no, section))
+                # Lines inside the table's area that are in no cell (a note
+                # printed inside the border) were replaced by the table and
+                # lost with it; they are kept as text under the same section.
+                notes = _raw_lines_in_no_cell(table)
+                if notes:
+                    blocks.append(Block("prose", "\n".join(notes), page_no, page_no, section))
                 i += 1
                 continue
 
@@ -2234,7 +2269,7 @@ def chunk_id(doc_sha: str, page_start: int, ordinal: int, chash: str) -> str:
 #: numbered requirements keep their clause; sentences joined across page
 #: breaks; line-break hyphens repaired; runts merged below 40 tokens;
 #: duplicate chunks in one section kept once for search.
-CHUNKER_VERSION = "6"
+CHUNKER_VERSION = "7"
 
 
 def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]],
