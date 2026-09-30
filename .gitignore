@@ -120,6 +120,9 @@ gold/*.csv
 !gold/QUESTIONS-TEMPLATE.csv
 # The question sets built from those sheets quote the same client documents.
 gold/*.json
+# Per-question calibration logs (eval/refusal_calibration.py) - scores/ids only,
+# but kept out of git the same as every other gold/ artifact.
+gold/*.jsonl
 # EXCEPTIONS, tracked although this rule forbids them - listed so that the rule
 # and the repository agree about what is in Git. Both were committed before
 # anyone checked them against the rule (99591dd, cdf156b) and are already on
