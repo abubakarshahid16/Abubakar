@@ -36,7 +36,9 @@ NOT_READ_INTO_FIELDS = frozenset({"no_facts", "unreadable", "not_reached", "not_
 #: page reader is not known to read every field on a page, so a value it did
 #: not find may still be printed there (owner decision 2026-09-26; honesty
 #: audit entry 68). An allow-list, so a new reader defaults to the cautious side.
-TEXT_READER_METHODS = frozenset({"extracted", "ocr_fallback", "grid"})
+#: 'xlsx' / 'docx' (DATASHEET_OFFICE_INPUT): the same rules reader, over every
+#: row of a rendered sheet or Word document.
+TEXT_READER_METHODS = frozenset({"extracted", "ocr_fallback", "grid", "xlsx", "docx"})
 
 #: THE FALLBACK ONLY - used when this page's real vision routing decision
 #: was never recorded (`vision_recorded_by IS NULL`): the geometry/vision

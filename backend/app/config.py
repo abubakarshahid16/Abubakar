@@ -486,6 +486,18 @@ class Settings(BaseSettings):
     #: 2026-09-25, after the measurement above; set it false to go back to the
     #: rule readers alone.
     geometry_table_reader_enabled: bool = True
+    #: Datasheets that are NOT a PDF text layer (`datasheet_inputs.py`): an
+    #: uploaded .docx is accepted, an .xlsx or .docx is INDEXED (its pages
+    #: are the rendered sheets / document, read by `datasheet_inputs` instead
+    #: of PyMuPDF) rather than stored as `stored_not_indexed`, the datasheet
+    #: reader pairs their rows and records `extraction_method` 'xlsx' /
+    #: 'docx', and a scanned page's OCR text also yields table-shaped lines
+    #: ("label  value  unit", "label | value | unit") beside "LABEL: VALUE",
+    #: still at the OCR fallback's low confidence and engineer-review state.
+    #: Trade-off to measure before switching on: a CRS template workbook is
+    #: then indexed too. OFF by default - merging changes nothing.
+    #: Env: DATASHEET_OFFICE_INPUT.
+    datasheet_office_input: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow
