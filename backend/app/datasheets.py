@@ -1355,6 +1355,62 @@ def join_unit_column(value: str, unit: str | None) -> str:
     return f"{value.strip()} {unit}"
 
 
+#: A value column whose header names its own unit: "Rated (kW)", "Flow [m3/h]".
+_HEADER_UNIT = re.compile(r"^(?P<name>.*?\S)\s*[(\[]\s*(?P<unit>[^()\[\]]+?)\s*[)\]]$")
+
+#: Single letters that are units AND ordinary answers ("F" is an insulation
+#: class as much as a temperature scale). A column made only of these is a
+#: column of answers, never a column of units.
+_AMBIGUOUS_UNIT_CELLS = frozenset("a c f g k m s t l h in".split())
+
+
+def is_table_unit(text: str | None) -> bool:
+    """Is this table cell ONLY a printed unit ("kW", "m3/h", "barg", "%")?
+
+    Judged by the shared unit vocabulary (`claims.is_unit`), never by a list
+    of this reader's own. A dash, a blank or any other text is not a unit.
+    """
+    cell = " ".join((text or "").split())
+    if not cell or len(cell) > 14:
+        return False
+    base, _reference = claims.split_reference(cell)
+    return bool(base) and claims.is_unit(base)
+
+
+def split_header_unit(header: str | None) -> tuple[str, str | None]:
+    """`("Rated", "kW")` for a header `"Rated (kW)"`; `(header, None)` when the
+    bracket holds anything that is not a unit ("Rated (design)")."""
+    text = " ".join((header or "").split())
+    found = _HEADER_UNIT.match(text)
+    if found and is_table_unit(found.group("unit")):
+        return found.group("name"), found.group("unit")
+    return text, None
+
+
+def unit_column_of(header: list[str], body: list[list[str]], *, first: int = 1) -> int | None:
+    """The index of a table's UNIT column, or None.
+
+    Two signals, either is enough, and neither is a list of one client's
+    wording: the column's HEADER is a unit-column word (`is_unit_header`:
+    Units, Unit, UoM), or its BODY is a unit column - at least two of its
+    non-empty cells are units, every non-empty cell is a unit or a bare
+    dash, and they are not all ambiguous single letters ("F", "A"). The
+    second signal is what finds a unit column the sheet headed "Measure".
+    Column 0 is the row label and never a unit column.
+    """
+    width = max((len(r) for r in [header, *body]), default=0)
+    for i in range(first, width):
+        if i < len(header) and is_unit_header(header[i]):
+            return i
+    for i in range(first, width):
+        cells = [" ".join((r[i] if i < len(r) else "").split()) for r in body]
+        filled = [c for c in cells if c and not re.fullmatch(r"[-\u2013\u2014]+", c)]
+        if (len(filled) >= 2 and all(is_table_unit(c) for c in filled)
+                and not all(c.lower() in _AMBIGUOUS_UNIT_CELLS for c in filled)):
+            return i
+    return None
+
+
 def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
     """Label:value pairs from one RULED table shape, respecting its columns.
 
@@ -1459,6 +1515,22 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
     unit_col = next((i for i in range(1, width)
                      if i < len(header) and is_unit_header(header[i])), None) \
         if tag_cols else None
+    # THE PLAIN GRID (no tag columns): "Parameter | Units | Value", "Item |
+    # Value | UoM", or a value column headed "Rated (kW)". The unit belongs to
+    # the value on the same row, exactly as in the two-tag layout; it is not a
+    # fact of its own ("Rated power - Units" = kW) and it is not dropped
+    # either ("75" for a 75 kW motor reads as a wrong value).
+    plain_unit_col: int | None = None
+    header_units: dict[int, str] = {}
+    if not tag_cols:
+        body = [_padded(r) for r in shape[data_start:]
+                if not re.fullmatch(r"\d{1,3}", (r[0] if r else "").strip())]
+        plain_unit_col = unit_column_of(header, body)
+        for i in range(1, width):
+            if i != plain_unit_col and i < len(header):
+                _name, unit = split_header_unit(header[i])
+                if unit:
+                    header_units[i] = unit
 
     out = []
     for row in shape[data_start:]:
@@ -1535,6 +1607,14 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
                                 join_unit_column(value, cells[unit_col]
                                                  if unit_col is not None else None)))
                     continue
+            if i == plain_unit_col:
+                continue
+            row_unit = cells[plain_unit_col] if plain_unit_col is not None else ""
+            unit = row_unit if is_table_unit(row_unit) else header_units.get(i)
+            if i in header_units:
+                col_header = split_header_unit(col_header)[0]
+            if unit:
+                value = join_unit_column(value, unit)
             field = f"{label} - {col_header}" if col_header else label
             out.append((field, value))
     return out
@@ -2536,6 +2616,41 @@ def _vision_ledger_note(reading, kept_here: int, unavailable: str | None) -> str
             "not counted as the page read into fields")
 
 
+def geometry_unit_columns(rows: list[dict]) -> set[tuple]:
+    """`(table_id, column)` of every UNIT column among geometry table rows:
+    a column headed as one (`is_unit_header`) or made only of units
+    (`unit_column_of`'s body rule). Their cells are units, not facts."""
+    by_col: dict[tuple, list[str]] = {}
+    for r in rows:
+        if r.get("source") == "table":
+            key = (r.get("table_id"), r.get("column"))
+            by_col.setdefault(key, []).append(
+                " ".join((r.get("value_text") or "").split()))
+    found: set[tuple] = set()
+    for key, texts in by_col.items():
+        label = next((r.get("column_label") for r in rows
+                      if r.get("source") == "table"
+                      and (r.get("table_id"), r.get("column")) == key), None)
+        if is_unit_header(label):
+            found.add(key)
+            continue
+        # Reuse the grid reader's body rule on this one column.
+        if unit_column_of([], [["", t] for t in texts]) == 1:
+            found.add(key)
+    return found
+
+
+def geometry_single_value_tables(rows: list[dict], unit_cells: set[tuple]) -> set:
+    """Table ids with a unit column and exactly ONE other value column."""
+    cols: dict = {}
+    for r in rows:
+        if r.get("source") == "table":
+            cols.setdefault(r.get("table_id"), set()).add(r.get("column"))
+    return {t for t, columns in cols.items()
+            if any((t, c) in unit_cells for c in columns)
+            and len([c for c in columns if (t, c) not in unit_cells]) == 1}
+
+
 def _geometry_raw_value(row: dict) -> tuple[str, str | None]:
     """(text for `create_fact`, unit to keep apart) for one geometry row.
 
@@ -3520,13 +3635,18 @@ def _extract_facts(
             # cell of its own. The unit is joined to the values of its table
             # row, the tag leaves the label for `equipment_tag`, and the unit
             # cell is not a fact.
+            geometry_rows_here = geometry_by_page.get(page, [])
+            unit_cells = geometry_unit_columns(geometry_rows_here)
             geometry_units = {
                 (r.get("table_id"), r.get("row")): (r.get("value_text") or "").strip()
-                for r in geometry_by_page.get(page, [])
-                if r.get("source") == "table" and is_unit_header(r.get("column_label"))}
-            for row in geometry_by_page.get(page, []):
+                for r in geometry_rows_here
+                if r.get("source") == "table"
+                and (r.get("table_id"), r.get("column")) in unit_cells}
+            single_value_tables = geometry_single_value_tables(geometry_rows_here, unit_cells)
+            for row in geometry_rows_here:
                 row_tag = None
-                if row.get("source") == "table" and is_unit_header(row.get("column_label")):
+                if row.get("source") == "table" and (
+                        (row.get("table_id"), row.get("column")) in unit_cells):
                     dropped["geometry: unit column"] = dropped.get("geometry: unit column", 0) + 1
                     continue
                 column = " ".join((row.get("column_label") or "").split())
@@ -3539,6 +3659,18 @@ def _extract_facts(
                                "unit": row.get("unit") or (
                                    unit if not row["is_blank"]
                                    and _is_numeric_cell(row.get("value") or "") else None)}
+                elif row.get("source") == "table" and row.get("table_id") in single_value_tables:
+                    # KEY | UNIT | VALUE: the one value column's header ("Value",
+                    # "Figure") names no field, so it is not glued to the row's
+                    # label, and the row's unit cell is the value's unit.
+                    printed = " ".join((row["label"] or "").split())
+                    if column and printed.lower().endswith(column.lower()):
+                        printed = printed[:-len(column)].strip()
+                    unit = geometry_units.get((row.get("table_id"), row.get("row")))
+                    row = {**row, "label": printed,
+                           "unit": row.get("unit") or (
+                               unit if not row["is_blank"] and is_table_unit(unit)
+                               and _is_numeric_cell(row.get("value") or "") else None)}
                 label = (row["label"] or "").strip()
                 if not label:
                     dropped["empty label"] = dropped.get("empty label", 0) + 1
