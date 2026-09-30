@@ -17,7 +17,8 @@ What is proved, each through the pipeline where it can be:
     calls) and checks REASONING_PROVIDER; the ollama engine through
     `model_transport` with the host check first.
 
-Mutations: M1670-M1686 (`scripts/mutations/datasheet_ai.py`).
+Mutations: M1670-M1686 (`scripts/mutations/datasheet_ai.py`); units in the
+merge and the unconfirmed flag: M1752-M1759 (`scripts/mutations/datasheet_units.py`).
 """
 
 from __future__ import annotations
@@ -160,7 +161,9 @@ def test_flag_off_asks_no_model_and_adds_nothing(tmp_path, monkeypatch):
 
 
 def test_flag_on_with_an_empty_reading_leaves_the_rules_facts_unchanged(tmp_path, monkeypatch):
-    """RULES-ONLY: a page the AI proves nothing on is exactly the rules'."""
+    """RULES-ONLY: a page the AI proves nothing on keeps the rules' facts -
+    every value, confidence and state as the rules wrote them. Only the
+    provenance says the AI read the page and confirmed none of them."""
     off_result, off_facts = _extract(tmp_path)
     _fresh_db()
     model = FakeModel([])
@@ -168,10 +171,13 @@ def test_flag_on_with_an_empty_reading_leaves_the_rules_facts_unchanged(tmp_path
     on_result, on_facts = _extract(tmp_path)
     assert model.calls == 2               # one page, two runs
     keep = ("field_name", "field_value", "confidence", "validation_state",
-            "extraction_method", "bbox", "raw_value", "unit")
+            "extraction_method", "raw_value", "unit")
     assert [{k: f[k] for k in keep} for f in on_facts] == \
         [{k: f[k] for k in keep} for f in off_facts]
+    assert all(f["bbox"] is None for f in off_facts)
+    assert all(json.loads(f["bbox"])["ai_confirmed"] is False for f in on_facts)
     assert on_result["ai_reader"]["pages_read"] == 1
+    assert on_result["ai_reader"]["unconfirmed"] == len(on_facts)
     assert {k: v for k, v in on_result.items() if k != "ai_reader"} == off_result
 
 
@@ -331,6 +337,102 @@ def test_merge_a_second_same_kind_value_beside_an_agreement_is_a_conflict():
     [d] = datasheet_ai.merge_readings(rules, ais)
     assert d["outcome"] == datasheet_ai.CONFLICT
     assert d["agreed_ai"]["value"] == "23.5" and [a["value"] for a in d["ai"]] == ["30"]
+
+
+# ======================================================== units in the merge
+
+def _unitless(name, number, *, label=None, rid="u1"):
+    """A rule reading that lost its unit: "75" read from a grid whose unit
+    sits in its own column."""
+    return {"id": rid, "page": 1, "field_name": datasheets.normalise_field_name(label or name),
+            "field_label": label or name, "field_value": number, "raw_value": number,
+            "raw_unit": None, "is_blank": 0, "value_column": None,
+            "normalized_value": None, "normalized_unit": None}
+
+
+def _quoted(name, value, unit, quote, kind="offered"):
+    return {**_ai(name, value, unit, kind=kind), "quote": quote}
+
+
+def test_merge_an_ai_unit_its_quote_proves_is_kept_on_the_one_agreed_fact():
+    rules = [_unitless("rated power", "75")]
+    ais = [_quoted("rated power", "75", "kW", "Rated power 75 kW")]
+    [d] = datasheet_ai.merge_readings(rules, ais)
+    assert d["outcome"] == datasheet_ai.AGREED
+    assert d["unit"] == "kW"
+
+
+def test_merge_an_ai_unit_its_quote_does_not_print_proves_nothing():
+    rules = [_unitless("rated power", "75")]
+    ais = [_quoted("rated power", "75", "kW", "Rated power 75")]
+    [d] = datasheet_ai.merge_readings(rules, ais)
+    assert d["outcome"] == datasheet_ai.AGREED and "unit" not in d
+
+
+def test_merge_the_same_number_in_different_units_is_a_conflict():
+    rules = [_rule("rated power", "75 kW")]
+    ais = [_quoted("rated power", "75", "hp", "Rated power 75 hp")]
+    [d] = datasheet_ai.merge_readings(rules, ais)
+    assert d["outcome"] == datasheet_ai.CONFLICT
+    assert datasheet_ai.reading_relation(rules[0], ais[0]) == datasheet_ai.UNIT_DIFFERS
+
+
+def test_merge_one_unit_spelled_twice_agrees_but_gauge_and_absolute_do_not():
+    assert datasheet_ai.merge_readings(
+        [_rule("length", "1 m")],
+        [_quoted("length", "1000", "mm", "Length 1000 mm")])[0]["outcome"] == datasheet_ai.AGREED
+    assert datasheet_ai.merge_readings(
+        [_rule("design pressure", "10 barg")],
+        [_quoted("design pressure", "10", "bar(a)", "Design pressure 10 bar(a)")]
+    )[0]["outcome"] == datasheet_ai.CONFLICT
+
+
+def test_merge_one_ai_reading_confirms_two_code_readings_of_one_cell():
+    """The text reader read "Rated power 75 kW"; the table-shape reader read
+    the same cell as "Rated power - Value" = "75" and lost the unit. The one
+    AI reading confirms both, and gives the second its proven unit."""
+    rules = [_rule("rated power", "75 kW", rid="text"),
+             _unitless("rated power", "75", label="Rated power - Value", rid="table")]
+    ais = [_quoted("rated power", "75", "kW", "Rated power 75 kW")]
+    decisions = datasheet_ai.merge_readings(rules, ais)
+    assert [(d["outcome"], d["rule"]["id"], d.get("unit")) for d in decisions] == [
+        (datasheet_ai.AGREED, "text", None), (datasheet_ai.AGREED, "table", "kW")]
+
+
+def test_agreement_with_a_proven_unit_writes_the_unit_on_the_rule_fact(tmp_path, monkeypatch):
+    """Through extraction: the rules read "75" with no unit; the page prints
+    "75 kW" and the AI quotes it. ONE fact, carrying kW, agreed."""
+    monkeypatch.setattr(datasheets, "_pairs_from_pdf_page",
+                        lambda path, page: [("Rated power", "75")])
+    monkeypatch.setattr(settings, "geometry_table_reader_enabled", False)
+    _use(monkeypatch, FakeModel([_fact("Rated power", "75", "kW", "Rated power 75 kW")]))
+    result, facts = _extract(tmp_path, [("Rated power", "75 kW")])
+    [fact] = _by(facts, "rated power")
+    assert fact["raw_value"] == "75" and fact["raw_unit"] == "kW" and fact["unit"] == "kW"
+    assert fact["extraction_method"] == "extracted"
+    assert fact["confidence"] == datasheet_ai.AGREED_CONFIDENCE
+    assert json.loads(fact["bbox"])["unit_from_ai"] == "kW"
+    assert result["ai_reader"]["units_from_ai"] == 1
+
+
+def test_a_rules_fact_the_ai_did_not_confirm_is_kept_and_flagged(tmp_path, monkeypatch):
+    """The AI read the page and confirmed one value: the others are kept,
+    confidence unchanged, and say they are unconfirmed. Never deleted."""
+    _use(monkeypatch, FakeModel([AGREE]))
+    result, facts = _extract(tmp_path)
+    [casing] = _by(facts, "casing material")
+    assert casing["confidence"] == 0.6 and casing["validation_state"] is None
+    box = json.loads(casing["bbox"])
+    assert box["ai_confirmed"] is False and box["unconfirmed"] == datasheet_ai.UNCONFIRMED
+    [agreed] = _by(facts, "design pressure")
+    assert "unconfirmed" not in json.loads(agreed["bbox"])
+    assert result["ai_reader"]["unconfirmed"] == len(facts) - 1
+
+
+def test_a_page_the_ai_could_not_read_flags_nothing(tmp_path, monkeypatch):
+    _use(monkeypatch, FakeModel(raises=RuntimeError("down")))
+    _result, facts = _extract(tmp_path)
+    assert all(f["bbox"] is None for f in facts)
 
 
 # ======================================================== the engines' gates

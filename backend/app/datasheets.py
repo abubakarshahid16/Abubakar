@@ -1872,54 +1872,15 @@ class FactError(ValueError):
     """A fact could not be recorded. Carries a reason, never a row."""
 
 
-def create_fact(
-    *, submittal_document_id: str, chunk_id: str, field_label: str,
-    raw_value: str | None, page: int | None, section: str | None = None,
-    source_text: str | None = None, review_run_id: str | None = None,
-    confidence: float | None = None, extraction_method: str = "extracted",
-    equipment_tag: str | None = None, commit: bool = True,
-    validation_state: str | None = None,
-    extractor_version: str | None = None, input_hash: str | None = None,
-    unit: str | None = None, value_column: str | None = None,
-    one_quantity: bool = False,
-    blank: tuple[bool, str | None] | None = None, bbox: str | None = None,
-    printed_unit: str | None = None,
-) -> dict:
-    """Record one fact. REFUSES a fact whose citation does not resolve.
-
-    `unit` (B4): the unit a layout states for this value OUTSIDE the value's
-    own cell - a grid row's unit column, whose primary unit `primary_unit`
-    read. Used only when the value itself prints no unit: "12.0 (53)" under
-    "m3/h (USGPM)" is 24.8 m3/h. A unit printed in the value always wins.
-
-    `commit=False` writes INSIDE the caller's open transaction and commits
-    nothing, so `extract_facts` can make a whole datasheet all-or-nothing
-    (B19). It also skips `ensure_schema`, whose own `with conn:` would commit
-    that transaction half-way; the caller has already ensured the schema.
-
-    The same three checks `standards.create_requirement` makes, for the same
-    reasons: a fact without a resolving chunk is an assertion, a chunk from
-    another document is a citation that opens the wrong page, and a page
-    outside the chunk is a citation that opens the right document in the wrong
-    place.
-
-    A BLANK IS RECORDED AS A FACT, not skipped. "Set pressure: By Contractor"
-    is information - it says the field exists, is required, and is not filled
-    in - and skipping it would make a missing value indistinguishable from a
-    field the sheet never asked for.
-    """
-    if commit:
-        submittal_review.ensure_schema()
-    chunk = connect().execute(
-        "SELECT id, document_id, page_start, page_end FROM chunks WHERE id = ?",
-        (chunk_id,)).fetchone()
-    if chunk is None:
-        raise FactError(f"no chunk {chunk_id!r}: the citation does not resolve")
-    if chunk["document_id"] != submittal_document_id:
-        raise FactError("the cited chunk belongs to a different document")
-    if page is not None and not (chunk["page_start"] <= page <= chunk["page_end"]):
-        raise FactError(f"page {page} is outside the cited chunk")
-
+def value_columns(raw_value: str | None, *, field_label: str, unit: str | None = None,
+                  one_quantity: bool = False,
+                  blank: tuple[bool, str | None] | None = None,
+                  printed_unit: str | None = None) -> dict:
+    """The parsed columns of one fact's value - number, units, normalised
+    value, range, blank - exactly as `create_fact` writes them. ONE home for
+    the parse, so a caller that must re-derive a stored fact's columns (the
+    AI merge adding a unit the page proves) cannot drift from the writer.
+    See `create_fact` for each argument."""
     # B4 (geometry reader): `blank` is the caller's OWN evidence of a blank
     # field - the drawn run or printed marker the geometry reader saw, which
     # it has already separated from any printed unit ("____ bar g"). None
@@ -1974,6 +1935,64 @@ def create_fact(
     # engineering unit to anything downstream. The spelling is still kept in
     # `raw_unit`, because the document did write it.
     unit = base_unit if claims.is_unit(base_unit or "") else None
+    return {"is_blank": bool(blank), "blank_marker": marker, "raw_value": value,
+            "raw_unit": raw_unit, "unit_reference": unit_reference,
+            "normalized_value": measurement.normalized_value if measurement else None,
+            "normalized_unit": measurement.normalized_unit if measurement else None,
+            "unit": unit, "value_min": value_min, "value_max": value_max}
+
+
+def create_fact(
+    *, submittal_document_id: str, chunk_id: str, field_label: str,
+    raw_value: str | None, page: int | None, section: str | None = None,
+    source_text: str | None = None, review_run_id: str | None = None,
+    confidence: float | None = None, extraction_method: str = "extracted",
+    equipment_tag: str | None = None, commit: bool = True,
+    validation_state: str | None = None,
+    extractor_version: str | None = None, input_hash: str | None = None,
+    unit: str | None = None, value_column: str | None = None,
+    one_quantity: bool = False,
+    blank: tuple[bool, str | None] | None = None, bbox: str | None = None,
+    printed_unit: str | None = None,
+) -> dict:
+    """Record one fact. REFUSES a fact whose citation does not resolve.
+
+    `unit` (B4): the unit a layout states for this value OUTSIDE the value's
+    own cell - a grid row's unit column, whose primary unit `primary_unit`
+    read. Used only when the value itself prints no unit: "12.0 (53)" under
+    "m3/h (USGPM)" is 24.8 m3/h. A unit printed in the value always wins.
+
+    `commit=False` writes INSIDE the caller's open transaction and commits
+    nothing, so `extract_facts` can make a whole datasheet all-or-nothing
+    (B19). It also skips `ensure_schema`, whose own `with conn:` would commit
+    that transaction half-way; the caller has already ensured the schema.
+
+    The same three checks `standards.create_requirement` makes, for the same
+    reasons: a fact without a resolving chunk is an assertion, a chunk from
+    another document is a citation that opens the wrong page, and a page
+    outside the chunk is a citation that opens the right document in the wrong
+    place.
+
+    A BLANK IS RECORDED AS A FACT, not skipped. "Set pressure: By Contractor"
+    is information - it says the field exists, is required, and is not filled
+    in - and skipping it would make a missing value indistinguishable from a
+    field the sheet never asked for.
+    """
+    if commit:
+        submittal_review.ensure_schema()
+    chunk = connect().execute(
+        "SELECT id, document_id, page_start, page_end FROM chunks WHERE id = ?",
+        (chunk_id,)).fetchone()
+    if chunk is None:
+        raise FactError(f"no chunk {chunk_id!r}: the citation does not resolve")
+    if chunk["document_id"] != submittal_document_id:
+        raise FactError("the cited chunk belongs to a different document")
+    if page is not None and not (chunk["page_start"] <= page <= chunk["page_end"]):
+        raise FactError(f"page {page} is outside the cited chunk")
+
+    cols = value_columns(raw_value, field_label=field_label, unit=unit,
+                         one_quantity=one_quantity, blank=blank, printed_unit=printed_unit)
+    blank, marker = cols["is_blank"], cols["blank_marker"]
     # #175: LOW CONFIDENCE NEVER READS AS A CONFIDENT FACT. Whatever the
     # caller passed for `validation_state` stands (an explicit call always
     # wins); otherwise a fact below `LOW_CONFIDENCE_THRESHOLD` is routed to
@@ -1996,20 +2015,17 @@ def create_fact(
         "field_name": normalise_field_name(field_label),
         "field_label": field_label,
         "field_value": (raw_value or "").strip() or None,
-        "raw_value": value,
         # AS READ, always - even when normalisation fails. The document
         # said it, and a unit this system cannot convert is still evidence.
-        "raw_unit": raw_unit,
-        "unit_reference": unit_reference,
-        "normalized_value": measurement.normalized_value if measurement else None,
-        "normalized_unit": measurement.normalized_unit if measurement else None,
-        "unit": unit,
+        # (`raw_value`, `raw_unit`, `unit_reference`, `normalized_*`, `unit`.)
+        **{k: cols[k] for k in ("raw_value", "raw_unit", "unit_reference",
+                                "normalized_value", "normalized_unit", "unit")},
         # WHICH EQUIPMENT THIS FACT DESCRIBES, or NULL when the sheet does not
         # say. A datasheet can carry four valves; a fact that does not know
         # which one it belongs to is a fact nobody can act on.
         "equipment_tag": equipment_tag,
-        "value_min": value_min,
-        "value_max": value_max,
+        "value_min": cols["value_min"],
+        "value_max": cols["value_max"],
         "is_blank": 1 if blank else 0,
         "blank_marker": marker,
         "page": page if page is not None else chunk["page_start"],
@@ -2751,6 +2767,43 @@ def _ai_gate(fact: dict, furniture: set[str]) -> str | None:
     return None
 
 
+#: The columns a proven unit re-derives on an agreed rule fact.
+_UNIT_COLUMNS = ("raw_value", "raw_unit", "unit_reference", "normalized_value",
+                 "normalized_unit", "unit")
+
+
+def _proven_unit_columns(rule: dict, unit: str | None) -> dict | None:
+    """The agreed rule fact's value columns WITH the unit the AI proved, or
+    None when there is none to add. Re-derived by `value_columns`, the parse
+    `create_fact` writes with, from the fact's own printed value - so the
+    number is the rules' and only the unit is new. None, too, when the number
+    would change or the unit would not attach (a compound label, a range)."""
+    if not unit or rule.get("raw_value") is None or rule.get("raw_unit"):
+        return None
+    cols = value_columns(rule.get("field_value"), field_label=rule.get("field_label") or "",
+                         unit=unit)
+    if cols["raw_value"] != rule["raw_value"] or not cols["raw_unit"]:
+        return None
+    return {k: cols[k] for k in _UNIT_COLUMNS}
+
+
+def _unconfirmed_box(existing: str | None, engine: str | None) -> str:
+    """A rules-only fact's provenance once the AI read its page: whatever the
+    fact already carried, plus who read the page and that it was not
+    confirmed."""
+    from . import datasheet_ai
+
+    try:
+        box = json.loads(existing) if existing else {}
+    except ValueError:
+        box = {}
+    if not isinstance(box, dict):
+        box = {"bbox": box}
+    box.update({"ai_reader": datasheet_ai.READER, "ai_engine": engine,
+                "ai_confirmed": False, "unconfirmed": datasheet_ai.UNCONFIRMED})
+    return json.dumps(box, sort_keys=True)
+
+
 def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
                       page: int, document_id: str, chunk, review_run_id: str | None,
                       furniture: set[str], equipment_tag: str | None,
@@ -2761,7 +2814,9 @@ def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
 
       agreed     -> the rule fact stays the one fact, at
                     `AGREED_CONFIDENCE`, its provenance naming the engine and
-                    the AI's quote;
+                    the AI's quote; when the rules LOST the unit and the AI's
+                    quote proves it (decision `unit`), the one fact takes that
+                    unit, its columns re-derived by `value_columns`;
       conflict   -> both kept: the AI reading written beside the rule fact,
                     and BOTH marked `validation_state='conflict'` (the flag
                     `comparison.low_trust_reason` already holds verdicts on),
@@ -2769,9 +2824,11 @@ def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
       AI-only    -> written as the model's (`extraction_method='model'`,
                     confidence 0.5, section `model:<kind>`), provenance naming
                     the engine;
-      rules-only -> untouched.
-    A page the engine could not read has no accepted facts, so every rule
-    fact on it is rules-only: the page falls back to the rule readers."""
+      rules-only -> kept, value and confidence untouched; its provenance
+                    records that the AI READ this page and did not confirm it
+                    (`datasheet_ai.UNCONFIRMED`), so the engineer can see it.
+    A page the engine could not read returns before any of this: its rule
+    facts are left exactly as the rule readers wrote them."""
     from . import datasheet_ai
 
     out = ai_run["pages"].get(page)
@@ -2837,13 +2894,33 @@ def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
     for d in decisions:
         outcome = d["outcome"]
         if outcome == datasheet_ai.AGREED:
+            rule = d["rule"]
+            proven = _proven_unit_columns(rule, d.get("unit"))
             conn.execute(
                 "UPDATE submittal_facts SET confidence = ?, bbox = ? WHERE id = ?",
                 (datasheet_ai.AGREED_CONFIDENCE,
-                 provenance_box(d["ai"], agreement="rules and AI read the same value"),
-                 d["rule"]["id"]))
-            d["rule"]["confidence"] = datasheet_ai.AGREED_CONFIDENCE
+                 provenance_box(d["ai"], agreement="rules and AI read the same value",
+                                unit_from_ai=d["unit"] if proven else None),
+                 rule["id"]))
+            if proven:
+                # ONE FACT, CARRYING THE PROVEN UNIT: the rules read the number
+                # and lost the unit; the AI's quote, checked on the page,
+                # prints it.
+                conn.execute(
+                    "UPDATE submittal_facts SET " + ", ".join(f"{k} = ?" for k in proven)
+                    + " WHERE id = ?", (*proven.values(), rule["id"]))
+                rule.update(proven)
+                stats["units_from_ai"] += 1
+            rule["confidence"] = datasheet_ai.AGREED_CONFIDENCE
             stats["agreed"] += 1
+        elif outcome == datasheet_ai.RULES_ONLY:
+            # KEPT, NOT CONFIRMED. The AI read this page and did not read
+            # this value; the rules' fact stands as written, and says so.
+            rule = d["rule"]
+            conn.execute("UPDATE submittal_facts SET bbox = ? WHERE id = ?",
+                         (_unconfirmed_box(rule.get("bbox"), engine), rule["id"]))
+            rule["bbox"] = _unconfirmed_box(rule.get("bbox"), engine)
+            stats["unconfirmed"] += 1
         elif outcome == datasheet_ai.CONFLICT:
             ids = [written_ids[id(f)] for f in d["ai"] if id(f) in written_ids]
             if not ids:
@@ -3189,6 +3266,7 @@ def _extract_facts(
         ai_stats = {"engine": ai_run["engine"], "unavailable": ai_run["unavailable"],
                     "stopped": ai_run["stopped"], "pages_read": 0,
                     "agreed": 0, "conflicts": 0, "ai_only": 0, "facts_written": 0,
+                    "units_from_ai": 0, "unconfirmed": 0,
                     "dropped": {}, "proposals_rejected": {},
                     "version": provenance.code_version(
                         "datasheets", "datasheet_ai", "claude_datasheet")}

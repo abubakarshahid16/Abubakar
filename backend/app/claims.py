@@ -234,8 +234,88 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     "kn": None, "knm": None, "lb": None, "lbs": None, "rpm": None, "hz": None, "khz": None,
     "w": None, "kw": None, "mw": None, "ml": None, "l": None, "gpm": None, "mpy": None,
     "ohm": None, "kohm": None, "db": None, "wt": None, "vol": None,
+    # 2026-09-30, found by the datasheet benchmark: real datasheet units that
+    # every reader refused - the AI gate (`claude_datasheet._unit_recognised`)
+    # dropped "100 ms", "16 weeks" and "18 months", and the rules reader kept
+    # "8000" and threw the "Nm3/h" away. RECOGNISED, NOT CONVERTED.
+    #
+    # `ms` is a time like `s` and carries the same dimension. `week` and
+    # `month` are CALENDAR durations like `years` above, and for the same
+    # reason carry no dimension: a delivery of 16 weeks is not 2,688 h, and a
+    # month is not a fixed number of hours at all.
+    "ms": "time", "msec": "time",
+    "week": None, "weeks": None, "wk": None, "wks": None,
+    "month": None, "months": None, "yr": None, "yrs": None,
+    # Normal / standard gas volumes and other stand-alone quantities a
+    # datasheet prints. `nm3` is a NORMAL cubic metre (0 C), not a nanometre
+    # cubed, and differs from `sm3` (15 C) by about 5 % - so neither converts
+    # to `m3` or to the other.
+    "nm3": None, "sm3": None, "scf": None, "bbl": None,
+    "mm2": None, "cm2": None, "ft2": None, "cm3": None, "ft3": None,
+    "kwh": None, "kva": None, "hp": None, "atm": "pressure", "mmhg": "pressure",
+    "ppmv": None, "mol": None, "kmol": None, "kj": None, "mj": None,
 }
 _RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS)
+
+
+# ------------------------------------------------------- compound rates
+#: THE GRAMMAR FOR "<quantity>/<per>", so a rate is recognised by what it IS
+#: rather than by being listed: kg/h, t/h, Nm3/h, Sm3/d, m3/d, mm/y, W/cm2,
+#: kN/m, kJ/kg. Listing every spelling one at a time is how "kg/h" came to be
+#: refused while "m3/h" was known.
+#:
+#: STRICT BY CONSTRUCTION. Both sides must be units from these closed sets,
+#: and the PAIR of families must be one that names a physical quantity. That
+#: is what keeps "N/A" (a force over nothing - `a` is not a denominator),
+#: "N/S" (force per time is no engineering quantity), "T/C", "I/O" and
+#: "kg/banana" out. One slash only: "kg/m2/h" is not guessed at.
+_RATE_NUMERATOR: dict[str, frozenset[str]] = {
+    "mass": frozenset("mg g kg t te tonne tonnes ton tons lb lbs klb".split()),
+    "volume": frozenset("ml l m3 nm3 sm3 cm3 ft3 scf mscf mmscf bbl gal usgal igal".split()),
+    "energy": frozenset("j kj mj gj kwh mwh kcal btu mmbtu".split()),
+    "amount": frozenset("mol kmol".split()),
+    "length": frozenset("um mm cm m km in ft".split()),
+    "power": frozenset("w kw mw".split()),
+    "force": frozenset("n kn".split()),
+}
+_RATE_DENOMINATOR: dict[str, frozenset[str]] = {
+    "time": frozenset(
+        "s sec ms min h hr hrs hour d day y yr year week wk month".split()),
+    "area": frozenset("mm2 cm2 m2 ft2 in2".split()),
+    "length": frozenset("mm m".split()),
+    "volume": frozenset("l m3 ft3 nm3 sm3".split()),
+    "mass": frozenset("kg g t lb".split()),
+}
+#: (numerator family, denominator family) pairs that name a quantity.
+_RATE_QUANTITIES = frozenset({
+    ("mass", "time"), ("volume", "time"), ("energy", "time"), ("amount", "time"),
+    ("length", "time"),                                   # speed, corrosion rate
+    ("power", "area"), ("power", "length"),               # heat flux, heat per length
+    ("force", "area"), ("force", "length"),               # stress, line load
+    ("mass", "area"), ("volume", "area"), ("mass", "length"),
+    ("mass", "volume"), ("energy", "volume"), ("amount", "volume"),
+    ("energy", "mass"), ("volume", "mass"),
+})
+
+
+def _families(token: str, table: dict[str, frozenset[str]]) -> set[str]:
+    return {family for family, units in table.items() if token in units}
+
+
+def is_rate_unit(unit_str: str) -> bool:
+    """Is this spelling a compound rate the grammar above accepts?"""
+    folded = _fold_unit(unit_str or "")
+    if folded.count("/") != 1:
+        return False
+    top, bottom = folded.split("/")
+    return any((a, b) in _RATE_QUANTITIES
+               for a in _families(top, _RATE_NUMERATOR)
+               for b in _families(bottom, _RATE_DENOMINATOR))
+
+
+def _recognised_folded(folded: str) -> bool:
+    """A folded spelling is a unit: listed, or a rate by the grammar."""
+    return folded in _RECOGNISED_UNITS or is_rate_unit(folded)
 
 
 def _fold_unit(unit_str: str) -> str:
@@ -244,6 +324,8 @@ def _fold_unit(unit_str: str) -> str:
     # the spelling a form actually uses in a column header - fell through to
     # `deg c` and matched nothing.
     u = unit_str.strip().lower().replace("µ", "u").replace("μ", "u").replace("°", "")
+    # "m³/h" and "m3/h" are one unit; a superscript is printing, not identity.
+    u = u.replace("²", "2").replace("³", "3")
     u = u.replace("deg ", "deg").replace("degrees", "deg").replace("degree", "deg")
     # Internal spacing is not identity: "wt %" and "wt%" are one unit. Units
     # are short tokens and none in the table is distinguished by a space.
@@ -328,7 +410,16 @@ def is_unit(unit_str: str) -> bool:
     number is a unit needs those to be different answers, and this is that
     question asked directly.
     """
-    return _fold_unit(unit_str) in _RECOGNISED_UNITS
+    folded = _fold_unit(unit_str or "")
+    if not folded:
+        return False
+    if _recognised_folded(folded) or folded in _REFERENCE_SUFFIX:
+        return True
+    # A known unit with its reference written as a parenthetical: "kPa(g)",
+    # "bar (a)", "kg/cm2 (g)". Recognised because its BASE is -
+    # `split_reference` separates the two where a value is stored.
+    bracket = _REFERENCE_BRACKET.match((unit_str or "").strip())
+    return bracket is not None and _recognised_folded(_fold_unit(bracket.group("base")))
 
 
 def unit_dimension(unit_str: str) -> str | None:

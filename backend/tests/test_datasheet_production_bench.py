@@ -88,9 +88,16 @@ def test_hybrid_reads_the_xlsx_through_the_real_extract_path(key):
     assert out["flags"]["datasheet_office_input"] is True
     assert out["flags"]["datasheet_ai_reader"] == "ollama"
     ai = out["summary"]["ai_reader"]
-    assert ai["engine"] == "oracle" and ai["pages_read"] == 1 and ai["facts_written"] >= 8
+    # Every answer on the sheet is the AI's: written as its own where the
+    # rules read nothing (free text), agreed where the rules read the same
+    # value - since the unit-cell fix the rules read "Capacity | m3/h | 42".
+    assert ai["engine"] == "oracle" and ai["pages_read"] == 1
+    assert ai["facts_written"] + ai["agreed"] >= 8
     model_facts = [f for f in out["facts"] if f["extraction_method"] == datasheet_ai.EXTRACTION_METHOD]
-    assert {f["field_label"] for f in model_facts} >= {"Capacity", "Casing material"}
+    assert {f["field_label"] for f in model_facts} >= {"Pumped fluid", "Casing material"}
+    [capacity] = [f for f in out["facts"] if f["field_label"] == "Capacity"]
+    assert capacity["extraction_method"] == "xlsx" and capacity["raw_unit"] == "m3/h"
+    assert capacity["confidence"] == datasheet_ai.AGREED_CONFIDENCE
     assert all(f["section"] == "model:offered" for f in model_facts)
     # Scored as the owner will see it: every answer, nothing wrong.
     reading = bench.read_file_with("hybrid:oracle", XLSX, model_call=bench.oracle_model_call(entry))

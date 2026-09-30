@@ -45,9 +45,10 @@ This module imports no HTTP client and opens no socket
 from __future__ import annotations
 
 import contextlib
+import re
 from contextvars import ContextVar
 
-from . import claude_datasheet, datasheet_inputs, datasheets
+from . import claims, claude_datasheet, datasheet_inputs, datasheets
 from .claude_spend import StopRun
 from .config import settings
 
@@ -85,6 +86,17 @@ AGREED = "agreed"
 CONFLICT = "conflict"
 AI_ONLY = "ai_only"
 RULES_ONLY = "rules_only"
+
+#: How a rule reading and an AI reading of one field relate (`reading_relation`).
+SAME = "same"                    # the same value: agreement
+AI_UNIT = "ai_unit"              # the same number; only the AI has a unit, and its quote shows it
+UNIT_DIFFERS = "unit_differs"    # the same number in two different units: a conflict
+DIFFERENT = "different"          # different values: a conflict
+
+#: Written into a rules-only fact's provenance when the AI reader READ its
+#: page and did not confirm it. A flag for the engineer, not a verdict: the
+#: fact is kept exactly as the rules read it, confidence unchanged.
+UNCONFIRMED = "the AI reader read this page and did not read this value"
 
 #: Local engine packet sizes. A datasheet page plus the prompt does not fit
 #: the answer model's 4096-token window, and a page's JSON answer is longer
@@ -328,9 +340,26 @@ _KIND_WORDS = {
 }
 
 
+def _label_column(fact: dict) -> tuple[str, str | None]:
+    """`(row label, column header)` of a rule fact. The table-shape reader
+    names a cell "<row label> - <column header>" ("Maximum flow - Offered",
+    `datasheets.pairs_from_table_shape`) and records no `value_column`; the
+    geometry table reader records the column and names the cell "<row label>
+    <column header>". Either way the column says WHOSE value it is, not
+    which field."""
+    label = str(fact.get("field_label") or fact.get("field") or "")
+    column = fact.get("value_column")
+    if column:
+        return label, str(column)
+    head, sep, tail = label.rpartition(" - ")
+    if sep and head.strip() and tail.strip():
+        return head.strip(), tail.strip()
+    return label, None
+
+
 def rule_kind(fact: dict) -> str | None:
     """Whose value a rule fact is, when its column header says so."""
-    column = " ".join(str(fact.get("value_column") or "").lower().split())
+    column = " ".join(str(_label_column(fact)[1] or "").lower().split())
     if not column:
         return None
     for kind, words in _KIND_WORDS.items():
@@ -344,18 +373,106 @@ def ai_raw_value(fact: dict) -> str:
     return " ".join(p for p in (fact.get("value"), fact.get("unit")) if p)
 
 
-def values_agree(rule_fact: dict, ai_fact: dict) -> bool:
-    """Do the rules and the AI read the same value? The geometry reader's
-    agreement rule (`datasheets._geometry_agrees`): numbers compare as
-    numbers (normalised when both normalise), text compares folded."""
+def _printed_unit(text: str | None) -> str | None:
+    """The unit a value's own text prints - a quantity's or a range's."""
+    text = text or ""
+    unit = datasheets.measure_value(text)[1]
+    if unit:
+        return unit
+    found = datasheets.parse_range(text)
+    return found[2] if found else None
+
+
+def rule_unit(fact: dict) -> str | None:
+    """The unit a rule fact carries: the stored one, else its value's own."""
+    return (fact.get("raw_unit") or fact.get("unit")
+            or _printed_unit(fact.get("field_value")))
+
+
+def ai_unit(fact: dict) -> str | None:
+    return fact.get("unit") or _printed_unit(fact.get("value"))
+
+
+def unit_in_quote(unit: str, quote: str | None) -> bool:
+    """Does the AI's QUOTE - the words `claude_datasheet.accept` proved are on
+    the page - print this unit? Whole, case-folded; a number may touch it
+    ("75kW") but a letter may not ("m3/h" is not in "Nm3/h")."""
+    folded = claude_datasheet._fold(unit)
+    return bool(folded) and re.search(
+        r"(?<![^\W\d_])" + re.escape(folded) + r"(?![^\W_])",
+        claude_datasheet._fold(quote or "")) is not None
+
+
+def same_unit(a: str, b: str) -> bool:
+    """One unit, spelled once or twice. The REFERENCE must match (a gauge and
+    an absolute pressure differ by an atmosphere); then the same spelling, or
+    two spellings `claims` converts to one canonical unit ("mm" and "m")."""
+    base_a, ref_a = claims.split_reference(a)
+    base_b, ref_b = claims.split_reference(b)
+    if ref_a != ref_b:
+        return False
+    fold_a, fold_b = claims._fold_unit(base_a or ""), claims._fold_unit(base_b or "")
+    if fold_a == fold_b:
+        return True
+    canon_a = claims.normalise("1", base_a or "").normalized_unit
+    return canon_a is not None and canon_a == claims.normalise("1", base_b or "").normalized_unit
+
+
+def reading_relation(rule_fact: dict, ai_fact: dict) -> str:
+    """How the AI's reading of a field relates to the rules' reading of it.
+
+      DIFFERENT     the values differ (the geometry reader's agreement rule,
+                    `datasheets._geometry_agrees`: numbers as numbers,
+                    normalised when both normalise; text folded);
+      UNIT_DIFFERS  the NUMBERS are equal and the two readings carry two
+                    different units - "75 kW" and "75 hp" are not one value,
+                    and nothing here may pick one;
+      AI_UNIT       the numbers are equal, the rules' reading LOST its unit
+                    ("75" read from a grid whose unit sits in its own column)
+                    and the AI's quote - checked on the page - prints the
+                    unit it gives: the AI's unit is proven;
+      SAME          otherwise: the same value. A unit only the rules carry,
+                    or an AI unit its own quote does not print, adds nothing.
+    """
     raw = ai_raw_value(ai_fact)
     blank, _marker = datasheets.is_blank_value(raw)
-    return datasheets._geometry_agrees(raw, blank, rule_fact)
+    if not datasheets._geometry_agrees(raw, blank, rule_fact):
+        return DIFFERENT
+    if blank or rule_fact.get("is_blank") or rule_fact.get("raw_value") is None:
+        return SAME
+    theirs, ours = rule_unit(rule_fact), ai_unit(ai_fact)
+    if theirs and ours:
+        return SAME if same_unit(theirs, ours) else UNIT_DIFFERS
+    if ours and unit_in_quote(ours, ai_fact.get("quote")):
+        return AI_UNIT
+    return SAME
+
+
+def values_agree(rule_fact: dict, ai_fact: dict) -> bool:
+    """Do the rules and the AI read the same value? See `reading_relation`:
+    the same number in two different units is NOT agreement."""
+    return reading_relation(rule_fact, ai_fact) in (SAME, AI_UNIT)
+
+
+def field_key(fact: dict) -> str:
+    """The field a reading is about. A table reader names a value "<row>
+    <column>" ("Rated power Value", column "Value"); the column says WHOSE
+    value it is (`rule_kind`), not which field, so it is not part of the
+    field the AI's "Rated power" is matched on."""
+    name = fact.get("field_name") or datasheets.normalise_field_name(fact.get("field") or "")
+    label, column = _label_column(fact)
+    if column is None:
+        return name
+    if not fact.get("value_column"):
+        return datasheets.normalise_field_name(label) or name
+    column = datasheets.normalise_field_name(column)
+    if column and name.endswith(" " + column):
+        return name[:-len(column) - 1].strip()
+    return name
 
 
 def _key(fact: dict) -> tuple:
-    return (fact.get("page"),
-            fact.get("field_name") or datasheets.normalise_field_name(fact.get("field") or ""))
+    return (fact.get("page"), field_key(fact))
 
 
 def merge_readings(rule_facts: list[dict], ai_facts: list[dict]) -> list[dict]:
@@ -366,7 +483,11 @@ def merge_readings(rule_facts: list[dict], ai_facts: list[dict]) -> list[dict]:
     whose column names no kind is compatible with any). Per field:
 
       * AGREED     - a rule fact and an AI fact of a compatible kind read the
-                     same value: one fact, `{"rule", "ai"}`.
+                     same value: one fact, `{"rule", "ai"}`. When the rule
+                     reading lost its unit and the AI's quote proves one
+                     (`reading_relation` AI_UNIT), the decision carries
+                     `"unit": <the AI's unit>` and the one fact takes it.
+                     The same number in DIFFERENT units is a CONFLICT.
       * CONFLICT   - they read different values: BOTH kept, `{"rules": [...],
                      "ai": [...]}`, for an engineer. Never silently one. An AI
                      reading of the same kind as a pair that AGREED, with a
@@ -374,7 +495,10 @@ def merge_readings(rule_facts: list[dict], ai_facts: list[dict]) -> list[dict]:
                      two values where the rules read one, and the agreeing
                      reading is kept on the decision as `agreed_ai`.
       * AI_ONLY    - no rule fact of a compatible kind: `{"ai"}`.
-      * RULES_ONLY - no AI reading of a compatible kind: `{"rule"}`.
+      * RULES_ONLY - no AI reading of a compatible kind: `{"rule"}`. The
+                     caller knows whether the AI read the page at all; when it
+                     did, the fact is kept and recorded as unconfirmed
+                     (`UNCONFIRMED`), never deleted and never raised.
 
     Deterministic: input order within a field, fields in (page, name) order.
     """
@@ -393,18 +517,21 @@ def merge_readings(rule_facts: list[dict], ai_facts: list[dict]) -> list[dict]:
         page, name = key
         rules, ais = groups[key]
         base = {"page": page, "field_name": name}
-        # 1. Agreement, greedily, in input order.
+        # 1. Agreement, greedily, in input order. An AI reading not yet
+        #    paired is preferred; failing one, a reading already paired may
+        #    confirm a SECOND rule fact of the same value - two code readers
+        #    (text and table) reading one cell are two facts the one AI
+        #    reading confirms, and neither is left looking unconfirmed.
         partner: dict[int, int] = {}          # rule index -> ai index
         used_ai: set[int] = set()
         for ri, r in enumerate(rules):
             rk = rule_kind(r)
-            for ai_i, a in enumerate(ais):
-                if ai_i in used_ai or (rk is not None and rk != a.get("kind")):
-                    continue
-                if values_agree(r, a):
-                    partner[ri] = ai_i
-                    used_ai.add(ai_i)
-                    break
+            fits = [ai_i for ai_i, a in enumerate(ais)
+                    if (rk is None or rk == a.get("kind")) and values_agree(r, a)]
+            fresh = [ai_i for ai_i in fits if ai_i not in used_ai]
+            if fresh or fits:
+                partner[ri] = (fresh or fits)[0]
+                used_ai.add(partner[ri])
 
         def kind_of(ri: int) -> str | None:
             # A rule fact with no named column takes its partner's kind once
@@ -433,7 +560,11 @@ def merge_readings(rule_facts: list[dict], ai_facts: list[dict]) -> list[dict]:
                     decision["agreed_ai"] = ais[partner[ri]]
                 out.append(decision)
             elif ri in partner:
-                out.append({**base, "outcome": AGREED, "rule": r, "ai": ais[partner[ri]]})
+                a = ais[partner[ri]]
+                decision = {**base, "outcome": AGREED, "rule": r, "ai": a}
+                if reading_relation(r, a) == AI_UNIT:
+                    decision["unit"] = ai_unit(a)
+                out.append(decision)
             else:
                 out.append({**base, "outcome": RULES_ONLY, "rule": r})
         out.extend({**base, "outcome": AI_ONLY, "ai": ais[i]} for i in alone)
@@ -452,23 +583,34 @@ __all__ = [
     "AGREED_CONFIDENCE",
     "AI_CONFIDENCE",
     "AI_ONLY",
+    "AI_UNIT",
     "CLAUDE",
     "CONFLICT",
+    "DIFFERENT",
     "ENGINES",
     "EXTRACTION_METHOD",
     "OFF",
     "OLLAMA",
     "READER",
     "RULES_ONLY",
+    "SAME",
     "STEP",
+    "UNCONFIRMED",
+    "UNIT_DIFFERS",
+    "ai_unit",
     "engine_setting",
+    "field_key",
     "merge_readings",
     "model_call_for",
     "outcome_counts",
     "page_text",
     "read_page_text_with_ai",
     "read_pages",
+    "reading_relation",
     "rule_kind",
+    "rule_unit",
+    "same_unit",
+    "unit_in_quote",
     "using_model_call",
     "values_agree",
 ]

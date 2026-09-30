@@ -618,6 +618,68 @@ def ocr_line_cells(line: str) -> tuple[str, ...]:
     return cells if len(cells) >= 2 else ()
 
 
+#: A value cell that states a quantity: an optional comparator, then a
+#: digit. Only such a value takes a unit from its own column - "By Vendor"
+#: beside a unit is a blank, and "Cast iron" is not a quantity of anything.
+_QUANTITY_START = re.compile(r"^[<>≤≥~±+\-]?\s*\d")
+
+
+def is_unit_cell(text: str | None) -> bool:
+    """Is this CELL nothing but a unit - "m3/h", "kg/h", "kPa(g)", "m3/h
+    (USGPM)"? Decided by the ONE shared vocabulary (`claims.is_unit`, whose
+    grammar knows compound rates) and `datasheets.primary_unit` for a unit
+    with its bracketed alternate; never by a list of this module's own."""
+    from . import claims
+    from .datasheets import primary_unit
+
+    cell = (text or "").strip()
+    if not cell:
+        return False
+    return claims.is_unit(cell) or primary_unit(cell) is not None
+
+
+def _value_and_unit(rest: list[tuple[int, str]], unit_col: int | None) -> str | None:
+    """The value text of one row's value cells `(column, text)`, with a unit
+    that sits in its own cell moved to where every reader expects it: AFTER
+    the number ("42 m3/h"), exactly as a PDF grid row's value carries its
+    unit. Without this "Flow | m3/h | 42" was read as the value "m3/h 42",
+    which parses as no number at all.
+
+    Which cell is the unit: the column a header row named ("Unit", "UOM")
+    when this row has a non-numeric cell there - the header is the sheet's
+    own word, so even a unit the vocabulary does not know is taken - else
+    the ONE value cell `is_unit_cell` recognises (two recognised cells are
+    ambiguous and nothing is moved). A unit with no value beside it is no
+    fact (None); a non-quantity value ("By Vendor") is kept without it.
+    """
+    from . import claims
+    from .datasheets import measure_value, primary_unit
+
+    if len(rest) < 2:
+        # ONE value cell is the value, whatever column it sits in: "Pumped
+        # fluid | Water" under a "Unit" header is not a unit with no value.
+        return " ".join(text for _col, text in rest)
+    at = None
+    if unit_col is not None:
+        at = next((k for k, (col, text) in enumerate(rest)
+                   if col == unit_col and not _QUANTITY_START.match(text)), None)
+    if at is None:
+        found = [k for k, (_col, text) in enumerate(rest) if is_unit_cell(text)]
+        at = found[0] if len(found) == 1 else None
+    if at is None:
+        return " ".join(text for _col, text in rest)
+    unit_text = rest[at][1]
+    # A unit the vocabulary knows is kept WHOLE - "kPa(g)" keeps its gauge
+    # reference. Only a two-unit cell, "m3/h (USGPM)", drops its alternate.
+    unit = unit_text if claims.is_unit(unit_text) else (primary_unit(unit_text) or unit_text)
+    value = " ".join(text for k, (_col, text) in enumerate(rest) if k != at)
+    if not value:
+        return None
+    if _QUANTITY_START.match(value) and measure_value(value)[1] is None:
+        return f"{value} {unit}"
+    return value
+
+
 def pairs_from_rows(rows) -> list[tuple[str, str]]:
     """(label, value) pairs from table-shaped rows, for the rules reader.
 
@@ -629,30 +691,43 @@ def pairs_from_rows(rows) -> list[tuple[str, str]]:
     columns ("Value | Unit") is a header, not a fact. The label must pass
     `datasheets.is_field_label`, the rule every other reader applies.
 
+    A UNIT IN ITS OWN CELL goes after the number, whichever side of it it was
+    printed on (`Flow | m3/h | 42` and `Flow | 42 | m3/h` -> ("Flow",
+    "42 m3/h")), and a header row that names a unit column ("Item | Unit |
+    Value") says which column that is for the rows beneath it - see
+    `_value_and_unit`. Columns are counted on the row as printed, empty
+    cells included, so the header's column is the data rows' column.
+
     PROVABLE: the label and every value cell are cells of the row, and the row
     is a line of the page text, so each pair is found on the page it cites.
     """
-    from .datasheets import is_field_label
+    from .datasheets import is_field_label, is_unit_header
 
     out: list[tuple[str, str]] = []
+    unit_col: int | None = None
     for row in rows:
-        cells = [c.strip() for c in row if c and c.strip()]
-        if len(cells) >= 3 and _ROW_NUMBER.match(cells[0]):
+        cells = [(i, c.strip()) for i, c in enumerate(row) if c and c.strip()]
+        if len(cells) >= 3 and _ROW_NUMBER.match(cells[0][1]):
             cells = cells[1:]
         if not cells:
             continue
         if len(cells) == 1:
-            if ":" not in cells[0]:
+            if ":" not in cells[0][1]:
                 continue
-            label, _, value = cells[0].partition(":")
-            rest = [value.strip()] if value.strip() else []
+            label, _, value = cells[0][1].partition(":")
+            rest = [(cells[0][0], value.strip())] if value.strip() else []
         else:
-            label, rest = cells[0], cells[1:]
+            label, rest = cells[0][1], cells[1:]
         label = label.strip().rstrip(":").strip()
-        if not rest or all(c.lower().rstrip(":") in _HEADER_WORDS for c in rest):
+        if rest and all(c.lower().rstrip(":") in _HEADER_WORDS for _i, c in rest):
+            # A HEADER ROW: not a fact, but it may say where the unit is.
+            unit_col = next((i for i, c in rest if is_unit_header(c.rstrip(":"))), None)
             continue
-        if label and is_field_label(label):
-            out.append((label, " ".join(rest)))
+        if not rest:
+            continue
+        value = _value_and_unit(rest, unit_col)
+        if value and label and is_field_label(label):
+            out.append((label, value))
     return out
 
 

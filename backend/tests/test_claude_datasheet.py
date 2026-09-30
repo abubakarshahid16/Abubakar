@@ -127,10 +127,13 @@ def test_a_thousands_separator_is_not_a_different_number():
     quote = "Required flow      Offered flow\n9,970 kg/hr"
     out = _gate(_fact("Required flow", "9970", quote, kind="required"))
     assert len(out["accepted"]) == 1
-    # The same row with its printed unit: `claims` does not know "kg/hr"
-    # (measured, see `datasheets.measure_value`), so the gate names THAT and
-    # not the number.
+    # The same row with its printed unit: `claims` knows "kg/hr" since the
+    # compound-rate grammar (2026-09-30; it used not to, which is what this
+    # test once asserted), so it is kept.
     out = _gate(_fact("Required flow", "9970", quote, unit="kg/hr", kind="required"))
+    assert len(out["accepted"]) == 1
+    # A unit `claims` does not know is still named as THAT, not as the number.
+    out = _gate(_fact("Required flow", "9970", quote, unit="kg/batch", kind="required"))
     assert out["counts"] == {cd.Reason.UNIT_UNRECOGNISED.value: 1}
 
 
