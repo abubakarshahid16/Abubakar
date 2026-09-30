@@ -544,6 +544,12 @@
      "value": "handwheel with bevel gearbox",
      "unit": null,
      "kind": "offered"
+    },
+    {
+     "field": "Warranty",
+     "value": "12",
+     "unit": "months",
+     "kind": "offered"
     }
    ],
    "forbidden": [],

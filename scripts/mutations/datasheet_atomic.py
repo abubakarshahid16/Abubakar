@@ -1,5 +1,5 @@
 """Mutations for "one value, one fact" in backend/app/claude_datasheet.py
-(2026-09-30, M1800, M1802-M1805 and M1807; the range guard M1801 was dead code and was removed). Target: backend/tests/test_datasheet_atomic.py.
+(2026-09-30, M1800, M1802-M1805, M1807 and M1808; the range guard M1801 was dead code and was removed). Target: backend/tests/test_datasheet_atomic.py.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1802", phase=1802,
              description="a value with an unknown unit is split anyway",
              path=_CD,
-             anchor="    if unit and not _unit_recognised(unit):\n        return None\n    if not re.match",
-             replacement="    if not re.match",
+             anchor="    if unit and not _unit_recognised(unit):\n        return None\n    if unit and not gap",
+             replacement="    if unit and not gap",
              target=_T, keyword="never_split", tags=_TAG),
     Mutation(id="M1803", phase=1803,
              description="two conditions are no longer two facts",
@@ -47,4 +47,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="            **({\"qualifier\": str(p[\"qualifier\"]).strip()}\n               if p.get(\"qualifier\") not in (None, \"\") else {}),\n",
              replacement="",
              target=_T, keyword="parse_keeps", tags=_TAG),
+    Mutation(id="M1808", phase=1808,
+             description="a number glued to a one-letter unit (316L SS) is split as a quantity",
+             path=_CD,
+             anchor="    if unit and not gap and len(unit) == 1:\n        return None  # \"316L SS\" is a steel grade, not 316 litres with a note\n",
+             replacement="",
+             target=_T, keyword="steel_grade", tags=_TAG),
 )

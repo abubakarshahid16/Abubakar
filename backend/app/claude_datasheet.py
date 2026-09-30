@@ -235,7 +235,7 @@ def _unit_recognised(unit: str) -> bool:
 # ------------------------------------------------------- one value, one fact
 
 #: A leading quantity: a number, then a unit word when one is printed.
-_QUANTITY = re.compile(r"^\s*([-+]?\d[\d.,]*)\s*([A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?")
+_QUANTITY = re.compile(r"^\s*([-+]?\d[\d.,]*)(\s*)([A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?")
 #: Two quantities joined by a word or a semicolon are two facts.
 _SECOND_VALUE = re.compile(r"\s+(?:or|and)\s+(?=[-+]?\d)|\s*;\s*(?=[-+]?\d)", re.IGNORECASE)
 
@@ -249,12 +249,14 @@ def _one_quantity(text: str):
     m = _QUANTITY.match(text)
     if not m:
         return None
-    number, unit = m.group(1), m.group(2)
+    number, gap, unit = m.group(1), m.group(2), m.group(3)
     rest = text[m.end():]
     if not rest.strip():
         return None
     if unit and not _unit_recognised(unit):
         return None
+    if unit and not gap and len(unit) == 1:
+        return None  # "316L SS" is a steel grade, not 316 litres with a note
     if not re.match(r"\s*[,;(]|\s+[A-Za-z]", rest):
         return None
     qualifier = rest.strip(" ,;()").strip() or None
@@ -263,11 +265,13 @@ def _one_quantity(text: str):
 
 def _bare_quantity(text: str):
     m = _QUANTITY.match(text)
-    if not m or (m.group(2) and not _unit_recognised(m.group(2))):
+    if not m or (m.group(3) and not _unit_recognised(m.group(3))):
         return None
     if text[m.end():].strip():
         return None
-    return m.group(1), m.group(2), None
+    if m.group(3) and not m.group(2) and len(m.group(3)) == 1:
+        return None
+    return m.group(1), m.group(3), None
 
 
 def atomise(proposals: list[dict]) -> list[dict]:

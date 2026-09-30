@@ -43,6 +43,19 @@ def test_values_that_are_not_one_quantity_plus_words_are_left_alone():
         assert p["value"] == raw and p.get("qualifier") is None, raw
 
 
+def test_a_steel_grade_is_not_a_quantity_with_a_note():
+    # Measured on the local model: "316L SS" was split into 316 litres with a
+    # note "SS". A number glued to a one-letter unit is a grade, never a split.
+    for raw in ("316L SS", "304L stainless steel", "410S body"):
+        [p] = _one(raw)
+        assert p["value"] == raw and p.get("qualifier") is None, raw
+
+
+def test_a_spaced_one_letter_unit_is_still_a_quantity():
+    [p] = _one("5 L, per vessel")
+    assert (p["value"], p["unit"], p["qualifier"]) == ("5", "L", "per vessel")
+
+
 def test_a_unit_the_system_does_not_know_is_never_split():
     [p] = _one("7 zorgs from order")
     assert p["value"] == "7 zorgs from order"

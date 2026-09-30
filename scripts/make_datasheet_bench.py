@@ -271,7 +271,9 @@ def ds07_gate_valve_free_text():
     save_pdf(doc, name)
     record(name, equipment="gate valve",
            layout="free-text answers (values written inside sentences, vendor terms)",
-           expected=[r for _, r in lines])
+           # The warranty sentence states TWO values under two conditions, so
+           # a reader that reports both has read the page correctly.
+           expected=[r for _, r in lines] + [row("Warranty", "12", "months")])
 
 
 def ds08_tank_merged_cells():
