@@ -237,15 +237,23 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
         while True:
             if cancelled():
                 return _cancelled(turn, sources, steps, started, turn_cost)
-            offer_tools = tools if tool_calls_made < settings.chat_tool_max_calls else ()
-            thinking_budget = (settings.chat_thinking_budget_tokens
-                              if used_thinking and tool_calls_made == 0 else None)
+            # FOUND 2026-09-30 (real machine, real Claude): a request whose
+            # history holds tool_use/tool_result blocks MUST still define
+            # `tools`, so after the cap the tools stay defined and
+            # `tool_choice: none` forces the final text answer. Thinking,
+            # once a turn uses it, stays enabled on every round of that turn
+            # (a thinking block in the history with thinking off is refused).
+            tool_choice = ({"type": "none"}
+                           if tool_calls_made >= settings.chat_tool_max_calls else None)
+            offer_tools = tools
+            thinking_budget = settings.chat_thinking_budget_tokens if used_thinking else None
             max_tokens = settings.chat_max_output_tokens + (thinking_budget or 0)
             packet = rp.Packet(
                 prompt="", num_ctx=200_000, num_predict=max_tokens,
                 temperature=settings.chat_temperature_document,
                 system=system, step=CHAT_STEP, prompt_version="chat-claude-first-v1",
-                messages=tuple(messages), tools=offer_tools, thinking_budget=thinking_budget,
+                messages=tuple(messages), tools=offer_tools, tool_choice=tool_choice,
+                thinking_budget=thinking_budget,
                 images=tuple(_images_for_accounting(sources)),
             )
             try:
@@ -266,9 +274,10 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
             if response.finish_reason == "cancelled":
                 return _cancelled(turn, sources, steps, started, turn_cost)
 
-            if thinking_budget:
+            if thinking_budget and thinking_seconds is None:
                 # `or 0.0`, never a falsy skip: a fast answer that still
                 # thought is "Thought for under 1 s", not silence about it.
+                # The FIRST round's time: thinking is now on every round.
                 thinking_seconds = response.wall_time_s or 0.0
 
             messages.append({"role": "assistant", "content": list(response.content_blocks) or

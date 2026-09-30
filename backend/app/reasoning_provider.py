@@ -163,6 +163,10 @@ class Packet:
     #: this, and rejects `temperature` while thinking is on - both handled in
     #: `ClaudeProvider._request`.
     thinking_budget: int | None = None
+    #: Messages API `tool_choice` (e.g. {"type": "none"} once the chat tool cap
+    #: is reached: the tools stay defined, because the history holds tool
+    #: blocks, but none may be called). None leaves the API default.
+    tool_choice: dict | None = None
 
     @property
     def sha256(self) -> str:
@@ -466,6 +470,8 @@ class ClaudeProvider:
             body["messages"] = list(packet.messages)
         if packet.tools:
             body["tools"] = list(packet.tools)
+            if packet.tool_choice:
+                body["tool_choice"] = dict(packet.tool_choice)
         if no_temperature(self.requested_model) or packet.thinking_budget:
             # MEASURED 2026-09-25: Sonnet 5 answers 400 "`temperature` is
             # deprecated for this model". Sampling cannot be pinned there, so
@@ -719,6 +725,13 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
                     block = blocks.get(idx)
                     if block is not None:
                         block["thinking"] = block.get("thinking", "") + str(delta.get("thinking") or "")
+                elif dtype == "signature_delta":
+                    # A thinking block is only valid when sent back WITH its
+                    # signature (2026-09-30: it was dropped, so round 2 of a
+                    # thinking turn with a tool call was refused).
+                    block = blocks.get(idx)
+                    if block is not None:
+                        block["signature"] = str(delta.get("signature") or "")
                 else:
                     piece = str(delta.get("text") or "")
                     if piece:
