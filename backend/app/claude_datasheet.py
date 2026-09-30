@@ -109,14 +109,22 @@ them, sometimes in "Required" and "Offered" columns, sometimes with test
 results.
 
 List the facts this page states, as JSON only:
-{"facts": [{"field": ..., "value": ..., "unit": ..., "quote": ..., "kind": ...}]}
+{"facts": [{"field": ..., "value": ..., "unit": ..., "qualifier": ..., "quote": ..., "kind": ...}]}
 
 field is the label of the row, copied from the page - "Design pressure",
 "Set pressure", "Casing material".
 
 value is what is written beside that label: a number, a range, or a short
-categorical answer ("Yes", "Carbon steel"). Copy it as printed. If the cell is
-blank or says "By Vendor", do not report it.
+categorical answer ("Yes", "Carbon steel"). Copy it as printed, but ONLY the
+value itself, the shortest span that answers the label: "16", not "16 weeks
+from purchase order". If the cell is blank or says "By Vendor", do not report
+it.
+
+qualifier is everything else written with the value that changes how it reads:
+"from purchase order", "ex works", "full bore", "at 20 C". Null when there is
+none. When the page gives TWO values under different conditions ("18 months
+from delivery or 12 months from start-up"), report TWO facts, one per
+condition, each with its own qualifier.
 
 unit is the unit printed with the value, or null when there is none.
 
@@ -140,7 +148,15 @@ _KNOWN_FIELDS_PREFIX = """SKIP THESE FIELDS - they have already been read from t
 """
 
 
-def build_prompt(page_text: str, page_no: int, known_fields: list[str]) -> str:
+#: The second reading is asked in a different order. At temperature 0 the same
+#: prompt gives the same answer, so "two runs agree" proved nothing; a page read
+#: bottom-up is a reading that can genuinely disagree with the first.
+_VARIANT_B = ("Read the page from its LAST line upward, and list the facts in "
+              "that order.\n\n")
+
+
+def build_prompt(page_text: str, page_no: int, known_fields: list[str],
+                 variant: str = "a") -> str:
     """The prompt for one page. A function, not a format string at the call
     site, so the page text and the skip-list are appended in exactly one
     place.
@@ -152,6 +168,8 @@ def build_prompt(page_text: str, page_no: int, known_fields: list[str]) -> str:
     the enforcement.
     """
     parts = [PROMPT]
+    if variant == "b":
+        parts.append(_VARIANT_B)
     if known_fields:
         parts.append(_KNOWN_FIELDS_PREFIX)
         parts.extend(f"  - {f}\n" for f in known_fields)
@@ -232,6 +250,78 @@ def _unit_recognised(unit: str) -> bool:
     return claims.is_unit(unit)
 
 
+# ------------------------------------------------------- one value, one fact
+
+#: A leading quantity: a number, then a unit word when one is printed.
+_QUANTITY = re.compile(r"^\s*([-+]?\d[\d.,]*)\s*([A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?")
+#: Two quantities joined by a word or a semicolon are two facts.
+_SECOND_VALUE = re.compile(r"\s+(?:or|and)\s+(?=[-+]?\d)|\s*;\s*(?=[-+]?\d)", re.IGNORECASE)
+
+
+def _one_quantity(text: str):
+    """`(value, unit, qualifier)` when `text` is ONE quantity followed by words,
+    else None (leave it exactly as the page printed it). Conservative on
+    purpose: a range ("10-20 bar"), a comparator, a bare number or a value
+    whose unit the system does not know is never split, because a wrong split
+    would change a value and not only trim it."""
+    m = _QUANTITY.match(text)
+    if not m:
+        return None
+    number, unit = m.group(1), m.group(2)
+    rest = text[m.end():]
+    if not rest.strip():
+        return None
+    if unit and not _unit_recognised(unit):
+        return None
+    if not re.match(r"\s*[,;(]|\s+[A-Za-z]", rest):
+        return None
+    qualifier = rest.strip(" ,;()").strip() or None
+    return number, unit, qualifier
+
+
+def _bare_quantity(text: str):
+    m = _QUANTITY.match(text)
+    if not m or (m.group(2) and not _unit_recognised(m.group(2))):
+        return None
+    if text[m.end():].strip():
+        return None
+    return m.group(1), m.group(2), None
+
+
+def atomise(proposals: list[dict]) -> list[dict]:
+    """One fact, one value. Code, not the model, enforces it.
+
+    "16 weeks from purchase order, ex works" becomes value 16, unit weeks,
+    qualifier "from purchase order, ex works". "18 months from delivery or 12
+    months from start-up" becomes TWO facts, one per condition, so a
+    comparison never has to guess which number it is reading. The quote is
+    unchanged and stays the evidence for every piece. Idempotent."""
+    out: list[dict] = []
+    for p in proposals:
+        value = p.get("value")
+        if not value or not isinstance(value, str):
+            out.append(p)
+            continue
+        pieces = [x for x in _SECOND_VALUE.split(value) if x and x.strip()]
+        if len(pieces) < 2:
+            pieces = [value]
+        parts = [_one_quantity(x) or (_bare_quantity(x) if len(pieces) > 1 else None)
+                 for x in pieces]
+        if any(x is None for x in parts):
+            out.append(p)
+            continue
+        if len(parts) > 1 and all(
+                datasheets.same_quantity_twice(parts[0][0], parts[0][1] or "", n, u or "")
+                for n, u, _q in parts[1:]):
+            parts = parts[:1]  # "75 kW or 100 hp": one quantity printed twice
+        for number, unit, qualifier in parts:
+            if qualifier and re.match(r"(?:note|see|ref)\b", qualifier, re.IGNORECASE):
+                qualifier = None  # a note reference is not a condition
+            out.append({**p, "value": number, "unit": p.get("unit") or unit,
+                        "qualifier": qualifier or p.get("qualifier")})
+    return out
+
+
 # -------------------------------------------------------------------- parse
 
 def parse_response(raw: str) -> tuple[list[dict], str | None]:
@@ -265,6 +355,8 @@ def parse_response(raw: str) -> tuple[list[dict], str | None]:
                      if p.get("unit") not in (None, "") else None),
             "quote": str(p["quote"]),
             "kind": str(p.get("kind") or "").strip().lower(),
+            **({"qualifier": str(p["qualifier"]).strip()}
+               if p.get("qualifier") not in (None, "") else {}),
         })
     return out, None
 
@@ -305,7 +397,7 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
     def drop(proposal: dict, reason: Reason) -> None:
         rejected.append({**proposal, "reason": reason.value})
 
-    for p in proposals:
+    for p in atomise(proposals):
         if not p.get("field"):
             drop(p, Reason.FIELD_MISSING)
             continue
@@ -380,12 +472,15 @@ def read_page(page_text: str, page_no: int, known_fields: list[str] | None,
     known_fields = list(known_fields or [])
     prompt = build_prompt(page_text, page_no, known_fields)
     first, err = parse_response(model_call(prompt))
+    if not err:
+        first = atomise(first)
     if err:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err}
     again = second_call if second_call is not None else model_call
-    second, err2 = parse_response(again(prompt))
+    second, err2 = parse_response(again(build_prompt(page_text, page_no, known_fields, "b")))
     if err2:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err2}
+    second = atomise(second)
     seen = {_identity(p) for p in second}
     stable = [p for p in first if _identity(p) in seen]
     unstable = [{**p, "reason": Reason.MODEL_UNSTABLE.value}
