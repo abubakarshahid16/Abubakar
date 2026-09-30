@@ -64,10 +64,13 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_S, anchor="    if not any(t.strip() for t in texts):",
              replacement="    if False:",
              target=_T, keyword="cannot_read_is_unsupported", tags=("honesty",)),
-    Mutation(id="M1662", phase=1662, description="every file is handed to the PDF reader whatever its format",
-             path=_S, anchor="    handler = HANDLERS.get((reader, path.suffix.lower()))",
-             replacement='    handler = HANDLERS.get((reader, ".pdf"))',
-             target=_T, keyword="cannot_read_is_unsupported or counts_unsupported or without_the_project_database",
+    # Re-anchored 2026-09-30 (the readers now run the production path; the
+    # suffix->handler table this used to mutate is gone): the benchmark runs
+    # every reader with office input off, whatever the reader asked for.
+    Mutation(id="M1662", phase=1662, description="every reader runs with office input off, whatever it asked for",
+             path=_S, anchor='    out = datasheet_offline.read_file(path, office_input=spec["office"],',
+             replacement='    out = datasheet_offline.read_file(path, office_input=False,',
+             target=_T, keyword="without_the_project_database",
              tags=("honesty",)),
     Mutation(id="M1663", phase=1663, description="the benchmark's Claude calls skip the USD caps",
              path=_S,

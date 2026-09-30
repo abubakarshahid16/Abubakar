@@ -44,7 +44,10 @@ This module imports no HTTP client and opens no socket
 
 from __future__ import annotations
 
-from . import claude_datasheet, datasheets
+import contextlib
+from contextvars import ContextVar
+
+from . import claude_datasheet, datasheet_inputs, datasheets
 from .claude_spend import StopRun
 from .config import settings
 
@@ -160,6 +163,26 @@ def _ollama_call():
     return call, None
 
 
+#: A model call handed in by the caller for the length of one `with
+#: using_model_call(...)` block - the offline benchmark's counted engine, or a
+#: test's fake - used in place of the configured engine. None (the default,
+#: and always in production) changes nothing. A ContextVar, so another
+#: thread's extraction cannot see it. It never switches the reader ON: with
+#: DATASHEET_AI_READER off, `model_call_for` still answers "off".
+_CALL_OVERRIDE: ContextVar = ContextVar("datasheet_ai_call_override", default=None)
+
+
+@contextlib.contextmanager
+def using_model_call(model_call):
+    """Within the block, `model_call_for` returns `model_call` for any engine
+    but "off". Restored on the way out, even on an exception."""
+    token = _CALL_OVERRIDE.set(model_call)
+    try:
+        yield model_call
+    finally:
+        _CALL_OVERRIDE.reset(token)
+
+
 def model_call_for(engine: str | None = None):
     """`(model_call, None)` for the engine, or `(None, reason)`.
 
@@ -170,6 +193,9 @@ def model_call_for(engine: str | None = None):
     name = (engine if engine is not None else engine_setting()).strip().lower()
     if name == OFF:
         return None, "DATASHEET_AI_READER is off"
+    override = _CALL_OVERRIDE.get()
+    if override is not None:
+        return override, None
     try:
         if name == OLLAMA:
             return _ollama_call()
@@ -271,7 +297,17 @@ def page_text(stored_path: str | None, page_no: int, chunks: list) -> str:
     for THAT page first (a chunk may span several pages, and a quote proved
     against a neighbour's text would be cited to the wrong page), then the
     stored chunk text only when a chunk covers exactly this page (an OCR'd
-    scan has no text layer)."""
+    scan has no text layer).
+
+    An OFFICE datasheet (DATASHEET_OFFICE_INPUT on, a workbook or Word file)
+    is never handed to MuPDF: MuPDF opens an .xlsx and reads its numbers
+    without their labels, so the AI would read "42 60 2900" where the sheet
+    says "Capacity | m3/h | 42". Its page text is `datasheet_inputs`' rendered
+    page - the same text the rule readers pair and the chunks were cut from
+    (found by the benchmark's production-path run, 2026-09-30)."""
+    if stored_path and datasheet_inputs.is_office_input(stored_path):
+        pages = datasheet_inputs.office_pages(stored_path)
+        return pages[page_no - 1].text if 1 <= page_no <= len(pages) else ""
     text = claude_datasheet._pdf_page_text(stored_path, page_no) if stored_path else ""
     if text.strip():
         return text
@@ -433,5 +469,6 @@ __all__ = [
     "read_page_text_with_ai",
     "read_pages",
     "rule_kind",
+    "using_model_call",
     "values_agree",
 ]

@@ -1,34 +1,50 @@
 """Score datasheet readers on the made-up datasheet benchmark.
 
     python scripts/datasheet_bench.py --reader rules
-    python scripts/datasheet_bench.py --reader all --out benchmarks/local/ds.json
+    python scripts/datasheet_bench.py --reader all-local
+    python scripts/datasheet_bench.py --reader hybrid:claude --files ds02_psv_unruled.pdf
 
-THREE READERS, ONE ANSWER KEY. The files and `answer_key.json` are written by
-`scripts/make_datasheet_bench.py` into
+ONE ANSWER KEY, THE PRODUCTION PATH. The files and `answer_key.json` are
+written by `scripts/make_datasheet_bench.py` into
 `backend/tests/fixtures/synthetic/datasheets/`; every value is made up.
 
-  rules   the deterministic reader, `datasheets.extract_facts`, unchanged,
-          run through `datasheet_offline.read_pdf_rules` (a private
-          throwaway database; no ingestion, so no OCR tier).
-  ollama  `claude_datasheet.read_page` (two runs + the gate) over each page's
-          text, with the model call made by `reasoning_provider.OllamaProvider`
-          - the local engine through `model_transport`, the one socket allowed
-          to reach it.
-  claude  the same page reader with the model call the review routes use:
-          `reader_transport.transport()` wrapped in `claude_spend.metered`
-          (USD caps checked before each call, the one spend ledger written
-          after it) and `claude_budget.Budget` (the call cap), charged to its
-          own step `STEP`. Off unless the reader's egress flags are on.
+Every reader except `ai-only:*` runs `datasheet_offline.read_file`: the stages
+a real upload runs (upload validation, extract, chunk, OCR when the project's
+engine is here, `datasheets.extract_facts`) in a private throwaway database,
+with the two switches set for the run and restored afterwards:
 
-  The AI readers are measured ALONE (no skip-list from the rules reader), so
-  the three numbers are three readers, not a reader and its top-up.
+  rules           DATASHEET_OFFICE_INPUT off, DATASHEET_AI_READER off -
+                  today's production. A workbook is stored and not indexed,
+                  a Word file is refused at upload, exactly as production does.
+  rules+office    office input on, AI off.
+  hybrid:ollama   office input on, AI reader "ollama": rules and the local
+                  model both read every page and `datasheet_ai.merge_readings`
+                  merges them (agree / conflict for an engineer / AI-only kept
+                  only on a quote proved on the page).
+  hybrid:claude   the same with "claude": production's engine
+                  (`datasheet_ai.model_call_for`), every call through
+                  `claude_spend` (USD 5 per step / USD 20 total, checked before
+                  a call leaves), charged to production's step. USD reported.
+  ai-only:ollama  DIAGNOSIS ONLY: the AI page reader alone over
+  ai-only:claude  `datasheet_inputs.page_texts` of every file type, no rules;
+                  charged to the benchmark's own step `STEP`.
+  hybrid:oracle   NOT AN AI. An upper-bound sanity check: the hybrid path with
+                  a scripted stand-in that proposes exactly the key's facts,
+                  quoted from the page text. Shows the ceiling the merge and
+                  the gates allow, and that the pipes carry AI facts to storage.
 
-WHAT A READER CANNOT READ IS A MISS, NOT A CRASH. The rules reader reads PDFs;
-the AI page reader in this branch reads a page's TEXT. A spreadsheet, a Word
-file, or a PDF page with no text layer is reported "unsupported by this
-reader" and every expected value on it counts against recall. Another branch
-adds a path by registering it in `HANDLERS`; `read_file_with(reader, path)`
-is the one entry point.
+  --reader all-local = rules, rules+office, hybrid:ollama, ai-only:ollama: no
+  Claude call is ever built, nothing is spent.
+
+WHAT A READER CANNOT READ IS A MISS, NOT A CRASH. A file refused at upload,
+stored and never indexed, or a scan whose pages need OCR where the OCR engine
+is not available (`ocr_unavailable`, never a silent 0) is reported with its
+reason and every expected value on it counts against recall.
+`read_file_with(reader, path)` is the one entry point.
+
+Per reader the report gives recall, precision, wrong values, forbidden values
+reported, conflicts flagged for an engineer (stored facts in state
+`conflict`), model calls and USD (Claude); then one side-by-side table.
 
 HOW A READING IS SCORED (`score_file`), per file:
 
@@ -73,7 +89,8 @@ if str(BACKEND) not in sys.path:
 BENCH = BACKEND / "tests" / "fixtures" / "synthetic" / "datasheets"
 KEY_PATH = BENCH / "answer_key.json"
 DEFAULT_OUT_DIR = REPO / "benchmarks" / "local" / "datasheet_bench"
-READERS = ("rules", "ollama", "claude")
+READERS = ("rules", "rules+office", "hybrid:ollama", "hybrid:claude",
+           "ai-only:ollama", "ai-only:claude")
 #: The `claude_spend` step the benchmark's Claude calls are charged to - its
 #: own, so the per-step cap applies to the benchmark and the total cap still
 #: sees every dollar.
@@ -335,62 +352,135 @@ def totals(per_file: dict[str, dict]) -> dict:
     out = {k: sum(r["score"].get(k, 0) for r in per_file.values()) for k in keys}
     out["recall"] = _ratio(out["found"], out["expected"])
     out["precision"] = _ratio(out["correct"], out["reported"])
-    out["files_unsupported"] = sum(1 for r in per_file.values() if r["status"] == UNSUPPORTED)
+    # Every file the reader did not fully read: unsupported, refused at
+    # upload, stored and not indexed, OCR unavailable, stopped, failed.
+    out["files_unsupported"] = sum(1 for r in per_file.values() if r["status"] != "read")
+    out["conflicts"] = sum(r.get("conflicts", 0) for r in per_file.values())
     out["files"] = len(per_file)
     return out
 
 
 # -------------------------------------------------------------- the readers
+#
+# WHAT EACH READER RUNS. Every reader but `ai-only:*` is THE PRODUCTION PATH:
+# `datasheet_offline.read_file` runs a real upload's stages (upload
+# validation, extract, chunk, OCR for pages the project routes to it, then
+# `datasheets.extract_facts`) in a throwaway database, with two switches set
+# for the run and restored afterwards:
+#
+#   reader           DATASHEET_OFFICE_INPUT  DATASHEET_AI_READER
+#   rules            off                     off      (today's production)
+#   rules+office     on                      off
+#   hybrid:ollama    on                      ollama   (rules + AI, merged)
+#   hybrid:claude    on                      claude   (Claude spend, USD caps)
+#
+# `ai-only:ollama|claude` is a DIAGNOSIS, not a production path: the AI page
+# reader alone over `datasheet_inputs.page_texts` of every file type, no
+# rules, no merge - what the AI can read by itself.
+#
+# `hybrid:oracle` is NOT A MEASUREMENT OF ANY AI. It is the hybrid path with
+# a deterministic stand-in (`oracle_model_call`) that proposes exactly the
+# answer key's facts, quoted from the page text. It proves the pipes carry a
+# correct AI reading all the way into stored facts, and shows the CEILING the
+# merge and the gates allow. Its numbers are an upper bound, labelled so.
+
+READ = "read"
+ALL_LOCAL = ("rules", "rules+office", "hybrid:ollama", "ai-only:ollama")
+ORACLE = "hybrid:oracle"
+ORACLE_LABEL = "UPPER-BOUND SANITY CHECK - a scripted answer-key oracle, not an AI"
 
 
 class ReaderUnavailable(RuntimeError):
     """The reader cannot run here at all (flags off, engine not running)."""
 
 
-def _rules_facts(path: Path) -> dict:
-    from app import datasheet_offline
-    out = datasheet_offline.read_pdf_rules(path)
+def reader_spec(reader: str) -> dict:
+    """What a reader name means: `{"mode": "rules"|"hybrid"|"ai-only",
+    "office": bool, "engine": str|None}`. Raises ValueError for a name that
+    is not a reader."""
+    if reader == "rules":
+        return {"mode": "rules", "office": False, "engine": None}
+    if reader == "rules+office":
+        return {"mode": "rules", "office": True, "engine": None}
+    mode, _, engine = reader.partition(":")
+    if mode == "hybrid" and engine in ("ollama", "claude", "oracle"):
+        return {"mode": "hybrid", "office": True, "engine": engine}
+    if mode == "ai-only" and engine in ("ollama", "claude"):
+        return {"mode": "ai-only", "office": True, "engine": engine}
+    raise ValueError(f"unknown reader {reader!r}; expected one of {(*READERS, ORACLE)}")
+
+
+def _stored_facts(rows: list[dict]) -> list[dict]:
+    """Stored `submittal_facts` rows as the scorer reads them. An AI fact's
+    kind is in its section (`model:<kind>`); a rule fact's in its column."""
     facts = []
-    for f in out["facts"]:
+    for f in rows:
         column = (f.get("value_column") or "").strip().lower()
+        section = str(f.get("section") or "")
+        kind = (section.split(":", 1)[1] if section.startswith("model:")
+                else column if column in ("required", "offered", "measured") else None)
         facts.append({
             "field": f.get("field_label") or f.get("field_name"),
             "value": f.get("field_value"),
             "number": _number(f["raw_value"]) if f.get("raw_value") not in (None, "") else None,
             "unit": f.get("raw_unit") or f.get("unit"),
-            "kind": column if column in ("required", "offered", "measured") else None,
+            "kind": kind,
             "column": f.get("value_column"),
             "blank": bool(f.get("is_blank")),
             "page": f.get("page"),
+            "method": f.get("extraction_method"),
+            "state": f.get("validation_state"),
         })
-    return {"status": "read", "facts": facts, "calls": 0,
-            "reader_summary": {k: out["summary"].get(k) for k in
-                               ("facts", "blanks", "pages_read", "pages_unparsed")},
-            "flags": out["flags"]}
+    return facts
 
 
-def _page_texts(path: Path) -> list[str]:
-    import pymupdf
-    with pymupdf.open(str(path)) as doc:
-        return [page.get_text("text") or "" for page in doc]
+def _production_facts(path: Path, spec: dict, model_call) -> dict:
+    """The production path for one file (`datasheet_offline.read_file`)."""
+    from app import datasheet_offline, datasheets
+    out = datasheet_offline.read_file(path, office_input=spec["office"],
+                                      ai_engine=spec["engine"], model_call=model_call)
+    summary = out["summary"] or {}
+    ai = summary.get("ai_reader") or {}
+    reading = {
+        "status": out["status"], "reason": out["reason"], "facts": _stored_facts(out["facts"]),
+        "conflicts": sum(1 for f in out["facts"]
+                         if f.get("validation_state") == datasheets.GEOMETRY_CONFLICT),
+        "reader_summary": {k: summary.get(k) for k in
+                           ("facts", "blanks", "pages_read", "pages_unparsed")},
+        "flags": out["flags"], "stages": out["stages"], "ocr": out["ocr"],
+    }
+    if ai:
+        reading["ai_reader"] = {k: ai.get(k) for k in
+                                ("engine", "unavailable", "stopped", "pages_read", "agreed",
+                                 "conflicts", "ai_only", "facts_written", "dropped",
+                                 "proposals_rejected")}
+    return reading
 
 
 def _ai_facts(path: Path, model_call) -> dict:
-    """`claude_datasheet.read_page` over every page's text: two runs and the
-    gate, exactly as the review route reads a page."""
-    from app import claude_datasheet, claude_spend
-    texts = _page_texts(path)
+    """DIAGNOSIS: `claude_datasheet.read_page` (two runs and the gate, as the
+    review route reads a page) over every page of `datasheet_inputs.
+    page_texts` - PDF text layer, OCR for a page without one (when the
+    project's OCR engine can run here), a workbook's sheets, a Word file's
+    pages. No rules, no merge."""
+    from app import claude_datasheet, claude_spend, datasheet_inputs, datasheet_offline
+    ocr_ok, ocr_why = datasheet_offline.ocr_available()
+    pages = datasheet_inputs.page_texts(path, recognise=ocr_ok)
+    texts = [p.text or "" for p in pages]
     if not any(t.strip() for t in texts):
-        return {"status": UNSUPPORTED, "reason": "no text layer: the AI page reader in this "
-                "branch reads page text only", "facts": [], "calls": 0}
+        if not ocr_ok and path.suffix.lower() == ".pdf":
+            return {"status": datasheet_offline.OCR_UNAVAILABLE, "facts": [], "calls": 0,
+                    "reason": f"ocr unavailable: no text layer and {ocr_why}"}
+        return {"status": UNSUPPORTED, "reason": "no text on any page", "facts": [], "calls": 0}
     facts: list[dict] = []
     stopped = None
     rejected: dict[str, int] = {}
-    for page_no, text in enumerate(texts, start=1):
+    for page in pages:
+        text = page.text or ""
         if not text.strip():
             continue
         try:
-            out = claude_datasheet.read_page(text, page_no, [], model_call)
+            out = claude_datasheet.read_page(text, page.page_no, [], model_call)
         except claude_spend.StopRun as exc:
             stopped = exc.count_key
             break
@@ -400,27 +490,20 @@ def _ai_facts(path: Path, model_call) -> dict:
             rejected[out["error"]] = rejected.get(out["error"], 0) + 1
         for p in out["accepted"]:
             facts.append({"field": p.get("field"), "value": p.get("value"), "unit": p.get("unit"),
-                          "number": None, "kind": p.get("kind"), "blank": False, "page": page_no})
-    return {"status": "read" if stopped is None else "stopped", "stopped": stopped,
+                          "number": None, "kind": p.get("kind"), "blank": False,
+                          "page": page.page_no})
+    return {"status": READ if stopped is None else "stopped", "stopped": stopped,
             "facts": facts, "rejected": rejected}
 
 
-#: (reader, file suffix) -> handler(path, model_call) -> reading. Anything not
-#: here is "unsupported by this reader". Another branch plugs a new path in
-#: by adding an entry.
-HANDLERS = {
-    ("rules", ".pdf"): lambda path, _call: _rules_facts(path),
-    ("ollama", ".pdf"): _ai_facts,
-    ("claude", ".pdf"): _ai_facts,
-}
-
-
 class _Counted:
-    """Counts the calls a reader made through it; `.calls` for the report."""
+    """Counts the calls a reader made through it; `.calls` for the report.
+    Carries the wrapped call's `.engine`, so provenance names the engine."""
 
     def __init__(self, call):
         self._call = call
         self.calls = 0
+        self.engine = getattr(call, "engine", "custom")
 
     def __call__(self, prompt: str) -> str:
         self.calls += 1
@@ -430,38 +513,58 @@ class _Counted:
 def read_file_with(reader: str, path, *, model_call=None) -> dict:
     """Read one file with one reader. THE PLUG-IN POINT.
 
-    Returns `{"status": "read" | "unsupported" | "stopped" | "error",
+    Returns `{"status": "read" | "stored_not_indexed" | "refused_at_upload" |
+    "ocr_unavailable" | "unsupported" | "stopped" | "failed" | "error",
     "facts": [{field, value, unit, number, kind, blank, page}], "calls": n,
-    ...}`. `model_call(prompt) -> str` is required for the AI readers (tests
-    pass a fake; `build_model_call` makes the real one). Never raises for a
-    file a reader cannot read - that is a result, not an error.
+    "conflicts": n, ...}`. `model_call(prompt) -> str` is required for the AI
+    readers (tests pass a fake; `build_model_call` makes the real one). Never
+    raises for a file a reader cannot read - that is a result, not an error.
     """
-    if reader not in READERS:
-        raise ValueError(f"unknown reader {reader!r}; expected one of {READERS}")
+    spec = reader_spec(reader)
     path = Path(path)
-    handler = HANDLERS.get((reader, path.suffix.lower()))
-    if handler is None:
-        return {"status": UNSUPPORTED, "facts": [], "calls": 0,
-                "reason": f"unsupported by this reader: no {reader} path for {path.suffix} files"}
-    if reader != "rules" and model_call is None:
+    if spec["engine"] is not None and model_call is None:
         raise ValueError(f"the {reader} reader needs a model_call")
     counted = _Counted(model_call) if model_call is not None else None
     try:
-        out = handler(path, counted)
+        if spec["mode"] == "ai-only":
+            out = _ai_facts(path, counted)
+        else:
+            out = _production_facts(path, spec, counted)
     except Exception as exc:  # noqa: BLE001 - one file's failure is that file's result
         out = {"status": "error", "facts": [], "reason": f"{type(exc).__name__}: {exc}"}
-    out.setdefault("calls", counted.calls if counted is not None else 0)
-    if counted is not None:
-        out["calls"] = counted.calls
+    out["calls"] = counted.calls if counted is not None else 0
+    out.setdefault("conflicts", 0)
     return out
 
 
 def build_model_call(reader: str):
-    """The real `model_call` for an AI reader, through the project's own
-    transports and limits. Returns (model_call, usage_fn) where `usage_fn()`
-    gives {calls, input_tokens, output_tokens[, estimated_usd, model]}.
-    Raises `ReaderUnavailable` when the reader cannot run here."""
-    if reader == "ollama":
+    """The real `model_call` for an AI reader. Returns (model_call, usage_fn)
+    where `usage_fn()` gives what the calls used (`estimated_usd` for
+    Claude). Raises `ReaderUnavailable` when the reader cannot run here.
+
+    hybrid:*  - PRODUCTION'S engine, `datasheet_ai.model_call_for`: Ollama
+                through `model_transport`; Claude only when
+                `reasoning_provider.claude_unavailable` allows it, through
+                `claude_spend.metered` (USD caps) and `claude_budget`, charged
+                to production's step `datasheet_ai.STEP`. USD is that step's
+                ledger delta over the run.
+    ai-only:* - the benchmark's own lane, charged to `STEP`.
+    """
+    spec = reader_spec(reader)
+    if spec["mode"] == "hybrid":
+        if spec["engine"] == "oracle":
+            raise ValueError("the oracle is built per file: oracle_model_call(entry)")
+        from app import claude_spend, datasheet_ai
+        call, why = datasheet_ai.model_call_for(spec["engine"])
+        if call is None:
+            raise ReaderUnavailable(why)
+        if spec["engine"] == "claude":
+            before = claude_spend.spent(datasheet_ai.STEP)
+            return call, lambda: {"estimated_usd": round(
+                claude_spend.spent(datasheet_ai.STEP) - before, 4)}
+        return call, None
+    engine = spec["engine"]
+    if engine == "ollama":
         from app import model_transport
         from app import reasoning_provider as rp
         try:
@@ -484,7 +587,7 @@ def build_model_call(reader: str):
             usage["model"] = response.model_tag
             return response.text
         return call, lambda: dict(usage)
-    if reader == "claude":
+    if engine == "claude":
         from app import claude_budget, claude_spend, reader_api, reader_transport
         transport = reader_transport.transport()
         if transport is None:
@@ -504,27 +607,89 @@ def build_model_call(reader: str):
     raise ValueError(f"{reader} has no model call")
 
 
+# ------------------------------------------- the oracle (NOT a measurement)
+
+_PAGE_MARK = "Answer with JSON and nothing else.\n\nPAGE "
+
+
+def _prompt_page_text(prompt: str) -> str:
+    """The page text `claude_datasheet.build_prompt` put at the end of the prompt."""
+    tail = prompt.split(_PAGE_MARK, 1)[1] if _PAGE_MARK in prompt else prompt
+    return tail.split("\n", 1)[1] if "\n" in tail else ""
+
+
+def _loose(text: str) -> str:
+    """A regex for `text` with any run of whitespace between its words."""
+    return r"\s+".join(re.escape(w) for w in str(text).split())
+
+
+def _oracle_quote(item: dict, page: str) -> tuple[str, str] | None:
+    """(label as printed, quote) for one answer-key item on one page: the
+    span of the PAGE TEXT from the label to the nearest following printing of
+    the value, copied from the page. None when the page does not carry both."""
+    value = re.compile(r"(?<![\w.])" + _loose(item["value"]) + r"(?![\w])", re.IGNORECASE)
+    best = None
+    for label in [item["field"], *item.get("aliases", [])]:
+        for m in re.finditer(r"(?<!\w)" + _loose(label) + r"(?!\w)", page, re.IGNORECASE):
+            v = value.search(page, m.end())
+            if v is None or v.start() - m.end() > 400:
+                continue
+            span = (v.end() - m.start(), m.group(0), page[m.start():v.end()])
+            if best is None or span[0] < best[0]:
+                best = span
+    return None if best is None else (best[1], best[2])
+
+
+def oracle_model_call(entry: dict):
+    """UPPER-BOUND SANITY CHECK, NOT A MEASUREMENT OF ANY AI.
+
+    A deterministic `prompt -> JSON` stand-in for one file: on each page it
+    proposes exactly the answer key's expected facts that the page carries,
+    with the quote COPIED from the page text (`_oracle_quote`) and the key's
+    kind. It knows the answers, so its recall is what the pipeline lets
+    through when the reading is perfect - the ceiling of the merge and the
+    gates, and proof the pipes carry an AI reading into stored facts."""
+    def call(prompt: str) -> str:
+        page = _prompt_page_text(prompt)
+        facts = []
+        for item in entry.get("expected", []):
+            found = _oracle_quote(item, page)
+            if found is None:
+                continue
+            label, quote = found
+            facts.append({"field": " ".join(label.split()), "value": item["value"],
+                          "unit": item.get("unit"), "quote": quote, "kind": item["kind"]})
+        return json.dumps({"facts": facts})
+    call.engine = "oracle"
+    return call
+
+
 # ---------------------------------------------------------------- the run
 
 
 def run_reader(reader: str, key: dict, *, bench_dir: Path = BENCH, model_call=None,
-               usage_fn=None) -> dict:
+               usage_fn=None, files: list[str] | None = None) -> dict:
     per_file: dict[str, dict] = {}
+    oracle = reader == ORACLE
     for name, entry in key["files"].items():
-        reading = read_file_with(reader, Path(bench_dir) / name, model_call=model_call)
+        if files and name not in files:
+            continue
+        call = oracle_model_call(entry) if oracle else model_call
+        reading = read_file_with(reader, Path(bench_dir) / name, model_call=call)
         per_file[name] = {"status": reading["status"], "reason": reading.get("reason"),
                           "calls": reading.get("calls", 0),
+                          "conflicts": reading.get("conflicts", 0),
                           "score": score_file(entry, reading["facts"]),
-                          **({"reader_summary": reading["reader_summary"]}
-                             if reading.get("reader_summary") else {}),
-                          **({"rejected": reading["rejected"]} if reading.get("rejected") else {})}
+                          **{k: reading[k] for k in ("reader_summary", "rejected", "ai_reader",
+                                                      "ocr", "stages") if reading.get(k)}}
     report = {"reader": reader, "files": per_file, "total": totals(per_file),
               "calls": sum(r["calls"] for r in per_file.values())}
+    if oracle:
+        report["label"] = ORACLE_LABEL
     if usage_fn is not None:
         report["usage"] = usage_fn()
-    if reader == "rules":
-        from app import datasheet_offline
-        report["flags"] = datasheet_offline.reader_flags()
+    from app import datasheet_offline
+    report["flags"] = datasheet_offline.reader_flags()
     return report
 
 
@@ -534,28 +699,83 @@ def _pct(value) -> str:
 
 def print_report(report: dict) -> None:
     print(f"\n== reader: {report['reader']} ==")
+    if report.get("label"):
+        print(f"   {report['label']}")
     if report.get("unavailable"):
         print(f"   unavailable: {report['unavailable']}")
         return
-    print(f"{'file':38} {'status':11} {'found/exp':>9} {'recall':>7} {'correct/rep':>11} "
-          f"{'prec':>5} {'wrong':>5} {'forb':>4} {'extra':>5}")
+    print(f"{'file':34} {'status':18} {'found/exp':>9} {'recall':>7} {'correct/rep':>11} "
+          f"{'prec':>5} {'wrong':>5} {'forb':>4} {'extra':>5} {'confl':>5} {'calls':>5}")
     for name, r in report["files"].items():
         s = r["score"]
-        print(f"{name:38} {r['status']:11} {s['found']:>4}/{s['expected']:<4} {_pct(s['recall']):>7} "
+        print(f"{name:34} {r['status']:18} {s['found']:>4}/{s['expected']:<4} {_pct(s['recall']):>7} "
               f"{s['correct']:>5}/{s['reported']:<5} {_pct(s['precision']):>5} {s['wrong_value']:>5} "
-              f"{s['forbidden']:>4} {s['extra']:>5}")
+              f"{s['forbidden']:>4} {s['extra']:>5} {r['conflicts']:>5} {r['calls']:>5}")
+        if r["status"] != READ and r.get("reason"):
+            print(f"{'':34}   {r['reason']}")
     t = report["total"]
-    print(f"{'TOTAL (' + str(t['files']) + ' files, ' + str(t['files_unsupported']) + ' unsupported)':38} "
-          f"{'':11} {t['found']:>4}/{t['expected']:<4} {_pct(t['recall']):>7} "
+    print(f"{'TOTAL (' + str(t['files']) + ' files, ' + str(t['files_unsupported']) + ' not read)':34} "
+          f"{'':18} {t['found']:>4}/{t['expected']:<4} {_pct(t['recall']):>7} "
           f"{t['correct']:>5}/{t['reported']:<5} {_pct(t['precision']):>5} {t['wrong_value']:>5} "
-          f"{t['forbidden']:>4} {t['extra']:>5}")
-    if report["reader"] != "rules":
-        print(f"   model calls: {report['calls']}  usage: {report.get('usage')}")
+          f"{t['forbidden']:>4} {t['extra']:>5} {t['conflicts']:>5} {report['calls']:>5}")
+    if report.get("usage"):
+        print(f"   usage: {report['usage']}")
+
+
+def summary_rows(reports: list[dict]) -> list[dict]:
+    """One row per reader, side by side: the numbers the owner compares."""
+    rows = []
+    for r in reports:
+        if r.get("unavailable"):
+            rows.append({"reader": r["reader"], "unavailable": r["unavailable"]})
+            continue
+        t = r["total"]
+        rows.append({"reader": r["reader"], "found": t["found"], "expected": t["expected"],
+                     "recall": t["recall"], "correct": t["correct"], "reported": t["reported"],
+                     "precision": t["precision"], "wrong_value": t["wrong_value"],
+                     "forbidden": t["forbidden"], "conflicts": t["conflicts"],
+                     "files_not_read": t["files_unsupported"], "calls": r["calls"],
+                     "usd": (r.get("usage") or {}).get("estimated_usd"),
+                     **({"label": r["label"]} if r.get("label") else {})})
+    return rows
+
+
+def print_summary(reports: list[dict]) -> None:
+    print("\n== side by side ==")
+    print(f"{'reader':15} {'recall':>14} {'precision':>14} {'wrong':>5} {'forb':>4} "
+          f"{'conflicts':>9} {'not read':>8} {'calls':>5} {'USD':>7}")
+    for row in summary_rows(reports):
+        if row.get("unavailable"):
+            print(f"{row['reader']:15} unavailable: {row['unavailable']}")
+            continue
+        recall = f"{row['found']}/{row['expected']} {_pct(row['recall'])}"
+        precision = f"{row['correct']}/{row['reported']} {_pct(row['precision'])}"
+        usd = "-" if row["usd"] is None else f"{row['usd']:.4f}"
+        print(f"{row['reader']:15} {recall:>14} {precision:>14} {row['wrong_value']:>5} "
+              f"{row['forbidden']:>4} {row['conflicts']:>9} {row['files_not_read']:>8} "
+              f"{row['calls']:>5} {usd:>7}"
+              + ("   <- " + ORACLE_LABEL if row.get("label") else ""))
+
+
+def readers_for(choice: str) -> tuple[str, ...]:
+    """The readers a `--reader` choice runs."""
+    if choice == "all":
+        return READERS
+    if choice == "all-local":
+        return ALL_LOCAL
+    reader_spec(choice)            # refuses an unknown name
+    return (choice,)
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--reader", choices=[*READERS, "all"], default="rules")
+    parser.add_argument("--reader", choices=[*READERS, ORACLE, "all-local", "all"],
+                        default="rules",
+                        help="all-local = rules, rules+office, hybrid:ollama, ai-only:ollama "
+                             "(no Claude, no spend); hybrid:oracle is an upper-bound sanity "
+                             "check, not an AI")
+    parser.add_argument("--files", nargs="*", default=None,
+                        help="only these benchmark files (default: all)")
     parser.add_argument("--out", type=Path, default=None,
                         help="JSON report path (default: benchmarks/local/datasheet_bench/, git-ignored)")
     parser.add_argument("--key", type=Path, default=KEY_PATH)
@@ -565,11 +785,11 @@ def main(argv=None) -> int:
     if problems:
         print("the answer key is not honest:\n  " + "\n  ".join(problems))
         return 2
-    readers = READERS if args.reader == "all" else (args.reader,)
     reports = []
-    for reader in readers:
-        if reader == "rules":
-            report = run_reader(reader, key, bench_dir=args.key.parent)
+    for reader in readers_for(args.reader):
+        spec = reader_spec(reader)
+        if spec["engine"] is None or reader == ORACLE:
+            report = run_reader(reader, key, bench_dir=args.key.parent, files=args.files)
         else:
             try:
                 call, usage_fn = build_model_call(reader)
@@ -578,12 +798,14 @@ def main(argv=None) -> int:
                 print_report(reports[-1])
                 continue
             report = run_reader(reader, key, bench_dir=args.key.parent,
-                                model_call=call, usage_fn=usage_fn)
+                                model_call=call, usage_fn=usage_fn, files=args.files)
         reports.append(report)
         print_report(report)
-    out = args.out or DEFAULT_OUT_DIR / f"{args.reader}.json"
+    print_summary(reports)
+    out = args.out or DEFAULT_OUT_DIR / f"{args.reader.replace(':', '-')}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"key_version": key.get("version"), "reports": reports},
+    out.write_text(json.dumps({"key_version": key.get("version"), "reports": reports,
+                               "summary": summary_rows(reports)},
                               indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"\nreport: {out}")
     return 0

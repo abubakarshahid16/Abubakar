@@ -205,14 +205,21 @@ def test_totals_are_ratios_of_sums_with_no_percentage_of_nothing():
 
 # ============================================================ the readers
 
-def _fake_model(*, invent: bool = False):
+def _fake_model(*, invent: bool = False, pipes: bool = False):
     """A stand-in model: reads "Label : value unit" lines off the page in the
     prompt and answers the page reader's JSON. `invent` adds a row that is
-    not on the page, which the gate must throw away."""
+    not on the page, which the gate must throw away. `pipes` also reads a
+    rendered table row "Label | value" (a workbook's or Word table's)."""
     def call(prompt: str) -> str:
         page = prompt.split("PAGE ", 1)[1].split("\n", 1)[1]
         facts = []
         for line in page.splitlines():
+            if pipes and line.count(" | ") == 1:
+                label, value = line.strip().split(" | ")
+                if value and not value.lower().startswith("by vendor"):
+                    facts.append({"field": label, "value": value, "unit": None,
+                                  "quote": line.strip(), "kind": "offered"})
+                continue
             m = re.match(r"^(?P<label>[A-Za-z][^:]+?) : (?P<value>\S.*)$", line.strip())
             if not m:
                 continue
@@ -228,7 +235,7 @@ def _fake_model(*, invent: bool = False):
 
 
 def test_a_fake_model_reads_a_pdf_through_read_file_with(key):
-    reading = bench.read_file_with("claude", BENCH / "ds02_psv_unruled.pdf",
+    reading = bench.read_file_with("ai-only:claude", BENCH / "ds02_psv_unruled.pdf",
                                    model_call=_fake_model(invent=True))
     assert reading["status"] == "read"
     assert reading["calls"] == 2                  # two runs of the one page (the gate's rule 6)
@@ -240,23 +247,38 @@ def test_a_fake_model_reads_a_pdf_through_read_file_with(key):
     assert s["found"] >= 8 and s["forbidden"] == 0 and s["wrong_value"] == 0
 
 
-@pytest.mark.parametrize("name", ["ds12_pump.xlsx", "ds13_heater.docx",
-                                  "ds11_flowmeter_scanned.pdf"])
-def test_a_file_the_ai_reader_cannot_read_is_unsupported_not_a_crash(name):
+@pytest.fixture
+def no_ocr(monkeypatch, tmp_path):
+    """The project's OCR engine is not here: its model folder is empty."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "ocr_model_dir", tmp_path / "no-ocr-models")
+
+
+def test_a_file_the_ai_reader_cannot_read_is_unsupported_not_a_crash(no_ocr):
     calls = []
-    reading = bench.read_file_with("ollama", BENCH / name,
+    reading = bench.read_file_with("ai-only:ollama", BENCH / "ds11_flowmeter_scanned.pdf",
                                    model_call=lambda p: calls.append(p) or "{}")
-    assert reading["status"] == "unsupported"
+    assert reading["status"] == "ocr_unavailable"
     assert reading["facts"] == [] and calls == [] and reading["calls"] == 0
-    assert "unsupported by this reader" in reading["reason"] or "no text layer" in reading["reason"]
+    assert "ocr unavailable" in reading["reason"]
 
 
-def test_a_whole_run_with_a_fake_model_counts_unsupported_files_as_misses(key):
-    report = bench.run_reader("claude", key, model_call=_fake_model())
+@pytest.mark.parametrize("name", ["ds12_pump.xlsx", "ds13_heater.docx"])
+def test_the_ai_only_reader_reads_office_files_through_their_page_texts(name, key):
+    reading = bench.read_file_with("ai-only:ollama", BENCH / name,
+                                   model_call=_fake_model(pipes=True))
+    assert reading["status"] == "read" and reading["calls"] >= 2
+    s = bench.score_file(key["files"][name], reading["facts"])
+    assert s["found"] >= 3 and s["forbidden"] == 0
+
+
+def test_a_whole_run_with_a_fake_model_counts_unsupported_files_as_misses(key, no_ocr):
+    report = bench.run_reader("ai-only:claude", key, model_call=_fake_model())
     t = report["total"]
-    assert t["files"] == 14 and t["files_unsupported"] == 3
+    assert t["files"] == 14 and t["files_unsupported"] == 1
+    assert report["files"]["ds11_flowmeter_scanned.pdf"]["status"] == "ocr_unavailable"
+    assert report["files"]["ds11_flowmeter_scanned.pdf"]["score"]["found"] == 0
     assert t["expected"] == sum(len(e["expected"]) for e in key["files"].values())
-    assert report["files"]["ds12_pump.xlsx"]["score"]["found"] == 0
     assert report["calls"] == sum(r["calls"] for r in report["files"].values()) > 0
 
 
@@ -264,7 +286,7 @@ def test_the_claude_model_call_is_off_without_the_egress_flags(monkeypatch):
     from app import reader_transport
     monkeypatch.setattr(reader_transport, "transport", lambda: None)
     with pytest.raises(bench.ReaderUnavailable):
-        bench.build_model_call("claude")
+        bench.build_model_call("ai-only:claude")
 
 
 @pytest.fixture
@@ -296,9 +318,9 @@ def claude_lane(tmp_path, monkeypatch):
 
 def test_the_claude_model_call_is_metered_and_charged_to_its_own_step(claude_lane):
     from app import claude_budget, claude_spend
-    call, usage_fn = bench.build_model_call("claude")
+    call, usage_fn = bench.build_model_call("ai-only:claude")
     assert isinstance(call, claude_budget.Budget)
-    reading = bench.read_file_with("claude", BENCH / "ds02_psv_unruled.pdf", model_call=call)
+    reading = bench.read_file_with("ai-only:claude", BENCH / "ds02_psv_unruled.pdf", model_call=call)
     assert reading["status"] == "read" and reading["calls"] == 2 and len(claude_lane) == 2
     assert claude_spend.spent(bench.STEP) > 0            # the one ledger saw both calls
     usage = usage_fn()
@@ -308,8 +330,8 @@ def test_the_claude_model_call_is_metered_and_charged_to_its_own_step(claude_lan
 def test_a_usd_cap_stops_the_claude_reader_before_anything_is_sent(claude_lane, monkeypatch):
     from app.config import settings
     monkeypatch.setattr(settings, "claude_budget_usd_per_step", 0.000001)
-    call, _usage = bench.build_model_call("claude")
-    reading = bench.read_file_with("claude", BENCH / "ds02_psv_unruled.pdf", model_call=call)
+    call, _usage = bench.build_model_call("ai-only:claude")
+    reading = bench.read_file_with("ai-only:claude", BENCH / "ds02_psv_unruled.pdf", model_call=call)
     assert reading["status"] == "stopped" and reading["stopped"] == "usd_cap_reached"
     assert claude_lane == []
 
@@ -326,4 +348,7 @@ def test_the_rules_reader_runs_on_a_pdf_without_the_project_database(key):
     assert (s["found"], s["expected"]) == (10, 10)
     # "Coupling type: By Vendor" is recorded as a blank, never as a value.
     assert s["forbidden"] == 0 and s["blanks_recorded"] >= 1
-    assert bench.read_file_with("rules", BENCH / "ds13_heater.docx")["status"] == "unsupported"
+    # Today's production refuses a Word file at upload; with office input on
+    # the same file is read.
+    assert bench.read_file_with("rules", BENCH / "ds13_heater.docx")["status"] == "refused_at_upload"
+    assert bench.read_file_with("rules+office", BENCH / "ds13_heater.docx")["status"] == "read"
