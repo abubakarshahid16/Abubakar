@@ -32,7 +32,7 @@ carries the client's name; only the owner can rename it.
    `reader_transport.py` (Claude API: the reasoning provider and the reader;
    off unless `REASONING_PROVIDER=claude` AND both `STANDARDS_READER_*` egress
    flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
-   which the four `claude_api` review routes reach via `claude_spend.metered`) and
+   which the four `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, `DATASHEET_AI_READER=claude`, off by default) reaches the same way and
    `notifications.py` (SMTP, off by default). Known gap: the socket-containment
    test does not yet cover `smtplib` (honesty audit entry 49). Known gap: the
    `claude_api` review routes check the two egress flags but not
@@ -55,7 +55,7 @@ carries the client's name; only the owner can rename it.
    when its feature is deleted — prove it by mutation. Vacuous tests are this
    project's documented recurring defect (`docs/status-honesty-audit.md`).
 7. **When something this project stated turns out false, record the retraction**
-   in `docs/status-honesty-audit.md`. It is at 91 entries. Several findings in
+   in `docs/status-honesty-audit.md`. It is at 93 entries. Several findings in
    `docs/code-review/` belong there.
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
@@ -116,7 +116,7 @@ carries the client's name; only the owner can rename it.
 | Full state, decisions, what's next | `docs/HANDOVER.md` |
 | Architecture as the code actually is | `docs/architecture-call-graph.md` (current); `docs/architecture.md` (older, stale line refs) |
 | The 134 review findings, prioritised | `docs/code-review/README.md` |
-| Recorded false claims (91) | `docs/status-honesty-audit.md` |
+| Recorded false claims (93) | `docs/status-honesty-audit.md` |
 | Review any change against the project's own failure modes | `/review` (`.claude/commands/review.md`) |
 | Demo script and safe questions | `docs/HANDOVER.md` § Demo |
 | Run it | `backend`: `python run.py` · `frontend`: `npm run dev` · Ollama must be up |

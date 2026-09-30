@@ -216,6 +216,12 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
     from INSIDE the page - the geometry work below - are still absorbed, which
     is what the original sentence was actually about.
     """
+    from . import datasheet_inputs
+
+    if datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: MuPDF opens an .xlsx/.docx and reads it
+        # badly; an office file's rows come from `datasheet_inputs` instead.
+        return []
     try:
         import pymupdf
     except ImportError:  # pragma: no cover - pymupdf is a hard dependency elsewhere

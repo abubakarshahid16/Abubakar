@@ -72,6 +72,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 - Retrieved PDF text is **untrusted data**, never instructions to the model.
 - Previous assistant answers are **never** treated as evidence.
 - Uploads **stream** to disk; a large PDF is never loaded whole into RAM.
+- Accepted uploads: PDF, and `.xlsx` (stored, not indexed). With `DATASHEET_OFFICE_INPUT=true` (off by default) `.xlsx` and `.docx` datasheets are also indexed and read into facts, and table-shaped OCR lines on scanned pages are read at low confidence for engineer review (`backend/app/datasheet_inputs.py`).
 - Killing the process mid-ingestion **resumes from the last completed page batch**.
 - A partially-processed document is labelled `partially searchable`, never `ready`.
 

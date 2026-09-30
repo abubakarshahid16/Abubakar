@@ -182,7 +182,7 @@ def unit_dimension_conflict(requirement: dict, fact: dict) -> bool:
     # with no dimension (years, dB, kg - which `compare` will refuse itself)
     # or not a unit `claims` knows. Only the second is refused here.
     unknown = right if left_dim is not None else left
-    return claims._fold_unit(unknown) not in claims._RECOGNISED_UNITS
+    return not claims.is_unit(unknown)
 
 
 # ------------------------------------------------------------------ rule 2

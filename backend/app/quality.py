@@ -161,7 +161,7 @@ _VALUE = re.compile(
     r"bar[ga]?\b|psi[ga]?\b|hours?\b|hrs?\b|min(?:ute)?s?\b|days?\b|ppm\b|V\b|volts?\b|"
     r"kg\b|m2\b|litres?\b|liters?\b|rpm\b|kW\b|kV\b|m3/h(?:r)?\b|m³/h(?:r)?\b|Hz\b)"
     r"|\b\d+\s*:\s*\d+\b|\b(?:RAL|Sa|St|SSPC|ISO|ASTM|NACE)\s*[-\d])")
-#: An equipment tag: "P-101A", "E-201", "PSV-3101", "10-P-101".
+#: An equipment tag: "P-101A", "E-201", "PSV-3101", "1-P-101".
 _EQUIPMENT_TAG = re.compile(r"^(?:\d{1,3}-)?[A-Z]{1,4}-\d{2,5}[A-Z]?$")
 #: A tag list must have at least this many tags to count as one.
 _MIN_TAGS = 3
