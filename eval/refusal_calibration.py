@@ -371,10 +371,20 @@ def _run_answer(question: str, allowed_document_ids: frozenset) -> dict:
     answer_type = result.get("answer_type")
     passages = result.get("answer_passages") or []
     answered = answer_type == "extract" and bool(passages)
+    choice = result.get("condition_choice") or {}
     return {
         "answer_type": answer_type,
         "answered_chunk_id": passages[0].get("chunk_id") if answered else None,
         "answered_text": passages[0].get("text") if answered else None,
+        # `mode` is "options" (every competing clause shown, none picked) or
+        # "matched" (the clause that holds under the named condition answers
+        # instead of a higher-ranked one) - None when no clause competed.
+        "condition_mode": choice.get("mode") if answered else None,
+        # ALL passages, not just the first - an "options" answer's correct
+        # clause can be any of them, not only the lead.
+        "answer_passages": [
+            {"chunk_id": p.get("chunk_id"), "text": p.get("text")} for p in passages
+        ] if answered else [],
     }
 
 
@@ -408,13 +418,37 @@ def score_present(conn, item: dict, wording: str, question: str,
         top_is_same_value = _states_value(core["top"]["text"], item["number"], item["unit"])
     top_is_right = bool(top_is_expected or top_is_same_value)
 
-    answered_exact = bool(ans["answered_chunk_id"] == item["chunk_id"])
-    answered_same_value = None
-    if ans["answer_type"] == "extract" and ans["answered_chunk_id"] and not answered_exact:
-        text = ans["answered_text"] or _chunk_text(conn, ans["answered_chunk_id"])
-        answered_same_value = _states_value(text or "", item["number"], item["unit"])
+    # PLAN STEP 4: a "which clause applies" answer with mode == "options"
+    # shows every competing clause, none picked for the reader - so "the
+    # expected chunk was the lead passage" is the wrong question to ask it.
+    # It is scored on whether ANY shown passage is the expected clause or
+    # states the expected value, as its own outcome (correct-with-options),
+    # never folded into "exact" or "same-value" - those two keep meaning
+    # "the ONE passage returned was right", which an options answer does not
+    # claim to be. `mode == "matched"` (a named condition picked a winner) is
+    # scored exactly like an ordinary extract: unchanged below.
+    options_mode = ans["condition_mode"] == "options"
+    correct_with_options = False
+    if options_mode:
+        for p in ans["answer_passages"]:
+            if p["chunk_id"] == item["chunk_id"]:
+                correct_with_options = True
+                break
+            text = p["text"] or _chunk_text(conn, p["chunk_id"])
+            if _states_value(text or "", item["number"], item["unit"]):
+                correct_with_options = True
+                break
+        answered_exact = False
+        answered_same_value = None
+    else:
+        answered_exact = bool(ans["answered_chunk_id"] == item["chunk_id"])
+        answered_same_value = None
+        if ans["answer_type"] == "extract" and ans["answered_chunk_id"] and not answered_exact:
+            text = ans["answered_text"] or _chunk_text(conn, ans["answered_chunk_id"])
+            answered_same_value = _states_value(text or "", item["number"], item["unit"])
     answered_right = bool(
-        ans["answer_type"] == "extract" and (answered_exact or answered_same_value))
+        ans["answer_type"] == "extract"
+        and (answered_exact or answered_same_value or correct_with_options))
 
     row = {
         "category": "present", "wording": wording, "item_id": item_id,
@@ -422,6 +456,7 @@ def score_present(conn, item: dict, wording: str, question: str,
         "separation": core["separation"], "expected_score": expected_score,
         "top_is_expected": top_is_expected, "top_is_same_value": top_is_same_value,
         "top_is_right": top_is_right,
+        "condition_mode": ans["condition_mode"], "correct_with_options": correct_with_options,
         "lexical_ok": lex["ok"], "lexical_covered": lex["covered"], "lexical_total": lex["total"],
         "answer_type": ans["answer_type"],
         "answered_exact": answered_exact, "answered_same_value": answered_same_value,
@@ -568,17 +603,24 @@ def main(argv: list[str] | None = None) -> int:
              f"  ({100 * refused / len(subset):.0f}%)")
 
     print("\n" + "=" * 72)
-    print("PRESENT QUESTIONS: WHAT WAS ANSWERED (exact vs same-value vs really wrong)")
+    print("PRESENT QUESTIONS: WHAT WAS ANSWERED "
+         "(exact vs same-value vs correct-with-options vs really wrong)")
     print("=" * 72)
     n_present = len(present_rows)
     exact = sum(1 for r in present_rows if r["answered_exact"])
     same_value = sum(1 for r in present_rows if r["answered_same_value"])
+    correct_with_options = sum(1 for r in present_rows if r["correct_with_options"])
     really_wrong = sum(1 for r in present_rows if r["answered_really_wrong"])
     refused_p = sum(1 for r in present_rows if r["answer_type"] != "extract")
+    options_mode_n = sum(1 for r in present_rows if r["condition_mode"] == "options")
+    matched_mode_n = sum(1 for r in present_rows if r["condition_mode"] == "matched")
     print(f"  answered, exact expected chunk:        {exact} of {n_present}")
     print(f"  answered, different chunk SAME value:  {same_value} of {n_present}")
+    print(f"  answered, correct clause AMONG OPTIONS: {correct_with_options} of {n_present}")
     print(f"  answered, different chunk WRONG value: {really_wrong} of {n_present}  <- really wrong")
     print(f"  refused:                                {refused_p} of {n_present}")
+    print(f"  condition_choice mode=options:          {options_mode_n} of {n_present}")
+    print(f"  condition_choice mode=matched:          {matched_mode_n} of {n_present}")
 
     print("\n" + "=" * 72)
     print("WRONG-VALUE QUESTIONS: WHAT THE RETURNED PASSAGE ACTUALLY SAYS")
