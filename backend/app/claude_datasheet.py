@@ -46,7 +46,7 @@ import json
 import re
 from enum import Enum
 
-from . import claims, datasheets, submittal_review
+from . import blank_markers, claims, datasheets, submittal_review
 from .claude_spend import StopRun
 from .db import connect
 
@@ -84,6 +84,11 @@ class Reason(Enum):
     FIELD_NOT_IN_QUOTE = "field_not_in_quote"
     FIELD_MISSING = "field_missing"
     VALUE_MISSING = "value_missing"
+    #: The value IS a printed "not provided" marker ("By Vendor", "TBD", "-",
+    #: "to be confirmed"). Decided by `blank_markers`, the project's one list,
+    #: whatever the model was told: a blank cell is not a fact, and the
+    #: protection must not depend on the model obeying its prompt.
+    VALUE_IS_BLANK_MARKER = "value_is_blank_marker"
     KIND_UNKNOWN = "kind_unknown"
     #: A unit was given and `claims` has never heard of it. A null unit is
     #: fine - a categorical value has none - but a spelling no table knows is
@@ -277,6 +282,7 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
       1. the quote appears on the page, whitespace-folded
       2. the value appears inside the quote
       3. the field's main word appears inside the quote
+      0. the value is not a blank marker (`blank_markers.classify`)
       4. the unit, when given, is one `claims` recognises
       5. the field is not one the deterministic extractor already found
       6. (in `read_page`) two runs of the page agreed
@@ -305,6 +311,9 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
             continue
         if not p.get("value"):
             drop(p, Reason.VALUE_MISSING)
+            continue
+        if blank_markers.classify(p["value"])[0]:
+            drop(p, Reason.VALUE_IS_BLANK_MARKER)
             continue
         if p.get("kind") not in KINDS:
             drop(p, Reason.KIND_UNKNOWN)

@@ -43,6 +43,7 @@ _ANYWHERE = re.compile(
 #: revision", "hold" in "hold-down bolts", "by others" in a scope sentence.
 _WHOLE_CELL = re.compile(
     r"^(?:\*|-|–|—|\?+|vta|later|to\s+follow|hold|tbn|by\s+[a-z][\w\s/&.-]*"
+    r"|as\s+per\s+(?:the\s+)?(?:vendor|supplier|manufacturer|contractor)"
     r"|[\[(]?\s*note\s*[-–—]?\s*\d+\s*[\])]?)$",
     re.IGNORECASE,
 )

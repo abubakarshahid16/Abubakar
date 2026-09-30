@@ -164,6 +164,20 @@ Retraction 25 is recorded.
 | Architecture document written from the code | ✅ `docs/architecture.md` |
 | Design canvas of the whole system incl. Compare screen | ✅ published artifact "RAG Intelligence System" (Claude Design) |
 
+**Datasheet AI reader ("AI reads, code checks"), added 2026-09-30, OFF and NOT
+YET MEASURED.** `DATASHEET_AI_READER` (`off` default | `ollama` | `claude`)
+makes `datasheets.extract_facts` also read every page with text through
+`claude_datasheet.read_page` (two runs must agree; each fact's quote, value and
+label must be on the page) and merge it with the rule readers
+(`datasheet_ai.merge_readings`): agreement raises the rule fact to confidence
+0.7, disagreement keeps both marked `validation_state='conflict'`, an AI-only
+fact is stored as `extraction_method='model'` with the engine in its
+provenance. `claude` needs `REASONING_PROVIDER=claude` + both egress flags + a
+key and is metered by `claude_spend` (step `datasheet-ai-reader`); `ollama`
+goes through `model_transport`. A failing or unavailable engine leaves the page
+to the rules with a recorded reason. Tested with fake models only
+(`test_datasheet_ai.py`, M1670-M1685); no accuracy claim until it is measured.
+
 Backend `.env` (never committed) currently holds: `WATCH_FOLDER`,
 `WATCH_INTERVAL_SECONDS=60`, `WATCH_OWNER_EMAIL=testcivil@gmail.com`,
 `AUTH_MODE=demo_required`, `AUTH_SECRET` (64 chars), and both market flags ON:

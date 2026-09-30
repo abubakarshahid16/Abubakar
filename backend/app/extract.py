@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -25,6 +26,8 @@ from .quality import normalise_text
 from . import tables as tables_mod
 from .db import connect
 from .rates import Timer, rate
+
+log = logging.getLogger(__name__)
 
 # Which pages go to recognition is decided HERE, per page, by
 # `ocr.route_page` (audit F6) - detection only at this stage; ocr.py later
@@ -255,6 +258,32 @@ def extract_batch(pdf_path: str, first_page: int, last_page: int
     return out
 
 
+def _office_rows(path: str) -> list[tuple] | None:
+    """`extract_batch`-shaped rows for an office datasheet; None for a PDF.
+
+    `needs_ocr` is False (there is no image to recognise), no routing reason
+    is claimed (none was decided), and the rows are stored as the page's
+    tables (`datasheet_inputs.tables_json`) so the chunker keeps them. A file
+    `datasheet_inputs` refuses (a DOCTYPE, a bomb) RAISES, and the worker
+    records the document as failed with that reason.
+    """
+    from . import datasheet_inputs
+
+    if datasheet_inputs.office_kind(path) is None:
+        return None
+    reading = datasheet_inputs.read(path)
+    if reading.notes:
+        # Counts and positions only - never document text.
+        log.info("office datasheet read with %d note(s): %s",
+                 len(reading.notes), "; ".join(reading.notes[:10]))
+    rows = []
+    for p in reading.pages:
+        text = normalise_text(p.text)
+        rows.append((p.page_no, text, False, False, None,
+                     datasheet_inputs.tables_json(p, text)))
+    return rows
+
+
 def _batches(total_pages: int, size: int, start_batch: int) -> list[tuple[int, int, int]]:
     """(batch_no, first_page, last_page), 0-based batch numbers, 1-based pages."""
     result = []
@@ -340,7 +369,13 @@ def extract_document(doc_id: str, progress=None) -> dict:
                 "seconds": 0.0, "pages_per_sec": None, "resumed_from_batch": 0,
                 "error": "stored file is missing"}
 
-    total = doc["page_count"] or page_count(pdf_path)
+    # DATASHEET_OFFICE_INPUT seam (off by default): a workbook or Word
+    # document is read by `datasheet_inputs` - one page per visible sheet /
+    # per explicit page break - in THIS process and one batch. A PDF never
+    # takes this branch, so its path below is exactly what it was.
+    office_rows = _office_rows(pdf_path) if settings.datasheet_office_input else None
+    total = (len(office_rows) if office_rows is not None
+             else doc["page_count"] or page_count(pdf_path))
     if doc["page_count"] is None:
         with conn:
             conn.execute("UPDATE documents SET page_count = ? WHERE id = ?", (total, doc_id))
@@ -351,7 +386,12 @@ def extract_document(doc_id: str, progress=None) -> dict:
     timer = Timer()
     pages_this_run = 0
 
-    if todo:
+    if todo and office_rows is not None:
+        _commit_batch(doc_id, job["id"], 0, office_rows)
+        pages_this_run = len(office_rows)
+        if progress:
+            progress(len(office_rows), total)
+    elif todo:
         # Two processes, never threads. Commit strictly in order so the
         # checkpoint stays a contiguous high-water mark.
         with cf.ProcessPoolExecutor(max_workers=settings.extract_processes) as pool:

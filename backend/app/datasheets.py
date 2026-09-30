@@ -43,9 +43,10 @@ import uuid
 from datetime import datetime, timezone
 
 import json
+from contextvars import ContextVar
 
-from . import (blank_markers, claims, orphan_guard, page_ledger, provenance, row_noise,
-               submittal_review, tables)
+from . import (blank_markers, claims, datasheet_inputs, orphan_guard, page_ledger,
+               provenance, row_noise, submittal_review, tables)
 from .config import settings
 from .db import connect
 
@@ -1354,6 +1355,62 @@ def join_unit_column(value: str, unit: str | None) -> str:
     return f"{value.strip()} {unit}"
 
 
+#: A value column whose header names its own unit: "Rated (kW)", "Flow [m3/h]".
+_HEADER_UNIT = re.compile(r"^(?P<name>.*?\S)\s*[(\[]\s*(?P<unit>[^()\[\]]+?)\s*[)\]]$")
+
+#: Single letters that are units AND ordinary answers ("F" is an insulation
+#: class as much as a temperature scale). A column made only of these is a
+#: column of answers, never a column of units.
+_AMBIGUOUS_UNIT_CELLS = frozenset("a c f g k m s t l h in".split())
+
+
+def is_table_unit(text: str | None) -> bool:
+    """Is this table cell ONLY a printed unit ("kW", "m3/h", "barg", "%")?
+
+    Judged by the shared unit vocabulary (`claims.is_unit`), never by a list
+    of this reader's own. A dash, a blank or any other text is not a unit.
+    """
+    cell = " ".join((text or "").split())
+    if not cell or len(cell) > 14:
+        return False
+    base, _reference = claims.split_reference(cell)
+    return bool(base) and claims.is_unit(base)
+
+
+def split_header_unit(header: str | None) -> tuple[str, str | None]:
+    """`("Rated", "kW")` for a header `"Rated (kW)"`; `(header, None)` when the
+    bracket holds anything that is not a unit ("Rated (design)")."""
+    text = " ".join((header or "").split())
+    found = _HEADER_UNIT.match(text)
+    if found and is_table_unit(found.group("unit")):
+        return found.group("name"), found.group("unit")
+    return text, None
+
+
+def unit_column_of(header: list[str], body: list[list[str]], *, first: int = 1) -> int | None:
+    """The index of a table's UNIT column, or None.
+
+    Two signals, either is enough, and neither is a list of one client's
+    wording: the column's HEADER is a unit-column word (`is_unit_header`:
+    Units, Unit, UoM), or its BODY is a unit column - at least two of its
+    non-empty cells are units, every non-empty cell is a unit or a bare
+    dash, and they are not all ambiguous single letters ("F", "A"). The
+    second signal is what finds a unit column the sheet headed "Measure".
+    Column 0 is the row label and never a unit column.
+    """
+    width = max((len(r) for r in [header, *body]), default=0)
+    for i in range(first, width):
+        if i < len(header) and is_unit_header(header[i]):
+            return i
+    for i in range(first, width):
+        cells = [" ".join((r[i] if i < len(r) else "").split()) for r in body]
+        filled = [c for c in cells if c and not re.fullmatch(r"[-\u2013\u2014]+", c)]
+        if (len(filled) >= 2 and all(is_table_unit(c) for c in filled)
+                and not all(c.lower() in _AMBIGUOUS_UNIT_CELLS for c in filled)):
+            return i
+    return None
+
+
 def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
     """Label:value pairs from one RULED table shape, respecting its columns.
 
@@ -1458,6 +1515,22 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
     unit_col = next((i for i in range(1, width)
                      if i < len(header) and is_unit_header(header[i])), None) \
         if tag_cols else None
+    # THE PLAIN GRID (no tag columns): "Parameter | Units | Value", "Item |
+    # Value | UoM", or a value column headed "Rated (kW)". The unit belongs to
+    # the value on the same row, exactly as in the two-tag layout; it is not a
+    # fact of its own ("Rated power - Units" = kW) and it is not dropped
+    # either ("75" for a 75 kW motor reads as a wrong value).
+    plain_unit_col: int | None = None
+    header_units: dict[int, str] = {}
+    if not tag_cols:
+        body = [_padded(r) for r in shape[data_start:]
+                if not re.fullmatch(r"\d{1,3}", (r[0] if r else "").strip())]
+        plain_unit_col = unit_column_of(header, body)
+        for i in range(1, width):
+            if i != plain_unit_col and i < len(header):
+                _name, unit = split_header_unit(header[i])
+                if unit:
+                    header_units[i] = unit
 
     out = []
     for row in shape[data_start:]:
@@ -1534,6 +1607,14 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
                                 join_unit_column(value, cells[unit_col]
                                                  if unit_col is not None else None)))
                     continue
+            if i == plain_unit_col:
+                continue
+            row_unit = cells[plain_unit_col] if plain_unit_col is not None else ""
+            unit = row_unit if is_table_unit(row_unit) else header_units.get(i)
+            if i in header_units:
+                col_header = split_header_unit(col_header)[0]
+            if unit:
+                value = join_unit_column(value, unit)
             field = f"{label} - {col_header}" if col_header else label
             out.append((field, value))
     return out
@@ -1871,54 +1952,15 @@ class FactError(ValueError):
     """A fact could not be recorded. Carries a reason, never a row."""
 
 
-def create_fact(
-    *, submittal_document_id: str, chunk_id: str, field_label: str,
-    raw_value: str | None, page: int | None, section: str | None = None,
-    source_text: str | None = None, review_run_id: str | None = None,
-    confidence: float | None = None, extraction_method: str = "extracted",
-    equipment_tag: str | None = None, commit: bool = True,
-    validation_state: str | None = None,
-    extractor_version: str | None = None, input_hash: str | None = None,
-    unit: str | None = None, value_column: str | None = None,
-    one_quantity: bool = False,
-    blank: tuple[bool, str | None] | None = None, bbox: str | None = None,
-    printed_unit: str | None = None,
-) -> dict:
-    """Record one fact. REFUSES a fact whose citation does not resolve.
-
-    `unit` (B4): the unit a layout states for this value OUTSIDE the value's
-    own cell - a grid row's unit column, whose primary unit `primary_unit`
-    read. Used only when the value itself prints no unit: "12.0 (53)" under
-    "m3/h (USGPM)" is 24.8 m3/h. A unit printed in the value always wins.
-
-    `commit=False` writes INSIDE the caller's open transaction and commits
-    nothing, so `extract_facts` can make a whole datasheet all-or-nothing
-    (B19). It also skips `ensure_schema`, whose own `with conn:` would commit
-    that transaction half-way; the caller has already ensured the schema.
-
-    The same three checks `standards.create_requirement` makes, for the same
-    reasons: a fact without a resolving chunk is an assertion, a chunk from
-    another document is a citation that opens the wrong page, and a page
-    outside the chunk is a citation that opens the right document in the wrong
-    place.
-
-    A BLANK IS RECORDED AS A FACT, not skipped. "Set pressure: By Contractor"
-    is information - it says the field exists, is required, and is not filled
-    in - and skipping it would make a missing value indistinguishable from a
-    field the sheet never asked for.
-    """
-    if commit:
-        submittal_review.ensure_schema()
-    chunk = connect().execute(
-        "SELECT id, document_id, page_start, page_end FROM chunks WHERE id = ?",
-        (chunk_id,)).fetchone()
-    if chunk is None:
-        raise FactError(f"no chunk {chunk_id!r}: the citation does not resolve")
-    if chunk["document_id"] != submittal_document_id:
-        raise FactError("the cited chunk belongs to a different document")
-    if page is not None and not (chunk["page_start"] <= page <= chunk["page_end"]):
-        raise FactError(f"page {page} is outside the cited chunk")
-
+def value_columns(raw_value: str | None, *, field_label: str, unit: str | None = None,
+                  one_quantity: bool = False,
+                  blank: tuple[bool, str | None] | None = None,
+                  printed_unit: str | None = None) -> dict:
+    """The parsed columns of one fact's value - number, units, normalised
+    value, range, blank - exactly as `create_fact` writes them. ONE home for
+    the parse, so a caller that must re-derive a stored fact's columns (the
+    AI merge adding a unit the page proves) cannot drift from the writer.
+    See `create_fact` for each argument."""
     # B4 (geometry reader): `blank` is the caller's OWN evidence of a blank
     # field - the drawn run or printed marker the geometry reader saw, which
     # it has already separated from any printed unit ("____ bar g"). None
@@ -1973,6 +2015,64 @@ def create_fact(
     # engineering unit to anything downstream. The spelling is still kept in
     # `raw_unit`, because the document did write it.
     unit = base_unit if claims.is_unit(base_unit or "") else None
+    return {"is_blank": bool(blank), "blank_marker": marker, "raw_value": value,
+            "raw_unit": raw_unit, "unit_reference": unit_reference,
+            "normalized_value": measurement.normalized_value if measurement else None,
+            "normalized_unit": measurement.normalized_unit if measurement else None,
+            "unit": unit, "value_min": value_min, "value_max": value_max}
+
+
+def create_fact(
+    *, submittal_document_id: str, chunk_id: str, field_label: str,
+    raw_value: str | None, page: int | None, section: str | None = None,
+    source_text: str | None = None, review_run_id: str | None = None,
+    confidence: float | None = None, extraction_method: str = "extracted",
+    equipment_tag: str | None = None, commit: bool = True,
+    validation_state: str | None = None,
+    extractor_version: str | None = None, input_hash: str | None = None,
+    unit: str | None = None, value_column: str | None = None,
+    one_quantity: bool = False,
+    blank: tuple[bool, str | None] | None = None, bbox: str | None = None,
+    printed_unit: str | None = None,
+) -> dict:
+    """Record one fact. REFUSES a fact whose citation does not resolve.
+
+    `unit` (B4): the unit a layout states for this value OUTSIDE the value's
+    own cell - a grid row's unit column, whose primary unit `primary_unit`
+    read. Used only when the value itself prints no unit: "12.0 (53)" under
+    "m3/h (USGPM)" is 24.8 m3/h. A unit printed in the value always wins.
+
+    `commit=False` writes INSIDE the caller's open transaction and commits
+    nothing, so `extract_facts` can make a whole datasheet all-or-nothing
+    (B19). It also skips `ensure_schema`, whose own `with conn:` would commit
+    that transaction half-way; the caller has already ensured the schema.
+
+    The same three checks `standards.create_requirement` makes, for the same
+    reasons: a fact without a resolving chunk is an assertion, a chunk from
+    another document is a citation that opens the wrong page, and a page
+    outside the chunk is a citation that opens the right document in the wrong
+    place.
+
+    A BLANK IS RECORDED AS A FACT, not skipped. "Set pressure: By Contractor"
+    is information - it says the field exists, is required, and is not filled
+    in - and skipping it would make a missing value indistinguishable from a
+    field the sheet never asked for.
+    """
+    if commit:
+        submittal_review.ensure_schema()
+    chunk = connect().execute(
+        "SELECT id, document_id, page_start, page_end FROM chunks WHERE id = ?",
+        (chunk_id,)).fetchone()
+    if chunk is None:
+        raise FactError(f"no chunk {chunk_id!r}: the citation does not resolve")
+    if chunk["document_id"] != submittal_document_id:
+        raise FactError("the cited chunk belongs to a different document")
+    if page is not None and not (chunk["page_start"] <= page <= chunk["page_end"]):
+        raise FactError(f"page {page} is outside the cited chunk")
+
+    cols = value_columns(raw_value, field_label=field_label, unit=unit,
+                         one_quantity=one_quantity, blank=blank, printed_unit=printed_unit)
+    blank, marker = cols["is_blank"], cols["blank_marker"]
     # #175: LOW CONFIDENCE NEVER READS AS A CONFIDENT FACT. Whatever the
     # caller passed for `validation_state` stands (an explicit call always
     # wins); otherwise a fact below `LOW_CONFIDENCE_THRESHOLD` is routed to
@@ -1981,6 +2081,11 @@ def create_fact(
     # a routing rule with two homes is a routing rule that drifts).
     if validation_state is None and confidence is not None                     and confidence < LOW_CONFIDENCE_THRESHOLD:
         validation_state = NEEDS_ENGINEER_REVIEW
+    # DATASHEET_OFFICE_INPUT seam: the rules reader's facts from a workbook or
+    # Word document say so ('xlsx' / 'docx'), set by `extract_facts` for the
+    # length of one extraction. Unset (every PDF) leaves the method alone.
+    if extraction_method == "extracted" and _OFFICE_METHOD.get() is not None:
+        extraction_method = _OFFICE_METHOD.get()
     now = _now()
     row = {
         "id": str(uuid.uuid4()),
@@ -1990,20 +2095,17 @@ def create_fact(
         "field_name": normalise_field_name(field_label),
         "field_label": field_label,
         "field_value": (raw_value or "").strip() or None,
-        "raw_value": value,
         # AS READ, always - even when normalisation fails. The document
         # said it, and a unit this system cannot convert is still evidence.
-        "raw_unit": raw_unit,
-        "unit_reference": unit_reference,
-        "normalized_value": measurement.normalized_value if measurement else None,
-        "normalized_unit": measurement.normalized_unit if measurement else None,
-        "unit": unit,
+        # (`raw_value`, `raw_unit`, `unit_reference`, `normalized_*`, `unit`.)
+        **{k: cols[k] for k in ("raw_value", "raw_unit", "unit_reference",
+                                "normalized_value", "normalized_unit", "unit")},
         # WHICH EQUIPMENT THIS FACT DESCRIBES, or NULL when the sheet does not
         # say. A datasheet can carry four valves; a fact that does not know
         # which one it belongs to is a fact nobody can act on.
         "equipment_tag": equipment_tag,
-        "value_min": value_min,
-        "value_max": value_max,
+        "value_min": cols["value_min"],
+        "value_max": cols["value_max"],
         "is_blank": 1 if blank else 0,
         "blank_marker": marker,
         "page": page if page is not None else chunk["page_start"],
@@ -2084,6 +2186,11 @@ def pdf_condition(stored_path: str) -> tuple[str | None, str, bool]:
     ("document closed or encrypted") when a page is touched - so catching it
     would mean matching on a message.
     """
+    if datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: an office file's condition is whether
+        # `datasheet_inputs` can read it (a DOCTYPE, a bomb, a damaged zip).
+        slug, why = datasheet_inputs.office_condition(stored_path)
+        return slug, why, False
     try:
         import pymupdf
     except ImportError:  # pragma: no cover
@@ -2112,6 +2219,9 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
     that opened. An empty list from here means "this page yielded no pairs",
     which is the only thing its caller ever read it as.
     """
+    if datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: the rendered sheet's / document's rows.
+        return datasheet_inputs.pairs_for_page(stored_path, page_no)
     try:
         import pymupdf
     except ImportError:  # pragma: no cover
@@ -2333,7 +2443,8 @@ def grid_facts(words: list[tuple]) -> list[dict]:
 
 def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dict]:
     """`grid_facts` for one page of the stored PDF; [] when it cannot be read."""
-    if not stored_path:
+    if not stored_path or datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: no PDF geometry in an office file.
         return []
     try:
         import pymupdf
@@ -2375,7 +2486,8 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int,
     row it returns is tagged with that page-level distrust signal so the
     write loop can flag it rather than write it as an ordinary confident
     reading (flag, not hide - see `GEOMETRY_CONFLICT`)."""
-    if not stored_path:
+    if not stored_path or datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: no PDF geometry in an office file.
         return []
     try:
         import pymupdf
@@ -2429,7 +2541,9 @@ def vision_route(*, facts_on_page: int, geometry_on_page: int, text_words: int,
 
 def _text_layer_words(stored_path: str | None, page_no: int) -> int:
     """Words on the page's native text layer (0 when it cannot be opened)."""
-    if not stored_path:
+    if not stored_path or datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: MuPDF's reading of an office file is
+        # not a text layer a vision reading could be proved against.
         return 0
     try:
         import pymupdf
@@ -2445,7 +2559,8 @@ def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[d
                     provider):
     """`vision_reader.read_page` for one page, or None when the page cannot
     be opened. A refusal (budget, egress) comes back ON the reading."""
-    if not stored_path or provider is None:
+    if (not stored_path or provider is None
+            or datasheet_inputs.is_office_input(stored_path)):  # DATASHEET_OFFICE_INPUT seam
         return None
     try:
         import pymupdf
@@ -2499,6 +2614,41 @@ def _vision_ledger_note(reading, kept_here: int, unavailable: str | None) -> str
     return (f"vision reader: {kind}; {reading.proposed} field(s) proposed, "
             f"{len(reading.kept)} proved against the page, {kept_here} recorded, "
             "not counted as the page read into fields")
+
+
+def geometry_unit_columns(rows: list[dict]) -> set[tuple]:
+    """`(table_id, column)` of every UNIT column among geometry table rows:
+    a column headed as one (`is_unit_header`) or made only of units
+    (`unit_column_of`'s body rule). Their cells are units, not facts."""
+    by_col: dict[tuple, list[str]] = {}
+    for r in rows:
+        if r.get("source") == "table":
+            key = (r.get("table_id"), r.get("column"))
+            by_col.setdefault(key, []).append(
+                " ".join((r.get("value_text") or "").split()))
+    found: set[tuple] = set()
+    for key, texts in by_col.items():
+        label = next((r.get("column_label") for r in rows
+                      if r.get("source") == "table"
+                      and (r.get("table_id"), r.get("column")) == key), None)
+        if is_unit_header(label):
+            found.add(key)
+            continue
+        # Reuse the grid reader's body rule on this one column.
+        if unit_column_of([], [["", t] for t in texts]) == 1:
+            found.add(key)
+    return found
+
+
+def geometry_single_value_tables(rows: list[dict], unit_cells: set[tuple]) -> set:
+    """Table ids with a unit column and exactly ONE other value column."""
+    cols: dict = {}
+    for r in rows:
+        if r.get("source") == "table":
+            cols.setdefault(r.get("table_id"), set()).add(r.get("column"))
+    return {t for t, columns in cols.items()
+            if any((t, c) in unit_cells for c in columns)
+            and len([c for c in columns if (t, c) not in unit_cells]) == 1}
 
 
 def _geometry_raw_value(row: dict) -> tuple[str, str | None]:
@@ -2589,9 +2739,17 @@ def _pairs_from_ocr_fallback(document_id: str, page_no: int) -> list[tuple[str, 
     if row is None or not row["text"]:
         return []
     pairs: list[tuple[str, str]] = []
+    table_lines = bool(settings.datasheet_office_input)
     for line in row["text"].splitlines():
         line = line.strip()
         if ":" not in line:
+            # DATASHEET_OFFICE_INPUT seam: a table-shaped line - "label  value
+            # unit" (a column gap of 2+ spaces) or "label | value | unit" -
+            # read the way a workbook row is. Same low confidence and review
+            # state as every pair from this tier (the caller decides both).
+            cells = datasheet_inputs.ocr_line_cells(line) if table_lines else ()
+            if cells:
+                pairs.extend(datasheet_inputs.pairs_from_rows([cells]))
             continue
         label, _, value = line.partition(":")
         label, value = label.strip(), value.strip()
@@ -2693,11 +2851,246 @@ def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
             f"fact ({counts or 'no reason recorded'})")
 
 
+def _ai_page_note(ai_run: dict, page: int) -> str:
+    """What the AI reader did on a page that ended with no fact."""
+    return ai_run["reasons"].get(page) or "read the page; no reading was proved and kept"
+
+
+def _ai_gate(fact: dict, furniture: set[str]) -> str | None:
+    """Why an ACCEPTED AI reading is still not a field, or None.
+
+    `claude_datasheet.accept` has already proved the reading is on the page
+    (quote, value, label, unit, two runs). What is left is what no quote can
+    settle: page furniture, a tag row, a date, a blank (the reader is asked
+    for values only), and the code-only noise rules every reader shares. THE
+    RULES' VALUE GATE (`states_a_value`) IS NOT APPLIED: a free-text answer
+    ("Two coat epoxy") that the closed categorical list would drop is kept,
+    because its quote on the page is the proof the gate stands in for."""
+    label, value = fact.get("field") or "", fact.get("value") or ""
+    raw = " ".join(p for p in (value, fact.get("unit")) if p)
+    if is_blank_value(raw)[0]:
+        return "blank"
+    noise = row_noise.noise_reason(label, value)
+    if noise:
+        return noise
+    if normalise_field_name(label) in furniture:
+        return "furniture"
+    if tag_from_pair(label, value) is not None:
+        return "tag row"
+    if is_date_value(value):
+        return "date"
+    return None
+
+
+#: The columns a proven unit re-derives on an agreed rule fact.
+_UNIT_COLUMNS = ("raw_value", "raw_unit", "unit_reference", "normalized_value",
+                 "normalized_unit", "unit")
+
+
+def _proven_unit_columns(rule: dict, unit: str | None) -> dict | None:
+    """The agreed rule fact's value columns WITH the unit the AI proved, or
+    None when there is none to add. Re-derived by `value_columns`, the parse
+    `create_fact` writes with, from the fact's own printed value - so the
+    number is the rules' and only the unit is new. None, too, when the number
+    would change or the unit would not attach (a compound label, a range)."""
+    if not unit or rule.get("raw_value") is None or rule.get("raw_unit"):
+        return None
+    cols = value_columns(rule.get("field_value"), field_label=rule.get("field_label") or "",
+                         unit=unit)
+    if cols["raw_value"] != rule["raw_value"] or not cols["raw_unit"]:
+        return None
+    return {k: cols[k] for k in _UNIT_COLUMNS}
+
+
+def _unconfirmed_box(existing: str | None, engine: str | None) -> str:
+    """A rules-only fact's provenance once the AI read its page: whatever the
+    fact already carried, plus who read the page and that it was not
+    confirmed."""
+    from . import datasheet_ai
+
+    try:
+        box = json.loads(existing) if existing else {}
+    except ValueError:
+        box = {}
+    if not isinstance(box, dict):
+        box = {"bbox": box}
+    box.update({"ai_reader": datasheet_ai.READER, "ai_engine": engine,
+                "ai_confirmed": False, "unconfirmed": datasheet_ai.UNCONFIRMED})
+    return json.dumps(box, sort_keys=True)
+
+
+def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
+                      page: int, document_id: str, chunk, review_run_id: str | None,
+                      furniture: set[str], equipment_tag: str | None,
+                      input_hash: str) -> int:
+    """Apply `datasheet_ai.merge_readings` for one page inside the open
+    transaction. Returns the number of AI facts WRITTEN (AI-only and
+    conflicting readings); an agreement updates the rule fact in place.
+
+      agreed     -> the rule fact stays the one fact, at
+                    `AGREED_CONFIDENCE`, its provenance naming the engine and
+                    the AI's quote; when the rules LOST the unit and the AI's
+                    quote proves it (decision `unit`), the one fact takes that
+                    unit, its columns re-derived by `value_columns`;
+      conflict   -> both kept: the AI reading written beside the rule fact,
+                    and BOTH marked `validation_state='conflict'` (the flag
+                    `comparison.low_trust_reason` already holds verdicts on),
+                    each naming the other by id;
+      AI-only    -> written as the model's (`extraction_method='model'`,
+                    confidence 0.5, section `model:<kind>`), provenance naming
+                    the engine;
+      rules-only -> kept, value and confidence untouched; its provenance
+                    records that the AI READ this page and did not confirm it
+                    (`datasheet_ai.UNCONFIRMED`), so the engineer can see it.
+    A page the engine could not read returns before any of this: its rule
+    facts are left exactly as the rule readers wrote them."""
+    from . import datasheet_ai
+
+    out = ai_run["pages"].get(page)
+    if out is None or out.get("error"):
+        return 0
+    stats["pages_read"] += 1
+    for reason, n in (out.get("counts") or {}).items():
+        stats["proposals_rejected"][reason] = stats["proposals_rejected"].get(reason, 0) + n
+    engine = ai_run["engine"]
+    dropped = stats["dropped"]
+    ai_facts: list[dict] = []
+    seen_ai: set[tuple] = set()
+    for fact in out["accepted"]:
+        why = _ai_gate(fact, furniture)
+        if why is None:
+            key = (fact["field_name"], _fold(datasheet_ai.ai_raw_value(fact)), fact.get("kind"))
+            why = "duplicate" if key in seen_ai else None
+            seen_ai.add(key)
+        if why:
+            dropped[why] = dropped.get(why, 0) + 1
+            continue
+        ai_facts.append(fact)
+    decisions = datasheet_ai.merge_readings(rule_rows, ai_facts)
+
+    def provenance_box(fact: dict, **extra) -> str:
+        return json.dumps({"reader": datasheet_ai.READER, "engine": engine,
+                           "quote": fact.get("quote"), "kind": fact.get("kind"),
+                           **extra}, sort_keys=True)
+
+    def write(fact: dict, conflicts_with: list[str] | None) -> dict | None:
+        raw, printed_unit = _vision_raw_value({"value": fact["value"], "unit": fact.get("unit")})
+        try:
+            return create_fact(
+                submittal_document_id=document_id, chunk_id=chunk["id"],
+                field_label=fact["field"], raw_value=raw, page=page,
+                section=f"model:{fact.get('kind')}", source_text=fact.get("quote"),
+                review_run_id=review_run_id, confidence=datasheet_ai.AI_CONFIDENCE,
+                extraction_method=datasheet_ai.EXTRACTION_METHOD,
+                equipment_tag=equipment_tag, commit=False,
+                validation_state=GEOMETRY_CONFLICT if conflicts_with else None,
+                extractor_version=stats["version"], input_hash=input_hash,
+                bbox=provenance_box(fact, conflicts_with=conflicts_with or None),
+                unit=printed_unit, printed_unit=printed_unit)
+        except FactError:
+            dropped["refused by create_fact"] = dropped.get("refused by create_fact", 0) + 1
+            return None
+
+    # One AI reading may contradict more than one rule fact: written ONCE,
+    # naming every rule fact it contradicts.
+    contradicts: dict[int, list[str]] = {}
+    readings: dict[int, dict] = {}
+    for d in decisions:
+        if d["outcome"] == datasheet_ai.CONFLICT:
+            for fact in d["ai"]:
+                readings[id(fact)] = fact
+                contradicts.setdefault(id(fact), []).extend(r["id"] for r in d["rules"])
+    written_ids: dict[int, str] = {}
+    for key, fact in readings.items():
+        row = write(fact, contradicts[key])
+        if row is not None:
+            written_ids[key] = row["id"]
+    count = len(written_ids)
+    for d in decisions:
+        outcome = d["outcome"]
+        if outcome == datasheet_ai.AGREED:
+            rule = d["rule"]
+            proven = _proven_unit_columns(rule, d.get("unit"))
+            conn.execute(
+                "UPDATE submittal_facts SET confidence = ?, bbox = ? WHERE id = ?",
+                (datasheet_ai.AGREED_CONFIDENCE,
+                 provenance_box(d["ai"], agreement="rules and AI read the same value",
+                                unit_from_ai=d["unit"] if proven else None),
+                 rule["id"]))
+            if proven:
+                # ONE FACT, CARRYING THE PROVEN UNIT: the rules read the number
+                # and lost the unit; the AI's quote, checked on the page,
+                # prints it.
+                conn.execute(
+                    "UPDATE submittal_facts SET " + ", ".join(f"{k} = ?" for k in proven)
+                    + " WHERE id = ?", (*proven.values(), rule["id"]))
+                rule.update(proven)
+                stats["units_from_ai"] += 1
+            rule["confidence"] = datasheet_ai.AGREED_CONFIDENCE
+            stats["agreed"] += 1
+        elif outcome == datasheet_ai.RULES_ONLY:
+            # KEPT, NOT CONFIRMED. The AI read this page and did not read
+            # this value; the rules' fact stands as written, and says so.
+            rule = d["rule"]
+            conn.execute("UPDATE submittal_facts SET bbox = ? WHERE id = ?",
+                         (_unconfirmed_box(rule.get("bbox"), engine), rule["id"]))
+            rule["bbox"] = _unconfirmed_box(rule.get("bbox"), engine)
+            stats["unconfirmed"] += 1
+        elif outcome == datasheet_ai.CONFLICT:
+            ids = [written_ids[id(f)] for f in d["ai"] if id(f) in written_ids]
+            if not ids:
+                continue      # nothing written to disagree with: rules-only
+            for rule in d["rules"]:
+                conn.execute(
+                    "UPDATE submittal_facts SET validation_state = ?, bbox = ? WHERE id = ?",
+                    (GEOMETRY_CONFLICT,
+                     provenance_box(d["ai"][0], conflicts_with=ids,
+                                    agreed_ai_quote=(d.get("agreed_ai") or {}).get("quote")),
+                     rule["id"]))
+                rule["validation_state"] = GEOMETRY_CONFLICT
+            stats["conflicts"] += 1
+        elif outcome == datasheet_ai.AI_ONLY:
+            if write(d["ai"], None) is not None:
+                count += 1
+                stats["ai_only"] += 1
+    stats["facts_written"] += count
+    return count
+
+
 class _PlanOnly(Exception):
     """B7: raised inside the plan pass's transaction so it rolls back."""
 
 
+#: DATASHEET_OFFICE_INPUT: the extraction method the rules reader's facts
+#: carry while one office datasheet is extracted ('xlsx' / 'docx'); None
+#: otherwise. A ContextVar, so a concurrent extraction in another thread
+#: cannot see it.
+_OFFICE_METHOD: ContextVar[str | None] = ContextVar("office_method", default=None)
+
+
 def extract_facts(
+    document_id: str, *, allowed_document_ids: frozenset[str],
+    review_run_id: str | None = None, replace: bool = True,
+) -> dict:
+    """Read one datasheet into facts - `_extract_facts_by_plan`, with the
+    office-input extraction method set for its length (DATASHEET_OFFICE_INPUT
+    seam; off, or for a PDF, this is exactly the call it wraps)."""
+    method = None
+    if settings.datasheet_office_input:
+        row = connect().execute(
+            "SELECT stored_path FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if row is not None and datasheet_inputs.is_office_input(row["stored_path"]):
+            method = datasheet_inputs.extraction_method(row["stored_path"])
+    token = _OFFICE_METHOD.set(method)
+    try:
+        return _extract_facts_by_plan(
+            document_id, allowed_document_ids=allowed_document_ids,
+            review_run_id=review_run_id, replace=replace)
+    finally:
+        _OFFICE_METHOD.reset(token)
+
+
+def _extract_facts_by_plan(
     document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, replace: bool = True,
 ) -> dict:
@@ -2971,6 +3364,28 @@ def _extract_facts(
     # because the one-tag rule cannot be seen from a single page.
     tags = stamp_tags(pairs_by_page)
 
+    # AI READS, CODE CHECKS (`datasheet_ai.py`, DATASHEET_AI_READER, default
+    # off). Read ONCE per extraction, like the geometry flag. Every page with
+    # text is read by the model HERE, before the write transaction opens, so
+    # no write lock is held during a model call (B7's rule). Not in the B7
+    # plan pass (`_plan`), which is rolled back and would pay twice. With the
+    # flag off `ai_run` is None and nothing below changes.
+    ai_run = None
+    ai_stats: dict = {}
+    if _plan is None and (str(settings.datasheet_ai_reader or "off").strip().lower()
+                          or "off") != "off":
+        from . import datasheet_ai
+        ai_run = datasheet_ai.read_pages(
+            {page: datasheet_ai.page_text(stored_path, page, by_page[page])
+             for page in sorted(by_page)})
+        ai_stats = {"engine": ai_run["engine"], "unavailable": ai_run["unavailable"],
+                    "stopped": ai_run["stopped"], "pages_read": 0,
+                    "agreed": 0, "conflicts": 0, "ai_only": 0, "facts_written": 0,
+                    "units_from_ai": 0, "unconfirmed": 0,
+                    "dropped": {}, "proposals_rejected": {},
+                    "version": provenance.code_version(
+                        "datasheets", "datasheet_ai", "claude_datasheet")}
+
     # B19: ONE DATASHEET, ONE TRANSACTION. Every fact used to commit on its
     # own, so an extraction that died on page 5 left pages 1-4 behind - and
     # the review path's "has no facts" guard then read that partial set as
@@ -3013,6 +3428,9 @@ def _extract_facts(
             # what a geometry reading is checked against. Filled only when the
             # geometry reader is on.
             rule_facts: dict[str, list[dict]] = {}
+            # The rule readers' rows on this page, for the AI merge (flag on).
+            page_rule_rows: list[dict] = []
+            page_ai = 0
             page_geometry = 0
             page_vision = 0
             page_geometry_facts: dict[str, list[dict]] = {}
@@ -3146,6 +3564,8 @@ def _extract_facts(
                     continue
                 if geometry_tables:
                     rule_facts.setdefault(written_row["field_name"], []).append(written_row)
+                if ai_run is not None:
+                    page_rule_rows.append(written_row)
                 page_written += 1
                 written += 1
                 if blank:
@@ -3188,10 +3608,21 @@ def _extract_facts(
                     continue
                 if geometry_tables:
                     rule_facts.setdefault(written_row["field_name"], []).append(written_row)
+                if ai_run is not None:
+                    page_rule_rows.append(written_row)
                 page_written += 1
                 written += 1
                 if grid_blank:
                     blanks += 1
+            if ai_run is not None:
+                # AI READS, CODE CHECKS: merged with the rule readers' rows of
+                # this page only, BEFORE the geometry and vision readers, so
+                # their precedence rules still compare against rule facts.
+                page_ai = _write_ai_reading(
+                    conn, ai_run, ai_stats, page_rule_rows, page=page,
+                    document_id=document_id, chunk=chunk, review_run_id=review_run_id,
+                    furniture=furniture, equipment_tag=tags.get(page), input_hash=inputs)
+                written += page_ai
             # B4 (#193 5.5): GEOMETRY READINGS, only with the flag on, and
             # only AFTER both rule readers so the rule reader always wins.
             # A REVISION TABLE IS DROPPED WHOLE: row by row it reads as fields
@@ -3204,13 +3635,18 @@ def _extract_facts(
             # cell of its own. The unit is joined to the values of its table
             # row, the tag leaves the label for `equipment_tag`, and the unit
             # cell is not a fact.
+            geometry_rows_here = geometry_by_page.get(page, [])
+            unit_cells = geometry_unit_columns(geometry_rows_here)
             geometry_units = {
                 (r.get("table_id"), r.get("row")): (r.get("value_text") or "").strip()
-                for r in geometry_by_page.get(page, [])
-                if r.get("source") == "table" and is_unit_header(r.get("column_label"))}
-            for row in geometry_by_page.get(page, []):
+                for r in geometry_rows_here
+                if r.get("source") == "table"
+                and (r.get("table_id"), r.get("column")) in unit_cells}
+            single_value_tables = geometry_single_value_tables(geometry_rows_here, unit_cells)
+            for row in geometry_rows_here:
                 row_tag = None
-                if row.get("source") == "table" and is_unit_header(row.get("column_label")):
+                if row.get("source") == "table" and (
+                        (row.get("table_id"), row.get("column")) in unit_cells):
                     dropped["geometry: unit column"] = dropped.get("geometry: unit column", 0) + 1
                     continue
                 column = " ".join((row.get("column_label") or "").split())
@@ -3223,6 +3659,18 @@ def _extract_facts(
                                "unit": row.get("unit") or (
                                    unit if not row["is_blank"]
                                    and _is_numeric_cell(row.get("value") or "") else None)}
+                elif row.get("source") == "table" and row.get("table_id") in single_value_tables:
+                    # KEY | UNIT | VALUE: the one value column's header ("Value",
+                    # "Figure") names no field, so it is not glued to the row's
+                    # label, and the row's unit cell is the value's unit.
+                    printed = " ".join((row["label"] or "").split())
+                    if column and printed.lower().endswith(column.lower()):
+                        printed = printed[:-len(column)].strip()
+                    unit = geometry_units.get((row.get("table_id"), row.get("row")))
+                    row = {**row, "label": printed,
+                           "unit": row.get("unit") or (
+                               unit if not row["is_blank"] and is_table_unit(unit)
+                               and _is_numeric_cell(row.get("value") or "") else None)}
                 label = (row["label"] or "").strip()
                 if not label:
                     dropped["empty label"] = dropped.get("empty label", 0) + 1
@@ -3381,9 +3829,11 @@ def _extract_facts(
             # contradicted. Consequence, accepted by the owner: a requirement
             # unmatched on such a page is now qualified as on a read page
             # (comparison.qualify_by_pages), not sent to an engineer as unread.
-            page_read = page_written + page_geometry + page_vision
+            page_read = page_written + page_geometry + page_vision + page_ai
             if page_read == 0:
                 reason = _unparsed_reason(pairs, dropped)
+                if ai_run is not None:
+                    reason = f"{reason}; AI reader: {_ai_page_note(ai_run, page)}"
                 if geometry_on:
                     # B4 item 1: what the vision reader did with this page.
                     reason = (f"{reason}; vision {vision_routing.get(page, 'not decided')}"
@@ -3400,6 +3850,9 @@ def _extract_facts(
                         "is for an engineer to check on the page")
                 if geometry_on and vision_routing.get(page) == VISION_ROUTED:
                     note = f"{note}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}"
+                if ai_run is not None:
+                    note = (f"{note}; {page_ai} AI reading(s) ({ai_run['engine']}), "
+                            "each proved by its quote on the page")
                 outcomes[page] = ("facts", page_read, note)
             else:
                 outcomes[page] = ("facts", page_read, None)
@@ -3453,6 +3906,9 @@ def _extract_facts(
                         "vision_refused": sorted({r.refused for r in vision_by_page.values()
                                                   if r is not None and r.refused})}
                        if geometry_tables else {})
+    if ai_run is not None:
+        ai_stats["page_reasons"] = {p: ai_run["reasons"][p] for p in sorted(ai_run["reasons"])}
+        geometry_counts = {**geometry_counts, "ai_reader": ai_stats}
     return {
         **geometry_counts,
         "document_id": document_id,
