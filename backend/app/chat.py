@@ -37,6 +37,7 @@ from . import answer as answer_mod
 from . import chat_answers
 from . import chat_model
 from . import chat_presentation
+from . import corpus as corpus_mod
 from . import intent as intent_mod
 from . import keyword
 from . import search as search_mod
@@ -801,6 +802,25 @@ def ask(
         return chat_model.transcript(turns)
     memory.turns = 0
 
+    # PLAN N7: a count of the library comes from the database, in code,
+    # never from a model - on EITHER engine. Decided BEFORE Claude-first for
+    # the same reason the spec-shaped gate below is: on Model=Claude, "how
+    # many standards do we have and contractor submittals" reached Claude
+    # with tools and no counting tool to call, so it answered "I don't have
+    # a list everything tool"; on Model=Local it reached the same
+    # database-backed answer `answer.answer` already computes
+    # (`corpus.classify`/`statement`). Checked here so both engines give the
+    # identical, code-computed answer rather than one of them guessing at a
+    # capability it does not have. NOT when scoped to one document
+    # (`corpus.classify`'s own rule: a document's own standards are content
+    # for retrieval, not a library count) or mid Tier-2 upgrade.
+    inventory_result = None
+    if explain_of is None and document_id is None:
+        roles = corpus_mod.inventory_question(original)
+        if roles is not None:
+            inventory_result = corpus_mod.inventory_statement(
+                roles, allowed_document_ids=retrieval_allowed)
+
     # OWNER ORDER 2026-09-27 (Claude-first chat): when Model=Claude and Claude
     # is available, a DOCUMENT/EITHER/GENERAL turn goes to Claude WITH TOOLS
     # instead of the router+gate+template pipeline below - Claude decides
@@ -826,7 +846,8 @@ def ask(
     # answered from general knowledge (see intent.py's ONE ASYMMETRY comment).
     # DOCUMENT joins EITHER here for exactly that reason.
     spec_shaped_result = None
-    if (explain_of is None and route_kind in (intent_mod.EITHER, intent_mod.DOCUMENT)
+    if (inventory_result is None and explain_of is None
+            and route_kind in (intent_mod.EITHER, intent_mod.DOCUMENT)
             and intent_mod.is_spec_shaped(original)):
         spec_shaped_result, resolved = _document_answer(
             conversation_id, resolved, understood, tier=tier, document_id=document_id,
@@ -839,7 +860,7 @@ def ask(
     #: to the existing pipeline - part of THIS answer's cost (audit leftover
     #: 2026-09-30: the ledger counted it, the answer did not show it).
     fallback_spent: list[float] = []
-    if (spec_shaped_result is None and explain_of is None
+    if (inventory_result is None and spec_shaped_result is None and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
         from . import chat_claude_first
         claude_first_result = chat_claude_first.answer(
@@ -848,7 +869,17 @@ def ask(
                                               picked=bool(document_ids)),
             web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append)
 
-    if spec_shaped_result is not None:
+    if inventory_result is not None:
+        result = {
+            "question": original, "retrieval_mode": "metadata", "reranked": False,
+            "timings": {}, "candidates_considered": 0, "answer_type": "metadata",
+            "answer": inventory_result["text"],
+            "reason": "counted from the database, not from document text",
+            "input_kind": "corpus_question", "corpus": inventory_result,
+            "examples": [], "passages": [], "seconds": 0.0,
+        }
+        route_kind = intent_mod.GENERAL
+    elif spec_shaped_result is not None:
         # Never falls to chat_answers.general below, even when this came back
         # insufficient_evidence - that fallback is exactly the guess this
         # gate exists to stop.
