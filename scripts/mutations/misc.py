@@ -541,4 +541,20 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="tests/test_lexical_shared_terms.py",
         keyword="sharing_only_one_term_is_now_refused",
     ),
+    # ---- from NAMED_STANDARD_REFUSAL_2026_10_01 ----------------------------
+    #: A standard's own pages almost never print its own file name, so the
+    #: content-only absence check refused a question naming an indexed,
+    #: permitted standard. Fixed by checking the FILE NAME too.
+    Mutation(
+        id="M1825", phase=1825,
+        description="a named standard already indexed and permitted is still "
+                    "reported absent - the file-name check never runs",
+        path=APP / "lexical.py",
+        anchor="            if _names_an_indexed_document(\n"
+               "                    term, document_id, allowed_document_ids=allowed_document_ids):\n",
+        replacement="            if False:\n",
+        target="tests/test_lexical_named_standard.py",
+        keyword="not_refused",
+        tags=("honesty",),
+    ),
 )
