@@ -3,9 +3,9 @@
 What these tests hold, each against the transport itself:
   * off unless `chat_web_enabled` AND the market lane's two egress flags;
   * a web question produces a consent turn and SENDS NOTHING;
-  * "Search once" sends only the whitelisted phrase built from the reader's
-    one stored question - no filename, no history, no document text, and
-    nothing the client supplies;
+  * "Search once" sends only the whitelisted phrase the consent turn showed
+    and stored (re-checked before it leaves) - no filename, no history, no
+    document text, and nothing the client supplies;
   * every query is audited; a search runs once;
   * the answer cites the web as the web.
 
@@ -170,18 +170,27 @@ def test_only_a_consent_turn_can_be_searched(lane_on, sent):
     assert sent == []
 
 
-def test_the_phrase_is_rebuilt_from_the_stored_question_not_the_consent_copy(lane_on, sent):
+def test_a_stored_phrase_that_is_not_whitelist_clean_is_refused_and_nothing_is_sent(lane_on, sent):
+    """CHANGED 2026-09-30 (audit): this test used to hold that "Search once"
+    REBUILDS the phrase from the stored user question - which is exactly the
+    defect: on the Claude-first path the reader approved Claude's phrase and a
+    different one was sent. The approved phrase is now sent as stored, and
+    the stored copy is put through the whitelist again first: a stored
+    phrase the whitelist would change (here, a corpus filename) is refused,
+    and nothing leaves."""
     client = TestClient(app)
+    doc = upload(client)
+    name = db.connect().execute("SELECT filename FROM documents WHERE id = ?", (doc,)).fetchone()[0]
+    stem = name.rsplit(".", 1)[0].lower()
     convo = client.post("/api/conversations").json()["id"]
     consent = _ask(client, convo, QUESTION, web=True)
-    # tamper with what the consent turn stored: it must not be what is sent
     conn = db.connect()
     with conn:
-        conn.execute("UPDATE messages SET payload = json_set(payload, '$.web_phrase', 'secret plant name') "
-                     "WHERE id = ?", (consent["assistant_message"]["id"],))
+        conn.execute("UPDATE messages SET payload = json_set(payload, '$.web_phrase', ?) "
+                     "WHERE id = ?", (f"iso 12944 {stem}", consent["assistant_message"]["id"]))
     r = client.post(f"/api/conversations/{convo}/messages/{consent['assistant_message']['id']}/web-search")
-    assert r.status_code == 200, r.text
-    assert sent and all("secret" not in u.lower() for u in sent)
+    assert r.status_code == 409, r.text
+    assert sent == []
 
 
 def test_a_question_with_nothing_safe_to_send_offers_no_search(lane_on, sent):

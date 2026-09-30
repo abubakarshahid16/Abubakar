@@ -24,7 +24,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="never_carries_a_document_citation", tags=("honesty", "critical")),
     Mutation(id="M929", phase=81, description="claims: any quote is accepted without checking the page",
              path=APP / "answer.py",
-             anchor="                     and quote_verified(m.group(2), passages[int(m.group(1)) - 1].get(\"text\"))\n",
+             anchor="                            and claim_quote_verified(m.group(2), passages[int(m.group(1)) - 1].get(\"text\"))\n",
              replacement="",
              target=_T, keyword="quote_is_not_on_the_page", tags=("citation", "critical")),
     Mutation(id="M930", phase=81, description="claims: an uncited figure is shown",

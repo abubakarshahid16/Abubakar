@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewDashboard } from "../../types/api";
-import { statusLabel, statusTone, whenLabel } from "./reviewFormat";
+import { runStatusLabel, statusLabel, statusTone, whenLabel } from "./reviewFormat";
 
 export interface ReviewDashboardPanelProps {
   /** Take the reader to the review page, at this run if one is given. */
@@ -33,21 +33,41 @@ export function ReviewDashboardPanel(
   { onOpenReview, onOpenDocuments }: ReviewDashboardPanelProps,
 ) {
   const [data, setData] = useState<ReviewDashboard | null>(null);
-  const [submittals, setSubmittals] = useState<DocumentRecord[]>([]);
+  // A FAILED LOAD IS NOT AN EMPTY ONE (audit 2026-09-30). The panel used to
+  // return null when the dashboard call failed - the Dashboard's one review
+  // button vanished with no word why - and to show an empty picker when the
+  // submittal list failed, which reads as "no submittals are loaded".
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [submittals, setSubmittals] = useState<DocumentRecord[] | null>(null);
+  const [submittalsError, setSubmittalsError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [target, setTarget] = useState("");
   const [launch, setLaunch] = useState<Launch>({ kind: "idle" });
 
   const load = useCallback(async () => {
     const result = await reviewsApi.dashboard();
-    if (result.ok) setData(result.data);
+    if (result.ok) {
+      setData(result.data);
+      setLoadError(null);
+    } else {
+      // The figures are dropped, not kept: a stale count shown as current
+      // is the same class of lie as an unmeasured one.
+      setData(null);
+      setLoadError(result.error.message);
+    }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
     void api.documents({ document_role: ["CONTRACTOR_SUBMITTAL"] }).then((r) => {
-      if (r.ok) setSubmittals(r.data);
+      if (r.ok) {
+        setSubmittals(r.data);
+        setSubmittalsError(null);
+      } else {
+        setSubmittals(null);
+        setSubmittalsError(r.error.message);
+      }
     });
   }, []);
 
@@ -67,7 +87,10 @@ export function ReviewDashboardPanel(
     onOpenReview(result.data.review_run_id);
   }
 
-  if (!data) return null;
+  // Still loading: nothing yet, as before. Failed: the block stays, says
+  // what failed, and keeps the button - starting a review does not need the
+  // dashboard's counts.
+  if (!data && loadError === null) return null;
 
   return (
     <section
@@ -86,7 +109,26 @@ export function ReviewDashboardPanel(
         </button>
       </div>
 
+      {/* THE BOUNDARY OF EVERY COUNT BELOW (CLAUDE.md rule 4). The review
+          dashboard is always counted over the caller's own grants, even for
+          an admin whose system figures elsewhere on this screen are
+          corpus-wide. */}
+      <p className="mt-1 text-xs text-slateish-400" data-testid="review-boundary">
+        These review counts cover only the documents you can open.
+      </p>
+
+      {loadError !== null && (
+        <div role="alert" className="mt-3 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+          The review figures could not be loaded - {loadError}. This is not a
+          count of zero.{" "}
+          <button type="button" onClick={() => void load()} className="font-medium underline">
+            Try again
+          </button>
+        </div>
+      )}
+
       {/* ------------------------------------------- the four cards */}
+      {data && (
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <Card
           label="Contractor submittals"
@@ -119,6 +161,7 @@ export function ReviewDashboardPanel(
           }
         />
       </div>
+      )}
 
       {/* --------------------------------------------- the one button */}
       <div className="mt-4">
@@ -134,6 +177,12 @@ export function ReviewDashboardPanel(
             <label className="block text-xs text-slateish-400" htmlFor="dash-target">
               Run a review on a datasheet already loaded
             </label>
+            {submittalsError !== null && (
+              <p role="alert" className="mt-1 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                The list of contractor submittals could not be loaded - {submittalsError}.
+                It is not known whether any are loaded.
+              </p>
+            )}
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <select
                 id="dash-target" value={target}
@@ -141,7 +190,7 @@ export function ReviewDashboardPanel(
                 className="min-w-[16rem] rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 px-3 py-2 text-sm text-slateish-100"
               >
                 <option value="">Choose a contractor submittal…</option>
-                {submittals.map((doc) => (
+                {(submittals ?? []).map((doc) => (
                   <option key={doc.id} value={doc.id}>{doc.filename}</option>
                 ))}
               </select>
@@ -183,6 +232,7 @@ export function ReviewDashboardPanel(
       </div>
 
       {/* ----------------------------------------- Recent Reviews table */}
+      {data && (
       <div className="mt-4">
         <h3 className="text-xs uppercase tracking-wide text-slateish-400">
           Recent reviews
@@ -232,7 +282,7 @@ export function ReviewDashboardPanel(
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slateish-300">{run.status}</td>
+                    <td className="px-3 py-2 text-slateish-300">{runStatusLabel(run.status)}</td>
                     <td className="px-3 py-2">
                       <button
                         type="button" onClick={() => onOpenReview(run.review_run_id)}
@@ -248,6 +298,7 @@ export function ReviewDashboardPanel(
           </div>
         )}
       </div>
+      )}
     </section>
   );
 }

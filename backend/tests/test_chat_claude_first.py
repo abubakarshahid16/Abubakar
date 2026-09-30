@@ -111,8 +111,13 @@ def test_tell_me_about_this_document_calls_read_document_and_is_not_a_refusal(mo
     # flagged in the delivery report rather than fixed in this PR.
     _scripted(monkeypatch, [
         _tool_use("read_document", {"document_id": doc}),
+        # Cites BOTH pages: "4" is only on page 2 (S2), and since 2026-09-30
+        # every figure must be in a passage the sentence cites
+        # (answer.verify_claims) - citing S1 alone for "systems 1 and 4" is
+        # now, correctly, removed.
         _text('This document covers coating systems 1 and 4 '
-             '[S1 "shall have a NDFT nominal dry film thickness of 280 um"].'),
+             '[S1 "shall have a NDFT nominal dry film thickness of 280 um"] '
+             '[S2 "shall have a NDFT nominal dry film thickness of 450 um"].'),
     ], calls)
     convo = client.post("/api/conversations").json()["id"]
     body = _ask(client, convo, "tell me about this document", document_id=doc, tier="generated")

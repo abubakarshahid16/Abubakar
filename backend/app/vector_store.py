@@ -69,7 +69,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import vectorcache
+from . import states, vectorcache
 from .config import settings
 from .db import connect
 from .embedder import EMBEDDING_DIM, embedding_tag, searchable_tags
@@ -351,7 +351,9 @@ def search(embed_query: Callable[[], np.ndarray], *, limit: int,
     Returns `[{"chunk_id", "cosine"}]`, best first.
     """
     global _last_error
-    scope = frozenset(allowed_document_ids)
+    # a document that stopped without being answerable is not searched
+    # (states.NOT_SEARCHABLE_STATES) - narrowing only, like the access scope
+    scope = states.searchable_scope(frozenset(allowed_document_ids))
     if document_id is not None:
         scope = scope & {document_id}   # a filter only ever NARROWS (rule 5)
     if not scope or limit <= 0:

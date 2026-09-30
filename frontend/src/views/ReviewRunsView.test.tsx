@@ -259,3 +259,51 @@ describe("UX GROUP (2026-09-27): the finding detail panel", () => {
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ block: "nearest" }));
   });
 });
+
+describe("audit 2026-09-30: the review screen does not turn a failure into an empty answer", () => {
+  it("says the standards could not be loaded, not that none were selected", async () => {
+    reviewRunStandards.mockResolvedValue({
+      ok: false, disconnected: false,
+      error: { code: "internal_error", message: "the standards list failed" },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /standards in scope — why\?/i }));
+
+    const alert = await screen.findByText(/The standards for this run could not be loaded/);
+    expect(alert).toHaveTextContent("the standards list failed");
+    expect(screen.queryByText("No standards were selected for this run.")).toBeNull();
+    expect(screen.queryByText(/Loading standards/)).toBeNull();
+  });
+
+  it("labels the run card's code as the AI's and unconfirmed", async () => {
+    render(<ReviewRunsView />);
+    const card = await screen.findByRole("button", { name: /drum\.pdf/i });
+    const line = within(card).getByTestId("run-card-recommended");
+    expect(line).toHaveTextContent(/AI recommended: Manual Review Required/);
+    expect(line).toHaveTextContent("Not confirmed by an engineer yet.");
+    expect(within(card).queryByTestId("run-card-final")).toBeNull();
+  });
+
+  it("shows the engineer's final code beside the AI's, never instead", async () => {
+    reviewRuns.mockResolvedValue({
+      ok: true, data: { runs: [run({ engineer_final_code: "Approved with Comments" })] },
+    });
+    render(<ReviewRunsView />);
+    const card = await screen.findByRole("button", { name: /drum\.pdf/i });
+    expect(within(card).getByTestId("run-card-recommended"))
+      .toHaveTextContent(/AI recommended: Manual Review Required/);
+    expect(within(card).getByTestId("run-card-recommended"))
+      .not.toHaveTextContent("Not confirmed");
+    expect(within(card).getByTestId("run-card-final"))
+      .toHaveTextContent("Engineer's final code: Approved with Comments");
+  });
+
+  it("shows the run's status in plain words, not the database value", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "cancelled" })] } });
+    render(<ReviewRunsView />);
+    const card = await screen.findByRole("button", { name: /drum\.pdf/i });
+    expect(card).toHaveTextContent("standards in scope · Cancelled");
+    expect(card).not.toHaveTextContent(/status cancelled/);
+  });
+});

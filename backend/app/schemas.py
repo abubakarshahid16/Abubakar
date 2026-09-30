@@ -1873,16 +1873,18 @@ RiskType = Literal["schedule", "review", "dependency", "compliance"]
 
 
 class RiskCreate(BaseModel):
+    # BOUNDED (audit 2026-09-30): this was an unauthenticated writer that
+    # accepted a 100 kB description into SQLite. Same limits as a deliverable.
     risk_type: RiskType
-    title: str
-    description: str
-    severity: str = "medium"
-    status: str = "open"
-    deliverable_id: str | None = None
-    document_id: str | None = None
-    owner_user_id: str | None = None
-    due_date: str | None = None
-    source_finding_id: str | None = None
+    title: str = Field(min_length=1, max_length=500)
+    description: str = Field(max_length=5000)
+    severity: str = Field(default="medium", max_length=50)
+    status: str = Field(default="open", max_length=50)
+    deliverable_id: str | None = Field(default=None, max_length=200)
+    document_id: str | None = Field(default=None, max_length=200)
+    owner_user_id: str | None = Field(default=None, max_length=200)
+    due_date: str | None = Field(default=None, max_length=50)
+    source_finding_id: str | None = Field(default=None, max_length=200)
 
 
 class Risk(BaseModel):

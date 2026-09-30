@@ -218,8 +218,9 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
     except _Cancelled:
         with conn:
+            from . import review as review_mod
             conn.execute("DELETE FROM review_findings WHERE review_run_id = ?"
-                         " AND confirmed_by IS NULL", (run_id,))
+                         f" AND {review_mod.UNDECIDED_SQL}", (run_id,))
             conn.execute("UPDATE review_runs SET status = 'cancelled', refusal_reason = ?,"
                          " updated_at = ? WHERE id = ?",
                          (json.dumps({"error": "cancelled by an engineer before it finished"}),

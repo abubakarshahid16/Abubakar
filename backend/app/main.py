@@ -254,6 +254,50 @@ from . import claude_api as claude_api_mod  # noqa: E402
 app.include_router(claude_api_mod.router)
 
 
+#: The interactive API description. A map of every route, every parameter and
+#: every error code - useful on a developer's machine, reconnaissance anywhere
+#: else. `docs_url` is fixed when FastAPI() is built, and the auth mode can be
+#: changed afterwards (the tests do), so this is decided per request.
+_API_DOC_PATHS = frozenset({"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"})
+
+
+def _api_docs_served() -> bool:
+    return settings.auth_mode == access.AUTH_DISABLED or settings.api_docs_enabled
+
+
+@app.middleware("http")
+async def api_docs_gate(request: Request, call_next):
+    """404 for /docs, /redoc and /openapi.json unless `_api_docs_served()`.
+
+    The same 404 an unknown route gets, so the answer does not say the
+    description exists. `app.openapi()` in-process is unaffected."""
+    if request.url.path in _API_DOC_PATHS and not _api_docs_served():
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def trusted_host_gate(request: Request, call_next):
+    """Refuse any Host header this server was not configured to answer to.
+
+    DNS REBINDING (audit 2026-09-30): a page on a hostile domain re-points its
+    own name at 127.0.0.1 and reads this API as same-origin, so CORS never
+    applies - and under AUTH_MODE=disabled every document is served. The
+    browser still sends the hostile name in `Host`, which is what this checks.
+    The set is read per request (`config.trusted_host_names`), so a test can
+    change it and the Vite dev proxy - which forwards the browser's own
+    `127.0.0.1:5173` / `localhost:5173` - passes unchanged.
+
+    Registered AFTER `api_docs_gate`, so Starlette runs it FIRST.
+    """
+    from .config import host_header_name, trusted_host_names
+
+    if host_header_name(request.headers.get("host", "")) not in trusted_host_names(settings):
+        return JSONResponse(status_code=400, content={"detail": errors.safe_error(
+            errors.INVALID_PARAMETER, "this server does not answer to that host name")})
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     """Minimal hardening. The server banner is noise an attacker does not need."""
@@ -1566,8 +1610,13 @@ def list_review_templates(
 def create_review_template(
     body: schemas.ReviewTemplateCreate,
     scope: access.AccessScope = Depends(access.current_scope),
+    _actor: dict | None = Depends(admin_mod.current_admin),
 ):
-    """Register a client-approved review template; versions never overwrite."""
+    """Register a client-approved review template; versions never overwrite.
+
+    THE ADMIN CAPABILITY IS REQUIRED: a template governs every reviewer's
+    checklist, not only the author's.
+    """
     _require_identity_to_write(scope)
     return review_mod.create_template(body.model_dump(), created_by=scope.user_id)
 
@@ -1580,7 +1629,11 @@ def list_review_baseline_rules(scope: access.AccessScope = Depends(access.curren
 @app.post("/api/reviews/baseline-rules", response_model=schemas.ReviewBaselineRule,
           responses=schemas.ERRORS_401)
 def create_review_baseline_rule(body: schemas.ReviewBaselineRuleCreate,
-                                scope: access.AccessScope = Depends(access.current_scope)):
+                                scope: access.AccessScope = Depends(access.current_scope),
+                                _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     payload = body.model_dump()
     return review_mod.create_baseline_rule(payload)
@@ -1589,7 +1642,11 @@ def create_review_baseline_rule(body: schemas.ReviewBaselineRuleCreate,
 @app.patch("/api/reviews/baseline-rules/{rule_id}", response_model=schemas.ReviewBaselineRule,
            responses=schemas.ERRORS_404)
 def update_review_baseline_rule(rule_id: str, body: schemas.ReviewBaselineRuleCreate,
-                                scope: access.AccessScope = Depends(access.current_scope)):
+                                scope: access.AccessScope = Depends(access.current_scope),
+                                _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     item = review_mod.update_baseline_rule(rule_id, body.model_dump())
     if item is None:
@@ -2309,10 +2366,30 @@ def finding_traceability(finding_id: str, scope: access.AccessScope = Depends(ac
     return item
 
 
-@app.post("/api/risks", response_model=schemas.Risk)
+@app.post("/api/risks", response_model=schemas.Risk,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(access.current_scope)):
+    """Record a risk. The same rules as every other writer (audit 2026-09-30):
+
+    an identity is required, anything it points at must be readable by the
+    caller (a risk on a hidden document or deliverable is a write into
+    somebody else's record), and an ordinary user may only name themselves as
+    owner. Length limits live on `schemas.RiskCreate`.
+    """
+    _require_identity_to_write(scope)
     if body.risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
+    if body.document_id:
+        require_document(body.document_id, scope)
+    if body.deliverable_id:
+        linked = deliverables_mod.get(body.deliverable_id)
+        if linked is None or (linked.get("document_id")
+                              and not scope.may_read(linked["document_id"])):
+            raise HTTPException(status_code=404, detail=errors.safe_error(
+                errors.NOT_FOUND, "no deliverable with that id"))
+    if body.owner_user_id and not scope.is_admin and body.owner_user_id != scope.user_id:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "risk owner not found"))
     return risks_mod.create(body.model_dump())
 
 
@@ -2333,6 +2410,14 @@ def create_deliverable(body: schemas.DeliverableCreate,
 def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
                        scope: access.AccessScope = Depends(access.current_scope)):
     _require_identity_to_write(scope)
+    # AUTHORISE BEFORE WRITING. The read check used to run on the row
+    # `update` RETURNED, so a caller without a grant on the deliverable's
+    # document got a 404 while their change had already been committed
+    # (audit 2026-09-30). The existing row is checked first, then written.
+    existing = deliverables_mod.get(deliverable_id)
+    if existing is None or (existing.get("document_id")
+                            and not scope.may_read(existing["document_id"])):
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     changes = body.model_dump(exclude_unset=True)
     if changes.get("document_id"):
         require_document(changes["document_id"], scope)
@@ -2451,7 +2536,12 @@ def get_summary_schedule(scope: access.AccessScope = Depends(access.current_scop
 
 
 @app.put("/api/management/summary/schedule", response_model=schemas.SummarySchedule)
-def set_summary_schedule(body: schemas.SummarySchedule, scope: access.AccessScope = Depends(access.current_scope)):
+def set_summary_schedule(body: schemas.SummarySchedule,
+                         scope: access.AccessScope = Depends(access.current_scope),
+                         _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     settings.summary_schedule = body.schedule
     settings.summary_weekday_utc = body.weekday_utc
@@ -2475,7 +2565,11 @@ def management_report(scope: access.AccessScope = Depends(access.current_scope))
 @app.put("/api/management/escalation-rules/{level}", response_model=schemas.EscalationRule,
          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def update_escalation_rule(level: int, body: schemas.EscalationRule,
-                           scope: access.AccessScope = Depends(access.current_scope)):
+                           scope: access.AccessScope = Depends(access.current_scope),
+                           _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     item = deliverables_mod.update_escalation_rule(level, body.model_dump(exclude={"level"}))
     if item is None:
@@ -2684,10 +2778,11 @@ def chat_web_search(conversation_id: str, message_id: str,
                     scope: access.AccessScope = Depends(access.current_scope)):
     """ "Search once": run the one web search a consent turn offered.
 
-    Takes NO text from the client. The phrase is rebuilt from the reader's
-    stored question through the market lane's whitelist (chat_web.search),
-    sent through the market transport, audited like every market query, and
-    answered as a new turn citing the web as the web."""
+    Takes NO text from the client. The phrase sent is exactly the one the
+    consent turn showed and stored, re-checked against the market lane's
+    whitelist before it leaves (chat_web.search), claimed atomically so it
+    runs once, sent through the market transport, audited like every market
+    query, and answered as a new turn citing the web as the web."""
     from . import chat_web
     _require_identity_to_write(scope)
     _require_owned_conversation(conversation_id, scope)
@@ -3887,6 +3982,11 @@ def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> N
                 document_id=submittal_id, review_run_id=review_run_id,
                 snapshots={row["crs_row_key"]: row for row in mine},
                 user_id=scope.user_id)
+        # A comment confirmed (so numbered) and then rejected is withdrawn -
+        # never issued, never carried forward (audit 2026-09-30).
+        if meta.get("rejected_row_keys"):
+            crs_numbers_mod.withdraw(crs_scope, meta["rejected_row_keys"],
+                                     user_id=scope.user_id)
     except HTTPException:
         return
     except Exception:  # noqa: BLE001 - see docstring: never fail a saved decision
@@ -3973,16 +4073,17 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # "confirmed by <name>" - the engineer's display name, never their id.
     # Section 3: an edited comment names its editor the same way. 2d-2: a
     # confirmed web standards check item does too.
-    confirmers = {f["confirmed_by"] for f in findings
-                  if (f.get("origin") in ("ai_engineering_check", "web_standard_check")
-                      or f.get("engineer_comment"))
-                  and f.get("confirmed_by")}
+    # Audit 2026-09-30: EVERY confirmed comment, not only AI/web items and
+    # edits - a plain confirmed requirement comment printed the raw user id.
+    confirmers = {f["confirmed_by"] for f in findings if f.get("confirmed_by")}
     if confirmers:
         marks = ",".join("?" for _ in confirmers)
         people = {r["id"]: r["display_name"] for r in connect().execute(
             f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(confirmers))}
         for finding in findings:
-            if finding.get("confirmed_by") in people:
+            # A name only when one is on record - never invented; the id
+            # stays the fallback in `crs_mapping`.
+            if people.get(finding.get("confirmed_by")):
                 finding["confirmed_by_name"] = people[finding["confirmed_by"]]
 
     outcome = comparison_mod.run_outcome(
@@ -4000,8 +4101,18 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     crs_scope, _crs_label = _crs_scope_of(submittal_id)
     crs_keys = crs_numbers_mod.row_keys(rows)
     numbered = crs_numbers_mod.lookup(crs_scope, crs_keys)
+    # A REJECTED COMMENT IS NEVER ISSUED (audit 2026-09-30). Its key is not a
+    # row of this sheet, so the carry-forward below printed it as "carried
+    # forward from an earlier review". Its keys go to `_mint_crs_numbers`
+    # (the write that follows every rejection), which withdraws the number.
+    meta_rejected_keys = sorted(
+        crs_mapping_mod.rejected_comment_keys(findings) - set(crs_keys))
     for row, key in zip(rows, crs_keys):
         row["crs_row_key"] = key
+        if key in numbered and numbered[key].get("status") == crs_numbers_mod.WITHDRAWN:
+            # A draft re-raising a comment an engineer rejected: it keeps no
+            # number and is NOT an engineer's confirmation.
+            continue
         if key in numbered:
             record = numbered[key]
             row["crs_ref"] = record["ref"]
@@ -4017,6 +4128,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # or revision of this submittal that this run no longer raises stays on
     # the sheet until a reviewer closes it - never dropped because a later
     # run stopped producing it. Read only, from what the comment last said.
+    # A comment an engineer rejected before issue is WITHDRAWN (not Open) by
+    # `_mint_crs_numbers`, so `open_elsewhere` never returns it.
     for record in crs_numbers_mod.open_elsewhere(crs_scope, set(crs_keys)):
         rows.append({
             "finding_id": "",
@@ -4061,6 +4174,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
         "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread),
+        # Never printed: the keys of this run's rejected comments, for
+        # `_mint_crs_numbers` to withdraw.
+        "rejected_row_keys": meta_rejected_keys,
     }
     return rows, meta, submittal_name, stamp
 

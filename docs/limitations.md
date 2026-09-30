@@ -51,6 +51,17 @@ with a noise band, not a sharp line.
   - **NOT repaired:** an `ff -> ?` substitution on 37 pages (50 hits) has no clean reference in that document, so there is nothing to validate a rule against. Left alone rather than guessed at.
   - The other three documents carry no ligature corruption.
 
+## Document reading - what the 2026-09-30 reading audit fixed, and what it did not
+
+Fixed (CHUNKER_VERSION 9, TABLE_READER_VERSION 2; tests `backend/tests/test_audit_reading.py`, mutations M1540-M1553). Documents chunked before this read the old way until re-processed (`scripts/reindex_chunking.py`).
+
+- **Rotated pages keep their ruled tables.** A table on a page rotated 90/180/270 is read in the unrotated space the text is read in. Only rotation by page `/Rotate` is handled; text drawn sideways on an unrotated page is not.
+- **Unruled data sheets are read as rows.** Label and value on alternate lines, at least 4 pairs, most values carrying a digit. Not handled: a sheet with a blank value (the alternation breaks, and the rows around the gap are read separately - a run shorter than 4 pairs can still be misread as a clause heading); a label that starts with a digit; three or more columns without ruling.
+- **A contents page needs contents evidence.** Dot leaders on half its lines, or page numbers that fit the document (ascending, unless at the back as an index). Not handled: a contents page of an EXCERPT without dot leaders, whose page numbers exceed the PDF's page count, is now read as prose.
+- **2-4 page documents strip their page header** when a line at the top or bottom of every page has the same shape and one of its numbers moves with the page number. A header without a page number on a short document is still read as text.
+- **Quality gate:** rpm, kW, kV, m3/h, Hz, psig, barg are measured values. A line of three or more equipment tags (P-101A) is KEPT as searchable, by decision: a tag is what an engineer searches for.
+- **OCR merge reads two columns one after the other**, when both sides of the widest x gap hold at least 3 lines of 4+ words. Not handled: three or more columns; a two-column page of short lines (read row by row, as a data sheet is). A misread duplicate is only recognised within two line spacings of the line it misreads.
+
 ## Known false refusals - phrasing sensitivity
 
 - **6 of 10 facts cite the same page across all three phrasings; 4 do not.** Measured by `eval/run_phrasings.py` and recorded fact by fact in `docs/demo-readiness-table.md`, which asks each fact as originally written, as the document words it, and as a user loosely types it.
@@ -250,6 +261,33 @@ The case that motivates it is a silent unit conversion — "0.28 mm [S1]" over a
 source that says "280 um" cites a real page for a number that page does not
 contain.
 
+**Where this check runs, and exactly what it accepts (2026-09-30).**
+
+- It runs on every lane: the cross-document summary (`synthesis._cite`), the
+  local chat lane (`answer.ground_numbers`) and the Claude chat lanes
+  (`answer.verify_claims`, used by the one-shot answer, the streamed answer and
+  Claude-first chat). On the Claude lanes a quote found on the page is NOT
+  enough: every figure in the sentence must also be in a passage the sentence
+  cites. Until 2026-09-30 "6 mm [S1 "minimum wall thickness"]" over a page
+  saying 3 mm was shown as verified.
+- Clause, table, page, revision and standard numbers are removed from the
+  sentence AND from the cited passage before comparing, so a page's "clause 6"
+  never supports an answer's "6 mm".
+- The summary lane accepts exact figures only, so "279.6 µm" restated as
+  "280 µm" is still lost there. The chat lanes also accept a genuine rounding:
+  fewer decimals than the page, and equal to the page's value rounded to that
+  precision ("17.2" or "17" for 17.24). "17.4" for 17.24 is removed. A figure
+  written in words ("six millimetres") is not checked at all.
+- A Claude quote must be at least three words, found on word boundaries
+  (`model_evidence.claim_quote_verified`). One- and two-word quotes ("the",
+  "10 barg") are on nearly every page and prove nothing. A word the PDF
+  hyphenated across a line break matches the unbroken word; this layout rule
+  goes beyond the owner's closed normalisation list for B5 values and applies
+  to chat claim quotes only.
+- A point read from a page image with no text layer cannot be checked. It is
+  kept, labelled "read from image - check the page", and never counted as
+  verified.
+
 ## Public market information is a fixture and can never become one by accident
 
 **There is no provider and this machine makes no network call.** Every row on
@@ -372,6 +410,9 @@ it silently truncates the evidence the answer is grounded in.
   - **Made visible, not hidden.** Pages are scored for equation density at extraction and flagged `equation_heavy`, the same way `needs_ocr` works. `GET /api/documents/{id}/pages` reports the flag per page and the document record carries an `equation_pages` count, so a degraded page is visible rather than quietly useless.
   - **Mitigated by page images.** `GET /api/documents/{id}/pages/{page}/image` renders the real page to PNG on demand (150 DPI default, cached by content hash). The citation panel shows the actual page beside the quoted text, so whatever the extracted text lost — equations, table column pairing, figures — the reader still sees the truth. This is the durable answer to both degraded equations and flattened tables.
   - A side effect: equation debris is sometimes segmented as `kind="table"`. The quality gate correctly rejects it (fractions extract as `1 / 210 / 250 X dX`), so it is recorded in the exclusion ledger rather than retrieved as a table.
+  - **An OCR engine failure fails pages, not the document** (audit 2026-09-30). A missing or corrupt OCR model, or a recognition worker process that dies, records every page it held as `ocr_failed` with the reason (`page_ocr.error`, the exclusion ledger, the page ledger) and the document finishes on its extracted text. It used to mark a readable document `failed` and retry it until poisoned. After the cause is fixed, `ocr.retry_failed` makes those pages pending again.
+  - **Search never answers from a document that stopped without being answerable** (`failed`, `no_searchable_content`, `stored_not_indexed` - `states.NOT_SEARCHABLE_STATES`, applied inside `keyword.search` and `vector_store.search`). A `failed` document used to keep answering from chunks an earlier pass indexed while the Documents page called it failed. A document being re-processed (queued, extracting, chunking, indexing) keeps answering from its last complete build, which `chunk_document` replaces in one transaction. Readers of `chunks_fts` outside `keyword.search` (for example the vocabulary the answerability check reads) are not narrowed and may still see a failed document's words.
+  - **A re-chunk keeps the vectors of chunks that did not change** (audit 2026-09-30). Only a vector whose chunk id is gone, whose chunk is no longer retrievable, or whose section or heading chain changed is deleted and re-embedded. Until then every re-chunk (every OCR round that found text, every re-process) deleted all of the document's vectors and dense search was dark for it until embedding caught up.
   - **A document can finish with nothing searchable.** A fully scanned PDF, or one whose every chunk fails the content-quality gate, reaches the terminal state `no_searchable_content` — never `ready`. The reason is carried on the record (for example, that all pages were scanned and recognition produced no usable text) and the UI renders it as a warning, not a success. Calling such a document ready would tell an operator it is usable when it can answer nothing.
 - **Front matter, contents, index and references pages are excluded from search.** They are classified and stored, with `retrievable=0`, so they can be inspected, but they never compete with body text. A contents line such as "5.3.1 Identity Theft 257" would otherwise outrank the page where the answer actually is.
 - **The contents/index detector is positional and will not generalise to the real corpus.** It looks for contents pages in the front 6% of a document and index pages in the back 15%, which is right for books. Client specifications are often multi-part compilations with contents pages part-way through, which this rule would miss.
@@ -381,7 +422,7 @@ it silently truncates the evidence the answer is grounded in.
   - **Existing documents gain nothing until they are re-chunked** (`scripts/reindex_chunking.py`, an owner decision). Their `context` is NULL and they search exactly as before.
   - **The chain is only as good as heading detection.** Where no heading was accepted (the ~12% above) there is no chain; a clause is filed only under headings whose number is a prefix of its own ("4.4" never under "8"); an unnumbered heading starts a new chain and a numbered one drops it; a clause number reused under two different chains gets no context rather than a guessed one.
   - **Deterministic, not generated.** The chain is the document's own headings. A model-written note per chunk (the published "contextual retrieval" method) is not built: on this hardware it would cost hours per full re-process and is measured first if ever proposed.
-  - **Deployment is safe without a re-process.** Vectors written before this change (input format `heading-v1`) stay searchable (`embedder.LEGACY_PASSAGE_INPUT_VERSIONS`) and are upgraded when their document is processed; the keyword index rebuilds itself once at server start (INDEX_VERSION 3), writing identical rows for chunks with no context.
+  - **Deployment is safe without a re-process.** Vectors written before this change (input format `heading-v1`) stay searchable (`embedder.LEGACY_PASSAGE_INPUT_VERSIONS`) and are upgraded when their document is processed (any worker pass through embedding re-embeds a legacy vector - until 2026-09-30 only a pass where some chunk had no vector at all did; a READY document is not processed again on its own, so it is upgraded when it is re-processed); the keyword index rebuilds itself once at server start (INDEX_VERSION 3), writing identical rows for chunks with no context.
   - **Not yet measured on the owner's corpus.** Whether it fixes the "right clause never found" cases (43 of 66 in the 2026-09-29 calibration) is measured by re-running `eval/refusal_calibration.py` on a re-chunked diagnostic copy, with the SAME questions as before.
 - **Which clause applies (plan step 4) reads conditions with fixed patterns, and only in the quoted-answer tier.** When near-equal clauses set different values for different conditions, a question naming a condition is answered from the one clause that holds under it, and a question naming none gets every clause with its condition and a question back (`answer._condition_choice`, `condition_choice.py`). Limits, stated:
   - **Only what the patterns read.** Size (inch incl. fractions like 1-1/2, mm, NPS, DN via the ASME B36.10 pairing; "larger than", "and smaller", ranges), temperature (°C, °F, negative values), pressure (psi, bar, kPa, MPa), ASME class and PN, and closed lists of services, materials and locations (a bare "wet", "dry", "steam" or "atmospheric" is not one: "dry film thickness"). A condition written any other way is not seen, and the answer is the top passage exactly as before.
@@ -407,6 +448,20 @@ it silently truncates the evidence the answer is grounded in.
 - **No domain fine-tuning**, and no production accuracy claim.
 - **Full corpus not ingested.** ~45 GB free disk does not accommodate ~1.2 M pages.
 
+## Submittal review and the CRS - what the engine decides, and what it leaves to the engineer
+
+Corrected 2026-09-30 after an audit of the CRS path (`backend/tests/test_audit_crs_fixes.py`, mutations M1430-M1449).
+
+- **Equipment exceptions depend on the sheet's classification.** "90 dB(A), except pressure relief valves 115 dB(A)" applies the 115 only when the submittal's stored `equipment_type` (confirmed by an engineer, or read by the classifier from the sheet's own title) names that equipment. An unclassified sheet gets the general limit. Matching is one-directional: every word of the exception's equipment must be in the equipment type ("Pressure Safety Valve" is a pressure relief valve; a sheet classified only as "valve" does not borrow the exception). Before this fix no production path passed the equipment at all, so every exception was ignored.
+- **Closed categorical clauses (flange class, radiography extent, PWHT)** are read as: minimum ("minimum Class 300"), ceiling ("shall not exceed Class 600"), exact, prohibited ("Class 150 flanges shall not be used"), or alternatives ("Class 150 or Class 300"). A clause saying something is *not required* or *optional*, a clause with any other negation, two radiography extents, or a class list in any other shape gives **no categorical verdict** - it becomes a question for the engineer. A size scope ("nozzles 2 inch and larger") makes the clause conditional, so it is reported, never decided.
+- **Datasheet self-checks treat untagged fields as the sheet's common section.** A value stated once for P-101A and P-101B counts for both tags. A value stated under one tag is never used for another.
+- **"Label : value" one-per-line sheets are read line by line.** Inside a text block of several lines, a line of that shape with no drawn answer slot is a pair by itself; other lines are paired left to right as before. A one-line block is still left to the geometry reader, and a line with a drawn slot is still cut by the slot rule.
+- **A breach resting on an untrusted value is held for the engineer.** A datasheet value with `validation_state` `needs_engineer_review` (below the confidence threshold, including the OCR fallback) or `conflict`, or read by the model reader, and not confirmed by an engineer, never produces NON_COMPLIANT: the finding is NEEDS_ENGINEER_REVIEW with reason `LOW_TRUST_VALUE` and the arithmetic kept in its words. A COMPLIANT result on such a value is not held (not yet decided whether it should be).
+- **A re-run keeps every engineer decision.** Confirmed, accepted, rejected, dispositioned or re-worded findings survive any re-run (`review.UNDECIDED_SQL`, used by the comparison, the job cancel path, the AI engineering check and the web standards check). A pair the engineer rejected is not proposed again in that run; identical AI/web items and datasheet checks the engineer rejected are not re-proposed either. A NEW run of the same submittal can still raise the same comment as an unconfirmed draft.
+- **A rejected comment is never issued.** A numbered comment rejected before the contractor replied is *Withdrawn*: not carried forward, not issued, and a later draft of the same comment is not treated as confirmed. Confirming or accepting it again re-opens the same number. A comment the contractor has already answered was issued, so a rejection does not withdraw it; the reviewer closes it.
+- **CRS workbook cells are written as text.** A value beginning with `=`, `+`, `-` or `@` (a contractor reply included) is stored as a text cell, never a formula; control characters that Excel cannot store are replaced by a space rather than failing the export. The bylines print the engineer's display name; comments snapshotted for carry-forward before 2026-09-30 may still carry a user id.
+- **"Could not be read as a number" is said as that.** A value like "see note" is reported as unreadable, not as a unit mismatch between two identical units. Two values with no unit at all are still reported with the unit sentence (not changed here).
+
 ## Security and governance
 
 - ⚠️ **This is a locally-inferencing system on a networked machine. It is NOT air-gapped.** Client document content never leaves the machine, but the machine has internet access.
@@ -416,6 +471,14 @@ it silently truncates the evidence the answer is grounded in.
   - Required status checks before merge
   - GitHub Advanced Security secret scanning
 - Compensating controls are in place: gitleaks in CI **and** as a pre-commit hook, plus a CI guard rejecting client documents. These are verified by deliberate failure tests.
+  - **Corrected 2026-09-30.** The CI guard checked file EXTENSIONS only, and its synthetic-fixture exception (`^tests/fixtures/synthetic/`) matched nothing because the tests live under `backend/`. It now also fails a pull request or push that ADDS a client-identifier-shaped token (`scripts/check_client_identifiers.py`, patterns in `.github/client-identifier-patterns.txt`). **Limits, stated:** it scans the diff only, so identifiers ALREADY tracked (screenshots, CSV, JSON - pending the owner's history clean-up) are not reported; the tracked patterns are generic SHAPES (equipment tags, document and datasheet numbers), because a tracked list of the client's names would publish them - the names are checked only on a machine holding `.githooks/client-identifiers.local`, never in CI; binary files (images, PDFs) are not read at all.
+  - gitleaks allowlisted the WHOLE of `.env.example`, so a real key pasted into it was invisible (verified with gitleaks 8.30.1 and a planted key). Only its empty `KEY=` placeholder lines are allowlisted now.
+- **Access-control hardening, 2026-09-30** (tests in `backend/tests/test_access_audit_security.py`):
+  - The API refuses any `Host` header other than localhost, 127.0.0.1, ::1, a named `HOST`, or a name listed in `ALLOWED_HOSTS` (DNS rebinding). The server refuses to START with a non-loopback `HOST` under `AUTH_MODE=disabled` unless `ALLOW_UNAUTHENTICATED_NETWORK_BIND=true`.
+  - `/docs`, `/redoc` and `/openapi.json` answer 404 unless `AUTH_MODE=disabled` or `API_DOCS_ENABLED=true`.
+  - The summary schedule, escalation rules, baseline rules and review templates are global settings and need the admin capability (their only UI is the admin screen, `AdminView.tsx`; the server now agrees with it). A non-admin calling the API directly gets the admin surface's silent 404.
+  - A password reset (issued by an admin, and again when redeemed) ends every session the user had.
+  - Still open, not addressed here: `POST /api/risks` does not check `source_finding_id` against the caller's scope; rate limits exist only for login.
 - "No document content leaves the machine" reduces exfiltration exposure. It does **not** remove malicious-PDF, local-account, disk-theft, dependency, or privilege-escalation risk.
 - **The client's security architecture and data-classification review remains a production gate.**
 

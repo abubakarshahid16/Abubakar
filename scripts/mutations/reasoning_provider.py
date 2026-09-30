@@ -70,10 +70,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M567", phase=61,
         description="the provider's refusal message carries the request headers (the key)",
         path=APP / "reasoning_provider.py",
+        # Re-anchored 2026-09-30: the failure is settled before it is raised (audit_spend).
         anchor=("            # TYPE only - reader_transport never puts headers in it).\n"
-                '            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc\n'),
+                '            refused = ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}")\n'),
         replacement=("            # TYPE only - reader_transport never puts headers in it).\n"
-                     '            raise ProviderRefused(f"{self.name}: {exc} {request}") from exc\n'),
+                     '            refused = ProviderRefused(f"{self.name}: {exc} {request}")\n'),
         target="tests/test_claude_provider.py",
         keyword="key_never_reaches",
         tags=("safety",),
@@ -82,8 +83,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M568", phase=61,
         description="the budget check before a Claude call is skipped",
         path=APP / "reasoning_provider.py",
-        anchor="        claude_spend.ensure_affordable(\n",
-        replacement="        (lambda *a, **k: None)(\n",
+        # Re-anchored 2026-09-30: the check is now a reservation (audit_spend).
+        anchor="        held = claude_spend.reserve(\n            step, claude_spend.worst_case_usd(self.requested_model, prompt_chars,\n",
+        replacement="        held = (lambda s, w, **k: claude_spend.Reservation(\"m\", s, \"\", 0.0, \"\", 0.0))(\n            step, claude_spend.worst_case_usd(self.requested_model, prompt_chars,\n",
         target="tests/test_claude_provider.py",
         keyword="step_cap_stops or total_cap_counts",
         tags=("safety", "budget"),

@@ -154,13 +154,18 @@ function makeCoverage(over: Partial<ClassificationCoverage> = {}): Classificatio
 function mockApi(
   metrics: Metrics | (() => Metrics) = makeMetrics(),
   coverage: ClassificationCoverage | (() => ClassificationCoverage) | null = makeCoverage(),
+  /** Bodies for other endpoints, matched by URL substring. */
+  extra: Record<string, unknown> = {},
 ) {
   const spy = vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("/classification/coverage") && coverage === null) {
       return Promise.reject(new TypeError("Failed to fetch"));
     }
-    const body = url.includes("/classification/coverage")
+    const extraKey = Object.keys(extra).find((key) => url.includes(key));
+    const body = extraKey !== undefined
+      ? extra[extraKey]
+      : url.includes("/classification/coverage")
       ? typeof coverage === "function"
         ? coverage()
         : coverage
@@ -230,7 +235,7 @@ describe("which corpus these counts describe", () => {
   it("says the counts are corpus-wide when the caller is told they are", async () => {
     mockApi(makeMetrics({ corpus_wide: true }));
     await openDashboard();
-    expect(await screen.findByText(/Corpus-wide figures/)).toBeInTheDocument();
+    expect(await screen.findByText(/Corpus-wide system figures/)).toBeInTheDocument();
     expect(
       screen.getByText(/including documents you cannot open/),
     ).toBeInTheDocument();
@@ -241,7 +246,7 @@ describe("which corpus these counts describe", () => {
     mockApi(makeMetrics({ corpus_wide: false }));
     await openDashboard();
     expect(await screen.findByText(/Your documents only/)).toBeInTheDocument();
-    expect(screen.queryByText(/Corpus-wide figures/)).toBeNull();
+    expect(screen.queryByText(/Corpus-wide system figures/)).toBeNull();
   });
 });
 
@@ -632,5 +637,57 @@ describe("the first CPU reading", () => {
       within(section).getByText(/no prior call to measure against/i),
     ).toBeInTheDocument();
     expect(within(section).queryByText("0%")).toBeNull();
+  });
+});
+
+// ------------------------------------------- audit 2026-09-30: true labels
+
+const reviewDashboard = {
+  submittals_total: 2, submittals_awaiting_review: 1,
+  standards_available: 3, standards_referenced_total: 0, standards_referenced_missing: 0,
+  reviews_running: 0, reviews_awaiting_decision: 0, reviews_total: 4,
+  needs_attention: 4, needs_attention_reasons: { "the run failed": 4 },
+  recent: [],
+};
+
+describe("audit 2026-09-30: every block's label is true of that block", () => {
+  it("names the system's warnings tile for what it counts, apart from the review tile", async () => {
+    mockApi(makeMetrics(), makeCoverage(), { "/reviews/dashboard": reviewDashboard });
+    await openDashboard();
+    // The review block's tile keeps its rule-10 name...
+    expect(await screen.findByText("Needs attention")).toBeInTheDocument();
+    // ...and the system one no longer shares it with a different number.
+    expect(screen.getByText("System warnings")).toBeInTheDocument();
+    expect(screen.getAllByText("Needs attention")).toHaveLength(1);
+  });
+
+  it("does not call the scope-limited review counts corpus-wide", async () => {
+    mockApi(makeMetrics({ corpus_wide: true }), makeCoverage(),
+            { "/reviews/dashboard": reviewDashboard });
+    await openDashboard();
+    expect(await screen.findByText(/The AI Submittal Review counts are not corpus-wide/))
+      .toBeInTheDocument();
+    expect(await screen.findByTestId("review-boundary"))
+      .toHaveTextContent("only the documents you can open");
+  });
+
+  it("opens Deliverables through the app's router, not a dead hash link", async () => {
+    mockApi(makeMetrics(), makeCoverage(), {
+      // The Deliverables screen's own calls, most specific first.
+      "/deliverables/alerts": { alerts: [] },
+      "/deliverables/expected": { deliverables: [] },
+      "/management/escalation-rules": { rules: [] },
+      "/risks": { risks: [] },
+      "/deliverables": { deliverables: [] },
+      "/management/summary": {
+        deliverables_total: 3, deliverables_by_status: { approved: 1 },
+        review_findings_total: 0, findings_by_severity: {}, findings_by_status: {},
+        escalated_findings: 0, overdue_alerts: 0, alerts: [],
+      },
+    });
+    await openDashboard();
+    await userEvent.click(await screen.findByRole("button", { name: "Open deliverables" }));
+    expect(await screen.findByRole("heading", { name: /Deliverables & timeline/ }))
+      .toBeInTheDocument();
   });
 });

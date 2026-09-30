@@ -41,6 +41,8 @@ function mockApi(opts: {
   requirements?: StandardRequirement[];
   revisions?: StandardSummary[];
   onPost?: (url: string, body: unknown) => void;
+  /** Answer this list with a server error instead of a body. */
+  failing?: "requirements" | "revisions";
 } = {}) {
   const json = (body: unknown) =>
     new Response(JSON.stringify(body), {
@@ -57,6 +59,11 @@ function mockApi(opts: {
       return json({ superseded_by: null });
     }
     if (href.includes("/standards/missing")) return json([]);
+    if (opts.failing && href.includes(`/${opts.failing}`)) {
+      return new Response(JSON.stringify({ error: { code: "internal_error", message: "the list broke" } }), {
+        status: 500, headers: { "Content-Type": "application/json" },
+      });
+    }
     if (href.includes("/requirements")) return json(opts.requirements ?? []);
     if (href.includes("/revisions")) return json(opts.revisions ?? [base]);
     if (href.includes("/clauses")) return json([]);
@@ -223,5 +230,26 @@ describe("the tab strip", () => {
     expect(tabs).toEqual([
       "Original Document", "Requirements", "Revision History", "Processing Details",
     ]);
+  });
+});
+
+describe("audit 2026-09-30: a tab whose list failed says so, to everyone", () => {
+  it("shows a requirements load failure to a non-admin instead of spinning", async () => {
+    mockApi({ failing: "requirements" });
+    render(<StandardsView isAdmin={false} />);
+    fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
+    expect(await screen.findByText(/The requirements of this standard could not be loaded/))
+      .toBeTruthy();
+    expect(screen.queryByText(/no requirements have been extracted/i)).toBeNull();
+  });
+
+  it("shows a revisions load failure instead of spinning", async () => {
+    mockApi({ failing: "revisions" });
+    render(<StandardsView isAdmin={false} />);
+    fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Revision History" }));
+    expect(await screen.findByText(/The revisions of this standard could not be loaded/))
+      .toBeTruthy();
+    expect(screen.queryByText(/No other revisions/)).toBeNull();
   });
 });

@@ -359,7 +359,7 @@ def _applicable_exception(requirement: dict, subject: str | None) -> dict | None
             exceptions = []
     if not exceptions:
         return None
-    wanted = " ".join(str(subject).lower().split())
+    spellings = subject_spellings(subject)
     for exception in exceptions:
         applies_to = " ".join(str(exception.get("applies_to") or "").lower().split())
         if not applies_to:
@@ -367,16 +367,115 @@ def _applicable_exception(requirement: dict, subject: str | None) -> dict | None
         # Singular/plural tolerance without a stemmer: compare on the stem of
         # each word, which is enough for "valve"/"valves" and refuses to be
         # clever beyond that.
-        a = {w.rstrip("s") for w in wanted.split()}
-        b = {w.rstrip("s") for w in applies_to.split()}
-        if a and (a <= b or b <= a):
-            return exception
+        b = {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", applies_to)}
+        # ONE DIRECTION ONLY (audit 2026-09-30): every word of the exception's
+        # equipment must be in the subject - the subject is AT LEAST as
+        # specific as the exception. The reverse ("valve" inside "pressure
+        # relief valves") would let a sheet classified only as a generic kind
+        # borrow a narrower kind's relaxed limit, which excuses a breach.
+        for wanted in spellings:
+            a = {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", wanted)}
+            if a and b and b <= a:
+                return exception
     return None
+
+
+#: A SUBJECT'S OTHER NAMES, where a standard names the same equipment class in
+#: different words. Each entry is a CLASS MEMBERSHIP, one direction only: a
+#: pressure safety valve IS a pressure relief valve (API 520 Part I uses
+#: "pressure relief valve" as the generic term covering safety, relief and
+#: safety-relief valves), so an exception for pressure relief valves covers a
+#: PSV; an exception naming only safety valves does NOT cover every relief
+#: valve. Nothing is added here that is not a strict "is a" relation.
+_SUBJECT_IS_A: dict[str, tuple[str, ...]] = {
+    "pressure safety valve": ("pressure relief valve", "safety valve", "relief valve"),
+    "psv": ("pressure safety valve", "pressure relief valve", "safety valve",
+            "relief valve"),
+    "safety relief valve": ("pressure relief valve", "relief valve"),
+}
+
+
+def subject_spellings(subject: str | None) -> list[str]:
+    """The subject folded to lowercase words, plus the classes it belongs to."""
+    folded = " ".join(re.findall(r"[a-z0-9]+", str(subject or "").lower()))
+    if not folded:
+        return []
+    out = [folded]
+    for word, classes in _SUBJECT_IS_A.items():
+        if word == folded or word == folded.rstrip("s"):
+            out.extend(classes)
+    return list(dict.fromkeys(out))
+
+
+def equipment_subject(classification: dict | None) -> str | None:
+    """What equipment this submittal is about, for `_applicable_exception`.
+
+    The submittal's STORED classification `equipment_type` - the word an
+    engineer confirmed, or the classifier read from the sheet's own title
+    block (with its page and quote kept as evidence). None when there is none:
+    the field names are NOT used here, because an exception applied on a guess
+    excuses a breach, and an unknown subject gets the general limit.
+    """
+    value = ((classification or {}).get("equipment_type") or "").strip()
+    return value or None
+
+
+#: The reason code on a breach held back because the datasheet VALUE it rests
+#: on is not yet trusted (audit 2026-09-30).
+LOW_TRUST_VALUE = "LOW_TRUST_VALUE"
+#: `submittal_facts.validation_state` values that mean "not yet trusted":
+#: below the confidence threshold (the OCR fallback tier among them) and a
+#: geometry reading that disagrees with the rule reader. Spelled here as
+#: literals because `datasheets` owns them (`NEEDS_ENGINEER_REVIEW`,
+#: `GEOMETRY_CONFLICT`); a test pins the two spellings together.
+_LOW_TRUST_STATES = frozenset({"needs_engineer_review", "conflict"})
+
+
+def low_trust_reason(fact: dict | None) -> str | None:
+    """Why this datasheet value is not trusted enough to rest a breach on, or
+    None. An engineer's confirmation of the value (`confirmed_by`) makes it
+    trusted whatever read it."""
+    if not fact or fact.get("confirmed_by"):
+        return None
+    state = (fact.get("validation_state") or "").strip().lower()
+    if state in _LOW_TRUST_STATES:
+        return (f"the value was read with validation state '{state}' "
+                "(a low-confidence or conflicting reading)")
+    if (fact.get("extraction_method") or "").strip().lower() == "model":
+        return "the value was read by the model reader and no engineer has confirmed it"
+    return None
+
+
+def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
+    """A NON_COMPLIANT verdict resting on an untrusted value becomes a question
+    for the engineer, with the arithmetic kept in the words. Audit
+    2026-09-30: an OCR-fallback or model-read value (confidence 0.5 or below)
+    produced a contractor-facing breach, which is a guess shown as a finding
+    (CLAUDE.md rule 4). Every other verdict passes unchanged."""
+    if verdict.get("status") != NON_COMPLIANT:
+        return verdict
+    reason = low_trust_reason(fact)
+    if reason is None:
+        return verdict
+    return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
+        f"{LOW_TRUST_VALUE}: {reason}, so the arithmetic below is not stated as "
+        f"a breach until an engineer checks the value on the page: "
+        f"{verdict.get('rationale') or ''}")}
 
 
 def compare(requirement: dict, fact: dict | None, *,
             subject: str | None = None,
             submittal_facts: list[dict] | None = None) -> dict:
+    """`_compare`'s verdict, with a breach on an untrusted value held for an
+    engineer (`_hold_low_trust_breach`). Every caller gets the guard."""
+    return _hold_low_trust_breach(
+        _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts),
+        fact)
+
+
+def _compare(requirement: dict, fact: dict | None, *,
+             subject: str | None = None,
+             submittal_facts: list[dict] | None = None) -> dict:
     """The DETERMINISTIC verdict for one requirement against one fact.
 
     Returns `{status, rationale, limit, observed, exception_applied}`, plus
@@ -664,6 +763,23 @@ def compare(requirement: dict, fact: dict | None, *,
     # sides carry the identical spelling, and returns None when it cannot do
     # either. None means NO COMPARISON WAS MADE, which is a result.
     verdict = claims._compatible(observed, limit)
+    if verdict is None and (claims.parse_value(str(observed.raw_value or "")) is None
+                            or claims.parse_value(str(limit.raw_value or "")) is None):
+        # AN UNREADABLE NUMBER IS NOT A UNIT PROBLEM (audit 2026-09-30). The
+        # sentence below used to read "the submitted unit 'mm' and the
+        # required unit 'mm' cannot be compared" for a value like "see note"
+        # - a false reason, naming two identical units as the obstacle.
+        which, value = (("submitted", observed.raw_value)
+                        if claims.parse_value(str(observed.raw_value or "")) is None
+                        else ("required", limit.raw_value))
+        return {
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": (f"the {which} value {value!r} could not be read as a "
+                          "number, so no comparison was made"),
+            "limit": _describe(limit, governing),
+            "observed": _describe(observed, fact),
+            "exception_applied": exception, **_cond,
+        }
     if verdict is None:
         return {
             "status": NEEDS_ENGINEER_REVIEW,
@@ -829,9 +945,10 @@ def _prepare_finding(
     # never deleted" note. This gate stops a SECOND unconfirmed row from
     # existing beside the first, not a re-run from proposing one at all.
     fact_id = (fact or {}).get("id")
+    from . import review as review_mod
     duplicate = None if stored_replaced else connect().execute(
         "SELECT id FROM review_findings WHERE review_run_id = ?"
-        " AND requirement_id = ? AND fact_id IS ? AND confirmed_by IS NULL",
+        f" AND requirement_id = ? AND fact_id IS ? AND {review_mod.UNDECIDED_SQL}",
         (review_run_id, requirement.get("id"), fact_id)).fetchone()
     # The same test against the batch not yet written. `requirement_id = ?`
     # never matches a NULL in SQL, so a requirement with no id is never a
@@ -990,9 +1107,15 @@ def _write_run_findings(review_run_id: str, rows: list[dict], *,
             #
             # `standard_requirements` has followed this rule since 3B; findings
             # are the same kind of artefact and now follow it too.
+            #
+            # Audit 2026-09-30: "confirmed" meant `confirmed_by` only, so a
+            # rejection or acceptance (`approval_status`) was deleted here and
+            # the rejected comment came back as a new draft. Any engineer
+            # decision now keeps the row (`review.UNDECIDED_SQL`).
+            from . import review as review_mod
             conn.execute(
                 "DELETE FROM review_findings WHERE review_run_id = ?"
-                " AND confirmed_by IS NULL",
+                f" AND {review_mod.UNDECIDED_SQL}",
                 (review_run_id,))
         _insert_findings(conn, rows)
 
@@ -1555,12 +1678,26 @@ def run_comparison(
     from . import classification as classification_mod
     stored = classification_mod.of_document(submittal_id) or {}
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
+    # THE EQUIPMENT SUBJECT, for equipment-specific exceptions ("90 dB(A),
+    # except pressure relief valves 115 dB(A)"). Audit 2026-09-30: neither
+    # production caller passed one, so every exception was dead code and a
+    # PSV at 100 dB(A) was reported as a breach. Derived HERE, once, so no
+    # caller can forget it; a caller that names a subject still wins.
+    if subject is None:
+        subject = equipment_subject(stored)
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
     # one transaction after the loop. `pending` is the duplicate gate's view
     # of them (see `_prepare_finding`).
     prepared_rows: list[dict] = []
     pending: dict = {}
+    # PAIRS AN ENGINEER REJECTED in this run. The rejected finding is kept
+    # (`_write_run_findings`), and proposing the same pair again would put the
+    # rejected comment back on the sheet as a new draft (audit 2026-09-30).
+    from . import review as review_mod
+    rejected_pairs = {(r.get("requirement_id"), r.get("fact_id"))
+                      for r in review_mod.rejected_in_run(review_run_id)
+                      if r.get("requirement_id")}
     matches_attempted = matches_made = 0
     rule_refusals: dict[str, int] = {}
     model_matches = 0
@@ -1650,8 +1787,9 @@ def run_comparison(
             # `facts` is the WHOLE submittal's fact set, not the matched fact. B24
             # needs the material/service/class fields to establish a condition, and
             # those are different rows from the one being compared.
-            verdict = rule_verdict or compare(requirement, fact, subject=subject,
-                                              submittal_facts=facts)
+            verdict = (_hold_low_trust_breach(rule_verdict, fact) if rule_verdict
+                       else compare(requirement, fact, subject=subject,
+                                    submittal_facts=facts))
             if rule_verdict is None and rule_unread and verdict.get("status") == NEEDS_ENGINEER_REVIEW:
                 verdict = {**verdict, "rationale": f"{verdict.get('rationale') or ''}; {rule_unread}"}
             # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in
@@ -1769,6 +1907,8 @@ def run_comparison(
                 if notes:
                     verdict = {**verdict, "rationale": (
                         f"{verdict.get('rationale') or ''} ({'; '.join(notes)})")}
+            if (requirement.get("id"), (fact or {}).get("id")) in rejected_pairs:
+                continue
             opinion = (model_opinions or {}).get(requirement.get("id"))
             # ONE FINDING PER ITEM, WRITTEN THROUGH THE BATCH HELPER: `_prepare_finding`
             # applies every gate `create_finding` would (duplicate check against

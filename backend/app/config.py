@@ -24,6 +24,64 @@ class NotificationConfigError(RuntimeError):
     """SMTP notifications were enabled without a complete configuration."""
 
 
+class UnsafeBindRefused(RuntimeError):
+    """The server was told to listen beyond this machine with nobody signing in."""
+
+
+#: Host header values that always name this machine. `testserver` (the
+#: TestClient's name) is deliberately NOT here: the tests add it through
+#: `tests/env_isolation.isolate`, so a production default never trusts it.
+LOOPBACK_HOST_HEADERS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+#: Bind addresses that mean "every interface" - not a name a browser uses.
+WILDCARD_BINDS = frozenset({"0.0.0.0", "::", ""})
+
+
+def is_loopback_bind(host: str) -> bool:
+    """Whether binding `host` keeps the port on this machine."""
+    h = (host or "").strip().strip("[]").lower()
+    if h in LOOPBACK_NAMES:
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def host_header_name(value: str) -> str:
+    """The host part of a Host header, lowercased, port removed.
+
+    `[::1]:8000` -> `::1`; `localhost:5173` -> `localhost`; a bare IPv6
+    literal with no brackets is taken whole.
+    """
+    v = (value or "").strip().lower()
+    if v.startswith("["):
+        end = v.find("]")
+        return v[1:end] if end > 0 else ""
+    if v.count(":") == 1:
+        return v.split(":", 1)[0]
+    return v
+
+
+def trusted_host_names(cfg: "Settings") -> frozenset[str]:
+    """Every Host header value this server answers. Read per request.
+
+    DNS REBINDING is why this exists. The server binds loopback, but a web
+    page on `attacker.example` can re-point its own name at 127.0.0.1 and
+    then read this API from the victim's browser as a same-origin request -
+    CORS never applies, and under `AUTH_MODE=disabled` every document is
+    served. The browser still sends `Host: attacker.example`, so refusing any
+    name this machine was not configured to be called closes it.
+    """
+    names = set(LOOPBACK_HOST_HEADERS)
+    bind = (cfg.host or "").strip().strip("[]").lower()
+    if bind not in WILDCARD_BINDS:
+        names.add(bind)
+    names.update(h.strip().lower() for h in (cfg.allowed_hosts or "").split(",")
+                 if h.strip())
+    return frozenset(names)
+
+
 #: Host names that mean "this machine" without being an IP literal.
 #: `localhost` only. NOT any name a resolver happens to point at 127.0.0.1: a
 #: DNS name is somebody else's to change, and a check that trusts resolution
@@ -176,8 +234,21 @@ class Settings(BaseSettings):
         env_file=BACKEND_DIR / ".env", extra="ignore")
 
     # Bind loopback only. Never 0.0.0.0 - document content must not be reachable.
+    # ENFORCED, not only advised: a non-loopback bind under AUTH_MODE=disabled
+    # is refused at startup unless `allow_unauthenticated_network_bind` is set.
     host: str = "127.0.0.1"
     port: int = 8000
+    #: Extra names the server may be addressed by, comma-separated (the Host
+    #: header check - see `trusted_host_names`). localhost, 127.0.0.1, ::1
+    #: and a named `host` are always trusted; empty is the right value for a
+    #: laptop. Add a name only when a browser really reaches this server by it.
+    allowed_hosts: str = ""
+    #: The deliberate override for serving the network with nobody signing
+    #: in. Every caller would see every document. Off, and should stay off.
+    allow_unauthenticated_network_bind: bool = False
+    #: /docs, /redoc and /openapi.json describe every route. Served only under
+    #: AUTH_MODE=disabled (a developer's machine) unless this is set.
+    api_docs_enabled: bool = False
 
     data_dir: Path = BACKEND_DIR / "data"
     upload_dir: Path = BACKEND_DIR / "data" / "uploads"
@@ -942,7 +1013,7 @@ class Settings(BaseSettings):
     #: every one of the 10 historical calls at that cap hit `finish_reason ==
     #: "length"` and produced zero storable items - the check was truncating
     #: silently on every single run. Still finite (a worst-case estimate feeds
-    #: `claude_spend.ensure_affordable` before the call leaves).
+    #: `claude_spend.reserve` before the call leaves).
     review_ai_check_max_output_tokens: int = 12000
     #: Owner order 2d-2: for a standard the datasheet cites but the library
     #: does not hold, an OPTIONAL check against a PUBLIC web copy. OFF BY
@@ -1094,6 +1165,20 @@ class Settings(BaseSettings):
             allow_remote=self.answer_model_allow_remote_host,
             allowed_hosts=self.answer_model_allowed_hosts,
         )
+        return self
+
+    @model_validator(mode="after")
+    def _refuse_an_open_unauthenticated_bind(self) -> "Settings":
+        """HOST=0.0.0.0 (or any LAN address) with AUTH_MODE=disabled serves
+        every document to anyone who can reach the port. Refused at startup
+        unless `allow_unauthenticated_network_bind` says it is deliberate."""
+        if (self.auth_mode == "disabled" and not is_loopback_bind(self.host)
+                and not self.allow_unauthenticated_network_bind):
+            raise UnsafeBindRefused(
+                f"HOST={self.host!r} is not loopback and AUTH_MODE=disabled: "
+                "every caller on the network would see every document. Set "
+                "AUTH_MODE=demo_required, bind 127.0.0.1, or set "
+                "ALLOW_UNAUTHENTICATED_NETWORK_BIND=true deliberately.")
         return self
 
     @model_validator(mode="after")

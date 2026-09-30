@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextvars
 import re
+from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 
 from . import corpus as corpus_mod
 from . import intent as intent_mod
@@ -595,8 +596,14 @@ _CHECKABLE = re.compile(r"\d|\b[A-Z]{2,}[-/]?\w*")
 _SEGMENT = re.compile(r"(?<=[.!?])\s+")
 
 
+def _image_only(passage: dict) -> bool:
+    """A page `look_at_page` read from its image, with no text layer: there is
+    no page text to check a quote or a figure against."""
+    return bool(passage.get("read_from_image")) and not passage.get("has_text_layer")
+
+
 def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict], int]:
-    """Keep only the claims whose quote is on the page they cite.
+    """Keep only the claims whose quote AND figures are on the page they cite.
 
     Returns (clean text with [S#] markers only, {verified, total, method},
     the verified claims as {n, quote}, how many were removed). A sentence
@@ -604,11 +611,30 @@ def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict
     figure or identifier in it - a fact with no source is not shown either.
     A plain sentence with neither ("Partly.", "What I'd do: ask the vendor")
     is not a document claim and is kept as written.
+
+    A cited claim is verified only when BOTH hold:
+    1. every quote is meaningful evidence on the page it cites
+       (`model_evidence.claim_quote_verified`: at least three words, on word
+       boundaries) - "[S1 "the"]" proves nothing;
+    2. every figure in the sentence is in a cited passage - the SAME check
+       the local lane runs (`ground_numbers`: reference numerals stripped on
+       both sides, only a genuine rounding accepted). The quote is a
+       substring of its passage, so "in the quote or the cited passage" is
+       "in the cited passage". Without this, "The minimum wall thickness is
+       6 mm [S1 "minimum wall thickness"]" over a page saying 3 mm was shown
+       as verified (audit 2026-09-30).
+
+    A citation of an IMAGE-ONLY page (`_image_only`) has no text to check
+    against. Such a sentence is kept - its other citations' quotes must still
+    verify - but it is never counted as verified: it is counted in
+    `verification["image_only"]`, and the caller labels it "read from image -
+    check the page" (`chat_claude_first`). Its citation is only ever a marker
+    here, never a figure the sentence claims.
     """
-    from .model_evidence import quote_verified
+    from .model_evidence import claim_quote_verified
 
     kept_lines, claims = [], []
-    total = verified = 0
+    total = verified = image_only = 0
     for line in text.splitlines():
         kept_segments = []
         for segment in _SEGMENT.split(line):
@@ -620,20 +646,38 @@ def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict
                     continue
                 kept_segments.append(segment)
                 continue
+            plain = _QUOTED_CITATION.sub(lambda m: f"[S{m.group(1)}]", segment)
+            if not all(1 <= int(m.group(1)) <= len(passages) for m in cites):
+                total += 1
+                continue
+            from_image = [m for m in cites if _image_only(passages[int(m.group(1)) - 1])]
+            textual = [m for m in cites if m not in from_image]
+            quotes_ok = all(m.group(2)
+                            and claim_quote_verified(m.group(2), passages[int(m.group(1)) - 1].get("text"))
+                            for m in textual)
+            if from_image:
+                if quotes_ok:
+                    image_only += 1
+                    kept_segments.append(plain)
+                else:
+                    total += 1
+                continue
             total += 1
-            ok = all(m.group(2) and 1 <= int(m.group(1)) <= len(passages)
-                     and quote_verified(m.group(2), passages[int(m.group(1)) - 1].get("text"))
-                     for m in cites)
-            if not ok:
+            if not quotes_ok:
+                continue
+            _figures_ok, figures_removed = ground_numbers(plain, passages)
+            if figures_removed:
                 continue
             verified += 1
             claims.extend({"n": int(m.group(1)), "quote": m.group(2)} for m in cites)
-            kept_segments.append(_QUOTED_CITATION.sub(lambda m: f"[S{m.group(1)}]", segment))
+            kept_segments.append(plain)
         if kept_segments or not line.strip():
             kept_lines.append(" ".join(kept_segments))
     clean = re.sub(r"\n{3,}", "\n\n", "\n".join(kept_lines)).strip()
-    return clean, {"verified": verified, "total": total,
-                   "method": "quote found on the page"}, claims, total - verified
+    verification = {"verified": verified, "total": total, "method": "quote found on the page"}
+    if image_only:
+        verification["image_only"] = image_only
+    return clean, verification, claims, total - verified
 
 
 #: A markdown list marker at the start of a line ("- ", "* ", "1. ", "2) ").
@@ -646,35 +690,43 @@ _LIST_MARKER = re.compile(r"^\s*(?:[-*+>#]+|\d{1,2}[.)])(?:\s+|$)")
 NUMBERS_NOTICE = ("{n} sentence{s} removed: a figure in {it} was not in the passage "
                   "{it2} cited.")
 
-#: An ordinary rounding is not a wrong figure. A passage stating "17.24 barg"
-#: and an answer saying "17.2 barg" differ by ~0.2% - normal significant-figure
-#: rounding, not an invented number, and treating it as unsupported silently
-#: dropped an accurate sentence. 1% comfortably covers rounding to 2-3
-#: significant figures on the units this project sees (mm/s, barg, mm) while
-#: staying far below the gap a genuinely different figure has: 0.28 mm vs 280
-#: um is a ~1,000,000% mismatch, and this is checked on already-normalised
-#: numbers, so it never masks a units confusion.
-ROUNDING_RELATIVE_TOLERANCE = 0.01
+# An ordinary rounding is not a wrong figure: "17.2 barg" for a passage
+# stating "17.24 barg" is accurate, and dropping it lost a true sentence. But
+# ONLY a genuine rounding: the claim has FEWER decimals than the passage
+# value and equals that value rounded to the claim's own precision. A
+# relative tolerance (1% until 2026-09-30) also let "17.4" pass for 17.24 -
+# a different figure with MORE precision than the page, which no rounding
+# produces (audit 2026-09-30).
+def _decimals(value: Decimal) -> int:
+    return max(0, -value.normalize().as_tuple().exponent)
 
 
 def _is_rounding_of(value: str, spans: set[str]) -> bool:
-    """True when `value` (a `synthesis._normalise_number` output) is within
-    ROUNDING_RELATIVE_TOLERANCE of some number in `spans` - an ordinary
-    rounding, never a different figure. A non-numeric token (a clause number
-    like "5.3.2", left un-normalised by `_normalise_number` on purpose) never
-    matches here: it either exact-matches upstream or is a genuine miss.
+    """True when `value` (a `synthesis._normalise_number` output) is a
+    genuine rounding of some number in `spans`: fewer decimals than that
+    number, and equal to it rounded (half-up or half-even) to `value`'s own
+    decimals. "17.2" and "17" round 17.24; "17.4" and "17.3" do not; "18"
+    rounds 17.6. A non-numeric token (a clause number like "5.3.2", left
+    un-normalised by `_normalise_number` on purpose) never matches here: it
+    either exact-matches upstream or is a genuine miss.
     """
     try:
-        claimed_value = float(value)
-    except ValueError:
+        claimed_value = Decimal(value)
+    except InvalidOperation:
         return False
+    if not claimed_value.is_finite():
+        return False
+    places = _decimals(claimed_value)
+    step = Decimal(1).scaleb(-places)
     for span in spans:
         try:
-            span_value = float(span)
-        except ValueError:
+            span_value = Decimal(span)
+        except InvalidOperation:
             continue
-        scale = max(abs(claimed_value), abs(span_value), 1e-9)
-        if abs(claimed_value - span_value) <= ROUNDING_RELATIVE_TOLERANCE * scale:
+        if not span_value.is_finite() or _decimals(span_value) <= places:
+            continue
+        if claimed_value in (span_value.quantize(step, rounding=ROUND_HALF_UP),
+                             span_value.quantize(step, rounding=ROUND_HALF_EVEN)):
             return True
     return False
 
@@ -707,10 +759,12 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
     spans - so "0.28 mm [S1]" over a page saying "280 um" is caught the same
     way here as in a summary. An exact miss is then given one more chance:
     `_is_rounding_of` lets it through when it is an ordinary rounding of a
-    number that IS in the spans (within ROUNDING_RELATIVE_TOLERANCE), so
-    "17.2" is not stripped from a page that says "17.24" - correct, not
-    invented. The synthesis-side exact/thousands-separator normalisation
-    itself is untouched.
+    number that IS in the spans (a genuine rounding: fewer decimals, equal
+    after rounding), so "17.2" is not stripped from a page that says "17.24"
+    - correct, not invented - while "17.4" still is. Reference numerals are
+    stripped from the passages too (`synthesis.span_numbers`), so a page's
+    "clause 6" never supports a sentence's "6 mm". The synthesis-side
+    exact/thousands-separator normalisation itself is untouched.
 
     A sentence citing passages is held to THOSE passages. An uncited sentence
     (the local format allows "Yes." and bullets under one citation) is held to
@@ -721,7 +775,7 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
     """
     from . import synthesis
 
-    every = synthesis._numbers(" ".join(p.get("text") or "" for p in passages))
+    every = synthesis.span_numbers(" ".join(p.get("text") or "" for p in passages))
     kept_lines: list[str] = []
     removed: list[dict] = []
     for line in text.splitlines():
@@ -748,7 +802,7 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
             if claimed:
                 cited = sorted({int(n) for n in _CITATION.findall(segment)
                                 if 1 <= int(n) <= len(passages)})
-                spans = (synthesis._numbers(" ".join(
+                spans = (synthesis.span_numbers(" ".join(
                     passages[n - 1].get("text") or "" for n in cited)) if cited else every)
                 # Exact match (incl. thousands separators, via `spans`/`claimed`
                 # themselves) is unchanged. A claimed number missing from
@@ -1367,8 +1421,9 @@ def _answer_from_documents(
     # THE LOCAL LANE'S CLAIM CHECK. Citation numbers alone were all it had: a
     # figure the model invented beside a valid [S1] was shown. Every sentence
     # stating a figure its cited passage does not contain is removed and
-    # counted (ground_numbers). The Claude lane's quote check above is
-    # stricter and already covers this.
+    # counted (ground_numbers). The Claude lane gets the SAME figure check
+    # inside verify_claims above (a verified quote alone does not prove the
+    # sentence's figures - audit 2026-09-30), so it is not run twice here.
     numbers_removed: list[dict] = []
     if not claude_lane():
         text, numbers_removed = ground_numbers(text, passages)

@@ -205,10 +205,15 @@ start. **Back up the live DB before restarting on this version.**
   12944 online?") gets a **consent card** first: the exact phrase that would
   be sent, **Search once** and **Cancel**. Nothing leaves before you press
   Search once.
-- The phrase is built on the server from **your one question only**, through
-  the same whitelist the market screen uses: file names, quoted text and
-  unrecognised words are removed; nothing from your documents or the earlier
-  conversation is ever in it. Pressing the button sends no text at all.
+- The phrase is built on the server, through the same whitelist the market
+  screen uses: file names, quoted text and unrecognised words are removed;
+  nothing from your documents or the earlier conversation is ever in it.
+  Pressing the button sends no text at all. (Corrected 2026-09-30: on the
+  Claude-first path the phrase is built from the query Claude asked the
+  `web_search` tool for, not from your question - and "Search once" used to
+  rebuild a different phrase from your question. The consent now stores the
+  exact phrase shown and "Search once" sends exactly it; see "Audit fixes
+  2026-09-30" below.)
 - Every web query is recorded in the audit log with the phrase that left.
 - The answer lists what the web returned with **site, date and link**, marked
   **"web · unverified"**, and says your contract baseline is the edition it
@@ -314,3 +319,50 @@ start. **Back up the live DB before restarting on this version.**
   splits mid-quote and neither half verifies. Pre-dates this PR (shared,
   already-tested code); worked around in this PR's own tests by avoiding
   such quotes; recorded here rather than silently routed around forever.
+
+## Audit fixes 2026-09-30 (chat layer)
+
+Found by the chat audit; each has a failing-without-fix test in
+`backend/tests/test_chat_audit_fixes.py` and a mutation in
+`scripts/mutations/audit_chat.py` (M1520-M1538).
+
+- **A turn derived from a document turn keeps its documents** (privacy).
+  "In points" or "write that as a comment" after a *stopped* document answer
+  went down the general path, was labelled "General knowledge", and was
+  stored with no document ids - so after a grant was revoked the reworded
+  copy was still shown on reopen. Now a rewrite/action stores the previous
+  turn's document ids (`derived_document_ids`, read by
+  `chat.referenced_document_ids`), a stopped answer's passages are reused
+  like a finished one's, and document-derived text with no passages is never
+  reworded as general knowledge (the reader is told to check against the
+  documents instead).
+- **Claude-first history is on the user side, never in the system prompt.**
+  Past answers quote document text; they now travel in the first user
+  message inside `<prior_conversation>` ... `</prior_conversation>`, marked
+  untrusted in the fixed system prompt, with any delimiter inside the history
+  neutralised - the same side the old pipeline has always used.
+- **"Search once" sends exactly the approved phrase.** The consent turn stores
+  the phrase it showed (`web_phrase`); the search sends that phrase, after
+  checking it still comes back unchanged from the whitelist against the
+  caller's current file names (otherwise 409, nothing sent). A phrase the
+  whitelist would change is never offered. The consent is claimed by one
+  conditional UPDATE before anything is sent, so two quick clicks cannot both
+  send; a search every provider refused releases the claim.
+- **Claude's tools are narrowed to the conversation's document** (or the
+  request's selected one) - intersection only; @-picked documents still win.
+  "Check against my documents" now honours the @-picked documents too.
+- **Follow-up conflict rule for identifiers and values.** A newly named
+  identifier replaces a carried one of the same family ("and API 610?" after
+  API 682 no longer carries API 682; ASME B31.3 replaces B31.1; clause 5.3.4
+  replaces 5.3.2). "150#"/"600 lb" count as a class designator, and a
+  question naming its own number does not borrow the earlier one.
+- **"thanks, that's all", "ok thanks", "thanks, bye" are small talk**, not
+  questions: never searched, never context for the next question.
+- **A malformed tool input** (`document_ids: [["x"]]`, `pages: ["a"]`, an
+  input that is not an object) is returned to Claude as a tool error; the
+  loop also turns a `TypeError`/`ValueError`/`KeyError` from a tool into a
+  tool error rather than leaving the question unanswered.
+- **The done answer holds every round's text (the chosen rule).** Text
+  Claude writes before a tool call is streamed to the reader through the
+  sentence gate; the finished answer is now all rounds' text joined in order
+  and verified as one, so the preview and the stored answer agree.

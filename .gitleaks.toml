@@ -11,12 +11,18 @@ title = "rag-intelligence secret scan"
 [extend]
 useDefault = true
 
-[allowlist]
+# `[[allowlists]]`, not the deprecated `[allowlist]`: gitleaks refuses to load
+# the two forms together, and the .env.example entry below needs the new one.
+# Within one entry, paths and regexes are OR'd (condition defaults to OR),
+# which is exactly how the old `[allowlist]` table behaved.
+[[allowlists]]
 description = "Paths and values that are safe by construction"
 
 paths = [
   '''\.gitleaks\.toml$''',
-  '''\.env\.example$''',
+  # NOT `.env.example` as a whole file any more (audit 2026-09-30): a real
+  # key pasted into the example was invisible to the scanner. Its empty
+  # placeholder lines are allowed by the [[allowlists]] entry below instead.
   '''(^|/)package-lock\.json$''',
   '''(^|/)uv\.lock$''',
   '''(^|/)tests/fixtures/synthetic/''',
@@ -28,4 +34,16 @@ regexes = [
   '''<[a-z-]+>''',
   '''your-[a-z-]+-here''',
   '''CHANGE_ME''',
+]
+
+# The documented EMPTY placeholders in backend/.env.example, and only those:
+# path AND line must both match. `KEY=` with nothing after it is not a secret;
+# `KEY=<anything>` in the example is scanned like every other file.
+[[allowlists]]
+description = "empty placeholder lines in .env.example"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)\.env\.example$''']
+regexes = [
+  '''^\s*#?\s*[A-Z][A-Z0-9_]*(KEY|SECRET|PASSWORD|TOKEN)[A-Z0-9_]*=\s*$''',
 ]

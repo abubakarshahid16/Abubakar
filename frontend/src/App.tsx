@@ -330,6 +330,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               connection={connection} onRetryConnection={recheck}
               onOpenReview={(runId) => onNavigate("review", runId)}
               onOpenDocuments={() => onNavigate("documents")}
+              onOpenDeliverables={() => onNavigate("deliverables")}
             />
           )}
           {view === "standards" && <StandardsView isAdmin={canAdmin} />}

@@ -292,3 +292,33 @@ the other half and is entirely frontend.
 - **Uncertainty not resolved:** whether anything outside `frontend/src` links the
   page-image URLs or posts to `/api/documents`. `frontend/` and `backend/` were
   grepped; `eval/`, `docs/` and `scripts/` were not.
+
+---
+
+## Addendum 2026-09-30 - security audit, nine more holes
+
+Found by probing every route under `demo_required` (the method of this
+document, repeated). Closed on `fix/audit-security`; tests in
+`backend/tests/test_access_audit_security.py`, mutations M1480-M1499.
+
+| # | Hole | Fix |
+|---|---|---|
+| 1 | No `Host` check: DNS rebinding reads the API as same-origin, and under `disabled` gets every document | `trusted_host_gate` in `main.py`, names from `config.trusted_host_names` (loopback, a named `HOST`, `ALLOWED_HOSTS`). `testserver` is added by `tests/env_isolation.isolate` only. `HOST` non-loopback + `AUTH_MODE=disabled` refused at startup unless `ALLOW_UNAUTHENTICATED_NETWORK_BIND` |
+| 2 | `PATCH /api/deliverables/{id}` wrote the row, THEN checked `may_read` and answered 404 | The existing row is checked first |
+| 3 | `POST /api/risks`: no identity, no scope, no length limits | `_require_identity_to_write`, `require_document`, deliverable scope, owner rule, bounded `RiskCreate` |
+| 4 | Any signed-in user changed global settings (summary schedule, escalation rules, baseline rules, review templates) | `admin_mod.current_admin`, the admin surface's gate (404 to a non-admin) |
+| 5 | Password reset left existing sessions valid | `token_epoch` bumped when an admin issues a reset and again when it is redeemed |
+| 6 | `scripts/categorize_documents.py` posted chunk text with a bare `httpx.post` (honours `HTTP(S)_PROXY`, follows redirects, never re-checks `ollama_url`) | `model_transport.post_json` |
+| 7 | CI client-data guard: extensions only, and a synthetic-fixture exception that matched nothing; gitleaks allowlisted all of `.env.example` | Path fixed; diff-only identifier check (`scripts/check_client_identifiers.py`); `.env.example` narrowed to empty placeholder lines |
+| 8 | CRS reply workbook opened without the upload's unpacked-size limits; `/docs` and `/openapi.json` public | `upload.validate_xlsx` before `openpyxl`; a per-request docs gate |
+
+### Still not fixed
+
+- `POST /api/risks` does not check `source_finding_id` against the scope.
+- The identifier check sees ADDED lines of text files only. Identifiers already
+  tracked, and anything inside a binary file, are not reported - removing them
+  is the owner's history clean-up.
+- `current_admin` still admits an unidentified caller under `disabled` (its
+  documented concession), so under `disabled` the global settings stay
+  writable by anyone who can reach the port - which, with the bind check,
+  means this machine only.

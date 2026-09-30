@@ -512,6 +512,13 @@ def issue_password_reset(user_id: str, actor: dict | None) -> dict:
             (user_id, hashlib.sha256(token.encode("utf-8")).hexdigest(),
              now, expires.isoformat(timespec="seconds")),
         )
+        # An administrator resets a password because the old one is lost OR
+        # known to somebody else. In the second case the sessions already
+        # issued are the exposure, so they end now rather than when the user
+        # gets round to redeeming the token (or in 8 hours).
+        conn.execute(
+            "UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?",
+            (user_id,))
     _audit("admin_password_reset_issued", actor, "user", user_id)
     return {
         "user_id": user_id,
@@ -558,8 +565,15 @@ def redeem_password_token(token: str, password: str) -> dict:
         if consumed.rowcount != 1:
             raise auth_mod.AuthError(
                 errors.INVALID_RESET_TOKEN, "That reset token is invalid or has expired.")
-        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?",
-                     (password_hash, row["user_id"]))
+        # AND EVERY SESSION ISSUED UNDER THE OLD PASSWORD ENDS HERE. A reset
+        # is what an owner does when the old password may be known to someone
+        # else; leaving that someone's 8-hour token valid made the reset
+        # cosmetic. `token_epoch` is the forced-logout counter every token
+        # carries and `auth.resolve_user_id` compares on each request.
+        conn.execute(
+            "UPDATE users SET password_hash = ?, token_epoch = token_epoch + 1 "
+            "WHERE id = ?",
+            (password_hash, row["user_id"]))
     _audit("password_reset", {"id": row["user_id"], "email": row["email"]},
            "session", None)
     return {"reset": True}

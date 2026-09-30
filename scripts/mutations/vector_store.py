@@ -124,8 +124,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1278", phase=PHASE,
         description="embed_pending ignores stale vectors - they are never re-embedded",
         path=APP / "ingest.py",
-        anchor="                 AND (v.chunk_id IS NULL OR v.model IS NOT ?)\n",
-        replacement="                 AND (v.chunk_id IS NULL OR ? IS NULL)\n",
+        # Re-anchored 2026-09-30: the predicate moved to ingest._NOT_CURRENT,
+        # shared by embed_pending and its gate (M1463).
+        anchor='                " AND (v.chunk_id IS NULL OR v.model IS NOT ?)")\n',
+        replacement='                " AND (v.chunk_id IS NULL OR ? IS NULL)")\n',
         target=_T, keyword="re_embeds",
     ),
     Mutation(

@@ -22,7 +22,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_R, anchor="        if row and row[\"cancel_requested\"]:\n            raise _Cancelled()\n",
              replacement="", target=_T, keyword="stops_at_the_next_step", tags=("jobs",)),
     Mutation(id="M883", phase=77, description="P3: a cancelled review keeps its half-written findings",
-             path=_R, anchor="            conn.execute(\"DELETE FROM review_findings WHERE review_run_id = ?\"\n                         \" AND confirmed_by IS NULL\", (run_id,))\n",
+             # Re-anchored 2026-09-30 (audit): any engineer decision is kept.
+             path=_R, anchor="            conn.execute(\"DELETE FROM review_findings WHERE review_run_id = ?\"\n                         f\" AND {review_mod.UNDECIDED_SQL}\", (run_id,))\n",
              replacement="", target=_T, keyword="stops_at_the_next_step", tags=("honesty",)),
     Mutation(id="M884", phase=77, description="P3: the worker reviews with every document, not the requester's",
              path=_R, anchor="    scope = _scope_of(job[\"created_by\"])\n",
