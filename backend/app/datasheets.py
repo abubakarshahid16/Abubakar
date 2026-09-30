@@ -2693,6 +2693,151 @@ def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
             f"fact ({counts or 'no reason recorded'})")
 
 
+def _ai_page_note(ai_run: dict, page: int) -> str:
+    """What the AI reader did on a page that ended with no fact."""
+    return ai_run["reasons"].get(page) or "read the page; no reading was proved and kept"
+
+
+def _ai_gate(fact: dict, furniture: set[str]) -> str | None:
+    """Why an ACCEPTED AI reading is still not a field, or None.
+
+    `claude_datasheet.accept` has already proved the reading is on the page
+    (quote, value, label, unit, two runs). What is left is what no quote can
+    settle: page furniture, a tag row, a date, a blank (the reader is asked
+    for values only), and the code-only noise rules every reader shares. THE
+    RULES' VALUE GATE (`states_a_value`) IS NOT APPLIED: a free-text answer
+    ("Two coat epoxy") that the closed categorical list would drop is kept,
+    because its quote on the page is the proof the gate stands in for."""
+    label, value = fact.get("field") or "", fact.get("value") or ""
+    raw = " ".join(p for p in (value, fact.get("unit")) if p)
+    if is_blank_value(raw)[0]:
+        return "blank"
+    noise = row_noise.noise_reason(label, value)
+    if noise:
+        return noise
+    if normalise_field_name(label) in furniture:
+        return "furniture"
+    if tag_from_pair(label, value) is not None:
+        return "tag row"
+    if is_date_value(value):
+        return "date"
+    return None
+
+
+def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
+                      page: int, document_id: str, chunk, review_run_id: str | None,
+                      furniture: set[str], equipment_tag: str | None,
+                      input_hash: str) -> int:
+    """Apply `datasheet_ai.merge_readings` for one page inside the open
+    transaction. Returns the number of AI facts WRITTEN (AI-only and
+    conflicting readings); an agreement updates the rule fact in place.
+
+      agreed     -> the rule fact stays the one fact, at
+                    `AGREED_CONFIDENCE`, its provenance naming the engine and
+                    the AI's quote;
+      conflict   -> both kept: the AI reading written beside the rule fact,
+                    and BOTH marked `validation_state='conflict'` (the flag
+                    `comparison.low_trust_reason` already holds verdicts on),
+                    each naming the other by id;
+      AI-only    -> written as the model's (`extraction_method='model'`,
+                    confidence 0.5, section `model:<kind>`), provenance naming
+                    the engine;
+      rules-only -> untouched.
+    A page the engine could not read has no accepted facts, so every rule
+    fact on it is rules-only: the page falls back to the rule readers."""
+    from . import datasheet_ai
+
+    out = ai_run["pages"].get(page)
+    if out is None or out.get("error"):
+        return 0
+    stats["pages_read"] += 1
+    for reason, n in (out.get("counts") or {}).items():
+        stats["proposals_rejected"][reason] = stats["proposals_rejected"].get(reason, 0) + n
+    engine = ai_run["engine"]
+    dropped = stats["dropped"]
+    ai_facts: list[dict] = []
+    seen_ai: set[tuple] = set()
+    for fact in out["accepted"]:
+        why = _ai_gate(fact, furniture)
+        if why is None:
+            key = (fact["field_name"], _fold(datasheet_ai.ai_raw_value(fact)), fact.get("kind"))
+            why = "duplicate" if key in seen_ai else None
+            seen_ai.add(key)
+        if why:
+            dropped[why] = dropped.get(why, 0) + 1
+            continue
+        ai_facts.append(fact)
+    decisions = datasheet_ai.merge_readings(rule_rows, ai_facts)
+
+    def provenance_box(fact: dict, **extra) -> str:
+        return json.dumps({"reader": datasheet_ai.READER, "engine": engine,
+                           "quote": fact.get("quote"), "kind": fact.get("kind"),
+                           **extra}, sort_keys=True)
+
+    def write(fact: dict, conflicts_with: list[str] | None) -> dict | None:
+        raw, printed_unit = _vision_raw_value({"value": fact["value"], "unit": fact.get("unit")})
+        try:
+            return create_fact(
+                submittal_document_id=document_id, chunk_id=chunk["id"],
+                field_label=fact["field"], raw_value=raw, page=page,
+                section=f"model:{fact.get('kind')}", source_text=fact.get("quote"),
+                review_run_id=review_run_id, confidence=datasheet_ai.AI_CONFIDENCE,
+                extraction_method=datasheet_ai.EXTRACTION_METHOD,
+                equipment_tag=equipment_tag, commit=False,
+                validation_state=GEOMETRY_CONFLICT if conflicts_with else None,
+                extractor_version=stats["version"], input_hash=input_hash,
+                bbox=provenance_box(fact, conflicts_with=conflicts_with or None),
+                unit=printed_unit, printed_unit=printed_unit)
+        except FactError:
+            dropped["refused by create_fact"] = dropped.get("refused by create_fact", 0) + 1
+            return None
+
+    # One AI reading may contradict more than one rule fact: written ONCE,
+    # naming every rule fact it contradicts.
+    contradicts: dict[int, list[str]] = {}
+    readings: dict[int, dict] = {}
+    for d in decisions:
+        if d["outcome"] == datasheet_ai.CONFLICT:
+            for fact in d["ai"]:
+                readings[id(fact)] = fact
+                contradicts.setdefault(id(fact), []).extend(r["id"] for r in d["rules"])
+    written_ids: dict[int, str] = {}
+    for key, fact in readings.items():
+        row = write(fact, contradicts[key])
+        if row is not None:
+            written_ids[key] = row["id"]
+    count = len(written_ids)
+    for d in decisions:
+        outcome = d["outcome"]
+        if outcome == datasheet_ai.AGREED:
+            conn.execute(
+                "UPDATE submittal_facts SET confidence = ?, bbox = ? WHERE id = ?",
+                (datasheet_ai.AGREED_CONFIDENCE,
+                 provenance_box(d["ai"], agreement="rules and AI read the same value"),
+                 d["rule"]["id"]))
+            d["rule"]["confidence"] = datasheet_ai.AGREED_CONFIDENCE
+            stats["agreed"] += 1
+        elif outcome == datasheet_ai.CONFLICT:
+            ids = [written_ids[id(f)] for f in d["ai"] if id(f) in written_ids]
+            if not ids:
+                continue      # nothing written to disagree with: rules-only
+            for rule in d["rules"]:
+                conn.execute(
+                    "UPDATE submittal_facts SET validation_state = ?, bbox = ? WHERE id = ?",
+                    (GEOMETRY_CONFLICT,
+                     provenance_box(d["ai"][0], conflicts_with=ids,
+                                    agreed_ai_quote=(d.get("agreed_ai") or {}).get("quote")),
+                     rule["id"]))
+                rule["validation_state"] = GEOMETRY_CONFLICT
+            stats["conflicts"] += 1
+        elif outcome == datasheet_ai.AI_ONLY:
+            if write(d["ai"], None) is not None:
+                count += 1
+                stats["ai_only"] += 1
+    stats["facts_written"] += count
+    return count
+
+
 class _PlanOnly(Exception):
     """B7: raised inside the plan pass's transaction so it rolls back."""
 
@@ -2971,6 +3116,27 @@ def _extract_facts(
     # because the one-tag rule cannot be seen from a single page.
     tags = stamp_tags(pairs_by_page)
 
+    # AI READS, CODE CHECKS (`datasheet_ai.py`, DATASHEET_AI_READER, default
+    # off). Read ONCE per extraction, like the geometry flag. Every page with
+    # text is read by the model HERE, before the write transaction opens, so
+    # no write lock is held during a model call (B7's rule). Not in the B7
+    # plan pass (`_plan`), which is rolled back and would pay twice. With the
+    # flag off `ai_run` is None and nothing below changes.
+    ai_run = None
+    ai_stats: dict = {}
+    if _plan is None and (str(settings.datasheet_ai_reader or "off").strip().lower()
+                          or "off") != "off":
+        from . import datasheet_ai
+        ai_run = datasheet_ai.read_pages(
+            {page: datasheet_ai.page_text(stored_path, page, by_page[page])
+             for page in sorted(by_page)})
+        ai_stats = {"engine": ai_run["engine"], "unavailable": ai_run["unavailable"],
+                    "stopped": ai_run["stopped"], "pages_read": 0,
+                    "agreed": 0, "conflicts": 0, "ai_only": 0, "facts_written": 0,
+                    "dropped": {}, "proposals_rejected": {},
+                    "version": provenance.code_version(
+                        "datasheets", "datasheet_ai", "claude_datasheet")}
+
     # B19: ONE DATASHEET, ONE TRANSACTION. Every fact used to commit on its
     # own, so an extraction that died on page 5 left pages 1-4 behind - and
     # the review path's "has no facts" guard then read that partial set as
@@ -3013,6 +3179,9 @@ def _extract_facts(
             # what a geometry reading is checked against. Filled only when the
             # geometry reader is on.
             rule_facts: dict[str, list[dict]] = {}
+            # The rule readers' rows on this page, for the AI merge (flag on).
+            page_rule_rows: list[dict] = []
+            page_ai = 0
             page_geometry = 0
             page_vision = 0
             page_geometry_facts: dict[str, list[dict]] = {}
@@ -3146,6 +3315,8 @@ def _extract_facts(
                     continue
                 if geometry_tables:
                     rule_facts.setdefault(written_row["field_name"], []).append(written_row)
+                if ai_run is not None:
+                    page_rule_rows.append(written_row)
                 page_written += 1
                 written += 1
                 if blank:
@@ -3188,10 +3359,21 @@ def _extract_facts(
                     continue
                 if geometry_tables:
                     rule_facts.setdefault(written_row["field_name"], []).append(written_row)
+                if ai_run is not None:
+                    page_rule_rows.append(written_row)
                 page_written += 1
                 written += 1
                 if grid_blank:
                     blanks += 1
+            if ai_run is not None:
+                # AI READS, CODE CHECKS: merged with the rule readers' rows of
+                # this page only, BEFORE the geometry and vision readers, so
+                # their precedence rules still compare against rule facts.
+                page_ai = _write_ai_reading(
+                    conn, ai_run, ai_stats, page_rule_rows, page=page,
+                    document_id=document_id, chunk=chunk, review_run_id=review_run_id,
+                    furniture=furniture, equipment_tag=tags.get(page), input_hash=inputs)
+                written += page_ai
             # B4 (#193 5.5): GEOMETRY READINGS, only with the flag on, and
             # only AFTER both rule readers so the rule reader always wins.
             # A REVISION TABLE IS DROPPED WHOLE: row by row it reads as fields
@@ -3381,9 +3563,11 @@ def _extract_facts(
             # contradicted. Consequence, accepted by the owner: a requirement
             # unmatched on such a page is now qualified as on a read page
             # (comparison.qualify_by_pages), not sent to an engineer as unread.
-            page_read = page_written + page_geometry + page_vision
+            page_read = page_written + page_geometry + page_vision + page_ai
             if page_read == 0:
                 reason = _unparsed_reason(pairs, dropped)
+                if ai_run is not None:
+                    reason = f"{reason}; AI reader: {_ai_page_note(ai_run, page)}"
                 if geometry_on:
                     # B4 item 1: what the vision reader did with this page.
                     reason = (f"{reason}; vision {vision_routing.get(page, 'not decided')}"
@@ -3400,6 +3584,9 @@ def _extract_facts(
                         "is for an engineer to check on the page")
                 if geometry_on and vision_routing.get(page) == VISION_ROUTED:
                     note = f"{note}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}"
+                if ai_run is not None:
+                    note = (f"{note}; {page_ai} AI reading(s) ({ai_run['engine']}), "
+                            "each proved by its quote on the page")
                 outcomes[page] = ("facts", page_read, note)
             else:
                 outcomes[page] = ("facts", page_read, None)
@@ -3453,6 +3640,9 @@ def _extract_facts(
                         "vision_refused": sorted({r.refused for r in vision_by_page.values()
                                                   if r is not None and r.refused})}
                        if geometry_tables else {})
+    if ai_run is not None:
+        ai_stats["page_reasons"] = {p: ai_run["reasons"][p] for p in sorted(ai_run["reasons"])}
+        geometry_counts = {**geometry_counts, "ai_reader": ai_stats}
     return {
         **geometry_counts,
         "document_id": document_id,

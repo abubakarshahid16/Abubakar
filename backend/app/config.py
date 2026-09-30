@@ -446,6 +446,28 @@ class Settings(BaseSettings):
     #: datasheets.vision_route). A ceiling on cost and time per document, on
     #: top of claude_spend's USD caps. Env: VISION_MAX_PAGES_PER_DOCUMENT.
     vision_max_pages_per_document: int = 10
+    #: "AI READS, CODE CHECKS" (`datasheet_ai.py`): during
+    #: `datasheets.extract_facts`, every page with text is also read by a model
+    #: (`claude_datasheet.read_page`: two runs must agree, and every fact must
+    #: quote the page) and the reading is MERGED with the rule readers' facts -
+    #: agreement raises confidence (never to "high"), disagreement keeps both
+    #: flagged `validation_state='conflict'`, an AI-only fact is kept only
+    #: because its quote was proved on the page. One of:
+    #:   "off"    - the default; extraction is exactly what it was before.
+    #:   "ollama" - the local engine, through `model_transport` (loopback, or
+    #:              a host `check_model_url` permits).
+    #:   "claude" - the Claude API, only when REASONING_PROVIDER=claude AND
+    #:              both STANDARDS_READER_* egress flags AND a key, and every
+    #:              call metered by `claude_spend` (USD caps) under the step
+    #:              `datasheet-ai-reader`.
+    #: An engine that is unavailable, fails or is refused by a cap leaves the
+    #: page to the rule readers, with the reason recorded; ingestion never
+    #: fails on it. NOT YET MEASURED on real datasheets. Any other value is
+    #: treated as off. Env: DATASHEET_AI_READER. The owner flips it.
+    datasheet_ai_reader: str = "off"
+    #: The local model the "ollama" engine uses; empty = `answer_model`.
+    #: Env: DATASHEET_AI_OLLAMA_MODEL.
+    datasheet_ai_ollama_model: str = ""
     #: B8: after the structural answerability checks, a reasoning model
     #: (local Ollama, or Claude through reader_transport under the USD caps)
     #: judges whether the passages ANSWER the question. It may only downgrade
