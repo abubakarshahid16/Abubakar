@@ -214,6 +214,10 @@ def _child(path: str, barrier, results) -> None:
         results.put("refused")
 
 
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="needs the POSIX 'fork' start method; runs on the Linux CI runner",
+)
 def test_four_processes_sharing_one_ledger_let_exactly_one_call_through(monkeypatch):
     """THE MUTATION TARGET (M1474): the thread lock alone does not reach
     another process; the OS lock on `<ledger>.lock` does."""
