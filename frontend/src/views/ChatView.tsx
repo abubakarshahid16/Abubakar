@@ -512,6 +512,7 @@ export function ChatView({
     return {
       answer_type: f.answer_type ?? "insufficient_evidence",
       reason: f.reason,
+      provider: f.provider ?? null,
       considered: sourcesOf(viewFromMessage(f)),
       activeSource: evidence?.messageId === f.id ? evidence.index : null,
       onSelectSource: (i: number) => setEvidence({ messageId: f.id, index: i }),

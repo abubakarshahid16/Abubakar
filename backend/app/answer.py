@@ -1462,6 +1462,7 @@ def _answer_from_documents(
         return {
             **base,
             "answer_type": "model_unavailable",
+            "provider": reasoning_provider.CLAUDE,
             "answer": None,
             "reason": f"the Claude spending cap would be exceeded, so no answer was generated ({exc})",
             "passages": passages,
@@ -1472,6 +1473,7 @@ def _answer_from_documents(
         return {
             **base,
             "answer_type": "model_unavailable",
+            "provider": reasoning_provider.CLAUDE if claude_lane() else reasoning_provider.OLLAMA,
             "answer": None,
             "reason": f"the answer model would not answer ({str(exc).split(':')[0]})",
             "passages": passages,
@@ -1482,8 +1484,10 @@ def _answer_from_documents(
         return {
             **base,
             "answer_type": "model_unavailable",
+            "provider": reasoning_provider.CLAUDE if claude_lane() else reasoning_provider.OLLAMA,
             "answer": None,
-            "reason": f"the local answer model could not be reached ({type(exc).__name__})",
+            "reason": (f"the {'Claude' if claude_lane() else 'local'} answer model could not be "
+                       f"reached ({type(exc).__name__})"),
             "passages": passages,
             "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),

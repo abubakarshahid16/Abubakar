@@ -78,6 +78,17 @@ def provider(preference: str | None = None) -> rp.ReasoningProvider:
     return rp.get_provider("reasoning", step=CHAT_STEP)
 
 
+def engine_name(preference: str | None = None) -> str:
+    """Which engine this answer used, as `rp.CLAUDE` or `rp.OLLAMA`.
+
+    Stored on a failed answer so the screen can say WHICH engine failed. Never
+    raises: a failure notice must not itself fail."""
+    try:
+        return rp.CLAUDE if isinstance(provider(preference), rp.ClaudeProvider) else rp.OLLAMA
+    except Exception:  # noqa: BLE001 - reporting must not crash
+        return rp.OLLAMA
+
+
 # ----------------------------------------------------------------- history
 
 def history(conversation_id: str, *, allowed_document_ids: frozenset[str],

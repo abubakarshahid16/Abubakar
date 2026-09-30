@@ -828,6 +828,36 @@ describe("insufficient evidence", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
   });
+
+  it("a Claude failure is named as Claude's, not the local model's", async () => {
+    mockApi({
+      conversation: {
+        conversation,
+        messages: [
+          userMessage(),
+          extractMessage({
+            text: null,
+            answer_type: "model_unavailable",
+            provider: "claude",
+            reason: "the Claude call failed partway through this answer: HTTPStatusError: 400",
+            payload: { passages: [A1], seconds: 0.1 },
+          }),
+        ],
+      },
+      conversations: {
+        total: 1,
+        limit: 20,
+        offset: 0,
+        conversations: [{ ...conversation, first_question: "q" }],
+      },
+    });
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
+
+    expect(await screen.findByText(/Claude could not answer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/The local answer model is not running/i)).toBeNull();
+    expect(screen.queryByText("ollama serve")).toBeNull();
+  });
 });
 
 // ----------------------------------------------------------------- follow-ups

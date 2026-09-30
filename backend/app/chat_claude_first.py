@@ -389,7 +389,7 @@ def _failure_reason(exc: Exception) -> str:
 def _budget_or_provider_failure(exc: Exception, sources: list[dict], steps: list[dict],
                                 started: float, turn_cost: float = 0.0) -> dict:
     return {**_REQUIRED_DEFAULTS, "answer_type": "model_unavailable", "answer": None,
-           "reason": _failure_reason(exc),
+           "reason": _failure_reason(exc), "provider": rp.CLAUDE,
            "passages": sources, "steps": steps, "cited": [], "claims": [],
            "cost_usd": round(turn_cost, 6), "seconds": round(time.time() - started, 3)}
 

@@ -200,6 +200,46 @@ describe("the model being down never looks like the model refusing", () => {
   });
 });
 
+// Found 2026-09-30: a Claude request failed and the screen blamed the local
+// model and told the reader to run `ollama serve`. The notice now follows the
+// engine that failed, in both directions.
+describe("a failed answer names the engine that failed", () => {
+  const claudeDown = refusal({
+    answer_type: "model_unavailable",
+    provider: "claude",
+    reason: "the Claude call failed partway through this answer: HTTPStatusError: 400",
+    considered: [],
+  });
+
+  it("a Claude failure is not blamed on the local model and offers no ollama command", () => {
+    renderCard(claudeDown, () => {});
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(/Claude did not answer/i);
+    expect(alert).toHaveTextContent(/HTTPStatusError: 400/);
+    expect(alert).not.toHaveTextContent(/local answer model/i);
+    expect(alert).not.toHaveTextContent(/ollama/i);
+    expect(alert).not.toHaveTextContent(/not your question/i);
+  });
+
+  it("a local failure still names the local model and the command", () => {
+    renderCard(
+      refusal({
+        answer_type: "model_unavailable",
+        provider: "ollama",
+        reason: "the local answer model could not be reached (ConnectError)",
+        considered: [],
+      }),
+      () => {},
+    );
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(/local answer model is not running/i);
+    expect(alert).toHaveTextContent("ollama serve");
+    expect(alert).not.toHaveTextContent(/Claude did not answer/i);
+  });
+});
+
 describe("an absent reason renders as nothing, never as a placeholder", () => {
   it("prints no null, no dash and no empty sentence for a refusal", () => {
     renderCard(refusal({ reason: null }), () => {});
