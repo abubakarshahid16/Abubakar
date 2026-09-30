@@ -835,6 +835,10 @@ def ask(
             model=model, history=memory())
 
     claude_first_result = None
+    #: USD a failed first Claude call was charged before this turn fell back
+    #: to the existing pipeline - part of THIS answer's cost (audit leftover
+    #: 2026-09-30: the ledger counted it, the answer did not show it).
+    fallback_spent: list[float] = []
     if (spec_shaped_result is None and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
         from . import chat_claude_first
@@ -842,7 +846,7 @@ def ask(
             original, history=memory(always=True),
             allowed_document_ids=claude_scope(retrieval_allowed, document_id=document_id,
                                               picked=bool(document_ids)),
-            web_enabled=web, preference=model)
+            web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append)
 
     if spec_shaped_result is not None:
         # Never falls to chat_answers.general below, even when this came back
@@ -908,6 +912,12 @@ def ask(
         result = chat_answers.records(routed["text"], allowed_document_ids=allowed_document_ids,
                                       include_unowned=include_unowned_records)
 
+    if fallback_spent:
+        charged = round(sum(fallback_spent), 6)
+        result["cost_usd"] = round(float(result.get("cost_usd") or 0.0) + charged, 6)
+        result["notices"] = [*(result.get("notices") or []), (
+            f"A Claude call for this turn failed and was charged USD {charged:.4f}; "
+            "the answer came from the local pipeline, and its cost includes that call.")]
     result["route"] = route_kind
     result["history_turns"] = memory.turns
     if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER) and routed.get("compliance"):

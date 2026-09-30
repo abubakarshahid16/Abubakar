@@ -2372,8 +2372,8 @@ def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(ac
     """Record a risk. The same rules as every other writer (audit 2026-09-30):
 
     an identity is required, anything it points at must be readable by the
-    caller (a risk on a hidden document or deliverable is a write into
-    somebody else's record), and an ordinary user may only name themselves as
+    caller (a risk on a hidden document, deliverable or source finding is a
+    write into somebody else's record), and an ordinary user may only name themselves as
     owner. Length limits live on `schemas.RiskCreate`.
     """
     _require_identity_to_write(scope)
@@ -2387,6 +2387,14 @@ def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(ac
                               and not scope.may_read(linked["document_id"])):
             raise HTTPException(status_code=404, detail=errors.safe_error(
                 errors.NOT_FOUND, "no deliverable with that id"))
+    if body.source_finding_id:
+        # The finding a risk cites is read with its document (audit leftover
+        # 2026-09-30): one on a document the caller may not read answers the
+        # same 404 as one that does not exist.
+        source = review_mod.get(body.source_finding_id)
+        if source is None or not scope.may_read(source["document_id"]):
+            raise HTTPException(status_code=404, detail=errors.safe_error(
+                errors.NOT_FOUND, "no finding with that id"))
     if body.owner_user_id and not scope.is_admin and body.owner_user_id != scope.user_id:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "risk owner not found"))
@@ -3995,6 +4003,41 @@ def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> N
             review_run_id, exc_info=True)
 
 
+def _display_names(user_ids: set[str]) -> dict[str, str]:
+    """{user id: display name} for the ids that have a non-empty display name
+    on record. An id with none is absent - the caller prints the id rather
+    than invent a name."""
+    ids = sorted(i for i in user_ids if i)
+    if not ids:
+        return {}
+    marks = ",".join("?" for _ in ids)
+    return {r["id"]: r["display_name"] for r in connect().execute(
+        f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(ids))
+        if r["display_name"]}
+
+
+def _prior_rejections(submittal_id: str, allowed: frozenset[str]
+                      ) -> dict[str, tuple[str | None, str | None]]:
+    """{comment key: (rejected by, rejected at)} for every comment an engineer
+    rejected on ANY run of this submittal the caller may read - the latest
+    rejection per key. Read only; keys as `crs_mapping.finding_comment_key`
+    gives them, over the same CRS context the rows are built from."""
+    runs = [r["id"] for r in connect().execute(
+        "SELECT id FROM review_runs WHERE submittal_document_id = ?", (submittal_id,))]
+    rejected: list[dict] = []
+    for run_id in runs:
+        rejected.extend(f for f in submittal_review_mod.list_run_findings(
+            run_id, allowed_document_ids=allowed)
+            if f.get("approval_status") == "rejected")
+    if not rejected:
+        return {}
+    comparison_mod.attach_crs_context(rejected)
+    out: dict[str, tuple[str | None, str | None]] = {}
+    for f in sorted(rejected, key=lambda f: f.get("approved_at") or ""):
+        out[crs_mapping_mod.finding_comment_key(f)] = (f.get("approved_by"), f.get("approved_at"))
+    return out
+
+
 def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "internal"
                  ) -> tuple[list[dict], dict, str, str]:
     """One run's CRS rows and meta, with the scope question asked once.
@@ -4124,20 +4167,45 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             # same comment raised again by a re-run or on a resubmittal is the
             # one already confirmed, and is issued as such.
             row["engineer_confirmed"] = True
+    # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO (audit leftover
+    # 2026-09-30). A new run of the same submittal raises the same comment
+    # again as an unconfirmed draft; it is kept (a new run may be right), but
+    # the engineer is never asked twice blind: its byline names who rejected
+    # it and when, from the rejection on record. Never on a confirmed row.
+    rejections = _prior_rejections(submittal_id, allowed)
+    carried = crs_numbers_mod.open_elsewhere(crs_scope, set(crs_keys))
+    people = _display_names(
+        {by for by, _at in rejections.values() if by}
+        | {who for who in (crs_mapping_mod.byline_person(r.get("comment_by"))
+                           for r in carried) if who})
+    for row in rows:
+        seen = rejections.get(row.get("comment_key") or "")
+        if seen is None or row.get("engineer_confirmed"):
+            continue
+        by, at = seen
+        note = "previously rejected" + (
+            f" by {people.get(by) or by}" if by else "") + (
+            f" on {at[:10]}" if at else "")
+        row["previously_rejected"] = note
+        row["comment_by"] = " - ".join(p for p in (row.get("comment_by"), note) if p)
     # CARRY-FORWARD (industry practice): an Open comment from an earlier run
     # or revision of this submittal that this run no longer raises stays on
     # the sheet until a reviewer closes it - never dropped because a later
     # run stopped producing it. Read only, from what the comment last said.
     # A comment an engineer rejected before issue is WITHDRAWN (not Open) by
-    # `_mint_crs_numbers`, so `open_elsewhere` never returns it.
-    for record in crs_numbers_mod.open_elsewhere(crs_scope, set(crs_keys)):
+    # `_mint_crs_numbers`, so `open_elsewhere` never returns it. A byline
+    # snapshotted before bylines printed names ("confirmed by eng-1") is
+    # resolved to the display name here when one is on record (audit
+    # leftover 2026-09-30) - never invented.
+    for record in carried:
         rows.append({
             "finding_id": "",
             "document_name": record.get("document_name") or submittal_name,
             "page_section": record.get("page_section") or "",
             "comment": record.get("comment") or "",
             "comment_by": " - ".join(p for p in (
-                record.get("comment_by"), "carried forward from an earlier review") if p),
+                crs_mapping_mod.resolve_byline(record.get("comment_by"), people),
+                "carried forward from an earlier review") if p),
             "standard_reference": record.get("standard_reference") or "",
             "row_kind": crs_mapping_mod.ROW_KIND_CARRIED_FORWARD,
             "engineer_confirmed": True,

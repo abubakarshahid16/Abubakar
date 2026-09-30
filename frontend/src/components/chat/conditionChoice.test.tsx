@@ -78,3 +78,44 @@ describe("clauses that differ by condition", () => {
     expect(screen.getByTestId("condition-options")).toBeInTheDocument();
   });
 });
+
+/**
+ * Closed limits (2026-09-30): the cases of ONE passage, and the verdict an
+ * options answer carries. Paired with vitest mutations M1595-M1597 in
+ * scripts/mutations/condition_choice_2.py.
+ */
+const LINES: ConditionChoice = {
+  mode: "options",
+  within_passage: true,
+  reason: "this passage sets different values for different size",
+  kinds: ["size"],
+  question_names: [],
+  options: [
+    { ...OPTIONS.options[0], chunk_id: "a", conditions: ["2 inch and smaller"],
+      line: "pipes 2 inch and smaller: 3 mm", highlight: [0, 30] },
+    { ...OPTIONS.options[0], chunk_id: "a", conditions: ["larger than 2 inch"],
+      line: "pipes larger than 2 inch: 6 mm", highlight: [32, 62] },
+  ],
+};
+
+describe("one passage that lists several cases", () => {
+  it("lists every line of the passage with its condition", () => {
+    show(view({ condition_choice: LINES }));
+    expect(screen.getByTestId("condition-options")).toHaveTextContent("One passage lists every case");
+    expect(screen.getByText(/"pipes 2 inch and smaller: 3 mm"/)).toBeInTheDocument();
+    expect(screen.getByText(/"pipes larger than 2 inch: 6 mm"/)).toBeInTheDocument();
+  });
+
+  it("says which line was highlighted for the size the question named", () => {
+    show(view({ condition_choice: { ...LINES, mode: "matched", question_names: ["6 inch"],
+      options: [LINES.options[1]] } }));
+    expect(screen.getByTestId("condition-matched")).toHaveTextContent(
+      "Answered for 6 inch: this passage lists several cases; the line for larger than 2 inch is highlighted");
+  });
+
+  it("shows an options answer as having no single answer yet", () => {
+    show(view({ condition_choice: OPTIONS, answerability: {
+      verdict: "depends_on_condition", reason: OPTIONS.reason, evidence: [] } }));
+    expect(screen.getByText(/depends on a condition the question does not state/)).toBeInTheDocument();
+  });
+});

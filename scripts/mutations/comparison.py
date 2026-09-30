@@ -732,7 +732,8 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "requirement reaches a verdict with its condition "
                     "unevaluated - the Phase 0.5 defect exactly",
         path=APP / "comparison.py",
-        anchor="    condition = conditions.evaluate(requirement, submittal_facts)",
+        # Re-anchored 2026-09-30: the gate now also takes the compared fact.
+        anchor="    condition = conditions.evaluate(requirement, submittal_facts, about=fact)",
         replacement="    condition = None  # MUTANT: B24 gate removed",
         target="tests/test_condition_gate.py",
         tags=("honesty", "critical"),

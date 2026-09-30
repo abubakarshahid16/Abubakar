@@ -53,7 +53,7 @@ describe("the B8 verdict is visible on the answer", () => {
       verdict: "conflicting_evidence", reason: "two documents give different values",
       evidence: [{ document_id: "doc_std", page_start: 4, page_end: 4, section: "5.2 Bolting" }],
     } }));
-    expect(screen.getByText(/The documents disagree on this/)).toBeInTheDocument();
+    expect(screen.getByText(/The passages disagree on this/)).toBeInTheDocument();
     expect(screen.getByText("two documents give different values")).toBeInTheDocument();
     expect(screen.getByText("page 4, 5.2 Bolting")).toBeInTheDocument();
     expect(screen.getByText(P.text)).toBeInTheDocument();

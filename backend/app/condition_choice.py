@@ -329,7 +329,9 @@ def _numeric(kind: str, text: str, question: bool) -> list[Condition]:
                 out.append(Condition(kind, label, high=v, high_open=strict))
             else:
                 out.append(Condition(kind, label, low=v, high=v))
-    return out
+    # `taken` grows in step with `out` (one span per condition), so each
+    # condition comes back with where it is written.
+    return list(zip(out, taken))
 
 
 def extract(text: str, *, question: bool = False) -> list[Condition]:
@@ -340,7 +342,7 @@ def extract(text: str, *, question: bool = False) -> list[Condition]:
     text = (text or "").replace("−", "-").replace("–", "–")
     found: list[Condition] = []
     for kind in ("size", "temperature", "pressure"):
-        found.extend(_numeric(kind, text, question))
+        found.extend(c for c, _ in _numeric(kind, text, question))
     for m in _CLASS.finditer(text):
         n = next(g for g in m.groups() if g)
         found.append(Condition("class", " ".join(m.group(0).split()), value=f"class {n}"))
@@ -399,3 +401,113 @@ def verdict(question_conditions: list[Condition], passage_conditions: list[Condi
 def describe(conditions: list[Condition], kinds: set[str] | None = None) -> list[str]:
     """The conditions as the passage writes them, for the reader."""
     return [c.text for c in conditions if kinds is None or c.kind in kinds]
+
+
+# ----------------------------------------------------- one passage, several cases
+
+def located(text: str) -> list[tuple[Condition, int, int]]:
+    """Every condition a PASSAGE states, with where it is written (offsets
+    into `text`). Read as `extract` reads a passage, but NOT de-duplicated
+    (the same condition on two lines is two occurrences) and ONE LINE AT A
+    TIME: a table header's "wall thickness" must not make the row below it
+    read as a measured value."""
+    text = (text or "").replace("\u2212", "-")        # same length: offsets hold
+    found: list[tuple[Condition, int, int]] = []
+    at = 0
+    for line in text.split("\n"):
+        found.extend((c, a + at, b + at) for c, a, b in _located_line(line))
+        at += len(line) + 1
+    return sorted(found, key=lambda t: t[1])
+
+
+def _located_line(text: str) -> list[tuple[Condition, int, int]]:
+    found: list[tuple[Condition, int, int]] = []
+    for kind in ("size", "temperature", "pressure"):
+        found.extend((c, a, b) for c, (a, b) in _numeric(kind, text, False))
+    for m in _CLASS.finditer(text):
+        n = next(g for g in m.groups() if g)
+        found.append((Condition("class", " ".join(m.group(0).split()), value=f"class {n}"),
+                      m.start(), m.end()))
+    for m in _PN.finditer(text):
+        found.append((Condition("class", m.group(0), value=f"PN {m.group(1)}"), m.start(), m.end()))
+    lowered = text.lower()
+    for kind, vocab in _CATEGORIES.items():
+        for pattern, value in vocab:
+            for m in re.finditer(pattern, lowered):
+                found.append((Condition(kind, m.group(0), value=value), m.start(), m.end()))
+    return found
+
+
+@dataclass(frozen=True)
+class Case:
+    """One line of a passage that lists several cases: the condition it is
+    written for, where the line is (offsets into the passage text), the line
+    as written, and the values it states (the condition's own numbers aside)."""
+    condition: Condition
+    start: int
+    end: int
+    text: str
+    values: frozenset[str]
+
+
+#: A case line starts after one of these (a clause's lead-in colon, a list
+#: separator, a table row break, a sentence end) ...
+_CASE_OPEN = re.compile(r"[;:,\n]|(?<=[.!?])\s")
+#: ... and ends at a list separator, a row break or a sentence end ("1.5" is
+#: not one: the point must be followed by a space or the end).
+_CASE_CLOSE = re.compile(r"[;\n]|[.!?](?=\s|$)")
+_KIND_ORDER = ("size", "temperature", "pressure", "class", "service", "material", "location")
+
+
+def _lines_for(text: str, occurrences: list[tuple[Condition, int, int]]) -> list[Case]:
+    starts = []
+    for i, (_, s, _) in enumerate(occurrences):
+        floor = occurrences[i - 1][2] if i else 0
+        opens = [m.end() for m in _CASE_OPEN.finditer(text, floor, s)]
+        starts.append(opens[-1] if opens else floor)
+    out: list[Case] = []
+    for i, (c, s, e) in enumerate(occurrences):
+        close = _CASE_CLOSE.search(text, e)
+        end = min(close.start() if close else len(text),
+                  starts[i + 1] if i + 1 < len(occurrences) else len(text))
+        start = starts[i]
+        raw = text[start:end]
+        lead = len(raw) - len(raw.lstrip())
+        body = raw.strip().rstrip(";:,").rstrip()
+        if not body:
+            continue
+        # the values the line SETS: its numbers, the condition's own blanked
+        # out ("over 2 inch to 6 inch | 6 mm" sets 6, not nothing)
+        at = start + lead
+        values = stated_values(text[at:s] + " " * (e - s) + text[e:at + len(body)])
+        if values:
+            out.append(Case(c, start + lead, start + lead + len(body), body, frozenset(values)))
+    return out
+
+
+def cases(text: str) -> list[Case]:
+    """The cases ONE passage lists, when it sets a different value for each:
+    "pipes 2 inch and smaller: 3 mm; pipes larger than 2 inch: 6 mm", or a
+    table whose rows are size ranges. In reading order; [] when the passage
+    is not such a list - fewer than two lines each stating a value under a
+    condition, conditions all the same, or values all the same.
+
+    One kind of condition is read: the one with the most distinct
+    conditions (ties in `_KIND_ORDER`). The lines are located, never
+    rewritten - the passage is still quoted whole."""
+    by_kind: dict[str, list[tuple[Condition, int, int]]] = {}
+    for c, s, e in located(text):
+        by_kind.setdefault(c.kind, []).append((c, s, e))
+    best: list[Case] = []
+    best_distinct = 1
+    for kind in _KIND_ORDER:
+        occurrences = by_kind.get(kind) or []
+        found = _lines_for(text or "", occurrences)
+        distinct: list[Condition] = []
+        for case in found:
+            if not any(case.condition.same_as(d) for d in distinct):
+                distinct.append(case.condition)
+        if len(distinct) <= best_distinct or len({case.values for case in found}) < 2:
+            continue
+        best, best_distinct = found, len(distinct)
+    return best

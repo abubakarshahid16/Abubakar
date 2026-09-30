@@ -93,6 +93,10 @@ REQUIRES_OTHER_DOCUMENT = "requires_other_document"
 #: class, PWHT...) named nothing of the kind. Only a clause whose own sentence
 #: names a document (`required_evidence_type`) carries the first token now.
 NO_FIELD_MATCHED = "no_field_matched"
+#: The reason code a NOT_APPLICABLE finding leads with when the requirement's
+#: condition was established as NOT holding by a datasheet fact (B24 and the
+#: condition reader in `conditions`). Read by `crs_mapping` as a literal.
+CONDITION_NOT_MET = "condition_not_met"
 
 #: Statuses that block approval. `MISSING_INFORMATION` is deliberately NOT
 #: here: a field nobody filled in is a question, not a failure, and it steers
@@ -446,20 +450,30 @@ def low_trust_reason(fact: dict | None) -> str | None:
     return None
 
 
+#: The verdicts an untrusted value may not produce. BOTH of them (audit
+#: leftover 2026-09-30): a COMPLIANT resting on an OCR-fallback or model-read
+#: value is the same guess as a breach resting on one - it only fails the
+#: other way, silently passing a value nobody has checked.
+_VERDICTS_HELD_ON_LOW_TRUST = frozenset({NON_COMPLIANT, COMPLIANT})
+
+
 def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
-    """A NON_COMPLIANT verdict resting on an untrusted value becomes a question
-    for the engineer, with the arithmetic kept in the words. Audit
+    """A verdict - breach OR compliance - resting on an untrusted value becomes
+    a question for the engineer, with the arithmetic kept in the words. Audit
     2026-09-30: an OCR-fallback or model-read value (confidence 0.5 or below)
     produced a contractor-facing breach, which is a guess shown as a finding
-    (CLAUDE.md rule 4). Every other verdict passes unchanged."""
-    if verdict.get("status") != NON_COMPLIANT:
+    (CLAUDE.md rule 4); the same value read as "within the limit" was
+    accepted, which is the same guess. Every other status (already a
+    question, missing information) passes unchanged."""
+    if verdict.get("status") not in _VERDICTS_HELD_ON_LOW_TRUST:
         return verdict
     reason = low_trust_reason(fact)
     if reason is None:
         return verdict
     return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
-        f"{LOW_TRUST_VALUE}: {reason}, so the arithmetic below is not stated as "
-        f"a breach until an engineer checks the value on the page: "
+        f"{LOW_TRUST_VALUE}: {reason}, so no verdict (neither compliant nor a "
+        f"breach) is stated until an engineer checks the value on the page; "
+        f"the arithmetic on the value as read: "
         f"{verdict.get('rationale') or ''}")}
 
 
@@ -646,7 +660,9 @@ def _compare(requirement: dict, fact: dict | None, *,
     # carrying a real condition, so every other requirement type - including the
     # 4,246 `table_value` rows whose `condition` column holds a table row label
     # like "Arsenic" or "100" - reaches the code below unchanged.
-    condition = conditions.evaluate(requirement, submittal_facts)
+    # `about=fact`: only facts about the same tag / nozzle as the compared
+    # value may establish the condition (review conditions, 2026-09-30).
+    condition = conditions.evaluate(requirement, submittal_facts, about=fact)
     if condition is not None and condition["state"] != conditions.SATISFIED:
         if condition["state"] == conditions.NOT_SATISFIED:
             return {
@@ -654,8 +670,12 @@ def _compare(requirement: dict, fact: dict | None, *,
                 # fact was read and states something the condition is not, and
                 # that fact travels with the finding.
                 "status": NOT_APPLICABLE,
+                # CONDITION_NOT_MET leads, so the CRS can list the excused
+                # requirement - with the condition and the datasheet value
+                # that excused it - on the engineer's Review notes rather than
+                # dropping it or printing it as a breach (`crs_mapping`).
                 "rationale": (
-                    f"this requirement is conditional on "
+                    f"{CONDITION_NOT_MET}: this requirement is conditional on "
                     f"{condition['condition']!r} and the submittal establishes "
                     f"otherwise: {condition['reason']}"),
                 "limit": None,
@@ -783,10 +803,7 @@ def _compare(requirement: dict, fact: dict | None, *,
     if verdict is None:
         return {
             "status": NEEDS_ENGINEER_REVIEW,
-            "rationale": (
-                f"the submitted unit {fact.get('raw_unit')!r} and the required "
-                f"unit {governing.get('raw_unit')!r} cannot be compared by this "
-                "system; no conversion is guessed"),
+            "rationale": _unit_obstacle(fact.get("raw_unit"), governing.get("raw_unit")),
             "limit": _describe(limit, governing),
             "observed": _describe(observed, fact),
             "exception_applied": exception, **_cond,
@@ -814,6 +831,33 @@ def _compare(requirement: dict, fact: dict | None, *,
         "observed": _describe(observed, fact),
         "exception_applied": exception, **_cond,
     }
+
+
+#: The fixed words every "a unit is missing" refusal ends with, so a reader of
+#: `ai_rationale` (`claude_recheck`'s blocked check) matches them the way it
+#: matches the two-unit refusal's "no conversion is guessed".
+UNIT_NOT_GUESSED_PHRASE = "no unit is guessed, so no comparison was made"
+
+
+def _unit_obstacle(submitted_unit: str | None, required_unit: str | None) -> str:
+    """Why two readable numbers were not compared, naming only the units that
+    exist. Audit leftover 2026-09-30: two values with no unit read "the
+    submitted unit '' and the required unit '' cannot be compared" - a
+    sentence about two units nobody wrote."""
+    got = (submitted_unit or "").strip()
+    want = (required_unit or "").strip()
+    if not got and not want:
+        return ("neither the submitted value nor the requirement states a unit, "
+                "so this system cannot tell whether they measure the same "
+                f"quantity; {UNIT_NOT_GUESSED_PHRASE}")
+    if not got:
+        return (f"the submitted value states no unit and the requirement is in "
+                f"{want!r}; {UNIT_NOT_GUESSED_PHRASE}")
+    if not want:
+        return (f"the requirement states no unit and the submitted value is in "
+                f"{got!r}; {UNIT_NOT_GUESSED_PHRASE}")
+    return (f"the submitted unit {got!r} and the required unit {want!r} cannot "
+            "be compared by this system; no conversion is guessed")
 
 
 def _plain(number: float) -> str:

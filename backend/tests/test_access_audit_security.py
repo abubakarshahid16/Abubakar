@@ -178,6 +178,29 @@ def test_a_risk_on_a_hidden_document_is_refused(secure):
     assert ok.status_code == 200, ok.text
 
 
+def test_a_risk_citing_a_hidden_finding_is_refused(secure):
+    """Audit leftover (M1612): `source_finding_id` was stored unchecked, so a
+    risk could be written against a finding on a document the caller may not
+    read. 404 - the same answer as a finding that does not exist."""
+    from app import review as review_mod
+
+    def finding(document_id):
+        return review_mod.create({"document_id": document_id, "category": "c",
+                                  "severity": "low", "requirement": "r", "finding": "f",
+                                  "required_action": "a"}, created_by="u_admin")["id"]
+
+    body = {"risk_type": "review", "title": "t", "description": "d"}
+    for source in (finding("doc_hidden"), "no-such-finding"):
+        r = secure.post("/api/risks", json={**body, "source_finding_id": source},
+                        headers=_h("u1"))
+        assert r.status_code == 404, source
+        assert r.json()["detail"]["code"] == "not_found"
+    assert _risk_count() == 0
+    ok = secure.post("/api/risks", json={**body, "source_finding_id": finding("doc_mine")},
+                     headers=_h("u1"))
+    assert ok.status_code == 200, ok.text
+
+
 def test_a_risk_description_is_length_limited(secure):
     r = secure.post("/api/risks", json={"risk_type": "review", "title": "t",
                                         "description": "x" * 100_000}, headers=_h("u1"))

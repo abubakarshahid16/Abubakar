@@ -1,0 +1,19 @@
+# Public engineering words and abbreviations `market_phrase` may send, beyond
+# the English vocabulary (english_words.txt.gz). Every entry here is a PUBLIC
+# term of the trade, never a client's name, project code or tag: adding one
+# is a privacy decision - it may leave the machine in a market search phrase.
+# One lower-case word per line, letters only, three or more letters.
+dft
+ndft
+wft
+ndt
+nde
+pwht
+psv
+prv
+mawp
+npsh
+hvac
+scada
+hydrotest
+hydrotesting

@@ -169,8 +169,15 @@ class _Fallback(Exception):
 
 
 def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
-          web_enabled: bool, preference: str | None) -> dict | None:
+          web_enabled: bool, preference: str | None,
+          on_fallback_cost=None) -> dict | None:
     """One Claude-first turn, or None to fall back to the existing pipeline.
+
+    `on_fallback_cost(usd)`: called once, before returning None, with what
+    the failed first call was CHARGED (`claude_spend` records a call that
+    failed after it was sent - a read timeout, a dropped stream). Audit
+    leftover 2026-09-30: the ledger counted it and the answer the reader saw
+    did not; the caller adds it to that answer's cost.
 
     `history` is the SAME permission-filtered, labelled-as-context string
     `chat_model.transcript(chat_model.history(...))` already builds for the
@@ -324,6 +331,8 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                                     **({"is_error": True} if not run.ok else {})})
             messages.append({"role": "user", "content": tool_results})
     except _Fallback:
+        if on_fallback_cost is not None and turn_cost > 0:
+            on_fallback_cost(round(turn_cost, 6))
         return None
 
 
