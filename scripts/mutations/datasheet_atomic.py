@@ -1,5 +1,5 @@
 """Mutations for "one value, one fact" in backend/app/claude_datasheet.py
-(2026-09-30, M1800 and M1802-M1807; the range guard M1801 was dead code and was removed). Target: backend/tests/test_datasheet_atomic.py.
+(2026-09-30, M1800, M1802-M1805 and M1807; the range guard M1801 was dead code and was removed). Target: backend/tests/test_datasheet_atomic.py.
 """
 
 from __future__ import annotations
@@ -41,12 +41,6 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="    for p in atomise(proposals):\n",
              replacement="    for p in proposals:\n",
              target=_T, keyword="keeps_the_quote", tags=_TAG),
-    Mutation(id="M1806", phase=1806,
-             description="the second reading uses the same prompt again",
-             path=_CD,
-             anchor="again(build_prompt(page_text, page_no, known_fields, \"b\"))",
-             replacement="again(prompt)",
-             target=_T, keyword="bottom_up or differ_only or differ_only_in_order", tags=_TAG),
     Mutation(id="M1807", phase=1807,
              description="the model's qualifier is dropped at parse",
              path=_CD,

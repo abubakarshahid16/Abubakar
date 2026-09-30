@@ -103,7 +103,7 @@ UNCONFIRMED = "the AI reader read this page and did not read this value"
 #: than a chat answer.
 OLLAMA_NUM_CTX = 8192
 OLLAMA_NUM_PREDICT = 2048
-PROMPT_VERSION = "datasheet-ai-2"
+PROMPT_VERSION = "datasheet-ai-1"
 
 #: What the local engine is asked to return (enforced in the engine by
 #: Ollama's `format`; `claude_datasheet.parse_response` checks it again).
@@ -112,9 +112,7 @@ _SCHEMA = {
     "properties": {"facts": {"type": "array", "items": {
         "type": "object",
         "properties": {"field": {"type": "string"}, "value": {"type": "string"},
-                       "unit": {"type": ["string", "null"]},
-                       "qualifier": {"type": ["string", "null"]},
-                       "quote": {"type": "string"},
+                       "unit": {"type": ["string", "null"]}, "quote": {"type": "string"},
                        "kind": {"type": "string"}},
         "required": ["field", "value", "quote", "kind"]}}},
     "required": ["facts"],

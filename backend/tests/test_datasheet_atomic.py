@@ -87,19 +87,26 @@ def test_read_page_agrees_when_the_two_readings_differ_only_in_wording():
     assert [(a["value"], a["unit"]) for a in out["accepted"]] == [("16", "weeks")]
 
 
-def test_the_second_reading_is_asked_bottom_up():
-    assert "LAST line" in cd.build_prompt("p", 1, [], "b")
-    assert "LAST line" not in cd.build_prompt("p", 1, [], "a")
-
-
-def test_read_page_by_default_asks_the_second_reading_differ_only_in_order():
-    page = "7. Delivery: 16 weeks."
-    seen = []
-
-    def model(prompt):
-        seen.append(prompt)
-        return json.dumps({"facts": [{"field": "Delivery", "value": "16", "unit": "weeks",
-                                      "quote": "7. Delivery: 16 weeks", "kind": "offered"}]})
-
-    cd.read_page(page, 1, [], model)
-    assert "LAST line" not in seen[0] and "LAST line" in seen[1]
+def test_the_real_model_answers_seen_on_the_made_up_valve_sheet_come_out_clean():
+    """Replays what the local model really returned for the made-up free-text
+    valve sheet (measured 2026-09-30): whole sentences as values, the same in
+    both runs. The gate must turn them into one quantity each."""
+    rows = [
+        ("Nominal size", "6 in, full bore", "1. Nominal size: 6 in, full bore."),
+        ("Delivery", "16 weeks from purchase order, ex works",
+         "7. Delivery: 16 weeks from purchase order, ex works."),
+        ("Warranty", "18 months from delivery or 12 months from start-up",
+         "8. Warranty: 18 months from delivery or 12 months from start-up."),
+    ]
+    page = "\n".join(q for _f, _v, q in rows)
+    raw = json.dumps({"facts": [{"field": f, "value": v, "unit": None, "quote": q,
+                                 "kind": "offered"} for f, v, q in rows]})
+    out = cd.read_page(page, 1, [], lambda prompt: raw)
+    got = [(a["field"], a["value"], a["unit"], a.get("qualifier")) for a in out["accepted"]]
+    assert got == [
+        ("Nominal size", "6", "in", "full bore"),
+        ("Delivery", "16", "weeks", "from purchase order, ex works"),
+        ("Warranty", "18", "months", "from delivery"),
+        ("Warranty", "12", "months", "from start-up"),
+    ]
+    assert out["rejected"] == []

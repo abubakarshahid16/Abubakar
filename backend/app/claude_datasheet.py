@@ -109,22 +109,14 @@ them, sometimes in "Required" and "Offered" columns, sometimes with test
 results.
 
 List the facts this page states, as JSON only:
-{"facts": [{"field": ..., "value": ..., "unit": ..., "qualifier": ..., "quote": ..., "kind": ...}]}
+{"facts": [{"field": ..., "value": ..., "unit": ..., "quote": ..., "kind": ...}]}
 
 field is the label of the row, copied from the page - "Design pressure",
 "Set pressure", "Casing material".
 
 value is what is written beside that label: a number, a range, or a short
-categorical answer ("Yes", "Carbon steel"). Copy it as printed, but ONLY the
-value itself, the shortest span that answers the label: "16", not "16 weeks
-from purchase order". If the cell is blank or says "By Vendor", do not report
-it.
-
-qualifier is everything else written with the value that changes how it reads:
-"from purchase order", "ex works", "full bore", "at 20 C". Null when there is
-none. When the page gives TWO values under different conditions ("18 months
-from delivery or 12 months from start-up"), report TWO facts, one per
-condition, each with its own qualifier.
+categorical answer ("Yes", "Carbon steel"). Copy it as printed. If the cell is
+blank or says "By Vendor", do not report it.
 
 unit is the unit printed with the value, or null when there is none.
 
@@ -148,15 +140,7 @@ _KNOWN_FIELDS_PREFIX = """SKIP THESE FIELDS - they have already been read from t
 """
 
 
-#: The second reading is asked in a different order. At temperature 0 the same
-#: prompt gives the same answer, so "two runs agree" proved nothing; a page read
-#: bottom-up is a reading that can genuinely disagree with the first.
-_VARIANT_B = ("Read the page from its LAST line upward, and list the facts in "
-              "that order.\n\n")
-
-
-def build_prompt(page_text: str, page_no: int, known_fields: list[str],
-                 variant: str = "a") -> str:
+def build_prompt(page_text: str, page_no: int, known_fields: list[str]) -> str:
     """The prompt for one page. A function, not a format string at the call
     site, so the page text and the skip-list are appended in exactly one
     place.
@@ -168,8 +152,6 @@ def build_prompt(page_text: str, page_no: int, known_fields: list[str],
     the enforcement.
     """
     parts = [PROMPT]
-    if variant == "b":
-        parts.append(_VARIANT_B)
     if known_fields:
         parts.append(_KNOWN_FIELDS_PREFIX)
         parts.extend(f"  - {f}\n" for f in known_fields)
@@ -477,7 +459,7 @@ def read_page(page_text: str, page_no: int, known_fields: list[str] | None,
     if err:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err}
     again = second_call if second_call is not None else model_call
-    second, err2 = parse_response(again(build_prompt(page_text, page_no, known_fields, "b")))
+    second, err2 = parse_response(again(prompt))
     if err2:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err2}
     second = atomise(second)

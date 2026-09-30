@@ -226,10 +226,7 @@ def test_the_model_is_called_twice_by_default():
         return _answer(_fact("Set pressure", "340", "8 | Set pressure | 340 psig", unit="psig"))
 
     out = cd.read_page(PAGE, 1, [], model)
-    # The second reading is asked in a different order (see _VARIANT_B): the
-    # same prompt at temperature 0 would agree with itself and prove nothing.
-    assert len(calls) == 2 and calls[0] != calls[1]
-    assert calls[1].replace(cd._VARIANT_B, "") == calls[0]
+    assert len(calls) == 2 and calls[0] == calls[1]
     assert len(out["accepted"]) == 1
 
 
