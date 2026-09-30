@@ -539,8 +539,10 @@ def main() -> int:
                  "that script and re-run it, never this file."),
         "files": KEY,
     }
-    (OUT / "answer_key.json").write_text(
-        json.dumps(key, indent=1, ensure_ascii=False, sort_keys=False) + "\n", encoding="utf-8")
+    # write_bytes, not write_text: text mode turns "\n" into "\r\n" on Windows,
+    # so the committed (LF) file and a fresh run would differ there.
+    (OUT / "answer_key.json").write_bytes(
+        (json.dumps(key, indent=1, ensure_ascii=False, sort_keys=False) + "\n").encode("utf-8"))
     total = sum(p.stat().st_size for p in OUT.iterdir())
     print(f"wrote {len(KEY)} datasheets + answer_key.json to {OUT.relative_to(REPO)} "
           f"({total / 1024:.0f} KiB)")

@@ -120,6 +120,22 @@ def test_the_committed_files_are_the_generators_output(tmp_path, monkeypatch):
         assert (tmp_path / name).read_bytes() == (BENCH / name).read_bytes(), name
 
 
+def test_the_generator_writes_lf_even_where_text_mode_writes_crlf(tmp_path, monkeypatch):
+    """Windows text mode turns "\\n" into "\\r\\n". Emulate it and require LF anyway."""
+    import pathlib
+    real = pathlib.Path.write_text
+
+    def crlf_write_text(self, data, encoding=None, errors=None, newline=None):
+        return real(self, data.replace("\n", "\r\n"), encoding=encoding, errors=errors, newline="")
+
+    monkeypatch.setattr(pathlib.Path, "write_text", crlf_write_text)
+    gen = _load("make_datasheet_bench_crlf", "make_datasheet_bench.py")
+    monkeypatch.setattr(gen, "OUT", tmp_path)
+    monkeypatch.setattr(gen, "REPO", tmp_path.parent)
+    assert gen.main() == 0
+    assert b"\r" not in (tmp_path / "answer_key.json").read_bytes()
+
+
 # ============================================================ scorer maths
 
 HAND_ENTRY = {
