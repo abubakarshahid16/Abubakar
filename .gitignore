@@ -38,6 +38,9 @@ test-results/
 # --- additions (not in section 9; required for this environment) ---
 # Synthetic CI fixtures are the ONLY PDFs allowed in Git. Re-include explicitly.
 !tests/fixtures/synthetic/*.pdf
+# The made-up datasheet benchmark (scripts/make_datasheet_bench.py): every
+# value invented. Anchored at the repository root, where the tests live.
+!backend/tests/fixtures/synthetic/datasheets/*.pdf
 
 # Scratch folders left by audit runs (pytest basetemp and similar). Ignored
 # explicitly because their subfolders can be permission-denied, which makes git
