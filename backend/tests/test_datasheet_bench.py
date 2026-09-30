@@ -136,6 +136,24 @@ def test_the_generator_writes_lf_even_where_text_mode_writes_crlf(tmp_path, monk
     assert b"\r" not in (tmp_path / "answer_key.json").read_bytes()
 
 
+def test_the_generator_zips_are_identical_whatever_the_platform_default(tmp_path, monkeypatch):
+    """`zipfile.ZipInfo` stamps the host OS (0 on Windows, 3 elsewhere) into every member."""
+    import zipfile
+    real_init = zipfile.ZipInfo.__init__
+
+    def windows_init(self, *a, **k):
+        real_init(self, *a, **k)
+        self.create_system = 0
+
+    monkeypatch.setattr(zipfile.ZipInfo, "__init__", windows_init)
+    gen = _load("make_datasheet_bench_winzip", "make_datasheet_bench.py")
+    monkeypatch.setattr(gen, "OUT", tmp_path)
+    monkeypatch.setattr(gen, "REPO", tmp_path.parent)
+    assert gen.main() == 0
+    for name in ("ds12_pump.xlsx", "ds13_heater.docx"):
+        assert (tmp_path / name).read_bytes() == (BENCH / name).read_bytes(), name
+
+
 # ============================================================ scorer maths
 
 HAND_ENTRY = {

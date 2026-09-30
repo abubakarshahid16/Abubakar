@@ -117,6 +117,7 @@ def normalised_zip(raw: bytes) -> bytes:
             member = zipfile.ZipInfo(info.filename, date_time=ZIP_TIME)
             member.compress_type = zipfile.ZIP_DEFLATED
             member.external_attr = 0o644 << 16
+            member.create_system = 3   # ZipInfo stamps the host OS (0 on Windows); pin it
             dst.writestr(member, data)
     return out.getvalue()
 
@@ -480,6 +481,7 @@ def _docx(paragraphs: list[str], table: list[list[str]]) -> bytes:
             member = zipfile.ZipInfo(part, date_time=ZIP_TIME)
             member.compress_type = zipfile.ZIP_DEFLATED
             member.external_attr = 0o644 << 16
+            member.create_system = 3   # ZipInfo stamps the host OS (0 on Windows); pin it
             z.writestr(member, text.encode("utf-8"))
     return out.getvalue()
 
