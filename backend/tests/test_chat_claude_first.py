@@ -298,7 +298,11 @@ def test_the_tool_call_cap_stops_the_loop_rather_than_running_forever(monkeypatc
     body = _ask(client, convo, "tell me everything, page by page", document_id=doc, tier="generated")
     # 2 tool-bearing calls + exactly one forced final call with no tools = 3
     assert len(calls) == 3, "the loop must stop offering tools after the cap"
-    assert calls[-1].get("tools") in (None, [])
+    # The history holds tool blocks, so the API needs `tools` defined; the cap
+    # is enforced with tool_choice none instead (see test_claude_request_shape).
+    assert calls[-1].get("tools")
+    assert calls[-1].get("tool_choice") == {"type": "none"}
+    assert all("tool_choice" not in c for c in calls[:-1])
     assert body["answer_type"] in ("generated", "general")
 
 
