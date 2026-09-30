@@ -1,0 +1,73 @@
+# The backend suite on WINDOWS, run by GitHub so a person does not have to.
+#
+# Why this file exists. The owner runs this product on Windows; `tests.yml`
+# runs on Linux only. Until now the only Windows check was a person running the
+# suite by hand on their own PC - slow, and repeated for every package. It found
+# real Windows-only problems (line endings written by a script, zip headers that
+# differ by platform, a test that needs POSIX `fork`), so the check is worth
+# having; it just belongs here, not in a manual step.
+#
+# What it is NOT. It is deliberately a separate file with its own job name and
+# is NOT one of the checks `main` requires, so a Windows-only failure is visible
+# on the pull request but cannot block a merge until the owner decides, after it
+# has proved reliable, to make it required. It runs on pull requests, on pushes
+# to `main`, and on demand - not on every push to every branch (tests.yml
+# already does that) - so it adds one Windows run per pull request, not one per
+# commit.
+#
+# It runs the same suite the Linux job runs, with the same model staging and the
+# same "is the suite armed" check. It does not run the lint, the benchmarks or
+# the frontend: Linux covers those and their floors depend on the machine.
+
+name: tests-windows
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-windows:
+    name: backend on Windows (pytest, informational)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install huggingface_hub
+
+      - name: Cache models
+        id: models
+        uses: actions/cache@v6
+        with:
+          path: backend/models
+          key: models-windows-${{ hashFiles('scripts/fetch_models.py') }}
+
+      - name: Stage models
+        run: python scripts/fetch_models.py
+
+      # Without the models most tests SKIP and a skipped suite reports success.
+      - name: Confirm the models are staged
+        run: python scripts/fetch_models.py --verify-only
+
+      - name: Run the suite
+        working-directory: backend
+        run: python -m pytest -q -n auto --durations=10
