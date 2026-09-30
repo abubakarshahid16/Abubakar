@@ -148,6 +148,7 @@ function mockApi({
   stream,
   conversations = [],
   messages = [],
+  modelsDelay = 0,
   models = {
     default: "claude",
     models: [
@@ -160,6 +161,8 @@ function mockApi({
   conversations?: Conversation[];
   messages?: Message[];
   models?: unknown;
+  /** answer /chat/models this many ms late, or never (Infinity), or with an error (null) */
+  modelsDelay?: number | null;
 } = {}) {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -173,7 +176,12 @@ function mockApi({
     };
     calls.push(call);
     if (url.includes("/health")) return Promise.resolve(json(health));
-    if (url.includes("/chat/models")) return Promise.resolve(json(models));
+    if (url.includes("/chat/models")) {
+      if (modelsDelay === null) return Promise.resolve(new Response("{}", { status: 500 }));
+      if (modelsDelay === Infinity) return new Promise<Response>(() => undefined);
+      if (modelsDelay > 0) return new Promise<Response>((r) => setTimeout(() => r(json(models)), modelsDelay));
+      return Promise.resolve(json(models));
+    }
     if (url.endsWith("/ask/stream")) {
       return Promise.resolve(stream ? stream(call.body, call) : eventStream(""));
     }
@@ -223,6 +231,42 @@ describe("the first screen", () => {
     expect(await screen.findByText(/your question and the passages it needs are sent to it/i)).toBeInTheDocument();
     expect(screen.queryByText(/nothing you type leaves this machine/i)).toBeNull();
   });
+});
+
+// ------------------------------------------------------- the engine is chosen first
+
+describe("a question asked before the engine list has arrived", () => {
+  const ask_ = async (text: string) => {
+    await userEvent.type(screen.getByLabelText("Your question"), text);
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+  };
+  const askedBody = async (calls: Call[]) => {
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/ask/stream"))).toBe(true), { timeout: 8000 });
+    return calls.find((c) => c.url.endsWith("/ask/stream"))!.body;
+  };
+
+  it("waits for the list and asks with the real default engine and tier", async () => {
+    const calls = mockApi({ modelsDelay: 400 });
+    await openChat();
+    await ask_("does it meet the hydrotest requirement");
+    expect(await askedBody(calls)).toMatchObject({ tier: "generated", model: "claude" });
+  });
+
+  it("asks anyway, as a quotation with no engine named, when the list fails", async () => {
+    const calls = mockApi({ modelsDelay: null });
+    await openChat();
+    await ask_("does it meet the hydrotest requirement");
+    const body = await askedBody(calls);
+    expect(body).toMatchObject({ tier: "extract" });
+    expect(body).not.toHaveProperty("model");
+  });
+
+  it("does not wait forever for a list that never comes", async () => {
+    const calls = mockApi({ modelsDelay: Infinity });
+    await openChat();
+    await ask_("does it meet the hydrotest requirement");
+    expect(await askedBody(calls)).toMatchObject({ tier: "extract" });
+  }, 12000);
 });
 
 // ------------------------------------------------------------------ streaming
