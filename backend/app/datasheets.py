@@ -43,9 +43,10 @@ import uuid
 from datetime import datetime, timezone
 
 import json
+from contextvars import ContextVar
 
-from . import (blank_markers, claims, orphan_guard, page_ledger, provenance, row_noise,
-               submittal_review, tables)
+from . import (blank_markers, claims, datasheet_inputs, orphan_guard, page_ledger,
+               provenance, row_noise, submittal_review, tables)
 from .config import settings
 from .db import connect
 
@@ -1981,6 +1982,11 @@ def create_fact(
     # a routing rule with two homes is a routing rule that drifts).
     if validation_state is None and confidence is not None                     and confidence < LOW_CONFIDENCE_THRESHOLD:
         validation_state = NEEDS_ENGINEER_REVIEW
+    # DATASHEET_OFFICE_INPUT seam: the rules reader's facts from a workbook or
+    # Word document say so ('xlsx' / 'docx'), set by `extract_facts` for the
+    # length of one extraction. Unset (every PDF) leaves the method alone.
+    if extraction_method == "extracted" and _OFFICE_METHOD.get() is not None:
+        extraction_method = _OFFICE_METHOD.get()
     now = _now()
     row = {
         "id": str(uuid.uuid4()),
@@ -2084,6 +2090,11 @@ def pdf_condition(stored_path: str) -> tuple[str | None, str, bool]:
     ("document closed or encrypted") when a page is touched - so catching it
     would mean matching on a message.
     """
+    if datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: an office file's condition is whether
+        # `datasheet_inputs` can read it (a DOCTYPE, a bomb, a damaged zip).
+        slug, why = datasheet_inputs.office_condition(stored_path)
+        return slug, why, False
     try:
         import pymupdf
     except ImportError:  # pragma: no cover
@@ -2112,6 +2123,9 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
     that opened. An empty list from here means "this page yielded no pairs",
     which is the only thing its caller ever read it as.
     """
+    if datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: the rendered sheet's / document's rows.
+        return datasheet_inputs.pairs_for_page(stored_path, page_no)
     try:
         import pymupdf
     except ImportError:  # pragma: no cover
@@ -2333,7 +2347,8 @@ def grid_facts(words: list[tuple]) -> list[dict]:
 
 def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dict]:
     """`grid_facts` for one page of the stored PDF; [] when it cannot be read."""
-    if not stored_path:
+    if not stored_path or datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: no PDF geometry in an office file.
         return []
     try:
         import pymupdf
@@ -2375,7 +2390,8 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int,
     row it returns is tagged with that page-level distrust signal so the
     write loop can flag it rather than write it as an ordinary confident
     reading (flag, not hide - see `GEOMETRY_CONFLICT`)."""
-    if not stored_path:
+    if not stored_path or datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: no PDF geometry in an office file.
         return []
     try:
         import pymupdf
@@ -2429,7 +2445,9 @@ def vision_route(*, facts_on_page: int, geometry_on_page: int, text_words: int,
 
 def _text_layer_words(stored_path: str | None, page_no: int) -> int:
     """Words on the page's native text layer (0 when it cannot be opened)."""
-    if not stored_path:
+    if not stored_path or datasheet_inputs.is_office_input(stored_path):
+        # DATASHEET_OFFICE_INPUT seam: MuPDF's reading of an office file is
+        # not a text layer a vision reading could be proved against.
         return 0
     try:
         import pymupdf
@@ -2445,7 +2463,8 @@ def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[d
                     provider):
     """`vision_reader.read_page` for one page, or None when the page cannot
     be opened. A refusal (budget, egress) comes back ON the reading."""
-    if not stored_path or provider is None:
+    if (not stored_path or provider is None
+            or datasheet_inputs.is_office_input(stored_path)):  # DATASHEET_OFFICE_INPUT seam
         return None
     try:
         import pymupdf
@@ -2589,9 +2608,17 @@ def _pairs_from_ocr_fallback(document_id: str, page_no: int) -> list[tuple[str, 
     if row is None or not row["text"]:
         return []
     pairs: list[tuple[str, str]] = []
+    table_lines = bool(settings.datasheet_office_input)
     for line in row["text"].splitlines():
         line = line.strip()
         if ":" not in line:
+            # DATASHEET_OFFICE_INPUT seam: a table-shaped line - "label  value
+            # unit" (a column gap of 2+ spaces) or "label | value | unit" -
+            # read the way a workbook row is. Same low confidence and review
+            # state as every pair from this tier (the caller decides both).
+            cells = datasheet_inputs.ocr_line_cells(line) if table_lines else ()
+            if cells:
+                pairs.extend(datasheet_inputs.pairs_from_rows([cells]))
             continue
         label, _, value = line.partition(":")
         label, value = label.strip(), value.strip()
@@ -2842,7 +2869,36 @@ class _PlanOnly(Exception):
     """B7: raised inside the plan pass's transaction so it rolls back."""
 
 
+#: DATASHEET_OFFICE_INPUT: the extraction method the rules reader's facts
+#: carry while one office datasheet is extracted ('xlsx' / 'docx'); None
+#: otherwise. A ContextVar, so a concurrent extraction in another thread
+#: cannot see it.
+_OFFICE_METHOD: ContextVar[str | None] = ContextVar("office_method", default=None)
+
+
 def extract_facts(
+    document_id: str, *, allowed_document_ids: frozenset[str],
+    review_run_id: str | None = None, replace: bool = True,
+) -> dict:
+    """Read one datasheet into facts - `_extract_facts_by_plan`, with the
+    office-input extraction method set for its length (DATASHEET_OFFICE_INPUT
+    seam; off, or for a PDF, this is exactly the call it wraps)."""
+    method = None
+    if settings.datasheet_office_input:
+        row = connect().execute(
+            "SELECT stored_path FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if row is not None and datasheet_inputs.is_office_input(row["stored_path"]):
+            method = datasheet_inputs.extraction_method(row["stored_path"])
+    token = _OFFICE_METHOD.set(method)
+    try:
+        return _extract_facts_by_plan(
+            document_id, allowed_document_ids=allowed_document_ids,
+            review_run_id=review_run_id, replace=replace)
+    finally:
+        _OFFICE_METHOD.reset(token)
+
+
+def _extract_facts_by_plan(
     document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, replace: bool = True,
 ) -> dict:
