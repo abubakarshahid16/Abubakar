@@ -78,6 +78,9 @@ interface Pending {
   legacy: boolean;
 }
 
+/** The longest a question waits for the engine list before it is asked anyway. */
+const ENGINE_WAIT_MS = 3000;
+
 interface SendOptions {
   tier?: AnswerTier;
   explainOf?: string;
@@ -117,6 +120,15 @@ export function ChatView({
   const [evidence, setEvidence] = useState<{ messageId: string; index: number } | null>(null);
   const [models, setModels] = useState<ChatModels | null>(null);
   const [model, setModel] = useState<ModelChoice | null>(null);
+  // The engine as `send` must read it: state is a snapshot of the render that
+  // created the callback, and a question sent before the engine list arrived
+  // saw `null` there (it went out as a local quotation, with no engine named).
+  const modelRef = useRef<ModelChoice | null>(null);
+  const enginesReady = useRef<Promise<void>>(Promise.resolve());
+  const chooseModel = useCallback((next: ModelChoice) => {
+    modelRef.current = next;
+    setModel(next);
+  }, []);
   const [recent, setRecent] = useState<ConversationSummary[]>([]);
   // "@ a document": what the next answers come from, for this chat only.
   const [picked, setPicked] = useState<PickedDocument[]>([]);
@@ -158,15 +170,15 @@ export function ChatView({
   // -------------------------------------------------------------- engines
   useEffect(() => {
     let cancelled = false;
-    void api.chatModels().then((r) => {
+    enginesReady.current = api.chatModels().then((r) => {
       if (cancelled || !r.ok) return;
       setModels(r.data);
-      setModel(r.data.default);
+      chooseModel(r.data.default);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [chooseModel]);
   const claude = model === "claude";
 
   const refreshRecent = useCallback(async () => {
@@ -270,6 +282,16 @@ export function ChatView({
       sending.current = true;
       setFailure(null);
 
+      // A question asked before the engine list has arrived waits for it (a
+      // moment at most), so the tier and the engine come from the real default
+      // and not from "nothing chosen yet". If the list never comes, ask anyway.
+      await Promise.race([
+        enginesReady.current,
+        new Promise<void>((resolve) => window.setTimeout(resolve, ENGINE_WAIT_MS)),
+      ]);
+      const engine = modelRef.current;
+      const engineIsClaude = engine === "claude";
+
       let id = current;
       if (!id) {
         const created = await api.newConversation();
@@ -288,8 +310,8 @@ export function ChatView({
 
       // The tier: a written answer when Claude answers; on the local engine a
       // quotation, unless the reader asked for a review, which needs writing.
-      let tier: AnswerTier = opts.tier ?? (claude ? "generated" : "extract");
-      if (!opts.tier && !claude && isReviewRequest(text)) {
+      let tier: AnswerTier = opts.tier ?? (engineIsClaude ? "generated" : "extract");
+      if (!opts.tier && !engineIsClaude && isReviewRequest(text)) {
         tier = "generated";
         setStyleNotice(
           "This review was answered as a grounded written explanation; a quotation only returns verbatim text.",
@@ -319,7 +341,7 @@ export function ChatView({
         question: text,
         tier,
         ...(opts.explainOf ? { explain_of: opts.explainOf } : {}),
-        ...(model ? { model } : {}),
+        ...(engine ? { model: engine } : {}),
         ...(picked.length > 0 ? { document_ids: picked.map((d) => d.id) } : {}),
         ...(webOn ? { web: true } : {}),
       };
@@ -387,7 +409,7 @@ export function ChatView({
       }
       listChanged();
     },
-    [current, claude, model, messages, open, select, listChanged, picked, webOn],
+    [current, messages, open, select, listChanged, picked, webOn],
   );
 
   const stop = useCallback(async () => {
@@ -609,7 +631,7 @@ export function ChatView({
         }
         models={models}
         model={model}
-        onModelChange={setModel}
+        onModelChange={chooseModel}
         onRecords={() => setRecordsOpen(true)}
         picked={picked}
         onPick={setPicked}
