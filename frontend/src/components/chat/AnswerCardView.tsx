@@ -5,6 +5,7 @@ import { ComparisonScopeNotice as ComparisonScopeNoticeView } from "./Comparison
 import { type AnswerView, type UpgradeFailure, asksForComparison, documentsAnsweredFrom, sourcesOf, asSentence, formatDuration, Chip, ChipMark, CitedProse, Label, ReportAction, UpgradeFailureNotice } from "./AnswerCardContent";
 import { CorpusPart, CountsBoundedNote, GuidanceAnswer, MetadataAnswer } from "./AnswerNonDocument";
 import { InsufficientAnswer } from "./AnswerInsufficient";
+import { ComparisonAnswer } from "./AnswerComparison";
 import { ConditionNotice, ScopeNotice, VerdictNotice, WithheldNotice } from "./AnswerVerdict";
 import type { AnswerPassage, ChatSource } from "../../types/api";
 import { GeneratedAnswer } from "./GeneratedAnswer";
@@ -159,6 +160,11 @@ function AnswerCardBody({
   // ---------------------------------------------------------- no answer
   if (view.answer_type === "insufficient_evidence") {
     return <InsufficientAnswer view={view} onSelectSource={onSelectSource} />;
+  }
+
+  // ---------------------------------------------------- plan C3: comparison
+  if (view.answer_type === "comparison") {
+    return <ComparisonAnswer view={view} onSelectSource={onSelectSource} activeSource={activeSource} />;
   }
 
   if (view.answer_type === "model_unavailable") {

@@ -1044,7 +1044,9 @@ export type AnswerType =
   /** chat redesign PR 6: a web question, asked first - nothing was sent */
   | "web_consent"
   /** chat redesign PR 6: the one web search the reader approved */
-  | "web";
+  | "web"
+  /** plan C3: a comparison, retrieved and cited per named side */
+  | "comparison";
 
 /** Chat redesign (2026-09-26): what kind of answer this is on the Chat screen. */
 export type AnswerKind = "general" | "document" | "web" | "mixed" | "rewrite" | "action" | "records";
@@ -1758,6 +1760,23 @@ export interface CorpusFact {
   qualified: boolean;
 }
 
+/** Plan C3: one named side of a comparison and what its OWN, separately
+ *  retrieved search found - never what another side's search found. */
+export interface ComparisonSide {
+  /** the designation named in the question */
+  name: string;
+  document_ids: string[];
+  /** this side's own answer_type - insufficient_evidence means its targeted
+   *  search found nothing */
+  answer_type: string | null;
+}
+
+/** Plan C3: a comparison's side breakdown, alongside the combined `answer`
+ *  text. Present only on answer_type === "comparison". */
+export interface Comparison {
+  sides: ComparisonSide[];
+}
+
 /** B8: whether the evidence answers the question. Decided by structure the
  *  code can check - never by the reranker score, never "high" confidence. */
 export type AnswerabilityVerdict =
@@ -1887,6 +1906,11 @@ export interface AnswerResult extends ChatPresentation {
    *  IS the answer; on any other answer_type the question also asked about
    *  content, and this is the separate database half of a two-part reply. */
   corpus?: CorpusFact | null;
+  /** Plan C3: present on answer_type === "comparison" - each named side's own
+   *  document ids and its own answer_type, so a side reported as "not found
+   *  in the pages read" is shown as its own targeted search, never bundled
+   *  into the other side's evidence. */
+  comparison?: Comparison | null;
   /** Sentences in a generated answer whose count of documents was re-bounded
    *  to the passages retrieved - the model sees a few passages, never the
    *  library, so any such count is a count of them. */

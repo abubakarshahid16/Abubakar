@@ -557,4 +557,19 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="not_refused",
         tags=("honesty",),
     ),
+    # ---- from COMPARISON_BOTH_SIDES_2026_10_01 -----------------------------
+    #: Plan C3: a side whose own targeted search found nothing gets the ONE
+    #: sentence this file writes for that - never a model's own words for an
+    #: absence, which is indistinguishable from a genuine "does not mention".
+    Mutation(
+        id="M1827", phase=1827,
+        description="a comparison side with nothing found stops saying "
+                    "'not found in the pages read'",
+        path=APP / "chat_comparison.py",
+        anchor='    return f"{name}: not found in the pages read."\n',
+        replacement='    return f"{name}: does not mention this"\n',
+        target="tests/test_chat_comparison.py",
+        keyword="not_found_never_does_not_mention",
+        tags=("honesty",),
+    ),
 )
