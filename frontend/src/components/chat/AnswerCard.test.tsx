@@ -240,6 +240,52 @@ describe("a failed answer names the engine that failed", () => {
   });
 });
 
+// Audit 101: the reader chose Claude, the local model answered. A calm note
+// says so; nothing changes for an answer that never had the keys.
+describe("a Claude request answered by the local model says so", () => {
+  const NOTE =
+    "Claude was not available (no Claude key is set); this answer was written by the local model.";
+
+  function renderView(over: Partial<AnswerView>) {
+    return render(
+      <AnswerCard view={{ ...extractView(), ...over }} onSelectSource={() => {}} activeSource={null} />,
+    );
+  }
+
+  it("shows the reason as a note, not as an error", () => {
+    renderView({ requested_provider: "claude", provider: "ollama", provider_note: NOTE });
+
+    expect(screen.getByRole("note", { name: /which model answered/i })).toHaveTextContent(NOTE);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows nothing when Claude answered", () => {
+    renderView({ requested_provider: null, provider: "claude", provider_note: null });
+
+    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+  });
+
+  it("shows nothing when the reader chose the local model", () => {
+    renderView({ requested_provider: null, provider: "ollama", provider_note: null });
+
+    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+  });
+
+  it("renders a turn stored before the keys existed exactly as before", () => {
+    const { container } = renderView({});
+    const before = container.innerHTML;
+
+    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+    expect(before).not.toMatch(/Claude was not/i);
+  });
+
+  it("does not invent a reason when the note is missing", () => {
+    renderView({ requested_provider: "claude", provider: "ollama", provider_note: null });
+
+    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+  });
+});
+
 describe("an absent reason renders as nothing, never as a placeholder", () => {
   it("prints no null, no dash and no empty sentence for a refusal", () => {
     renderCard(refusal({ reason: null }), () => {});

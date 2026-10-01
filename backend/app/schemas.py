@@ -2941,6 +2941,10 @@ class ChatPresentation(BaseModel):
     notices: list[str] = Field([], description="plain notices above the answer, e.g. the engineer notice")
     model: str | None = None
     provider: str | None = None
+    requested_provider: str | None = Field(
+        None, description="'claude' when the reader chose Claude; kept only when the local model answered")
+    provider_note: str | None = Field(
+        None, description="plain words: Claude was not used, and why (audit 101)")
     seconds: float | None = None
     cost_usd: float | None = None
 

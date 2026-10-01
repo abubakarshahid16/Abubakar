@@ -9,6 +9,7 @@ import { ComparisonAnswer } from "./AnswerComparison";
 import { ConditionNotice, ScopeNotice, VerdictNotice, WithheldNotice } from "./AnswerVerdict";
 import type { AnswerPassage, ChatSource } from "../../types/api";
 import { GeneratedAnswer } from "./GeneratedAnswer";
+import { ProviderNotice, providerNoteFor } from "./ProviderNotice";
 
 function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
   return passage.score == null ? null : (
@@ -45,6 +46,7 @@ export function AnswerCard(props: Parameters<typeof AnswerCardBody>[0]) {
       {verdict && view.answer_type !== "insufficient_evidence" && <VerdictNotice verdict={verdict.verdict} reason={verdict.reason} evidence={verdict.evidence} />}
       <ScopeNotice understanding={view.understanding} ambiguity={view.scope_ambiguity} />
       <ConditionNotice choice={view.condition_choice} />
+      <ProviderNotice note={providerNoteFor(view)} />
     </>
   );
   if (!twoPart && !bounded) {

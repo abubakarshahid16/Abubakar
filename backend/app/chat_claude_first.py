@@ -170,7 +170,7 @@ class _Fallback(Exception):
 
 def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
           web_enabled: bool, preference: str | None,
-          on_fallback_cost=None) -> dict | None:
+          on_fallback_cost=None, on_fallback_reason=None) -> dict | None:
     """One Claude-first turn, or None to fall back to the existing pipeline.
 
     `on_fallback_cost(usd)`: called once, before returning None, with what
@@ -178,6 +178,11 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
     failed after it was sent - a read timeout, a dropped stream). Audit
     leftover 2026-09-30: the ledger counted it and the answer the reader saw
     did not; the caller adds it to that answer's cost.
+
+    `on_fallback_reason(text)`: called once, before returning None because the
+    first Claude call failed, with the plain-words cause (`chat_model.
+    fallback_words`), so the answer the old pipeline writes can say why Claude
+    did not write it.
 
     `history` is the SAME permission-filtered, labelled-as-context string
     `chat_model.transcript(chat_model.history(...))` already builds for the
@@ -339,7 +344,9 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                                     "content": content,
                                     **({"is_error": True} if not run.ok else {})})
             messages.append({"role": "user", "content": tool_results})
-    except _Fallback:
+    except _Fallback as fallback:
+        if on_fallback_reason is not None:
+            on_fallback_reason(chat_model.fallback_words(fallback.__cause__) or "the Claude call failed")
         if on_fallback_cost is not None and turn_cost > 0:
             on_fallback_cost(round(turn_cost, 6))
         return None
