@@ -76,4 +76,15 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="    prompt = f\"{history}Question: {question}\" + (f\"\\n\\nAnswer {style}.\" if style else \"\")\n",
              replacement="    prompt = f\"{history}Question: {question}\"\n",
              target=_T, keyword="labelled_and_never_searched", tags=("chat",)),
+    # ---- from LIBRARY_COUNTS_BOTH_MODELS_2026_10_01 ------------------------
+    #: A library count comes from the database, in code, never from a model,
+    #: on EITHER engine (plan N7). Decided before Claude-first is ever asked.
+    Mutation(id="M1826", phase=1826,
+             description="an inventory question reaches Claude-first instead "
+                         "of the database, on Model=Claude",
+             path=APP / "chat.py",
+             anchor="    inventory_result = None\n    if explain_of is None and document_id is None:\n",
+             replacement="    inventory_result = None\n    if False:\n",
+             target="tests/test_corpus_questions.py",
+             keyword="never_asking_claude", tags=("honesty",)),
 )
