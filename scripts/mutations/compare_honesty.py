@@ -41,7 +41,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="{found if found else 'none'}",
              replacement="{found}",
              target=_T, keyword="none_never_zero", tags=_TAG),
-    Mutation(id="M1860", phase=1860,
+    Mutation(id="M1880", phase=1880,
              description="the header hides a named document the reader cannot read",
              path=_PR,
              anchor='    absent = len(sides) - len(searched)',
