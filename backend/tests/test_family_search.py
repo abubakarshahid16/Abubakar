@@ -283,3 +283,18 @@ def test_no_more_than_eight_standards_are_searched_and_the_rest_are_admitted(mon
     assert result["comparison"]["family"]["judged"] == 10
     assert "Searched 8 standards" in result["answer"]
     assert "10 standards matched; only the 8 best ranked were searched" in result["answer"]
+
+
+@pytest.mark.parametrize("forms", [
+    ("valve", "valves"), ("pipe", "piping", "pipes"), ("weld", "welds", "welding", "welded"),
+    ("pressure", "pressures"), ("class", "classes"), ("coat", "coating", "coatings"),
+    ("assembly", "assemblies"), ("pump", "pumps", "pumping"),
+])
+def test_singular_plural_and_ing_forms_of_a_word_meet(forms):
+    """"valve standards" must find a scope record that says "valves"."""
+    assert len({family_search.stem(w) for w in forms}) == 1
+
+
+def test_different_words_do_not_meet():
+    assert family_search.stem("process") != family_search.stem("pressure")
+    assert family_search.stem("weld") != family_search.stem("well")

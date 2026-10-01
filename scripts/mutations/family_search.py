@@ -77,4 +77,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="    if len(sides) < 2:\n",
              replacement="    if len(sides) < 1:\n",
              target=_T, keyword="fewer_than_two", tags=_TAG),
+    Mutation(id="M1881", phase=1881,
+             description="a trailing e is no longer trimmed, so valve and valves stop meeting",
+             path=_F,
+             anchor='    if w.endswith("e") and len(w) > 3:\n        w = w[:-1]\n',
+             replacement='',
+             target=_T, keyword="singular_plural_and_ing", tags=_TAG),
 )

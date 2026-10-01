@@ -76,9 +76,19 @@ def stem(word: str) -> str:
     """A light, language-only normalisation so "welding", "welds" and "weld"
     meet. Not a vocabulary: it only trims a common ending."""
     w = re.sub(r"[^a-z0-9]", "", (word or "").lower())
-    for suffix in ("ings", "ing", "ies", "es", "ed", "s"):
-        if w.endswith(suffix) and len(w) - len(suffix) >= 3:
-            return w[: -len(suffix)]
+    # Ending order matters: strip the verb/plural ending first, then a lone
+    # final "e", so "valve", "valves", "pipe", "piping" and "pipes" each meet.
+    for suffix, repl in (("ings", ""), ("ing", ""), ("ies", "y"), ("ed", "")):
+        if w.endswith(suffix) and len(w) - len(suffix) + len(repl) >= 3:
+            w = w[: -len(suffix)] + repl
+            break
+    else:
+        if w.endswith(("sses", "shes", "ches", "xes", "zes", "ses")) and len(w) > 4:
+            w = w[:-2]
+        elif w.endswith("s") and not w.endswith("ss") and len(w) > 3:
+            w = w[:-1]
+    if w.endswith("e") and len(w) > 3:
+        w = w[:-1]
     return w
 
 
