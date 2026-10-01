@@ -197,6 +197,44 @@ def looks_like_a_named_subject(term: str, question: str) -> bool:
     return not question.strip().startswith(term)
 
 
+_NON_ALNUM = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _norm_id(text: str) -> str:
+    return _NON_ALNUM.sub("", text).upper()
+
+
+def _names_an_indexed_document(
+    term: str, document_id: str | None, *, allowed_document_ids: frozenset[str]
+) -> bool:
+    """True when `term` is the designation of a document already indexed
+    AND permitted for this caller - by FILE NAME, the same
+    `understanding.designation` the rest of the system already uses to
+    recognise "our SAES-W-010" in a question, never by content search.
+
+    Scoped to `document_id` when the question is already narrowed to one
+    document, else to `allowed_document_ids` - never the whole corpus
+    (CLAUDE.md rule 5: a filter only narrows what a caller may already read).
+    """
+    from . import understanding
+    from .db import connect
+
+    scope = frozenset({document_id}) if document_id else allowed_document_ids
+    if not scope:
+        return False
+    wanted = _norm_id(term)
+    if not wanted:
+        return False
+    marks = ",".join("?" * len(scope))
+    rows = connect().execute(
+        f"SELECT filename FROM documents WHERE id IN ({marks})", list(scope)).fetchall()
+    for row in rows:
+        designation = understanding.designation(row["filename"])
+        if designation and _norm_id(designation) == wanted:
+            return True
+    return False
+
+
 def assess(
     question: str,
     passage_text: str,
@@ -291,6 +329,19 @@ def assess(
             # FTS could not parse any form; it tells us nothing either way
             continue
         if occurrences == 0:
+            # FOUND 2026-10-01: a standard's own pages almost never print its
+            # own file name ("SAES-W-010 says..." is not how a standard
+            # refers to itself), so a content search alone - the only thing
+            # `occurrences` measures - reports the term absent even when the
+            # document is indexed, permitted and exactly the one the reader
+            # named. Checked by FILENAME, scoped to what this caller may
+            # read, never corpus-wide (CLAUDE.md rule 5).
+            if _names_an_indexed_document(
+                    term, document_id, allowed_document_ids=allowed_document_ids):
+                present.append(term)
+                covered.append(term)
+                distinguishing_count += 1
+                continue
             absent.append(term)
             continue
 

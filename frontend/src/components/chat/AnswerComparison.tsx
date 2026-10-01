@@ -1,0 +1,100 @@
+import type { AnswerView } from "./AnswerCardContent";
+import { CitedProse, Chip, Label, formatDuration } from "./AnswerCardContent";
+import { Citation } from "./EvidencePanel";
+
+/**
+ * Plan C3: a comparison's own side breakdown.
+ *
+ * NOT the generic "Written by the model" card (the answer text is not one
+ * model's prose — each side is its own separately retrieved answer, and a
+ * side reported absent is a template sentence this app writes, never the
+ * model's words for an absence). Each side is its own block: cited to its
+ * own passages when its own targeted search found something, a plain note
+ * when it did not — never blended into one paragraph a reader would have to
+ * pull apart to tell which side said what.
+ */
+export function ComparisonAnswer({
+  view,
+  onSelectSource,
+  activeSource,
+}: {
+  view: AnswerView;
+  onSelectSource: (i: number) => void;
+  activeSource: number | null;
+}) {
+  const sides = view.comparison?.sides ?? [];
+  // `chat_comparison.compare` joins each side's own paragraph with "\n\n", in
+  // the SAME order as `sides` - never re-parsed by content, just re-split
+  // positionally, since the backend is the one place that decided the order.
+  const parts = (view.answer ?? "").split("\n\n");
+  // Citation numbers are assigned by the server in `view.passages`' own
+  // order (chat_presentation.sources), which is every FOUND side's passages
+  // concatenated in the same order as `sides` - so each side's own chips are
+  // a contiguous run, found here by matching document ids back to that side.
+  let chipCursor = 0;
+
+  return (
+    <div className="surface-card accent-edge rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Label tone="generated">Compared across {sides.length || 2} named sides</Label>
+        {view.seconds != null && (
+          <span className="font-mono text-xs text-slateish-500">
+            {formatDuration(view.seconds)}
+          </span>
+        )}
+      </div>
+
+      {sides.map((side, i) => {
+        const prefix = `${side.name}: `;
+        const raw = parts[i] ?? "";
+        const text = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+        const notFound = side.answer_type === "insufficient_evidence";
+        const chipIndexes: number[] = [];
+        if (!notFound) {
+          for (const p of view.passages) {
+            if (side.document_ids.includes(p.document_id)) {
+              chipIndexes.push(chipCursor);
+              chipCursor += 1;
+            }
+          }
+        }
+        return (
+          <div
+            key={side.name}
+            className={i === 0 ? "mt-3" : "mt-3 border-t border-ink-700/60 pt-3"}
+          >
+            <p className="text-xs uppercase tracking-wide text-slateish-500">{side.name}</p>
+            {notFound ? (
+              <p className="mt-1 text-sm italic text-slateish-400">
+                Not found in the pages read.
+              </p>
+            ) : (
+              <>
+                <p className="model-prose mt-1 text-[15px] text-slateish-200">
+                  <CitedProse text={text} onCite={onSelectSource} activeSource={activeSource} />
+                </p>
+                {chipIndexes.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap items-baseline gap-2">
+                    {chipIndexes.map((idx) => {
+                      const passage = view.passages[idx];
+                      return passage ? (
+                        <span key={idx} className="inline-flex items-center gap-1">
+                          <Chip
+                            n={idx + 1}
+                            active={activeSource === idx}
+                            onClick={() => onSelectSource(idx)}
+                          />
+                          <Citation passage={passage} />
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}

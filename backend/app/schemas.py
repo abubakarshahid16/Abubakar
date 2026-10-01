@@ -1222,6 +1222,8 @@ AnswerType = Literal[
     # the result of the one search the reader approved
     "web_consent",
     "web",
+    # plan C3: a comparison, retrieved and cited per named side
+    "comparison",
 ]
 
 
@@ -2758,11 +2760,25 @@ class EvidenceRemoved(BaseModel):
     characters_dropped: int
 
 
+class CorpusFactBreakdownEntry(BaseModel):
+    """One named role's own count, within a multi-role `CorpusFact`."""
+
+    role: str | None
+    loaded: int
+    not_loaded: int = 0
+    families: dict[str, int] | None = Field(
+        None, description="a COMPANY_STANDARD count, further split by standard "
+        "family (SAES, ASME, API, ...), when more than one family is present")
+
+
 class CorpusFact(BaseModel):
     """A count of the library, from the database, under the caller's grants.
 
     `text` carries its own boundary - "272 company standards are loaded and
-    readable by you" - so it cannot be quoted without it.
+    readable by you" - so it cannot be quoted without it. `role`/`loaded`/
+    `not_loaded` are the combined total (role is null when more than one
+    role was named together, or every role); `breakdown` names each role's
+    own count when the question named more than one in the same breath.
     """
 
     text: str
@@ -2774,6 +2790,26 @@ class CorpusFact(BaseModel):
     qualified: bool = Field(
         False, description="the question also asked about content, so retrieval "
         "answered that part separately")
+    breakdown: list[CorpusFactBreakdownEntry] | None = Field(
+        None, description="one entry per role, when the question named more than one")
+
+
+class ComparisonSide(BaseModel):
+    """One named side of a comparison and what its OWN, separately retrieved
+    search found - never what another side's search found."""
+
+    name: str = Field(description="the designation named in the question")
+    document_ids: list[str]
+    answer_type: str | None = Field(
+        None, description="this side's own answer_type - insufficient_evidence "
+        "means its targeted search found nothing")
+
+
+class Comparison(BaseModel):
+    """Plan C3: a comparison's side breakdown, alongside the combined `answer`
+    text. Present only on `answer_type == \"comparison\"`."""
+
+    sides: list[ComparisonSide]
 
 
 class EvidenceRef(BaseModel):
@@ -2957,6 +2993,13 @@ class AnswerResult(ChatPresentation):
         "for a question about the collection itself. On a metadata answer it IS "
         "the answer; on any other answer_type the question also asked about "
         "content, and this is the separate, database half of a two-part reply",
+    )
+    comparison: Comparison | None = Field(
+        None,
+        description="plan C3: present on answer_type=='comparison' - each named "
+        "side's own document ids and its own answer_type, so a side reported as "
+        "'not found in the pages read' is shown as its own targeted search, "
+        "never bundled into the other side's evidence",
     )
     counts_bounded: int = Field(
         0,

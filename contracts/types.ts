@@ -1044,7 +1044,9 @@ export type AnswerType =
   /** chat redesign PR 6: a web question, asked first - nothing was sent */
   | "web_consent"
   /** chat redesign PR 6: the one web search the reader approved */
-  | "web";
+  | "web"
+  /** plan C3: a comparison, retrieved and cited per named side */
+  | "comparison";
 
 /** Chat redesign (2026-09-26): what kind of answer this is on the Chat screen. */
 export type AnswerKind = "general" | "document" | "web" | "mixed" | "rewrite" | "action" | "records";
@@ -1742,9 +1744,22 @@ export interface GenerateReport {
   message_id: string;
 }
 
+/** One named role's own count, within a multi-role CorpusFact. */
+export interface CorpusFactBreakdownEntry {
+  role: string | null;
+  loaded: number;
+  not_loaded: number;
+  /** a COMPANY_STANDARD count, further split by standard family
+   *  (SAES, ASME, API, ...), when more than one family is present */
+  families: Record<string, number> | null;
+}
+
 /** A count of the library, from the database, under the caller's grants.
  *  `text` carries its own boundary - "272 company standards are loaded and
- *  readable by you" - so it cannot be shown without it. */
+ *  readable by you" - so it cannot be shown without it. `role`/`loaded`/
+ *  `not_loaded` are the combined total (role is null when more than one
+ *  role was named together, or every role); `breakdown` names each role's
+ *  own count when the question named more than one in the same breath. */
 export interface CorpusFact {
   text: string;
   /** document_role counted; null means every role */
@@ -1756,6 +1771,25 @@ export interface CorpusFact {
   source: "database";
   /** the question also asked about content, answered separately by retrieval */
   qualified: boolean;
+  /** one entry per role, when the question named more than one */
+  breakdown?: CorpusFactBreakdownEntry[] | null;
+}
+
+/** Plan C3: one named side of a comparison and what its OWN, separately
+ *  retrieved search found - never what another side's search found. */
+export interface ComparisonSide {
+  /** the designation named in the question */
+  name: string;
+  document_ids: string[];
+  /** this side's own answer_type - insufficient_evidence means its targeted
+   *  search found nothing */
+  answer_type: string | null;
+}
+
+/** Plan C3: a comparison's side breakdown, alongside the combined `answer`
+ *  text. Present only on answer_type === "comparison". */
+export interface Comparison {
+  sides: ComparisonSide[];
 }
 
 /** B8: whether the evidence answers the question. Decided by structure the
@@ -1887,6 +1921,11 @@ export interface AnswerResult extends ChatPresentation {
    *  IS the answer; on any other answer_type the question also asked about
    *  content, and this is the separate database half of a two-part reply. */
   corpus?: CorpusFact | null;
+  /** Plan C3: present on answer_type === "comparison" - each named side's own
+   *  document ids and its own answer_type, so a side reported as "not found
+   *  in the pages read" is shown as its own targeted search, never bundled
+   *  into the other side's evidence. */
+  comparison?: Comparison | null;
   /** Sentences in a generated answer whose count of documents was re-bounded
    *  to the passages retrieved - the model sees a few passages, never the
    *  library, so any such count is a count of them. */
