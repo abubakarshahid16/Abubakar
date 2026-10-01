@@ -46,15 +46,27 @@ export function ComparisonAnswer({
 
       {sides.map((side, i) => {
         const prefix = `${side.name}: `;
-        const raw = parts[i] ?? "";
-        const text = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+        // Each side carries its OWN text and its own run of sources. The
+        // positional split below is only for an answer stored before they did
+        // (a side's text can contain a blank line, which shifts every later
+        // side - the reason the server now sends `text` per side).
+        const hasOwnText = typeof side.text === "string";
+        const raw = hasOwnText ? (side.text as string) : (parts[i] ?? "");
+        const text = !hasOwnText && raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
         const notFound = side.answer_type === "insufficient_evidence";
+        const notInLibrary = side.answer_type === "not_in_library";
         const chipIndexes: number[] = [];
-        if (!notFound) {
-          for (const p of view.passages) {
-            if (side.document_ids.includes(p.document_id)) {
-              chipIndexes.push(chipCursor);
-              chipCursor += 1;
+        if (!notFound && !notInLibrary) {
+          if (typeof side.source_start === "number" && typeof side.source_count === "number") {
+            for (let k = 0; k < side.source_count; k += 1) {
+              chipIndexes.push(side.source_start + k);
+            }
+          } else {
+            for (const p of view.passages) {
+              if (side.document_ids.includes(p.document_id)) {
+                chipIndexes.push(chipCursor);
+                chipCursor += 1;
+              }
             }
           }
         }
@@ -64,7 +76,11 @@ export function ComparisonAnswer({
             className={i === 0 ? "mt-3" : "mt-3 border-t border-ink-700/60 pt-3"}
           >
             <p className="text-xs uppercase tracking-wide text-slateish-500">{side.name}</p>
-            {notFound ? (
+            {notInLibrary ? (
+              <p className="mt-1 text-sm italic text-slateish-400">
+                Not among the documents you can read.
+              </p>
+            ) : notFound ? (
               <p className="mt-1 text-sm italic text-slateish-400">
                 Not found in the pages read.
               </p>

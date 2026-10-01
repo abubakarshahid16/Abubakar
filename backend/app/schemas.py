@@ -2802,7 +2802,13 @@ class ComparisonSide(BaseModel):
     document_ids: list[str]
     answer_type: str | None = Field(
         None, description="this side's own answer_type - insufficient_evidence "
-        "means its targeted search found nothing")
+        "means its targeted search found nothing; not_in_library means the "
+        "designation typed in the question matches no document the caller can read")
+    text: str | None = Field(
+        None, description="this side's own text, kept apart from the other sides'")
+    source_start: int = Field(
+        0, description="index into `passages` of this side's first source")
+    source_count: int = Field(0, description="how many `passages` belong to this side")
 
 
 class Comparison(BaseModel):

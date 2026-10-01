@@ -332,6 +332,93 @@ describe("plan C3: a comparison renders each named side on its own", () => {
   });
 });
 
+// Found 2026-10-01 on the owner's machine: a side's written text contained a
+// blank line, the screen split the combined answer on blank lines, and every
+// later side got the wrong text (one standard's text under the other's name).
+describe("plan C3: a side's text stays under its own standard", () => {
+  // a different standard's passage: P2 is the same file as P1, which could not
+  // tell the two sides' sources apart
+  const PB: AnswerPassage = { ...P2, document_id: "doc_other", filename: "OtherStandard.pdf" };
+
+  function twoWrittenSides(over: Partial<AnswerView> = {}): AnswerView {
+    return {
+      answer_type: "comparison",
+      // the combined text is NOT what the screen reads from any more
+      answer: "A: one\n\ntwo\n\nB: three",
+      reason: null,
+      passage: null,
+      supporting: [],
+      passages: [P1, PB],
+      cited: [],
+      rejected_citations: [],
+      model: null,
+      truncated: false,
+      evidence_removed: [],
+      seconds: 3,
+      examples: [],
+      comparison: {
+        sides: [
+          {
+            name: "STD-A-001",
+            document_ids: [P1.document_id],
+            answer_type: "generated",
+            text: "Alpha opening paragraph.\n\nAlpha second paragraph [S1].",
+            source_start: 0,
+            source_count: 1,
+          },
+          {
+            name: "STD-B-002",
+            document_ids: [PB.document_id],
+            answer_type: "generated",
+            text: "Bravo only paragraph [S2].",
+            source_start: 1,
+            source_count: 1,
+          },
+        ],
+      },
+      ...over,
+    };
+  }
+
+  function sideBlock(name: string): HTMLElement {
+    return screen.getByText(name).closest("div") as HTMLElement;
+  }
+
+  it("keeps a multi-paragraph side whole and does not spill it into the next side", () => {
+    render(<AnswerCard view={twoWrittenSides()} onSelectSource={() => {}} activeSource={null} />);
+    const a = sideBlock("STD-A-001");
+    const b = sideBlock("STD-B-002");
+    expect(a).toHaveTextContent("Alpha opening paragraph.");
+    expect(a).toHaveTextContent("Alpha second paragraph");
+    expect(b).toHaveTextContent("Bravo only paragraph");
+    expect(b).not.toHaveTextContent("Alpha");
+    expect(a).not.toHaveTextContent("Bravo");
+  });
+
+  it("gives each side its own sources, in its own run", () => {
+    render(<AnswerCard view={twoWrittenSides()} onSelectSource={() => {}} activeSource={null} />);
+    expect(sideBlock("STD-A-001")).toHaveTextContent(P1.filename);
+    expect(sideBlock("STD-A-001")).not.toHaveTextContent(PB.filename);
+    expect(sideBlock("STD-B-002")).toHaveTextContent(PB.filename);
+    expect(sideBlock("STD-B-002")).not.toHaveTextContent(P1.filename);
+  });
+
+  it("says a typed standard that is not in the library is not among the documents the reader can read", () => {
+    const view = twoWrittenSides();
+    view.comparison!.sides[1] = {
+      name: "STD-C-003",
+      document_ids: [],
+      answer_type: "not_in_library",
+      text: "STD-C-003: not among the documents you can read.",
+      source_start: 1,
+      source_count: 0,
+    };
+    render(<AnswerCard view={view} onSelectSource={() => {}} activeSource={null} />);
+    expect(sideBlock("STD-C-003")).toHaveTextContent(/not among the documents you can read/i);
+    expect(screen.queryByText(/Not found in the pages read/i)).toBeNull();
+  });
+});
+
 describe("the retry is labelled as a retry", () => {
   it("says try again after a failure, and offers the first go otherwise", async () => {
     const onExplain = vi.fn();
