@@ -564,3 +564,39 @@ def test_claude_model_gives_the_identical_database_answer_never_asking_claude(mo
     by_role = {b["role"]: b["loaded"] for b in body["corpus"]["breakdown"]}
     assert by_role == {"COMPANY_STANDARD": 2, "CONTRACTOR_SUBMITTAL": 1}
     assert seen == [], "Claude was called for a count the database already answers"
+
+
+# ---------------------------------------------------------------- typo repair
+
+
+@pytest.mark.parametrize("question", [
+    "how many standrds do we have",
+    "HOW MANY STANDRDS DO WE HAVE IN SYSTEM",
+    "how many submitals are there",
+    "list all datasheet",
+    "how many documnts are loaded",
+])
+def test_typo_in_the_noun_still_routes_to_the_inventory(question):
+    assert corpus.classify(question) is not None, question
+    assert corpus.inventory_question(question) is not None, question
+
+
+@pytest.mark.parametrize("word", [
+    "documented", "standardize", "specified", "standing", "filed", "datasets",
+])
+def test_real_words_near_a_noun_are_not_rewritten(word):
+    assert corpus._normalise(word) == word
+
+
+def test_typo_count_route_returns_the_database_answer():
+    _doc("std0", "COMPANY_STANDARD")
+    _doc("std1", "COMPANY_STANDARD")
+    app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
+        user_id=None, allowed_document_ids=frozenset({"std0", "std1"}), unrestricted=True)
+    client = TestClient(app)
+    conversation = client.post("/api/conversations", json={}).json()["id"]
+    body = client.post(f"/api/conversations/{conversation}/ask",
+                       json={"question": "HOW MANY STANDRDS DO WE HAVE IN SYSTEM",
+                             "model": "local"}).json()
+    assert body["answer_type"] == "metadata"
+    assert {b["role"]: b["loaded"] for b in body["corpus"]["breakdown"]} == {"COMPANY_STANDARD": 2}

@@ -34,6 +34,7 @@ with a library total and never search - the worse failure.
 
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass
 
@@ -131,8 +132,31 @@ class CorpusQuestion:
     content: tuple[str, ...] = ()
 
 
+_REPAIRABLE = tuple(sorted(k for k in _NOUN_ROLE if len(k) >= 6))
+
+
+def _repair(word: str) -> str:
+    """One conservative typo repair: "standrds" -> "standards".
+
+    Only a word of 6+ letters, same first letter, length within 1 of a noun
+    and very close to it (difflib ratio >= 0.88) is repaired. Real words
+    ("documented", "standardize") differ by 2+ letters and are left alone.
+    """
+    if len(word) < 6 or word in _NOUN_ROLE or word in _NEUTRAL:
+        return word
+    best, best_ratio = word, 0.0
+    for noun in _REPAIRABLE:
+        if noun[0] != word[0] or abs(len(noun) - len(word)) > 1:
+            continue
+        ratio = difflib.SequenceMatcher(None, word, noun).ratio()
+        if ratio >= 0.88 and ratio > best_ratio:
+            best, best_ratio = noun, ratio
+    return best
+
+
 def _normalise(question: str) -> str:
-    return " ".join(re.sub(r"[^\w'\s-]", " ", (question or "").lower()).split())
+    words = re.sub(r"[^\w'\s-]", " ", (question or "").lower()).split()
+    return " ".join(_repair(w) for w in words)
 
 
 def classify(question: str) -> CorpusQuestion | None:
