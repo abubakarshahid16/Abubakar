@@ -1782,8 +1782,15 @@ export interface ComparisonSide {
   name: string;
   document_ids: string[];
   /** this side's own answer_type - insufficient_evidence means its targeted
-   *  search found nothing */
+   *  search found nothing; not_in_library - the designation typed in the
+   *  question matches no document the caller can read */
   answer_type: string | null;
+  /** this side's own text, kept apart from the other sides' */
+  text?: string | null;
+  /** index into the answer's passages of this side's first source */
+  source_start?: number;
+  /** how many passages belong to this side */
+  source_count?: number;
 }
 
 /** Plan C3: a comparison's side breakdown, alongside the combined `answer`
