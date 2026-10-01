@@ -46,8 +46,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         # Re-anchored 2026-09-26: the line also excludes PAGE_READER_ONLY (M1023).
         anchor="                and not _unread(f) and not _page_reader_only(f)]\n",
         replacement="                and not _page_reader_only(f)]\n",
+        # Re-targeted 2026-10-01: the test was renamed (the one summary is now a
+        # Review note), so the old keyword selected nothing.
         target="tests/test_b3_crs_unread_pages.py",
-        keyword="one_plain_summary_row",
+        keyword="one_review_note",
         tags=("honesty", "critical"),
     ),
     Mutation(

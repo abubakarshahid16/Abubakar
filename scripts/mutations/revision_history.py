@@ -49,8 +49,13 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="    return _OBLIGATION.search(title) is not None\n",
              target=_H, keyword="parenthetical_obligation", tags=("citation",)),
     Mutation(id="M910", phase=79, description="heading: a numbered requirement's sentence is dropped from the text",
-             path=APP / "chunker.py", anchor="                buf.extend(lines[i:i + consumed])\n",
-             replacement="",
+             path=APP / "chunker.py",
+             # Re-anchored 2026-10-01: the same `buf.extend` line also exists in
+             # the contents-page branch, so the anchor now starts at the
+             # numbered-requirement branch's own preceding line.
+             anchor=("                    enter(section, section, section)\n"
+                     "                buf.extend(lines[i:i + consumed])\n"),
+             replacement="                    enter(section, section, section)\n",
              target=_H, keyword="keeps_its_sentence", tags=("citation", "critical")),
     Mutation(id="M906", phase=79, description="evidence: the page text is never consulted",
              path=APP / "applicability.py",
