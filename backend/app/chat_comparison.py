@@ -79,7 +79,7 @@ def named_sides(
 #: "H2S-service" must never be reported as a standard missing from the library.
 _TYPED_DESIGNATION = re.compile(r"\b[A-Z][A-Z0-9]*(?:[-.][A-Z0-9]+)+\b")
 
-_CONNECTORS = {"and", "or", "on", "about", "regarding", "for", "in", "of", "the", "between",
+_CONNECTORS = {"and", "or", "against", "from", "than", "on", "about", "regarding", "for", "in", "of", "the", "between",
                "with", "to", "a", "an", "their", "its", "these", "those"}
 
 
