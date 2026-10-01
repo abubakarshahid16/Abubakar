@@ -1096,6 +1096,10 @@ export interface ChatPresentation {
   draft?: Record<string, unknown> | null;
   notices?: string[];
   provider?: string | null;
+  /** audit 101: "claude" when the reader chose Claude and the local model answered */
+  requested_provider?: string | null;
+  /** plain words: Claude was not used, and why */
+  provider_note?: string | null;
   cost_usd?: number | null;
 }
 

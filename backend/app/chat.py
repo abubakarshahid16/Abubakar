@@ -652,6 +652,8 @@ _PAYLOAD_KEYS = (
     # has none of them, and renders as it always did.
     "answer_kind", "used_line", "sources", "verification", "steps",
     "suggestions", "draft", "provider", "cost_usd", "history_turns",
+    # Audit 101: the reader asked for Claude and the local model answered.
+    "requested_provider", "provider_note",
     "route", "notices", "claims", "claims_removed", "rewrite_of", "records", "cancelled",
     # A rewrite/action of a DOCUMENT turn carries that turn's document ids
     # (chat_answers.rewrite), so a revoked grant withholds the reworded copy
@@ -664,7 +666,8 @@ _PAYLOAD_KEYS = (
 #: Payload keys lifted to the top of a message, so the Chat screen reads one
 #: shape for a fresh answer and a reopened one.
 _LIFTED = ("answer_kind", "used_line", "sources", "verification", "steps",
-           "suggestions", "draft", "notices", "model", "provider", "seconds", "cost_usd")
+           "suggestions", "draft", "notices", "model", "provider", "seconds", "cost_usd",
+           "requested_provider", "provider_note")
 
 
 def _payload(result: dict) -> dict:
@@ -887,6 +890,9 @@ def ask(
     #: to the existing pipeline - part of THIS answer's cost (audit leftover
     #: 2026-09-30: the ledger counted it, the answer did not show it).
     fallback_spent: list[float] = []
+    #: Why the first Claude call could not be used (plain words), when it
+    #: could not - the cause the downgrade notice reports.
+    fallback_why: list[str] = []
     if (inventory_result is None and comparison_result is None and spec_shaped_result is None
             and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
@@ -895,7 +901,8 @@ def ask(
             original, history=memory(always=True),
             allowed_document_ids=claude_scope(retrieval_allowed, document_id=document_id,
                                               picked=bool(document_ids)),
-            web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append)
+            web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append,
+            on_fallback_reason=fallback_why.append)
 
     if inventory_result is not None:
         result = {
@@ -981,6 +988,8 @@ def ask(
             "the answer came from the local pipeline, and its cost includes that call.")]
     result["route"] = route_kind
     result["history_turns"] = memory.turns
+    # AUDIT 101: Model=Claude was asked for and the local model answered.
+    result.update(chat_model.downgrade_fields(model, result, fallback_why[0] if fallback_why else None))
     if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER) and routed.get("compliance"):
         # THE CHAT NEVER RECORDS A VERDICT: a compliance question is answered
         # from the evidence and ends with the engineer notice.

@@ -858,6 +858,42 @@ describe("insufficient evidence", () => {
     expect(screen.queryByText(/The local answer model is not running/i)).toBeNull();
     expect(screen.queryByText("ollama serve")).toBeNull();
   });
+
+  // Audit 101: a reopened general-knowledge answer that Claude was asked for
+  // and the local model wrote carries the reason; one stored without the keys
+  // renders as it always did.
+  it.each([
+    ["with the keys", { requested_provider: "claude", provider: "ollama", provider_note: "Claude was not used; this answer was written by the local model." }, true],
+    ["without the keys (stored earlier)", { provider: "ollama" }, false],
+  ] as const)("a reopened general answer %s", async (_label, keys, shown) => {
+    mockApi({
+      conversation: {
+        conversation,
+        messages: [
+          userMessage(),
+          extractMessage({
+            text: "Entropy measures disorder.",
+            answer_type: "general",
+            payload: { seconds: 0.1 },
+            ...keys,
+          }),
+        ],
+      },
+      conversations: {
+        total: 1,
+        limit: 20,
+        offset: 0,
+        conversations: [{ ...conversation, first_question: "q" }],
+      },
+    });
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
+
+    expect(await screen.findByText(/Entropy measures disorder/)).toBeInTheDocument();
+    const note = screen.queryByRole("note", { name: /which model answered/i });
+    if (shown) expect(note).toHaveTextContent(/written by the local model/);
+    else expect(note).toBeNull();
+  });
 });
 
 // ----------------------------------------------------------------- follow-ups

@@ -7,6 +7,10 @@ export interface AnswerView {
   reason: string | null;
   /** Which engine answered or failed: "claude" or "ollama". Absent on turns stored before it was kept. */
   provider?: string | null;
+  /** "claude" when the reader chose Claude; kept only when the local model answered. Absent on older turns. */
+  requested_provider?: string | null;
+  /** Why Claude was not used (written by the backend). Absent on older turns. */
+  provider_note?: string | null;
   passage: AnswerPassage | null;
   supporting: AnswerPassage[];
   passages: AnswerPassage[];
@@ -74,6 +78,8 @@ export function viewFromMessage(m: Message): AnswerView {
     answer: m.text,
     reason: m.reason,
     provider: m.provider ?? p.provider ?? null,
+    requested_provider: m.requested_provider ?? p.requested_provider ?? null,
+    provider_note: m.provider_note ?? p.provider_note ?? null,
     passage: p.passage ?? null,
     supporting: p.supporting ?? [],
     passages: p.passages ?? [],
