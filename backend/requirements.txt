@@ -36,7 +36,7 @@ psutil==7.2.2
 # transitive of tokenizers. Undeclared, a resolver change would break model
 # staging on a fresh clone - and staging is the one step that needs the
 # network, so it would fail during setup on a machine about to be air-gapped.
-huggingface_hub==1.30.0
+huggingface_hub==2.0.0
 
 # Ollama client (plain HTTP, no SDK needed)
 httpx==0.28.1
