@@ -1770,7 +1770,7 @@ export interface CorpusFact {
   /** the question also asked about content, answered separately by retrieval */
   qualified: boolean;
   /** one entry per role, when the question named more than one */
-  breakdown: CorpusFactBreakdownEntry[] | null;
+  breakdown?: CorpusFactBreakdownEntry[] | null;
 }
 
 /** B8: whether the evidence answers the question. Decided by structure the
