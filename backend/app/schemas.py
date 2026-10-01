@@ -2758,11 +2758,25 @@ class EvidenceRemoved(BaseModel):
     characters_dropped: int
 
 
+class CorpusFactBreakdownEntry(BaseModel):
+    """One named role's own count, within a multi-role `CorpusFact`."""
+
+    role: str | None
+    loaded: int
+    not_loaded: int = 0
+    families: dict[str, int] | None = Field(
+        None, description="a COMPANY_STANDARD count, further split by standard "
+        "family (SAES, ASME, API, ...), when more than one family is present")
+
+
 class CorpusFact(BaseModel):
     """A count of the library, from the database, under the caller's grants.
 
     `text` carries its own boundary - "272 company standards are loaded and
-    readable by you" - so it cannot be quoted without it.
+    readable by you" - so it cannot be quoted without it. `role`/`loaded`/
+    `not_loaded` are the combined total (role is null when more than one
+    role was named together, or every role); `breakdown` names each role's
+    own count when the question named more than one in the same breath.
     """
 
     text: str
@@ -2774,6 +2788,8 @@ class CorpusFact(BaseModel):
     qualified: bool = Field(
         False, description="the question also asked about content, so retrieval "
         "answered that part separately")
+    breakdown: list[CorpusFactBreakdownEntry] | None = Field(
+        None, description="one entry per role, when the question named more than one")
 
 
 class EvidenceRef(BaseModel):

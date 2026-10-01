@@ -1742,9 +1742,22 @@ export interface GenerateReport {
   message_id: string;
 }
 
+/** One named role's own count, within a multi-role CorpusFact. */
+export interface CorpusFactBreakdownEntry {
+  role: string | null;
+  loaded: number;
+  not_loaded: number;
+  /** a COMPANY_STANDARD count, further split by standard family
+   *  (SAES, ASME, API, ...), when more than one family is present */
+  families: Record<string, number> | null;
+}
+
 /** A count of the library, from the database, under the caller's grants.
  *  `text` carries its own boundary - "272 company standards are loaded and
- *  readable by you" - so it cannot be shown without it. */
+ *  readable by you" - so it cannot be shown without it. `role`/`loaded`/
+ *  `not_loaded` are the combined total (role is null when more than one
+ *  role was named together, or every role); `breakdown` names each role's
+ *  own count when the question named more than one in the same breath. */
 export interface CorpusFact {
   text: string;
   /** document_role counted; null means every role */
@@ -1756,6 +1769,8 @@ export interface CorpusFact {
   source: "database";
   /** the question also asked about content, answered separately by retrieval */
   qualified: boolean;
+  /** one entry per role, when the question named more than one */
+  breakdown?: CorpusFactBreakdownEntry[] | null;
 }
 
 /** B8: whether the evidence answers the question. Decided by structure the
