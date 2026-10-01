@@ -191,6 +191,8 @@ def compare(
     model: str | None,
     history: str,
     missing: list[str] | None = None,
+    topic: str | None = None,
+    family: dict | None = None,
 ) -> dict:
     """Retrieve EACH side on its own top-k budget, cite both, and never let
     an absence on one side borrow the other's evidence or the model's words.
@@ -209,7 +211,7 @@ def compare(
     any_reranked = False
     all_names = [name for name, _ in sides]
     missing = list(missing or [])
-    topic = topic_of(question, all_names + missing)
+    topic = topic or topic_of(question, all_names + missing)
     if topic is None:
         return _clarify(question, all_names + missing)
     for name, ids in sides:
@@ -277,6 +279,13 @@ def compare(
                           "source_count": 0})
         parts.append(_not_in_library(name))
 
+    comparison: dict = {"sides": breakdown}
+    if family is not None:
+        # A FAMILY question (family_search.py): the standards were found by
+        # the app from a phrase, so the answer says which were searched and
+        # that membership is a guess. Written in code, never by a model.
+        comparison["family"] = family
+        parts.insert(0, family["note"])
     return {
         "question": question,
         "retrieval_mode": "comparison",
@@ -287,7 +296,7 @@ def compare(
         "answer": "\n\n".join(parts),
         "reason": None,
         "input_kind": "comparison_question",
-        "comparison": {"sides": breakdown},
+        "comparison": comparison,
         "examples": [],
         "passages": passages,
         "seconds": seconds,

@@ -2814,11 +2814,28 @@ class ComparisonSide(BaseModel):
         "named document the caller cannot read (never reported as a search that found nothing)")
 
 
+class ComparisonFamily(BaseModel):
+    """Issue #373: present when the sides were not NAMED by the reader but
+    found by the app from a family phrase ("the welding standards"). Which
+    standards belong to the family is the app's guess until a person confirms
+    it."""
+
+    label: str = Field(description="the reader's own descriptor words")
+    searched: list[str] = Field(description="the standards searched, one side each")
+    judged: int = Field(
+        description="how many readable standards matched; more than len(searched) "
+        "means the rest were not searched")
+    membership_is_a_guess: bool = Field(True, description="always true")
+    note: str = Field(description="the sentence written in code saying what was searched")
+
+
 class Comparison(BaseModel):
     """Plan C3: a comparison's side breakdown, alongside the combined `answer`
     text. Present only on `answer_type == \"comparison\"`."""
 
     sides: list[ComparisonSide]
+    family: ComparisonFamily | None = Field(
+        None, description="issue #373: set when the app resolved a family phrase to the sides")
 
 
 class EvidenceRef(BaseModel):

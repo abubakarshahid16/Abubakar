@@ -378,6 +378,57 @@ describe("plan C3: a comparison renders each named side on its own", () => {
   });
 });
 
+// Issue #373: sides the app FOUND from a family phrase ("the welding
+// standards") are a guess, and the screen says so.
+describe("issue #373: a family comparison says which standards were searched, as a guess", () => {
+  const note =
+    "Searched 2 standards judged to be welding standards: STD-A-001, STD-B-002. " +
+    "Which standards belong to this family is a guess made by this app until a person confirms it.";
+
+  function familyView(withFamily: boolean): AnswerView {
+    return {
+      answer_type: "comparison",
+      answer: `${note}\n\nSTD-A-001: Heat treat at 620 C.\n\nSTD-B-002: not found in the pages read.`,
+      reason: null,
+      passage: null,
+      supporting: [],
+      passages: [P1],
+      cited: [],
+      rejected_citations: [],
+      model: null,
+      truncated: false,
+      evidence_removed: [],
+      seconds: 1,
+      examples: [],
+      comparison: {
+        sides: [
+          { name: "STD-A-001", document_ids: [P1.document_id], answer_type: "extract",
+            text: "Heat treat at 620 C.", source_start: 0, source_count: 1 },
+          { name: "STD-B-002", document_ids: ["doc_b"], answer_type: "insufficient_evidence",
+            text: "STD-B-002: not found in the pages read.", source_start: 1, source_count: 0 },
+        ],
+        family: withFamily
+          ? { label: "welding", searched: ["STD-A-001", "STD-B-002"], judged: 2,
+              membership_is_a_guess: true, note }
+          : null,
+      },
+    };
+  }
+
+  it("shows the code-written note and a header that says each was searched on its own", () => {
+    render(<AnswerCard view={familyView(true)} onSelectSource={() => {}} activeSource={null} />);
+    expect(screen.getByTestId("family-note").textContent).toContain("is a guess made by this app");
+    expect(screen.getByText(/Searched 2 standards, each on its own/)).toBeInTheDocument();
+    expect(screen.queryByText(/named sides/)).toBeNull();
+  });
+
+  it("shows no family note on an ordinary named-sides comparison", () => {
+    render(<AnswerCard view={familyView(false)} onSelectSource={() => {}} activeSource={null} />);
+    expect(screen.queryByTestId("family-note")).toBeNull();
+    expect(screen.getByText(/Compared across 2 named sides/)).toBeInTheDocument();
+  });
+});
+
 // Found 2026-10-01 on the owner's machine: a side's written text contained a
 // blank line, the screen split the combined answer on blank lines, and every
 // later side got the wrong text (one standard's text under the other's name).

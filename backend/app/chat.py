@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from . import answer as answer_mod
 from . import chat_answers
 from . import chat_comparison
+from . import family_search
 from . import chat_model
 from . import chat_presentation
 from . import corpus as corpus_mod
@@ -875,6 +876,17 @@ def ask(
                 allowed_document_ids=retrieval_allowed, progress_id=progress_id,
                 model=model, history=memory(), missing=comparison_missing)
 
+    # ISSUE #373: a question naming a FAMILY of standards in general words
+    # ("the welding standards") is searched per standard, never in one shared
+    # pass. Same slot and same reasons as the comparison above.
+    family_notice = None
+    if (comparison_result is None and inventory_result is None and explain_of is None
+            and document_id is None
+            and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)):
+        comparison_result, family_notice = family_search.run(
+            resolved, documents_map, tier=tier, allowed_document_ids=retrieval_allowed,
+            progress_id=progress_id, model=model, history=memory())
+
     spec_shaped_result = None
     if (inventory_result is None and comparison_result is None and explain_of is None
             and route_kind in (intent_mod.EITHER, intent_mod.DOCUMENT)
@@ -986,6 +998,8 @@ def ask(
         result["notices"] = [*(result.get("notices") or []), (
             f"A Claude call for this turn failed and was charged USD {charged:.4f}; "
             "the answer came from the local pipeline, and its cost includes that call.")]
+    if family_notice:
+        result["notices"] = [*(result.get("notices") or []), family_notice]
     result["route"] = route_kind
     result["history_turns"] = memory.turns
     # AUDIT 101: Model=Claude was asked for and the local model answered.

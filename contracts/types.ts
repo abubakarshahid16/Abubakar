@@ -1803,6 +1803,24 @@ export interface ComparisonSide {
  *  text. Present only on answer_type === "comparison". */
 export interface Comparison {
   sides: ComparisonSide[];
+  /** issue #373: set when the app resolved a family phrase ("the welding
+   *  standards") to the sides; membership is a guess until a person confirms */
+  family?: ComparisonFamily | null;
+}
+
+/** Issue #373: the standards the app judged to belong to a family phrase. */
+export interface ComparisonFamily {
+  /** the reader's own descriptor words */
+  label: string;
+  /** the standards searched, one side each */
+  searched: string[];
+  /** how many readable standards matched; more than searched.length means
+   *  the rest were not searched */
+  judged: number;
+  /** always true */
+  membership_is_a_guess: boolean;
+  /** the sentence written in code saying what was searched */
+  note: string;
 }
 
 /** B8: whether the evidence answers the question. Decided by structure the
