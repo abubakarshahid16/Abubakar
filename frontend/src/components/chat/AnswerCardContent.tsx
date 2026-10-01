@@ -5,6 +5,8 @@ export interface AnswerView {
   answer_type: AnswerType;
   answer: string | null;
   reason: string | null;
+  /** Which engine answered or failed: "claude" or "ollama". Absent on turns stored before it was kept. */
+  provider?: string | null;
   passage: AnswerPassage | null;
   supporting: AnswerPassage[];
   passages: AnswerPassage[];
@@ -57,6 +59,8 @@ export interface UpgradeFailure {
   /** `insufficient_evidence` (refused) or `model_unavailable` (never ran). */
   answer_type: AnswerType;
   reason: string | null;
+  /** Which engine failed: "claude" or "ollama" (absent: unknown, treated as local). */
+  provider?: string | null;
   /** What the model was given, so the reader can still judge for themselves. */
   considered: AnswerPassage[];
   activeSource: number | null;
@@ -69,6 +73,7 @@ export function viewFromMessage(m: Message): AnswerView {
     answer_type: m.answer_type ?? "insufficient_evidence",
     answer: m.text,
     reason: m.reason,
+    provider: m.provider ?? p.provider ?? null,
     passage: p.passage ?? null,
     supporting: p.supporting ?? [],
     passages: p.passages ?? [],
@@ -342,6 +347,23 @@ export function ReportAction({
  * `PassageLocation`, which already carries the OCR mark and is checked there.
  */
 export function UpgradeFailureNotice({ failure }: { failure: UpgradeFailure }) {
+  if (failure.answer_type === "model_unavailable" && failure.provider === "claude") {
+    return (
+      <div
+        role="alert"
+        className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-2.5 py-2"
+      >
+        <p className="text-xs font-semibold text-warn-500">
+          The plain-language version could not be produced — Claude did not answer
+        </p>
+        <p className="mt-1 text-xs text-slateish-300">
+          {asSentence(failure.reason ?? "The Claude call failed")} The quoted
+          answer above is unaffected — only the plain-language version needs
+          the model. Try again, or switch Model to Local.
+        </p>
+      </div>
+    );
+  }
   if (failure.answer_type === "model_unavailable") {
     return (
       <div

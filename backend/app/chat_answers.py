@@ -55,15 +55,16 @@ def _engine_label(provider: str | None) -> str:
     return "Claude" if provider == rp.CLAUDE else "Local model"
 
 
-def _failed(base: dict, exc: Exception, timer: Timer) -> dict:
+def _failed(base: dict, exc: Exception, timer: Timer, preference: str | None = None) -> dict:
     if isinstance(exc, claude_spend.BudgetExceeded):
         reason = f"the Claude spending cap would be exceeded, so no answer was generated ({exc})"
     elif isinstance(exc, rp.ProviderRefused):
         reason = f"the answer model would not answer ({str(exc).split(':')[0]})"
     else:
         reason = f"the answer model could not be reached ({type(exc).__name__})"
+    engine = rp.CLAUDE if isinstance(exc, claude_spend.BudgetExceeded) else chat_model.engine_name(preference)
     return {**base, "answer_type": "model_unavailable", "answer": None, "reason": reason,
-            "seconds": timer.seconds()}
+            "provider": engine, "seconds": timer.seconds()}
 
 
 def _base(question: str, input_kind: str) -> dict:
@@ -89,7 +90,7 @@ def general(question: str, *, styles: list[str], history: str, preference: str |
     try:
         raw = _generate(GENERAL_SYSTEM, prompt, settings.chat_temperature_general, preference)
     except Exception as exc:  # noqa: BLE001 - reported as unavailable, never a crash
-        return _failed(base, exc, timer)
+        return _failed(base, exc, timer, preference)
     if raw.get("cancelled"):
         return answer_mod.stopped(base, raw, timer)
     text = answer_mod.strip_half_citation((raw.get("response") or "").strip())
@@ -165,7 +166,7 @@ def rewrite(previous: dict | None, *, styles: list[str], history: str, preferenc
         try:
             raw = _generate(GENERAL_SYSTEM, prompt, settings.chat_temperature_general, preference)
         except Exception as exc:  # noqa: BLE001
-            return _failed(base, exc, timer)
+            return _failed(base, exc, timer, preference)
         if raw.get("cancelled"):
             return answer_mod.stopped(base, raw, timer)
         text = answer_mod.drop_citations(raw.get("response") or "")

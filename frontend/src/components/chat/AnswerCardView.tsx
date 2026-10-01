@@ -162,6 +162,21 @@ function AnswerCardBody({
     return <InsufficientAnswer view={view} onSelectSource={onSelectSource} />;
   }
 
+  if (view.answer_type === "model_unavailable" && view.provider === "claude") {
+    return (
+      <div role="alert" className="surface-card rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-4">
+        <p className="text-sm font-semibold text-warn-500">
+          Claude could not answer
+        </p>
+        <p className="mt-1 text-sm text-slateish-300">
+          {asSentence(view.reason ?? "The Claude call failed")} The quoted
+          answer above is unaffected — only the explanation needs the model.
+          Try again, or switch Model to Local.
+        </p>
+      </div>
+    );
+  }
+
   // ---------------------------------------------------- plan C3: comparison
   if (view.answer_type === "comparison") {
     return <ComparisonAnswer view={view} onSelectSource={onSelectSource} activeSource={activeSource} />;
