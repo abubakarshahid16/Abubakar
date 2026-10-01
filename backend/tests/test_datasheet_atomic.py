@@ -38,9 +38,47 @@ def test_a_note_reference_is_not_a_condition():
 
 def test_values_that_are_not_one_quantity_plus_words_are_left_alone():
     for raw in ("10-20 bar", "0.5 to 2 bar", "2nd Stage", "153 barg",
-                "forged carbon steel to ASTM A105", "ASME Class 600", "Yes"):
+                "forged carbon steel to ASTM A105", "Yes"):
         [p] = _one(raw)
         assert p["value"] == raw and p.get("qualifier") is None, raw
+
+
+def test_a_standards_body_word_before_a_pressure_class_is_context_not_value():
+    """Audit entry 94: "ASME Class 600" was kept whole where the key wants
+    "Class 600". The acronym is moved to the qualifier; the value is the class.
+    Invented acronyms on purpose - the rule is about the shape, not one name."""
+    [p] = _one("QRS Class 900")
+    assert p["value"] == "Class 900" and p["qualifier"] == "QRS"
+    [p] = _one("ASME Class 600")
+    assert (p["value"], p["qualifier"]) == ("Class 600", "ASME")
+    [p] = _one("WXYZ Cl. 150")
+    assert (p["value"], p["qualifier"]) == ("Cl. 150", "WXYZ")
+
+
+def test_a_class_prefix_keeps_a_qualifier_the_model_already_gave():
+    [p] = cd.atomise([{"field": "Pressure class", "value": "QRS Class 900", "unit": None,
+                       "quote": "x", "kind": "offered", "qualifier": "flanged ends"}])
+    assert (p["value"], p["qualifier"]) == ("Class 900", "flanged ends")
+
+
+def test_only_a_bare_acronym_before_a_bare_class_is_trimmed():
+    """Anything else about the value stays exactly as the page printed it."""
+    for raw in ("Class 900", "QRS B16.5 Class 900", "Class 900 RF", "Class 900 or 1500",
+                "Pressure Class 900", "pressure class 900", "QRS Class 9",
+                "QRS Class", "A Class 900", "ABCDEFGH Class 900", "Grade 900"):
+        [p] = _one(raw)
+        assert p["value"] == raw and p.get("qualifier") is None, raw
+
+
+def test_the_class_trim_is_idempotent_and_leaves_the_quote_as_evidence():
+    once = _one("QRS Class 900")
+    assert cd.atomise(once) == once
+    page = "Pressure class: QRS Class 900."
+    raw = json.dumps({"facts": [{"field": "Pressure class", "value": "QRS Class 900",
+                                 "unit": None, "quote": page, "kind": "offered"}]})
+    out = cd.read_page(page, 1, [], lambda prompt: raw)
+    [a] = out["accepted"]
+    assert (a["value"], a["qualifier"], a["quote"]) == ("Class 900", "QRS", page)
 
 
 def test_a_steel_grade_is_not_a_quantity_with_a_note():

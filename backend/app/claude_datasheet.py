@@ -274,6 +274,24 @@ def _bare_quantity(text: str):
     return m.group(1), m.group(3), None
 
 
+#: A pressure-class value with a standards-body acronym in front of it:
+#: "ASME Class 600". The acronym (two to six capitals, nothing else) names who
+#: defines the class; it is context, not part of the value. Deliberately
+#: narrow: nothing may follow the number, so "ASME B16.5 Class 600", "Class 600
+#: RF" and "Class 600 or 900" are never touched.
+_CLASS_WITH_BODY = re.compile(r"^\s*([A-Z]{2,6})\s+((?:Class|Cl\.?)\s*\d{2,4})\s*$", re.IGNORECASE)
+
+
+def _strip_standards_body(value: str):
+    """`(value, body)` for "ASME Class 600" -> ("Class 600", "ASME"), else None.
+    The acronym must be written in capitals (so a lower-case word is never
+    mistaken for one) and is returned as the qualifier."""
+    m = _CLASS_WITH_BODY.match(value)
+    if not m or not m.group(1).isupper():
+        return None
+    return m.group(2), m.group(1)
+
+
 def atomise(proposals: list[dict]) -> list[dict]:
     """One fact, one value. Code, not the model, enforces it.
 
@@ -287,6 +305,11 @@ def atomise(proposals: list[dict]) -> list[dict]:
         value = p.get("value")
         if not value or not isinstance(value, str):
             out.append(p)
+            continue
+        trimmed = _strip_standards_body(value)
+        if trimmed is not None:
+            out.append({**p, "value": trimmed[0],
+                        "qualifier": p.get("qualifier") or trimmed[1]})
             continue
         pieces = [x for x in _SECOND_VALUE.split(value) if x and x.strip()]
         if len(pieces) < 2:

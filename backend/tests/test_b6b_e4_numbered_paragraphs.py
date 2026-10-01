@@ -49,6 +49,34 @@ def test_a_numbered_paragraph_document_gets_one_clause_per_paragraph():
     assert set(sections) == {f"4.{p}.{k}" for p in range(1, 7) for k in (1, 2, 3)}, set(sections)
 
 
+def test_a_repeated_top_of_page_prefixed_number_is_not_stripped_as_a_running_header():
+    """THE MUTATION TARGET (M803). A purely numeric clause number such as
+    '4.2.1' is never page furniture (audit F2: a line with no letters is
+    furniture only when it is the page's own number), so the numbered-paragraph
+    guard in `strip_running_lines` is only reachable by a number WITH a letter,
+    like an annex clause 'A.1.1' - and only when that exact line repeats at the
+    top of enough pages to be recorded as running. Then it is furniture to the
+    detector and a clause number to the reader; the guard keeps it. Without
+    the guard the first clause on every page loses its label."""
+    pages = []
+    for p in range(1, 7):
+        pages.append((p, "\n".join([
+            "A.1.1",
+            f"The {_NOUNS[p]} of unit {p} shall be inspected before shipment in case 1.",
+            "A.1.2",
+            f"Records for the {_NOUNS[p + 5]} of unit {p} are kept by the supplier (2).",
+        ])))
+    running = ch.detect_running_lines(pages)
+    assert any(r.endswith("a.1.1") for r in running), "setup: A.1.1 must read as a running line"
+    kinds = {p: "prose" for p, _ in pages}
+    blocks, _ = ch.segment_document(pages, running, kinds)
+    first_on_page = {}
+    for b in blocks:
+        if b.kind == "prose":
+            first_on_page.setdefault(b.page_start, b.section)
+    assert first_on_page == {p: "A.1.1" for p in range(1, 7)}, first_on_page
+
+
 def test_the_clause_number_is_the_label_nothing_is_invented():
     assert all(s is None or ch._DOTTED_CLAUSE_ONLY.match(s) for s in _sections(NUMBERED))
 

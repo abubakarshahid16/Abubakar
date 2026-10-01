@@ -437,7 +437,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "chunker.py",
         anchor="            if _numbered_paragraph([ln.strip() for ln in lines], i):\n                keep.append(line)\n                continue\n",
         replacement="",
-        target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="one_clause_per_paragraph",
+        # Re-targeted 2026-10-01 (audit entry 90): the old test used dotted
+        # numbers with no letter, which `_is_running` never treats as furniture
+        # (audit F2), so it passed with this guard deleted. The new test uses
+        # a lettered clause number that repeats at every page top.
+        target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="top_of_page_prefixed_number",
     ),
     # ---- the four claude_api review routes under the USD caps (2026-09-27)
     Mutation(

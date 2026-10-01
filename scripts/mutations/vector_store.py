@@ -52,7 +52,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1269", phase=PHASE,
         description="sqlite-vec index: model tag not checked - stale vectors are searched",
         path=_VS,
-        anchor="                         if r[2] == tag and r[1] is not None\n",
+        # Re-anchored 2026-10-01: the check became `in tags` (today's tag plus
+        # the legacy tags that are still searchable, see `searchable_tags`).
+        anchor="                         if r[2] in tags and r[1] is not None\n",
         replacement="                         if r[1] is not None\n",
         target=_T, keyword="stale",
     ),
@@ -60,8 +62,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1270", phase=PHASE,
         description="numpy backend: model tag not checked - stale vectors are searched",
         path=_VC,
-        anchor="           WHERE c.retrievable = 1 AND v.model = ? AND length(v.vector) = ?\n",
-        replacement="           WHERE c.retrievable = 1 AND (v.model = ? OR 1) AND length(v.vector) = ?\n",
+        # Re-anchored 2026-10-01: the filter is `v.model IN (searchable tags)`.
+        anchor='           WHERE c.retrievable = 1 AND v.model IN ({",".join("?" * len(tags))})\n',
+        replacement='           WHERE c.retrievable = 1 AND (v.model IN ({",".join("?" * len(tags))}) OR 1)\n',
         target=_T, keyword="stale",
     ),
     Mutation(
@@ -134,11 +137,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1279", phase=PHASE,
         description="embedded_count counts stale vectors as embedded",
         path=APP / "ingest.py",
-        anchor=('               WHERE v.document_id = ? AND v.model = ?""",\n'
-                '            (doc_id, embedding_tag()),\n'
+        # Re-anchored 2026-10-01: the recount filters on the searchable tags
+        # (`_tag_marks`), not on the single current tag.
+        anchor=('               WHERE v.document_id = ? AND v.model IN ({_tag_marks()})""",\n'
+                '            (doc_id, *searchable_tags()),\n'
                 '        ).fetchone()[0]\n'),
-        replacement=('               WHERE v.document_id = ? AND (v.model = ? OR 1)""",\n'
-                     '            (doc_id, embedding_tag()),\n'
+        replacement=('               WHERE v.document_id = ? AND (v.model IN ({_tag_marks()}) OR 1)""",\n'
+                     '            (doc_id, *searchable_tags()),\n'
                      '        ).fetchone()[0]\n'),
         target=_T, keyword="counts_only_current",
     ),
