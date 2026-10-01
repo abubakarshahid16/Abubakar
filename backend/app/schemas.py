@@ -2809,6 +2809,9 @@ class ComparisonSide(BaseModel):
     source_start: int = Field(
         0, description="index into `passages` of this side's first source")
     source_count: int = Field(0, description="how many `passages` belong to this side")
+    searched: bool = Field(
+        True, description="whether a search was really run for this side; false for a "
+        "named document the caller cannot read (never reported as a search that found nothing)")
 
 
 class Comparison(BaseModel):

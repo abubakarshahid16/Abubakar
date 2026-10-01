@@ -1791,6 +1791,8 @@ export interface ComparisonSide {
   source_start?: number;
   /** how many passages belong to this side */
   source_count?: number;
+  /** whether a search was really run for this side (false: not readable) */
+  searched?: boolean;
 }
 
 /** Plan C3: a comparison's side breakdown, alongside the combined `answer`

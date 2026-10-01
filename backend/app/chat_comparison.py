@@ -240,13 +240,22 @@ def compare(
         candidates_considered += side.get("candidates_considered") or 0
         seconds += side.get("seconds") or 0.0
         any_reranked = any_reranked or bool(side.get("reranked"))
+        # Was a search REALLY run for this side? Only when the caller may read
+        # at least one of its documents (`_side_answer` sends nothing to
+        # retrieval otherwise). A side never searched is never reported as a
+        # search that found nothing.
+        searched = bool(allowed_document_ids & ids)
         entry = {
             "name": name, "document_ids": sorted(ids),
-            "answer_type": side.get("answer_type"),
+            "answer_type": side.get("answer_type"), "searched": searched,
             "text": None, "source_start": len(passages), "source_count": 0,
         }
         breakdown.append(entry)
-        if side.get("answer_type") == "insufficient_evidence" or not side_passages:
+        if not searched:
+            entry["answer_type"] = "not_in_library"
+            entry["text"] = _not_in_library(name)
+            parts.append(_not_in_library(name))
+        elif side.get("answer_type") == "insufficient_evidence" or not side_passages:
             # THE ONLY CONDITION PLAN C3 ALLOWS AN ABSENCE TO BE STATED
             # UNDER: this side's own targeted search found nothing. Its
             # rejected candidates (if any) are not carried into `passages`:
@@ -264,7 +273,7 @@ def compare(
         # A designation typed in the question that no document the caller can
         # read carries. Written here, in code, never by a model.
         breakdown.append({"name": name, "document_ids": [], "answer_type": "not_in_library",
-                          "text": _not_in_library(name), "source_start": len(passages),
+                          "searched": False, "text": _not_in_library(name), "source_start": len(passages),
                           "source_count": 0})
         parts.append(_not_in_library(name))
 
