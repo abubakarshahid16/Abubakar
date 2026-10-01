@@ -23,6 +23,7 @@ export function ComparisonAnswer({
   activeSource: number | null;
 }) {
   const sides = view.comparison?.sides ?? [];
+  const family = view.comparison?.family ?? null;
   // `chat_comparison.compare` joins each side's own paragraph with "\n\n", in
   // the SAME order as `sides` - never re-parsed by content, just re-split
   // positionally, since the backend is the one place that decided the order.
@@ -36,13 +37,23 @@ export function ComparisonAnswer({
   return (
     <div className="surface-card accent-edge rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Label tone="generated">Compared across {sides.length || 2} named sides</Label>
+        <Label tone="generated">
+          {family
+            ? `Searched ${family.searched.length} standards, each on its own`
+            : `Compared across ${sides.length || 2} named sides`}
+        </Label>
         {view.seconds != null && (
           <span className="font-mono text-xs text-slateish-500">
             {formatDuration(view.seconds)}
           </span>
         )}
       </div>
+
+      {family && (
+        <p className="mt-2 text-sm text-slateish-300" data-testid="family-note">
+          {family.note}
+        </p>
+      )}
 
       {sides.map((side, i) => {
         const prefix = `${side.name}: `;
