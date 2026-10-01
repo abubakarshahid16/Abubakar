@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 
 from . import answer as answer_mod
 from . import chat_answers
+from . import chat_comparison
 from . import chat_model
 from . import chat_presentation
 from . import corpus as corpus_mod
@@ -635,6 +636,9 @@ _PAYLOAD_KEYS = (
     # count would lose the note that says it was; without `truncated`, a cut-off
     # answer would reopen looking complete.
     "corpus", "counts_bounded", "truncated",
+    # Plan C3: a comparison's own side breakdown - reopened without it, a
+    # per-side answer would look like one undivided search.
+    "comparison",
     # B6C: what the question was understood to be about, and any document
     # ambiguity - reopened without them, a scoped answer would look unscoped.
     "understanding", "scope_ambiguity",
@@ -707,6 +711,7 @@ def ask(
         document_id = None
     conn = connect()
     understood: dict | None = None
+    documents_map: dict[str, str] = {}
     route_kind = intent_mod.DOCUMENT
     routed: dict = {"styles": [], "small_talk": None, "compliance": False, "text": question}
 
@@ -761,10 +766,11 @@ def ask(
             # B6C: what the question is about - document scope, clause,
             # ambiguity. Retrieval input only; never an answer. The resolved
             # query is stored and shown, as the follow-up rewrite already was.
+            documents_map = understanding_mod.document_names(retrieval_allowed)
             understanding = understanding_mod.understand(
                 search_mod.without_terms(resolved, soft) if soft else resolved,
                 allowed_document_ids=retrieval_allowed,
-                documents=understanding_mod.document_names(retrieval_allowed),
+                documents=documents_map,
                 conversation_document_id=conversation["document_id"],
                 context=understanding_mod.prior_context(conversation_id),
             )
@@ -845,8 +851,27 @@ def ask(
     # reached through the route intent.py itself says must "never" be
     # answered from general knowledge (see intent.py's ONE ASYMMETRY comment).
     # DOCUMENT joins EITHER here for exactly that reason.
-    spec_shaped_result = None
+    # PLAN C3 (docs/chat-requirements-b6c-b9.md): a comparison names its own
+    # sides ("compare SAES-W-010 and ASME Section VIII"), and each side is
+    # retrieved on its own top-k budget - never one shared search where one
+    # named standard can crowd another out of the ranking. Decided before
+    # spec-shaped and Claude-first for the same reason those are decided up
+    # here: a question this file can answer per side, with a real per-side
+    # citation or a real per-side "not found", must not reach a path that
+    # would answer it from one merged retrieval or from a model's own words.
+    comparison_result = None
     if (inventory_result is None and explain_of is None
+            and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)
+            and chat_comparison.is_comparison_question(resolved)):
+        comparison_sides = chat_comparison.named_sides(resolved, documents_map)
+        if comparison_sides is not None:
+            comparison_result = chat_comparison.compare(
+                resolved, comparison_sides, tier=tier,
+                allowed_document_ids=retrieval_allowed, progress_id=progress_id,
+                model=model, history=memory())
+
+    spec_shaped_result = None
+    if (inventory_result is None and comparison_result is None and explain_of is None
             and route_kind in (intent_mod.EITHER, intent_mod.DOCUMENT)
             and intent_mod.is_spec_shaped(original)):
         spec_shaped_result, resolved = _document_answer(
@@ -860,7 +885,8 @@ def ask(
     #: to the existing pipeline - part of THIS answer's cost (audit leftover
     #: 2026-09-30: the ledger counted it, the answer did not show it).
     fallback_spent: list[float] = []
-    if (inventory_result is None and spec_shaped_result is None and explain_of is None
+    if (inventory_result is None and comparison_result is None and spec_shaped_result is None
+            and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
         from . import chat_claude_first
         claude_first_result = chat_claude_first.answer(
@@ -879,6 +905,8 @@ def ask(
             "examples": [], "passages": [], "seconds": 0.0,
         }
         route_kind = intent_mod.GENERAL
+    elif comparison_result is not None:
+        result = comparison_result
     elif spec_shaped_result is not None:
         # Never falls to chat_answers.general below, even when this came back
         # insufficient_evidence - that fallback is exactly the guess this

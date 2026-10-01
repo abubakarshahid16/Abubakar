@@ -1,4 +1,4 @@
-import type { AnswerPassage, Answerability, ConditionChoice, CorpusFact, EvidenceRemoved, AnswerType, Message, ScopeAmbiguity, Understanding } from "../../types/api";
+import type { AnswerPassage, Answerability, Comparison, ConditionChoice, CorpusFact, EvidenceRemoved, AnswerType, Message, ScopeAmbiguity, Understanding } from "../../types/api";
 import { PassageLocation } from "./EvidencePanel";
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
@@ -30,6 +30,9 @@ export interface AnswerView {
   condition_choice?: ConditionChoice | null;
   /** B9: reopened turn citing a document the reader can no longer read. */
   withheld?: boolean;
+  /** Plan C3: present on answer_type === "comparison" - each named side's
+   *  own document ids and its own answer_type. */
+  comparison?: Comparison | null;
 }
 
 /**
@@ -83,6 +86,7 @@ export function viewFromMessage(m: Message): AnswerView {
     scope_ambiguity: p.scope_ambiguity ?? null,
     condition_choice: p.condition_choice ?? null,
     withheld: p.withheld === true,
+    comparison: p.comparison ?? null,
   };
 }
 

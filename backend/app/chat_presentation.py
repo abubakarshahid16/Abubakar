@@ -84,12 +84,21 @@ def _what_was_checked(document_ids: list[str], meta: dict[str, dict]) -> str:
 def _answer_passages(result: dict) -> list[dict]:
     """The passages the answer USED, in the order its source numbers refer to."""
     kind = result.get("answer_type")
-    if kind == "generated":
+    if kind in ("generated", "comparison"):
         return list(result.get("passages") or [])
     if kind == "extract":
         return list(result.get("answer_passages") or
                     ([result["passage"]] if result.get("passage") else []))
     return []
+
+
+def used_passages(result: dict) -> list[dict]:
+    """The passages an answer actually used, whatever its tier - extract
+    (`passage`/`answer_passages`) or generated/comparison (`passages`).
+    Public so another module answering per-side (`chat_comparison`) can ask
+    "what did this side's own answer actually use" without a second
+    dispatch on `answer_type`."""
+    return _answer_passages(result)
 
 
 def sources(result: dict) -> list[dict]:
@@ -163,6 +172,8 @@ def steps(result: dict) -> list[dict]:
         out.append({"label": "Read the best sources", "count": read, "done": True})
     if kind == "generated":
         out.append({"label": "Wrote the answer from them", "count": None, "done": True})
+    if kind == "comparison":
+        out.append({"label": "Searched each named side on its own", "count": None, "done": True})
     return out
 
 

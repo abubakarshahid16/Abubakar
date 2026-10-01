@@ -229,6 +229,69 @@ describe("an absent reason renders as nothing, never as a placeholder", () => {
   });
 });
 
+describe("plan C3: a comparison renders each named side on its own", () => {
+  function comparisonView(): AnswerView {
+    return {
+      answer_type: "comparison",
+      answer:
+        "SAES-W-010: Post weld heat treatment shall be carried out at 620 C." +
+        "\n\n" +
+        "ASME-B31-3: not found in the pages read.",
+      reason: null,
+      passage: null,
+      supporting: [],
+      passages: [P1],
+      cited: [],
+      rejected_citations: [],
+      model: null,
+      truncated: false,
+      evidence_removed: [],
+      seconds: 2.4,
+      examples: [],
+      comparison: {
+        sides: [
+          { name: "SAES-W-010", document_ids: [P1.document_id], answer_type: "extract" },
+          { name: "ASME-B31-3", document_ids: ["doc_asme"], answer_type: "insufficient_evidence" },
+        ],
+      },
+    };
+  }
+
+  function renderComparison() {
+    return render(
+      <AnswerCard view={comparisonView()} onSelectSource={() => {}} activeSource={null} />,
+    );
+  }
+
+  it("shows both side names, each with its own text", () => {
+    renderComparison();
+    expect(screen.getByText("SAES-W-010")).toBeInTheDocument();
+    expect(screen.getByText("ASME-B31-3")).toBeInTheDocument();
+    expect(screen.getByText(/Post weld heat treatment shall be carried out at 620 C/)).toBeInTheDocument();
+  });
+
+  it("says not found in the pages read for the side with nothing, never a model sentence for it", () => {
+    renderComparison();
+    expect(screen.getByText(/Not found in the pages read\./)).toBeInTheDocument();
+  });
+
+  it("cites the side that has evidence", () => {
+    renderComparison();
+    expect(screen.getByText(P1.filename, { exact: false })).toBeInTheDocument();
+  });
+
+  it("never labels the whole card as written by the model - it is not one model's prose", () => {
+    renderComparison();
+    expect(screen.queryByText(/Written by the model/i)).toBeNull();
+    expect(screen.getByText(/Compared across 2 named sides/i)).toBeInTheDocument();
+  });
+
+  it("never says a found side does not mention the topic", () => {
+    renderComparison();
+    expect(screen.queryByText(/does not mention/i)).toBeNull();
+  });
+});
+
 describe("the retry is labelled as a retry", () => {
   it("says try again after a failure, and offers the first go otherwise", async () => {
     const onExplain = vi.fn();
