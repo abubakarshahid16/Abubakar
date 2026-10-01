@@ -79,7 +79,7 @@ def named_sides(
 #: "H2S-service" must never be reported as a standard missing from the library.
 _TYPED_DESIGNATION = re.compile(r"\b[A-Z][A-Z0-9]*(?:[-.][A-Z0-9]+)+\b")
 
-_CONNECTORS = {"and", "or", "on", "about", "regarding", "for", "in", "of", "the", "between",
+_CONNECTORS = {"and", "or", "against", "from", "than", "on", "about", "regarding", "for", "in", "of", "the", "between",
                "with", "to", "a", "an", "their", "its", "these", "those"}
 
 
@@ -191,6 +191,8 @@ def compare(
     model: str | None,
     history: str,
     missing: list[str] | None = None,
+    topic: str | None = None,
+    family: dict | None = None,
 ) -> dict:
     """Retrieve EACH side on its own top-k budget, cite both, and never let
     an absence on one side borrow the other's evidence or the model's words.
@@ -209,7 +211,7 @@ def compare(
     any_reranked = False
     all_names = [name for name, _ in sides]
     missing = list(missing or [])
-    topic = topic_of(question, all_names + missing)
+    topic = topic or topic_of(question, all_names + missing)
     if topic is None:
         return _clarify(question, all_names + missing)
     for name, ids in sides:
@@ -240,13 +242,22 @@ def compare(
         candidates_considered += side.get("candidates_considered") or 0
         seconds += side.get("seconds") or 0.0
         any_reranked = any_reranked or bool(side.get("reranked"))
+        # Was a search REALLY run for this side? Only when the caller may read
+        # at least one of its documents (`_side_answer` sends nothing to
+        # retrieval otherwise). A side never searched is never reported as a
+        # search that found nothing.
+        searched = bool(allowed_document_ids & ids)
         entry = {
             "name": name, "document_ids": sorted(ids),
-            "answer_type": side.get("answer_type"),
+            "answer_type": side.get("answer_type"), "searched": searched,
             "text": None, "source_start": len(passages), "source_count": 0,
         }
         breakdown.append(entry)
-        if side.get("answer_type") == "insufficient_evidence" or not side_passages:
+        if not searched:
+            entry["answer_type"] = "not_in_library"
+            entry["text"] = _not_in_library(name)
+            parts.append(_not_in_library(name))
+        elif side.get("answer_type") == "insufficient_evidence" or not side_passages:
             # THE ONLY CONDITION PLAN C3 ALLOWS AN ABSENCE TO BE STATED
             # UNDER: this side's own targeted search found nothing. Its
             # rejected candidates (if any) are not carried into `passages`:
@@ -264,10 +275,17 @@ def compare(
         # A designation typed in the question that no document the caller can
         # read carries. Written here, in code, never by a model.
         breakdown.append({"name": name, "document_ids": [], "answer_type": "not_in_library",
-                          "text": _not_in_library(name), "source_start": len(passages),
+                          "searched": False, "text": _not_in_library(name), "source_start": len(passages),
                           "source_count": 0})
         parts.append(_not_in_library(name))
 
+    comparison: dict = {"sides": breakdown}
+    if family is not None:
+        # A FAMILY question (family_search.py): the standards were found by
+        # the app from a phrase, so the answer says which were searched and
+        # that membership is a guess. Written in code, never by a model.
+        comparison["family"] = family
+        parts.insert(0, family["note"])
     return {
         "question": question,
         "retrieval_mode": "comparison",
@@ -278,7 +296,7 @@ def compare(
         "answer": "\n\n".join(parts),
         "reason": None,
         "input_kind": "comparison_question",
-        "comparison": {"sides": breakdown},
+        "comparison": comparison,
         "examples": [],
         "passages": passages,
         "seconds": seconds,

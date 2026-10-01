@@ -41,4 +41,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor='entry["text"] = text or _not_found(name)',
              replacement='entry["text"] = None',
              target=_T, keyword="keeps_its_own_multi_paragraph_text", tags=_TAG),
+    Mutation(id="M1845", phase=1845,
+             description="the word 'against' is read as the topic of a comparison",
+             path=_P,
+             anchor='_CONNECTORS = {"and", "or", "against", "from", "than", "on",',
+             replacement='_CONNECTORS = {"and", "or", "on",',
+             target=_T, keyword="test_topic_of", tags=_TAG),
 )

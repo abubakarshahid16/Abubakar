@@ -1,5 +1,5 @@
 """Mutations for "one value, one fact" in backend/app/claude_datasheet.py
-(2026-09-30, M1800, M1802-M1805, M1807 and M1808; the range guard M1801 was dead code and was removed). Target: backend/tests/test_datasheet_atomic.py.
+(2026-09-30, M1800, M1802-M1805, M1807, M1808 and M1809; the range guard M1801 was dead code and was removed). Target: backend/tests/test_datasheet_atomic.py.
 """
 
 from __future__ import annotations
@@ -53,4 +53,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="    if unit and not gap and len(unit) == 1:\n        return None  # \"316L SS\" is a steel grade, not 316 litres with a note\n",
              replacement="",
              target=_T, keyword="steel_grade", tags=_TAG),
+    Mutation(id="M1809", phase=1809,
+             description="a standards-body word before a pressure class stays part of the value (\"ASME Class 600\"; audit entry 94)",
+             path=_CD,
+             anchor="        trimmed = _strip_standards_body(value)\n        if trimmed is not None:\n",
+             replacement="        trimmed = None\n        if trimmed is not None:\n",
+             target=_T, keyword="standards_body or class_prefix or class_trim", tags=_TAG),
 )

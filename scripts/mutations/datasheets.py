@@ -859,8 +859,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="PUT IT BACK: fact extraction computes each page's outcome "
                     "and throws it away again (B3)",
         path=APP / "datasheets.py",
+        # Re-anchored 2026-10-01: the call also passes `vision=vision_outcomes`.
         anchor="        page_ledger.record_fact_pages(conn, document_id, outcomes,\n"
-               "                                      extractor_version=extractor_version)\n",
+               "                                      extractor_version=extractor_version,\n"
+               "                                      vision=vision_outcomes)\n",
         replacement="",
         target=_B3_TEST, keyword="records_each_pages_outcome or keeps_extractions_own",
         tags=("honesty",),
@@ -1054,8 +1056,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id='M587', phase=63,
         description='B4 wiring: geometry readings are read but never written as facts',
         path=APP / 'datasheets.py',
-        anchor='            for row in geometry_by_page.get(page, []):\n',
-        replacement='            for row in []:\n',
+        # Re-anchored 2026-10-01: the loop reads `geometry_rows_here` now.
+        anchor='            for row in geometry_rows_here:\n                row_tag = None\n',
+        replacement='            for row in []:\n                row_tag = None\n',
         target='tests/test_geometry_wiring.py',
         keyword='adds_geometry_facts',
         tags=('extraction',),
@@ -1074,8 +1077,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         id='M589', phase=63,
         description='B4 wiring: a geometry reading that contradicts the rule reader is not marked conflict',
         path=APP / 'datasheets.py',
-        anchor='                        validation_state=GEOMETRY_CONFLICT if same_label else None,\n',
-        replacement='                        validation_state=None,\n',
+        # Re-anchored 2026-10-01: the expression gained a needs-OCR branch and
+        # now spans three lines; only its conflict arm is removed.
+        anchor='                        validation_state=(GEOMETRY_CONFLICT if same_label\n',
+        replacement='                        validation_state=(None if same_label\n',
         target='tests/test_geometry_wiring.py',
         keyword='disagreement_is_recorded',
         tags=('honesty', 'critical'),
@@ -1354,8 +1359,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id='M1022', phase=63,
         description="a page only the geometry reader read is left 'no_facts' in the ledger",
         path=APP / 'datasheets.py',
-        anchor='            page_read = page_written + page_geometry + page_vision\n',
-        replacement='            page_read = page_written + page_vision\n',
+        # Re-anchored 2026-10-01: the sum also carries `page_ai`.
+        anchor='            page_read = page_written + page_geometry + page_vision + page_ai\n',
+        replacement='            page_read = page_written + page_vision + page_ai\n',
         target='tests/test_geometry_wiring.py',
         keyword='only_the_geometry_reader_read_is_read',
         tags=('honesty',),

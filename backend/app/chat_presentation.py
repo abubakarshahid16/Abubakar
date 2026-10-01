@@ -190,6 +190,32 @@ def _engine(result: dict) -> str:
     return "Claude" if result.get("provider") == "claude" else "Local model"
 
 
+def _comparison_line(result: dict) -> str | None:
+    """What a compare REALLY searched, from its own per-side results: every
+    named side that had a search run, and how many of those found text. The
+    ordinary "Checked N" counts only documents that produced passages, which
+    for a compare would claim fewer than were searched."""
+    sides = (result.get("comparison") or {}).get("sides") or []
+    if not sides:
+        return None
+    searched = [s for s in sides if s.get("searched", s.get("answer_type") != "not_in_library")]
+    if not searched:
+        return None
+    found = sum(1 for s in searched if (s.get("source_count") or 0) > 0)
+    reps = [(s.get("document_ids") or [None])[0] for s in searched]
+    reps = [r for r in reps if r]
+    if len(reps) == len(searched):
+        what = _what_was_checked(reps, _roles(reps))
+    else:
+        what = "1 document" if len(searched) == 1 else f"{len(searched)} documents"
+    line = f"Searched {what}, found text in {found if found else 'none'}"
+    absent = len(sides) - len(searched)
+    if absent:
+        line += (", 1 named document not among those you can read" if absent == 1
+                 else f", {absent} named documents not among those you can read")
+    return line
+
+
 def used_line(result: dict) -> str:
     """The one grey line above the answer: what was used, and how long it took."""
     kind = result.get("answer_type")
@@ -217,6 +243,10 @@ def used_line(result: dict) -> str:
         return f"{prefix} · {_engine(result)}" + tail
     if kind == "metadata":
         return "Counted from your library, not from document text" + tail
+    if kind == "comparison":
+        line = _comparison_line(result)
+        if line:
+            return line + tail
     used = _answer_passages(result)
     if used:
         ids = list(dict.fromkeys(p["document_id"] for p in used))

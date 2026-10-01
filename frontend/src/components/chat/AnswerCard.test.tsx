@@ -240,6 +240,52 @@ describe("a failed answer names the engine that failed", () => {
   });
 });
 
+// Audit 101: the reader chose Claude, the local model answered. A calm note
+// says so; nothing changes for an answer that never had the keys.
+describe("a Claude request answered by the local model says so", () => {
+  const NOTE =
+    "Claude was not available (no Claude key is set); this answer was written by the local model.";
+
+  function renderView(over: Partial<AnswerView>) {
+    return render(
+      <AnswerCard view={{ ...extractView(), ...over }} onSelectSource={() => {}} activeSource={null} />,
+    );
+  }
+
+  it("shows the reason as a note, not as an error", () => {
+    renderView({ requested_provider: "claude", provider: "ollama", provider_note: NOTE });
+
+    expect(screen.getByRole("note", { name: /which model answered/i })).toHaveTextContent(NOTE);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows nothing when Claude answered", () => {
+    renderView({ requested_provider: null, provider: "claude", provider_note: null });
+
+    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+  });
+
+  it("shows nothing when the reader chose the local model", () => {
+    renderView({ requested_provider: null, provider: "ollama", provider_note: null });
+
+    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+  });
+
+  it("renders a turn stored before the keys existed exactly as before", () => {
+    const { container } = renderView({});
+    const before = container.innerHTML;
+
+    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+    expect(before).not.toMatch(/Claude was not/i);
+  });
+
+  it("does not invent a reason when the note is missing", () => {
+    renderView({ requested_provider: "claude", provider: "ollama", provider_note: null });
+
+    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+  });
+});
+
 describe("an absent reason renders as nothing, never as a placeholder", () => {
   it("prints no null, no dash and no empty sentence for a refusal", () => {
     renderCard(refusal({ reason: null }), () => {});
@@ -329,6 +375,57 @@ describe("plan C3: a comparison renders each named side on its own", () => {
   it("never says a found side does not mention the topic", () => {
     renderComparison();
     expect(screen.queryByText(/does not mention/i)).toBeNull();
+  });
+});
+
+// Issue #373: sides the app FOUND from a family phrase ("the welding
+// standards") are a guess, and the screen says so.
+describe("issue #373: a family comparison says which standards were searched, as a guess", () => {
+  const note =
+    "Searched 2 standards judged to be welding standards: STD-A-001, STD-B-002. " +
+    "Which standards belong to this family is a guess made by this app until a person confirms it.";
+
+  function familyView(withFamily: boolean): AnswerView {
+    return {
+      answer_type: "comparison",
+      answer: `${note}\n\nSTD-A-001: Heat treat at 620 C.\n\nSTD-B-002: not found in the pages read.`,
+      reason: null,
+      passage: null,
+      supporting: [],
+      passages: [P1],
+      cited: [],
+      rejected_citations: [],
+      model: null,
+      truncated: false,
+      evidence_removed: [],
+      seconds: 1,
+      examples: [],
+      comparison: {
+        sides: [
+          { name: "STD-A-001", document_ids: [P1.document_id], answer_type: "extract",
+            text: "Heat treat at 620 C.", source_start: 0, source_count: 1 },
+          { name: "STD-B-002", document_ids: ["doc_b"], answer_type: "insufficient_evidence",
+            text: "STD-B-002: not found in the pages read.", source_start: 1, source_count: 0 },
+        ],
+        family: withFamily
+          ? { label: "welding", searched: ["STD-A-001", "STD-B-002"], judged: 2,
+              membership_is_a_guess: true, note }
+          : null,
+      },
+    };
+  }
+
+  it("shows the code-written note and a header that says each was searched on its own", () => {
+    render(<AnswerCard view={familyView(true)} onSelectSource={() => {}} activeSource={null} />);
+    expect(screen.getByTestId("family-note").textContent).toContain("is a guess made by this app");
+    expect(screen.getByText(/Searched 2 standards, each on its own/)).toBeInTheDocument();
+    expect(screen.queryByText(/named sides/)).toBeNull();
+  });
+
+  it("shows no family note on an ordinary named-sides comparison", () => {
+    render(<AnswerCard view={familyView(false)} onSelectSource={() => {}} activeSource={null} />);
+    expect(screen.queryByTestId("family-note")).toBeNull();
+    expect(screen.getByText(/Compared across 2 named sides/)).toBeInTheDocument();
   });
 });
 

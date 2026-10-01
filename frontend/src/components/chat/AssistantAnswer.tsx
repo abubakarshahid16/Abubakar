@@ -21,6 +21,7 @@ import { AnswerActions, RewriteChips, SuggestionChips } from "./AnswerActions";
 import { AnswerCard, viewFromMessage, type UpgradeFailure } from "./AnswerCard";
 import { DraftCommentCard, type FileResult, type UndoResult } from "./DraftCommentCard";
 import { Markdown } from "./Markdown";
+import { ProviderNotice, providerNoteFor } from "./ProviderNotice";
 import { ProgressSteps, UsedLine } from "./UsedLine";
 import { WebConsent, WebSources } from "./WebAnswer";
 import type { ChatStep, ChatVerification } from "../../types/api";
@@ -176,6 +177,10 @@ export function AssistantAnswer({
         <UsedLine text={m.used_line} verification={m.verification} steps={m.steps} />
       )}
       {body}
+      {/* the document cards show this themselves (AnswerCard); these two bodies do not use it */}
+      {!withheld && (type === "general" || type === "cancelled") && (
+        <div className="mt-2"><ProviderNotice note={providerNoteFor(view)} /></div>
+      )}
       {!withheld && <Notices notices={m.notices ?? []} />}
       {answered && (
         <AnswerActions

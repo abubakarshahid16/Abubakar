@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import re
 
-from . import model_transport
+from . import claude_spend, model_transport
 from . import reasoning_provider as rp
 from .config import settings
 
@@ -87,6 +87,57 @@ def engine_name(preference: str | None = None) -> str:
         return rp.CLAUDE if isinstance(provider(preference), rp.ClaudeProvider) else rp.OLLAMA
     except Exception:  # noqa: BLE001 - reporting must not crash
         return rp.OLLAMA
+
+
+#: Plain words for each closed reason `reasoning_provider.claude_unavailable`
+#: gives. Written here, never taken from the exception or the settings text:
+#: the notice is shown to the reader and must not carry a setting value.
+_UNAVAILABLE_WORDS = {
+    rp.UNAVAILABLE_PROVIDER_OFF: "the system is not set up to use Claude",
+    rp.UNAVAILABLE_EGRESS_OFF: "Claude access is switched off in the settings",
+    rp.UNAVAILABLE_KEY_MISSING: "no Claude key is set",
+}
+
+
+def unavailable_words() -> str | None:
+    """Why Claude cannot be used right now, in plain words; None when it can
+    be used or the cause cannot be read. Never raises, never the key."""
+    try:
+        code, _why = rp.claude_unavailable()
+    except Exception:  # noqa: BLE001 - reporting must not crash
+        return None
+    return _UNAVAILABLE_WORDS.get(code) if code else None
+
+
+def fallback_words(exc: BaseException | None) -> str | None:
+    """The plain-words cause of a Claude call that failed before it could be
+    used (`chat_claude_first`). Classified by TYPE only - the exception text
+    can carry a spend figure or a provider message and is not repeated."""
+    if exc is None:
+        return None
+    if isinstance(exc, claude_spend.BudgetExceeded):
+        return "the Claude spending cap would be exceeded"
+    return "the Claude call failed"
+
+
+def downgrade_fields(preference: str | None, result: dict, cause: str | None = None) -> dict:
+    """What an answer must say when the reader chose Claude and the LOCAL
+    model produced it (audit 101).
+
+    `get_provider` hands back the local engine whenever Claude cannot be used
+    and the answer looked like any other. `{}` when the reader did not ask for
+    Claude, or the answer was not written by the local model (a Claude answer,
+    a metadata count, a canned reply carry no `provider` of "ollama"). The
+    reason is the real cause: `cause` when the caller saw one (a Claude call
+    that failed), else what the configuration says right now, else the plain
+    "Claude was not used". It never changes WHICH engine answers."""
+    if preference != CLAUDE or result.get("provider") != rp.OLLAMA:
+        return {}
+    why = cause or unavailable_words()
+    lead = f"Claude was not available ({why})" if why else "Claude was not used"
+    ending = ("this answer was written by the local model." if result.get("answer")
+              else "the local model was used instead.")
+    return {"requested_provider": CLAUDE, "provider_note": f"{lead}; {ending}"}
 
 
 # ----------------------------------------------------------------- history

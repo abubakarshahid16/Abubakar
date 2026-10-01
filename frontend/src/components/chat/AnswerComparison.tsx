@@ -1,5 +1,6 @@
 import type { AnswerView } from "./AnswerCardContent";
-import { CitedProse, Chip, Label, formatDuration } from "./AnswerCardContent";
+import { Chip, Label, formatDuration } from "./AnswerCardContent";
+import { Markdown } from "./Markdown";
 import { Citation } from "./EvidencePanel";
 
 /**
@@ -23,6 +24,7 @@ export function ComparisonAnswer({
   activeSource: number | null;
 }) {
   const sides = view.comparison?.sides ?? [];
+  const family = view.comparison?.family ?? null;
   // `chat_comparison.compare` joins each side's own paragraph with "\n\n", in
   // the SAME order as `sides` - never re-parsed by content, just re-split
   // positionally, since the backend is the one place that decided the order.
@@ -36,13 +38,23 @@ export function ComparisonAnswer({
   return (
     <div className="surface-card accent-edge rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Label tone="generated">Compared across {sides.length || 2} named sides</Label>
+        <Label tone="generated">
+          {family
+            ? `Searched ${family.searched.length} standards, each on its own`
+            : `Compared across ${sides.length || 2} named sides`}
+        </Label>
         {view.seconds != null && (
           <span className="font-mono text-xs text-slateish-500">
             {formatDuration(view.seconds)}
           </span>
         )}
       </div>
+
+      {family && (
+        <p className="mt-2 text-sm text-slateish-300" data-testid="family-note">
+          {family.note}
+        </p>
+      )}
 
       {sides.map((side, i) => {
         const prefix = `${side.name}: `;
@@ -53,8 +65,11 @@ export function ComparisonAnswer({
         const hasOwnText = typeof side.text === "string";
         const raw = hasOwnText ? (side.text as string) : (parts[i] ?? "");
         const text = !hasOwnText && raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
-        const notFound = side.answer_type === "insufficient_evidence";
-        const notInLibrary = side.answer_type === "not_in_library";
+        // "Not found in the pages read" is only ever said for a side whose own
+        // search ran; a side that was never searched is "not among the
+        // documents you can read", whatever its answer_type says.
+        const notInLibrary = side.answer_type === "not_in_library" || side.searched === false;
+        const notFound = !notInLibrary && side.answer_type === "insufficient_evidence";
         const chipIndexes: number[] = [];
         if (!notFound && !notInLibrary) {
           if (typeof side.source_start === "number" && typeof side.source_count === "number") {
@@ -86,9 +101,16 @@ export function ComparisonAnswer({
               </p>
             ) : (
               <>
-                <p className="model-prose mt-1 text-[15px] text-slateish-200">
-                  <CitedProse text={text} onCite={onSelectSource} activeSource={activeSource} />
-                </p>
+                {/* The same renderer the ordinary answer uses: bullets and
+                    **bold** are laid out, never shown as raw asterisks. Its
+                    [S#] markers carry the GLOBAL numbers the server wrote
+                    (`_renumber`), so n-1 indexes `view.passages` directly. */}
+                <Markdown
+                  className="mt-1"
+                  text={text}
+                  onCite={onSelectSource}
+                  activeSource={activeSource}
+                />
                 {chipIndexes.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap items-baseline gap-2">
                     {chipIndexes.map((idx) => {

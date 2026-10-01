@@ -60,7 +60,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M566", phase=61,
         description="a missing API key no longer forces the ollama fallback",
         path=APP / "reasoning_provider.py",
-        anchor='        return False, "no ANTHROPIC_API_KEY"\n',
+        # Re-anchored 2026-10-01: the check moved into `claude_unavailable`,
+        # which returns a (code, why) pair.
+        anchor='        return UNAVAILABLE_KEY_MISSING, "no ANTHROPIC_API_KEY"\n',
         replacement="        pass\n",
         target="tests/test_claude_provider.py",
         keyword="missing_key_falls_back",
@@ -125,8 +127,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M573", phase=61,
         description="temperature is sent to a model that rejects it (Sonnet 5: 400)",
         path=APP / "reasoning_provider.py",
-        anchor="        if no_temperature(self.requested_model):\n",
-        replacement="        if False:\n",
+        # Re-anchored 2026-10-01: the condition also covers thinking mode. The
+        # mutation keeps the thinking clause so only the model rule is removed.
+        anchor="        if no_temperature(self.requested_model) or packet.thinking_budget:\n",
+        replacement="        if packet.thinking_budget:\n",
         target="tests/test_claude_provider.py",
         keyword="rejects_temperature",
         tags=("model",),

@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from . import answer as answer_mod
 from . import chat_answers
 from . import chat_comparison
+from . import family_search
 from . import chat_model
 from . import chat_presentation
 from . import corpus as corpus_mod
@@ -652,6 +653,8 @@ _PAYLOAD_KEYS = (
     # has none of them, and renders as it always did.
     "answer_kind", "used_line", "sources", "verification", "steps",
     "suggestions", "draft", "provider", "cost_usd", "history_turns",
+    # Audit 101: the reader asked for Claude and the local model answered.
+    "requested_provider", "provider_note",
     "route", "notices", "claims", "claims_removed", "rewrite_of", "records", "cancelled",
     # A rewrite/action of a DOCUMENT turn carries that turn's document ids
     # (chat_answers.rewrite), so a revoked grant withholds the reworded copy
@@ -664,7 +667,8 @@ _PAYLOAD_KEYS = (
 #: Payload keys lifted to the top of a message, so the Chat screen reads one
 #: shape for a fresh answer and a reopened one.
 _LIFTED = ("answer_kind", "used_line", "sources", "verification", "steps",
-           "suggestions", "draft", "notices", "model", "provider", "seconds", "cost_usd")
+           "suggestions", "draft", "notices", "model", "provider", "seconds", "cost_usd",
+           "requested_provider", "provider_note")
 
 
 def _payload(result: dict) -> dict:
@@ -872,6 +876,17 @@ def ask(
                 allowed_document_ids=retrieval_allowed, progress_id=progress_id,
                 model=model, history=memory(), missing=comparison_missing)
 
+    # ISSUE #373: a question naming a FAMILY of standards in general words
+    # ("the welding standards") is searched per standard, never in one shared
+    # pass. Same slot and same reasons as the comparison above.
+    family_notice = None
+    if (comparison_result is None and inventory_result is None and explain_of is None
+            and document_id is None
+            and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)):
+        comparison_result, family_notice = family_search.run(
+            resolved, documents_map, tier=tier, allowed_document_ids=retrieval_allowed,
+            progress_id=progress_id, model=model, history=memory())
+
     spec_shaped_result = None
     if (inventory_result is None and comparison_result is None and explain_of is None
             and route_kind in (intent_mod.EITHER, intent_mod.DOCUMENT)
@@ -887,6 +902,9 @@ def ask(
     #: to the existing pipeline - part of THIS answer's cost (audit leftover
     #: 2026-09-30: the ledger counted it, the answer did not show it).
     fallback_spent: list[float] = []
+    #: Why the first Claude call could not be used (plain words), when it
+    #: could not - the cause the downgrade notice reports.
+    fallback_why: list[str] = []
     if (inventory_result is None and comparison_result is None and spec_shaped_result is None
             and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
@@ -895,7 +913,8 @@ def ask(
             original, history=memory(always=True),
             allowed_document_ids=claude_scope(retrieval_allowed, document_id=document_id,
                                               picked=bool(document_ids)),
-            web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append)
+            web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append,
+            on_fallback_reason=fallback_why.append)
 
     if inventory_result is not None:
         result = {
@@ -979,8 +998,12 @@ def ask(
         result["notices"] = [*(result.get("notices") or []), (
             f"A Claude call for this turn failed and was charged USD {charged:.4f}; "
             "the answer came from the local pipeline, and its cost includes that call.")]
+    if family_notice:
+        result["notices"] = [*(result.get("notices") or []), family_notice]
     result["route"] = route_kind
     result["history_turns"] = memory.turns
+    # AUDIT 101: Model=Claude was asked for and the local model answered.
+    result.update(chat_model.downgrade_fields(model, result, fallback_why[0] if fallback_why else None))
     if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER) and routed.get("compliance"):
         # THE CHAT NEVER RECORDS A VERDICT: a compliance question is answered
         # from the evidence and ends with the engineer notice.

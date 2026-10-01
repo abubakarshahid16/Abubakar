@@ -1096,6 +1096,10 @@ export interface ChatPresentation {
   draft?: Record<string, unknown> | null;
   notices?: string[];
   provider?: string | null;
+  /** audit 101: "claude" when the reader chose Claude and the local model answered */
+  requested_provider?: string | null;
+  /** plain words: Claude was not used, and why */
+  provider_note?: string | null;
   cost_usd?: number | null;
 }
 
@@ -1791,12 +1795,32 @@ export interface ComparisonSide {
   source_start?: number;
   /** how many passages belong to this side */
   source_count?: number;
+  /** whether a search was really run for this side (false: not readable) */
+  searched?: boolean;
 }
 
 /** Plan C3: a comparison's side breakdown, alongside the combined `answer`
  *  text. Present only on answer_type === "comparison". */
 export interface Comparison {
   sides: ComparisonSide[];
+  /** issue #373: set when the app resolved a family phrase ("the welding
+   *  standards") to the sides; membership is a guess until a person confirms */
+  family?: ComparisonFamily | null;
+}
+
+/** Issue #373: the standards the app judged to belong to a family phrase. */
+export interface ComparisonFamily {
+  /** the reader's own descriptor words */
+  label: string;
+  /** the standards searched, one side each */
+  searched: string[];
+  /** how many readable standards matched; more than searched.length means
+   *  the rest were not searched */
+  judged: number;
+  /** always true */
+  membership_is_a_guess: boolean;
+  /** the sentence written in code saying what was searched */
+  note: string;
 }
 
 /** B8: whether the evidence answers the question. Decided by structure the
