@@ -142,6 +142,9 @@ def test_each_sides_question_names_its_own_standard_and_the_topic_only(monkeypat
     ("STD-A-001 versus STD-B-002 for flange rating", "flange rating"),
     ("compare STD-A-001 and STD-B-002", None),
     ("compare STD-A-001 with STD-B-002.", None),
+    ("compare STD-A-001 against STD-B-002", None),
+    ("compare STD-A-001 from STD-B-002", None),
+    ("compare STD-A-001 against STD-B-002 on hydrotest", "hydrotest"),
 ])
 def test_topic_of(question, expected):
     assert chat_comparison.topic_of(question, ["STD-A-001", "STD-B-002"]) == expected
@@ -175,7 +178,7 @@ def test_the_route_asks_what_to_compare_when_no_topic_is_given():
     convo = client.post("/api/conversations").json()
     body = client.post(
         f"/api/conversations/{convo['id']}/ask",
-        json={"question": "compare SAES-W-010 and ASME-B31-3"},
+        json={"question": "compare SAES-W-010 against ASME-B31-3"},
     ).json()
     assert body["answer_type"] == "guidance"
     assert "on what" in (body["answer"] or "").lower()
