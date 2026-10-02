@@ -107,3 +107,69 @@ def test_an_unrelated_passage_in_the_one_document_scope_still_fails():
         QUESTION, "General requirements for piping systems in onshore service.",
         allowed_document_ids=frozenset({a}))
     assert verdict["ok"] is False, verdict
+
+
+def test_a_standard_held_as_two_files_is_credited_in_both():
+    """The real comparison side holds every document of a standard (a re-issue
+    or a duplicate upload). Two files, same designation: still credited."""
+    client = TestClient(app)
+    a = upload(client, [COVER, PWHT_PAGE, STRESS_PAGE], "SAES-W-017.pdf")
+    b = upload(client, [COVER, PWHT_PAGE, STRESS_PAGE], "SAES-W-017 _1_.pdf")
+
+    verdict = lexical.assess(QUESTION, PASSAGE, allowed_document_ids=frozenset({a, b}))
+    assert verdict["ok"] is True, verdict
+
+
+def test_one_foreign_file_in_scope_removes_the_credit():
+    """NOT VACUOUS: the credit needs EVERY document in scope to carry the
+    designation."""
+    client = TestClient(app)
+    a = upload(client, [COVER, PWHT_PAGE, STRESS_PAGE], "SAES-W-017.pdf")
+    b = upload(client, [OTHER], "SAES-W-099.pdf")
+
+    verdict = lexical.assess(QUESTION, PASSAGE, allowed_document_ids=frozenset({a, b}))
+    assert verdict["ok"] is False, verdict
+
+
+# ---- end to end, through the real comparison path --------------------------
+from app import chat_comparison  # noqa: E402
+
+
+def _pwht(n):
+    return [
+        f"{n}.1 Post Weld Heat Treatment (PWHT)",
+        f"Post weld heat treatment (PWHT) of joint type {n} shall be carried out",
+        "under a written procedure approved before work starts, with the",
+        f"heat treatment record for joint {n} kept for the owner.",
+    ]
+
+
+def _plain(n, word):
+    return [
+        f"{n}.1 {word.title()} Requirements",
+        f"The {word} for item {n} shall be installed as shown on the drawing,",
+        "inspected by the site engineer and recorded in the daily log.",
+    ]
+
+
+def test_compare_answers_for_a_standard_that_prints_its_number_on_the_cover_only():
+    """The owner's case: the standard prints its number once, on its cover;
+    the answering pages never repeat it. Run through `chat_comparison.compare`
+    exactly as the chat does."""
+    client = TestClient(app)
+    cover = ["1.1 Scope", "This standard STD-K-118 covers welding of vessels and",
+             "supersedes every earlier revision of it."]
+    pages = [cover] + [_pwht(i) for i in range(3)] + [_plain(i, "gasket") for i in range(20)]
+    target = upload(client, pages, "STD-K-118.pdf")
+    others = [upload(client, [_plain(i, w) for i in range(22)], f"STD-X-20{k}.pdf")
+              for k, w in enumerate(("bolting", "painting", "valve", "pump"))]
+    everything = frozenset({target, *others})
+
+    out = chat_comparison.compare(
+        "what do the welding standards say about post weld heat treatment",
+        [("STD-K-118", frozenset({target}))], tier="extract",
+        allowed_document_ids=everything, progress_id=None, model=None, history="",
+        topic="post weld heat treatment")
+    side = out["comparison"]["sides"][0]
+    assert side["answer_type"] != "insufficient_evidence", side
+    assert "Not found" not in (side["text"] or "")
