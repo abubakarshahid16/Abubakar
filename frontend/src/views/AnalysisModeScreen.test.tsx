@@ -270,6 +270,28 @@ describe("AnalysisModeScreen: rules that must hold on screen", () => {
     expect(screen.queryByText("not assessed")).toBeNull();
   });
 
+  it("a confidence check the backend did not run shows as not checked, never as clear", async () => {
+    const user = userEvent.setup();
+    routes({
+      "/analysis/summary": () => Promise.resolve(json(summaryBody())),
+      "/analysis/recommendations": () =>
+        Promise.resolve(json(recommendationBody({
+          recommendation: {
+            ...recommendationBody().recommendation,
+            checks: [
+              { label: "the gap analysis did not apply", fired: false },
+              { label: "a credible passage was retrieved and not used", fired: null },
+            ],
+          },
+        }))),
+    });
+    render(<AnalysisModeScreen />);
+    await user.click(screen.getByRole("checkbox", { name: /generate recommendation/i }));
+    await ask(user);
+    expect(await screen.findByText("? not checked")).toBeInTheDocument();
+    expect(screen.getAllByText("— clear")).toHaveLength(1);
+  });
+
   it("RULE 4: a documented finding that cites nothing is not rendered at all", async () => {
     const user = userEvent.setup();
     routes({

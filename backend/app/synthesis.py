@@ -355,10 +355,14 @@ class CitedSentence:
 
 @dataclass(frozen=True)
 class ConfidenceCheck:
-    """One countable fact that would undermine the result. `fired` means it did."""
+    """One countable fact that would undermine the result. `fired` True means it
+    did, False means it was checked and did not, and None means NOT CHECKED:
+    nothing in this run computed it. None is shown as "not checked", never as
+    "clear" (review finding 2026-10-02: the "credible passage not used" check
+    was never computed anywhere yet every screen listed it as clear)."""
 
     label: str
-    fired: bool
+    fired: bool | None
 
 
 @dataclass(frozen=True)
@@ -1301,8 +1305,11 @@ def confidence_checks(
             bool(labels & {"possible_conflict", "unresolved"}),
         ),
         ConfidenceCheck("evidence came from recognised (OCR) text", "recognised" in sources),
+        # coverage_complete is False or None, never True. None means nobody
+        # computed it, which is NOT the same as "checked and clear".
         ConfidenceCheck(
-            "a credible passage was retrieved and not used", coverage_complete is False
+            "a credible passage was retrieved and not used",
+            True if coverage_complete is False else None,
         ),
         ConfidenceCheck("a generation stopped at its length limit", bool(summary_truncated)),
         ConfidenceCheck(
@@ -1318,7 +1325,7 @@ def confidence_from(checks: Iterable[ConfidenceCheck]) -> Confidence:
     undermine this were detected", which is a checklist result rather than a
     calibration, and is displayable as the checklist.
     """
-    return "low" if any(c.fired for c in checks) else "medium"
+    return "low" if any(c.fired is True for c in checks) else "medium"
 
 
 def _merge_checks(
@@ -1327,9 +1334,17 @@ def _merge_checks(
     """One row per label, fired if it fired anywhere. A check the caller
     supplied and one this module observed are the same fact, and showing it
     twice would read as two problems."""
-    merged: dict[str, bool] = {}
+    merged: dict[str, bool | None] = {}
     for check in (*outer, *inner):
-        merged[check.label] = merged.get(check.label, False) or check.fired
+        before = merged.get(check.label)
+        if before is True or check.fired is True:
+            merged[check.label] = True
+        elif before is False or check.fired is False:
+            # Computed somewhere and clear: a caller that checked outranks one
+            # that did not look.
+            merged[check.label] = False
+        else:
+            merged[check.label] = None
     return tuple(ConfidenceCheck(label, fired) for label, fired in merged.items())
 
 

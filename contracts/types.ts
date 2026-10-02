@@ -1458,7 +1458,7 @@ export interface AnalysisGapsResult {
 export interface ConfidenceCheckOut {
   label: string;
   /** true = this check lowered confidence */
-  fired: boolean;
+  fired: boolean | null;
 }
 
 export interface RecommendationOut {
