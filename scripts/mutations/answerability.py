@@ -25,7 +25,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_A, anchor='    if result.get("scope_ambiguity") or understood.get("ambiguous_documents"):\n',
              replacement="    if False:\n", target=_T, keyword="several_documents_is_ambiguous"),
     Mutation(id="M823", phase=71, description="B8: the judge accepts a model 'yes' without verifying its quote",
-             path=_A, anchor='    if not (1 <= n <= len(passages)) or not quote_verified(out["quote"], passages[n - 1].get("text")):\n',
+             path=_A, anchor='    if not (1 <= n <= len(passages)) or not claim_quote_verified(out["quote"], passages[n - 1].get("text")):\n',
              replacement="    if not (1 <= n <= len(passages)):\n", target=_T, keyword="invented_quote", tags=("honesty",)),
     Mutation(id="M824", phase=71, description="B8: the judge may turn a refusal into an answer",
              path=_A, anchor='    if current["verdict"] != SUPPORTED or provider is None:\n',
