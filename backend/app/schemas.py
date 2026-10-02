@@ -1530,7 +1530,9 @@ class AnalysisGaps(BaseModel):
 
 class ConfidenceCheckOut(BaseModel):
     label: str
-    fired: bool = Field(description="true = this check lowered confidence")
+    fired: bool | None = Field(
+        description="true = this check lowered confidence, false = it was checked "
+        "and did not, null = it was not checked in this run")
 
 
 class RecommendationOut(BaseModel):

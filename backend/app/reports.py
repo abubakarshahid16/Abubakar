@@ -283,6 +283,28 @@ def _passage_html(p: dict, n: int) -> str:
     return "".join(out)
 
 
+def _extract_label(s: dict) -> str:
+    """The label over a quoted answer. THE LABEL IS THE CLAIM: "verbatim" is
+    true only of characters that came out of the PDF's own text layer, and only
+    when the record SAYS they did. The screen already works this way
+    (AnswerCardView: a positive predicate); this frozen PDF printed the
+    verbatim label unconditionally, over OCR text too (review finding, 2026-10-02).
+
+    Judged on the passages the answer cites (all supplied passages when none is
+    marked cited). Any recognised passage means OCR; anything that is not
+    recorded as extracted, a missing value included, is stated as not recorded.
+    """
+    passages = s.get("passages") or []
+    judged = [p for p in passages if p.get("cited")] or passages
+    sources = [p.get("text_source") for p in judged]
+    if any(src == "recognised" for src in sources):
+        return ("Quoted from text read by OCR off a scanned page - a machine reading "
+                "of the page, not the document's own text; check it against the page")
+    if judged and all(src == "extracted" for src in sources):
+        return "Quoted verbatim from the document"
+    return "Quoted from the document - how this text was read is not recorded"
+
+
 def _has_uncited_extract_evidence(s: dict) -> bool:
     return (
         s["answer_type"] == "extract"
@@ -358,7 +380,7 @@ def to_html(s: dict) -> str:
     parts.append("<h2>2. Answer</h2>")
     parts.append(_citation_audit_html(s))
     if s["answer_type"] == "extract":
-        parts.append('<p class="label">Quoted verbatim from the document</p>')
+        parts.append(f'<p class="label">{_extract_label(s)}</p>')
         parts.append(f'<p class="quote">{_esc(s["answer"])}</p>')
         if _has_uncited_extract_evidence(s):
             parts.append(

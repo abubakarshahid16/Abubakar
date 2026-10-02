@@ -831,3 +831,60 @@ def test_the_passage_label_names_no_clause():
     assert "9.9.9" not in text, "the clause number reached the PDF"
     # And the citation is still usable: the document and page must remain.
     assert "page" in text.lower(), "the passage label lost its page as well"
+
+
+# ------------------------------------------- the label over a quoted answer
+
+
+def _mark_every_passage(m, **fields):
+    conn = db.connect()
+    payload = json.loads(conn.execute("SELECT payload FROM messages WHERE id = ?",
+                                      (m["id"],)).fetchone()["payload"])
+    payload["passage"].update(fields)
+    for ap in (payload.get("answer_passages") or []) + (payload.get("supporting") or []):
+        ap.update(fields)
+    with conn:
+        conn.execute("UPDATE messages SET payload = ? WHERE id = ?",
+                     (json.dumps(payload), m["id"]))
+
+
+def test_a_quoted_answer_over_text_layer_text_is_labelled_verbatim():
+    ingest()
+    rec = reports.generate(answered_message()["id"], access.unrestricted_scope())
+    assert "Quoted verbatim from the document" in all_text(pdf_of(rec))
+
+
+def test_a_quoted_answer_over_ocr_text_is_never_labelled_verbatim():
+    """THE MUTATION TARGET (review finding, 2026-10-02): the PDF printed the
+    verbatim label unconditionally, over text OCR read off a page image."""
+    ingest()
+    m = answered_message()
+    _mark_every_passage(m, text_source="recognised", ocr_min_conf=0.6)
+    text = all_text(pdf_of(reports.generate(m["id"], access.unrestricted_scope())))
+    assert "Quoted verbatim from the document" not in text
+    assert "read by OCR off a scanned page" in text
+
+
+def test_a_quoted_answer_with_no_recorded_source_is_not_called_verbatim():
+    ingest()
+    m = answered_message()
+    _mark_every_passage(m, text_source=None)
+    text = all_text(pdf_of(reports.generate(m["id"], access.unrestricted_scope())))
+    assert "Quoted verbatim from the document" not in text
+    assert "how this text was read is not recorded" in text
+
+
+@pytest.mark.parametrize("passages,expected", [
+    ([{"cited": True, "text_source": "extracted"}], "Quoted verbatim from the document"),
+    ([{"cited": True, "text_source": "recognised"}], "read by OCR"),
+    ([{"cited": True, "text_source": "extracted"},
+      {"cited": True, "text_source": "recognised"}], "read by OCR"),
+    ([{"cited": True, "text_source": "mixed"}], "not recorded"),
+    ([{"cited": True}], "not recorded"),
+    ([], "not recorded"),
+    # only the passages the answer cites decide the label
+    ([{"cited": True, "text_source": "extracted"},
+      {"cited": False, "text_source": "recognised"}], "Quoted verbatim from the document"),
+])
+def test_extract_label_follows_the_provenance_of_the_cited_passages(passages, expected):
+    assert expected in reports._extract_label({"passages": passages})

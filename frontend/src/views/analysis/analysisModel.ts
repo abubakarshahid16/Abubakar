@@ -305,7 +305,11 @@ export function toRecommendation(
   if (ids.length === 0) return null;
   const checks = (Array.isArray(raw.checks) ? raw.checks : [])
     .filter((c) => c !== null && typeof c === "object" && typeof c.label === "string")
-    .map((c) => ({ label: c.label, fired: c.fired === true }));
+    .map((c) => ({
+      label: c.label,
+      // null stays null: "not checked" is not "checked and clear".
+      fired: c.fired === true ? true : c.fired === false ? false : null,
+    }));
   return {
     text: raw.text,
     citation_ids: ids,

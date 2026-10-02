@@ -316,7 +316,26 @@ def assess(
     present: list[str] = []
     distinguishing_count = 0
 
+    # When the search is narrowed to exactly ONE document, every passage in
+    # it is "about" that document's own designation by construction. A
+    # standard almost never prints its own number on the page that answers a
+    # topic, so asking "What does SAES-W-017 say about <topic>" turned the
+    # designation into a third distinctive term, pushed the question over
+    # LONG_QUESTION_TERM_COUNT, demanded two shared terms from a passage that
+    # can only supply the topic, and refused the right page (2026-10-02,
+    # owner's library). The designation is credited ONLY in a one-document
+    # scope, by file name; in any wider scope a passage gets no credit for it.
+    one_document_scope = (
+        frozenset({document_id}) if document_id
+        else (allowed_document_ids if len(allowed_document_ids) == 1 else None))
+
     for term in terms:
+        if one_document_scope is not None and _names_an_indexed_document(
+                term, document_id, allowed_document_ids=allowed_document_ids):
+            present.append(term)
+            covered.append(term)
+            distinguishing_count += 1
+            continue
         # Every way this corpus writes the same thing. A document that spells
         # out "nominal dry film thickness" and never writes NDFT used to
         # refuse a question about the NDFT: the term genuinely was not there,
