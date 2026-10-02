@@ -237,6 +237,27 @@ def _names_an_indexed_document(
     return False
 
 
+def _scope_wholly_named(term: str, scope: frozenset[str]) -> bool:
+    """True when EVERY document in `scope` is designated `term` by file name.
+    Never true for an empty scope or one that includes any other document."""
+    from . import understanding
+    from .db import connect
+
+    wanted = _norm_id(term)
+    if not scope or not wanted:
+        return False
+    marks = ",".join("?" * len(scope))
+    rows = connect().execute(
+        f"SELECT filename FROM documents WHERE id IN ({marks})", list(scope)).fetchall()
+    if len(rows) != len(scope):
+        return False
+    for row in rows:
+        designation = understanding.designation(row["filename"])
+        if not designation or _norm_id(designation) != wanted:
+            return False
+    return True
+
+
 #: The documents a word's COMMONNESS is judged against, when that differs from
 #: the documents being searched. `chat_comparison` narrows each side to ONE
 #: standard on purpose; judged inside that one standard, a word the standard
@@ -316,22 +337,21 @@ def assess(
     present: list[str] = []
     distinguishing_count = 0
 
-    # When the search is narrowed to exactly ONE document, every passage in
-    # it is "about" that document's own designation by construction. A
-    # standard almost never prints its own number on the page that answers a
-    # topic, so asking "What does SAES-W-017 say about <topic>" turned the
-    # designation into a third distinctive term, pushed the question over
-    # LONG_QUESTION_TERM_COUNT, demanded two shared terms from a passage that
-    # can only supply the topic, and refused the right page (2026-10-02,
-    # owner's library). The designation is credited ONLY in a one-document
-    # scope, by file name; in any wider scope a passage gets no credit for it.
-    one_document_scope = (
-        frozenset({document_id}) if document_id
-        else (allowed_document_ids if len(allowed_document_ids) == 1 else None))
+    # When the search is narrowed to documents that ALL carry one designation
+    # (one file, or several files of the same standard such as a re-issue or a
+    # duplicate upload), every passage in scope is "about" that designation by
+    # construction. A standard almost never prints its own number on the page
+    # that answers a topic, so asking "What does SAES-W-017 say about <topic>"
+    # turned the designation into a third distinctive term, pushed the
+    # question over LONG_QUESTION_TERM_COUNT, demanded two shared terms from a
+    # passage that can only supply the topic, and refused the right page
+    # (2026-10-02, owner's library). The designation is credited ONLY when
+    # every document in scope is named by it (by file name); in any wider or
+    # mixed scope a passage gets no credit.
+    scope_ids = frozenset({document_id}) if document_id else allowed_document_ids
 
     for term in terms:
-        if one_document_scope is not None and _names_an_indexed_document(
-                term, document_id, allowed_document_ids=allowed_document_ids):
+        if _scope_wholly_named(term, scope_ids):
             present.append(term)
             covered.append(term)
             distinguishing_count += 1
