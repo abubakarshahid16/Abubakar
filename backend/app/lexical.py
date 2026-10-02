@@ -24,6 +24,8 @@ Two rules, in order of decisiveness:
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import re
 
 from . import acronyms
@@ -235,6 +237,30 @@ def _names_an_indexed_document(
     return False
 
 
+#: The documents a word's COMMONNESS is judged against, when that differs from
+#: the documents being searched. `chat_comparison` narrows each side to ONE
+#: standard on purpose; judged inside that one standard, a word the standard
+#: is about ("heat treatment" in a welding standard that covers it in 10 of
+#: its chunks) looked "common to the whole document", stopped counting as a
+#: distinctive term, and the side was refused as having no answer - the more a
+#: standard covered the topic the likelier it was reported silent. Set it to
+#: what the CALLER may read (never wider: rule 5) and commonness is judged
+#: across that library instead. Unset, nothing changes.
+_COMMONNESS_IDS: contextvars.ContextVar[frozenset[str] | None] = contextvars.ContextVar(
+    "lexical_commonness_ids", default=None)
+
+
+@contextlib.contextmanager
+def commonness_against(document_ids: frozenset[str]):
+    """Judge term commonness across `document_ids` (the caller's readable
+    set) for every `assess` call inside the block."""
+    token = _COMMONNESS_IDS.set(frozenset(document_ids))
+    try:
+        yield
+    finally:
+        _COMMONNESS_IDS.reset(token)
+
+
 def assess(
     question: str,
     passage_text: str,
@@ -275,8 +301,12 @@ def assess(
         document_id, allowed_document_ids=allowed_document_ids)
     if not indexed:
         return empty
-    common_cutoff = max(1, int(indexed * COMMON_TERM_FRACTION))
-    judge_commonness = indexed >= MIN_CORPUS_FOR_COMMONNESS
+    common_ids = _COMMONNESS_IDS.get()
+    common_indexed = indexed
+    if common_ids is not None:
+        common_indexed = keyword.indexed_count(None, allowed_document_ids=common_ids)
+    common_cutoff = max(1, int(common_indexed * COMMON_TERM_FRACTION))
+    judge_commonness = common_indexed >= MIN_CORPUS_FOR_COMMONNESS
 
     body = passage_text.lower()
     expanded = glossary.expansions(question)
@@ -348,7 +378,15 @@ def assess(
         present.append(term)
         if any(form.lower() in body for form in forms):
             covered.append(term)
-            if not judge_commonness or occurrences <= common_cutoff:
+            common_occurrences = occurrences
+            if common_ids is not None:
+                common_occurrences = 0
+                for form in forms:
+                    count = keyword.term_occurrences(
+                        form, None, allowed_document_ids=common_ids)
+                    if count >= 0:
+                        common_occurrences = max(common_occurrences, count)
+            if not judge_commonness or common_occurrences <= common_cutoff:
                 distinguishing_count += 1
 
     named_absent = [t for t in absent if looks_like_a_named_subject(t, question)]

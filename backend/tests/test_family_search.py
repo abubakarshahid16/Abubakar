@@ -282,7 +282,7 @@ def test_no_more_than_eight_standards_are_searched_and_the_rest_are_admitted(mon
     assert len(result["comparison"]["sides"]) == 8 and len(seen) == 8
     assert result["comparison"]["family"]["judged"] == 10
     assert "Searched 8 standards" in result["answer"]
-    assert "10 standards matched; only the 8 best ranked were searched" in result["answer"]
+    assert "10 standards matched; only the 8 ranked by how much of each is about post weld heat treatment were searched" in result["answer"]
 
 
 @pytest.mark.parametrize("forms", [
@@ -298,3 +298,36 @@ def test_singular_plural_and_ing_forms_of_a_word_meet(forms):
 def test_different_words_do_not_meet():
     assert family_search.stem("process") != family_search.stem("pressure")
     assert family_search.stem("weld") != family_search.stem("well")
+
+
+def test_the_eight_are_chosen_by_evidence_for_the_topic_not_by_name():
+    """THE MUTATION TARGET (2026-10-02): nine standards carry "piping" in their
+    scope and say nothing on the topic; the tenth, last by name, covers it. The
+    descriptor search cannot tell them apart (its text never says "piping"), so
+    scope and name alone never let it into the eight; the topic must."""
+    client = TestClient(app)
+    ids = {f"s{n}": _std(client, OTHER_TOPIC, f"STD-P-{n:03d}.pdf", scope_activity="piping of parts")
+           for n in range(1, 10)}
+    ids["covers"] = _std(
+        client, [["9.1 Hydrotest", "Every hydrotest shall hold the test pressure for thirty",
+                  "minutes before the system is released for service by the owner."]],
+        "STD-P-010.pdf", scope_activity="piping of parts")
+    resolved = family_search.resolve(
+        "piping", allowed_document_ids=frozenset(ids.values()), topic="hydrotest")
+    names = [n for n, _ in resolved["candidates"]]
+    assert resolved["judged"] == 10 and len(names) == 8
+    assert "STD-P-010" in names
+    assert resolved["ranked_by_topic"] is True
+    # and without the topic the same library leaves it out: it is the topic that decides
+    plain = family_search.resolve("piping", allowed_document_ids=frozenset(ids.values()))
+    assert "STD-P-010" not in [n for n, _ in plain["candidates"]]
+
+
+def test_without_a_topic_nothing_is_probed_and_the_flag_says_so():
+    client = TestClient(app)
+    ids = {f"s{n}": _std(client, OTHER_TOPIC, f"STD-W-{n:03d}.pdf", scope_activity="welding of parts")
+           for n in range(1, 10)}
+    ids["covers"] = _std(client, QUIET, "STD-W-010.pdf", scope_activity="welding of parts")
+    resolved = family_search.resolve("welding", allowed_document_ids=frozenset(ids.values()))
+    assert resolved["ranked_by_topic"] is False
+    assert len(resolved["candidates"]) == 8 and resolved["judged"] == 10

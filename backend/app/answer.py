@@ -36,6 +36,7 @@ from . import claude_spend
 from . import reasoning_provider
 from . import telemetry
 from . import search as search_mod
+from .sentence_guard import NOT_AN_ABBREVIATION
 from .config import settings
 from .rates import Timer
 
@@ -119,7 +120,7 @@ MIN_RRF_SCORE = 0.012
 
 from .citations import _CITATION, _HALF_CITATION, strip_half_citation, validate_citations
 
-_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+_SENTENCE = re.compile(r"(?<=[.!?])" + NOT_AN_ABBREVIATION + r"\s+")
 _REVIEW_REQUEST = re.compile(
     r"\b(?:review|critique|criteque|assess|evaluate|audit|commentary|criticism)\b",
     re.IGNORECASE,
@@ -705,7 +706,7 @@ def claude_lane() -> bool:
 _QUOTED_CITATION = re.compile(r'\[S(\d+)(?:\s*[:,]?\s*["\u201c]([^"\u201d\]]+)["\u201d])?\]')
 #: Something a reader would check against the page: a digit, or an identifier.
 _CHECKABLE = re.compile(r"\d|\b[A-Z]{2,}[-/]?\w*")
-_SEGMENT = re.compile(r"(?<=[.!?])\s+")
+_SEGMENT = re.compile(r"(?<=[.!?])" + NOT_AN_ABBREVIATION + r"\s+")
 
 
 def _image_only(passage: dict) -> bool:

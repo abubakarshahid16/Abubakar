@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from . import keyword, lexical
+from .sentence_guard import NOT_AN_ABBREVIATION
 
 NORMALIZER_VERSION = "1"
 
@@ -623,7 +624,8 @@ def normalise_strict(value_str: str, unit_str: str, comparator: str | None = Non
 
 # ------------------------------------------------------------------ extraction
 _ABBREVIATIONS = ("no", "nr", "min", "max", "approx", "fig", "rev", "e.g", "i.e", "cf", "ref", "para", "vs")
-_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?;])\s+(?=[A-Z0-9\"“(\[])")
+_SENTENCE_BOUNDARY = re.compile(
+    r"(?<=[.!?;])" + NOT_AN_ABBREVIATION + r"\s+(?=[A-Z0-9\"“(\[])")
 
 
 def split_sentences(text: str) -> list[str]:
