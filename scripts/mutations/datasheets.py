@@ -1341,8 +1341,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M785", phase=67, description="B4 schedules: table-only mode writes a cell the rule reader already read",
         path=APP / "datasheets.py",
-        anchor="                if geometry_tables:\n                    rule_facts.setdefault(written_row[\"field_name\"], []).append(written_row)\n                page_written += 1\n                written += 1\n                if blank:\n",
-        replacement="                if geometry_on:\n                    rule_facts.setdefault(written_row[\"field_name\"], []).append(written_row)\n                page_written += 1\n                written += 1\n                if blank:\n",
+        anchor="                if geometry_tables:\n                    rule_facts.setdefault(written_row[\"field_name\"], []).append(written_row)\n                if ai_run is not None:\n                    page_rule_rows.append(written_row)\n                page_written += 1\n                written += 1\n                if blank:\n",
+        replacement="                if geometry_on:\n                    rule_facts.setdefault(written_row[\"field_name\"], []).append(written_row)\n                if ai_run is not None:\n                    page_rule_rows.append(written_row)\n                page_written += 1\n                written += 1\n                if blank:\n",
         target="tests/test_b4_schedule_tables.py", keyword="not_written_twice",
     ),
     Mutation(
