@@ -17,8 +17,13 @@ keyword tables):
     what it is done to; never its exclusions) carries every descriptor word, or
     when the app's own hybrid search, restricted to the caller's readable
     COMPANY_STANDARD documents, returns a passage that carries every one;
-  - ranked by code (scope-record hits first, then search hits), capped at
-    MAX_STANDARDS. No model call decides membership.
+  - ranked by code, then capped at MAX_STANDARDS. What the reader asked ABOUT
+    comes first: each candidate gets its own quick search for the topic and
+    the ones that actually carry it rank first (2026-10-02: ranked by the
+    descriptor alone, two standards that merely mention welding in their scope
+    took slots from one that has the topic on its page 9). Then scope-record
+    hits, then descriptor search hits, then name. No model call decides
+    membership.
 
 WHAT THE ANSWER SAYS. Which standards were searched, and that membership is a
 guess until a person confirms it. A standard is never reported as silent
@@ -39,6 +44,8 @@ from .db import connect
 MAX_STANDARDS = 8
 #: Passages the descriptor search looks at when ranking candidates.
 SEARCH_LIMIT = 40
+#: Passages each candidate's own topic probe looks at.
+PROBE_LIMIT = 5
 
 #: Plural nouns that make a question about a FAMILY. "codes" is left out on
 #: purpose: it is too often a different sort of word.
@@ -165,12 +172,33 @@ def _label(document_id: str, filename: str) -> str:
     return understanding_mod.designation(filename) or filename.rsplit(".", 1)[0]
 
 
-def resolve(descriptor: str, *, allowed_document_ids: frozenset[str]) -> dict:
+def _topic_evidence(topic: str, want: set[str], document_id: str) -> int:
+    """How many of this ONE document's best passages for `topic` carry every
+    topic word. A probe of the document on its own, so a passage from another
+    standard can never crowd it out of the count."""
+    try:
+        result = search.search(topic, limit=PROBE_LIMIT, rerank=False,
+                               allowed_document_ids=frozenset({document_id}))
+    except Exception:  # noqa: BLE001 - a failed probe must not lose the family
+        return 0
+    return sum(
+        1 for hit in result.get("hits") or []
+        if want <= _stems(f"{hit.get('text') or ''} {hit.get('section') or ''}"))
+
+
+def resolve(descriptor: str, *, allowed_document_ids: frozenset[str],
+            topic: str | None = None) -> dict:
     """Rank the readable standards for the family phrase.
 
     Returns {"candidates": [(name, frozenset(ids))] ranked and capped,
-    "judged": how many standards qualified before the cap}. Two editions or
-    copies filed under one designation are one standard."""
+    "judged": how many standards qualified before the cap,
+    "ranked_by_topic": True when each candidate was probed for `topic`}. Two
+    editions or copies filed under one designation are one standard.
+
+    `topic` (what the reader asked about) decides the ORDER, never who
+    qualifies: a quick search of each candidate on its own, scoped to that
+    candidate's documents only (an intersection with what the caller may
+    read), counts the passages that carry every topic word."""
     standards = _readable_standards(allowed_document_ids)
     want = _stems(descriptor)
     if not standards or not want:
@@ -188,31 +216,40 @@ def resolve(descriptor: str, *, allowed_document_ids: frozenset[str]) -> dict:
                 f"{hit.get('text') or ''} {hit.get('section') or ''}"):
             search_hits[doc] = search_hits.get(doc, 0) + 1
 
+    topic_want = _stems(topic) if topic else set()
     groups: dict[str, dict] = {}
     for doc_id, filename in standards.items():
         if doc_id not in scope_ok and doc_id not in search_hits:
             continue
-        g = groups.setdefault(_label(doc_id, filename), {"ids": set(), "scope": 0, "search": 0})
+        g = groups.setdefault(_label(doc_id, filename),
+                              {"ids": set(), "scope": 0, "search": 0, "topic": 0})
         g["ids"].add(doc_id)
         g["scope"] += 1 if doc_id in scope_ok else 0
         g["search"] += search_hits.get(doc_id, 0)
-    ranked = sorted(groups.items(), key=lambda kv: (-kv[1]["scope"], -kv[1]["search"], kv[0].lower()))
+        if topic_want:
+            g["topic"] += _topic_evidence(topic, topic_want, doc_id)
+    ranked = sorted(groups.items(), key=lambda kv: (
+        -kv[1]["topic"], -kv[1]["scope"], -kv[1]["search"], kv[0].lower()))
     # The cap keeps the best ranked; the ones kept are then listed by name so
     # the answer reads the same way every time.
     kept = sorted(ranked[:MAX_STANDARDS], key=lambda kv: kv[0].lower())
     return {
         "candidates": [(name, frozenset(g["ids"])) for name, g in kept],
         "judged": len(ranked),
+        "ranked_by_topic": bool(topic_want),
     }
 
 
-def lead_sentence(descriptor: str, names: list[str], judged: int) -> str:
+def lead_sentence(descriptor: str, names: list[str], judged: int,
+                  topic: str | None = None) -> str:
     """The sentence written in code that says which standards were searched
     and that membership is a guess."""
     text = (f"Searched {len(names)} standards judged to be {descriptor} standards: "
             f"{', '.join(names)}.")
     if judged > len(names):
-        text += (f" {judged} standards matched; only the {len(names)} best ranked "
+        how = (f"ranked by how much of each is about {topic}" if topic
+               else "best ranked")
+        text += (f" {judged} standards matched; only the {len(names)} {how} "
                  "were searched, the rest were not.")
     return text + (" Which standards belong to this family is a guess made by this app "
                    "until a person confirms it. Each was searched on its own.")
@@ -240,7 +277,7 @@ def run(
     if found is None or chat_comparison.matched_sides(question, documents):
         return None, None
     descriptor, topic = found
-    resolved = resolve(descriptor, allowed_document_ids=allowed_document_ids)
+    resolved = resolve(descriptor, allowed_document_ids=allowed_document_ids, topic=topic)
     sides = resolved["candidates"]
     names = [n for n, _ in sides]
     if len(sides) < 2:
@@ -250,5 +287,5 @@ def run(
         progress_id=progress_id, model=model, history=history, topic=topic,
         family={"label": descriptor, "searched": names, "judged": resolved["judged"],
                 "membership_is_a_guess": True,
-                "note": lead_sentence(descriptor, names, resolved["judged"])})
+                "note": lead_sentence(descriptor, names, resolved["judged"], topic)})
     return result, None

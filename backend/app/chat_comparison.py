@@ -40,7 +40,7 @@ from __future__ import annotations
 import re
 
 from . import answer as answer_mod
-from . import chat_presentation
+from . import chat_presentation, lexical
 from . import understanding as understanding_mod
 from .citations import _CITATION
 
@@ -229,9 +229,14 @@ def compare(
         # left "compare SAES-W-019" for the model, which then answered that no
         # second standard had been named.
         side_question = f"What does {name} say about {topic}?"
-        side = _side_answer(
-            side_question, ids, tier=tier, allowed_document_ids=allowed_document_ids,
-            progress_id=progress_id, model=model, history=history)
+        # Narrowed to ONE standard on purpose, so a word's commonness must be
+        # judged across what the caller may read, not inside that one standard:
+        # a standard that covers the topic in many places was being refused as
+        # "common to the whole document" (found 2026-10-02).
+        with lexical.commonness_against(allowed_document_ids):
+            side = _side_answer(
+                side_question, ids, tier=tier, allowed_document_ids=allowed_document_ids,
+                progress_id=progress_id, model=model, history=history)
         # WHAT THIS SIDE'S OWN ANSWER ACTUALLY USED - never `side["passages"]`
         # directly: an extract answer carries its used passage(s) in
         # `passage`/`answer_passages`, not `passages` (that key, when

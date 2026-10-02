@@ -33,13 +33,15 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from .sentence_guard import NOT_AN_ABBREVIATION
+
 #: How long a finished turn stays findable (for a late cancel), seconds.
 TTL_SECONDS = 300
 MAX_TURNS = 256
 
 #: A sentence ends at . ! ? followed by space, or at a newline - but never
 #: inside an open citation bracket, whose quoted words may contain either.
-_BOUNDARY = re.compile(r"(?<=[.!?])\s+|\n")
+_BOUNDARY = re.compile(r"(?<=[.!?])" + NOT_AN_ABBREVIATION + r"\s+|\n")
 
 
 @dataclass
