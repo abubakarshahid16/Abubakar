@@ -103,6 +103,10 @@ SHARED_TERMS_REQUIRED_SHORT = 1
 #: Shorter than this and a word is not a subject term.
 MIN_TERM_LENGTH = 3
 
+#: An identifier-shaped fragment of a designation must be at least this long
+#: (normalised) to count as naming the document.
+MIN_FRAGMENT_LENGTH = 8
+
 _TERM = re.compile(r"[A-Za-z][A-Za-z0-9./-]*")
 
 
@@ -251,9 +255,18 @@ def _scope_wholly_named(term: str, scope: frozenset[str]) -> bool:
         f"SELECT filename FROM documents WHERE id IN ({marks})", list(scope)).fetchall()
     if len(rows) != len(scope):
         return False
+    # A long designation is found twice by `distinctive_terms`: whole (the word
+    # scan) and as the tail the identifier pattern happens to match
+    # ("NACE-MR0175-ISO15156-specification" and "MR0175-ISO15156-specification").
+    # The tail is part of the document's own name, so an identifier-shaped
+    # term that sits inside the designation counts as naming it.
+    fragment_ok = bool(keyword.IDENTIFIER.fullmatch(term)) and len(wanted) >= MIN_FRAGMENT_LENGTH
     for row in rows:
         designation = understanding.designation(row["filename"])
-        if not designation or _norm_id(designation) != wanted:
+        if not designation:
+            return False
+        have = _norm_id(designation)
+        if have != wanted and not (fragment_ok and wanted in have):
             return False
     return True
 
