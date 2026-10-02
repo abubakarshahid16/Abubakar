@@ -46,6 +46,14 @@ STOPWORDS = {
     "you", "your", "our", "tell", "give", "show", "please",
     "used", "use", "using", "need", "needs", "needed", "get", "gets",
     "specified", "specify", "require", "required", "requirement", "requirements",
+    # Question filler: the verbs and prepositions a reader wraps round a topic
+    # ("what does X say about Y", "is it mentioned", "according to"). A
+    # standard does not write them about itself, so as terms they were always
+    # absent and pushed a short question over LONG_QUESTION_TERM_COUNT.
+    "say", "says", "said", "saying", "mention", "mentions", "mentioned",
+    "state", "states", "stated", "according", "describe", "describes",
+    "described", "define", "defines", "defined", "provide", "provides",
+    "provided", "regarding", "concerning", "concerns",
     # designator connectives: "system no. 1" carries its meaning in the number
     "no", "nos", "number", "numbered",
 }
@@ -109,6 +117,13 @@ MIN_FRAGMENT_LENGTH = 8
 
 _TERM = re.compile(r"[A-Za-z][A-Za-z0-9./-]*")
 
+#: A plain decimal ("2.5", "0.75", "1.6"): a value the reader typed, not a
+#: designation. `keyword.IDENTIFIER` matches it through its clause-number
+#: shape, which made every decimal in a question a named subject that had to
+#: appear in the corpus. Three-part clause numbers (5.3.2) are not decimals
+#: and still count; so does anything with a letter (A106, API 5L).
+_PLAIN_DECIMAL = re.compile(r"\d+\.\d+")
+
 
 #: A question asking for TWO things. Only a compound question can justify a
 #: second passage - and this, not a score, is what separates the cases.
@@ -159,6 +174,8 @@ def distinctive_terms(
             terms.append(term)
 
     for ident in keyword.IDENTIFIER.findall(question):
+        if _PLAIN_DECIMAL.fullmatch(ident):
+            continue
         add(ident)
 
     remaining = question
@@ -188,6 +205,8 @@ def looks_like_a_named_subject(term: str, question: str) -> bool:
     than merely poorly matched. A lowercase ordinary word is not held to this
     standard, because a reader's wording need not match the document's.
     """
+    if _PLAIN_DECIMAL.fullmatch(term):
+        return False
     if keyword.IDENTIFIER.fullmatch(term):
         return True
     # A user may paste a heading or a whole question in ALL CAPS. Long
