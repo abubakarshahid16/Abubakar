@@ -207,16 +207,24 @@ _EXCEPTION = re.compile(
     r"\s*(?P<rest>.+)", re.IGNORECASE)
 
 #: A condition the requirement only holds under. "for new equipment",
-#: "where the service is sour", "in marine environments".
-#: The clause STOPS AT THE COMMA. "For new equipment, the noise level shall
-#: not exceed 90 dB(A)" conditions on "new equipment", not on "new equipment,
-#: the noise level" - the comma is where the circumstance ends and the subject
-#: begins. Running past it produced a condition containing the thing being
-#: limited, which would never match anything and would silently narrow the
-#: requirement to nothing.
+#: "where the service is sour", "if the service is sour", "when ...",
+#: "unless ...". The leading keyword only OPENS the circumstance; where it ends
+#: is decided by `parse_condition` (the comma that separates it from the
+#: subject), not by this pattern. Ending it at the FIRST comma lost the rest of
+#: "For carbon steel, low-alloy steel and alloy steel systems, a minimum ..."
+#: and capping it at 80 characters truncated a long one: a fragment of a
+#: condition is a wrong condition.
 _CONDITION = re.compile(
-    r"\b(?:for|where|when|in\s+the\s+case\s+of|applicable\s+to)\b\s+"
-    r"(?P<rest>[^.;,]{3,80})", re.IGNORECASE)
+    r"\b(?P<kw>for|where|when|if|unless|in\s+the\s+case\s+of|applicable\s+to)\b\s+"
+    r"(?P<rest>.+)", re.IGNORECASE | re.DOTALL)
+
+#: Where the main clause begins: an obligation phrase.
+_MAIN_CLAUSE = re.compile(
+    r"\b(?:shall|must|should|(?:is|are)\s+(?:required|to\s+be|not\s+permitted|"
+    r"prohibited))\b", re.IGNORECASE)
+
+#: A circumstance longer than this is not read as one: refuse, never truncate.
+_CONDITION_MAX = 240
 
 
 #: A table cell that IS a number, rather than prose containing one.
@@ -787,19 +795,46 @@ def parse_condition(sentence: str) -> str | None:
     Deliberately conservative. A wrong condition NARROWS a requirement, which
     silently excuses a real deviation - the opposite failure from a wrong
     limit, and harder to notice. When the sentence opens with the obligation
-    rather than the circumstance, there is no condition.
+    rather than the circumstance, there is no condition; when the circumstance
+    cannot be separated from the subject, there is no condition either.
+
+    Only a LEADING circumstance counts. "For new equipment, the noise level
+    shall not exceed..." is conditional; "...shall be applied for corrosion
+    protection" is a purpose. The circumstance ends at the last comma before
+    the main clause, so commas INSIDE it ("carbon steel, low-alloy steel and
+    alloy steel systems") are kept. A subject that itself contains commas
+    leaves extra words in the condition; the downstream reader
+    (`conditions.read_condition`) then abstains on the unread words, which is
+    the safe direction. "unless" is kept as the first word of the condition,
+    never dropped: dropping it would invert the meaning.
     """
-    # Only a LEADING circumstance counts. "For new equipment, the noise level
-    # shall not exceed..." is conditional; "...shall be applied for corrosion
-    # protection" is a purpose, not a condition.
-    head = sentence.split(" shall")[0].split(" must")[0]
-    if head == sentence:
-        return None
-    match = _CONDITION.match(head.strip())
+    text = " ".join((sentence or "").split()).rstrip(".;").strip()
+    match = _CONDITION.match(text)
     if not match:
         return None
-    condition = match.group("rest").strip().rstrip(",").strip()
-    return condition or None
+    keyword = match.group("kw").lower()
+    rest = match.group("rest")
+    commas = [i for i, ch in enumerate(rest) if ch == ","]
+    cut = None
+    if commas:
+        main = _MAIN_CLAUSE.search(rest, commas[0])
+        if main:
+            cut = max(i for i in commas if i < main.start())
+        elif keyword in ("where", "when", "if", "unless") and len(commas) == 1:
+            # No obligation phrase: "If the service is sour, PWHT applies."
+            cut = commas[0]
+    else:
+        main = _MAIN_CLAUSE.search(rest)
+        if main:
+            cut = main.start()
+    if cut is None:
+        return None
+    condition = rest[:cut].strip().rstrip(",").strip()
+    if keyword == "unless" and condition:
+        condition = f"unless {condition}"
+    if len(condition) < 3 or len(condition) > _CONDITION_MAX:
+        return None
+    return condition
 
 
 #: A requirement whose number belongs to a LOOKUP TABLE, not to a limit.
