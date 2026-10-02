@@ -709,6 +709,29 @@ _CHECKABLE = re.compile(r"\d|\b[A-Z]{2,}[-/]?\w*")
 _SEGMENT = re.compile(r"(?<=[.!?])" + NOT_AN_ABBREVIATION + r"\s+")
 
 
+_ONLY_CITATIONS = re.compile(r'^\s*(?:\[S\d+(?:\s*[:,]?\s*["\u201c][^"\u201d\]]+["\u201d])?\]\s*)+$')
+
+
+def _join_stranded_citations(segments: list[str]) -> list[str]:
+    """Put a citation that stands alone back on the sentence it follows.
+
+    A model often writes the citation AFTER the full stop: `... shall be
+    used. [S1 "quote"]`. The sentence splitter cut there, so the claim became
+    an uncited sentence (dropped when it carried a figure or an acronym) and
+    the citation became a claim of its own and was kept: the reader saw only
+    a bare marker where the wording had been (found 2026-10-02 on the owner's
+    library: "Minimum temperature: 1"). A fragment that is nothing but
+    citations belongs to the segment before it.
+    """
+    joined: list[str] = []
+    for segment in segments:
+        if joined and _ONLY_CITATIONS.match(segment):
+            joined[-1] = f"{joined[-1]} {segment.strip()}"
+        else:
+            joined.append(segment)
+    return joined
+
+
 def _image_only(passage: dict) -> bool:
     """A page `look_at_page` read from its image, with no text layer: there is
     no page text to check a quote or a figure against."""
@@ -750,7 +773,7 @@ def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict
     total = verified = image_only = 0
     for line in text.splitlines():
         kept_segments = []
-        for segment in _SEGMENT.split(line):
+        for segment in _join_stranded_citations(_SEGMENT.split(line)):
             cites = list(_QUOTED_CITATION.finditer(segment))
             if not cites:
                 bare = re.sub(r"^[\s>*#\-\d.)]+", "", segment)

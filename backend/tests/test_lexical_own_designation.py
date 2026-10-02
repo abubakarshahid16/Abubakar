@@ -173,3 +173,50 @@ def test_compare_answers_for_a_standard_that_prints_its_number_on_the_cover_only
     side = out["comparison"]["sides"][0]
     assert side["answer_type"] != "insufficient_evidence", side
     assert "Not found" not in (side["text"] or "")
+
+
+# ---- a designation the identifier pattern only half-matches ----------------
+LONG_NAME = "NACE-MR0175-ISO15156-specification"
+
+
+def _long_cover():
+    # the pages never print the file name, as in the owner's library
+    return ["1.1 Scope", "This document is the reference text for materials",
+            "in sour service and supersedes every earlier revision of it."]
+
+
+def test_a_long_designation_matched_in_part_is_still_credited():
+    """Found on the owner's library (2026-10-02): the identifier pattern
+    matches only the tail `MR0175-ISO15156-specification` of the file name
+    `NACE-MR0175-ISO15156-specification`, while the word scan keeps the whole
+    name. The tail never equalled the designation, was reported "not
+    anywhere in the indexed documents", and a side with five strong hits was
+    refused. The tail IS the standard's own name, so it is credited too."""
+    client = TestClient(app)
+    pages = [_long_cover()] + [_pwht(i) for i in range(3)] + [_plain(i, "gasket") for i in range(20)]
+    target = upload(client, pages, f"{LONG_NAME}.pdf")
+    others = [upload(client, [_plain(i, w) for i in range(22)], f"STD-X-30{k}.pdf")
+              for k, w in enumerate(("bolting", "painting", "valve", "pump"))]
+    everything = frozenset({target, *others})
+
+    out = chat_comparison.compare(
+        "what do the welding standards say about post weld heat treatment",
+        [(LONG_NAME, frozenset({target}))], tier="extract",
+        allowed_document_ids=everything, progress_id=None, model=None, history="",
+        topic="post weld heat treatment")
+    side = out["comparison"]["sides"][0]
+    assert side["answer_type"] != "insufficient_evidence", side
+    assert "Not found" not in (side["text"] or "")
+
+
+def test_a_fragment_of_another_standards_name_gets_no_credit():
+    """NOT VACUOUS: a fragment is credited only when it is part of the name of
+    EVERY document in scope; a name that belongs to another standard is not."""
+    client = TestClient(app)
+    a = upload(client, [_long_cover(), _pwht(1), _pwht(2)], f"{LONG_NAME}.pdf")
+    verdict = lexical.assess(
+        "What does STD-Q-999 say about post weld heat treatment?",
+        "Post weld heat treatment (PWHT) of joint type 1 shall be carried out",
+        allowed_document_ids=frozenset({a}))
+    assert verdict["ok"] is False
+    assert "STD-Q-999" in verdict["absent_from_corpus"]
