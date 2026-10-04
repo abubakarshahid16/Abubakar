@@ -85,7 +85,11 @@ def test_the_match_rule_unit_guard_reads_the_same_vocabulary():
     """Rule 8: `match_rules` asked the raw spelling set directly and so
     refused a rate the grammar knows."""
     requirement = {"raw_unit": "C"}
-    assert not match_rules.unit_dimension_conflict(requirement, {"raw_unit": "kg/h"})
+    # t/h, not kg/h: since the round-2 number fixes (N6) kg/h is in the unit
+    # table with its own dimension (mass_flow), so against a temperature it is a
+    # genuine dimension conflict. t/h is still a rate only the grammar knows.
+    assert not match_rules.unit_dimension_conflict(requirement, {"raw_unit": "t/h"})
+    assert match_rules.unit_dimension_conflict(requirement, {"raw_unit": "kg/h"})
     assert match_rules.unit_dimension_conflict(requirement, {"raw_unit": "banana"})
 
 

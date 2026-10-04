@@ -2282,6 +2282,7 @@ def _containment_hits(requirement: dict, subject: str, facts: list[dict],
     rejected = _rejected_keys_for(requirement)
     tag_scoped = facts_are_tag_scoped(facts)
     canonical_subject = field_links.canonical(subject)
+    subject_form = _match_form(subject)
     hits: list[dict] = []
     for fact in facts:
         if not eligible(fact):
@@ -2302,7 +2303,53 @@ def _containment_hits(requirement: dict, subject: str, facts: list[dict],
         elif _contains_words(canonical_subject, canonical_name):
             hits.append({"fact": fact, "name": name, "key": canonical_name,
                          "item": item, "synonym": canonical_name})
+        elif (_contains_words(subject_form, _match_form(name))
+              and len(_match_form(name)) >= 4
+              and _same_quantity_units(requirement, fact)):
+            # ABBREVIATION / GENERIC-WORD TOLERANCE (audit N5): "Noise" meets
+            # "Noise level", "Maximum operating temperature" meets "Max
+            # operating temperature". Only the fact name's own words are
+            # searched inside the subject (never the reverse, which would let
+            # "Pressure" claim "Design pressure"), and only when both sides
+            # state a unit of the same quantity - this route is the loosest
+            # one, so it carries the strictest unit gate.
+            hits.append({"fact": fact, "name": name, "key": canonical_name,
+                         "item": item, "synonym": None})
     return hits
+
+
+#: Abbreviations a datasheet label and a standard's sentence spell differently.
+_ABBREVIATIONS_FOR_MATCH = {
+    "max": "maximum", "min": "minimum", "temp": "temperature",
+    "press": "pressure", "pres": "pressure", "dia": "diameter",
+}
+#: Words that only say "this is the number": dropped from the END of a name.
+_GENERIC_TRAILING_WORDS = frozenset({"level", "value", "values", "rating", "data"})
+
+
+def _match_form(text: str) -> str:
+    """`_normalise_for_match` text with abbreviations spelled out and trailing
+    generic words (level, value, rating, data) removed. Never empties a name
+    to nothing: a name made only of generic words is left as it was."""
+    words = [_ABBREVIATIONS_FOR_MATCH.get(w, w) for w in text.split()]
+    trimmed = list(words)
+    while len(trimmed) > 1 and trimmed[-1] in _GENERIC_TRAILING_WORDS:
+        trimmed.pop()
+    return " ".join(trimmed)
+
+
+def _same_quantity_units(requirement: dict, fact: dict) -> bool:
+    """Both sides state a unit, and it is the same unit or the same known
+    dimension. A missing or unknown unit is NOT compatible here."""
+    left = str(requirement.get("raw_unit") or "").strip()
+    right = str(fact.get("raw_unit") or "").strip()
+    if not left or not right:
+        return False
+    if claims.same_unit(claims.Measurement("", left, None, None, None),
+                        claims.Measurement("", right, None, None, None)):
+        return True
+    left_dim, right_dim = claims.unit_dimension(left), claims.unit_dimension(right)
+    return left_dim is not None and left_dim == right_dim
 
 
 def _item_of(hit: dict) -> str | None:
