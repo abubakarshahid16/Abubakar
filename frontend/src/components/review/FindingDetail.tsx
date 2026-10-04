@@ -34,7 +34,14 @@ type Action =
   | { kind: "error"; message: string }
   | { kind: "rejected" };
 
-export function FindingDetail(
+/** Keyed by finding: the edit draft, reason and pending action belong to ONE
+ *  finding. Without the key, saving finding B could PATCH finding A's edited
+ *  text onto B. */
+export function FindingDetail(props: FindingDetailProps) {
+  return <FindingDetailBody key={props.finding.id} {...props} />;
+}
+
+function FindingDetailBody(
   { finding, documents, standardNames, onChanged }: FindingDetailProps,
 ) {
   const [action, setAction] = useState<Action>({ kind: "idle" });

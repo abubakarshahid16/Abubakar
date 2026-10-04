@@ -28,7 +28,14 @@ type State =
   | { kind: "saving" }
   | { kind: "error"; message: string };
 
-export function ReviewCodePanel({ run, onDecided }: ReviewCodePanelProps) {
+/** Keyed by run: the draft code and reason belong to ONE run. Without the key
+ *  opening run B showed run A's final code, and "Record final code" could
+ *  write A's value onto B. */
+export function ReviewCodePanel(props: ReviewCodePanelProps) {
+  return <ReviewCodePanelBody key={props.run.review_run_id} {...props} />;
+}
+
+function ReviewCodePanelBody({ run, onDecided }: ReviewCodePanelProps) {
   const [code, setCode] = useState<string>(
     run.engineer_final_code ?? run.recommended_code ?? "");
   const [reason, setReason] = useState(run.override_reason ?? "");

@@ -528,6 +528,7 @@ export function ReviewRunsView(
           )}
           {showStandards && run && (
             <StandardOverrideControl
+              key={run.review_run_id}
               runId={run.review_run_id}
               decided={Boolean(run.engineer_final_code)}
               onChanged={(changed, missing) => {
@@ -540,7 +541,7 @@ export function ReviewRunsView(
             />
           )}
 
-          <ReviewCodePanel run={run} onDecided={() => { void loadRuns(); }} />
+          <ReviewCodePanel key={run.review_run_id} run={run} onDecided={() => { void loadRuns(); }} />
 
           <RunSummary findings={findings} />
 
@@ -576,6 +577,7 @@ export function ReviewRunsView(
           {finding && (
             <div ref={detailRef}>
               <FindingDetail
+                key={finding.id}
                 finding={finding} documents={documents}
                 standardNames={standardNames}
                 onChanged={() => { void loadFindings(run.review_run_id); }}
