@@ -144,12 +144,16 @@ export function EvidencePanel({
 }) {
   const passage = passages[selected];
   const [width, setWidth] = useState(() => {
-    const stored = Number(window.localStorage.getItem("evidence-panel-width"));
+    // Storage can be blocked or throw (private window, site data off).
+    let stored = NaN;
+    try { stored = Number(window.localStorage.getItem("evidence-panel-width")); }
+    catch { /* default width */ }
     return Number.isFinite(stored) && stored >= 320 && stored <= 640 ? stored : 352;
   });
   const resizing = useRef(false);
   useEffect(() => {
-    window.localStorage.setItem("evidence-panel-width", String(width));
+    try { window.localStorage.setItem("evidence-panel-width", String(width)); }
+    catch { /* the width just is not remembered */ }
   }, [width]);
   useEffect(() => {
     const move = (event: PointerEvent) => {
