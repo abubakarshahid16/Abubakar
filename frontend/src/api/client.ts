@@ -546,10 +546,19 @@ export const reviews = {
     }
     const disposition = response.headers.get("Content-Disposition") ?? "";
     const match = /filename="([^"]+)"/.exec(disposition);
+    let blob: Blob;
+    try {
+      blob = await response.blob();
+    } catch (e) {
+      // The status line arrives before the bytes: a dropped connection throws
+      // here, on a response that already said 200.
+      return disconnected(
+        e instanceof Error ? e.message : "The download was interrupted.");
+    }
     return {
       ok: true,
       data: {
-        blob: await response.blob(),
+        blob,
         filename: match?.[1] ?? `CRS_${runId}.xlsx`,
       },
     };
@@ -991,7 +1000,24 @@ async function request<T>(
 
   if (!response.ok) return failureOf(response);
 
-  const body = await response.json();
+  // A 200 whose body is not JSON (a proxy's HTML page, a truncated body) must
+  // become the same typed failure every caller already handles - never a
+  // rejected promise, which strands whatever flag the caller set before it.
+  let body: unknown;
+  try {
+    body = response.status === 204 ? null : await response.json();
+  } catch {
+    return {
+      ok: false,
+      disconnected: false,
+      error: {
+        code: "internal",
+        message:
+          "The server's reply could not be read. If you changed something, it may " +
+          "or may not have been saved - reload to check before trying again.",
+      },
+    };
+  }
   if (expect && !expect(body)) {
     // Never a white screen. The reader gets the same card any other API
     // failure produces, and the console keeps the detail for whoever is
