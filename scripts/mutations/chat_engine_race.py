@@ -15,8 +15,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1790", phase=1790, runner="vitest",
              description="send no longer waits for the engine list (the race comes back)",
              path=_CHAT,
-             anchor="      await Promise.race([\n        enginesReady.current,\n",
-             replacement="      await Promise.race([\n        Promise.resolve(),\n",
+             anchor="        await Promise.race([\n          enginesReady.current,\n",
+             replacement="        await Promise.race([\n          Promise.resolve(),\n",
              target=_T, keyword=_K, tags=("ui",)),
     Mutation(id="M1791", phase=1791, runner="vitest",
              description="send reads the engine from the render's state, not the ref",
@@ -27,10 +27,10 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1792", phase=1792, runner="vitest",
              description="a list that never arrives hangs the question for ever",
              path=_CHAT,
-             anchor="      await Promise.race([\n        enginesReady.current,\n"
-                    "        new Promise<void>((resolve) => window.setTimeout(resolve, ENGINE_WAIT_MS)),\n"
-                    "      ]);\n",
-             replacement="      await enginesReady.current;\n",
+             anchor="        await Promise.race([\n          enginesReady.current,\n"
+                    "          new Promise<void>((resolve) => window.setTimeout(resolve, ENGINE_WAIT_MS)),\n"
+                    "        ]);\n",
+             replacement="        await enginesReady.current;\n",
              target=_T, keyword="does not wait forever", tags=("ui",)),
     Mutation(id="M1793", phase=1793, runner="vitest",
              description="a failed engine list stops the question from being asked",
