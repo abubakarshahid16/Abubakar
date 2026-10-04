@@ -1390,6 +1390,55 @@ def _designators_conflict(rows: tuple[Claim, ...]) -> tuple[str, str] | None:
     return None
 
 
+_UPPER = ("<=", "max", "<")
+_LOWER = (">=", "min", ">")
+
+
+def _distinct_same_direction_limits(a: Measurement, b: Measurement) -> bool:
+    """Both are upper limits, or both lower limits, in one dimension, and their
+    values differ beyond what the printed precision explains."""
+    same_direction = ((a.comparator in _UPPER and b.comparator in _UPPER)
+                      or (a.comparator in _LOWER and b.comparator in _LOWER))
+    if not same_direction or a.dimension != b.dimension:
+        return False
+    if a.normalized_value is None or b.normalized_value is None:
+        return False
+    return not _same_printed_quantity(a, b, ignore_comparator=True) and not math.isclose(
+        a.normalized_value, b.normalized_value, rel_tol=1e-9, abs_tol=1e-9)
+
+
+def _last_digit_half(m: Measurement) -> float | None:
+    """Half a unit of the last printed digit, in the canonical unit."""
+    entry = _UNIT_TABLE.get(_fold_unit(m.raw_unit or ""))
+    value = parse_value(m.raw_value)
+    if entry is None or value is None:
+        return None
+    text = m.raw_value.strip().replace(" ", "")
+    if re.fullmatch(r"[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?", text):
+        text = text.replace(",", "")
+    decimals = len(re.split(r"[.,]", text)[1]) if re.search(r"[.,]\d", text) else 0
+    return 0.5 * 10 ** (-decimals) * entry[2]
+
+
+def _same_printed_quantity(a: Measurement, b: Measurement, *,
+                           ignore_comparator: bool = False) -> bool:
+    """The same quantity printed in two units: "1,000 psi" and "6.89 MPa".
+
+    Only for two values with the same comparator in DIFFERENT unit spellings
+    (identical spellings are compared exactly - 3.0 and 3.1 mm are two values).
+    Equal when they differ by no more than half a unit in the last printed digit
+    of either, or 0.5 % relative - a printed conversion is rounded."""
+    if a.comparator != b.comparator and not ignore_comparator:
+        return False
+    if (a.normalized_value is None or b.normalized_value is None
+            or a.dimension != b.dimension or same_unit(a, b)):
+        return False
+    gap = abs(a.normalized_value - b.normalized_value)
+    halves = [h for h in (_last_digit_half(a), _last_digit_half(b)) if h is not None]
+    tolerance = max([0.005 * max(abs(a.normalized_value), abs(b.normalized_value)), *halves])
+    return gap <= tolerance * (1 + 1e-9)
+
+
 def label_cluster(rows: tuple[Claim, ...] | list[Claim]) -> tuple[ClaimLabel, str | None]:
     rows = tuple(rows)
     mismatch = _designators_conflict(rows)
@@ -1403,19 +1452,27 @@ def label_cluster(rows: tuple[Claim, ...] | list[Claim]) -> tuple[ClaimLabel, st
     with_measurements = [r for r in rows if r.measurements]
     if len(with_measurements) >= 2:
         # Compare per dimension, only between rows that both speak to it.
-        by_dim: dict[str, list[Measurement]] = {}
+        by_dim: dict[str, list[tuple[int, Measurement]]] = {}
         unnormalised: list[Measurement] = []
-        for r in with_measurements:
+        for row_no, r in enumerate(with_measurements):
             for m in r.measurements:
                 if m.normalized_value is None:
                     unnormalised.append(m)
                 else:
-                    by_dim.setdefault(m.dimension or "", []).append(m)
+                    by_dim.setdefault(m.dimension or "", []).append((row_no, m))
         conflict = False
         for ms in by_dim.values():
-            for i, a in enumerate(ms):
-                for b in ms[i + 1:]:
-                    if _compatible(a, b) is False:
+            for i, (row_a, a) in enumerate(ms):
+                for row_b, b in ms[i + 1:]:
+                    if _same_printed_quantity(a, b):
+                        # "1,000 psi (6.89 MPa)": one value printed twice.
+                        continue
+                    if row_a != row_b and _distinct_same_direction_limits(a, b):
+                        # Two UPPER limits (or two lower) are not one claim: both
+                        # intervals reach infinity, so they always "overlap", yet
+                        # <= 3.0 and <= 4.5 are two different requirements.
+                        conflict = True
+                    elif _compatible(a, b) is False:
                         conflict = True
         if conflict:
             return ("possible_conflict", POSSIBLE_CONFLICT_NOTE)
