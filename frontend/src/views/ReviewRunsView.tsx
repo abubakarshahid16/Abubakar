@@ -31,7 +31,7 @@ import { StandardOverrideControl } from "../components/review/StandardOverrideCo
 import {
   LIST_MAX, STATUS_ORDER, completenessLine, groupFindingsByTopic, groupRunsByDocument, kindCounts,
   pageCoverageLine, pageList, pagesReadLine, runStatusLabel, statusLabel, statusTone, standardsChangeLine,
-  summaryTotals, totalFromResponse, truncationNote, whenLabel, withDenominator,
+  progressLine, summaryTotals, totalFromResponse, truncationNote, whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
 
 type Phase =
@@ -692,6 +692,7 @@ function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
               }).finally(() => setRereading(false));
             }}
             disabled={rereading}
+            title="Re-reads the unread pages. When the vision reader is ready, their page images are sent to Claude."
             className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs text-signal-300 disabled:opacity-50"
           >
             {rereading ? "Reading…" : "Read unread pages"}
@@ -850,7 +851,7 @@ function RunCard({ run, selected, onOpen }: {
         <p className="mt-1 text-xs text-signal-400" data-testid="review-progress">
           {run.status === "queued"
             ? "Waiting to start"
-            : `Step ${Math.min((run.job.progress_done ?? 0) + 1, run.job.progress_total ?? 3)} of ${run.job.progress_total ?? 3}: ${run.job.progress_label ?? "working"}`}
+            : progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label)}
           {run.job.cancel_requested ? " · cancellation requested, stopping at the next step" : ""}
         </p>
       )}
@@ -1195,7 +1196,7 @@ function VisionReaderLine({ status }: { status: VisionLine | null }) {
   }
   const s = status.status;
   if (s.ready) {
-    return <span data-testid="vision-reader-status" className="text-xs text-signal-300">Vision reader ready</span>;
+    return <span data-testid="vision-reader-status" className="text-xs text-signal-300">Vision reader ready: reading unread pages sends their page images to Claude.</span>;
   }
   return (
     <span data-testid="vision-reader-status" role="status" className="text-xs text-amber-300"

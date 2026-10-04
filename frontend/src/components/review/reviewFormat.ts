@@ -434,3 +434,16 @@ export function truncationNote(
     ? `Showing the newest ${LIST_MAX} ${noun}; there may be more that are not listed here.`
     : null;
 }
+
+/** The step line of a running review. A total is shown only when the server
+ *  reported one: an invented denominator ("of 3") reads as a measurement. */
+export function progressLine(
+  done: number | null | undefined, total: number | null | undefined,
+  label: string | null | undefined,
+): string {
+  const step = (done ?? 0) + 1;
+  const text = label ?? "working";
+  return typeof total === "number" && total > 0
+    ? `Step ${Math.min(step, total)} of ${total}: ${text}`
+    : `Step ${step}: ${text}`;
+}
