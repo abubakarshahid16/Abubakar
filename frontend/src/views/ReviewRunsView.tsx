@@ -29,9 +29,9 @@ import {
 import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
 import { StandardOverrideControl } from "../components/review/StandardOverrideControl";
 import {
-  STATUS_ORDER, completenessLine, groupFindingsByTopic, groupRunsByDocument, kindCounts,
+  LIST_MAX, STATUS_ORDER, completenessLine, groupFindingsByTopic, groupRunsByDocument, kindCounts,
   pageCoverageLine, pageList, pagesReadLine, runStatusLabel, statusLabel, statusTone, standardsChangeLine,
-  summaryTotals, whenLabel, withDenominator,
+  summaryTotals, totalFromResponse, truncationNote, whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
 
 type Phase =
@@ -45,6 +45,7 @@ export function ReviewRunsView(
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [runs, setRuns] = useState<ReviewRunSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+  const [submittalsTotal, setSubmittalsTotal] = useState<number | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [findings, setFindings] = useState<ReviewFinding[]>([]);
   const [standards, setStandards] = useState<ReviewRunStandard[] | null>(null);
@@ -170,10 +171,13 @@ export function ReviewRunsView(
     // detail panel cannot open the cited page and says the document is
     // unreadable - which is a different and untrue statement.
     void Promise.all([
-      api.documents({ document_role: ["CONTRACTOR_SUBMITTAL"] }),
-      api.documents({ document_role: ["COMPANY_STANDARD"], limit: 100 }),
+      // Explicit limits: the server stops at 20 when none is given, which
+      // dropped submittals from the picker without a word.
+      api.documents({ document_role: ["CONTRACTOR_SUBMITTAL"], limit: LIST_MAX }),
+      api.documents({ document_role: ["COMPANY_STANDARD"], limit: LIST_MAX }),
     ]).then(([subs, stds]) => {
       const rows: DocumentRecord[] = [];
+      setSubmittalsTotal(subs.ok ? totalFromResponse(subs.response) : null);
       if (subs.ok) rows.push(...subs.data);
       if (stds.ok) rows.push(...stds.data);
       setDocuments(rows);
@@ -386,6 +390,11 @@ export function ReviewRunsView(
               <option key={doc.id} value={doc.id}>{doc.filename}</option>
             ))}
           </select>
+          {truncationNote(submittals.length, submittalsTotal, "contractor submittals") && (
+            <p className="basis-full text-xs text-slateish-400" data-testid="submittals-boundary">
+              {truncationNote(submittals.length, submittalsTotal, "contractor submittals")}
+            </p>
+          )}
           <button
             type="button" onClick={requestRun}
             disabled={!target || launch.kind === "running"}
