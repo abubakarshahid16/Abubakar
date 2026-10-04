@@ -65,8 +65,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the deliverable PATCH writes before it checks the scope",
         path=_MAIN,
         anchor=("    existing = deliverables_mod.get(deliverable_id)\n"
-                "    if existing is None or (existing.get(\"document_id\")\n"
-                "                            and not scope.may_read(existing[\"document_id\"])):"),
+                "    if existing is None or not _deliverable_visible(existing, scope):"),
         replacement=("    existing = deliverables_mod.get(deliverable_id)\n"
                      "    if False:"),
         target=_T, keyword="hidden_deliverable",

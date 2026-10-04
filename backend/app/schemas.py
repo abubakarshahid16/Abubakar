@@ -2070,6 +2070,9 @@ class ReviewFinding(BaseModel):
     standard_clause: str | None = None
     standard_page: int | None = None
     requirement_source_text: str | None = None
+    #: True when the standard this finding was decided against is one the
+    #: caller may not read: the fields above and `requirement` are withheld.
+    standard_withheld: bool = False
     contractor_page: int | None = None
     contractor_section: str | None = None
     contractor_evidence_text: str | None = None

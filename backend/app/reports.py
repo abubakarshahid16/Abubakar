@@ -122,6 +122,14 @@ def build_snapshot(message_id: str, scope: access.AccessScope) -> dict:
     row = conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
     if row is None or row["role"] != "assistant":
         raise ReportNotFound(message_id)
+    # r2 S4: the message belongs to a conversation, and a conversation belongs
+    # to someone. The same rule `GET /api/conversations/{id}` applies
+    # (`owns_conversation`), answered with the same not-found, so another
+    # user's message id cannot be turned into a report of their answer.
+    owner = conn.execute("SELECT owner_user_id FROM conversations WHERE id = ?",
+                         (row["conversation_id"],)).fetchone()
+    if owner is None or not scope.owns_conversation(owner["owner_user_id"]):
+        raise ReportNotFound(message_id)
     message = chat._row_to_message(row)
     if message["answer_type"] not in ("extract", "generated"):
         raise NotReportable("only an answered question can be reported on")

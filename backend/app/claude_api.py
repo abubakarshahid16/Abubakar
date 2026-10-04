@@ -120,6 +120,18 @@ def _model_call_or_409(step: str):
     call is charged to a named step."""
     if step not in STEPS:
         raise ValueError(f"unknown Claude route step {step!r}")
+    # r2 S5: THE PROVIDER SWITCH FIRST. These routes used to check only the two
+    # egress flags, so REASONING_PROVIDER=ollama with the flags and a key set
+    # still sent document text to Claude. `claude_unavailable` is the one place
+    # that asks all three local conditions (provider, flags, key).
+    from . import reasoning_provider as rp_mod
+    code, why = rp_mod.claude_unavailable()
+    if code is not None:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            MODEL_DISABLED,
+            "Claude is off: it needs REASONING_PROVIDER=claude, both "
+            "STANDARDS_READER_* egress flags and a key in backend/.env "
+            f"({code})"))
     transport = reader_transport_mod.transport()
     if transport is None:
         raise HTTPException(status_code=409, detail=errors.safe_error(

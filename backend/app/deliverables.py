@@ -175,11 +175,27 @@ def expected_missing(*, wbs_code: str | None = None,
                      allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
     """Return configured expected deliverables and their registered status."""
     ensure_schema()
-    sql = "SELECT e.*, d.id AS deliverable_id, d.status FROM deliverable_expectations e " \
-          "LEFT JOIN deliverables d ON d.wbs_code=e.wbs_code AND d.deliverable_type=e.deliverable_type"
+    # r2 S3: an expectation inferred from a document the caller may not read is
+    # not theirs to see, and neither is the status of a deliverable registered
+    # against such a document (the join would otherwise report it).
     args: list[str] = []
+    join_scope = ""
+    where: list[str] = []
+    if allowed_document_ids is not None:
+        if not allowed_document_ids:
+            return []
+        marks = ",".join("?" for _ in allowed_document_ids)
+        join_scope = f" AND (d.document_id IS NULL OR d.document_id IN ({marks}))"
+        args.extend(sorted(allowed_document_ids))
+        where.append(f"(e.source_document_id IS NULL OR e.source_document_id IN ({marks}))")
+    sql = "SELECT e.*, d.id AS deliverable_id, d.status FROM deliverable_expectations e " \
+          "LEFT JOIN deliverables d ON d.wbs_code=e.wbs_code AND d.deliverable_type=e.deliverable_type" + join_scope
+    if allowed_document_ids is not None:
+        args.extend(sorted(allowed_document_ids))
     if wbs_code:
-        sql += " WHERE e.wbs_code = ?"; args.append(wbs_code)
+        where.append("e.wbs_code = ?"); args.append(wbs_code)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     rows = connect().execute(sql, args).fetchall()
     return [dict(row) | {"state": "registered" if row["deliverable_id"] else "missing", "origin": "inferred" if row["inferred"] else "manual"}
             for row in rows]
@@ -244,8 +260,12 @@ def workspace(item_id: str, *, allowed_document_ids: frozenset[str] | None = Non
     item = get(item_id)
     if item is None:
         return None
-    if item.get("document_id") and allowed_document_ids is not None and item["document_id"] not in allowed_document_ids:
-        return None
+    if allowed_document_ids is not None:
+        if item.get("document_id"):
+            if item["document_id"] not in allowed_document_ids:
+                return None
+        elif not allowed_document_ids:
+            return None
     children = [dict(row) for row in connect().execute(
         "SELECT * FROM deliverables WHERE parent_id = ? ORDER BY wbs_code", (item_id,)
     ).fetchall()]

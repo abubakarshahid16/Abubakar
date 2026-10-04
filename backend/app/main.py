@@ -276,6 +276,34 @@ async def api_docs_gate(request: Request, call_next):
     return await call_next(request)
 
 
+#: Routes that expose corpus-derived content (r2 S7). Under any mode but
+#: `disabled` a request that names no identity gets 401 here - it used to get
+#: 200 and an empty or unscoped answer (vocabulary, templates and baseline rules
+#: were not scoped at all). A PREFIX, so a route added under it later is
+#: covered without anyone remembering. NOT in this list on purpose:
+#: `/api/health` (public), `/api/auth/*` (the login screen calls
+#: `/api/auth/me` before it has a token) and `/api/watch/status` (no corpus
+#: content: a flag, and a folder name for an admin only).
+_IDENTITY_REQUIRED_PREFIXES = (
+    "/api/reviews", "/api/classification", "/api/metrics",
+    "/api/management/report", "/api/market/search",
+)
+
+
+@app.middleware("http")
+async def identity_gate(request: Request, call_next):
+    from starlette.concurrency import run_in_threadpool
+
+    path = request.url.path
+    if (settings.auth_mode != access.AUTH_DISABLED
+            and request.method != "OPTIONS"
+            and any(path == p or path.startswith(p + "/") for p in _IDENTITY_REQUIRED_PREFIXES)
+            and not await run_in_threadpool(access.request_identity, request)):
+        return JSONResponse(status_code=401, content={"detail": errors.safe_error(
+            errors.UNAUTHENTICATED, "sign in to continue")})
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def trusted_host_gate(request: Request, call_next):
     """Refuse any Host header this server was not configured to answer to.
@@ -600,8 +628,12 @@ def list_documents(request: Request, response: Response,
 def delete_document(document_id: str, request: Request, confirm: bool = Query(False),
     acknowledge_orphaned_findings: bool = Query(False),
     scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
 ):
     """Remove a document and everything derived from it.
+
+    ADMIN ONLY (r2 S1): a READ grant lets a caller see a document, not destroy
+    it. A non-admin gets the admin surface's silent 404.
 
     Requires confirm=true - a destructive endpoint should not fire on a
     mistyped URL. Removes chunks, pages, vectors, exclusions, jobs, cached
@@ -694,6 +726,7 @@ def get_document(document_id: str, request: Request,
           responses=schemas.ERRORS_404)
 def extract(document_id: str,
     scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
 ):
     """Extract pages in batches. Resumes from the last completed batch."""
     require_document(document_id, scope)
@@ -705,6 +738,7 @@ def extract(document_id: str,
 def chunk(document_id: str, force: bool = Query(False),
     acknowledge_orphaned_findings: bool = Query(False),
     scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
 ):
     """Chunk an extracted document.
 
@@ -724,6 +758,7 @@ def chunk(document_id: str, force: bool = Query(False),
           responses=schemas.ERRORS_404)
 def embed(document_id: str,
     scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
 ):
     """Embed any retrievable chunks that do not yet have a vector."""
     require_document(document_id, scope)
@@ -748,6 +783,7 @@ def embed(document_id: str,
           response_model=schemas.KeywordIndexResult, responses=schemas.ERRORS_404)
 def index_keyword(document_id: str,
     scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
 ):
     """Build the keyword index for one document. Needs no vectors."""
     require_document(document_id, scope)
@@ -2270,6 +2306,8 @@ def update_review_finding(
     # A confirmed, accepted or re-worded comment is the engineer's: it gets
     # its permanent CRS number now, not at export (which writes nothing).
     _mint_crs_numbers(current.get("review_run_id"), scope)
+    # r2 S2: the reply is a read of the finding too.
+    review_mod.withhold_unreadable_standards([updated], scope.allowed_document_ids)
     return updated
 
 
@@ -2321,6 +2359,19 @@ def review_finding_history(
 
 
 # ------------------------------------------------------------- deliverables / WBS
+
+def _deliverable_visible(item: dict, scope: access.AccessScope) -> bool:
+    """May this caller touch this deliverable? (r2 S3)
+
+    A deliverable tied to a document follows that document's grant. One with NO
+    document used to be open to every identified caller, including one with no
+    grant at all; it now needs the admin capability or at least one grant.
+    """
+    document_id = item.get("document_id")
+    if document_id:
+        return scope.may_read(document_id)
+    return scope.is_admin or bool(scope.allowed_document_ids)
+
 
 @app.get("/api/deliverables", response_model=schemas.DeliverableList,
          responses=schemas.ERRORS_422)
@@ -2383,8 +2434,7 @@ def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(ac
         require_document(body.document_id, scope)
     if body.deliverable_id:
         linked = deliverables_mod.get(body.deliverable_id)
-        if linked is None or (linked.get("document_id")
-                              and not scope.may_read(linked["document_id"])):
+        if linked is None or not _deliverable_visible(linked, scope):
             raise HTTPException(status_code=404, detail=errors.safe_error(
                 errors.NOT_FOUND, "no deliverable with that id"))
     if body.source_finding_id:
@@ -2423,8 +2473,7 @@ def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
     # document got a 404 while their change had already been committed
     # (audit 2026-09-30). The existing row is checked first, then written.
     existing = deliverables_mod.get(deliverable_id)
-    if existing is None or (existing.get("document_id")
-                            and not scope.may_read(existing["document_id"])):
+    if existing is None or not _deliverable_visible(existing, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     changes = body.model_dump(exclude_unset=True)
     if changes.get("document_id"):
@@ -2435,7 +2484,7 @@ def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
         item = deliverables_mod.update(deliverable_id, changes, actor_user_id=scope.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+    if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return item
 
@@ -2444,7 +2493,7 @@ def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
          responses=schemas.ERRORS_404)
 def deliverable_history(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
     item = deliverables_mod.get(deliverable_id)
-    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+    if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return {"events": deliverables_mod.history(deliverable_id)}
 
@@ -2454,7 +2503,7 @@ def deliverable_history(deliverable_id: str, scope: access.AccessScope = Depends
          responses=schemas.ERRORS_404)
 def deliverable_stakeholders(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
     item = deliverables_mod.get(deliverable_id)
-    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+    if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return {"stakeholders": deliverables_mod.stakeholders(deliverable_id)}
 
@@ -2468,7 +2517,7 @@ def replace_deliverable_stakeholders(
 ):
     _require_identity_to_write(scope)
     item = deliverables_mod.get(deliverable_id)
-    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+    if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return {"stakeholders": deliverables_mod.replace_stakeholders(
         deliverable_id, [a.model_dump() for a in body.assignments], actor_user_id=scope.user_id)}
