@@ -133,7 +133,7 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     "kj/kgk": ("specific_heat", "kJ/kgK", 1.0),
     # COMPOUND ENGINEERING UNITS read WHOLE (audit N6: "mm/s" used to be cut at
     # the slash and read as a LENGTH). Each factor is exact by definition:
-    # 1 in is 25.4 mm, 1 L/min is 0.06 m3/h, 1 L/s is 3.6 m3/h. A velocity is
+    # 1 in is 25.4 mm. L/min and L/s stay recognised-not-converted. A velocity is
     # its own dimension, so 4.5 in/s can never compare with a 4.5 mm length.
     "mm/s": ("velocity", "mm/s", 1.0),
     "mm/sec": ("velocity", "mm/s", 1.0),
@@ -143,8 +143,6 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     "m/sec": ("velocity", "mm/s", 1000.0),
     "m3/h": ("volumetric_flow", "m3/h", 1.0),
     "m3/hr": ("volumetric_flow", "m3/h", 1.0),
-    "l/min": ("volumetric_flow", "m3/h", 0.06),
-    "l/s": ("volumetric_flow", "m3/h", 3.6),
     "kg/h": ("mass_flow", "kg/h", 1.0),
     "kg/hr": ("mass_flow", "kg/h", 1.0),
     # pressure -> MPa
@@ -245,7 +243,7 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     "psia": "pressure", "kpag": "pressure", "kpaa": "pressure", "bara": "pressure",
     # Volumetric flow and application rate (fire water): the only spellings
     # of their quantities here, so no conversion to invent.
-    "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,
+    "l/s": None, "l/min": None, "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,
     "kn/m3": None, "lux": None,
     "s": "time", "sec": "time", "secs": "time", "second": "time", "seconds": "time",
     "d": "time", "day": "time", "days": "time",

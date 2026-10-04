@@ -140,7 +140,6 @@ def test_max_does_not_match_min():
     ("Peak velocity is 4.5 in/s.", "in/s", "velocity"),
     ("Flow is 50 m3/h.", "m3/h", "volumetric_flow"),
     ("Feed rate is 100 kg/h.", "kg/h", "mass_flow"),
-    ("Flow is 50 L/min.", "L/min", "volumetric_flow"),
 ])
 def test_compound_units_parse_whole(sentence, raw_unit, dimension):
     (m,) = claims.extract_measurements(sentence)
@@ -177,3 +176,19 @@ def test_existing_units_unchanged():
 
 def test_datasheet_range_with_unicode_minus_keeps_its_sign():
     assert datasheets.parse_range("−29 to 343 C") == ("-29", "343", "C")
+
+
+def test_tolerant_match_needs_units_both_stated_and_alike():
+    # kg and rpm are both "recognised, no dimension": match_rules lets that pair
+    # through, so the tolerant route's own unit gate is what stops it.
+    assert comparison.match_by_containment(
+        _req("Maximum operating speed", "kg"), [_fact("Max operating speed", "rpm")])["fact"] is None
+    assert comparison.match_by_containment(
+        _req("Maximum operating speed", "rpm"), [_fact("Max operating speed", "")])["fact"] is None
+    assert comparison.match_by_containment(
+        _req("Maximum operating speed", "rpm"), [_fact("Max operating speed", "rpm")])["fact"] is not None
+
+
+def test_l_per_min_is_read_whole_but_not_converted():
+    (m,) = claims.extract_measurements("Flow is 50 L/min.")
+    assert m.raw_unit == "L/min" and m.normalized_value is None
