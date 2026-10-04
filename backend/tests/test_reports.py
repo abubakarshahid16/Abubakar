@@ -577,6 +577,13 @@ def _user(email, role_id, doc_ids):
     return uid
 
 
+def _own_conversations(uid: str) -> None:
+    """`answered_message` asks under auth-off, so its conversation has no owner;
+    since r2 S4 a report needs the caller to own the conversation."""
+    with db.connect() as conn:
+        conn.execute("UPDATE conversations SET owner_user_id = ?", (uid,))
+
+
 def test_a_report_vanishes_when_a_cited_document_leaves_the_readers_scope(monkeypatch):
     """404, not 403, and not partially redacted. The listing shows only THAT
     something is hidden."""
@@ -584,6 +591,7 @@ def test_a_report_vanishes_when_a_cited_document_leaves_the_readers_scope(monkey
     m = answered_message()
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_REQUIRED)
     uid = _user("a@x.test", "role_a", [doc_id])
+    _own_conversations(uid)
     scope = access.scope_for_user(uid)
     assert scope.allowed_document_ids == {doc_id}, "fixture: the user cannot see the document"
 
@@ -613,6 +621,7 @@ def test_another_users_report_is_404(monkeypatch):
     owner = _user("a@x.test", "role_a", [doc_id])
     other = _user("b@x.test", "role_b", [doc_id])
     assert owner != other
+    _own_conversations(owner)
     rec = reports.generate(m["id"], access.scope_for_user(owner))
 
     monkeypatch.setattr(access, "_resolve_user_id", lambda request: other)
