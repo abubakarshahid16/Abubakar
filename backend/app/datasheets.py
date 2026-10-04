@@ -468,7 +468,7 @@ def parse_range(raw: str | None) -> tuple[str, str, str | None] | None:
     degree-glyph rule (`-3 to 121OC`). A bare symbol is a unit: `0 to 100%`
     is a percentage range and parses.
     """
-    text = normalise_degree_glyph(" ".join((raw or "").split()))
+    text = normalise_degree_glyph(" ".join((raw or "").split()).replace("\u2212", "-"))
     if not text:
         return None
     match = _RANGE.match(text)
@@ -1858,7 +1858,10 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     """
     # `121OC` IS A TEMPERATURE, and the sheet writes the degree sign as a
     # letter. Rewritten here so every caller sees the same cell.
-    text = normalise_degree_glyph((raw or "").strip())
+    # U+2212 is a minus sign (audit N1): without this "\u221229 C" was not read
+    # at all. En/em dashes are NOT rewritten here - on a datasheet a lone dash
+    # is the "not filled" marker and a dash between numbers is a range.
+    text = normalise_degree_glyph((raw or "").strip().replace("\u2212", "-"))
     if not text:
         return None, None, None
     fraction = inch_fraction(text)

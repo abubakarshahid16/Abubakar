@@ -131,6 +131,22 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     # values in W/m2K compare and W/m2K against kg/m3 does not.
     "w/m2k": ("heat_transfer", "W/m2K", 1.0),
     "kj/kgk": ("specific_heat", "kJ/kgK", 1.0),
+    # COMPOUND ENGINEERING UNITS read WHOLE (audit N6: "mm/s" used to be cut at
+    # the slash and read as a LENGTH). Each factor is exact by definition:
+    # 1 in is 25.4 mm, 1 L/min is 0.06 m3/h, 1 L/s is 3.6 m3/h. A velocity is
+    # its own dimension, so 4.5 in/s can never compare with a 4.5 mm length.
+    "mm/s": ("velocity", "mm/s", 1.0),
+    "mm/sec": ("velocity", "mm/s", 1.0),
+    "in/s": ("velocity", "mm/s", 25.4),
+    "in/sec": ("velocity", "mm/s", 25.4),
+    "m/s": ("velocity", "mm/s", 1000.0),
+    "m/sec": ("velocity", "mm/s", 1000.0),
+    "m3/h": ("volumetric_flow", "m3/h", 1.0),
+    "m3/hr": ("volumetric_flow", "m3/h", 1.0),
+    "l/min": ("volumetric_flow", "m3/h", 0.06),
+    "l/s": ("volumetric_flow", "m3/h", 3.6),
+    "kg/h": ("mass_flow", "kg/h", 1.0),
+    "kg/hr": ("mass_flow", "kg/h", 1.0),
     # pressure -> MPa
     "mpa": ("pressure", "MPa", 1.0),
     "bar": ("pressure", "MPa", 0.1),
@@ -169,6 +185,7 @@ _DIMENSION_UNIT = {
     "concentration": "g/L", "areal_density": "g/m2", "heat_input": "KJ/mm",
     "hardness": "BHN", "speed": "kph", "temperature_rate": "C/hr",
     "density": "kg/m3", "heat_transfer": "W/m2K", "specific_heat": "kJ/kgK",
+    "velocity": "mm/s", "volumetric_flow": "m3/h", "mass_flow": "kg/h",
 }
 
 #: Units extraction recognises but the table does NOT convert, with the
@@ -201,12 +218,14 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     # `datasheets.py` was fixed in phase 5B precisely so that "95 dB(A)" keeps
     # its A-weighting, and a gate that dropped it on the STANDARDS side would
     # have re-opened that defect from the other direction.
-    "db(a)": None, "dba": None,
     # Ordinary engineering units this corpus writes and the table did not know.
     # RECOGNISED, NOT CONVERTED: each is the only spelling of its quantity here,
     # and `NPS` in particular is a DESIGNATION rather than a measurement - NPS 2
     # is not two of anything - so it must never acquire a conversion.
-    "nps": None, "wt%": None, "ppmw": None, "m3/hr": None, "m3/h": None,
+    "nps": None, "wt%": None, "ppmw": None,
+    # dB(A) is recognised WHOLE (N6: it was cut to "dB") but stays unconverted
+    # on purpose - see test_the_units_deliberately_left_unconverted.
+    "db(a)": None, "dba": None,
     # Measured as printed beside a value on a real sheet and absent here, so
     # the row was read and its unit thrown away. `kg` and `kn` were already
     # present; these are the rest.
@@ -226,7 +245,7 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     "psia": "pressure", "kpag": "pressure", "kpaa": "pressure", "bara": "pressure",
     # Volumetric flow and application rate (fire water): the only spellings
     # of their quantities here, so no conversion to invent.
-    "l/s": None, "l/min": None, "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,
+    "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,
     "kn/m3": None, "lux": None,
     "s": "time", "sec": "time", "secs": "time", "second": "time", "seconds": "time",
     "d": "time", "day": "time", "days": "time",
@@ -330,7 +349,9 @@ def _fold_unit(unit_str: str) -> str:
     u = u.replace("deg ", "deg").replace("degrees", "deg").replace("degree", "deg")
     # Internal spacing is not identity: "wt %" and "wt%" are one unit. Units
     # are short tokens and none in the table is distinguished by a space.
-    return re.sub(r"\s+", "", u)
+    u = re.sub(r"\s+", "", u)
+    # dB(A) and dBA are one unit (an A-weighted level); fold to one spelling.
+    return "dba" if u == "db(a)" else u
 
 
 #: Pressure spellings that carry a REFERENCE as a suffix, and what they mean.
@@ -491,7 +512,11 @@ _NUMBER = r"\d+(?:[.,]\d+)?"
 #: A number followed by a unit token. Numbers glued to identifiers ("5.3.2",
 #: "8501-1", "P-101A") are filtered out afterwards by span overlap.
 _MEASUREMENT = re.compile(
-    r"(?<![\w.,/-])(?P<value>" + _NUMBER + r")(?![\d.,]*[.,]\d)\s?(?P<unit>[A-Za-zµμ°%][A-Za-z°]*)"
+    r"(?<![\w.,/-])(?P<value>" + _NUMBER + r")(?![\d.,]*[.,]\d)\s?(?P<unit>"
+    # base word, optional one-digit power ("m3"), then EITHER a one-letter
+    # bracket ("dB(A)") OR "/per" with its own optional power ("m3/h", "mm/s").
+    r"[A-Za-zµμ°%][A-Za-z°]*(?:[0-9²³](?![0-9]))?"
+    r"(?:\([A-Za-z]\)|/[A-Za-zµμ][A-Za-z]*(?:[0-9²³](?![0-9]))?)?)"
 )
 
 
@@ -531,21 +556,71 @@ def comparator_ending(text: str) -> str | None:
     return {"min": ">=", "max": "<="}.get(symbol, symbol)
 
 
+#: Characters a printed minus sign comes as. U+2212 is the typographic minus
+#: and is unambiguous. En/em dash are ALSO used as range separators, so they
+#: are a sign only when `parse_value` can see they are one (see there).
+_MINUS_SIGN = "\u2212"
+_DASH_CHARS = "\u2013\u2014"
+#: A space may group thousands only in the strict form "12 345 678".
+_SPACE_GROUPED = re.compile(r"\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?")
+
+
 def parse_value(value_str: str) -> float | None:
-    """Parse a written number. Comma decimals ("9,0") are decimals - NORSOK
-    writes them so. A comma followed by exactly three digits ("1,200") is a
-    thousands separator. Anything unparseable is None, never a guess."""
-    s = value_str.strip()
+    """Parse a written number. Anything unparseable or ambiguous is None,
+    never a guess.
+
+    * Comma decimals ("9,0") are decimals - NORSOK writes them so. A comma
+      followed by exactly three digits ("1,200") is a thousands separator.
+    * Space may separate thousands ONLY as groups of exactly three digits after
+      a first group of 1-3 digits ("1 200", "12 345 678"). "34 3", "5 10" and
+      "1 2 3" are two or three numbers, not one: None.
+    * d.ddd with a leading integer part of 1-3 digits other than 0 and EXACTLY
+      three decimals ("4.000", "1.200", "12.345") is ambiguous between the
+      decimal 4.000 and the EU thousands 4,000: None. "0.125" (EU thousands
+      never start with 0), "6.89", "3.5" and "1234.567" are unambiguous. The
+      comparison then goes to NEEDS_ENGINEER_REVIEW rather than guessing.
+    * U+2212 is a minus. An en/em dash directly before the digits is a minus
+      only when it begins the value or follows whitespace or a comparator; a
+      dash separated from its digits ("- 29"), glued to a letter, or inside a
+      range ("29-343") is ambiguous: None.
+    """
+    s = (value_str or "").strip().replace(_MINUS_SIGN, "-")
     m = re.fullmatch(r"(?P<cmp>[^\d]*?)\s*(?P<num>[-+]?\d[\d.,\s]*)", s)
     if not m:
         return None
-    num = m.group("num").replace(" ", "")
-    if re.fullmatch(r"[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?", num):
+    prefix = s[:m.start("num")]
+    stripped = prefix.rstrip()
+    negative_dash = False
+    if stripped and stripped[-1] in "-" + _DASH_CHARS:
+        if prefix != stripped:
+            return None          # "- 29": dash separated from its digits
+        before = stripped[:-1]
+        if stripped[-1] in _DASH_CHARS:
+            if before and not (before[-1].isspace() or not before[-1].isalnum()):
+                return None      # "T\u201329": glued to a letter
+            negative_dash = True
+        else:
+            return None          # "x-29" / "- 29" with an ASCII hyphen: not a sign
+    num = m.group("num")
+    if re.search(r"\s", num):
+        if not _SPACE_GROUPED.fullmatch(num.lstrip("+-")):
+            return None
+        num = re.sub(r"\s", "", num)
+    sign = ""
+    if num[:1] in "+-":
+        sign, num = num[0], num[1:]
+    if negative_dash:
+        if sign:
+            return None
+        sign = "-"
+    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", num):
         num = num.replace(",", "")
-    elif re.fullmatch(r"[-+]?\d+,\d+", num):
+    elif re.fullmatch(r"\d+,\d+", num):
         num = num.replace(",", ".")
+    elif re.fullmatch(r"[1-9]\d{0,2}\.\d{3}", num):
+        return None
     try:
-        return float(num)
+        return float(sign + num)
     except ValueError:
         return None
 
@@ -737,8 +812,16 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
         if inside and not _is_measurement_not_code(sentence, inside, start, end, m.group("value")):
             continue
         unit = m.group("unit")
-        if _fold_unit(unit) not in _RECOGNISED_UNITS:
-            continue
+        if not _recognised_folded(_fold_unit(unit)):
+            if "/" in unit:
+                # An UNKNOWN compound unit is no measurement. Falling back to
+                # the base before the slash read "4.5 in/s" as a length and
+                # "5 widgets/s" as nothing - never a truncated unit.
+                continue
+            # "3 kPa(g)": the bracket is a reference, not part of the unit.
+            unit = unit.split("(")[0]
+            if _fold_unit(unit) not in _RECOGNISED_UNITS:
+                continue
         # A lone lowercase letter after a number ("3 a coat") is a word, not a unit.
         if len(unit) == 1 and unit.isalpha() and not unit.isupper():
             continue
