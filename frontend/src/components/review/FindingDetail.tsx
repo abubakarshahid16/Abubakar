@@ -163,7 +163,7 @@ function FindingDetailBody(
       </header>
 
       {finding.confirmed_by && (
-        <p className="rounded-[var(--radius-sm)] border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+        <p className="rounded-[var(--radius-sm)] border border-signal-500/40 bg-signal-500/10 px-3 py-2 text-sm text-signal-300">
           Confirmed by {finding.confirmed_by}
           {finding.confirmed_at ? ` on ${whenLabel(finding.confirmed_at)}` : ""}.
           A confirmed finding is not deleted when the review is re-run.
@@ -309,7 +309,7 @@ function FindingDetailBody(
             <button
               type="button" onClick={() => void reject()}
               disabled={action.kind === "working" || action.kind === "rejected"}
-              className="rounded-[var(--radius-sm)] border border-rose-500/50 px-3 py-2 text-sm text-rose-200 disabled:opacity-50"
+              className="rounded-[var(--radius-sm)] border border-danger-500/50 px-3 py-2 text-sm text-danger-500 disabled:opacity-50"
             >
               Reject pairing
             </button>
@@ -320,12 +320,12 @@ function FindingDetailBody(
           </p>
         )}
         {action.kind === "rejected" && (
-          <p className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+          <p className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
             Pairing rejected. This pairing will not be proposed again.
           </p>
         )}
         {action.kind === "error" && (
-          <p role="alert" className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+          <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
             {action.message}
           </p>
         )}

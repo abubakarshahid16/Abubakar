@@ -410,7 +410,7 @@ export function ReviewRunsView(
           )}
         </div>
         {launch.kind === "error" && (
-          <p role="alert" className="mt-2 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+          <p role="alert" className="mt-2 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
             {launch.message}
           </p>
         )}
@@ -450,7 +450,7 @@ export function ReviewRunsView(
 
       {phase.kind === "loading" && <p className="text-slateish-300">Loading review runs…</p>}
       {phase.kind === "error" && (
-        <p role="alert" className="rounded-[var(--radius-md)] border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-rose-200">
+        <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">
           {phase.message}
         </p>
       )}
@@ -514,13 +514,13 @@ export function ReviewRunsView(
           </div>
 
           {exportError && (
-            <p role="alert" className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+            <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
               {exportError}
             </p>
           )}
 
           {previewError && (
-            <p role="alert" className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+            <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
               {previewError}
             </p>
           )}
@@ -698,7 +698,7 @@ function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
             {rereading ? "Reading…" : "Read unread pages"}
           </button>
           {rereadError && (
-            <span role="alert" className="text-xs text-rose-300">{rereadError}</span>
+            <span role="alert" className="text-xs text-danger-500">{rereadError}</span>
           )}
           <VisionReaderLine status={vision} />
         </span>
@@ -778,7 +778,7 @@ function ReviewNotes({ runId }: { runId: string }) {
         });
       }}>
       <summary className="cursor-pointer text-slateish-200">Review notes - internal</summary>
-      {error && <p role="alert" className="mt-1 text-xs text-rose-300">{error}</p>}
+      {error && <p role="alert" className="mt-1 text-xs text-danger-500">{error}</p>}
       {notes === null && !error && <p className="mt-1 text-xs text-slateish-400">Loading…</p>}
       {notes !== null && notes.length === 0 && (
         <p className="mt-1 text-xs text-slateish-400">No internal notes for this run.</p>
@@ -807,7 +807,7 @@ function ReviewJobControl({ run, onChanged }: { run: ReviewRunSummary; onChanged
   if (!job || !(run.status === "queued" || run.status === "running") || job.cancel_requested) return null;
   return (
     <div className="flex items-center gap-2 ps-4">
-      <button type="button" className="text-xs text-rose-300 underline"
+      <button type="button" className="text-xs text-danger-500 underline"
         onClick={() => {
           void reviewsApi.cancelJob(job.id).then((r) => {
             if (!r.ok) { setError(r.error.message); return; }
@@ -817,7 +817,7 @@ function ReviewJobControl({ run, onChanged }: { run: ReviewRunSummary; onChanged
         }}>
         Cancel this review
       </button>
-      {error && <span role="alert" className="text-xs text-rose-300">{error}</span>}
+      {error && <span role="alert" className="text-xs text-danger-500">{error}</span>}
     </div>
   );
 }
@@ -863,7 +863,7 @@ function RunCard({ run, selected, onOpen }: {
         ))}
       </div>
       {run.failure_reason && (
-        <p className="mt-2 text-sm text-rose-200">
+        <p className="mt-2 text-sm text-danger-500">
           This run failed — {run.failure_reason}
         </p>
       )}
@@ -908,7 +908,7 @@ function RunCard({ run, selected, onOpen }: {
           only from an empty AI Review Comments column. Never shown for a
           run where the check simply never ran. */}
       {run.ai_check_status && !run.ai_check_status.complete && (
-        <p className="mt-1 text-xs text-amber-300" data-testid="ai-check-incomplete">
+        <p className="mt-1 text-xs text-warn-500" data-testid="ai-check-incomplete">
           {run.ai_check_status.plain}
         </p>
       )}
@@ -1075,7 +1075,7 @@ function StandardsInScope({ standards, missing, error }: {
   // spinner that never stops is its own false statement.
   if (error !== null) {
     return (
-      <p role="alert" className="rounded-[var(--radius-md)] border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
+      <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 p-3 text-sm text-danger-500">
         The standards for this run could not be loaded - {error}. It is not
         known which standards were selected, or which cited standards are not
         held locally.
@@ -1189,7 +1189,7 @@ function VisionReaderLine({ status }: { status: VisionLine | null }) {
   }
   if (status.kind === "unknown") {
     return (
-      <span data-testid="vision-reader-status" className="text-xs text-amber-300">
+      <span data-testid="vision-reader-status" className="text-xs text-warn-500">
         Vision reader status unknown: {status.message}
       </span>
     );
@@ -1199,7 +1199,7 @@ function VisionReaderLine({ status }: { status: VisionLine | null }) {
     return <span data-testid="vision-reader-status" className="text-xs text-signal-300">Vision reader ready: reading unread pages sends their page images to Claude.</span>;
   }
   return (
-    <span data-testid="vision-reader-status" role="status" className="text-xs text-amber-300"
+    <span data-testid="vision-reader-status" role="status" className="text-xs text-warn-500"
       title={s.detail ? `${s.state} (${s.detail})` : s.state}>
       Page images will not be read: {s.reason} {s.fix}
       {s.detail && <span className="text-slateish-400"> ({s.detail})</span>}

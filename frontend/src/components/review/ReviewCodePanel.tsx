@@ -104,7 +104,7 @@ function ReviewCodePanelBody({ run, onDecided }: ReviewCodePanelProps) {
           </p>
           {run.engineer_final_code ? (
             <>
-              <p className="mt-1 font-semibold text-emerald-200">
+              <p className="mt-1 font-semibold text-signal-300">
                 {run.engineer_final_code}
               </p>
               {/* THE NAME, NOT THE PRIMARY KEY. This printed `decided by
@@ -177,7 +177,7 @@ function ReviewCodePanelBody({ run, onDecided }: ReviewCodePanelProps) {
         </button>
 
         {state.kind === "error" && (
-          <p role="alert" className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+          <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
             {state.message}
           </p>
         )}

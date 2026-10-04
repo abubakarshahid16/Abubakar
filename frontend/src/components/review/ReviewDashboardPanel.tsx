@@ -125,7 +125,7 @@ export function ReviewDashboardPanel(
       </p>
 
       {loadError !== null && (
-        <div role="alert" className="mt-3 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+        <div role="alert" className="mt-3 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
           The review figures could not be loaded - {loadError}. This is not a
           count of zero.{" "}
           <button type="button" onClick={() => void load()} className="font-medium underline">
@@ -185,7 +185,7 @@ export function ReviewDashboardPanel(
               Run a review on a datasheet already loaded
             </label>
             {submittalsError !== null && (
-              <p role="alert" className="mt-1 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              <p role="alert" className="mt-1 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
                 The list of contractor submittals could not be loaded - {submittalsError}.
                 It is not known whether any are loaded.
               </p>
@@ -220,7 +220,7 @@ export function ReviewDashboardPanel(
               </p>
             )}
             {launch.kind === "error" && (
-              <p role="alert" className="mt-2 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              <p role="alert" className="mt-2 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
                 {launch.message}
               </p>
             )}
