@@ -65,6 +65,13 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
     return <ErrorState error={load.error} onRetry={() => void refresh()} />;
   }
 
+  // The row the reader opened is a snapshot; after a refresh the list holds
+  // the server's current copy (e.g. a changed superseded_by), so prefer it.
+  // Fall back to the snapshot when the row is filtered out of the list.
+  const current = selected
+    ? load.standards.find((s) => s.id === selected.id) ?? selected
+    : null;
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -99,9 +106,10 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
 
       <MissingStandards />
 
-      {selected && (
+      {current && (
         <StandardDetail
-          standard={selected}
+          key={current.id}
+          standard={current}
           isAdmin={isAdmin}
           onClose={() => setSelected(null)}
           onChanged={() => void refresh()}

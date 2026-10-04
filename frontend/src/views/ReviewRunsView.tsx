@@ -29,9 +29,9 @@ import {
 import { ReviewCodePanel } from "../components/review/ReviewCodePanel";
 import { StandardOverrideControl } from "../components/review/StandardOverrideControl";
 import {
-  STATUS_ORDER, completenessLine, groupFindingsByTopic, groupRunsByDocument, kindCounts,
+  LIST_MAX, STATUS_ORDER, completenessLine, groupFindingsByTopic, groupRunsByDocument, kindCounts,
   pageCoverageLine, pageList, pagesReadLine, runStatusLabel, statusLabel, statusTone, standardsChangeLine,
-  summaryTotals, whenLabel, withDenominator,
+  progressLine, summaryTotals, totalFromResponse, truncationNote, whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
 
 type Phase =
@@ -45,6 +45,7 @@ export function ReviewRunsView(
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [runs, setRuns] = useState<ReviewRunSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+  const [submittalsTotal, setSubmittalsTotal] = useState<number | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [findings, setFindings] = useState<ReviewFinding[]>([]);
   const [standards, setStandards] = useState<ReviewRunStandard[] | null>(null);
@@ -170,10 +171,13 @@ export function ReviewRunsView(
     // detail panel cannot open the cited page and says the document is
     // unreadable - which is a different and untrue statement.
     void Promise.all([
-      api.documents({ document_role: ["CONTRACTOR_SUBMITTAL"] }),
-      api.documents({ document_role: ["COMPANY_STANDARD"], limit: 100 }),
+      // Explicit limits: the server stops at 20 when none is given, which
+      // dropped submittals from the picker without a word.
+      api.documents({ document_role: ["CONTRACTOR_SUBMITTAL"], limit: LIST_MAX }),
+      api.documents({ document_role: ["COMPANY_STANDARD"], limit: LIST_MAX }),
     ]).then(([subs, stds]) => {
       const rows: DocumentRecord[] = [];
+      setSubmittalsTotal(subs.ok ? totalFromResponse(subs.response) : null);
       if (subs.ok) rows.push(...subs.data);
       if (stds.ok) rows.push(...stds.data);
       setDocuments(rows);
@@ -386,6 +390,11 @@ export function ReviewRunsView(
               <option key={doc.id} value={doc.id}>{doc.filename}</option>
             ))}
           </select>
+          {truncationNote(submittals.length, submittalsTotal, "contractor submittals") && (
+            <p className="basis-full text-xs text-slateish-400" data-testid="submittals-boundary">
+              {truncationNote(submittals.length, submittalsTotal, "contractor submittals")}
+            </p>
+          )}
           <button
             type="button" onClick={requestRun}
             disabled={!target || launch.kind === "running"}
@@ -401,7 +410,7 @@ export function ReviewRunsView(
           )}
         </div>
         {launch.kind === "error" && (
-          <p role="alert" className="mt-2 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+          <p role="alert" className="mt-2 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
             {launch.message}
           </p>
         )}
@@ -441,7 +450,7 @@ export function ReviewRunsView(
 
       {phase.kind === "loading" && <p className="text-slateish-300">Loading review runs…</p>}
       {phase.kind === "error" && (
-        <p role="alert" className="rounded-[var(--radius-md)] border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-rose-200">
+        <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">
           {phase.message}
         </p>
       )}
@@ -505,13 +514,13 @@ export function ReviewRunsView(
           </div>
 
           {exportError && (
-            <p role="alert" className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+            <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
               {exportError}
             </p>
           )}
 
           {previewError && (
-            <p role="alert" className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+            <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
               {previewError}
             </p>
           )}
@@ -528,6 +537,7 @@ export function ReviewRunsView(
           )}
           {showStandards && run && (
             <StandardOverrideControl
+              key={run.review_run_id}
               runId={run.review_run_id}
               decided={Boolean(run.engineer_final_code)}
               onChanged={(changed, missing) => {
@@ -540,7 +550,7 @@ export function ReviewRunsView(
             />
           )}
 
-          <ReviewCodePanel run={run} onDecided={() => { void loadRuns(); }} />
+          <ReviewCodePanel key={run.review_run_id} run={run} onDecided={() => { void loadRuns(); }} />
 
           <RunSummary findings={findings} />
 
@@ -576,6 +586,7 @@ export function ReviewRunsView(
           {finding && (
             <div ref={detailRef}>
               <FindingDetail
+                key={finding.id}
                 finding={finding} documents={documents}
                 standardNames={standardNames}
                 onChanged={() => { void loadFindings(run.review_run_id); }}
@@ -681,12 +692,13 @@ function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
               }).finally(() => setRereading(false));
             }}
             disabled={rereading}
+            title="Re-reads the unread pages. When the vision reader is ready, their page images are sent to Claude."
             className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs text-signal-300 disabled:opacity-50"
           >
             {rereading ? "Reading…" : "Read unread pages"}
           </button>
           {rereadError && (
-            <span role="alert" className="text-xs text-rose-300">{rereadError}</span>
+            <span role="alert" className="text-xs text-danger-500">{rereadError}</span>
           )}
           <VisionReaderLine status={vision} />
         </span>
@@ -766,7 +778,7 @@ function ReviewNotes({ runId }: { runId: string }) {
         });
       }}>
       <summary className="cursor-pointer text-slateish-200">Review notes - internal</summary>
-      {error && <p role="alert" className="mt-1 text-xs text-rose-300">{error}</p>}
+      {error && <p role="alert" className="mt-1 text-xs text-danger-500">{error}</p>}
       {notes === null && !error && <p className="mt-1 text-xs text-slateish-400">Loading…</p>}
       {notes !== null && notes.length === 0 && (
         <p className="mt-1 text-xs text-slateish-400">No internal notes for this run.</p>
@@ -795,7 +807,7 @@ function ReviewJobControl({ run, onChanged }: { run: ReviewRunSummary; onChanged
   if (!job || !(run.status === "queued" || run.status === "running") || job.cancel_requested) return null;
   return (
     <div className="flex items-center gap-2 ps-4">
-      <button type="button" className="text-xs text-rose-300 underline"
+      <button type="button" className="text-xs text-danger-500 underline"
         onClick={() => {
           void reviewsApi.cancelJob(job.id).then((r) => {
             if (!r.ok) { setError(r.error.message); return; }
@@ -805,7 +817,7 @@ function ReviewJobControl({ run, onChanged }: { run: ReviewRunSummary; onChanged
         }}>
         Cancel this review
       </button>
-      {error && <span role="alert" className="text-xs text-rose-300">{error}</span>}
+      {error && <span role="alert" className="text-xs text-danger-500">{error}</span>}
     </div>
   );
 }
@@ -839,7 +851,7 @@ function RunCard({ run, selected, onOpen }: {
         <p className="mt-1 text-xs text-signal-400" data-testid="review-progress">
           {run.status === "queued"
             ? "Waiting to start"
-            : `Step ${Math.min((run.job.progress_done ?? 0) + 1, run.job.progress_total ?? 3)} of ${run.job.progress_total ?? 3}: ${run.job.progress_label ?? "working"}`}
+            : progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label)}
           {run.job.cancel_requested ? " · cancellation requested, stopping at the next step" : ""}
         </p>
       )}
@@ -851,7 +863,7 @@ function RunCard({ run, selected, onOpen }: {
         ))}
       </div>
       {run.failure_reason && (
-        <p className="mt-2 text-sm text-rose-200">
+        <p className="mt-2 text-sm text-danger-500">
           This run failed — {run.failure_reason}
         </p>
       )}
@@ -896,7 +908,7 @@ function RunCard({ run, selected, onOpen }: {
           only from an empty AI Review Comments column. Never shown for a
           run where the check simply never ran. */}
       {run.ai_check_status && !run.ai_check_status.complete && (
-        <p className="mt-1 text-xs text-amber-300" data-testid="ai-check-incomplete">
+        <p className="mt-1 text-xs text-warn-500" data-testid="ai-check-incomplete">
           {run.ai_check_status.plain}
         </p>
       )}
@@ -1063,7 +1075,7 @@ function StandardsInScope({ standards, missing, error }: {
   // spinner that never stops is its own false statement.
   if (error !== null) {
     return (
-      <p role="alert" className="rounded-[var(--radius-md)] border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
+      <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 p-3 text-sm text-danger-500">
         The standards for this run could not be loaded - {error}. It is not
         known which standards were selected, or which cited standards are not
         held locally.
@@ -1177,17 +1189,17 @@ function VisionReaderLine({ status }: { status: VisionLine | null }) {
   }
   if (status.kind === "unknown") {
     return (
-      <span data-testid="vision-reader-status" className="text-xs text-amber-300">
+      <span data-testid="vision-reader-status" className="text-xs text-warn-500">
         Vision reader status unknown: {status.message}
       </span>
     );
   }
   const s = status.status;
   if (s.ready) {
-    return <span data-testid="vision-reader-status" className="text-xs text-signal-300">Vision reader ready</span>;
+    return <span data-testid="vision-reader-status" className="text-xs text-signal-300">Vision reader ready: reading unread pages sends their page images to Claude.</span>;
   }
   return (
-    <span data-testid="vision-reader-status" role="status" className="text-xs text-amber-300"
+    <span data-testid="vision-reader-status" role="status" className="text-xs text-warn-500"
       title={s.detail ? `${s.state} (${s.detail})` : s.state}>
       Page images will not be read: {s.reason} {s.fix}
       {s.detail && <span className="text-slateish-400"> ({s.detail})</span>}
