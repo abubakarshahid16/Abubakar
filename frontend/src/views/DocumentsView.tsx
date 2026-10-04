@@ -205,8 +205,16 @@ export function DocumentsView({
   // search starts at the first page instead of re-reading the old depth.
   const loadedCount = useRef(0);
   const loadedKey = useRef("");
+  // REQUEST SEQUENCE. A search, sort or filter change starts a read while an
+  // earlier one (a poll, the previous keystroke) may still be in flight; only
+  // the newest read is allowed to write to the screen, so a slow older answer
+  // can never overwrite a newer one.
+  const readSeq = useRef(0);
+  const queryKey = useRef("");
+  queryKey.current = JSON.stringify([listQuery, sort, direction, filters]);
 
   const refresh = useCallback(async () => {
+    const seq = ++readSeq.current;
     // These reads are independent. Start both before yielding so a slow
     // metrics snapshot never delays the document list (and teardown cannot
     // leave a later document request behind after the view is gone).
@@ -214,6 +222,7 @@ export function DocumentsView({
       api.metrics(),
       api.documents({ limit: 100, q: listQuery, sort, direction, ...filters }),
     ]);
+    if (seq !== readSeq.current) return;
     setWorker(m.ok ? m.data.worker : null);
     if (result.ok) {
       const total = Number(result.response?.headers?.get?.("X-Total-Count") ?? result.data.length);
@@ -237,6 +246,7 @@ export function DocumentsView({
           limit: 100, offset: documents.length, q: listQuery, sort, direction,
           ...filters,
         });
+        if (seq !== readSeq.current) return;
         if (!next.ok || next.data.length === 0) break;
         documents = [...documents, ...next.data];
       }
@@ -252,12 +262,26 @@ export function DocumentsView({
     }
   }, [direction, filters, listQuery, sort]);
 
+  // Search, sort and filter changes read at once instead of waiting for the
+  // next poll (30 s when idle). Skipped on mount: the poll makes that read.
+  // Debounced briefly so typing does not send one request per keystroke.
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return; }
+    const timer = window.setTimeout(() => { void refresh(); }, 200);
+    return () => window.clearTimeout(timer);
+  }, [refresh]);
+
   const loadMore = useCallback(async () => {
     if (load.state !== "ready") return;
+    const askedKey = queryKey.current;
     const result = await api.documents({
       limit: 100, offset: load.documents.length, q: listQuery, sort, direction,
       ...filters,
     });
+    // The query changed while this page was loading: it belongs to a list
+    // that is no longer on screen.
+    if (askedKey !== queryKey.current) return;
     if (result.ok) {
       loadedCount.current = load.documents.length + result.data.length;
       setLoad({ state: "ready", documents: [...load.documents, ...result.data] });
