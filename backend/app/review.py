@@ -261,6 +261,61 @@ def _row(row) -> dict:
     return result
 
 
+#: What a finding says where the standard it was decided against is one the
+#: caller holds no grant for (r2 security S2, CLAUDE.md rule 5). The verdict
+#: (compliance_status, severity, category, status) stays; everything that
+#: quotes or names the standard goes.
+STANDARD_WITHHELD = "standard not available to you"
+
+_STANDARD_NULLED = ("standard_document_id", "standard_clause", "standard_page",
+                    "requirement_source_text", "requirement_id", "matched_phrase",
+                    "standard_name")
+_STANDARD_LABELLED = ("requirement", "finding", "ai_rationale")
+_STANDARD_EMPTIED = ("governing_sources", "citation_ids", "unresolved_evidence")
+
+
+def withhold_unreadable_standards(
+        findings: list[dict],
+        allowed_document_ids: frozenset[str] | None) -> list[dict]:
+    """Withhold the standard-derived fields of every finding whose STANDARD the
+    caller may not read. In place; returns the same list.
+
+    A grant on the SUBMITTAL is not a grant on the standard it was compared
+    against: the finding row carries the clause, page, requirement wording and
+    the standard's id, and reading the submittal's findings must not become a
+    way to read the standard. This only ever REMOVES - it is an intersection
+    with the caller's grants, never a union.
+
+    A standard that no longer exists as a document is left alone: the finding
+    is the record that the citation was made, and there is no grant to test.
+    `allowed_document_ids=None` means the caller asked for no scoping at all.
+    """
+    if allowed_document_ids is None:
+        return findings
+    candidates = {f.get("standard_document_id") for f in findings
+                  if f.get("standard_document_id")
+                  and f["standard_document_id"] not in allowed_document_ids}
+    if not candidates:
+        return findings
+    marks = ",".join("?" for _ in candidates)
+    existing = {r["id"] for r in connect().execute(
+        f"SELECT id FROM documents WHERE id IN ({marks})", sorted(candidates))}
+    for f in findings:
+        if f.get("standard_document_id") not in existing:
+            continue
+        for key in _STANDARD_NULLED:
+            if key in f:
+                f[key] = None
+        for key in _STANDARD_LABELLED:
+            if key in f:
+                f[key] = STANDARD_WITHHELD
+        for key in _STANDARD_EMPTIED:
+            if key in f:
+                f[key] = []
+        f["standard_withheld"] = True
+    return findings
+
+
 _TEMPLATE_LIST_FIELDS = (
     "governing_sources", "categories", "severity_levels", "approval_terms",
     "required_sections",
@@ -400,9 +455,12 @@ def traceability(finding_id: str, *, allowed_document_ids: frozenset[str] | None
         owner = connect().execute(
             "SELECT id AS user_id, email, display_name FROM users WHERE id=?",
             (row["owner_user_id"],)).fetchone()
-    return {"finding": _row(row), "document": {"id": row["document_id"], "filename": row["filename"]},
+    finding = _row(row)
+    if allowed_document_ids is not None:
+        withhold_unreadable_standards([finding], allowed_document_ids)
+    return {"finding": finding, "document": {"id": row["document_id"], "filename": row["filename"]},
             "baseline": ({"filename": row["baseline_filename"]} if row["baseline_filename"] else None),
-            "citations": json.loads(row["citation_ids"] or "[]"), "events": events,
+            "citations": finding["citation_ids"], "events": events,
             "deliverables": deliverables, "owner": (dict(owner) if owner else None),
             "action": row["required_action"]}
 
@@ -531,7 +589,9 @@ def list_findings(*, document_id: str | None = None, status: str | None = None,
         sql += " WHERE " + " AND ".join(clauses)
     sql += (" ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'major' THEN 1 "
             "WHEN 'minor' THEN 2 ELSE 3 END, updated_at DESC")
-    return [_row(row) for row in connect().execute(sql, args).fetchall()]
+    return withhold_unreadable_standards(
+        [_row(row) for row in connect().execute(sql, args).fetchall()],
+        allowed_document_ids)
 
 
 def history(finding_id: str) -> list[dict]:

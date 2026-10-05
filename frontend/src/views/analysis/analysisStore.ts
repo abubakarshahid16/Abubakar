@@ -427,8 +427,33 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
     );
   }
 
-  await Promise.all(jobs);
-  if (mineStill()) patch({ runStartedAt: null });
+  // A job that REJECTS (a mapper that throws, a body that was not JSON) must
+  // neither leave runStartedAt set - the one-run-at-a-time guard would then
+  // refuse every later run until a reload - nor leave a panel "loading"
+  // forever. Settle all of them, and turn whatever is still loading into a
+  // failure the panel already knows how to draw.
+  try {
+    await Promise.allSettled(jobs);
+  } finally {
+    if (mineStill()) {
+      const unreadable: Slot<never> = {
+        s: "failed",
+        error: {
+          code: "internal",
+          message:
+            "This answer could not be read. Run it again.",
+        },
+      };
+      const stuck = (slot: { s: string }) => slot.s === "loading";
+      patch({
+        runStartedAt: null,
+        ...(stuck(state.summarySlot) ? { summarySlot: unreadable } : {}),
+        ...(stuck(state.gapsSlot) ? { gapsSlot: unreadable } : {}),
+        ...(stuck(state.recSlot) ? { recSlot: unreadable } : {}),
+        ...(stuck(state.marketSlot) ? { marketSlot: unreadable } : {}),
+      });
+    }
+  }
 }
 
 export function nominateBaseline(b: BaselineSelection) {

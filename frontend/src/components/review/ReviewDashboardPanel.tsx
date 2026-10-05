@@ -15,7 +15,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewDashboard } from "../../types/api";
-import { runStatusLabel, statusLabel, statusTone, whenLabel } from "./reviewFormat";
+import {
+  LIST_MAX, runStatusLabel, statusLabel, statusTone, totalFromResponse,
+  truncationNote, whenLabel,
+} from "./reviewFormat";
 
 export interface ReviewDashboardPanelProps {
   /** Take the reader to the review page, at this run if one is given. */
@@ -40,6 +43,7 @@ export function ReviewDashboardPanel(
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submittals, setSubmittals] = useState<DocumentRecord[] | null>(null);
   const [submittalsError, setSubmittalsError] = useState<string | null>(null);
+  const [submittalsTotal, setSubmittalsTotal] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
   const [target, setTarget] = useState("");
   const [launch, setLaunch] = useState<Launch>({ kind: "idle" });
@@ -60,9 +64,12 @@ export function ReviewDashboardPanel(
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    void api.documents({ document_role: ["CONTRACTOR_SUBMITTAL"] }).then((r) => {
+    // An explicit limit: without one the server stops at 20 and the picker
+    // silently omits the rest.
+    void api.documents({ document_role: ["CONTRACTOR_SUBMITTAL"], limit: LIST_MAX }).then((r) => {
       if (r.ok) {
         setSubmittals(r.data);
+        setSubmittalsTotal(totalFromResponse(r.response));
         setSubmittalsError(null);
       } else {
         setSubmittals(null);
@@ -118,7 +125,7 @@ export function ReviewDashboardPanel(
       </p>
 
       {loadError !== null && (
-        <div role="alert" className="mt-3 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+        <div role="alert" className="mt-3 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
           The review figures could not be loaded - {loadError}. This is not a
           count of zero.{" "}
           <button type="button" onClick={() => void load()} className="font-medium underline">
@@ -178,9 +185,14 @@ export function ReviewDashboardPanel(
               Run a review on a datasheet already loaded
             </label>
             {submittalsError !== null && (
-              <p role="alert" className="mt-1 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              <p role="alert" className="mt-1 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
                 The list of contractor submittals could not be loaded - {submittalsError}.
                 It is not known whether any are loaded.
+              </p>
+            )}
+            {truncationNote((submittals ?? []).length, submittalsTotal, "contractor submittals") && (
+              <p className="mt-1 text-xs text-slateish-400" data-testid="submittals-boundary">
+                {truncationNote((submittals ?? []).length, submittalsTotal, "contractor submittals")}
               </p>
             )}
             <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -208,7 +220,7 @@ export function ReviewDashboardPanel(
               </p>
             )}
             {launch.kind === "error" && (
-              <p role="alert" className="mt-2 rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              <p role="alert" className="mt-2 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
                 {launch.message}
               </p>
             )}

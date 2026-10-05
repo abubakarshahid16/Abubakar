@@ -180,8 +180,14 @@ def test_metrics_reports_the_callers_corpus_and_not_the_whole_one(two_users):
     assert body["corpus_wide"] is False, (
         "a non-admin was told these are corpus-wide figures")
 
-    _as_nobody()
+    # An identified user granted nothing sees an empty corpus ...
+    _grant("u_nogrants", [])
+    _as("u_nogrants")
     assert client.get("/api/metrics").json()["corpus"]["documents"] == 0
+    # ... and (r2 S7) a caller who names no identity at all is refused
+    # outright rather than answered with the empty figures.
+    _as_nobody()
+    assert client.get("/api/metrics").status_code == 401
 
 
 def test_metrics_does_not_name_a_document_the_caller_cannot_read(two_users):

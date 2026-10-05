@@ -934,7 +934,8 @@ def list_run_findings(
             except (TypeError, ValueError):
                 item[field] = []
         out.append(item)
-    return out
+    # r2 S2: a submittal grant is not a grant on the standard it was compared with.
+    return review.withhold_unreadable_standards(out, allowed_document_ids)
 
 
 def migrate_pair_rejections_to_stable_keys() -> None:

@@ -183,6 +183,10 @@ def _ledger_lock():
                 _os_unlock(fh)
 
 
+#: The step a torn ledger line is charged to (r2 S6).
+CORRUPT_STEP = "ledger:unreadable"
+
+
 def _raw_lines() -> list[dict]:
     path = _ledger_path()
     if not path.exists():
@@ -193,9 +197,19 @@ def _raw_lines() -> list[dict]:
             try:
                 value = json.loads(line)
             except json.JSONDecodeError:
-                continue
+                value = None
             if isinstance(value, dict):
                 out.append(value)
+            else:
+                # r2 S6 / B-9: A TORN OR INVALID LINE IS NOT "NOTHING SPENT".
+                # It used to be skipped, so one half-written line (a crash
+                # mid-append) silently dropped a reservation and lifted the
+                # cap. Fail closed: it counts at the TOTAL cap, so no further
+                # call fits until a person has looked at the ledger. The
+                # caps themselves are unchanged.
+                out.append({"step": CORRUPT_STEP, "corrupt": True,
+                            "cost_usd": float(settings.claude_budget_usd_total),
+                            "finish_reason": "unreadable ledger line"})
     return out
 
 
@@ -213,8 +227,19 @@ def entries() -> list[dict]:
 def _append(entry: dict) -> None:
     path = _ledger_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    # r2 S6: a ledger that does not end in a newline (a torn last write) must
+    # not have the next line glued onto it, which would corrupt BOTH.
+    lead = ""
+    try:
+        if path.exists() and path.stat().st_size:
+            with path.open("rb") as probe:
+                probe.seek(-1, 2)
+                if probe.read(1) != b"\n":
+                    lead = "\n"
+    except OSError:
+        lead = "\n"
     with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(entry) + "\n")
+        fh.write(lead + json.dumps(entry) + "\n")
 
 
 def spent(step: str | None = None) -> float:

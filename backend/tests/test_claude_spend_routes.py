@@ -38,6 +38,7 @@ def _env(tmp_path, monkeypatch):
     monkeypatch.setenv("STANDARDS_READER_ENABLED", "true")
     monkeypatch.setenv("STANDARDS_READER_ALLOW_PUBLIC_EGRESS", "true")
     monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)
+    monkeypatch.setattr(settings, "reasoning_provider", "claude")
     monkeypatch.delenv("STANDARDS_READER_MODEL", raising=False)
     db.reset_connection()
     db.init_db()

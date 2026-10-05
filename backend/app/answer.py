@@ -26,6 +26,7 @@ from . import intent as intent_mod
 from . import keyword
 from . import condition_choice as cc
 from . import context_budget
+from . import claims as claims_mod
 from . import coverage
 from . import progress
 from . import lexical
@@ -804,6 +805,11 @@ def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict
             _figures_ok, figures_removed = ground_numbers(plain, passages)
             if figures_removed:
                 continue
+            # The sentence must not say the opposite of what it quotes
+            # ("shall exceed" over a quote that says "shall not exceed").
+            quoted_text = " ".join(m.group(2) or "" for m in cites)
+            if polarity_conflict(plain, quoted_text) is not None:
+                continue
             verified += 1
             claims.extend({"n": int(m.group(1)), "quote": m.group(2)} for m in cites)
             kept_segments.append(plain)
@@ -865,6 +871,175 @@ def _is_rounding_of(value: str, spans: set[str]) -> bool:
                              span_value.quantize(step, rounding=ROUND_HALF_EVEN)):
             return True
     return False
+
+
+# ------------------------------------------------------------------ figures with units and signs (audit N4)
+#
+# The bag-of-numbers check above answers "is this NUMBER on the page". It does
+# not know that 343 on the page was a temperature and the sentence says mm/s,
+# that -29 on the page lost its minus in the sentence, or that "shall not
+# exceed" became "shall exceed". The checks below close those three gaps, and
+# ONLY those: a figure with no unit and no sign keeps the old behaviour.
+_DASHES_AS_SIGN = "-\u2212\u2013\u2014"
+_SIGN_LEAD = set(" \t([=:<>\u2264\u2265~,;")
+
+
+def _figure_occurrences(text: str) -> list[dict]:
+    """Every number token in `text` as {start, end, sign, value, unit}.
+
+    sign is "-" (clearly a minus), "+" (no sign) or "?" (a dash that could be a
+    range separator: "5 -10", "5 \u201310"). unit is the folded unit the number
+    is bound to when the unit is one `claims` recognises (a compound such as
+    mm/s whole, or not at all), else None - an unrecognised word after a number
+    binds nothing, so it can only make the check more lenient, never stricter.
+    """
+    from . import synthesis
+
+    bound: dict[int, str] = {}
+    for m in claims_mod._MEASUREMENT.finditer(text):
+        unit = m.group("unit")
+        folded = claims_mod._fold_unit(unit)
+        if not claims_mod._recognised_folded(folded):
+            if "/" in unit:
+                continue
+            unit = unit.split("(")[0]
+            folded = claims_mod._fold_unit(unit)
+            if folded not in claims_mod._RECOGNISED_UNITS:
+                continue
+        if len(unit) == 1 and unit.isalpha() and not unit.isupper():
+            continue
+        if not text[m.end("value"):m.start("unit")] and len(unit) == 1 and unit.isalpha():
+            continue
+        bound[m.start("value")] = folded
+    out: list[dict] = []
+    for m in synthesis._NUMBER_TOKEN.finditer(text):
+        start = m.start()
+        sign = "+"
+        if start > 0 and text[start - 1] in _DASHES_AS_SIGN:
+            lead = text[start - 2] if start >= 2 else ""
+            if lead == "" or lead in _SIGN_LEAD:
+                before = text[:start - 1].rstrip()
+                # "5 -10" is a range as likely as a negative: not decidable.
+                sign = "?" if lead.isspace() and before[-1:].isdigit() else "-"
+        out.append({"start": start, "end": m.end(), "sign": sign,
+                    "value": synthesis._normalise_number(m.group(0)),
+                    "unit": bound.get(start)})
+    return out
+
+
+def _unit_base(folded: str) -> str:
+    """A pressure unit without its gauge/absolute suffix: barg -> bar."""
+    return claims_mod._REFERENCE_SUFFIX.get(folded, (folded,))[0]
+
+
+def _value_matches(claimed: str, found: str) -> bool:
+    return claimed == found or _is_rounding_of(claimed, {found})
+
+
+def _unit_value_matches(claim: dict, found: dict) -> bool:
+    """Same quantity, same value: equal spelling and an exact or rounded value,
+    or two table units of one dimension equal after conversion to within half a
+    unit of the claim's last printed digit. Anything else (another dimension, an
+    unconverted unit with another spelling) does not match."""
+    a, b = _unit_base(claim["unit"]), _unit_base(found["unit"])
+    if a == b:
+        return _value_matches(claim["value"], found["value"])
+    ea, eb = claims_mod._UNIT_TABLE.get(a), claims_mod._UNIT_TABLE.get(b)
+    if ea is None or eb is None or ea[0] != eb[0]:
+        return False
+    try:
+        cv, fv = Decimal(claim["value"]), Decimal(found["value"])
+    except InvalidOperation:
+        return False
+    if not cv.is_finite() or not fv.is_finite():
+        return False
+    half = Decimal(1).scaleb(-_decimals(cv)) / 2 * Decimal(repr(ea[2]))
+    return abs(cv * Decimal(repr(ea[2])) - fv * Decimal(repr(eb[2]))) <= half * Decimal("1.000001")
+
+
+def figure_conflict(segment: str, claimed: set[str], passage_text: str) -> str | None:
+    """The first figure in `segment` (one of `claimed`) that the passage does
+    not state with the same SIGN and, when the sentence gives it a unit, in a
+    compatible unit - or None when every figure is grounded.
+
+    A claimed figure is grounded by a passage figure of the same value, whose
+    sign is the same (or could be a range dash), and which is either bare (a
+    table cell: its unit is a column away and cannot be judged) or bound to the
+    same quantity. A sentence figure with no unit is held to value and sign
+    only - the old behaviour. Integer rounding is `_is_rounding_of`'s rule,
+    unchanged: fewer decimals AND equal to the page value rounded to the
+    sentence's own precision (so 2 from 1.5 and 3 from 3.4 are ordinary
+    roundings; 3 from 3.6 or 4.5 mm/s from 3.0 mm/s are not)."""
+    from . import synthesis
+
+    held = synthesis.strip_reference_numerals(_CITATION.sub("", segment))
+    page = _figure_occurrences(synthesis.strip_reference_numerals(passage_text))
+    for claim in _figure_occurrences(held):
+        if claim["value"] not in claimed:
+            # A token the bag check did not hold the sentence to (a count of
+            # documents): not ours to judge.
+            continue
+        if claim["sign"] == "?":
+            continue
+        grounded = False
+        for found in page:
+            if found["sign"] not in (claim["sign"], "?"):
+                continue
+            if claim["unit"] is None or found["unit"] is None:
+                if _value_matches(claim["value"], found["value"]):
+                    grounded = True
+                    break
+            elif _unit_value_matches(claim, found):
+                grounded = True
+                break
+        if not grounded:
+            return held[claim["start"]:claim["end"]]
+    return None
+
+
+#: "shall exceed" / "shall not be used" - the verb a modal governs, and whether
+#: it is negated. "no more than" / "not more than" / "not to exceed" are the
+#: negated exceed. Both polarities for one verb on the page mean the page is
+#: not contradicting the sentence.
+_MODAL_VERB = re.compile(
+    r"\b(?:shall|must|may|should|will|is|are|does|do|can)\s+(?P<neg>not\s+)?(?:be\s+)?(?P<verb>[a-z]+)",
+    re.IGNORECASE)
+_NO_MORE_THAN = re.compile(r"\b(?:no|not)\s+(?:to\s+)?(?:more\s+than|exceed(?:ing)?)\b", re.IGNORECASE)
+_VERB_STOP = frozenset({"be", "to", "the", "a", "an", "less", "more", "at", "in", "on", "of",
+                        "than", "equal", "greater", "same", "also", "only", "then"})
+
+
+def _polarities(text: str) -> dict[str, set[bool]]:
+    found: dict[str, set[bool]] = {}
+    for m in _MODAL_VERB.finditer(text):
+        verb = m.group("verb").lower()
+        if verb in _VERB_STOP:
+            continue
+        found.setdefault(verb, set()).add(bool(m.group("neg")))
+    for m in _NO_MORE_THAN.finditer(text):
+        word = m.group(0).lower()
+        if word.startswith("no") and "more" not in word and "exceed" not in word:
+            continue
+        found.setdefault("exceed", set()).add(True)
+    return found
+
+
+def polarity_conflict(claim_text: str, evidence_text: str) -> str | None:
+    """The verb on which the sentence says the OPPOSITE of the evidence, or None.
+
+    "The vibration shall exceed 3.0 mm/s" against a quote "shall not exceed
+    3.0 mm/s" is a verb the sentence affirms and the evidence negates. Only a
+    verb that BOTH state counts, and only when the evidence states it in one
+    polarity alone: if the evidence uses it both ways the sentence may be
+    quoting either, and nothing is said about it. No modal verb in the sentence
+    means nothing to compare - behaviour unchanged."""
+    mine, theirs = _polarities(claim_text), _polarities(evidence_text)
+    for verb, polarity in mine.items():
+        other = theirs.get(verb)
+        if other and len(other) == 1 and len(polarity) == 1 and polarity != other:
+            return verb
+    return None
+
 
 
 def _first_unsupported_value(segment: str, spans: set[str]) -> str | None:
@@ -950,6 +1125,14 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
                     value = (_first_unsupported_value(segment, spans)
                              or sorted(unsupported)[0])
                     removed.append({"value": value, "cited": cited})
+                    continue
+                # The number is on the page. Is it the SAME figure: same sign,
+                # and the same quantity when the sentence gives it a unit?
+                page_text = " ".join(passages[n - 1].get("text") or "" for n in cited) \
+                    if cited else " ".join(p.get("text") or "" for p in passages)
+                wrong = figure_conflict(segment, claimed, page_text)
+                if wrong is not None:
+                    removed.append({"value": wrong, "cited": cited})
                     continue
             kept.append(segment)
         if kept:

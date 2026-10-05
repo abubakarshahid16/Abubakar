@@ -25,7 +25,7 @@ const RESPONSE_CODES: CrsResponseCode[] = [
 
 const button =
   "rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-[11px] text-slateish-200 disabled:opacity-50";
-const errorText = "text-[11px] text-rose-300";
+const errorText = "text-[11px] text-danger-500";
 
 /** Import the contractor's returned sheet (.xlsx). */
 export function CrsReplyImportControl(
@@ -168,7 +168,7 @@ export function CrsResolutionCell(
 
   return (
     <div className="space-y-1">
-      <p className={isClosed ? "text-emerald-300" : "text-slateish-200"}>{row.final_resolution}</p>
+      <p className={isClosed ? "text-signal-300" : "text-slateish-200"}>{row.final_resolution}</p>
       {ref && isClosed && (
         <button type="button" className={button} disabled={busy} onClick={() => void change("Open")}>
           Reopen
@@ -223,7 +223,7 @@ export function CrsItemCell({ runId, row }: { runId: string; row: CrsPreviewRow 
     <div className="space-y-1">
       <span>{row.item_no}</span>
       {row.row_kind === "carried_forward" && (
-        <p className="text-[10px] text-sky-300">carried forward</p>
+        <p className="text-[10px] text-info-500">carried forward</p>
       )}
       {ref && (
         <button type="button" className={button} aria-expanded={events !== null}
