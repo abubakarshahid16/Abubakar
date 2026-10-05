@@ -329,11 +329,25 @@ def test_alternating_scopes_harvest_each_document_once(monkeypatch):
 
 def test_a_document_outside_the_scope_contributes_nothing():
     a, b = _doc("docA"), _doc("docB")
+    # ZQET is invented and not in the built-in list, so its only possible
+    # source is document B: a caller who may read only A must get nothing.
     _chunk("ca", a, "The nominal dry film thickness (NDFT) is 250 um.")
-    _chunk("cb", b, "The post weld heat treatment (PWHT) applies.")
+    _chunk("cb", b, "The zinc quench exposure test (ZQET) applies.")
     acronyms.harvest(allowed_document_ids=frozenset({a, b}))       # both cached
     assert set(acronyms.harvest(allowed_document_ids=frozenset({a}))) == {"NDFT"}
-    assert acronyms.equivalents("PWHT", allowed_document_ids=frozenset({a})) == []
+    assert acronyms.equivalents("ZQET", allowed_document_ids=frozenset({a})) == []
+    assert acronyms.equivalents("ZQET", allowed_document_ids=frozenset({a, b})) != []
+
+
+def test_a_built_in_expansion_does_not_depend_on_which_documents_are_in_scope():
+    """The built-in list is not document data: it expands a capitalised
+    abbreviation the same for every caller, so it can leak nothing."""
+    a = _doc("docA")
+    _chunk("ca", a, "The nominal dry film thickness (NDFT) is 250 um.")
+    assert acronyms.equivalents("PWHT", allowed_document_ids=frozenset({a})) == [
+        "post weld heat treatment"]
+    assert acronyms.equivalents("PWHT", allowed_document_ids=frozenset()) == [
+        "post weld heat treatment"]
 
 
 def test_a_rechunked_document_is_reharvested_without_a_manual_reset():

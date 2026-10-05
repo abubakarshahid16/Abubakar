@@ -589,6 +589,119 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
 # Only these kinds are searchable. The rest are kept for inspection.
 RETRIEVABLE_KINDS = frozenset({"prose", "table"})
 
+# ------------------------------------------- change tables and title pages
+
+#: One row of a "Summary of Changes" table written on a single line: an optional
+#: row number, the paragraph, the type of change, then what changed.
+#:     "6.5 Addition PMI application responsibilities."
+_CHANGE_ROW = re.compile(
+    r"^\s*(?:\d{1,3}\s+)?(?:[A-Z]\.)?\d+(?:\.\d+){0,4}\s+"
+    r"(?:Addition|Deletion|Modification|Editorial|Exceptions?)\b")
+_NUMBER_LEAD = re.compile(r"^\s*(?:[A-Z]\.)?\d+(?:\.\d+){0,4}\b")
+_PARAGRAPH_COLUMN = re.compile(r"\bparagraph\b", re.IGNORECASE)
+_CHANGE_TYPE_COLUMN = re.compile(r"\bchange\s+type\b", re.IGNORECASE)
+#: How many rows make a table, and how much of the page's numbered lines they
+#: must be. A body page has numbered clauses that are not change rows; a
+#: change table has little else.
+_MIN_CHANGE_ROWS = 3
+_MIN_CHANGE_ROW_SHARE = 0.6
+
+#: Page kind for a page that records what changed between revisions.
+HISTORY_KIND = "revision_history"
+#: Page kind for the title block of a document, kept searchable.
+TITLE_KIND = "title_page"
+#: What a title page's chunk is filed under.
+TITLE_SECTION = "title page"
+_TITLE_PAGE_MAX_WORDS = 80
+_TITLE_PAGE_MAX_LINES = 20
+_COVER_RIGHTS_MARKERS = ("all rights reserved", "copyright \u00a9")
+_CONTENTS_WORD = re.compile(r"^\s*(?:table\s+of\s+)?contents\s*$", re.IGNORECASE)
+
+#: The wording recorded for an excluded change table.
+HISTORY_REASON = (
+    "summary of changes / revision history table: it records what changed "
+    "between revisions and is not a requirement; excluded from search on purpose")
+
+
+def _change_table_evidence(lines: list[str]) -> bool:
+    """Do most of this page's numbered lines read "number + change type"?"""
+    starters = [ln for ln in lines if _NUMBER_LEAD.match(ln)]
+    rows = [ln for ln in starters if _CHANGE_ROW.match(ln)]
+    return (len(rows) >= _MIN_CHANGE_ROWS
+            and len(rows) >= len(starters) * _MIN_CHANGE_ROW_SHARE)
+
+
+def is_change_table_page(text: str, continues_history: bool = False) -> bool:
+    """Whether a page is a Summary of Changes / Revision History table.
+
+    Needs the rows ("6.5 Addition ...": most numbered lines) AND a cue: a
+    history title, the columns "Paragraph" and "Change Type", or - on the page
+    after one - nothing more, since a long change table does not always reprint
+    its header. Rows alone, on a page with no cue and no history before it, are
+    not enough: a clause called "Addition of ..." is body text.
+    """
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not _change_table_evidence(lines):
+        return False
+    if continues_history:
+        return True
+    if any(_REVISION_HISTORY_TITLE.match(ln) for ln in lines):
+        return True
+    return bool(_PARAGRAPH_COLUMN.search(text) and _CHANGE_TYPE_COLUMN.search(text))
+
+
+def _is_title_page(text: str, page_no: int) -> bool:
+    """A document's first page when it is a short title block - not a contents
+    page, not a copyright page. Called only for a page `classify_page` called
+    front matter. Bounded: page 1, at most 80 words and 20 lines, none of the
+    publishing markers that mean a credits page (a plain rights line is
+    allowed), no contents word
+    and no dot-leader line."""
+    if page_no != 1:
+        return False
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines or len(lines) > _TITLE_PAGE_MAX_LINES or len(text.split()) > _TITLE_PAGE_MAX_WORDS:
+        return False
+    low = text.lower()
+    # A rights line is normal on a standard's cover; the publishing markers
+    # (ISBN, editors, library catalogue) mean a book's credits page.
+    markers = [m for m in (*_FRONTMATTER_MARKERS, *_AMBIGUOUS_FRONTMATTER_MARKERS)
+               if m not in _COVER_RIGHTS_MARKERS]
+    if any(m in low for m in markers):
+        return False
+    if any(_CONTENTS_WORD.match(ln) or _DOT_LEADER.search(ln) for ln in lines):
+        return False
+    return True
+
+
+def classify_document_pages(pages: list[tuple[int, str]], total_pages: int) -> dict[int, str]:
+    """`classify_page` for every page, then the two judgements that need the
+    document: a change table continuing over several pages, and the title page.
+
+    * a page that is a change table (see is_change_table_page) becomes
+      `revision_history` - excluded from search with its reason recorded;
+    * page 1, when `classify_page` called it front matter and it is a short
+      title block, becomes `title_page` - one searchable chunk, so a
+      document's own title and number can be found inside the document.
+    """
+    kinds = {pno: classify_page(text, pno, total_pages) for pno, text in pages}
+    previous_history = False
+    previous_no: int | None = None
+    for pno, text in pages:
+        if kinds[pno] == "prose" and is_change_table_page(
+                text, continues_history=previous_history and previous_no == pno - 1):
+            kinds[pno] = HISTORY_KIND
+        elif kinds[pno] == "frontmatter" and _is_title_page(text, pno):
+            kinds[pno] = TITLE_KIND
+        previous_history = kinds[pno] == HISTORY_KIND
+        previous_no = pno
+    return kinds
+
+
+#: Page kinds whose text is searched: the two chunk kinds, and a title page
+#: (published as prose under its own section label).
+SEARCHED_PAGE_KINDS = RETRIEVABLE_KINDS | {TITLE_KIND}
+
 # ------------------------------------------------------- content quality gate
 
 _CONTROL_CHARS = re.compile("[" + "".join(chr(c) for c in list(range(0, 9)) + [11, 12] + list(range(14, 32)) + [127]) + "]")
@@ -691,6 +804,30 @@ def looks_like_heading(line: str) -> str | None:
     return _validate_heading(number, title)
 
 
+#: The change-type words of a "Summary of Changes" table. A row there reads
+#: "6.5 Addition PMI application responsibilities." - a paragraph number, the
+#: type of change, then what changed - and is not a clause titled "Addition".
+#: "Exception(s)" is left out of the LABEL rule on purpose: "5.4 Exceptions" is
+#: a genuine clause title in many standards. The table detector (below) still
+#: reads it, because there it needs a column of such rows to count.
+_CHANGE_TYPE_LABELS = frozenset({"addition", "deletion", "modification", "editorial"})
+#: A change-type word followed by one of these opens a real title ("Addition of
+#: new materials", "Modification to existing piping"), not a table row.
+_TITLE_CONNECTIVES = frozenset({
+    "of", "to", "and", "for", "in", "on", "or", "the", "from", "by", "with", "at",
+    "when", "where", "after", "before"})
+
+
+def _is_change_type_title(title: str) -> bool:
+    """A "title" that is a change-type word on its own, or one followed by
+    something other than a connective: the row of a change table, never a
+    clause heading. No section label is ever built from it."""
+    words = title.split()
+    if not words or words[0].strip(".,;:").casefold() not in _CHANGE_TYPE_LABELS:
+        return False
+    return len(words) == 1 or words[1].strip(".,;:").casefold() not in _TITLE_CONNECTIVES
+
+
 def _validate_heading(
     number: str, title: str, allow_bare_integer: bool = False
 ) -> str | None:
@@ -702,6 +839,8 @@ def _validate_heading(
     raw_title = title.strip()
     title = raw_title.rstrip(".")
     if not title or len(title) > 90:
+        return None
+    if _is_change_type_title(title):
         return None
 
     # An annex clause (A.4) carries a letter prefix; body clauses do not.
@@ -1158,6 +1297,55 @@ def _heading_number(heading: str) -> str:
     return heading.split(" ", 1)[0]
 
 
+#: A title is a short noun phrase. These limits decide when a numbered line is
+#: the FIRST LINE OF A CLAUSE instead (see _reads_as_sentence). Every one is a
+#: limit on how much a title may look like a sentence, not a list of titles.
+_TITLE_MAX_WORDS = 12
+_MODAL_MIN_WORDS = 5
+_LINKING_MIN_WORDS = 8
+_SUBORDINATE_MIN_WORDS = 6
+_MODALS = frozenset({"must", "should", "may", "will", "can", "cannot", "shall"})
+_LINKING = frozenset({"is", "are", "was", "were", "be", "been", "being", "has", "have"})
+_SUBORDINATORS = frozenset({
+    "when", "if", "unless", "where", "whenever", "while", "once", "until",
+    "because", "although"})
+
+
+def _reads_as_sentence(title: str) -> bool:
+    """Whether a heading's "title" is really the opening of a clause sentence.
+
+    "12.1.4 When heat treating is performed after PMI, the identification
+    marking must be" / "recognizable after heat treatment." became the section
+    label, and the chunk kept only the tail: the page break (or a capital on
+    the next line) hid that the sentence carries on, so the lower-case
+    continuation test could not see it. The line itself says it, and this is
+    the one place that reads it. Limits, all on the title's own words, a
+    parenthetical being a note on a title and not part of it:
+
+    * more than 12 words is not a title;
+    * a modal verb (must, should, may, will, can) in 5 words or more. A short
+      title keeps it: "What you must know";
+    * a linking verb (is, are, be, has ...) in 8 words or more;
+    * a sentence opener (When, If, Unless, Where ...) with a comma, in 6 words
+      or more.
+
+    A title that trips one is not lost: its NUMBER stays the section and its
+    full text stays in the chunk, exactly as for a requirement with "shall".
+    """
+    core = _PARENTHETICAL.sub(" ", title)
+    words = [w.strip(".,;:!?\"'").casefold() for w in core.split()]
+    words = [w for w in words if w]
+    n = len(words)
+    if n > _TITLE_MAX_WORDS:
+        return True
+    if n >= _MODAL_MIN_WORDS and any(w in _MODALS for w in words):
+        return True
+    if n >= _LINKING_MIN_WORDS and any(w in _LINKING for w in words):
+        return True
+    return (n >= _SUBORDINATE_MIN_WORDS and words[0] in _SUBORDINATORS
+            and "," in core)
+
+
 def _obliges(heading: str) -> bool:
     """Whether a heading's "title" is really the first line of a requirement.
 
@@ -1176,6 +1364,8 @@ def _obliges(heading: str) -> bool:
     pre-qualified)", and that is a heading.
     """
     title = heading.split(" ", 1)[1] if " " in heading else ""
+    if _reads_as_sentence(title):
+        return True
     return _OBLIGATION.search(_PARENTHETICAL.sub(" ", title)) is not None
 
 
@@ -1753,6 +1943,14 @@ def segment_document(
         cleaned, removed = strip_running_lines(raw, running, page_no)
         removed_total += removed
         lines = cleaned.splitlines()
+
+        if page_kind == TITLE_KIND:
+            # The title block is ONE short searchable chunk, filed under its
+            # own label and setting no heading state.
+            body = cleaned.strip()
+            if body:
+                blocks.append(Block("prose", body, page_no, page_no, TITLE_SECTION))
+            continue
 
         if page_kind != "prose":
             # Front matter, contents and index are kept whole for inspection
@@ -2496,7 +2694,15 @@ def chunk_id(doc_sha: str, page_start: int, ordinal: int, chash: str) -> str:
 #: clauses; a page of "text  number" lines is a contents page only with
 #: contents evidence (dot leaders or page numbers), not a tab-aligned data
 #: sheet; a 2-4 page document's page header is stripped as a running line.
-CHUNKER_VERSION = "9"
+#:
+#: 10 (2026-10-06, heading and front-matter audit): a numbered line that reads
+#: as the opening of a sentence is a clause, not a heading, so its sentence
+#: stays in the chunk; a Summary of Changes table is a `revision_history` page,
+#: excluded from search with its reason recorded; the title block on page 1 is
+#: one searchable chunk labelled "title page". Nothing re-chunks by itself:
+#: only `chunk_document` (a new upload, or a re-run on one document) and
+#: `scripts/reindex_chunking.py --apply` apply it to a stored document.
+CHUNKER_VERSION = "10"
 
 
 def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]],
@@ -2649,7 +2855,7 @@ def chunk_document(doc_id: str, force: bool = False,
         raise ValueError(f"{doc_id} has no extracted pages - run extraction first")
 
     total_pages = doc["page_count"] or len(pages)
-    page_kinds = {pno: classify_page(text, pno, total_pages) for pno, text in pages}
+    page_kinds = classify_document_pages(pages, total_pages)
     signature = _chunk_signature(doc["sha256"], pages, raw_tables)
     existing = conn.execute(
         "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (doc_id,)
@@ -2804,6 +3010,10 @@ def chunk_document(doc_id: str, force: bool = False,
         """
         if rule.endswith(("_toc", "_index")):
             return 0
+        if rule.endswith("_" + HISTORY_KIND):
+            # A change table's rows are numbered lines by nature. Only what is
+            # LEFT when the rows are taken out can be real content.
+            text = "\n".join(ln for ln in text.splitlines() if not _CHANGE_ROW.match(ln))
         # A references page legitimately carries its own numbered heading -
         # "9.15 References" - followed by bibliography entries long enough to
         # read as prose. The alert fired on exactly that in book4, which is a
@@ -2822,11 +3032,12 @@ def chunk_document(doc_id: str, force: bool = False,
         # endpoints cannot disagree by a trailing newline.
         length = len(ptext.strip())
 
-        if kind not in RETRIEVABLE_KINDS:
+        if kind not in SEARCHED_PAGE_KINDS:
             rule = f"page_classified_{kind}"
             exclusion_rows.append(
                 (doc_id, "page", pno, pno, None, rule,
-                 f"page classified as {kind}", ptext[:2000], length, now,
+                 HISTORY_REASON if kind == HISTORY_KIND else f"page classified as {kind}",
+                 ptext[:2000], length, now,
                  dropped_real_content(ptext, rule))
             )
             continue

@@ -105,7 +105,7 @@ class Turn:
             from .chat_claude_first import _relabel_image_only_citations
 
             clean, _verification, _claims, _removed = answer_mod.verify_claims(
-                sentence, self.passages or [])
+                sentence, self.passages or [], final=False, narration_from_line=None)
             # THE STREAMED LABEL IS THE FINAL LABEL (audit leftover
             # 2026-09-30): a point `look_at_page` read from a page with no
             # text layer streamed as a bare "[S1]" and only became "read from

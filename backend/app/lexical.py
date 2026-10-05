@@ -222,6 +222,27 @@ def looks_like_a_named_subject(term: str, question: str) -> bool:
     return not question.strip().startswith(term)
 
 
+def searched_scope(
+    document_id: str | None, allowed_document_ids: frozenset[str]
+) -> str:
+    """What a refusal says it looked in. One named, permitted document is
+    reported as that document and its passage count - "not mentioned in
+    STD-A-001.pdf (12 passages searched)" - never as "the indexed documents",
+    which would claim a library-wide search that did not happen. Anything
+    else keeps the library-wide wording."""
+    if document_id and document_id in allowed_document_ids:
+        from .db import connect
+
+        row = connect().execute(
+            "SELECT filename FROM documents WHERE id = ?", (document_id,)).fetchone()
+        count = keyword.indexed_count(
+            document_id, allowed_document_ids=allowed_document_ids)
+        if row and count:
+            noun = "passage" if count == 1 else "passages"
+            return f"{row['filename']} ({count} {noun} searched)"
+    return "the indexed documents"
+
+
 _NON_ALNUM = re.compile(r"[^A-Za-z0-9]+")
 
 
@@ -464,7 +485,10 @@ def assess(
     if named_absent:
         joined = ", ".join(named_absent)
         verb = "does" if len(named_absent) == 1 else "do"
-        reason = f"{joined} {verb} not appear anywhere in the indexed documents"
+        where = searched_scope(document_id, allowed_document_ids)
+        reason = (f"{joined} {verb} not appear anywhere in the indexed documents"
+                  if where == "the indexed documents"
+                  else f"{joined} {verb} not appear in {where}")
         # A dead end is not a useful refusal. If the missing term is written
         # like an abbreviation, the corpus may spell it out under a name the
         # reader has not tried - and the expansion map only knows the forms
@@ -484,7 +508,8 @@ def assess(
     if not present:
         return {
             "ok": False,
-            "reason": "none of the terms in this question appear in the indexed documents",
+            "reason": "none of the terms in this question appear in "
+                      + searched_scope(document_id, allowed_document_ids),
             "terms": terms,
             "covered": covered,
             "absent_from_corpus": absent,

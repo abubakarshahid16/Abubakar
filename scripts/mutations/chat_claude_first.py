@@ -16,7 +16,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1108", phase=90,
              description="a document claim is shown even when its quote does not verify",
              path=APP / "chat_claude_first.py",
-             anchor='        text, verification, claims, removed = answer_mod.verify_claims(text, sources)\n',
+             anchor='        text, verification, claims, removed = answer_mod.verify_claims(\n'
+                    '            text, sources, narration_from_line=first_last_line)\n',
              replacement='        verification, claims, removed = {"verified": 1, "total": 1, '
                         '"method": "quote found on the page"}, [], 0\n',
              target="tests/test_chat_pr2_router.py",

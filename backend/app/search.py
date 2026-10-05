@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from . import acronyms
 from . import glossary
 from . import keyword
 from . import progress
@@ -289,6 +290,20 @@ def _keyword_candidates(
     rank - a preference - and passages without it still enter the pool.
     """
     soft = tuple(s for s in soft_identifiers if s)
+    # An identifier that names the ONE document the search is already narrowed
+    # to is satisfied by the scope itself: a standard almost never prints its
+    # own designation, so requiring it in the passage returned nothing at all
+    # ("What does STD-A-001 say about PWHT" found 0 keyword candidates inside
+    # STD-A-001 although the passage was there). It becomes soft: tried as
+    # asked first, then without, interleaved. Narrowing only - the scope is
+    # still the caller's.
+    if document_id and allowed_document_ids and document_id in allowed_document_ids:
+        from . import lexical
+
+        soft = tuple(dict.fromkeys([
+            *soft,
+            *(i for i in keyword.IDENTIFIER.findall(question)
+              if lexical._scope_wholly_named(i, frozenset({document_id})))]))
     strict = keyword.search(
         question, limit=limit, document_id=document_id,
         allowed_document_ids=allowed_document_ids,
@@ -1071,9 +1086,15 @@ def search(
         # neither wording still scores low, so an absent answer stays absent.
         # Only when an entry fired; reported as `synonyms_searched`.
         worded = glossary.rewrite(question) if synonyms else None
-        if scored and worded:
+        # The same for abbreviations: the question spelled out / abbreviated
+        # the way this library writes it (app/acronyms.py), highest score wins.
+        rewordings = ([worded] if worded else []) + acronyms.rewrites(
+            question, document_id, allowed_document_ids=allowed_document_ids)
+        for alt in rewordings:
+            if not scored:
+                break
             also = dict(reranker.rerank(
-                worded, [(c.chunk_id, c.searchable_text) for c in shortlist]))
+                alt, [(c.chunk_id, c.searchable_text) for c in shortlist]))
             scored = [(cid, max(score, also.get(cid, score))) for cid, score in scored]
         timings["rerank_ms"] = round(t.elapsed * 1000, 2)
         if scored:

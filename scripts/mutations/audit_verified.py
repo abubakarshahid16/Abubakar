@@ -56,7 +56,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a verified quote vouches for any figure in its sentence again "
                     "('6 mm [S1 \"minimum wall thickness\"]' over a page saying 3 mm)",
         path=APP / "answer.py",
-        anchor="            if figures_removed:\n                continue\n",
+        anchor="            if figures_removed:\n                lost_tail = True\n                continue\n",
         replacement="",
         target=_T, keyword="does_not_vouch_for_a_different_figure",
         tags=("honesty", "critical"),
@@ -98,7 +98,8 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "and count the labels - 'page 4' is read as an uncited figure, the point "
                     "is dropped, and the notice still says it was kept",
         path=APP / "chat_claude_first.py",
-        anchor="        text, verification, claims, removed = answer_mod.verify_claims(text, sources)\n"
+        anchor="        text, verification, claims, removed = answer_mod.verify_claims(\n"
+               "            text, sources, narration_from_line=first_last_line)\n"
                "        text, _labels = _relabel_image_only_citations(text, sources)\n"
                "        # The notice counts the POINTS that were kept unverified, not the\n"
                "        # labels written - so it can never announce a point that was removed.\n"
