@@ -56,7 +56,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a verified quote vouches for any figure in its sentence again "
                     "('6 mm [S1 \"minimum wall thickness\"]' over a page saying 3 mm)",
         path=APP / "answer.py",
-        anchor="            if figures_removed:\n                continue\n",
+        anchor="            if figures_removed:\n                lost_tail = True\n                continue\n",
         replacement="",
         target=_T, keyword="does_not_vouch_for_a_different_figure",
         tags=("honesty", "critical"),
