@@ -739,7 +739,42 @@ def _image_only(passage: dict) -> bool:
     return bool(passage.get("read_from_image")) and not passage.get("has_text_layer")
 
 
-def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict], int]:
+#: A sentence that only promises an action and never does it ("Let me confirm
+#: directly."). Whole sentence, no citation, no figure: nothing the reader
+#: could check is lost by dropping it. "Let me know ..." is an offer, not
+#: narration, and is not matched.
+_NARRATION = re.compile(
+    r"^(?:let me|let's|i(?:'ll| will| am going to|'m going to)(?: now)?)\s+(?:now\s+|first\s+)?"
+    r"(?:check|confirm|verify|look|search|read|find|pull|open|review|examine|double-check|dig|go|start|begin|see)\b"
+    r"|^i will now\b|^i'll now\b", re.IGNORECASE)
+#: How a lead-in ends when its content is meant to follow.
+_LEAD_IN_END = re.compile(
+    r"(?:[:]|\be\.g\.|\bfor example|\bincluding|\bsuch as|\bstates?|\bsays?)[ \t]*,?[ \t]*$",
+    re.IGNORECASE)
+_MARKERS = re.compile(r"\[S\d+\]")
+_LIST_PREFIX = re.compile(r"^[\s>*#\-+]+|^\s*\d{1,2}[.)]\s+")
+
+
+def _is_filler_narration(segment: str) -> bool:
+    bare = _LIST_PREFIX.sub("", segment).strip()
+    return (bool(_NARRATION.match(bare)) and not _QUOTED_CITATION.search(bare)
+            and not bare.endswith(":") and len(bare.split()) <= 14)
+
+
+def _hollow_markers(segment: str) -> bool:
+    """Nothing but citation markers and punctuation: no words to show."""
+    rest = _QUOTED_CITATION.sub("", segment)
+    return not re.search(r"\w", rest)
+
+
+def _ends_in_lead_in(plain: str) -> bool:
+    """The text, ignoring trailing citation markers, ends where content was
+    meant to follow (':' 'e.g.' 'including' ...)."""
+    return bool(_LEAD_IN_END.search(_MARKERS.sub("", plain).rstrip()))
+
+
+def verify_claims(text: str, passages: list[dict], *,
+                  final: bool = True) -> tuple[str, dict, list[dict], int]:
     """Keep only the claims whose quote AND figures are on the page they cite.
 
     Returns (clean text with [S#] markers only, {verified, total, method},
@@ -761,6 +796,17 @@ def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict
        6 mm [S1 "minimum wall thickness"]" over a page saying 3 mm was shown
        as verified (audit 2026-09-30).
 
+    HOLLOW LEFTOVERS ARE NOT SHOWN (2026-10-06, found on screen: "(pipelines): 1",
+    a bullet of bare numbers, "Let me confirm directly.", "... e.g." with
+    nothing after it). Plain code, no model: a sentence that is only citation
+    markers; a filler sentence promising an action ("Let me check ...");
+    and, when `final`, a lead-in ending in ':' / "e.g." / "including" / "such
+    as" / "states" / "says" whose content was removed or never came (a
+    lead-in that still has its content is kept). A dropped verified point is
+    taken out of both `verified` and `total`, so "N of M" describes what is
+    shown. `final=False` is the streaming per-sentence call: a lead-in is
+    alone in its sentence there, so only the sentence-level rules apply.
+
     A citation of an IMAGE-ONLY page (`_image_only`) has no text to check
     against. Such a sentence is kept - its other citations' quotes must still
     verify - but it is never counted as verified: it is counted in
@@ -770,22 +816,34 @@ def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict
     """
     from .model_evidence import claim_quote_verified
 
-    kept_lines, claims = [], []
+    # Each kept segment is [text, kind, claims]: kind "verified", "image" or
+    # "plain" - so a segment dropped later is taken out of the right count.
+    lines: list[dict] = []
     total = verified = image_only = 0
     for line in text.splitlines():
-        kept_segments = []
+        kept_segments: list[list] = []
+        lost_tail = False
         for segment in _join_stranded_citations(_SEGMENT.split(line)):
             cites = list(_QUOTED_CITATION.finditer(segment))
             if not cites:
                 bare = re.sub(r"^[\s>*#\-\d.)]+", "", segment)
                 if _CHECKABLE.search(bare) and not bare.rstrip().endswith(":"):
                     total += 1
+                    lost_tail = True
                     continue
-                kept_segments.append(segment)
+                if _is_filler_narration(segment):
+                    lost_tail = True
+                    continue
+                kept_segments.append([segment, "plain", []])
+                lost_tail = False
+                continue
+            if _hollow_markers(segment):
+                lost_tail = True
                 continue
             plain = _QUOTED_CITATION.sub(lambda m: f"[S{m.group(1)}]", segment)
             if not all(1 <= int(m.group(1)) <= len(passages) for m in cites):
                 total += 1
+                lost_tail = True
                 continue
             from_image = [m for m in cites if _image_only(passages[int(m.group(1)) - 1])]
             textual = [m for m in cites if m not in from_image]
@@ -795,26 +853,66 @@ def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict
             if from_image:
                 if quotes_ok:
                     image_only += 1
-                    kept_segments.append(plain)
+                    kept_segments.append([plain, "image", []])
+                    lost_tail = False
                 else:
                     total += 1
+                    lost_tail = True
                 continue
             total += 1
             if not quotes_ok:
+                lost_tail = True
                 continue
             _figures_ok, figures_removed = ground_numbers(plain, passages)
             if figures_removed:
+                lost_tail = True
                 continue
             # The sentence must not say the opposite of what it quotes
             # ("shall exceed" over a quote that says "shall not exceed").
             quoted_text = " ".join(m.group(2) or "" for m in cites)
             if polarity_conflict(plain, quoted_text) is not None:
+                lost_tail = True
                 continue
             verified += 1
-            claims.extend({"n": int(m.group(1)), "quote": m.group(2)} for m in cites)
-            kept_segments.append(plain)
-        if kept_segments or not line.strip():
-            kept_lines.append(" ".join(kept_segments))
+            kept_segments.append([plain, "verified",
+                                  [{"n": int(m.group(1)), "quote": m.group(2)} for m in cites]])
+            lost_tail = False
+        lines.append({"segments": kept_segments, "lost_tail": lost_tail,
+                      "blank": not line.strip(), "drop": False})
+
+    claims: list[dict] = []
+
+    def drop_segment(seg: list) -> None:
+        nonlocal total, verified, image_only
+        if seg[1] == "verified":
+            total -= 1
+            verified -= 1
+        elif seg[1] == "image":
+            image_only -= 1
+
+    if final:
+        # From the bottom up, so a lead-in whose only content was itself a
+        # dropped lead-in goes too. A lead-in is dropped only when what was
+        # meant to follow it is gone: removed in its own line, or the next
+        # non-blank line is entirely gone, or there is no next line.
+        for i in range(len(lines) - 1, -1, -1):
+            entry = lines[i]
+            segs = entry["segments"]
+            if not segs or not _ends_in_lead_in(segs[-1][0]):
+                continue
+            nxt = next((e for e in lines[i + 1:] if not e["blank"]), None)
+            content_gone = entry["lost_tail"] or nxt is None or not nxt["segments"] or nxt["drop"]
+            if content_gone:
+                drop_segment(segs.pop())
+                if not segs:
+                    entry["drop"] = True
+    kept_lines = []
+    for entry in lines:
+        if entry["drop"] or (not entry["segments"] and not entry["blank"]):
+            continue
+        for seg in entry["segments"]:
+            claims.extend(seg[2])
+        kept_lines.append(" ".join(seg[0] for seg in entry["segments"]))
     clean = re.sub(r"\n{3,}", "\n\n", "\n".join(kept_lines)).strip()
     verification = {"verified": verified, "total": total, "method": "quote found on the page"}
     if image_only:
@@ -1394,6 +1492,14 @@ def _answer(
     return result
 
 
+def _nothing_matched(readable: int) -> str:
+    """What an unscoped search actually covered, in plain words."""
+    if readable > 0:
+        return (f"nothing in the {readable} document{'s' if readable != 1 else ''} "
+                "you can read matched this question")
+    return "no passage you can read matched this question"
+
+
 def _answer_from_documents(
     question: str,
     tier: str,
@@ -1500,7 +1606,8 @@ def _answer_from_documents(
     review_fallback = _is_broad_review_request(question, lexical_verdict, tier)
     if not hits or not lexical_verdict["ok"] or (not _is_semantically_credible(lead) and not review_fallback):
         if not hits:
-            reason = "none of the indexed documents mention this topic"
+            reason = ("none of the indexed documents mention this topic"
+                      if document_id else _nothing_matched(len(allowed_document_ids)))
         elif not lexical_verdict["ok"]:
             reason = lexical_verdict["reason"]
         else:
