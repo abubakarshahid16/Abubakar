@@ -73,11 +73,21 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1527", phase=90,
              description="Claude's tools read every readable document, ignoring the conversation's one",
              path=APP / "chat.py",
-             anchor="    if picked or not document_id:\n        return retrieval_allowed\n"
+             anchor="    if not document_id:\n        return retrieval_allowed\n"
                     "    return retrieval_allowed & frozenset({document_id})\n",
              replacement="    return retrieval_allowed\n",
              target=_T, keyword="read_only_the_conversations_document or claude_scope_only_narrows",
              tags=("privacy",)),
+    Mutation(id="M2041", phase=90,
+             description="a document the question names no longer narrows Claude's tools",
+             path=APP / "chat.py",
+             anchor="        if named and named in retrieval_allowed:\n"
+                    "            return retrieval_allowed & frozenset({named})\n",
+             replacement="        if named and named in retrieval_allowed:\n"
+                         "            return retrieval_allowed\n",
+             target="tests/test_claude_scope_named_document.py",
+             keyword="named_document_only_narrows or naming_a_standard_limits",
+             tags=("privacy", "honesty")),
     # ---- 5. the identifier conflict rule
     Mutation(id="M1528", phase=90,
              description="a carried identifier is kept beside a new one of the same family",

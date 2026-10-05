@@ -912,7 +912,7 @@ def ask(
         claude_first_result = chat_claude_first.answer(
             original, history=memory(always=True),
             allowed_document_ids=claude_scope(retrieval_allowed, document_id=document_id,
-                                              picked=bool(document_ids)),
+                                              picked=bool(document_ids), understood=understood),
             web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append,
             on_fallback_reason=fallback_why.append)
 
@@ -1043,7 +1043,7 @@ def ask(
 
 
 def claude_scope(retrieval_allowed: frozenset[str], *, document_id: str | None,
-                 picked: bool) -> frozenset[str]:
+                 picked: bool, understood: dict | None = None) -> frozenset[str]:
     """What the Claude-first tools may read this turn: ONLY EVER NARROWER than
     `retrieval_allowed` (intersection, CLAUDE.md rule 5).
 
@@ -1052,8 +1052,23 @@ def claude_scope(retrieval_allowed: frozenset[str], *, document_id: str | None,
     - let Claude's tools search every document the caller may read, while the
     old pipeline answered from that one document. Now: documents the reader
     @-picked are the scope (already intersected into `retrieval_allowed`);
-    otherwise the selected or conversation document narrows it to itself."""
-    if picked or not document_id:
+    otherwise the selected or conversation document narrows it to itself.
+
+    FOUND 2026-10-06 (real machine, real Claude): a question that NAMED a
+    standard ("What does STD-A-001 say about ...") narrowed the old pipeline
+    to that standard but not the Claude lane, so Claude searched every
+    document and answered from the wrong ones. A document the question names
+    (`understood`, "named in the question") now narrows this lane the same
+    way `_document_answer` narrows the old one. Still only ever narrower."""
+    if picked:
+        return retrieval_allowed
+    if not document_id and understood:
+        named = understood.get("document_id")
+        if named and named in retrieval_allowed:
+            return retrieval_allowed & frozenset({named})
+        if understood.get("scope_ids"):
+            return retrieval_allowed & frozenset(understood["scope_ids"])
+    if not document_id:
         return retrieval_allowed
     return retrieval_allowed & frozenset({document_id})
 
