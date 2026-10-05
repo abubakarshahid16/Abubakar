@@ -81,7 +81,12 @@ _INVERSE = re.compile(
 #: The expansion words may be capitalised - NORSOK's row reads "NACE National
 #: Association of Corrosion Engineers" - but a word in ALL CAPS is the next
 #: acronym, not part of this expansion, so only the first letter may be upper.
-_EXPANSION_WORD = r"[A-Za-z][a-z\-]*"
+#: A hyphenated compound is ONE word whose parts may each be capitalised
+#: ("Post-Weld Heat Treatment", "Non-Destructive Examination"). The old class
+#: `[a-z\-]*` stopped at the capital after the hyphen, so every row with such a
+#: compound failed the whole match and its acronym was never harvested
+#: (2026-10-05: PWHT in a standard's own acronym list).
+_EXPANSION_WORD = r"[A-Za-z][a-z]*(?:-[A-Za-z][a-z]*)*"
 _GLOSSARY_ROW = re.compile(
     r"\b([A-Z][A-Z0-9\-/]{1,9})\s+"
     r"(" + _EXPANSION_WORD + r"(?:\s+" + _EXPANSION_WORD + r"){1,7})"
@@ -312,6 +317,124 @@ def reverse_map(
     return out
 
 
+#: A SMALL built-in list of common engineering abbreviations, used ONLY to
+#: widen what a typed abbreviation may match. It is never evidence: nothing here
+#: is quoted to the reader, and an expansion that appears in no passage in scope
+#: matches nothing, so a question about an abbreviation the library never uses
+#: still refuses. The library's own definitions (`harvest`) are always
+#: consulted too and add to this list; they never get replaced by it.
+#: Kept to abbreviations with ONE meaning in this domain: PT, MT, UT, RT and
+#: CP are deliberately absent because each means several things.
+BUILTIN: dict[str, tuple[str, ...]] = {
+    "PWHT": ("post weld heat treatment",),
+    "PMI": ("positive material identification",),
+    "NDE": ("non-destructive examination",),
+    "NDT": ("non-destructive testing",),
+    "HAZ": ("heat affected zone",),
+    "WPS": ("welding procedure specification",),
+    "PQR": ("procedure qualification record",),
+    "MPI": ("magnetic particle inspection",),
+    "LPI": ("liquid penetrant inspection",),
+    "ITP": ("inspection and test plan",),
+    "FAT": ("factory acceptance test",),
+    "SAT": ("site acceptance test",),
+    "HIC": ("hydrogen induced cracking",),
+    "SSC": ("sulfide stress cracking", "sulphide stress cracking"),
+    "CUI": ("corrosion under insulation",),
+    "MAWP": ("maximum allowable working pressure",),
+    "DFT": ("dry film thickness",),
+    "NDFT": ("nominal dry film thickness",),
+}
+
+
+def _spellings(expansion: str) -> list[str]:
+    """An expansion as written, and with its hyphens as spaces: a standard
+    prints "post-weld" where another prints "post weld"."""
+    flat = " ".join(expansion.replace("-", " ").split())
+    return [expansion] if flat == expansion else [expansion, flat]
+
+
+def _known_for(acronym: str, document_id, allowed_document_ids,
+               is_typed_as_abbreviation: bool) -> list[str]:
+    found = set(harvest(
+        document_id, allowed_document_ids=allowed_document_ids).get(acronym, ()))
+    if is_typed_as_abbreviation:
+        found.update(BUILTIN.get(acronym, ()))
+    return sorted(found)
+
+
+def expansion_phrases(
+    question: str,
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> list[str]:
+    """Words in the question that name a spelled-out form of an abbreviation
+    the library defines or the built-in list knows, as the ABBREVIATIONS they
+    stand for (additive match terms for the keyword side only)."""
+    flat = " ".join(question.lower().replace("-", " ").split())
+    out: list[str] = []
+    reverse = reverse_map(document_id, allowed_document_ids=allowed_document_ids)
+    pairs = [(e, {a}) for a, exps in BUILTIN.items() for e in exps]
+    pairs += list(reverse.items())
+    for phrase, acronyms_ in pairs:
+        if " " not in phrase.replace("-", " "):
+            continue
+        key = " ".join(phrase.replace("-", " ").split())
+        if re.search(r"(?<![a-z])" + re.escape(key) + r"(?![a-z])", flat):
+            out.extend(a for a in sorted(acronyms_) if a not in out)
+    return out
+
+
+def rewrites(
+    question: str,
+    document_id: str | None = None,
+    *,
+    allowed_document_ids: frozenset[str],
+) -> list[str]:
+    """The question worded the other way round, for the reranker to score as
+    well: each abbreviation typed in it spelled out, and, separately, each
+    spelled-out phrase abbreviated. Empty when nothing applies. The caller
+    keeps the HIGHER score of the wordings (as it does for glossary.rewrite),
+    so a passage that fits neither stays low and an absent answer stays absent.
+    """
+    out: list[str] = []
+    spelled = question
+    for word in dict.fromkeys(re.findall(r"[A-Za-z][A-Za-z0-9/\-]*", question)):
+        if not (word.isupper() and looks_like_acronym(word)):
+            continue
+        full = [e for e in equivalents(
+            word, document_id, allowed_document_ids=allowed_document_ids)
+            if " " in e]
+        if full:
+            spelled = re.sub(r"(?<![\w-])" + re.escape(word) + r"(?![\w-])",
+                             full[0], spelled)
+    if spelled != question:
+        out.append(spelled)
+    short = question
+    for acronym in expansion_phrases(
+            question, document_id, allowed_document_ids=allowed_document_ids):
+        for expansion in _known_for(acronym, document_id, allowed_document_ids, True):
+            pattern = re.compile(
+                re.escape(expansion).replace(r"\ ", r"[\s-]+")
+                .replace(r"\-", r"[\s-]"), re.IGNORECASE)
+            short, n = pattern.subn(acronym, short)
+            if n:
+                break
+    if short != question:
+        out.append(short)
+    return out
+
+
+def retrieval_tails(expansion: str) -> list[str]:
+    """The last two words of a 3+ word expansion ("heat treatment" of "post
+    weld heat treatment"): how a clause that says only "heat treatment" is
+    found for a question typed as the abbreviation. CANDIDATE GENERATION
+    ONLY - the lexical gate never counts a tail as covering the term."""
+    words = expansion.replace("-", " ").split()
+    return [" ".join(words[-2:])] if len(words) >= 3 else []
+
+
 def equivalents(
     term: str,
     document_id: str | None = None,
@@ -329,17 +452,26 @@ def equivalents(
     term_norm = normalise_expansion(term)
     out: list[str] = []
 
-    for expansion in sorted(harvest(
-            document_id,
-            allowed_document_ids=allowed_document_ids).get(term.upper(), ())):
-        if expansion != term_norm:
-            out.append(expansion)
+    def keep(form: str) -> None:
+        for spelled in _spellings(form):
+            if spelled != term_norm and spelled not in out:
+                out.append(spelled)
 
-    for acronym in sorted(reverse_map(
-            document_id,
-            allowed_document_ids=allowed_document_ids).get(term_norm, ())):
-        if acronym.lower() != term_norm:
-            out.append(acronym)
+    for expansion in _known_for(
+            term.upper(), document_id, allowed_document_ids, term.isupper()):
+        keep(expansion)
+
+    reverse = reverse_map(document_id, allowed_document_ids=allowed_document_ids)
+    flat_norm = " ".join(term_norm.replace("-", " ").split())
+    for expansion, acronyms_ in reverse.items():
+        if " ".join(expansion.replace("-", " ").split()) == flat_norm:
+            for acronym in sorted(acronyms_):
+                if acronym.lower() != term_norm and acronym not in out:
+                    out.append(acronym)
+    for acronym, expansions in BUILTIN.items():
+        if any(" ".join(e.replace("-", " ").split()) == flat_norm for e in expansions):
+            if acronym not in out:
+                out.append(acronym)
 
     return out
 
@@ -357,11 +489,12 @@ def known_expansions(
     before any shorter phrase inside it.
     """
     phrases = {
-        expansion
+        spelled
         for expansions in harvest(
             document_id, allowed_document_ids=allowed_document_ids).values()
         for expansion in expansions
-        if " " in expansion
+        for spelled in _spellings(expansion)
+        if " " in spelled
     }
     return sorted(phrases, key=len, reverse=True)
 
