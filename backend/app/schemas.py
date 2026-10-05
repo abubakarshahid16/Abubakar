@@ -27,7 +27,8 @@ DocStatus = Literal[
     "failed",
 ]
 
-ChunkKind = Literal["prose", "table", "toc", "frontmatter", "index", "references"]
+ChunkKind = Literal["prose", "table", "toc", "frontmatter", "index", "references",
+                  "revision_history"]
 
 #: What part a document plays in a submittal review.
 #:
