@@ -98,7 +98,8 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "and count the labels - 'page 4' is read as an uncited figure, the point "
                     "is dropped, and the notice still says it was kept",
         path=APP / "chat_claude_first.py",
-        anchor="        text, verification, claims, removed = answer_mod.verify_claims(text, sources)\n"
+        anchor="        text, verification, claims, removed = answer_mod.verify_claims(\n"
+               "            text, sources, narration_from_line=first_last_line)\n"
                "        text, _labels = _relabel_image_only_citations(text, sources)\n"
                "        # The notice counts the POINTS that were kept unverified, not the\n"
                "        # labels written - so it can never announce a point that was removed.\n"

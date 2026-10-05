@@ -416,7 +416,13 @@ def _finish(response, sources: list[dict], steps: list[dict], started: float,
     removed = 0
     image_relabelled = 0
     if used_tools:
-        text, verification, claims, removed = answer_mod.verify_claims(text, sources)
+        # Narration is dropped only from the LAST round: text written before a
+        # tool call was streamed and stays in the done answer (audit 2026-09-30).
+        last_round = (response.text or "").strip()
+        first_last_line = (len(text[: len(text) - len(last_round)].splitlines())
+                           if last_round and text.endswith(last_round) else None)
+        text, verification, claims, removed = answer_mod.verify_claims(
+            text, sources, narration_from_line=first_last_line)
         text, _labels = _relabel_image_only_citations(text, sources)
         # The notice counts the POINTS that were kept unverified, not the
         # labels written - so it can never announce a point that was removed.

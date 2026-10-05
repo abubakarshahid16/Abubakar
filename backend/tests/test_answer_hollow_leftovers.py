@@ -159,3 +159,13 @@ def test_a_scoped_refusal_names_the_document_it_searched(monkeypatch):
     out = answer.answer("what does STD-A-001 say about PWHT", document_id="d1",
                         allowed_document_ids=frozenset({"d1"}))
     assert out["reason"] == "STD-A-001.pdf (76 passages searched) has nothing on this topic"
+
+
+def test_narration_before_a_tool_call_is_kept_and_only_the_last_round_is_cleaned():
+    text = "Let me check the documents first.\n\nHere is what I found.\n\nLet me confirm directly."
+    kept_all, *_ = answer.verify_claims(text, [], narration_from_line=None)
+    assert "Let me check the documents first." in kept_all
+    assert "Let me confirm directly." in kept_all
+    last_only, *_ = answer.verify_claims(text, [], narration_from_line=4)
+    assert "Let me check the documents first." in last_only
+    assert "Let me confirm directly." not in last_only

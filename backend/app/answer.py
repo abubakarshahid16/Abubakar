@@ -774,7 +774,8 @@ def _ends_in_lead_in(plain: str) -> bool:
 
 
 def verify_claims(text: str, passages: list[dict], *,
-                  final: bool = True) -> tuple[str, dict, list[dict], int]:
+                  final: bool = True,
+                  narration_from_line: int | None = 0) -> tuple[str, dict, list[dict], int]:
     """Keep only the claims whose quote AND figures are on the page they cite.
 
     Returns (clean text with [S#] markers only, {verified, total, method},
@@ -807,6 +808,13 @@ def verify_claims(text: str, passages: list[dict], *,
     shown. `final=False` is the streaming per-sentence call: a lead-in is
     alone in its sentence there, so only the sentence-level rules apply.
 
+    `narration_from_line`: filler narration ("Let me confirm directly.") is
+    dropped only from this line on; None never drops it. Text written BEFORE a
+    tool call was already streamed to the reader and is kept by the done
+    answer (audit 2026-09-30), so the tool-using caller passes the first line
+    of the LAST round and the streaming call passes None: only a promise made
+    in the final text, with no tool call after it, is an empty promise.
+
     A citation of an IMAGE-ONLY page (`_image_only`) has no text to check
     against. Such a sentence is kept - its other citations' quotes must still
     verify - but it is never counted as verified: it is counted in
@@ -820,9 +828,10 @@ def verify_claims(text: str, passages: list[dict], *,
     # "plain" - so a segment dropped later is taken out of the right count.
     lines: list[dict] = []
     total = verified = image_only = 0
-    for line in text.splitlines():
+    for line_index, line in enumerate(text.splitlines()):
         kept_segments: list[list] = []
         lost_tail = False
+        narration_on = narration_from_line is not None and line_index >= narration_from_line
         for segment in _join_stranded_citations(_SEGMENT.split(line)):
             cites = list(_QUOTED_CITATION.finditer(segment))
             if not cites:
@@ -831,7 +840,7 @@ def verify_claims(text: str, passages: list[dict], *,
                     total += 1
                     lost_tail = True
                     continue
-                if _is_filler_narration(segment):
+                if narration_on and _is_filler_narration(segment):
                     lost_tail = True
                     continue
                 kept_segments.append([segment, "plain", []])
