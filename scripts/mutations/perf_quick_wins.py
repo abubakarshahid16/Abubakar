@@ -34,8 +34,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="memoise on 'ran once' instead of the schema version, so a "
                     "dropped table or index is never recreated",
         path=APP / "db.py",
-        anchor="        if _schema_memo.get(key) == _schema_version(conn):",
-        replacement="        if key in _schema_memo:",
+        anchor="        key = (name, str(settings.db_path))\n"
+               "        if _schema_memo.get(key) == _schema_version(conn):",
+        replacement="        key = (name, str(settings.db_path))\n"
+                    "        if key in _schema_memo:",
         target=_T, keyword="dropped_table",
     ),
     Mutation(

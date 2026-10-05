@@ -47,8 +47,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1244", phase=97,
         description="the batch commit drops the tables it was given",
         path=APP / "extract.py",
-        anchor="              r[4] if len(r) > 4 else None)",
-        replacement="              None)",
+        anchor="        tables = rest[1] if len(rest) > 1 else None\n",
+        replacement="        tables = None\n",
         target=_T, keyword="stores_ruled_tables",
     ),
 )
