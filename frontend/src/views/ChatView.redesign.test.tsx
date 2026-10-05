@@ -149,6 +149,7 @@ function mockApi({
   conversations = [],
   messages = [],
   modelsDelay = 0,
+  modelsGate,
   models = {
     default: "claude",
     models: [
@@ -163,6 +164,8 @@ function mockApi({
   models?: unknown;
   /** answer /chat/models this many ms late, or never (Infinity), or with an error (null) */
   modelsDelay?: number | null;
+  /** answer /chat/models only once this promise resolves (no timer, so no machine-speed dependence) */
+  modelsGate?: Promise<void>;
 } = {}) {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -177,6 +180,7 @@ function mockApi({
     calls.push(call);
     if (url.includes("/health")) return Promise.resolve(json(health));
     if (url.includes("/chat/models")) {
+      if (modelsGate) return modelsGate.then(() => json(models));
       if (modelsDelay === null) return Promise.resolve(new Response("{}", { status: 500 }));
       if (modelsDelay === Infinity) return new Promise<Response>(() => undefined);
       if (modelsDelay > 0) return new Promise<Response>((r) => setTimeout(() => r(json(models)), modelsDelay));
@@ -246,9 +250,14 @@ describe("a question asked before the engine list has arrived", () => {
   };
 
   it("waits for the list and asks with the real default engine and tier", async () => {
-    const calls = mockApi({ modelsDelay: 400 });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const calls = mockApi({ modelsGate: gate });
     await openChat();
     await ask_("does it meet the hydrotest requirement");
+    // the question is asked while the list is still pending: nothing may have gone out yet
+    expect(calls.some((c) => c.url.endsWith("/ask/stream"))).toBe(false);
+    release();
     expect(await askedBody(calls)).toMatchObject({ tier: "generated", model: "claude" });
   });
 
