@@ -1606,8 +1606,15 @@ def _answer_from_documents(
     review_fallback = _is_broad_review_request(question, lexical_verdict, tier)
     if not hits or not lexical_verdict["ok"] or (not _is_semantically_credible(lead) and not review_fallback):
         if not hits:
-            reason = ("none of the indexed documents mention this topic"
-                      if document_id else _nothing_matched(len(allowed_document_ids)))
+            if document_id:
+                # A question scoped to one named document searched that
+                # document only; say so instead of claiming a library search.
+                where = lexical.searched_scope(document_id, allowed_document_ids)
+                reason = ("none of the indexed documents mention this topic"
+                          if where == "the indexed documents"
+                          else f"{where} has nothing on this topic")
+            else:
+                reason = _nothing_matched(len(allowed_document_ids))
         elif not lexical_verdict["ok"]:
             reason = lexical_verdict["reason"]
         else:

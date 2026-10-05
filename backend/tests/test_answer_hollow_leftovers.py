@@ -144,8 +144,18 @@ def test_the_unscoped_refusal_with_no_readable_documents_says_no_passage(monkeyp
     assert out["reason"] == "no passage you can read matched this question"
 
 
-def test_the_scoped_refusal_keeps_its_wording(monkeypatch):
+def test_the_scoped_refusal_keeps_its_wording_when_the_document_cannot_be_described(monkeypatch):
     _empty_search(monkeypatch)
+    monkeypatch.setattr(answer.lexical, "searched_scope", lambda doc, allowed: "the indexed documents")
     out = answer.answer("what does STD-A-001 say about PWHT", document_id="d1",
                         allowed_document_ids=frozenset({"d1"}))
     assert out["reason"] == "none of the indexed documents mention this topic"
+
+
+def test_a_scoped_refusal_names_the_document_it_searched(monkeypatch):
+    _empty_search(monkeypatch)
+    monkeypatch.setattr(answer.lexical, "searched_scope",
+                        lambda doc, allowed: "STD-A-001.pdf (76 passages searched)")
+    out = answer.answer("what does STD-A-001 say about PWHT", document_id="d1",
+                        allowed_document_ids=frozenset({"d1"}))
+    assert out["reason"] == "STD-A-001.pdf (76 passages searched) has nothing on this topic"
