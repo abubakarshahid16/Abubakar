@@ -655,7 +655,7 @@ _PAYLOAD_KEYS = (
     "suggestions", "draft", "provider", "cost_usd", "history_turns",
     # Audit 101: the reader asked for Claude and the local model answered.
     "requested_provider", "provider_note",
-    "route", "notices", "claims", "claims_removed", "rewrite_of", "records", "cancelled",
+    "route", "notices", "claims", "claims_removed", "removed_points", "rewrite_of", "records", "cancelled",
     # A rewrite/action of a DOCUMENT turn carries that turn's document ids
     # (chat_answers.rewrite), so a revoked grant withholds the reworded copy
     # exactly as it withholds the original.

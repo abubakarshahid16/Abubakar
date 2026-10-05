@@ -775,7 +775,8 @@ def _ends_in_lead_in(plain: str) -> bool:
 
 def verify_claims(text: str, passages: list[dict], *,
                   final: bool = True,
-                  narration_from_line: int | None = 0) -> tuple[str, dict, list[dict], int]:
+                  narration_from_line: int | None = 0,
+                  dropped: list[dict] | None = None) -> tuple[str, dict, list[dict], int]:
     """Keep only the claims whose quote AND figures are on the page they cite.
 
     Returns (clean text with [S#] markers only, {verified, total, method},
@@ -828,6 +829,13 @@ def verify_claims(text: str, passages: list[dict], *,
     # "plain" - so a segment dropped later is taken out of the right count.
     lines: list[dict] = []
     total = verified = image_only = 0
+
+    def note(segment: str, why: str) -> None:
+        # What was removed and why, kept for the reader's own audit of a
+        # refusal (stored with the answer, never shown as an answer).
+        if dropped is not None and segment.strip():
+            dropped.append({"text": segment.strip()[:400], "why": why})
+
     for line_index, line in enumerate(text.splitlines()):
         kept_segments: list[list] = []
         lost_tail = False
@@ -839,20 +847,24 @@ def verify_claims(text: str, passages: list[dict], *,
                 if _CHECKABLE.search(bare) and not bare.rstrip().endswith(":"):
                     total += 1
                     lost_tail = True
+                    note(segment, "states a figure, code or abbreviation with no quoted source")
                     continue
                 if narration_on and _is_filler_narration(segment):
                     lost_tail = True
+                    note(segment, "promises an action instead of answering")
                     continue
                 kept_segments.append([segment, "plain", []])
                 lost_tail = False
                 continue
             if _hollow_markers(segment):
                 lost_tail = True
+                note(segment, "citation numbers with no words")
                 continue
             plain = _QUOTED_CITATION.sub(lambda m: f"[S{m.group(1)}]", segment)
             if not all(1 <= int(m.group(1)) <= len(passages) for m in cites):
                 total += 1
                 lost_tail = True
+                note(segment, "cites a source number that does not exist")
                 continue
             from_image = [m for m in cites if _image_only(passages[int(m.group(1)) - 1])]
             textual = [m for m in cites if m not in from_image]
@@ -867,20 +879,24 @@ def verify_claims(text: str, passages: list[dict], *,
                 else:
                     total += 1
                     lost_tail = True
+                    note(segment, "quote from a page image not found")
                 continue
             total += 1
             if not quotes_ok:
                 lost_tail = True
+                note(segment, "quoted words not found on the cited page")
                 continue
             _figures_ok, figures_removed = ground_numbers(plain, passages)
             if figures_removed:
                 lost_tail = True
+                note(segment, "a figure in it is not on the cited page")
                 continue
             # The sentence must not say the opposite of what it quotes
             # ("shall exceed" over a quote that says "shall not exceed").
             quoted_text = " ".join(m.group(2) or "" for m in cites)
             if polarity_conflict(plain, quoted_text) is not None:
                 lost_tail = True
+                note(segment, "says the opposite of the words it quotes")
                 continue
             verified += 1
             kept_segments.append([plain, "verified",
@@ -912,6 +928,7 @@ def verify_claims(text: str, passages: list[dict], *,
             nxt = next((e for e in lines[i + 1:] if not e["blank"]), None)
             content_gone = entry["lost_tail"] or nxt is None or not nxt["segments"] or nxt["drop"]
             if content_gone:
+                note(segs[-1][0], "lead-in whose content was removed")
                 drop_segment(segs.pop())
                 if not segs:
                     entry["drop"] = True

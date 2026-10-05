@@ -415,6 +415,8 @@ def _finish(response, sources: list[dict], steps: list[dict], started: float,
     verification = claims = None
     removed = 0
     image_relabelled = 0
+    #: Each point the checker removed, with its reason, stored with the answer.
+    dropped_points: list[dict] = []
     if used_tools:
         # Narration is dropped only from the LAST round: text written before a
         # tool call was streamed and stays in the done answer (audit 2026-09-30).
@@ -422,7 +424,7 @@ def _finish(response, sources: list[dict], steps: list[dict], started: float,
         first_last_line = (len(text[: len(text) - len(last_round)].splitlines())
                            if last_round and text.endswith(last_round) else None)
         text, verification, claims, removed = answer_mod.verify_claims(
-            text, sources, narration_from_line=first_last_line)
+            text, sources, narration_from_line=first_last_line, dropped=dropped_points)
         text, _labels = _relabel_image_only_citations(text, sources)
         # The notice counts the POINTS that were kept unverified, not the
         # labels written - so it can never announce a point that was removed.
@@ -433,7 +435,8 @@ def _finish(response, sources: list[dict], steps: list[dict], started: float,
         return {**_REQUIRED_DEFAULTS, "answer_type": "insufficient_evidence", "answer": None,
                "reason": "none of the answer's points could be found on the pages read",
                "passages": sources, "steps": steps, "verification": verification,
-               "claims_removed": removed, "cited": [], "claims": [],
+               "claims_removed": removed, "removed_points": dropped_points,
+               "cited": [], "claims": [],
                "provider": response.provider, "model": response.model_tag,
                "cost_usd": cost, "seconds": round(time.time() - started, 3),
                "candidates_considered": len(sources)}
@@ -443,8 +446,8 @@ def _finish(response, sources: list[dict], steps: list[dict], started: float,
         "answer_type": "generated" if used_tools else "general",
         "answer": text, "reason": None,
         "passages": sources, "cited": cited, "claims": claims or [],
-        "claims_removed": removed, "verification": verification,
-        "steps": steps, "input_kind": "document" if used_tools else "general",
+        "claims_removed": removed, "removed_points": dropped_points,
+        "verification": verification, "steps": steps, "input_kind": "document" if used_tools else "general",
         "provider": response.provider, "model": response.model_tag,
         "cost_usd": cost, "seconds": round(time.time() - started, 3),
         "candidates_considered": len(sources),
