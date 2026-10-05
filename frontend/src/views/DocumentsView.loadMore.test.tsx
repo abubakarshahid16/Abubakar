@@ -107,4 +107,6 @@ it("keeps the extra page the operator loaded after a poll tick", async () => {
   await waitFor(() => expect(offsets).toContain(100));
   expect(screen.getByText("STD-A-130.pdf")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Load next 100" })).not.toBeInTheDocument();
-});
+  // This test renders 130 rows twice (about 3.5s alone), so it needs its own budget
+  // under a loaded full run; the default 5s timed out on the owner's PC, twice.
+}, 20000);
