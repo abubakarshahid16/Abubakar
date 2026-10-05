@@ -22,6 +22,8 @@ const RULE_EXPLANATION: Record<string, string> = {
   page_classified_frontmatter: "Title page, copyright, credits or dedication.",
   page_classified_index: "A back-of-book index.",
   page_classified_references: "A bibliography or reference list.",
+  page_classified_revision_history:
+    "A Summary of Changes or revision history table. It records what changed between revisions and is not a requirement, so it is left out of search on purpose.",
   page_empty: "The page held no text at all once control characters were stripped.",
   page_yielded_no_chunk:
     "The page had text but too little, or too fragmented, to form a chunk.",
