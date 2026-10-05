@@ -168,9 +168,19 @@ class _Fallback(Exception):
     the existing pipeline, unchanged."""
 
 
+class _NothingVerified(Exception):
+    """Claude answered, but the claim checker removed EVERY point (a quote
+    not word for word, a point with no quote). Carries what was removed."""
+
+    def __init__(self, removed_points: list[dict]) -> None:
+        super().__init__("no point could be verified")
+        self.removed_points = removed_points
+
+
 def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
           web_enabled: bool, preference: str | None,
-          on_fallback_cost=None, on_fallback_reason=None) -> dict | None:
+          on_fallback_cost=None, on_fallback_reason=None,
+          on_unverified=None) -> dict | None:
     """One Claude-first turn, or None to fall back to the existing pipeline.
 
     `on_fallback_cost(usd)`: called once, before returning None, with what
@@ -344,6 +354,18 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                                     "content": content,
                                     **({"is_error": True} if not run.ok else {})})
             messages.append({"role": "user", "content": tool_results})
+    except _NothingVerified as nothing:
+        # CLASS FIX (2026-10-06, real app): every point Claude wrote failed
+        # the quote check, so the reader got a bare refusal although the right
+        # pages had been found - the local pipeline answered the same question
+        # from the same standard with a verbatim quote. Never throw good
+        # evidence away: hand the turn to the existing pipeline (which has its
+        # own gates and quotes the document), and say so.
+        if on_unverified is not None:
+            on_unverified(nothing.removed_points)
+        if on_fallback_cost is not None and turn_cost > 0:
+            on_fallback_cost(round(turn_cost, 6))
+        return None
     except _Fallback as fallback:
         if on_fallback_reason is not None:
             on_fallback_reason(chat_model.fallback_words(fallback.__cause__) or "the Claude call failed")
@@ -432,14 +454,7 @@ def _finish(response, sources: list[dict], steps: list[dict], started: float,
     else:
         text = answer_mod.drop_citations(text)
     if used_tools and not text:
-        return {**_REQUIRED_DEFAULTS, "answer_type": "insufficient_evidence", "answer": None,
-               "reason": "none of the answer's points could be found on the pages read",
-               "passages": sources, "steps": steps, "verification": verification,
-               "claims_removed": removed, "removed_points": dropped_points,
-               "cited": [], "claims": [],
-               "provider": response.provider, "model": response.model_tag,
-               "cost_usd": cost, "seconds": round(time.time() - started, 3),
-               "candidates_considered": len(sources)}
+        raise _NothingVerified(dropped_points)
     cited = sorted({c["n"] for c in (claims or [])})
     base = {
         **_REQUIRED_DEFAULTS,

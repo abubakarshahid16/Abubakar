@@ -54,3 +54,27 @@ def test_a_refused_claude_answer_stores_what_was_removed(monkeypatch, tmp_path):
     payload = json.loads(row["payload"] or "{}")
     assert payload.get("removed_points"), payload.keys()
     assert "999" in payload["removed_points"][0]["text"]
+
+
+def test_when_every_claude_point_fails_the_document_is_still_quoted(monkeypatch, tmp_path):
+    """THE CLASS FIX (audit 118; mutation M2042): Claude's only point has a
+    quote that is not word for word on the page, so the checker removes it.
+    That must not end in a refusal when the document answers the question:
+    the existing pipeline answers from the passages it quotes."""
+    _on(monkeypatch, tmp_path)
+    client = TestClient(app)
+    upload(client)
+    _scripted(monkeypatch, [_tool_use("search_documents", {"query": "NDFT coating system"}),
+                            _text('The NDFT is 280 um [S1 "nominal dry film of two hundred and eighty"].')])
+    convo = client.post("/api/conversations").json()["id"]
+    r = client.post(f"/api/conversations/{convo}/ask",
+                    json={"question": "what is the NDFT for coating system no. 1", "tier": "extract"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["answer"], body
+    assert body["answer_type"] != "insufficient_evidence", body["answer_type"]
+    assert "two hundred and eighty" not in body["answer"]
+    assert any("None of Claude's own points" in n for n in body.get("notices") or []), body.get("notices")
+    row = db.connect().execute("SELECT payload FROM messages WHERE id = ?",
+                               (body["assistant_message"]["id"],)).fetchone()
+    assert json.loads(row["payload"] or "{}").get("removed_points")

@@ -87,8 +87,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              target="tests/test_audit_leftovers_chat.py", tags=("budget", "honesty")),
     Mutation(id="M1614", phase=_P, description="Claude-first does not report a charged fallback call",
              path=APP / "chat_claude_first.py",
-             anchor="            on_fallback_cost(round(turn_cost, 6))\n",
-             replacement="            pass\n",
+             anchor="the Claude call failed\")\n        if on_fallback_cost is not None and turn_cost > 0:\n"
+                    "            on_fallback_cost(round(turn_cost, 6))\n",
+             replacement="the Claude call failed\")\n        if on_fallback_cost is not None and turn_cost > 0:\n"
+                         "            pass\n",
              target="tests/test_audit_leftovers_chat.py", tags=("budget", "honesty")),
     # 5. a risk's source finding is in the caller's scope
     Mutation(id="M1612", phase=_P, description="POST /api/risks accepts a hidden source finding",

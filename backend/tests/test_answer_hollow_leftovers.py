@@ -6,6 +6,8 @@ leaving only its marker), a bullet of bare citation numbers, and "Let me
 confirm directly." kept as if it were an answer. Invented text only.
 """
 
+import pytest
+
 from app import answer
 
 PASSAGES = [
@@ -106,7 +108,7 @@ def test_the_streaming_call_keeps_a_lead_in_that_is_alone_in_its_sentence():
     assert clean == "Related standards:"
 
 
-def test_an_answer_of_only_hollow_fragments_becomes_the_honest_refusal():
+def test_an_answer_of_only_hollow_fragments_is_handed_to_the_existing_pipeline():
     from app import chat_claude_first
 
     class _Response:
@@ -116,9 +118,11 @@ def test_an_answer_of_only_hollow_fragments_becomes_the_honest_refusal():
         model_tag = "m"
         truncated = False
 
-    out = chat_claude_first._finish(_Response(), PASSAGES, [], 0.0, None)
-    assert out["answer_type"] == "insufficient_evidence"
-    assert out["answer"] is None
+    # audit 118: nothing verified is no longer a bare refusal here; the turn
+    # goes to the existing pipeline, which quotes the document or refuses.
+    with pytest.raises(chat_claude_first._NothingVerified) as caught:
+        chat_claude_first._finish(_Response(), PASSAGES, [], 0.0, None)
+    assert caught.value.removed_points
 
 
 # ---- (c) refusal wording -------------------------------------------------
