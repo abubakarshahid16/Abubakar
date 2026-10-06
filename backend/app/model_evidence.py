@@ -105,13 +105,40 @@ def claim_quote_verified(quote: str | None, source_text: str | None) -> bool:
     `quote_verified`. This proves the words are on the page; whether the
     sentence's FIGURES are is checked separately (`answer.verify_claims`)."""
     needle = _collapse(quote)
-    words = [w for w in needle.split(" ") if _TOKEN_WITH_SUBSTANCE.search(w)]
-    if len(words) < MIN_CLAIM_QUOTE_WORDS:
+    fragments = [f.strip() for f in _ELLIPSIS.split(needle)]
+    fragments = [f for f in fragments if f]
+    if not fragments:
         return False
-    pattern = re.compile(
-        (r"(?<!\w)" if re.match(r"\w", needle) else "") + re.escape(needle)
-        + (r"(?!\w)" if re.search(r"\w$", needle) else ""))
-    return any(pattern.search(page) for page in _source_variants(source_text))
+    counts = [len([w for w in f.split(" ") if _TOKEN_WITH_SUBSTANCE.search(w)])
+              for f in fragments]
+    if sum(counts) < MIN_CLAIM_QUOTE_WORDS:
+        return False
+    if len(fragments) > 1 and min(counts) < MIN_ELLIPSIS_FRAGMENT_WORDS:
+        return False
+    return any(_fragments_in_order(fragments, page)
+               for page in _source_variants(source_text))
+
+
+#: A quote the model shortened with "..." or the one-character ellipsis. The
+#: page shows the words either side; the dots themselves are not on it.
+_ELLIPSIS = re.compile(r"\s*(?:\.{3,}|\u2026)\s*")
+#: Each piece of a quote cut by an ellipsis must itself carry a relation.
+MIN_ELLIPSIS_FRAGMENT_WORDS = 2
+
+
+def _fragments_in_order(fragments: list[str], page: str) -> bool:
+    """Every fragment found on the page, whole-word, each AFTER the one before.
+    A quote with no ellipsis is one fragment: the exact rule above."""
+    pos = 0
+    for frag in fragments:
+        pattern = re.compile(
+            (r"(?<!\w)" if re.match(r"\w", frag) else "") + re.escape(frag)
+            + (r"(?!\w)" if re.search(r"\w$", frag) else ""))
+        m = pattern.search(page, pos)
+        if not m:
+            return False
+        pos = m.end()
+    return True
 
 
 # ------------------------------------------ STATED via approved vocabulary
