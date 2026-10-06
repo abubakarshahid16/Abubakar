@@ -24,6 +24,10 @@ Every run writes `eval/results/<timestamp>-<tier>.json` containing the summary
 and the per-question rows, so any two runs can be diffed. That is the only way
 to know whether a change helped or merely moved the failures around.
 
+## P1: the gate that blocks a score drop
+
+`eval/p1/` holds 30 invented-name questions, an invented corpus and a baseline. CI fails a change that makes a passing question fail. See `eval/p1/README.md`.
+
 ## The question set
 
 Shape is defined in `questions.schema.json`. Only `id`, `question` and

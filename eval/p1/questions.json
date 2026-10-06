@@ -1,0 +1,378 @@
+{
+ "corpus": "P1 invented corpus (eval/p1/corpus.py), 7 documents",
+ "author": "Claude (Cowork), invented, no client text. An engineer extends this set to 100+ before it is called independent.",
+ "questions": [
+  {
+   "id": "P1-01",
+   "category": "direct",
+   "question": "What is the vibration limit for a centrifugal pump?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "3.0 mm/s"
+   ]
+  },
+  {
+   "id": "P1-02",
+   "category": "direct",
+   "question": "How many operating hours between pump inspections?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "4000"
+   ]
+  },
+  {
+   "id": "P1-03",
+   "category": "direct",
+   "question": "What is the minimum dry film thickness of the primer coat?",
+   "answerable": true,
+   "expected_document": "STD-B-002.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "250 micrometres"
+   ]
+  },
+  {
+   "id": "P1-04",
+   "category": "direct",
+   "question": "What is the hydrostatic test pressure?",
+   "answerable": true,
+   "expected_document": "STD-C-003.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "7.1",
+   "expected_answer_contains": [
+    "1.3 times"
+   ]
+  },
+  {
+   "id": "P1-05",
+   "category": "direct",
+   "question": "What is the minimum protection rating for outdoor enclosures?",
+   "answerable": true,
+   "expected_document": "STD-D-004.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "2.1",
+   "expected_answer_contains": [
+    "IP66"
+   ]
+  },
+  {
+   "id": "P1-06",
+   "category": "direct",
+   "question": "What flow must a fire water pump deliver in the annual test?",
+   "answerable": true,
+   "expected_document": "STD-E-005.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "150 percent"
+   ]
+  },
+  {
+   "id": "P1-07",
+   "category": "reworded",
+   "question": "How often must the pumps be checked over?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "4000"
+   ]
+  },
+  {
+   "id": "P1-08",
+   "category": "reworded",
+   "question": "How thick should the first layer of paint be at least?",
+   "answerable": true,
+   "expected_document": "STD-B-002.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "250 micrometres"
+   ]
+  },
+  {
+   "id": "P1-09",
+   "category": "reworded",
+   "question": "For how long do we keep a vessel at test pressure?",
+   "answerable": true,
+   "expected_document": "STD-C-003.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "7.2",
+   "expected_answer_contains": [
+    "30 minutes"
+   ]
+  },
+  {
+   "id": "P1-10",
+   "category": "reworded",
+   "question": "How well sealed against water must a box outside be?",
+   "answerable": true,
+   "expected_document": "STD-D-004.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "2.1",
+   "expected_answer_contains": [
+    "IP66"
+   ]
+  },
+  {
+   "id": "P1-11",
+   "category": "reworded",
+   "question": "What is the loudest noise a worker may be exposed to?",
+   "answerable": true,
+   "expected_document": "STD-F-006.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "4.2",
+   "expected_answer_contains": [
+    "90 dB(A)"
+   ]
+  },
+  {
+   "id": "P1-12",
+   "category": "abbreviation",
+   "question": "What does PWHT stand for?",
+   "answerable": true,
+   "expected_document": "STD-C-003.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "2",
+   "expected_answer_contains": [
+    "post weld heat treatment"
+   ]
+  },
+  {
+   "id": "P1-13",
+   "category": "abbreviation",
+   "question": "What is DFT?",
+   "answerable": true,
+   "expected_document": "STD-B-002.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "2",
+   "expected_answer_contains": [
+    "dry film thickness"
+   ]
+  },
+  {
+   "id": "P1-14",
+   "category": "abbreviation",
+   "question": "What does RMS mean?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "2",
+   "expected_answer_contains": [
+    "root mean square"
+   ]
+  },
+  {
+   "id": "P1-15",
+   "category": "named",
+   "question": "What does STD-C-003 say about PWHT?",
+   "answerable": true,
+   "expected_document": "STD-C-003.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "6.1",
+   "expected_answer_contains": [
+    "32 mm"
+   ]
+  },
+  {
+   "id": "P1-16",
+   "category": "named",
+   "question": "What does STD-B-002 say about surface preparation?",
+   "answerable": true,
+   "expected_document": "STD-B-002.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "Sa 2.5"
+   ]
+  },
+  {
+   "id": "P1-17",
+   "category": "named",
+   "question": "In STD-E-005, how long is the weekly pump run?",
+   "answerable": true,
+   "expected_document": "STD-E-005.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "2.1",
+   "expected_answer_contains": [
+    "30 minutes"
+   ]
+  },
+  {
+   "id": "P1-18",
+   "category": "named",
+   "question": "What does STD-A-001 say about reporting an exceedance?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.2",
+   "expected_answer_contains": [
+    "area engineer"
+   ]
+  },
+  {
+   "id": "P1-19",
+   "category": "named",
+   "question": "What does STD-E-005 say about reporting an exceedance?",
+   "answerable": true,
+   "expected_document": "STD-E-005.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.2",
+   "expected_answer_contains": [
+    "area engineer"
+   ]
+  },
+  {
+   "id": "P1-20",
+   "category": "table",
+   "question": "What is the alarm temperature of the drive end bearing in STD-A-001?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": null,
+   "expected_answer_contains": [
+    "85 degC"
+   ]
+  },
+  {
+   "id": "P1-21",
+   "category": "table",
+   "question": "What is the trip temperature of the non drive end bearing?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": null,
+   "expected_answer_contains": [
+    "90 degC"
+   ]
+  },
+  {
+   "id": "P1-22",
+   "category": "condition",
+   "question": "Does the piping coating standard apply to stainless steel?",
+   "answerable": true,
+   "expected_document": "STD-B-002.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "1",
+   "expected_answer_contains": [
+    "carbon steel"
+   ]
+  },
+  {
+   "id": "P1-23",
+   "category": "condition",
+   "question": "When is post weld heat treatment required?",
+   "answerable": true,
+   "expected_document": "STD-C-003.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "6.1",
+   "expected_answer_contains": [
+    "32 mm"
+   ]
+  },
+  {
+   "id": "P1-24",
+   "category": "revision",
+   "question": "Which vibration limit is current for pumps in STD-A-001?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "3.0 mm/s"
+   ]
+  },
+  {
+   "id": "P1-25",
+   "category": "unanswerable",
+   "question": "What lifting capacity must the site crane have?",
+   "answerable": false
+  },
+  {
+   "id": "P1-26",
+   "category": "unanswerable",
+   "question": "What does STD-B-002 say about the hydrostatic test pressure?",
+   "answerable": false
+  },
+  {
+   "id": "P1-27",
+   "category": "unanswerable",
+   "question": "What flange rating does STD-D-004 require?",
+   "answerable": false
+  },
+  {
+   "id": "P1-28",
+   "category": "unanswerable",
+   "question": "What is the warranty period for the pumps?",
+   "answerable": false
+  },
+  {
+   "id": "P1-29",
+   "category": "unanswerable",
+   "question": "What colour must the finish coat be?",
+   "answerable": false
+  },
+  {
+   "id": "P1-30",
+   "category": "unanswerable",
+   "question": "What does STD-F-006 say about vibration limits?",
+   "answerable": false
+  }
+ ]
+}
