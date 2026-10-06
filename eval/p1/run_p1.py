@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -25,7 +26,7 @@ def main() -> int:
     ap.add_argument("--questions", type=Path, default=harness.QUESTIONS)
     args = ap.parse_args()
 
-    from app import access, db, keyword
+    from app import access, db, keyword, vector_store
     from app.config import settings
 
     questions = harness.load_questions(args.questions)
@@ -36,8 +37,8 @@ def main() -> int:
             print("  ", p)
         return 2
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
+    tmp = Path(tempfile.mkdtemp(prefix="p1-"))
+    try:
         settings.data_dir = tmp
         settings.upload_dir = tmp / "uploads"
         settings.db_path = tmp / "p1.sqlite"
@@ -48,7 +49,13 @@ def main() -> int:
         settings.upload_dir.mkdir(parents=True, exist_ok=True)
         harness.ingest_corpus(tmp / "corpus")
         rows = harness.run_questions(questions)
+    finally:
+        # Windows will not delete a folder while a database file in it is
+        # still open, so close every handle first, then clean up best-effort:
+        # a leftover temp folder must never turn a good run into a crash.
+        vector_store.reset()
         db.reset_connection()
+        shutil.rmtree(tmp, ignore_errors=True)
 
     summary = harness.summarise_by_category(rows)
     print(f"P1 score: {summary['total'][0]} of {summary['total'][1]}")
