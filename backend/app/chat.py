@@ -905,6 +905,9 @@ def ask(
     #: Why the first Claude call could not be used (plain words), when it
     #: could not - the cause the downgrade notice reports.
     fallback_why: list[str] = []
+    #: Points the claim checker removed when it removed ALL of Claude's points
+    #: and the turn was handed to the existing pipeline (audit 118).
+    claude_unverified: list[list[dict]] = []
     if (inventory_result is None and comparison_result is None and spec_shaped_result is None
             and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
@@ -914,7 +917,7 @@ def ask(
             allowed_document_ids=claude_scope(retrieval_allowed, document_id=document_id,
                                               picked=bool(document_ids), understood=understood),
             web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append,
-            on_fallback_reason=fallback_why.append)
+            on_fallback_reason=fallback_why.append, on_unverified=claude_unverified.append)
 
     if inventory_result is not None:
         result = {
@@ -995,9 +998,18 @@ def ask(
     if fallback_spent:
         charged = round(sum(fallback_spent), 6)
         result["cost_usd"] = round(float(result.get("cost_usd") or 0.0) + charged, 6)
-        result["notices"] = [*(result.get("notices") or []), (
-            f"A Claude call for this turn failed and was charged USD {charged:.4f}; "
-            "the answer came from the local pipeline, and its cost includes that call.")]
+        if claude_unverified:
+            result["removed_points"] = claude_unverified[0]
+            result["notices"] = [*(result.get("notices") or []), (
+                "None of Claude's own points could be checked against the pages, so they were "
+                f"dropped (USD {charged:.4f}, included in the cost); this answer comes from the "
+                "passages found in the document.")]
+        else:
+            result["notices"] = [*(result.get("notices") or []), (
+                f"A Claude call for this turn failed and was charged USD {charged:.4f}; "
+                "the answer came from the local pipeline, and its cost includes that call.")]
+    elif claude_unverified:
+        result["removed_points"] = claude_unverified[0]
     if family_notice:
         result["notices"] = [*(result.get("notices") or []), family_notice]
     result["route"] = route_kind

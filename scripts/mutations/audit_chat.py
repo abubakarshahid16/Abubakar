@@ -78,6 +78,19 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="    return retrieval_allowed\n",
              target=_T, keyword="read_only_the_conversations_document or claude_scope_only_narrows",
              tags=("privacy",)),
+    Mutation(id="M2042", phase=90,
+             description="when every Claude point fails the checker the reader gets a bare refusal again",
+             path=APP / "chat_claude_first.py",
+             anchor="    if used_tools and not text:\n        raise _NothingVerified(dropped_points)\n",
+             replacement="    if used_tools and not text:\n"
+                         "        return {**_REQUIRED_DEFAULTS, \"answer_type\": \"insufficient_evidence\", "
+                         "\"answer\": None, \"reason\": \"none of the answer's points could be found\", "
+                         "\"passages\": sources, \"steps\": steps, \"cited\": [], \"claims\": [], "
+                         "\"provider\": response.provider, \"model\": response.model_tag, "
+                         "\"cost_usd\": cost, \"seconds\": 0.0, \"candidates_considered\": len(sources)}\n",
+             target="tests/test_removed_points_recorded.py",
+             keyword="every_claude_point_fails_the_document_is_still_quoted",
+             tags=("honesty",)),
     Mutation(id="M2041", phase=90,
              description="a document the question names no longer narrows Claude's tools",
              path=APP / "chat.py",

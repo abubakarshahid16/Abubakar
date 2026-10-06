@@ -301,7 +301,10 @@ def test_on_the_claude_lane_an_answer_with_no_verified_claim_is_not_shown(monkey
     body = _ask(client, convo, "what is the NDFT for coating system no. 1", tier="generated")
     assert body["answer_type"] == "insufficient_evidence"
     assert body["answer"] is None
-    assert "could be found on the pages read" in body["reason"]
+    # audit 118: the unverifiable point was handed to the existing pipeline,
+    # which found nothing it could quote either (the removed point is stored:
+    # test_removed_points_recorded.py).
+    assert "999" not in (body["answer"] or "")
 
 
 def test_an_uncited_figure_is_not_shown_either():
