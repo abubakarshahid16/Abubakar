@@ -651,15 +651,24 @@ def update(finding_id: str, changes: dict, *, actor_user_id: str | None = None) 
     return get(finding_id)
 
 
-def render_report(document_id: str) -> Path:
-    """Freeze the current review findings into a readable PDF export."""
+def render_report(document_id: str, *,
+                  allowed_document_ids: frozenset[str] | None = None) -> Path:
+    """Freeze the current review findings into a readable PDF export.
+
+    `allowed_document_ids` is the caller's grants. The PDF prints each
+    finding's requirement wording, clause and page, which come from the
+    STANDARD; a grant on the submittal is not a grant on the standard, so the
+    findings pass through `withhold_unreadable_standards` like every other read.
+    `None` means the caller asked for no scoping (scripts, tests).
+    """
     ensure_schema()
     doc = connect().execute(
         "SELECT filename FROM documents WHERE id = ?", (document_id,)
     ).fetchone()
     if doc is None:
         raise FileNotFoundError(document_id)
-    findings = list_findings(document_id=document_id)
+    findings = list_findings(document_id=document_id,
+                             allowed_document_ids=allowed_document_ids)
     report_dir = settings.data_dir / "review_reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     path = report_dir / f"engineering-review-{uuid.uuid4()}.pdf"
