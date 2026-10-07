@@ -43,6 +43,20 @@ def _ensure_tables() -> None:
         add_column_if_missing(
             conn, "deliverables", "parent_id",
             "TEXT REFERENCES deliverables(id) ON DELETE SET NULL")
+        # NULL `document_id` USED TO MEAN "VISIBLE TO EVERYONE", AND IT ALSO
+        # MEANS "THE DOCUMENT WAS DELETED" (`ON DELETE SET NULL`). The two are
+        # different facts: a deliverable tied to a private document became
+        # public the moment that document was deleted. `org_wide` is the
+        # explicit fact, written only at creation. A deleted document's row
+        # keeps org_wide = 0, so it stays out of every scoped read.
+        # THE BACKFILL RUNS ONLY WHEN THIS CALL ADDED THE COLUMN. Run on every
+        # start it would re-label rows the delete nulled as public. Rows nulled
+        # before this fix cannot be told apart from true org-wide rows; they
+        # keep their old (visible) behaviour.
+        if add_column_if_missing(conn, "deliverables", "org_wide",
+                                 "INTEGER NOT NULL DEFAULT 0"):
+            conn.execute("UPDATE deliverables SET org_wide = 1 "
+                         "WHERE document_id IS NULL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_wbs ON deliverables(wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_parent ON deliverables(parent_id, wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_due ON deliverables(due_date, status)")
@@ -146,12 +160,13 @@ def create(payload: dict, *, created_by: str | None) -> dict:
         "submitted_at": payload.get("submitted_at"), "approved_at": payload.get("approved_at"),
         "created_by": created_by, "created_at": now, "updated_at": now,
     }
+    item["org_wide"] = 1 if item["document_id"] is None else 0
     with connect() as conn:
         conn.execute("""INSERT INTO deliverables
             (id,wbs_code,parent_id,title,deliverable_type,revision,status,document_id,owner_user_id,
-             planned_date,due_date,submitted_at,approved_at,created_by,created_at,updated_at)
+             planned_date,due_date,submitted_at,approved_at,created_by,created_at,updated_at,org_wide)
             VALUES (:id,:wbs_code,:parent_id,:title,:deliverable_type,:revision,:status,:document_id,:owner_user_id,
-                    :planned_date,:due_date,:submitted_at,:approved_at,:created_by,:created_at,:updated_at)""", item)
+                    :planned_date,:due_date,:submitted_at,:approved_at,:created_by,:created_at,:updated_at,:org_wide)""", item)
         conn.execute("INSERT INTO deliverable_events (id, deliverable_id, event_type, changes, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                      (str(uuid.uuid4()), item["id"], "created", json.dumps({"revision": item["revision"], "status": item["status"]}), created_by, now))
     return item
@@ -165,7 +180,7 @@ def list_items(*, allowed_document_ids: frozenset[str] | None = None) -> list[di
         if not allowed_document_ids:
             return []
         marks = ",".join("?" for _ in allowed_document_ids)
-        sql += f" WHERE document_id IS NULL OR document_id IN ({marks})"
+        sql += f" WHERE org_wide = 1 OR document_id IN ({marks})"
         args.extend(sorted(allowed_document_ids))
     sql += " ORDER BY wbs_code, due_date, revision"
     return [dict(row) for row in connect().execute(sql, args).fetchall()]
@@ -185,7 +200,7 @@ def expected_missing(*, wbs_code: str | None = None,
         if not allowed_document_ids:
             return []
         marks = ",".join("?" for _ in allowed_document_ids)
-        join_scope = f" AND (d.document_id IS NULL OR d.document_id IN ({marks}))"
+        join_scope = f" AND (d.org_wide = 1 OR d.document_id IN ({marks}))"
         args.extend(sorted(allowed_document_ids))
         where.append(f"(e.source_document_id IS NULL OR e.source_document_id IN ({marks}))")
     sql = "SELECT e.*, d.id AS deliverable_id, d.status FROM deliverable_expectations e " \
@@ -264,7 +279,7 @@ def workspace(item_id: str, *, allowed_document_ids: frozenset[str] | None = Non
         if item.get("document_id"):
             if item["document_id"] not in allowed_document_ids:
                 return None
-        elif not allowed_document_ids:
+        elif not item.get("org_wide") or not allowed_document_ids:
             return None
     children = [dict(row) for row in connect().execute(
         "SELECT * FROM deliverables WHERE parent_id = ? ORDER BY wbs_code", (item_id,)
