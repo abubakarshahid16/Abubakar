@@ -24,7 +24,7 @@ from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
-from . import orphan_guard
+from . import document_refs, orphan_guard
 from . import page_ledger as page_ledger_mod
 from . import highlight as highlight_mod
 from . import keyword as keyword_mod
@@ -686,6 +686,11 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
             removed[table] = cur.rowcount
         cur = conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
         removed["documents"] = cur.rowcount
+        # The record of the delete commits with the delete (ids and counts only).
+        document_refs.record_document_deleted(
+            conn, document_id, removed,
+            actor={"id": scope.user_id, "email": (_admin or {}).get("email")}
+            if scope.user_id else None)
 
     files_removed = 0
     stored = Path(doc["stored_path"])
